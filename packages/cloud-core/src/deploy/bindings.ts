@@ -1,5 +1,5 @@
 import type { DbType, DeploymentKind } from "@repo/schemas/cloud";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { type DeployEnvVarRow, projects, s3Credentials } from "../db/schema";
@@ -187,12 +187,15 @@ export interface DeployS3BindingOptions {
   endpoint: string;
   region: string;
   credentialEncryptionKey: string;
+  issueCredentialIfMissing: boolean;
 }
 
 /**
- * Issues a fresh credential per deployment, so revoking one deployment's
- * access never touches another's. Only ever called when a row references
- * `s3.*` — that laziness is what keeps the credential table auditable.
+ * Resolves one credential per deployment, so repeated build, environment
+ * apply, backup and recovery reads all produce the same environment. Revoking
+ * one deployment's access never touches another's. Only ever called when a row
+ * references `s3.*` — that laziness is what keeps the credential table
+ * auditable.
  */
 function s3Namespace(db: Database, input: DeployS3BindingOptions) {
   return async (): Promise<NamespaceValues | null> => {
@@ -207,11 +210,52 @@ function s3Namespace(db: Database, input: DeployS3BindingOptions) {
       kind: "s3",
       projectId: input.projectId,
     });
-    const issued = await issueS3Credential(db, {
-      projectId: input.projectId,
-      label: `deploy:${input.deploymentId}`,
-      keyEncryptionSecret: input.credentialEncryptionKey,
-    });
+    const label = `deploy:${input.deploymentId}`;
+    type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+    const findExisting = (executor: Database | Transaction) =>
+      executor.query.s3Credentials.findFirst({
+        where: and(
+          eq(s3Credentials.projectId, input.projectId),
+          eq(s3Credentials.label, label),
+          isNull(s3Credentials.revokedAt),
+        ),
+        orderBy: [desc(s3Credentials.createdAt), desc(s3Credentials.id)],
+      });
+    // Older releases issued on every read, so tolerate more than one active
+    // row and consistently select the latest one. New reads reuse it, which is
+    // essential for a DR semantic fingerprint to describe the environment the
+    // original container received rather than rotate it during inventory.
+    const resolveExisting = (
+      existing: Awaited<ReturnType<typeof findExisting>>,
+    ) =>
+      existing
+        ? {
+            credential: existing,
+            secretAccessKey: decryptS3Secret(
+              existing.encryptedSecretAccessKey,
+              existing.secretIv,
+              existing.secretAuthTag,
+              input.credentialEncryptionKey,
+            ),
+          }
+        : null;
+    const current = resolveExisting(await findExisting(db));
+    if (!current && !input.issueCredentialIfMissing) return null;
+    const issued =
+      current ??
+      (await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${label}, 0))`,
+        );
+        return (
+          resolveExisting(await findExisting(tx)) ??
+          issueS3Credential(tx, {
+            projectId: input.projectId,
+            label,
+            keyEncryptionSecret: input.credentialEncryptionKey,
+          })
+        );
+      }));
     return {
       endpoint: input.endpoint,
       region: input.region,
@@ -242,6 +286,8 @@ export interface DeployBindingResolverOptions {
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
+  /** DR inventory and preflight are read-only and must never mint state. */
+  issueS3CredentialIfMissing?: boolean;
 }
 
 export function createDeployBindingResolvers(
@@ -277,6 +323,7 @@ export function createDeployBindingResolvers(
       endpoint: options.s3Endpoint,
       region: options.s3Region,
       credentialEncryptionKey: options.s3CredentialEncryptionKey,
+      issueCredentialIfMissing: options.issueS3CredentialIfMissing ?? true,
     }),
   };
 }

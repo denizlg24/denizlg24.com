@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://denizlg24.com/schemas/dr/snapshot-manifest-v1.json",
+  "title": "DR snapshot manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "snapshotId",
+    "createdAt",
+    "host",
+    "profile",
+    "generation",
+    "gitRevision",
+    "versionLockSha256",
+    "databaseVersions",
+    "artifacts",
+    "images",
+    "forgeControlPlane",
+    "forgeControlPlaneSha256",
+    "restoreFootprint",
+    "inventory",
+    "totals"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "snapshotId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$"
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "host": { "enum": ["pi-cloud", "forge"] },
+    "profile": { "enum": ["pi", "forge"] },
+    "generation": { "type": "string", "pattern": "^[0-9]{4}-Q[1-4]$" },
+    "gitRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "versionLockSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "databaseVersions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "class",
+          "path",
+          "sha256",
+          "bytes",
+          "restoreOrder",
+          "verifier"
+        ],
+        "properties": {
+          "class": {
+            "enum": [
+              "postgres",
+              "mongodb",
+              "redis",
+              "namespace",
+              "config",
+              "external-state"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^artifacts/(?:config(?:-recovery-host)?\\.tar\\.zst|postgres-(?:globals\\.sql\\.zst|[A-Za-z0-9_.-]+\\.dump)|mongodb\\.archive\\.gz|redis-dump\\.rdb|namespace\\.tar\\.zst)$"
+          },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "restoreOrder": { "type": "integer", "minimum": 1 },
+          "verifier": { "type": "string", "minLength": 1 },
+          "semantic": { "type": "object" }
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "reference",
+          "digest",
+          "platform",
+          "imageSizeBytes"
+        ],
+        "properties": {
+          "service": { "type": "string" },
+          "reference": {
+            "type": "string",
+            "pattern": "^[a-z0-9._/-]+@sha256:[0-9a-f]{64}$"
+          },
+          "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "platform": { "enum": ["linux/amd64", "linux/arm64"] },
+          "imageSizeBytes": { "type": "integer", "minimum": 1 },
+          "deploymentId": { "type": "string", "format": "uuid" },
+          "domain": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$"
+          },
+          "environmentHmacSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "environmentCipher": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["encrypted", "iv", "authTag"],
+            "properties": {
+              "encrypted": { "type": "string", "minLength": 1 },
+              "iv": { "type": "string", "minLength": 1 },
+              "authTag": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "forgeControlPlane": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deploymentId",
+          "imageReference",
+          "imageDigest",
+          "hostname"
+        ],
+        "properties": {
+          "deploymentId": { "type": "string", "format": "uuid" },
+          "imageReference": {
+            "type": "string",
+            "pattern": "^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$"
+          },
+          "imageDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "hostname": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$"
+          }
+        }
+      }
+    },
+    "forgeControlPlaneSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "restoreFootprint": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "method", "bytes"],
+        "properties": {
+          "component": {
+            "enum": [
+              "config",
+              "recovery-host",
+              "samba",
+              "postgresql",
+              "mongodb",
+              "redis",
+              "namespace"
+            ]
+          },
+          "method": {
+            "enum": [
+              "uncompressed-tar",
+              "restored-files",
+              "allocated-verified-restore",
+              "max-memory-rdb",
+              "allocated-source-inventory"
+            ]
+          },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoritative",
+        "derived",
+        "disposable",
+        "unclassifiedWritable"
+      ],
+      "properties": {
+        "authoritative": { "type": "array", "items": { "type": "string" } },
+        "derived": { "type": "array", "items": { "type": "string" } },
+        "disposable": { "type": "array", "items": { "type": "string" } },
+        "unclassifiedWritable": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactBytes", "restoredBytes", "imageBytes", "fileCount"],
+      "properties": {
+        "artifactBytes": { "type": "integer", "minimum": 0 },
+        "restoredBytes": { "type": "integer", "minimum": 0 },
+        "imageBytes": { "type": "integer", "minimum": 0 },
+        "fileCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "host": { "const": "pi-cloud" } },
+        "required": ["host"]
+      },
+      "then": {
+        "properties": {
+          "profile": { "const": "pi" },
+          "snapshotId": {
+            "type": "string",
+            "pattern": "^pi-cloud-[0-9]{8}T[0-9]{6}Z$"
+          },
+          "restoreFootprint": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "config" },
+                  "method": { "const": "uncompressed-tar" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "mongodb" },
+                  "method": { "const": "allocated-verified-restore" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "namespace" },
+                  "method": { "const": "allocated-source-inventory" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "postgresql" },
+                  "method": { "const": "allocated-verified-restore" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "recovery-host" },
+                  "method": { "const": "uncompressed-tar" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "redis" },
+                  "method": { "const": "max-memory-rdb" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "samba" },
+                  "method": { "const": "restored-files" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "host": { "const": "forge" } },
+        "required": ["host"]
+      },
+      "then": {
+        "properties": {
+          "profile": { "const": "forge" },
+          "snapshotId": {
+            "type": "string",
+            "pattern": "^forge-[0-9]{8}T[0-9]{6}Z$"
+          },
+          "restoreFootprint": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "config" },
+                  "method": { "const": "uncompressed-tar" }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "component": { "const": "recovery-host" },
+                  "method": { "const": "uncompressed-tar" }
+                }
+              }
+            ]
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "deploymentId": { "type": "string", "format": "uuid" },
+                "domain": { "type": "string" },
+                "environmentHmacSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "environmentCipher": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "deploymentId",
+                "domain",
+                "environmentHmacSha256",
+                "environmentCipher"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

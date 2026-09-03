@@ -30,6 +30,10 @@ export interface AgentConfig {
   memoryHeadroomMb: number;
   healthPollMs: number;
   drainMs: number;
+  /** Private GHCR namespace that holds exact successful deployment images. */
+  recoveryRegistryPrefix: string;
+  /** Shared with root-run DR backup so route/container snapshots are atomic. */
+  hostMutationLockPath: string;
 }
 
 /**
@@ -215,5 +219,12 @@ export function agentConfigFromEnv(): AgentConfig {
     memoryHeadroomMb: integerEnv("MEMORY_HEADROOM_MB", 1_024, 128, 131_072),
     healthPollMs: integerEnv("HEALTH_POLL_MS", 2_000, 250, 60_000),
     drainMs: integerEnv("CONTAINER_DRAIN_MS", 10_000, 0, 300_000),
+    recoveryRegistryPrefix:
+      process.env.RECOVERY_REGISTRY_PREFIX?.trim() ||
+      "ghcr.io/denizlg24/forge-recovery",
+    hostMutationLockPath: absolutePathEnv(
+      "DR_HOST_MUTATION_LOCK_PATH",
+      "/var/lib/deniz-dr/locks/forge.lock",
+    ),
   };
 }

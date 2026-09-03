@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "activeSites": {
+    "pi": {
+      "recordId": "pi-active-record-id",
+      "name": "_active-site-pi.denizlg24.com",
+      "expectedHomeContent": "home",
+      "drContent": "dr"
+    },
+    "forge": {
+      "recordId": "forge-active-record-id",
+      "name": "_active-site-forge.denizlg24.com",
+      "expectedHomeContent": "home",
+      "drContent": "dr"
+    }
+  },
+  "records": [
+    {
+      "id": "api-record-id",
+      "name": "api.denizlg24.com",
+      "type": "CNAME",
+      "kind": "tunnel",
+      "profiles": ["pi"],
+      "expectedHomeContent": "home-tunnel.cfargotunnel.com",
+      "ttl": 60,
+      "proxied": true
+    }
+  ],
+  "healthUrls": [
+    { "url": "https://api.denizlg24.com/healthz", "profiles": ["pi"] }
+  ],
+  "preCutoverHealthUrls": [
+    { "url": "https://dr-probe.denizlg24.com", "profiles": ["pi", "forge"] }
+  ],
+  "tlsEndpoints": [
+    { "host": "postgres.denizlg24.com", "port": 5433, "profiles": ["pi"] }
+  ],
+  "betterStackMonitorIds": [{ "id": "12345", "profiles": ["pi"] }]
+}

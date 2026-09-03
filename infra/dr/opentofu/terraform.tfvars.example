@@ -1,0 +1,44 @@
+cloudflare_account_id = "replace"
+cloudflare_zone_id    = "replace"
+dr_tunnel_id          = "replace-with-dedicated-dr-tunnel-uuid"
+active_site_records = {
+  pi    = "_active-site-pi.denizlg24.com"
+  forge = "_active-site-forge.denizlg24.com"
+}
+synthetic_monitor_token = "replace-with-the-API-DR_SYNTHETIC_TOKEN"
+
+# The recurring window is codified on every monitor and heartbeat. Incident
+# grouping sensitivity is a Better Stack team setting and must be checked in
+# the account during the installation gate (the public API cannot set it).
+maintenance_window = {
+  days = ["sun"], from = "03:00:00", to = "04:00:00", timezone = "Copenhagen"
+}
+
+dr_tunnel_ingress = [
+  { hostname = "dr-probe.denizlg24.com", service = "http_status:204" },
+  { hostname = "dr-pi-probe.denizlg24.com", service = "http://127.0.0.1:3001" },
+  { hostname = "dr-forge-probe.denizlg24.com", service = "http://127.0.0.1:8080", origin_host_header = "REPLACE-REPRESENTATIVE-DEPLOYMENT.denizlg24.com" },
+  { hostname = "api.denizlg24.com", service = "http://127.0.0.1:3001" },
+  # Ingress does not create DNS. Every Forge deployment still needs its own
+  # imported managed_records and external-state.json entry.
+  { hostname = "*.denizlg24.com", service = "http://127.0.0.1:8080" }
+]
+
+dr_probe_records = ["dr-probe.denizlg24.com", "dr-pi-probe.denizlg24.com", "dr-forge-probe.denizlg24.com"]
+
+managed_records = {
+  api      = { name = "api.denizlg24.com", type = "CNAME", content = "PRODUCTION_TUNNEL.cfargotunnel.com", ttl = 1, proxied = true }
+  postgres = { name = "postgres.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
+  mongodb  = { name = "mongodb.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
+  redis    = { name = "redis.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
+  # Repeat for every current Forge deployment before import/apply.
+  forge_app_example = { name = "REPLACE.denizlg24.com", type = "CNAME", content = "PRODUCTION_TUNNEL.cfargotunnel.com", ttl = 1, proxied = true }
+}
+
+public_monitors = {
+  pi_home              = { url = "https://cloud.denizlg24.com" }
+  pi_api               = { url = "https://api.denizlg24.com/healthz" }
+  forge_control        = { url = "https://forge.denizlg24.com" }
+  forge_representative = { url = "https://REPLACE.denizlg24.com" }
+  deep_dependency      = { url = "https://api.denizlg24.com/healthz/deep", keyword = "ok" }
+}

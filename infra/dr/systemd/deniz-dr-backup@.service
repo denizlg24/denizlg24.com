@@ -1,0 +1,19 @@
+[Unit]
+Description=Deniz disaster-recovery backup (%i)
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-dr/%i.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/deniz-dr/%i.env
+ExecStart=/opt/deniz-cloud/infra/dr/backup --profile %i --execute
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=yes
+ProtectHome=yes
+UMask=0077
+TimeoutStartSec=5h

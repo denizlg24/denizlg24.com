@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-31T10:00:00Z",
+  "sourcesBlocked": true,
+  "piCloud": {
+    "online": true,
+    "blockedFromTarget": true,
+    "evidence": "tailnet ACL test and packet capture"
+  },
+  "forge": {
+    "online": true,
+    "blockedFromTarget": true,
+    "evidence": "tailnet ACL test and packet capture"
+  },
+  "publicSourceEndpointsBlocked": true,
+  "verifiedBy": "operator@example.com"
+}

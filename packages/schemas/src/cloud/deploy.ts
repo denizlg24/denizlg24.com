@@ -483,6 +483,11 @@ export const deploymentStatusUpdateSchema = z.object({
   phase: deploymentPhaseSchema.nullish(),
   port: z.number().int().min(1).max(65_535).nullish(),
   imageTag: z.string().max(512).nullish(),
+  imageDigest: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/)
+    .nullish(),
+  resolvedBuilder: z.enum(["dockerfile", "nixpacks"]).nullish(),
   containerId: z.string().max(64).nullish(),
   imageSizeBytes: z.number().int().min(0).nullish(),
   buildDurationMs: z.number().int().min(0).nullish(),
@@ -751,6 +756,52 @@ export const agentApplyEnvResultSchema = z.object({
   error: z.string().max(16_000).nullable(),
 });
 export type AgentApplyEnvResult = z.infer<typeof agentApplyEnvResultSchema>;
+
+/**
+ * Starts an already-built deployment during disaster recovery. The control
+ * plane resolves the request and environment from restored PostgreSQL; only a
+ * digest-only GHCR reference is accepted, so this path cannot build source or
+ * drift to a moving tag.
+ */
+export const agentRecoveryRequestSchema = z.object({
+  request: agentDeploymentRequestSchema,
+  expectedEnvironmentHmacSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  imageReference: z
+    .string()
+    .max(768)
+    .regex(/^ghcr\.io\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/),
+  port: z.number().int().min(1).max(65_535),
+});
+export type AgentRecoveryRequest = z.infer<typeof agentRecoveryRequestSchema>;
+
+export const agentRecoveryPublishRequestSchema = z.object({
+  request: agentDeploymentRequestSchema,
+  localImage: z.string().min(1).max(512),
+});
+export type AgentRecoveryPublishRequest = z.infer<
+  typeof agentRecoveryPublishRequestSchema
+>;
+
+export const agentRecoveryPublishResultSchema = z.object({
+  reference: z.string().regex(/^ghcr\.io\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/),
+  digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+});
+export type AgentRecoveryPublishResult = z.infer<
+  typeof agentRecoveryPublishResultSchema
+>;
+
+export const agentRecoveryResultSchema = z.object({
+  restored: z.boolean(),
+  containerId: z.string().max(64).nullable(),
+  port: z.number().int().min(1).max(65_535).nullable(),
+  imageReference: z.string(),
+  environmentHmacSha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable(),
+  error: z.string().nullable(),
+});
+export type AgentRecoveryResult = z.infer<typeof agentRecoveryResultSchema>;
 
 /**
  * What the sweep must not touch. The agent has no view of deployment status —
@@ -1169,6 +1220,8 @@ export const deploymentSchema = z.object({
   url: z.string(),
   port: z.number().int().nullable(),
   imageTag: z.string().nullable(),
+  imageDigest: z.string().nullable(),
+  resolvedBuilder: z.enum(["dockerfile", "nixpacks"]).nullable(),
   containerId: z.string().max(64).nullable(),
   imageSizeBytes: z.number().int().nullable(),
   buildDurationMs: z.number().int().nullable(),

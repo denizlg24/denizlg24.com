@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "rehearsal": 1,
+  "startedAt": "2026-08-31T10:00:00Z",
+  "finishedAt": "2026-08-31T10:30:00Z",
+  "durationSeconds": 1800,
+  "sourceIsolation": "/tmp/source-isolation.json",
+  "freshClone": null,
+  "recoveryReport": "/tmp/report.json",
+  "rollbackPerformed": false,
+  "targetDestroyed": true,
+  "underFourHours": true,
+  "objectives": {
+    "rpoTargetSeconds": 86400,
+    "rtoTargetSeconds": 14400,
+    "recoveryPointAgeSeconds": 3600,
+    "rpoMet": true,
+    "rtoMet": true,
+    "resourceMetrics": {
+      "sampleIntervalSeconds": 5,
+      "samples": 361,
+      "startedAt": "2026-08-31T10:00:00Z",
+      "finishedAt": "2026-08-31T10:30:00Z",
+      "peakCpuPercent": 87.5,
+      "peakLoad1": 7.25,
+      "peakMemoryUsedBytes": 12884901888,
+      "minMemoryAvailableBytes": 4294967296,
+      "peakDiskUsedBytes": 214748364800,
+      "minDiskAvailableBytes": 128849018880,
+      "physicalInterfaceCount": 1,
+      "physicalNetworkReceiveBytes": 96636764160,
+      "physicalNetworkTransmitBytes": 1073741824
+    }
+  },
+  "result": "passed",
+  "failure": null
+}

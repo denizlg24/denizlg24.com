@@ -258,6 +258,8 @@ export const agentDeploymentEnvSchema = z.object({
   deploymentId: z.uuid(),
   kind: deploymentKindSchema,
   cloneToken: z.string().nullable(),
+  /** Keyed semantic checksum used by digest-only disaster recovery. */
+  environmentHmacSha256: z.string().regex(/^[0-9a-f]{64}$/),
   /**
    * One map, used for both the build and the container. The agent adds its own
    * run-time facts (`PORT`, `NODE_ENV`) on the run side only — `NODE_ENV` in

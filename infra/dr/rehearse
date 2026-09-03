@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+
+config=""; number=""; isolation=""; fresh_clone=""; host=""; provider_args=()
+while (($#)); do
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --number) number="${2:-}"; shift 2 ;;
+    --source-isolation) isolation="${2:-}"; shift 2 ;;
+    --fresh-clone) fresh_clone="${2:-}"; shift 2 ;;
+    --host) host="${2:-}"; shift 2 ;;
+    --provider) provider_args+=(--provider "${2:-}"); shift 2 ;;
+    --region) provider_args+=(--region "${2:-}"); shift 2 ;;
+    --size) provider_args+=(--size "${2:-}"); shift 2 ;;
+    *) echo "Usage: rehearse --config FILE --number 1|2 --source-isolation JSON [--fresh-clone PATH] (--host root@IP | --provider hetzner --region REGION --size recommended)" >&2; exit 2 ;;
+  esac
+done
+
+[[ "$number" == 1 || "$number" == 2 ]] || dr_die "rehearsal number must be 1 or 2"
+dr_require_private_file "$config"
+[[ -f "$isolation" && -f "${isolation}.sig" ]] || dr_die "signed source-isolation evidence is required"
+# shellcheck disable=SC1090
+source "$config"
+: "${DR_BREAK_GLASS_FILE:?DR_BREAK_GLASS_FILE is required}"
+dr_read_env_file "$DR_BREAK_GLASS_FILE"
+: "${DR_REPORT_ROOT:=${HOME}/Documents/Recovery Reports}"
+dr_require_commands jq perl
+dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-isolation "${isolation}.sig" "$isolation"
+dr_validate_json "$script_dir/schemas/source-isolation.schema.json" "$isolation"
+jq -e '.schemaVersion==1 and .sourcesBlocked==true and .piCloud.online==true and
+  .piCloud.blockedFromTarget==true and .forge.online==true and .forge.blockedFromTarget==true and
+  .publicSourceEndpointsBlocked==true' "$isolation" >/dev/null || dr_die "source-isolation evidence is incomplete"
+isolation_epoch="$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$(jq -er .verifiedAt "$isolation")" +%s 2>/dev/null)" \
+  || dr_die "source-isolation evidence has an invalid verification time"
+isolation_age=$(( $(date +%s) - isolation_epoch ))
+((isolation_age >= -300 && isolation_age <= 3600)) \
+  || dr_die "source-isolation evidence must be verified within one hour of the rehearsal"
+
+if [[ "$number" == 2 ]]; then
+  [[ -n "$fresh_clone" && -d "$fresh_clone/.git" ]] || dr_die "rehearsal 2 requires --fresh-clone"
+  [[ -z "$(git -C "$fresh_clone" status --porcelain)" ]] || dr_die "fresh clone has uncommitted state"
+  [[ "$(git -C "$fresh_clone" rev-parse --show-toplevel)" == "$fresh_clone" ]] || dr_die "fresh clone path is not its repository root"
+fi
+runner_dir="$script_dir"
+if [[ "$number" == 2 ]]; then
+  runner_dir="$fresh_clone/infra/dr"
+  [[ -x "$runner_dir/recover" && -x "$runner_dir/rollback" ]] || dr_die "fresh clone does not contain executable DR tooling"
+fi
+[[ -n "$host" || ${#provider_args[@]} -gt 0 ]] || dr_die "a clean target or provider is required"
+[[ -z "$host" || ${#provider_args[@]} -eq 0 ]] || dr_die "--host and --provider are mutually exclusive"
+
+started_epoch="$(date +%s)"
+started_at="$(date -u +%FT%TZ)"
+deadline_epoch=$((started_epoch + 14400))
+output_file="$(mktemp "${TMPDIR:-/tmp}/dr-rehearsal.XXXXXX")"
+recovery_report=""
+provider_state=""
+rehearsal_report=""
+rollback_performed=false
+target_destroyed=false
+evidence_written=false
+failure_detail="rehearsal command failed before completion"
+
+run_before_deadline() {
+  local remaining
+  remaining=$((deadline_epoch - $(date +%s)))
+  ((remaining > 0)) || return 124
+  # alarm(2) survives exec, so the invoked recovery/rollback process receives
+  # SIGALRM exactly at the four-hour rehearsal deadline even on stock macOS.
+  perl -e 'alarm shift; exec @ARGV or exit 127' "$remaining" "$@"
+}
+
+refresh_recovery_paths() {
+  [[ -n "$recovery_report" ]] || recovery_report="$(sed -n 's/^Recovery report: //p' "$output_file" | tail -1)"
+  [[ -n "$provider_state" ]] || provider_state="$(sed -n 's/^Recovery provider state: //p' "$output_file" | tail -1)"
+}
+
+write_evidence() {
+  local result="$1" exit_status="$2" detail="$3" finished_epoch finished_at duration report_dir
+  local recovery_point_age=null resource_metrics=null rpo_met=null rto_met=false
+  refresh_recovery_paths
+  finished_epoch="$(date +%s)"
+  finished_at="$(date -u +%FT%TZ)"
+  duration=$((finished_epoch - started_epoch))
+  if [[ -n "$recovery_report" && -f "$recovery_report" ]]; then
+    recovery_point_age="$(jq -er '.preflight.oldestSnapshotAgeSeconds | select(type=="number" and .>=0 and floor==.)' \
+      "$recovery_report" 2>/dev/null || printf null)"
+    resource_metrics="$(jq -ce '.resourceMetrics | select(type=="object")' \
+      "$recovery_report" 2>/dev/null || printf null)"
+  fi
+  if [[ "$recovery_point_age" != null ]]; then
+    rpo_met=false
+    ((recovery_point_age <= 86400)) && rpo_met=true
+  fi
+  [[ "$result" == passed && "$duration" -lt 14400 ]] && rto_met=true
+  if [[ -n "$recovery_report" ]]; then
+    report_dir="$(dirname "$recovery_report")"
+  else
+    report_dir="$DR_REPORT_ROOT/rehearsal-failures/${started_at//[:]/}-${number}-$$"
+  fi
+  install -d -m 0700 "$report_dir"
+  rehearsal_report="$report_dir/rehearsal-${number}.json"
+  jq -n --argjson rehearsal "$number" --arg startedAt "$started_at" --arg finishedAt "$finished_at" \
+    --argjson durationSeconds "$duration" --arg isolation "$isolation" \
+    --arg freshClone "$fresh_clone" --arg recoveryReport "$recovery_report" \
+    --argjson rollbackPerformed "$rollback_performed" --argjson targetDestroyed "$target_destroyed" \
+    --argjson recoveryPointAgeSeconds "$recovery_point_age" --argjson rpoMet "$rpo_met" --argjson rtoMet "$rto_met" \
+    --argjson resourceMetrics "$resource_metrics" \
+    --arg result "$result" --argjson exitStatus "$exit_status" --arg detail "$detail" \
+    '{schemaVersion:1,rehearsal:$rehearsal,startedAt:$startedAt,finishedAt:$finishedAt,durationSeconds:$durationSeconds,
+      sourceIsolation:$isolation,freshClone:(if $freshClone=="" then null else $freshClone end),
+      recoveryReport:(if $recoveryReport=="" then null else $recoveryReport end),
+      rollbackPerformed:$rollbackPerformed,targetDestroyed:$targetDestroyed,underFourHours:($durationSeconds < 14400),
+      objectives:{rpoTargetSeconds:86400,rtoTargetSeconds:14400,recoveryPointAgeSeconds:$recoveryPointAgeSeconds,
+        rpoMet:$rpoMet,rtoMet:$rtoMet,resourceMetrics:$resourceMetrics},
+      result:$result,failure:(if $result=="failed" then {exitStatus:$exitStatus,detail:$detail} else null end)}' \
+    > "${rehearsal_report}.tmp"
+  mv -- "${rehearsal_report}.tmp" "$rehearsal_report"
+  dr_validate_json "$runner_dir/schemas/rehearsal-report.schema.json" "$rehearsal_report"
+  dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-rehearsal "$rehearsal_report" "${rehearsal_report}.sig"
+  evidence_written=true
+}
+
+destroy_provider_target() {
+  ((${#provider_args[@]} > 0)) || return 0
+  refresh_recovery_paths
+  [[ -f "$provider_state" ]] || return 1
+  local server_id firewall_id destroyed report_dir
+  server_id="$(jq -er 'select(.provider=="hetzner") | .serverId' "$provider_state")" || return 1
+  firewall_id="$(jq -er 'select(.provider=="hetzner") | .firewallId' "$provider_state")" || return 1
+  destroyed="$("$runner_dir/providers/hetzner" destroy --server-id "$server_id" --firewall-id "$firewall_id" --token-stdin <<< "$DR_HETZNER_TOKEN")" || return 1
+  report_dir="$(if [[ -n "$recovery_report" ]]; then dirname "$recovery_report"; else dirname "$rehearsal_report"; fi)"
+  jq -s '.[0] * .[1]' "$provider_state" <(printf '%s\n' "$destroyed") > "$report_dir/provider-destroyed.json"
+  chmod 0600 "$report_dir/provider-destroyed.json"
+  rm -f -- "$provider_state"
+  target_destroyed=true
+}
+
+finalize_exit() {
+  local status=$?
+  trap - EXIT
+  if ((status != 0)); then
+    set +e
+    write_evidence failed "$status" "$failure_detail"
+    if ((${#provider_args[@]} > 0)); then
+      if destroy_provider_target; then
+        write_evidence failed "$status" "$failure_detail"
+      else
+        printf 'STOP: rehearsal failure evidence was retained, but automatic provider cleanup could not be proven\n' >&2
+      fi
+    fi
+    [[ "$evidence_written" == true ]] && printf 'Signed failed rehearsal report: %s\n' "$rehearsal_report" >&2
+  fi
+  rm -f -- "$output_file"
+  exit "$status"
+}
+trap finalize_exit EXIT
+
+recover_args=(--config "$config" --profile all --snapshot latest)
+if [[ -n "$host" ]]; then recover_args+=(--host "$host"); else recover_args+=("${provider_args[@]}"); fi
+[[ "$number" == 1 ]] && recover_args+=(--no-cutover)
+set +e
+run_before_deadline "$runner_dir/recover" "${recover_args[@]}" | tee "$output_file"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+if ((pipeline_status[0] != 0)); then
+  if ((pipeline_status[0] == 124 || pipeline_status[0] == 142)); then
+    failure_detail="recovery exceeded the four-hour rehearsal deadline"
+  else
+    failure_detail="recovery command failed with status ${pipeline_status[0]}"
+  fi
+  exit "${pipeline_status[0]}"
+fi
+((pipeline_status[1] == 0)) || { failure_detail="rehearsal output capture failed"; exit "${pipeline_status[1]}"; }
+
+refresh_recovery_paths
+[[ -f "$recovery_report" ]] || { failure_detail="recovery did not produce a report"; exit 1; }
+dr_validate_json "$runner_dir/schemas/recovery-report.schema.json" "$recovery_report"
+dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-recovery "${recovery_report}.sig" "$recovery_report"
+expected_result="recovered"; [[ "$number" == 1 ]] && expected_result="verified-no-cutover"
+jq -e --arg expected "$expected_result" '
+  .result==$expected and (.phases|length)>0 and all(.phases[]; .status=="ok") and
+  (.checks|length)>0 and all(.checks[]; .status=="ok") and (.exceptions|length)==0 and
+  .preflight.oldestSnapshotAgeSeconds<=86400 and
+  .resourceMetrics.samples>=1 and .resourceMetrics.physicalInterfaceCount>=1 and
+  .resourceMetrics.peakCpuPercent>=0 and .resourceMetrics.peakCpuPercent<=100 and
+  .resourceMetrics.peakMemoryUsedBytes>=0 and .resourceMetrics.minMemoryAvailableBytes>=0 and
+  .resourceMetrics.peakDiskUsedBytes>=0 and .resourceMetrics.minDiskAvailableBytes>=0 and
+  .resourceMetrics.physicalNetworkReceiveBytes>=0 and .resourceMetrics.physicalNetworkTransmitBytes>=0
+' "$recovery_report" >/dev/null || { failure_detail="recovery report did not pass every phase and check"; exit 1; }
+
+if [[ "$number" == 2 ]]; then
+  reverse="$(jq -er .cutover.reversePatch "$recovery_report")"
+  set +e
+  run_before_deadline "$runner_dir/rollback" --config "$config" --patch "$reverse" --report "$recovery_report"
+  rollback_status=$?
+  set -e
+  if ((rollback_status != 0)); then
+    if ((rollback_status == 124 || rollback_status == 142)); then
+      failure_detail="rollback exceeded the four-hour rehearsal deadline"
+    else
+      failure_detail="rollback command failed with status ${rollback_status}"
+    fi
+    exit "$rollback_status"
+  fi
+  jq -e '.result=="rolled-back" and any(.checks[]; .name=="rollback" and .status=="ok")' "$recovery_report" >/dev/null \
+    || { failure_detail="rollback was not recorded in the recovery report"; exit 1; }
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-recovery "${recovery_report}.sig" "$recovery_report"
+  rollback_performed=true
+fi
+
+duration=$(( $(date +%s) - started_epoch ))
+((duration < 14400)) || { failure_detail="rehearsal exceeded the four-hour RTO objective"; exit 124; }
+# Retain signed evidence before an automated provider deletion, then update and
+# re-sign it with deletion proof. Operator-supplied hosts remain untouched.
+write_evidence passed 1 ""
+if ((${#provider_args[@]} > 0)); then
+  destroy_provider_target || { failure_detail="provider-created rehearsal target could not be destroyed"; exit 1; }
+  write_evidence passed 1 ""
+fi
+jq . "$rehearsal_report"
+rm -f -- "$output_file"
+trap - EXIT

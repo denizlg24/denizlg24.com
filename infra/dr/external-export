@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+config=""; destination="/var/lib/deniz-dr/external-state"
+while (($#)); do
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --destination) destination="${2:-}"; shift 2 ;;
+    *) exit 2 ;;
+  esac
+done
+[[ -f "$config" && ! -L "$config" ]] || { echo "STOP: --config must be a regular, non-symlink file" >&2; exit 1; }
+mode="$(stat -c '%a' "$config")"; [[ "$mode" == 600 || "$mode" == 400 ]] || { echo "STOP: config must be private" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$config"
+: "${DR_CLOUDFLARE_API_TOKEN:?missing Cloudflare export token}"
+: "${DR_CLOUDFLARE_ACCOUNT_ID:?missing Cloudflare account id}"
+: "${DR_CLOUDFLARE_ZONE_ID:?missing zone id}"
+: "${DR_CLOUDFLARE_DR_TUNNEL_ID:?missing dedicated DR tunnel id}"
+: "${DR_TAILSCALE_ACCESS_TOKEN:?missing Tailscale read token}"
+: "${DR_TAILSCALE_TAILNET:?missing tailnet id or name}"
+: "${DR_BETTERSTACK_API_TOKEN:?missing Better Stack read token}"
+for identifier in "$DR_CLOUDFLARE_ACCOUNT_ID" "$DR_CLOUDFLARE_ZONE_ID" "$DR_CLOUDFLARE_DR_TUNNEL_ID"; do
+  [[ "$identifier" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "STOP: unsafe Cloudflare identifier" >&2; exit 1; }
+done
+destination_parent="$(dirname "$destination")"
+[[ "$destination" == /* && -d "$destination_parent" && ! -L "$destination_parent" && ! -L "$destination" ]] \
+  || { echo "STOP: destination must be absolute beneath an existing real directory" >&2; exit 1; }
+[[ ! -e "$destination" || -d "$destination" ]] || { echo "STOP: destination exists and is not a directory" >&2; exit 1; }
+install -d -m 0700 "$destination"
+work="$(mktemp -d "${destination}/export.XXXXXX")"
+cleanup() { rm -rf -- "$work"; }; trap cleanup EXIT
+
+api_get() {
+  local url="$1" token="$2" output="$3" cfg="$work/request.curl"
+  [[ "$url" == https://* && "$url" != *[$'\r\n"\\']* && "$token" != *[$'\r\n"\\']* ]] \
+    || { echo "STOP: unsafe export request" >&2; exit 1; }
+  printf 'url = "%s"\nheader = "Authorization: Bearer %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 30\n' "$url" "$token" > "$cfg"
+  curl --config "$cfg" > "$output"
+  rm -f -- "$cfg"
+}
+
+api_get "https://api.cloudflare.com/client/v4/zones/${DR_CLOUDFLARE_ZONE_ID}/dns_records?per_page=500" \
+  "$DR_CLOUDFLARE_API_TOKEN" "$work/cloudflare.raw.json"
+jq -e '[.result[] | {id,name,type,content,ttl,proxied}] | sort_by(.name,.type,.id)' \
+  "$work/cloudflare.raw.json" > "$work/cloudflare.json"
+api_get "https://api.cloudflare.com/client/v4/accounts/${DR_CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${DR_CLOUDFLARE_DR_TUNNEL_ID}" \
+  "$DR_CLOUDFLARE_API_TOKEN" "$work/cloudflare-tunnel.raw.json"
+jq -e '.result | {id,name,status,config_src,created_at,deleted_at} | with_entries(select(.value != null))' \
+  "$work/cloudflare-tunnel.raw.json" > "$work/cloudflare-tunnel.json"
+api_get "https://api.cloudflare.com/client/v4/accounts/${DR_CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${DR_CLOUDFLARE_DR_TUNNEL_ID}/configurations" \
+  "$DR_CLOUDFLARE_API_TOKEN" "$work/cloudflare-tunnel-config.raw.json"
+jq -e '.success == true and (.result.config | type == "object")' "$work/cloudflare-tunnel-config.raw.json" >/dev/null
+jq -S -c .result.config "$work/cloudflare-tunnel-config.raw.json" > "$work/cloudflare-tunnel-config.canonical.json"
+cloudflare_tunnel_config_sha="$(sha256sum "$work/cloudflare-tunnel-config.canonical.json" | awk '{print $1}')"
+
+encoded_tailnet="$(jq -rn --arg value "$DR_TAILSCALE_TAILNET" '$value|@uri')"
+api_get "https://api.tailscale.com/api/v2/tailnet/${encoded_tailnet}/acl" \
+  "$DR_TAILSCALE_ACCESS_TOKEN" "$work/tailscale-policy.hujson"
+[[ -s "$work/tailscale-policy.hujson" ]] || { echo "STOP: empty Tailscale policy export" >&2; exit 1; }
+tailscale_policy_sha="$(sha256sum "$work/tailscale-policy.hujson" | awk '{print $1}')"
+
+api_get "https://uptime.betterstack.com/api/v2/monitors?per_page=250" \
+  "$DR_BETTERSTACK_API_TOKEN" "$work/better-monitors.raw.json"
+api_get "https://uptime.betterstack.com/api/v2/heartbeats?per_page=250" \
+  "$DR_BETTERSTACK_API_TOKEN" "$work/better-heartbeats.raw.json"
+# Header values and heartbeat URLs are credentials. The recovery contract needs
+# names, targets and escalation settings, not secret material.
+jq -e '[.data[] | {id,type,attributes:(.attributes | del(.request_headers,.auth_password))}] | sort_by(.id)' \
+  "$work/better-monitors.raw.json" > "$work/better-monitors.json"
+jq -e '[.data[] | {id,type,attributes:(.attributes | del(.url))}] | sort_by(.id)' \
+  "$work/better-heartbeats.raw.json" > "$work/better-heartbeats.json"
+
+stamp="$(date -u +%Y%m%d)"; export_path="$destination/external-${stamp}.json"
+diff_path="$destination/external-${stamp}.diff"
+policy_path="$destination/tailscale-policy-${stamp}.hujson"
+for owned_path in "$export_path" "$diff_path" "$policy_path"; do
+  [[ ! -L "$owned_path" ]] || { echo "STOP: refusing to overwrite a symlinked export path" >&2; exit 1; }
+done
+jq -n --arg createdAt "$(date -u +%FT%TZ)" \
+  --slurpfile cloudflare "$work/cloudflare.json" \
+  --slurpfile cloudflareTunnel "$work/cloudflare-tunnel.json" \
+  --arg cloudflareTunnelConfigurationSha256 "$cloudflare_tunnel_config_sha" \
+  --arg tailscalePolicySha256 "$tailscale_policy_sha" \
+  --slurpfile monitors "$work/better-monitors.json" \
+  --slurpfile heartbeats "$work/better-heartbeats.json" \
+  '{schemaVersion:1,createdAt:$createdAt,
+    cloudflare:{records:$cloudflare[0],drTunnel:$cloudflareTunnel[0],drTunnelConfigurationSha256:$cloudflareTunnelConfigurationSha256},
+    tailscalePolicySha256:$tailscalePolicySha256,
+    betterStack:{monitors:$monitors[0],heartbeats:$heartbeats[0]},secretsIncluded:false}' \
+  > "$work/external.json"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+dr_validate_json "$script_dir/schemas/external-export.schema.json" "$work/external.json"
+previous="$(find "$destination" -maxdepth 1 -type f -name 'external-*.json' ! -name "external-${stamp}.json" | sort | tail -1 || true)"
+if [[ -n "$previous" ]]; then
+  jq 'del(.createdAt)' "$previous" > "$work/previous.normalized"
+  jq 'del(.createdAt)' "$work/external.json" > "$work/current.normalized"
+  diff -u "$work/previous.normalized" "$work/current.normalized" > "$diff_path" || true
+else
+  : > "$diff_path"
+fi
+install -m 0600 "$work/external.json" "$export_path"
+install -m 0600 "$work/tailscale-policy.hujson" "$policy_path"
+find "$destination" -maxdepth 1 -type f \
+  \( -name 'external-*.json' -o -name 'external-*.diff' -o -name 'tailscale-policy-*.hujson' \) \
+  -mtime +90 -delete
+if [[ -n ${DR_EXTERNAL_EXPORT_HEARTBEAT_URL:-} ]]; then
+  [[ "$DR_EXTERNAL_EXPORT_HEARTBEAT_URL" == https://uptime.betterstack.com/* &&
+     "$DR_EXTERNAL_EXPORT_HEARTBEAT_URL" != *[$'\r\n"\\']* ]] \
+    || { echo "STOP: external-export heartbeat URL is unsafe" >&2; exit 1; }
+  printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$DR_EXTERNAL_EXPORT_HEARTBEAT_URL" | curl --config - >/dev/null
+fi
+jq -n --arg destination "$destination" --arg previous "$previous" \
+  --argjson diffBytes "$(stat -c '%s' "$diff_path")" \
+  '{exported:true,destination:$destination,comparedTo:(if $previous=="" then null else $previous end),diffBytes:$diffBytes,secretsIncluded:false}'

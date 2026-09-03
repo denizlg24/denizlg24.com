@@ -7,9 +7,38 @@ import {
   collectReferences,
   type DeployBindingResolvers,
   defaultDeployEnvBindings,
+  deploymentEnvironmentHmacSha256,
   describeBindings,
   resolveDeploymentEnv,
 } from "./env";
+
+describe("deploymentEnvironmentHmacSha256", () => {
+  test("is stable across key order but binds names, values, and the secret", () => {
+    const first = deploymentEnvironmentHmacSha256(
+      { DATABASE_URL: "postgres://secret", FEATURE: "on" },
+      "encryption-key",
+    );
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      deploymentEnvironmentHmacSha256(
+        { FEATURE: "on", DATABASE_URL: "postgres://secret" },
+        "encryption-key",
+      ),
+    ).toBe(first);
+    expect(
+      deploymentEnvironmentHmacSha256(
+        { DATABASE_URL: "postgres://changed", FEATURE: "on" },
+        "encryption-key",
+      ),
+    ).not.toBe(first);
+    expect(
+      deploymentEnvironmentHmacSha256(
+        { DATABASE_URL: "postgres://secret", FEATURE: "on" },
+        "different-key",
+      ),
+    ).not.toBe(first);
+  });
+});
 
 function row(overrides: Partial<DeployEnvVarRow>): DeployEnvVarRow {
   return {

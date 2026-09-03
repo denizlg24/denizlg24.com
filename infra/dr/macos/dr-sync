@@ -1,0 +1,719 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${script_dir}/../lib/common.sh"
+
+config="${DR_SYNC_CONFIG:-}"
+command_name=""
+host_filter=""
+snapshot_filter="latest"
+hydrate_destination=""
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: dr-sync --config FILE pull|mirror|status|hydrate|verify-full|select-pair|cycle [options]
+  --host pi-cloud|forge
+  --snapshot latest|SNAPSHOT_ID
+  --destination DIR            hydrate only
+
+cycle pulls and mirrors both hosts. verify-full hydrates a complete generation
+and runs restic read-data verification before quarterly retirement. The mirror
+is copy-only: an existing file must have the expected hash and no source
+deletion is ever propagated.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --config) [[ $# -ge 2 ]] || { usage; exit 2; }; config="$2"; shift 2 ;;
+    --host) [[ $# -ge 2 ]] || { usage; exit 2; }; host_filter="$2"; shift 2 ;;
+    --snapshot) [[ $# -ge 2 ]] || { usage; exit 2; }; snapshot_filter="$2"; shift 2 ;;
+    --destination) [[ $# -ge 2 ]] || { usage; exit 2; }; hydrate_destination="$2"; shift 2 ;;
+    pull | mirror | status | hydrate | verify-full | select-pair | cycle)
+      [[ -z "$command_name" ]] || { usage; exit 2; }; command_name="$1"; shift ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+[[ -n "$command_name" && -n "$config" && -f "$config" ]] || { usage; exit 2; }
+# Configuration is shell syntax by design and is installed mode 0600. It may
+# hold heartbeat URLs, so never print or trace it.
+dr_require_private_file "$config"
+# shellcheck disable=SC1090
+source "$config"
+
+: "${DR_ACTIVE_RECOVERY_OVERRIDE:=${config}.active-recovery.env}"
+recovery_override_loaded=false
+if [[ -e "$DR_ACTIVE_RECOVERY_OVERRIDE" ]]; then
+  [[ "$DR_ACTIVE_RECOVERY_OVERRIDE" == /* ]] || dr_die "active recovery override path must be absolute"
+  dr_require_private_file "$DR_ACTIVE_RECOVERY_OVERRIDE"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || dr_die "invalid active recovery override"
+    key="${line%%=*}"; value="${line#*=}"
+    [[ "$key" == DR_PI_SSH || "$key" == DR_FORGE_SSH || "$key" == DR_RECOVERY_KNOWN_HOSTS || "$key" == DR_RECOVERY_HOST_KEY_ALIAS ]] \
+      || dr_die "active recovery override contains an unauthorized key"
+    case "$key" in
+      DR_PI_SSH | DR_FORGE_SSH)
+        [[ "$value" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || dr_die "active recovery override contains an unsafe endpoint"
+        ;;
+      DR_RECOVERY_KNOWN_HOSTS) [[ "$value" == /* ]] || dr_die "active recovery known-hosts path must be absolute" ;;
+      DR_RECOVERY_HOST_KEY_ALIAS) [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "active recovery host-key alias is unsafe" ;;
+    esac
+    printf -v "$key" '%s' "$value"
+  done < "$DR_ACTIVE_RECOVERY_OVERRIDE"
+  : "${DR_RECOVERY_KNOWN_HOSTS:?active recovery override lacks known-hosts path}"
+  : "${DR_RECOVERY_HOST_KEY_ALIAS:?active recovery override lacks host-key alias}"
+  dr_require_private_file "$DR_RECOVERY_KNOWN_HOSTS"
+  recovery_override_loaded=true
+fi
+
+: "${DR_REMOTE_ROOT:=/var/lib/deniz-dr}"
+: "${DR_LOCAL_CACHE:=${HOME}/Library/Caches/deniz-dr}"
+: "${DR_ALLOWED_SIGNERS:?DR_ALLOWED_SIGNERS is required}"
+: "${DR_COMPLETION_SIGNER:=mac-bridge}"
+: "${DR_HOST_SIGNER_PI:=pi-cloud}"
+: "${DR_HOST_SIGNER_FORGE:=forge}"
+: "${DR_ICLOUD_ROOT:?DR_ICLOUD_ROOT is required}"
+if [[ "$command_name" == pull || "$command_name" == cycle ]]; then
+  : "${DR_PI_SSH:?DR_PI_SSH is required}"
+  : "${DR_FORGE_SSH:?DR_FORGE_SSH is required}"
+fi
+if [[ "$command_name" == mirror || "$command_name" == cycle ]]; then
+  : "${DR_COMPLETION_SIGNING_KEY:?DR_COMPLETION_SIGNING_KEY is required}"
+  dr_require_private_file "$DR_COMPLETION_SIGNING_KEY"
+fi
+
+icloud_helper="${DR_ICLOUD_HELPER:-${script_dir}/dr-icloud-state}"
+[[ -x "$icloud_helper" ]] || dr_die "iCloud state helper is missing: ${icloud_helper}"
+dr_require_commands jq ssh-keygen find
+case "$command_name" in
+  pull) dr_require_commands ssh scp restic ;;
+  hydrate | verify-full) dr_require_commands restic ;;
+  cycle) dr_require_commands ssh scp restic curl ;;
+esac
+[[ "$DR_REMOTE_ROOT" == /* && "$DR_LOCAL_CACHE" == /* && "$DR_ICLOUD_ROOT" == /* ]] || dr_die "DR paths must be absolute"
+[[ "$DR_REMOTE_ROOT" == /var/lib/deniz-dr ]] || dr_die "remote backup root must be /var/lib/deniz-dr"
+[[ "$DR_LOCAL_CACHE" != / && "$DR_LOCAL_CACHE" != */ && "$DR_ICLOUD_ROOT" != / && "$DR_ICLOUD_ROOT" != */ ]] \
+  || dr_die "local cache and iCloud roots must be normalized non-root paths"
+if [[ "$command_name" == cycle ]]; then
+  : "${DR_ICLOUD_WARNING_HEARTBEAT_URL:?DR_ICLOUD_WARNING_HEARTBEAT_URL is required for cycle}"
+  : "${DR_ICLOUD_CRITICAL_HEARTBEAT_URL:?DR_ICLOUD_CRITICAL_HEARTBEAT_URL is required for cycle}"
+  for heartbeat_url in "$DR_ICLOUD_WARNING_HEARTBEAT_URL" "$DR_ICLOUD_CRITICAL_HEARTBEAT_URL"; do
+    [[ "$heartbeat_url" == https://uptime.betterstack.com/* && "$heartbeat_url" != *[$'\r\n"\\']* ]] \
+      || dr_die "iCloud heartbeat URL is unsafe"
+  done
+fi
+[[ "$DR_ICLOUD_ROOT" == *'/Library/Mobile Documents/'* ]] || dr_die "DR_ICLOUD_ROOT is not in iCloud Drive"
+dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$DR_LOCAL_CACHE"
+dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$DR_ICLOUD_ROOT"
+install -d -m 0700 "$DR_LOCAL_CACHE" "$DR_ICLOUD_ROOT"
+dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$DR_LOCAL_CACHE"
+dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$DR_ICLOUD_ROOT"
+
+validate_ready_manifest() {
+  local manifest="$1" expected_host="$2" expected_profile
+  expected_profile="$([[ "$expected_host" == pi-cloud ]] && printf pi || printf forge)"
+  dr_validate_json "${script_dir}/../schemas/ready-manifest.schema.json" "$manifest"
+  jq -e --arg host "$expected_host" --arg profile "$expected_profile" '
+    .host==$host and .profile==$profile and
+    (.snapshotId | test("^" + $host + "-[0-9]{8}T[0-9]{6}Z$")) and
+    (.createdAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    (.generation | test("^[0-9]{4}-Q[1-4]$")) and
+    (.resticSnapshotId | test("^[0-9a-f]{8,64}$")) and
+    (.forgeControlPlaneSha256 | test("^[0-9a-f]{64}$")) and
+    .snapshotManifest.path=="snapshot-manifest.json" and
+    (.snapshotManifest.sha256 | test("^[0-9a-f]{64}$")) and
+    (.objects|length)>0 and ([.objects[].path]|unique|length)==(.objects|length) and
+    all(.objects[];
+      (.path | test("^(?:config|data/[0-9a-f]{2}/[0-9a-f]{64}|(?:index|keys|snapshots)/[0-9a-f]{64})$")) and
+      (.bytes|type)=="number" and (.bytes|floor)==.bytes and .bytes>=0 and
+      (.sha256 | test("^[0-9a-f]{64}$")))
+  ' "$manifest" >/dev/null || dr_die "READY manifest has an unsafe or inconsistent shape"
+}
+
+validate_completion_manifest() {
+  local manifest="$1" expected_host="$2" expected_profile
+  expected_profile="$([[ "$expected_host" == pi-cloud ]] && printf pi || printf forge)"
+  dr_validate_json "${script_dir}/../schemas/completion-manifest.schema.json" "$manifest"
+  jq -e --arg host "$expected_host" --arg profile "$expected_profile" '
+    .host==$host and .profile==$profile and
+    (.snapshotId | test("^" + $host + "-[0-9]{8}T[0-9]{6}Z$")) and
+    (.createdAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    (.uploadedVerifiedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    (.generation | test("^[0-9]{4}-Q[1-4]$")) and
+    (.readySha256 | test("^[0-9a-f]{64}$")) and
+    (.forgeControlPlaneSha256 | test("^[0-9a-f]{64}$")) and
+    (.objects|length)>0 and ([.objects[].path]|unique|length)==(.objects|length) and
+    all(.objects[];
+      (.path | test("^(?:config|data/[0-9a-f]{2}/[0-9a-f]{64}|(?:index|keys|snapshots)/[0-9a-f]{64})$")) and
+      (.bytes|type)=="number" and (.bytes|floor)==.bytes and .bytes>=0 and
+      (.sha256 | test("^[0-9a-f]{64}$")))
+  ' "$manifest" >/dev/null || dr_die "completion manifest has an unsafe or inconsistent shape"
+}
+
+host_value() {
+  local host="$1" suffix="$2"
+  case "${host}:${suffix}" in
+    pi-cloud:ssh) printf '%s' "$DR_PI_SSH" ;;
+    pi-cloud:signer) printf '%s' "$DR_HOST_SIGNER_PI" ;;
+    pi-cloud:password)
+      : "${DR_RESTIC_PASSWORD_FILE_PI:?DR_RESTIC_PASSWORD_FILE_PI is required for Pi data}"
+      dr_require_private_file "$DR_RESTIC_PASSWORD_FILE_PI"
+      printf '%s' "$DR_RESTIC_PASSWORD_FILE_PI"
+      ;;
+    forge:ssh) printf '%s' "$DR_FORGE_SSH" ;;
+    forge:signer) printf '%s' "$DR_HOST_SIGNER_FORGE" ;;
+    forge:password)
+      : "${DR_RESTIC_PASSWORD_FILE_FORGE:?DR_RESTIC_PASSWORD_FILE_FORGE is required for Forge data}"
+      dr_require_private_file "$DR_RESTIC_PASSWORD_FILE_FORGE"
+      printf '%s' "$DR_RESTIC_PASSWORD_FILE_FORGE"
+      ;;
+    *) dr_die "unknown host: ${host}" ;;
+  esac
+}
+
+hosts() {
+  if [[ -n "$host_filter" ]]; then
+    [[ "$host_filter" == pi-cloud || "$host_filter" == forge ]] || dr_die "invalid host filter"
+    printf '%s\n' "$host_filter"
+  else
+    printf '%s\n' pi-cloud forge
+  fi
+}
+
+verify_objects() {
+  local manifest="$1" root="$2" object relative expected actual
+  while IFS= read -r object; do
+    relative="$(jq -r '.path' <<< "$object")"
+    dr_assert_restic_object_path "$relative"
+    expected="$(jq -r '.sha256' <<< "$object")"
+    dr_assert_managed_directory_path "$root" "$(dirname "${root}/${relative}")"
+    [[ -f "${root}/${relative}" && ! -L "${root}/${relative}" ]] || dr_die "object is missing: ${relative}"
+    actual="$(dr_sha256 "${root}/${relative}")"
+    [[ "$actual" == "$expected" ]] || dr_die "object checksum mismatch: ${relative}"
+  done < <(jq -c '.objects[]' "$manifest")
+}
+
+select_local_ready() {
+  local host="$1" selected
+  if [[ "$snapshot_filter" == latest ]]; then
+    selected="$(find "$DR_LOCAL_CACHE/$host" -path '*/ready/*.json' -type f 2>/dev/null | sort | tail -1)"
+  else
+    selected="$(find "$DR_LOCAL_CACHE/$host" -path "*/ready/${snapshot_filter}.json" -type f 2>/dev/null | head -1)"
+  fi
+  [[ -n "$selected" ]] || dr_die "no local verified READY manifest for ${host}/${snapshot_filter}"
+  printf '%s' "$selected"
+}
+
+validate_completion_binding() {
+  local completion="$1" ready="$2" host="$3"
+  validate_completion_manifest "$completion" "$host"
+  jq -e --arg readySha256 "$(dr_sha256 "$ready")" --slurpfile ready "$ready" '
+    .snapshotId==$ready[0].snapshotId and .host==$ready[0].host and .profile==$ready[0].profile and
+    .generation==$ready[0].generation and .readySha256==$readySha256 and
+    .forgeControlPlaneSha256==$ready[0].forgeControlPlaneSha256 and .objects==$ready[0].objects and
+    .createdAt==.uploadedVerifiedAt and .createdAt >= $ready[0].createdAt and
+    ((.createdAt | fromdateiso8601) <= (now + 300))
+  ' "$completion" >/dev/null || dr_die "completion does not bind the selected READY"
+}
+
+pull_host() {
+  local host="$1" endpoint signer remote_ready remote_relative remote_generation remote_filename tmp generation snapshot repository cache object relative expected target remote_lock lock_token local_ready observed_dir observed_ready
+  local -a transport_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes)
+  endpoint="$(host_value "$host" ssh)"
+  [[ "$endpoint" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ ]] || dr_die "unsafe SSH endpoint for ${host}"
+  if [[ "$endpoint" =~ ^root@100\. ]]; then
+    [[ "$recovery_override_loaded" == true ]] || dr_die "recovery endpoint lacks its pinned host-key contract"
+    transport_opts+=(-o "UserKnownHostsFile=$DR_RECOVERY_KNOWN_HOSTS" -o StrictHostKeyChecking=yes -o "HostKeyAlias=$DR_RECOVERY_HOST_KEY_ALIAS")
+  fi
+  signer="$(host_value "$host" signer)"
+  # Backup/prune, deploy, and pull share one host lock. A READY manifest is
+  # immutable, but prune can remove pack files named by an older READY; holding
+  # this lock through the copy makes the manifest-to-object view atomic.
+  remote_lock="$DR_REMOTE_ROOT/locks/$host.lock"
+  lock_token="mac-$(id -u)-$$-$(date +%s)"
+  ssh "${transport_opts[@]}" "$endpoint" \
+    "set -e; acquired=false; for _ in \$(seq 1 450); do if mkdir '$remote_lock' 2>/dev/null; then acquired=true; break; fi; sleep 2; done; [ \"\$acquired\" = true ]; printf '%s\\n' '$lock_token' > '$remote_lock/owner'" \
+    || dr_die "timed out waiting for the coordinated backup/deploy/pull lock on ${host}"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/dr-pull.XXXXXX")"
+  trap 'rm -rf -- "$tmp"; ssh "${transport_opts[@]}" "$endpoint" "test \"\$(cat '\''$remote_lock/owner'\'' 2>/dev/null)\" = '\''$lock_token'\'' && rm -f '\''$remote_lock/owner'\'' && rmdir '\''$remote_lock'\''" >/dev/null 2>&1 || true' RETURN
+  if [[ "$snapshot_filter" == latest ]]; then
+    remote_ready="$(ssh "${transport_opts[@]}" "$endpoint" "find '$DR_REMOTE_ROOT/ready/$host' -type f -name '*.json' -print | sort | tail -1")"
+  else
+    [[ "$snapshot_filter" =~ ^[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || dr_die "invalid snapshot id"
+    remote_ready="$(ssh "${transport_opts[@]}" "$endpoint" "find '$DR_REMOTE_ROOT/ready/$host' -type f -name '$snapshot_filter.json' -print | head -1")"
+  fi
+  [[ "$remote_ready" == "$DR_REMOTE_ROOT/ready/$host/"* ]] || dr_die "host returned no safe READY manifest"
+  remote_relative="${remote_ready#"$DR_REMOTE_ROOT/ready/$host/"}"
+  remote_generation="${remote_relative%%/*}"
+  remote_filename="${remote_relative#*/}"
+  [[ "$remote_generation" =~ ^[0-9]{4}-Q[1-4]$ && "$remote_filename" != */* &&
+     "$remote_filename" =~ ^${host}-[0-9]{8}T[0-9]{6}Z\.json$ ]] \
+    || dr_die "host returned an unsafe READY pathname"
+  scp -q "${transport_opts[@]}" "$endpoint:$remote_ready" "$tmp/ready.json"
+  scp -q "${transport_opts[@]}" "$endpoint:${remote_ready}.sig" "$tmp/ready.json.sig"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "$tmp/ready.json.sig" "$tmp/ready.json"
+  validate_ready_manifest "$tmp/ready.json" "$host"
+  generation="$(jq -r .generation "$tmp/ready.json")"
+  snapshot="$(jq -r .snapshotId "$tmp/ready.json")"
+  # Retain the newest cryptographically verified host observation before the
+  # object transfer starts. Status can then distinguish a host-side success
+  # from a later local-cache failure without reconnecting to production.
+  observed_dir="$DR_LOCAL_CACHE/state/host-observed/$host"
+  observed_ready="$observed_dir/$snapshot.json"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$observed_dir"
+  install -d -m 0700 "$observed_dir"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$observed_dir"
+  for observed_source in "$tmp/ready.json.sig" "$tmp/ready.json"; do
+    if [[ "$observed_source" == *.sig ]]; then
+      observed_target="${observed_ready}.sig"
+    else
+      observed_target="$observed_ready"
+    fi
+    if [[ -e "$observed_target" || -L "$observed_target" ]]; then
+      [[ -f "$observed_target" && ! -L "$observed_target" &&
+         "$(dr_sha256 "$observed_target")" == "$(dr_sha256 "$observed_source")" ]] \
+        || dr_die "immutable host-observation collision: ${snapshot}"
+    else
+      install -m 0600 "$observed_source" "$observed_target"
+    fi
+  done
+  repository="$DR_REMOTE_ROOT/repositories/$host/$generation"
+  cache="$DR_LOCAL_CACHE/$host/$generation/repository"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$cache"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$DR_LOCAL_CACHE/$host/$generation/ready"
+  install -d -m 0700 "$cache" "$DR_LOCAL_CACHE/$host/$generation/ready"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$cache"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$DR_LOCAL_CACHE/$host/$generation/ready"
+  while IFS= read -r object; do
+    relative="$(jq -r .path <<< "$object")"
+    dr_assert_restic_object_path "$relative"
+    expected="$(jq -r .sha256 <<< "$object")"
+    target="$cache/$relative"
+    dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$(dirname "$target")"
+    install -d -m 0700 "$(dirname "$target")"
+    dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$(dirname "$target")"
+    if [[ -e "$target" ]]; then
+      [[ -f "$target" && ! -L "$target" && "$(dr_sha256 "$target")" == "$expected" ]] || dr_die "immutable cache collision: ${relative}"
+    else
+      [[ ! -e "${target}.partial" && ! -L "${target}.partial" ]] \
+        || dr_die "unsafe partial cache object exists: ${relative}"
+      scp -q "${transport_opts[@]}" "$endpoint:$repository/$relative" "${target}.partial"
+      [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
+        || dr_die "downloaded cache object is unsafe: ${relative}"
+      [[ "$(dr_sha256 "${target}.partial")" == "$expected" ]] || dr_die "download checksum mismatch: ${relative}"
+      mv -- "${target}.partial" "$target"
+    fi
+  done < <(jq -c '.objects[]' "$tmp/ready.json")
+  verify_objects "$tmp/ready.json" "$cache"
+  RESTIC_REPOSITORY="$cache" RESTIC_PASSWORD_FILE="$(host_value "$host" password)" restic check >/dev/null
+  local_ready="$DR_LOCAL_CACHE/$host/$generation/ready/$snapshot.json"
+  if [[ -e "$local_ready" || -L "$local_ready" || -e "${local_ready}.sig" || -L "${local_ready}.sig" ]]; then
+    [[ -f "$local_ready" && ! -L "$local_ready" && -f "${local_ready}.sig" && ! -L "${local_ready}.sig" &&
+       "$(dr_sha256 "$local_ready")" == "$(dr_sha256 "$tmp/ready.json")" &&
+       "$(dr_sha256 "${local_ready}.sig")" == "$(dr_sha256 "$tmp/ready.json.sig")" ]] \
+      || dr_die "immutable local READY collision: ${snapshot}"
+  else
+    install -m 0600 "$tmp/ready.json" "$local_ready"
+    install -m 0600 "$tmp/ready.json.sig" "${local_ready}.sig"
+  fi
+  jq -n --arg host "$host" --arg snapshotId "$snapshot" --arg generation "$generation" \
+    '{pulled:true,verified:true,host:$host,snapshotId:$snapshot,generation:$generation}'
+}
+
+mirror_host() {
+  local host="$1" ready signer generation snapshot source_repo mirror_repo mirrored_ready mirror_ready completion completed_at object relative expected target target_partial
+  local completion_draft_dir completion_draft already_mirrored=false
+  ready="$(select_local_ready "$host")"
+  signer="$(host_value "$host" signer)"
+  generation="$(jq -r .generation "$ready")"
+  snapshot="$(jq -r .snapshotId "$ready")"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${ready}.sig" "$ready"
+  validate_ready_manifest "$ready" "$host"
+  source_repo="$DR_LOCAL_CACHE/$host/$generation/repository"
+  mirror_repo="$DR_ICLOUD_ROOT/$host/$generation/repository"
+  mirror_ready="$DR_ICLOUD_ROOT/$host/$generation/ready"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$source_repo"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$mirror_repo"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$mirror_ready"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$DR_ICLOUD_ROOT/manifests/$generation"
+  install -d -m 0700 "$mirror_repo" "$mirror_ready" "$DR_ICLOUD_ROOT/manifests/$generation"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$mirror_repo"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$mirror_ready"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$DR_ICLOUD_ROOT/manifests/$generation"
+  verify_objects "$ready" "$source_repo"
+  while IFS= read -r object; do
+    relative="$(jq -r .path <<< "$object")"
+    dr_assert_restic_object_path "$relative"
+    expected="$(jq -r .sha256 <<< "$object")"
+    target="$mirror_repo/$relative"
+    dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$(dirname "$target")"
+    install -d -m 0700 "$(dirname "$target")"
+    dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$(dirname "$target")"
+    if [[ -e "$target" ]]; then
+      [[ -f "$target" && ! -L "$target" && "$(dr_sha256 "$target")" == "$expected" ]] || dr_die "immutable iCloud collision: ${relative}"
+    else
+      target_partial="${target}.partial"
+      if [[ -e "$target_partial" || -L "$target_partial" ]]; then
+        [[ -f "$target_partial" && ! -L "$target_partial" ]] \
+          || dr_die "unsafe partial iCloud object exists: ${relative}"
+        rm -f -- "$target_partial"
+      fi
+      cp -p -- "$source_repo/$relative" "$target_partial"
+      [[ -f "$target_partial" && ! -L "$target_partial" && "$(dr_sha256 "$target_partial")" == "$expected" ]] \
+        || dr_die "partial iCloud object failed verification: ${relative}"
+      [[ ! -e "$target" && ! -L "$target" ]] || dr_die "iCloud object appeared while it was being prepared: ${relative}"
+      mv -- "$target_partial" "$target"
+    fi
+    [[ -f "$target" && ! -L "$target" ]] || dr_die "iCloud object became unsafe: ${relative}"
+    "$icloud_helper" wait-uploaded "$target" "${DR_ICLOUD_UPLOAD_TIMEOUT_SECONDS:-3600}"
+    [[ "$(dr_sha256 "$target")" == "$expected" ]] || dr_die "iCloud object changed after upload: ${relative}"
+  done < <(jq -c '.objects[]' "$ready")
+  verify_objects "$ready" "$mirror_repo"
+  mirrored_ready="$mirror_ready/$snapshot.json"
+  if [[ -e "$mirrored_ready" || -L "$mirrored_ready" || -e "${mirrored_ready}.sig" || -L "${mirrored_ready}.sig" ]]; then
+    [[ ! -e "$mirrored_ready" || (-f "$mirrored_ready" && ! -L "$mirrored_ready") ]] \
+      || dr_die "unsafe iCloud READY exists: ${snapshot}"
+    [[ ! -e "${mirrored_ready}.sig" || (-f "${mirrored_ready}.sig" && ! -L "${mirrored_ready}.sig") ]] \
+      || dr_die "unsafe iCloud READY signature exists: ${snapshot}"
+    if [[ -e "${mirrored_ready}.sig" ]]; then
+      [[ "$(dr_sha256 "${mirrored_ready}.sig")" == "$(dr_sha256 "${ready}.sig")" ]] \
+        || dr_die "immutable iCloud READY signature collision: ${snapshot}"
+    else
+      install -m 0600 "${ready}.sig" "${mirrored_ready}.sig.partial"
+      mv -- "${mirrored_ready}.sig.partial" "${mirrored_ready}.sig"
+    fi
+    if [[ -e "$mirrored_ready" ]]; then
+      [[ "$(dr_sha256 "$mirrored_ready")" == "$(dr_sha256 "$ready")" ]] \
+        || dr_die "immutable iCloud READY collision: ${snapshot}"
+    else
+      install -m 0600 "$ready" "${mirrored_ready}.partial"
+      mv -- "${mirrored_ready}.partial" "$mirrored_ready"
+    fi
+  else
+    install -m 0600 "${ready}.sig" "${mirrored_ready}.sig.partial"
+    mv -- "${mirrored_ready}.sig.partial" "${mirrored_ready}.sig"
+    install -m 0600 "$ready" "${mirrored_ready}.partial"
+    mv -- "${mirrored_ready}.partial" "$mirrored_ready"
+  fi
+  "$icloud_helper" wait-uploaded "$mirrored_ready" "${DR_ICLOUD_UPLOAD_TIMEOUT_SECONDS:-3600}"
+  "$icloud_helper" wait-uploaded "${mirrored_ready}.sig" "${DR_ICLOUD_UPLOAD_TIMEOUT_SECONDS:-3600}"
+  [[ "$(dr_sha256 "$mirrored_ready")" == "$(dr_sha256 "$ready")" &&
+     "$(dr_sha256 "${mirrored_ready}.sig")" == "$(dr_sha256 "${ready}.sig")" ]] \
+    || dr_die "iCloud READY changed after upload: ${snapshot}"
+  completion="$DR_ICLOUD_ROOT/manifests/$generation/$snapshot.complete.json"
+  completion_draft_dir="$DR_LOCAL_CACHE/state/completion-drafts/$host"
+  completion_draft="$completion_draft_dir/$snapshot.complete.json"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$completion_draft_dir"
+  install -d -m 0700 "$completion_draft_dir"
+  dr_assert_managed_directory_path "$DR_LOCAL_CACHE" "$completion_draft_dir"
+
+  # Keep a signed local draft until both detached-signature files have been
+  # atomically published. If the Mac sleeps or the process exits between those
+  # two renames, the same exact document can be resumed on the next cycle.
+  if [[ -e "$completion_draft" || -L "$completion_draft" || -e "${completion_draft}.sig" || -L "${completion_draft}.sig" ]]; then
+    if [[ ! -f "$completion_draft" || -L "$completion_draft" ||
+          ! -f "${completion_draft}.sig" || -L "${completion_draft}.sig" ]]; then
+      rm -f -- "$completion_draft" "${completion_draft}.sig"
+    fi
+  fi
+  if [[ ! -e "$completion_draft" && ! -e "${completion_draft}.sig" ]]; then
+    completed_at="$(date -u +%FT%TZ)"
+    jq -n --arg createdAt "$completed_at" --arg snapshotId "$snapshot" --arg host "$host" \
+      --arg profile "$(jq -r .profile "$ready")" --arg generation "$generation" --arg readySha256 "$(dr_sha256 "$ready")" \
+      --arg forgeControlPlaneSha256 "$(jq -er .forgeControlPlaneSha256 "$ready")" \
+      --arg uploadedVerifiedAt "$completed_at" --slurpfile ready "$ready" \
+      '{schemaVersion:1,createdAt:$createdAt,snapshotId:$snapshotId,host:$host,profile:$profile,generation:$generation,
+        readySha256:$readySha256,forgeControlPlaneSha256:$forgeControlPlaneSha256,
+        objects:$ready[0].objects,uploadedVerifiedAt:$uploadedVerifiedAt}' > "${completion_draft}.tmp"
+    validate_completion_binding "${completion_draft}.tmp" "$ready" "$host"
+    dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-complete \
+      "${completion_draft}.tmp" "${completion_draft}.tmp.sig"
+    mv -- "${completion_draft}.tmp.sig" "${completion_draft}.sig"
+    mv -- "${completion_draft}.tmp" "$completion_draft"
+  fi
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-complete \
+    "${completion_draft}.sig" "$completion_draft"
+  validate_completion_binding "$completion_draft" "$ready" "$host"
+
+  if [[ -e "$completion" || -L "$completion" || -e "${completion}.sig" || -L "${completion}.sig" ]]; then
+    [[ ! -e "$completion" || (-f "$completion" && ! -L "$completion") ]] \
+      || dr_die "iCloud completion is unsafe: ${snapshot}"
+    [[ ! -e "${completion}.sig" || (-f "${completion}.sig" && ! -L "${completion}.sig") ]] \
+      || dr_die "iCloud completion signature is unsafe: ${snapshot}"
+    if [[ -e "$completion" ]]; then
+      "$icloud_helper" hydrate "$completion" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      validate_completion_binding "$completion" "$ready" "$host"
+      [[ "$(dr_sha256 "$completion")" == "$(dr_sha256 "$completion_draft")" ]] \
+        || dr_die "immutable iCloud completion collision: ${snapshot}"
+      already_mirrored=true
+    fi
+    if [[ -e "${completion}.sig" ]]; then
+      "$icloud_helper" hydrate "${completion}.sig" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      [[ "$(dr_sha256 "${completion}.sig")" == "$(dr_sha256 "${completion_draft}.sig")" ]] \
+        || dr_die "immutable iCloud completion signature collision: ${snapshot}"
+    fi
+  fi
+  if [[ ! -e "${completion}.sig" ]]; then
+    install -m 0600 "${completion_draft}.sig" "${completion}.sig.partial"
+    mv -- "${completion}.sig.partial" "${completion}.sig"
+  fi
+  if [[ ! -e "$completion" ]]; then
+    install -m 0600 "$completion_draft" "${completion}.partial"
+    mv -- "${completion}.partial" "$completion"
+  fi
+  "$icloud_helper" wait-uploaded "$completion" "${DR_ICLOUD_UPLOAD_TIMEOUT_SECONDS:-3600}"
+  "$icloud_helper" wait-uploaded "${completion}.sig" "${DR_ICLOUD_UPLOAD_TIMEOUT_SECONDS:-3600}"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-complete "${completion}.sig" "$completion"
+  validate_completion_binding "$completion" "$ready" "$host"
+  jq -n --arg host "$host" --arg snapshotId "$snapshot" --arg completion "$completion" --argjson alreadyMirrored "$already_mirrored" \
+    '{mirrored:true,alreadyMirrored:$alreadyMirrored,iCloudConfirmed:true,host:$host,snapshotId:$snapshotId,completionManifest:$completion}'
+}
+
+select_completion() {
+  local host="$1" selected
+  if [[ "$snapshot_filter" == latest ]]; then
+    selected="$(find "$DR_ICLOUD_ROOT/manifests" -name "${host}-*.complete.json" -type f 2>/dev/null | sort | tail -1)"
+  else
+    selected="$(find "$DR_ICLOUD_ROOT/manifests" -name "${snapshot_filter}.complete.json" -type f 2>/dev/null | head -1)"
+  fi
+  [[ -n "$selected" ]] || dr_die "no iCloud-complete manifest for ${host}/${snapshot_filter}"
+  printf '%s' "$selected"
+}
+
+select_pair() {
+  local limit="${DR_PAIR_CANDIDATE_LIMIT:-32}" candidate host output pair
+  local pi_candidates forge_candidates
+  [[ -z "$host_filter" && "$snapshot_filter" == latest ]] \
+    || dr_die "select-pair accepts neither --host nor an explicit --snapshot"
+  [[ "$limit" =~ ^[0-9]+$ && "$limit" -ge 2 && "$limit" -le 256 ]] \
+    || dr_die "DR_PAIR_CANDIDATE_LIMIT must be 2..256"
+  pi_candidates="$(mktemp "${TMPDIR:-/tmp}/dr-pair-pi.XXXXXX")"
+  forge_candidates="$(mktemp "${TMPDIR:-/tmp}/dr-pair-forge.XXXXXX")"
+  trap 'rm -f -- "$pi_candidates" "$forge_candidates"' RETURN
+  for host in pi-cloud forge; do
+    if [[ "$host" == pi-cloud ]]; then output="$pi_candidates"; else output="$forge_candidates"; fi
+    while IFS= read -r candidate; do
+      [[ -f "$candidate" && ! -L "$candidate" && -f "${candidate}.sig" && ! -L "${candidate}.sig" ]] \
+        || dr_die "pair candidate or signature is unsafe: ${candidate}"
+      [[ "$(basename "$candidate")" =~ ^${host}-[0-9]{8}T[0-9]{6}Z\.complete\.json$ ]] \
+        || dr_die "pair candidate has an unsafe filename: ${candidate}"
+      "$icloud_helper" hydrate "$candidate" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      "$icloud_helper" hydrate "${candidate}.sig" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-complete "${candidate}.sig" "$candidate"
+      validate_completion_manifest "$candidate" "$host"
+      jq -c '{snapshotId,createdAt,uploadedVerifiedAt,generation,forgeControlPlaneSha256,
+        snapshotStamp:(.snapshotId|capture("-(?<stamp>[0-9]{8}T[0-9]{6}Z)$").stamp)}' "$candidate" >> "$output"
+    done < <(find "$DR_ICLOUD_ROOT/manifests" -name "${host}-*.complete.json" -type f 2>/dev/null | sort -r | sed -n "1,${limit}p")
+    [[ -s "$output" ]] || dr_die "no signed iCloud completion candidates exist for ${host}"
+  done
+  pair="$(jq -n --slurpfile pi "$pi_candidates" --slurpfile forge "$forge_candidates" '
+    [$pi[] as $p | $forge[] as $f |
+      select($p.forgeControlPlaneSha256==$f.forgeControlPlaneSha256) |
+      {pi:$p,forge:$f,recoveryPointStamp:([$p.snapshotStamp,$f.snapshotStamp]|min)}] |
+    sort_by(.recoveryPointStamp,.pi.snapshotStamp,.forge.snapshotStamp) | last // empty
+  ')"
+  [[ -n "$pair" ]] \
+    || dr_die "no compatible signed Pi/Forge snapshot pair exists among the newest ${limit} completions; select an explicit PI_ID,FORGE_ID pair after review"
+  jq -c '. + {paired:true,forgeControlPlaneSha256:.pi.forgeControlPlaneSha256}' <<< "$pair"
+}
+
+hydrate_host() {
+  local host="$1" completion generation snapshot mirror_repo mirror_ready destination destination_root working required available ready signer object relative expected target
+  completion="$(select_completion "$host")"
+  [[ -f "$completion" && ! -L "$completion" && -f "${completion}.sig" && ! -L "${completion}.sig" ]] \
+    || dr_die "selected completion or signature is unsafe"
+  "$icloud_helper" hydrate "$completion" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+  "$icloud_helper" hydrate "${completion}.sig" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-complete "${completion}.sig" "$completion"
+  validate_completion_manifest "$completion" "$host"
+  generation="$(jq -r .generation "$completion")"
+  snapshot="$(jq -r .snapshotId "$completion")"
+  mirror_repo="$DR_ICLOUD_ROOT/$host/$generation/repository"
+  mirror_ready="$DR_ICLOUD_ROOT/$host/$generation/ready/$snapshot.json"
+  destination="${hydrate_destination:-${DR_LOCAL_CACHE}/hydrated/${snapshot}}"
+  [[ "$destination" == /* && ! -e "$destination" && ! -L "$destination" ]] || dr_die "hydrate destination must be a new absolute path: ${destination}"
+  if [[ -n "$hydrate_destination" ]]; then
+    destination_root="$(dirname "$destination")"
+    [[ "$destination_root" != / && -d "$destination_root" && ! -L "$destination_root" ]] \
+      || dr_die "custom hydrate destination must have a real, non-root parent"
+  else
+    destination_root="$DR_LOCAL_CACHE"
+  fi
+  required="$(jq '[.objects[].bytes] | add' "$completion")"
+  available="$(dr_bytes_available "$destination_root")"
+  (( available >= required + required / 10 + 1073741824 )) || dr_die "insufficient local space to hydrate ${snapshot}"
+  working="${destination}.partial.$$"
+  [[ ! -e "$working" && ! -L "$working" ]] || dr_die "hydrate staging path already exists: ${working}"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$mirror_repo"
+  dr_assert_managed_directory_path "$DR_ICLOUD_ROOT" "$(dirname "$mirror_ready")"
+  dr_assert_managed_directory_path "$destination_root" "$destination"
+  dr_assert_managed_directory_path "$destination_root" "$working"
+  install -d -m 0700 "$working/repository" "$working/ready"
+  trap 'rm -rf -- "$working"' RETURN
+  dr_assert_managed_directory_path "$working" "$working/repository"
+  dr_assert_managed_directory_path "$working" "$working/ready"
+  while IFS= read -r object; do
+    relative="$(jq -r .path <<< "$object")"
+    dr_assert_restic_object_path "$relative"
+    expected="$(jq -r .sha256 <<< "$object")"
+    "$icloud_helper" hydrate "$mirror_repo/$relative" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+    [[ -f "$mirror_repo/$relative" && ! -L "$mirror_repo/$relative" ]] || dr_die "hydrated iCloud object is unsafe: ${relative}"
+    target="$working/repository/$relative"
+    dr_assert_managed_directory_path "$working" "$(dirname "$target")"
+    install -d -m 0700 "$(dirname "$target")"
+    dr_assert_managed_directory_path "$working" "$(dirname "$target")"
+    [[ ! -e "${target}.partial" && ! -L "${target}.partial" ]] \
+      || dr_die "unsafe partial hydrate object exists: ${relative}"
+    cp -p -- "$mirror_repo/$relative" "${target}.partial"
+    [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
+      || dr_die "partial hydrate object is unsafe: ${relative}"
+    [[ "$(dr_sha256 "${target}.partial")" == "$expected" ]] || dr_die "hydrated object checksum mismatch: ${relative}"
+    mv -- "${target}.partial" "$target"
+  done < <(jq -c '.objects[]' "$completion")
+  "$icloud_helper" hydrate "$mirror_ready" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+  "$icloud_helper" hydrate "${mirror_ready}.sig" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+  [[ -f "$mirror_ready" && ! -L "$mirror_ready" && -f "${mirror_ready}.sig" && ! -L "${mirror_ready}.sig" ]] \
+    || dr_die "hydrated READY or signature is unsafe: ${snapshot}"
+  cp -p -- "$mirror_ready" "$working/ready/$snapshot.json"
+  cp -p -- "${mirror_ready}.sig" "$working/ready/$snapshot.json.sig"
+  ready="$working/ready/$snapshot.json"
+  [[ "$(dr_sha256 "$ready")" == "$(jq -r .readySha256 "$completion")" ]] || dr_die "hydrated READY checksum mismatch"
+  signer="$(host_value "$host" signer)"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${ready}.sig" "$ready"
+  validate_ready_manifest "$ready" "$host"
+  jq -e --slurpfile ready "$ready" '
+    .snapshotId==$ready[0].snapshotId and .host==$ready[0].host and .profile==$ready[0].profile and
+    .generation==$ready[0].generation and
+    .forgeControlPlaneSha256==$ready[0].forgeControlPlaneSha256 and .objects==$ready[0].objects
+  ' "$completion" >/dev/null || dr_die "completion inventory does not exactly match signed READY"
+  verify_objects "$completion" "$working/repository"
+  RESTIC_REPOSITORY="$working/repository" RESTIC_PASSWORD_FILE="$(host_value "$host" password)" restic check --read-data-subset="${DR_RESTIC_READ_DATA_SUBSET:-5%}" >/dev/null
+  [[ ! -e "$destination" && ! -L "$destination" ]] || dr_die "hydrate destination appeared during verification: ${destination}"
+  mv -- "$working" "$destination"
+  ready="$destination/ready/$snapshot.json"
+  jq -n --arg host "$host" --arg snapshotId "$snapshot" --arg generation "$generation" --arg path "$destination" \
+    --arg resticSnapshotId "$(jq -r .resticSnapshotId "$ready")" \
+    '{hydrated:true,verified:true,host:$host,snapshotId:$snapshotId,generation:$generation,path:$path,resticSnapshotId:$resticSnapshotId}'
+}
+
+verify_full_host() (
+  local host="$1" temporary result
+  temporary="$(mktemp -d "${TMPDIR:-/tmp}/dr-full-verify.XXXXXX")"
+  rmdir -- "$temporary"
+  trap 'rm -rf -- "$temporary"' EXIT
+  hydrate_destination="$temporary"
+  DR_RESTIC_READ_DATA_SUBSET=100%
+  result="$(hydrate_host "$host")"
+  jq -c '. + {fullDataVerified:true}' <<< "$result"
+)
+
+status_all() {
+  local now host observed_ready local_ready completion host_at local_at cloud_at host_age local_age cloud_age signer generation mirror_repo
+  local queue_objects queue_bytes object relative expected_bytes target actual_bytes
+  local heartbeat_file last_heartbeat_at last_heartbeat_age
+  now="$(date +%s)"
+  heartbeat_file="$DR_LOCAL_CACHE/state/last-icloud-heartbeat-at"
+  last_heartbeat_at=""
+  last_heartbeat_age=null
+  if [[ -f "$heartbeat_file" && ! -L "$heartbeat_file" ]]; then
+    last_heartbeat_at="$(head -1 "$heartbeat_file")"
+    if heartbeat_epoch="$(dr_iso8601_epoch "$last_heartbeat_at" 2>/dev/null)"; then
+      last_heartbeat_age=$((now - heartbeat_epoch))
+    else
+      dr_die "local iCloud heartbeat state is invalid"
+    fi
+  fi
+  for host in pi-cloud forge; do
+    observed_ready="$(find "$DR_LOCAL_CACHE/state/host-observed/$host" -name "${host}-*.json" -type f 2>/dev/null | sort | tail -1 || true)"
+    local_ready="$(find "$DR_LOCAL_CACHE/$host" -path '*/ready/*.json' -type f 2>/dev/null | sort | tail -1 || true)"
+    completion="$(find "$DR_ICLOUD_ROOT/manifests" -name "${host}-*.complete.json" -type f 2>/dev/null | sort | tail -1 || true)"
+    signer="$(host_value "$host" signer)"
+    if [[ -n "$observed_ready" ]]; then
+      dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${observed_ready}.sig" "$observed_ready"
+      validate_ready_manifest "$observed_ready" "$host"
+    fi
+    if [[ -n "$local_ready" ]]; then
+      dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${local_ready}.sig" "$local_ready"
+      validate_ready_manifest "$local_ready" "$host"
+    fi
+    if [[ -n "$completion" ]]; then
+      [[ -f "$completion" && ! -L "$completion" && -f "${completion}.sig" && ! -L "${completion}.sig" ]] \
+        || dr_die "iCloud completion or signature is unsafe: ${host}"
+      "$icloud_helper" hydrate "$completion" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      "$icloud_helper" hydrate "${completion}.sig" "${DR_ICLOUD_HYDRATE_TIMEOUT_SECONDS:-86400}"
+      dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-complete "${completion}.sig" "$completion"
+      validate_completion_manifest "$completion" "$host"
+    fi
+    host_at="$(if [[ -n "$observed_ready" ]]; then jq -r .createdAt "$observed_ready"; else printf ''; fi)"
+    local_at="$(if [[ -n "$local_ready" ]]; then jq -r .createdAt "$local_ready"; else printf ''; fi)"
+    cloud_at="$(if [[ -n "$completion" ]]; then jq -r .uploadedVerifiedAt "$completion"; else printf ''; fi)"
+    host_age="$(if [[ -n "$host_at" ]]; then printf '%s' $((now - $(dr_iso8601_epoch "$host_at"))); else printf null; fi)"
+    local_age="$(if [[ -n "$local_at" ]]; then printf '%s' $((now - $(dr_iso8601_epoch "$local_at"))); else printf null; fi)"
+    cloud_age="$(if [[ -n "$cloud_at" ]]; then printf '%s' $((now - $(dr_iso8601_epoch "$cloud_at"))); else printf null; fi)"
+    queue_objects=null
+    queue_bytes=null
+    if [[ -n "$local_ready" ]]; then
+      generation="$(jq -er .generation "$local_ready")"
+      mirror_repo="$DR_ICLOUD_ROOT/$host/$generation/repository"
+      queue_objects=0
+      queue_bytes=0
+      while IFS= read -r object; do
+        relative="$(jq -er .path <<< "$object")"
+        dr_assert_restic_object_path "$relative"
+        expected_bytes="$(jq -er .bytes <<< "$object")"
+        target="$mirror_repo/$relative"
+        actual_bytes="$(if [[ -f "$target" && ! -L "$target" ]]; then stat -f '%z' "$target" 2>/dev/null || stat -c '%s' "$target"; else printf 0; fi)"
+        if [[ "$actual_bytes" != "$expected_bytes" ]]; then
+          queue_objects=$((queue_objects + 1))
+          queue_bytes=$((queue_bytes + expected_bytes))
+        fi
+      done < <(jq -c '.objects[]' "$local_ready")
+    fi
+    jq -cn --arg host "$host" --arg hostSnapshot "${observed_ready##*/}" --arg hostAt "$host_at" \
+      --arg localSnapshot "${local_ready##*/}" --arg localAt "$local_at" \
+      --arg cloudSnapshot "${completion##*/}" --arg cloudAt "$cloud_at" \
+      --argjson hostAge "$host_age" --argjson localAge "$local_age" --argjson cloudAge "$cloud_age" \
+      --argjson queueObjects "$queue_objects" --argjson queueBytes "$queue_bytes" \
+      '{host:$host,hostSnapshot:(if $hostSnapshot=="" then null else ($hostSnapshot|sub("\\.json$";"")) end),hostSnapshotAt:(if $hostAt=="" then null else $hostAt end),hostSnapshotAgeSeconds:$hostAge,
+        localVerifiedSnapshot:(if $localSnapshot=="" then null else ($localSnapshot|sub("\\.json$";"")) end),localVerifiedAt:(if $localAt=="" then null else $localAt end),localVerifiedAgeSeconds:$localAge,
+        iCloudConfirmedSnapshot:(if $cloudSnapshot=="" then null else ($cloudSnapshot|sub("\\.complete\\.json$";"")) end),iCloudConfirmedAt:(if $cloudAt=="" then null else $cloudAt end),iCloudConfirmedAgeSeconds:$cloudAge,
+        iCloudQueueObjects:$queueObjects,iCloudQueueBytes:$queueBytes,
+        status:(if $hostAge==null or $localAge==null or $cloudAge==null then "critical"
+          elif $cloudAge>86400 then "critical"
+          elif $hostAge>21600 or $localAge>21600 or $cloudAge>43200 then "warning"
+          else "ok" end)}'
+  done | jq -s --arg lastHeartbeatAt "$last_heartbeat_at" --argjson lastHeartbeatAge "$last_heartbeat_age" \
+    '{schemaVersion:1,createdAt:(now|todate),lastICloudHeartbeatAt:(if $lastHeartbeatAt=="" then null else $lastHeartbeatAt end),lastICloudHeartbeatAgeSeconds:$lastHeartbeatAge,hosts:.}'
+}
+
+case "$command_name" in
+  pull) while IFS= read -r host; do pull_host "$host"; done < <(hosts) ;;
+  mirror) while IFS= read -r host; do mirror_host "$host"; done < <(hosts) ;;
+  hydrate) while IFS= read -r host; do hydrate_host "$host"; done < <(hosts) ;;
+  verify-full) while IFS= read -r host; do verify_full_host "$host"; done < <(hosts) ;;
+  select-pair) select_pair ;;
+  status) status_all ;;
+  cycle)
+    while IFS= read -r host; do pull_host "$host"; mirror_host "$host"; done < <(hosts)
+    # A partial cycle must not mask the stale state of the host that failed.
+    heartbeat_count=0
+    for heartbeat_url in "${DR_ICLOUD_WARNING_HEARTBEAT_URL:-}" "${DR_ICLOUD_CRITICAL_HEARTBEAT_URL:-}"; do
+      [[ -n "$heartbeat_url" ]] || continue
+      printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$heartbeat_url" | curl --config - >/dev/null
+      heartbeat_count=$((heartbeat_count + 1))
+    done
+    if ((heartbeat_count > 0)); then
+      install -d -m 0700 "$DR_LOCAL_CACHE/state"
+      heartbeat_tmp="$(mktemp "$DR_LOCAL_CACHE/state/last-icloud-heartbeat-at.XXXXXX")"
+      date -u +%FT%TZ > "$heartbeat_tmp"
+      chmod 0600 "$heartbeat_tmp"
+      mv -f -- "$heartbeat_tmp" "$DR_LOCAL_CACHE/state/last-icloud-heartbeat-at"
+    fi
+    ;;
+esac

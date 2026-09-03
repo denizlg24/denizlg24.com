@@ -10,6 +10,8 @@ import type { Exec } from "./exec";
 import { resolveCheckoutModuleGraph } from "./module-graph";
 import type { PortAllocator } from "./ports";
 import type { DeploymentRunner } from "./queue";
+import type { PublishedRecoveryImage } from "./recovery-image";
+import { publishRecoveryImage } from "./recovery-image";
 import {
   type HealthProbe,
   type RouteManager,
@@ -69,6 +71,19 @@ export interface PipelineOptions {
   healthProbe?: HealthProbe;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  recoveryRegistryPrefix?: string;
+  recoveryImagePublisher?: (input: {
+    exec: Exec;
+    log: Awaited<ReturnType<BuildLogStore["open"]>>;
+    request: AgentDeploymentRequest;
+    localImage: string;
+    registryPrefix: string;
+    signal: AbortSignal;
+  }) => Promise<PublishedRecoveryImage>;
+  acquireHostMutationLock?: (
+    owner: string,
+    signal: AbortSignal,
+  ) => Promise<() => Promise<void>>;
 }
 
 function errorMessage(error: unknown): string {
@@ -83,6 +98,7 @@ export function createDeploymentRunner(
   return async (request, context) => {
     const log = await options.logs.open(request.deploymentId);
     let port: number | null = null;
+    let releaseHostMutationLock: (() => Promise<void>) | null = null;
 
     try {
       await context.report({ status: "building", phase: "cloning" });
@@ -122,6 +138,12 @@ export function createDeploymentRunner(
       // while this one starts a container and waits for it to answer.
       context.releaseBuildSlot();
 
+      releaseHostMutationLock =
+        (await options.acquireHostMutationLock?.(
+          `deployment:${request.deploymentId}`,
+          context.signal,
+        )) ?? null;
+
       port = await options.ports.allocate(request.deploymentId);
       // Repeated on every deploying report rather than written once: each is an
       // idempotent overwrite, and a control plane that missed one still ends up
@@ -129,9 +151,13 @@ export function createDeploymentRunner(
       const built = {
         port,
         imageTag: build.imageTag,
+        resolvedBuilder: build.builder,
         imageSizeBytes: build.imageSizeBytes,
         buildDurationMs: build.buildDurationMs,
       };
+      const recoveryImage: {
+        current: Awaited<ReturnType<typeof publishRecoveryImage>> | null;
+      } = { current: null };
       const outcome = await runDeployment({
         request,
         builder: build.builder,
@@ -147,12 +173,28 @@ export function createDeploymentRunner(
         healthPollMs: options.healthPollMs,
         sleep: options.sleep,
         now: options.now,
+        afterHealthy: async () => {
+          recoveryImage.current = await (
+            options.recoveryImagePublisher ?? publishRecoveryImage
+          )({
+            exec: options.exec,
+            log,
+            request,
+            localImage: build.imageTag,
+            registryPrefix:
+              options.recoveryRegistryPrefix ??
+              "ghcr.io/denizlg24/forge-recovery",
+            signal: context.signal,
+          });
+        },
         onPhase: (phase) =>
           context.report({ status: "deploying", phase, ...built }),
       });
 
       const ready: DeploymentStatusUpdate = {
         ...built,
+        imageTag: recoveryImage.current?.reference ?? build.imageTag,
+        imageDigest: recoveryImage.current?.digest ?? null,
         status: "ready",
         phase: null,
         port: outcome.port,
@@ -186,6 +228,11 @@ export function createDeploymentRunner(
       if (port !== null) options.ports.release(port);
       throw error;
     } finally {
+      if (releaseHostMutationLock) {
+        await releaseHostMutationLock().catch((error: unknown) =>
+          log.note(`host mutation lock release failed: ${errorMessage(error)}`),
+        );
+      }
       await options.logs.close(request.deploymentId).catch(() => {});
     }
   };

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+root=""; ghcr_auth=""; api_token_file=""; api_url=""; agent_url=""; defer_control_plane_activation=false
+cleanup() {
+  [[ -z "$ghcr_auth" ]] || rm -f -- "$ghcr_auth"
+  [[ -z "$api_token_file" ]] || rm -f -- "$api_token_file"
+}
+trap cleanup EXIT
+while (($#)); do
+  case "$1" in
+    --root) root="${2:-}"; shift 2 ;;
+    --ghcr-auth) ghcr_auth="${2:-}"; shift 2 ;;
+    --api-token-file) api_token_file="${2:-}"; shift 2 ;;
+    --api-url) api_url="${2:-}"; shift 2 ;;
+    --agent-url) agent_url="${2:-}"; shift 2 ;;
+    --defer-control-plane-activation) defer_control_plane_activation=true; shift ;;
+    *) exit 2 ;;
+  esac
+done
+((EUID == 0)) || { echo "STOP: restore requires root" >&2; exit 1; }
+[[ "$root" == /srv/deniz-dr/restore/* && -d "$root" && -f "$ghcr_auth" && -f "$api_token_file" ]] || { echo "STOP: unsafe Forge restore inputs" >&2; exit 1; }
+[[ "$api_url" == "http://127.0.0.1:3001" || "$api_url" =~ ^http://100\.[0-9]+\.[0-9]+\.[0-9]+:3001$ ]] \
+  || { echo "STOP: unsafe recovery API URL" >&2; exit 1; }
+manifest="$root/snapshot-manifest.json"
+[[ "$(jq -r .profile "$manifest")" == forge ]] || { echo "STOP: Forge snapshot required" >&2; exit 1; }
+
+while IFS=$'\t' read -r relative expected; do
+  [[ "$(sha256sum "$root/$relative" | awk '{print $1}')" == "$expected" ]] || { echo "STOP: artifact checksum failed: $relative" >&2; exit 1; }
+done < <(jq -r '.artifacts[] | [.path,.sha256] | @tsv' "$manifest")
+zstd -dc "$root/artifacts/config.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C / -xf -
+install -d -m 0700 /etc/deniz-dr
+zstd -dc "$root/artifacts/config-recovery-host.tar.zst" | tar --numeric-owner -C /etc/deniz-dr -xf -
+chmod 0600 /etc/deniz-dr/forge.env /etc/deniz-dr/forge-restic-password /etc/deniz-dr/forge-signing-key
+for required in /etc/deniz-dr/forge.env /etc/deniz-dr/forge-restic-password /etc/deniz-dr/forge-signing-key; do
+  [[ -f "$required" && ! -L "$required" ]] || { echo "STOP: recovered Forge backup continuity credential is missing" >&2; exit 1; }
+done
+
+[[ ! -L "$ghcr_auth" && "$(wc -l < "$ghcr_auth" | tr -d ' ')" == 2 ]] \
+  || { echo "STOP: GHCR recovery credential file is unsafe" >&2; exit 1; }
+username="$(sed -n '1p' "$ghcr_auth")"; password="$(sed -n '2p' "$ghcr_auth")"
+[[ "$username" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ && -n "$password" && "$password" != *[$'\r\n']* ]] \
+  || { echo "STOP: GHCR recovery credential is incomplete or unsafe" >&2; exit 1; }
+printf '%s' "$password" | sudo -u forge docker login ghcr.io -u "$username" --password-stdin >/dev/null
+rm -f -- "$ghcr_auth"
+
+while IFS= read -r reference; do
+  [[ "$reference" == ghcr.io/*@sha256:* ]] || { echo "STOP: non-immutable Forge image" >&2; exit 1; }
+  sudo -u forge docker pull "$reference" >/dev/null
+done < <(jq -r '.images[].reference' "$manifest")
+
+install -d -m 0750 -o forge -g forge /mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache /mnt/storage/forge/buildkit
+tailnet_ip="$(tailscale ip -4 | head -1)"
+[[ "$tailnet_ip" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "STOP: target has no Tailscale IPv4" >&2; exit 1; }
+[[ "$agent_url" == "http://${tailnet_ip}:4010" ]] || { echo "STOP: recovery agent URL does not name this target" >&2; exit 1; }
+agent_env=/etc/forge/agent.env
+[[ -f "$agent_env" && ! -L "$agent_env" ]] || { echo "STOP: restored Forge agent environment is unsafe" >&2; exit 1; }
+sed -i -E "s|^AGENT_BIND_ADDRESS=.*$|AGENT_BIND_ADDRESS=${tailnet_ip}|; s|^CONTROL_PLANE_URL=.*$|CONTROL_PLANE_URL=${api_url}|" "$agent_env"
+if ! grep -Fxq "AGENT_BIND_ADDRESS=${tailnet_ip}" "$agent_env" \
+  || ! grep -Fxq "CONTROL_PLANE_URL=${api_url}" "$agent_env"; then
+  echo "STOP: restored Forge agent environment lacks recovery endpoints" >&2
+  exit 1
+fi
+systemctl daemon-reload
+systemctl enable --now forge-buildkit forge-caddy forge-agent
+for _ in $(seq 1 60); do curl -fsS "http://${tailnet_ip}:4010/healthz" >/dev/null && break; sleep 2; done
+curl -fsS "http://${tailnet_ip}:4010/healthz" >/dev/null || { echo "STOP: Forge agent health failed" >&2; exit 1; }
+
+token="$(cat "$api_token_file")"
+[[ ${#token} -ge 32 && "$token" != *[$'\r\n"\\']* ]] \
+  || { echo "STOP: recovery API token is unsafe" >&2; exit 1; }
+expected_deployments="$(jq -c '[.images[] | {
+  deploymentId,imageReference:.reference,imageDigest:.digest,hostname:.domain,environmentHmacSha256,environmentCipher
+}] | sort_by(.deploymentId)' "$manifest")"
+jq -e 'length>0 and ([.[].deploymentId]|unique|length)==length and
+  ([.[].hostname]|unique|length)==length and
+  all(.[]; (.environmentHmacSha256|test("^[0-9a-f]{64}$")) and
+    (.environmentCipher|type=="object") and
+    (.environmentCipher.encrypted|type=="string" and length>0) and
+    (.environmentCipher.iv|type=="string" and length>0) and
+    (.environmentCipher.authTag|type=="string" and length>0))' <<< "$expected_deployments" >/dev/null \
+  || { echo "STOP: signed Forge recovery inventory is incomplete" >&2; exit 1; }
+recovery_body="$(jq -cn --arg agentUrl "$agent_url" --argjson expectedDeployments "$expected_deployments" \
+  --argjson commitContainerIds "$([[ "$defer_control_plane_activation" == false ]] && printf true || printf false)" \
+  '{agentUrl:$agentUrl,commitContainerIds:$commitContainerIds,expectedDeployments:$expectedDeployments}')"
+response="$(printf 'url = "%s/api/deploy/agent/recovery/restore"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "%s"\nfail-with-body\nsilent\nshow-error\nmax-time = 900\n' "$api_url" "$token" "${recovery_body//\"/\\\"}" | curl --config -)"
+rm -f -- "$api_token_file"
+jq -e --argjson expectedDeployments "$expected_deployments" '
+  .allRestored == true and .expected > 0 and .restored == .expected and
+  ([.results[] | {deploymentId,imageReference,hostname,environmentHmacSha256}] | sort_by(.deploymentId)) ==
+    ([$expectedDeployments[] | {deploymentId,imageReference,hostname,environmentHmacSha256}] | sort_by(.deploymentId))
+' <<< "$response" >/dev/null \
+  || { echo "STOP: one or more Forge deployments failed digest recovery" >&2; exit 1; }
+if [[ "$defer_control_plane_activation" == true ]]; then
+  jq -e '.containerIdsCommitted==false' <<< "$response" >/dev/null \
+    || { echo "STOP: Forge-only restore mutated the surviving control plane" >&2; exit 1; }
+else
+  jq -e '.containerIdsCommitted==true' <<< "$response" >/dev/null \
+    || { echo "STOP: combined restore did not commit recovery container IDs" >&2; exit 1; }
+fi
+domains_verified=0
+while IFS= read -r domain; do
+  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ && "$domain" == *.* ]] || { echo "STOP: unsafe Forge recovery domain" >&2; exit 1; }
+  jq -e --arg domain "$domain" 'any(.[]; (.hostnames // []) | index($domain))' /srv/forge/routes.json >/dev/null \
+    || { echo "STOP: restored Caddy state lacks ${domain}" >&2; exit 1; }
+  http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 \
+    --resolve "${domain}:8080:127.0.0.1" "http://${domain}:8080/")"
+  [[ "$http_status" =~ ^[234][0-9][0-9]$ ]] \
+    || { echo "STOP: local Caddy route failed for ${domain}" >&2; exit 1; }
+  domains_verified=$((domains_verified + 1))
+done < <(jq -r '.images[].domain' "$manifest")
+[[ "$domains_verified" -eq "$(jq '.images | length' "$manifest")" && "$domains_verified" -gt 0 ]] \
+  || { echo "STOP: not every Forge domain was locally verified" >&2; exit 1; }
+domains="$(jq -c '[.images[].domain] | unique | sort' "$manifest")"
+activation_mappings="$(jq -c '[.results[] | {deploymentId,previousContainerId,recoveryContainerId:.containerId}] | sort_by(.deploymentId)' <<< "$response")"
+jq -e '. | length>0 and all(.[]; (.deploymentId|type=="string") and
+  (.previousContainerId==null or (.previousContainerId|test("^[0-9a-f]{12,64}$"))) and
+  (.recoveryContainerId|test("^[0-9a-f]{64}$")))' <<< "$activation_mappings" >/dev/null \
+  || { echo "STOP: recovery container activation mapping is incomplete" >&2; exit 1; }
+jq -c --argjson domainsVerified "$domains_verified" --argjson digestsVerified "$(jq '.images|length' "$manifest")" \
+  --argjson environmentsVerified "$(jq '.images|length' "$manifest")" \
+  --argjson domains "$domains" --argjson activationMappings "$activation_mappings" \
+  '{restored:true,profile:"forge",expected:.expected,deploymentsRestored:.restored,domainsVerified:$domainsVerified,
+    domains:$domains,digestsVerified:$digestsVerified,environmentsVerified:$environmentsVerified,
+    controlPlaneCommitted:.containerIdsCommitted,
+    activationMappings:$activationMappings,servicesVerified:["forge-buildkit","forge-caddy","forge-agent"],publicCutover:false}' <<< "$response"

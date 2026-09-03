@@ -1,0 +1,26 @@
+# Reviewed 2026-09-02. Exact historical false positives only: migration prose,
+# test fixtures/constants, Docker test labels, a public updater verification key,
+# and public food-icon catalog keys.
+# Fingerprints deliberately include commit, path, rule, and line so a changed or
+# newly introduced value is not suppressed.
+06b420422c2bb808f6d89dbcb2d00bb14f4ca980:infra/cutover/MIGRATION-GUIDE.md:generic-api-key:164
+06b420422c2bb808f6d89dbcb2d00bb14f4ca980:infra/cutover/MIGRATION-GUIDE.md:generic-api-key:165
+06b420422c2bb808f6d89dbcb2d00bb14f4ca980:infra/cutover/RUNBOOK.md:generic-api-key:145
+06b420422c2bb808f6d89dbcb2d00bb14f4ca980:infra/cutover/RUNBOOK.md:generic-api-key:58
+1842f0903c7456eb74eb4c61fba046aa680e8744:apps/extension/src/lib/sync.test.ts:generic-api-key:106
+1842f0903c7456eb74eb4c61fba046aa680e8744:apps/extension/src/lib/sync.test.ts:generic-api-key:119
+1842f0903c7456eb74eb4c61fba046aa680e8744:apps/extension/src/lib/sync.test.ts:generic-api-key:198
+1842f0903c7456eb74eb4c61fba046aa680e8744:apps/extension/src/lib/totp.test.ts:generic-api-key:6
+bb249118c94ac717cff898a49d01aa06c70d9d4b:apps/desktop/src-tauri/tauri.conf.json:generic-api-key:55
+4ef3674a1bcab64bc6318e6a5f94374d5e9d4cab:infra/cutover/rehearsal-2026-07-25.md:generic-api-key:94
+82c65797669b476721f9e8eae1baf464766e84e8:packages/cloud-core/src/dav/credentials.ts:generic-api-key:12
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1900
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1908
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1916
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1924
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1932
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1940
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1948
+87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1956
+905e2d54a11b0cb1a8d19bf5b4065e77ce9b0c3b:apps/deploy-agent/src/docker.test.ts:generic-api-key:25
+a35651b3cc1ed4103f9d699bf2777926b11ed2e7:infra/compose/.env.pi.example:generic-api-key:51

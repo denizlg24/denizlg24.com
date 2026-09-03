@@ -41,8 +41,8 @@ env:
 
 jobs:
   build-api:
-    name: Build and push ARM64 API image
-    runs-on: ubuntu-24.04-arm
+    name: Build and push multi-architecture API image
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       image_tag: ${{ steps.release.outputs.image_tag }}
@@ -77,13 +77,17 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
         uses: docker/setup-buildx-action@v4
 
+      - name: Set up QEMU
+        if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
+        uses: docker/setup-qemu-action@v4
+
       - name: Build and push
         if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
         uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/api/Dockerfile
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.API_IMAGE }}:${{ github.sha }}
@@ -92,6 +96,34 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: mode=max
           sbom: true
+
+      - name: Verify both release platforms
+        if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
+        run: |
+          docker buildx imagetools inspect "${API_IMAGE}:${GITHUB_SHA}" --raw > manifest.json
+          jq -e '[.manifests[].platform | select(.os == "linux") | (.os + "/" + .architecture)] | unique | sort == ["linux/amd64", "linux/arm64"]' manifest.json
+
+      - name: Boot and health-check both release platforms
+        if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
+        run: |
+          set -Eeuo pipefail
+          for architecture in amd64 arm64; do
+            name="cloud-api-${architecture}"
+            docker run --detach --name "$name" --platform "linux/${architecture}" --publish 33001:3001 "${API_IMAGE}:${GITHUB_SHA}"
+            healthy=false
+            for _ in $(seq 1 60); do
+              if curl --fail --silent http://127.0.0.1:33001/healthz | jq -e '.status == "ok"' >/dev/null; then
+                healthy=true
+                break
+              fi
+              sleep 1
+            done
+            if [[ "$healthy" != true ]]; then
+              docker logs "$name"
+              exit 1
+            fi
+            docker rm --force "$name"
+          done
 
   deploy:
     name: Deploy to Pi
@@ -134,10 +166,22 @@ jobs:
           [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
 
+      - name: Fence the Pi backup snapshot
+        run: |
+          lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud"
+          [[ "$lock_token" =~ ^[0-9]+-[0-9]+-cloud$ ]]
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
+          echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+
       - name: Copy infrastructure assets
         run: |
           tar -czf cloud-infra.tgz \
+            --exclude='infra/dr/opentofu/.terraform' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.*' \
             infra/compose \
+            infra/dr \
             infra/fail2ban \
             infra/network \
             infra/scripts \
@@ -263,3 +307,9 @@ jobs:
           done
           echo "API did not report version ${IMAGE_TAG}" >&2
           exit 1
+
+      - name: Release the Pi backup fence
+        if: always() && env.DR_DEPLOY_LOCK_TOKEN != ''
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "set -e; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; test \"\$(cat \"\$lock/owner\" 2>/dev/null)\" = '$DR_DEPLOY_LOCK_TOKEN'; rm -f \"\$lock/owner\"; rmdir \"\$lock\""

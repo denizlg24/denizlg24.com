@@ -1,0 +1,17 @@
+[Unit]
+Description=Export Deniz DR external control-plane state
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-dr/external.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/deniz-dr/external.env
+ExecStart=/opt/deniz-cloud/infra/dr/external-export --config /etc/deniz-dr/external.env
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/deniz-dr/external-state
+UMask=0077

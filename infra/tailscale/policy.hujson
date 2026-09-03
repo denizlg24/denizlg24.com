@@ -10,6 +10,9 @@
         // which on a build host means deploys stop with no code change to
         // explain it.
         "tag:forge": ["denizlg24@github"],
+        // Short-lived combined recovery host. The OAuth client used by the
+        // recovery command is scoped to this tag and auth_keys only.
+        "tag:dr": ["denizlg24@github"],
     },
 
     "grants": [
@@ -18,8 +21,39 @@
             // tag:forge is listed explicitly because tagging the node takes it
             // out of autogroup:self. Without this line, tagging forge is the
             // moment admin SSH to it stops working.
-            "dst": ["autogroup:self", "tag:pi", "tag:forge"],
+            "dst": ["autogroup:self", "tag:pi", "tag:forge", "tag:dr"],
             "ip":  ["tcp:22", "tcp:445"],
+        },
+        {
+            "src": ["tag:dr"],
+            "dst": ["tag:dr"],
+            "ip":  ["*"],
+        },
+        {
+            // Split-host recovery: DR claims from Pi, while Pi proxies owner
+            // operations to the recovered Forge agent.
+            "src": ["tag:dr"],
+            "dst": ["tag:pi"],
+            "ip":  ["tcp:3001"],
+        },
+        {
+            // Pi-only recovery: the recovered control plane still proxies
+            // owner operations to the surviving Forge agent.
+            "src": ["tag:dr"],
+            "dst": ["tag:forge"],
+            "ip":  ["tcp:4010"],
+        },
+        {
+            "src": ["tag:pi"],
+            "dst": ["tag:dr"],
+            "ip":  ["tcp:4010"],
+        },
+        {
+            // Pi-only recovery: the surviving Forge agent claims work from
+            // the recovered control plane.
+            "src": ["tag:forge"],
+            "dst": ["tag:dr"],
+            "ip":  ["tcp:3001"],
         },
         {
             "src": ["denizlg24@github"],
@@ -79,6 +113,13 @@
             "src":         ["denizlg24@github"],
             "dst":         ["tag:forge"],
             "users":       ["denizlg24"],
+        },
+        {
+            "action":      "check",
+            "checkPeriod": "12h",
+            "src":         ["denizlg24@github"],
+            "dst":         ["tag:dr"],
+            "users":       ["root"],
         },
         {
             // Unattended, so accept rather than check — a workflow cannot

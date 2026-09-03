@@ -1,0 +1,23 @@
+name: DR weekly alert-path test
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create labelled Better Stack incident
+        env:
+          BETTERSTACK_API_TOKEN: ${{ secrets.BETTERSTACK_API_TOKEN }}
+          BETTERSTACK_REQUESTER_EMAIL: ${{ secrets.BETTERSTACK_REQUESTER_EMAIL }}
+          BETTERSTACK_POLICY_ID: ${{ secrets.BETTERSTACK_POLICY_ID }}
+          BETTERSTACK_WEEKLY_HEARTBEAT_URL: ${{ secrets.BETTERSTACK_WEEKLY_HEARTBEAT_URL }}
+        run: ./infra/dr/weekly-alert-test

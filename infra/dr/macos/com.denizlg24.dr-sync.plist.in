@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.denizlg24.dr-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__INSTALL_ROOT__/macos/dr-sync</string>
+    <string>--config</string>
+    <string>__CONFIG_PATH__</string>
+    <string>cycle</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__LOG_ROOT__/dr-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_ROOT__/dr-sync.error.log</string>
+</dict>
+</plist>

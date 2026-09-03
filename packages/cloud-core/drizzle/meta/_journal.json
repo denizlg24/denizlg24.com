@@ -288,6 +288,13 @@
       "when": 1788415520692,
       "tag": "0040_auth_account_issuer",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788451730026,
+      "tag": "0041_dr_recovery_artifacts",
+      "breakpoints": true
     }
   ]
 }

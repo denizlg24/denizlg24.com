@@ -33,6 +33,9 @@ dist
 **/generated/prisma/
 next-env.d.ts
 *.tsbuildinfo
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
 
 
 # Debug

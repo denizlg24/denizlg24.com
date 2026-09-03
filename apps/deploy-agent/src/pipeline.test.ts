@@ -43,6 +43,14 @@ function harness(
     drainMs: 10_000,
     healthPollMs: 1,
     healthProbe: async () => 200,
+    recoveryImagePublisher: async ({ request }) => {
+      const digest = `sha256:${"a".repeat(64)}`;
+      return {
+        reference: `ghcr.io/denizlg24/forge-recovery/${request.projectSlug}@${digest}`,
+        digest,
+        deploymentTag: "test",
+      };
+    },
     sleep: async () => {},
     ...overrides,
   });
@@ -98,9 +106,12 @@ describe("createDeploymentRunner", () => {
       expect(final.containerId).toBe("container-abc");
       expect(final.imageSizeBytes).toBe(4096);
       expect(final.port).toBe(routes.published[0]);
-      // The image tag and the port are known before the run and reported with
-      // it, not held back until ready.
-      expect(updates[2]?.imageTag).toBe(final.imageTag);
+      // Deploying reports the local build while ready records the digest-only
+      // recovery artifact that is published after the health gate.
+      expect(updates[2]?.imageTag).toStartWith("forge/hello-world:");
+      expect(final.imageTag).toStartWith(
+        "ghcr.io/denizlg24/forge-recovery/hello-world@sha256:",
+      );
       expect(updates[2]?.port).toBe(final.port);
       expect(exec.find("nixpacks build")).toBeDefined();
     });
@@ -121,6 +132,84 @@ describe("createDeploymentRunner", () => {
       expect(
         released[0]?.map((update) => `${update.status}:${update.phase ?? "-"}`),
       ).toEqual(["building:cloning", "building:building"]);
+    });
+  });
+
+  it("holds the host mutation lock from the first runtime mutation through cleanup", async () => {
+    await withTempDir(async (dir) => {
+      const events: string[] = [];
+      let held = false;
+      const base = happyExec();
+      const guardedExec: FakeExec = {
+        ...base,
+        exec: async (options) => {
+          if (
+            options.command[0] === "docker" &&
+            ["run", "stop", "rm"].includes(options.command[1] ?? "")
+          ) {
+            expect(held).toBe(true);
+            events.push(`docker:${options.command[1]}`);
+          }
+          return base.exec(options);
+        },
+      };
+      const { runner, context } = harness(dir, guardedExec, {
+        acquireHostMutationLock: async (owner) => {
+          expect(owner).toMatch(/^deployment:/);
+          expect(held).toBe(false);
+          held = true;
+          events.push("acquire");
+          return async () => {
+            expect(held).toBe(true);
+            held = false;
+            events.push("release");
+          };
+        },
+        recoveryImagePublisher: async () => {
+          expect(held).toBe(true);
+          events.push("publish-recovery");
+          const digest = `sha256:${"a".repeat(64)}`;
+          return {
+            reference: `ghcr.io/denizlg24/forge-recovery/test@${digest}`,
+            digest,
+            deploymentTag: "test",
+          };
+        },
+      });
+
+      await runner(deploymentRequest({ kind: "production" }), context);
+
+      expect(held).toBe(false);
+      expect(events[0]).toBe("acquire");
+      expect(events).toContain("docker:run");
+      expect(events).toContain("publish-recovery");
+      expect(events.at(-1)).toBe("release");
+    });
+  });
+
+  it("releases the host mutation lock after a runtime failure", async () => {
+    await withTempDir(async (dir) => {
+      let acquired = 0;
+      let released = 0;
+      const exec = fakeExec((call) =>
+        call.command[0] === "docker" && call.command[1] === "run"
+          ? { exitCode: 1, stderr: "runtime failed" }
+          : undefined,
+      );
+      const { runner, context } = harness(dir, exec, {
+        acquireHostMutationLock: async () => {
+          acquired += 1;
+          return async () => {
+            released += 1;
+          };
+        },
+      });
+
+      await expect(runner(deploymentRequest(), context)).rejects.toThrow(
+        /runtime failed/,
+      );
+      expect(acquired).toBe(1);
+      expect(released).toBe(1);
     });
   });
 

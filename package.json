@@ -22,6 +22,7 @@
     "forge:caddy:down": "bun scripts/forge-caddy-dev.mjs --down",
     "dev:storage": "bun --env-file=.env turbo run dev --filter=api --filter=storage",
     "dev:envoy": "bun --env-file=.env turbo run dev --filter=envoy",
+    "dr:test": "bash infra/dr/tests/run.sh",
     "lint": "bun --env-file=.env turbo run lint",
     "check-types": "bun --env-file=.env turbo run typecheck",
     "test": "bun --env-file=.env turbo run test",
@@ -32,6 +33,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "husky": "^9.1.7",
     "knip": "^6.32.0",
     "lint-staged": "^17.3.0",

@@ -64,6 +64,7 @@ import {
   defaultDeployEnvBindings,
   deleteDeployDomain,
   deployCapacity,
+  deploymentEnvironmentHmacSha256,
   deployNamespaceAvailability,
   describeBindings,
   detectBuildConfig,
@@ -113,6 +114,8 @@ import {
 } from "@repo/cloud-core/deploy";
 import {
   type AgentApplyEnvResult,
+  type AgentRecoveryPublishResult,
+  type AgentRecoveryResult,
   agentDeploymentKindsRequestSchema,
   agentModuleGraphReportSchema,
   assertDeployHostname,
@@ -155,7 +158,7 @@ import {
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -163,7 +166,7 @@ import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
 import type { ForgeOps, RouteSlot } from "./ops";
-import { DeployAgentUnavailableError } from "./proxy";
+import { DeployAgentProxy, DeployAgentUnavailableError } from "./proxy";
 
 export interface DeployRouteOptions {
   db: Database;
@@ -408,6 +411,11 @@ function serializeDeployment(
     }`,
     port: row.port,
     imageTag: row.imageTag,
+    imageDigest: row.imageDigest,
+    resolvedBuilder:
+      row.resolvedBuilder === "dockerfile" || row.resolvedBuilder === "nixpacks"
+        ? row.resolvedBuilder
+        : null,
     containerId: row.containerId,
     imageSizeBytes: row.imageSizeBytes,
     buildDurationMs: row.buildDurationMs,
@@ -516,6 +524,59 @@ function newEnvRow(
 }
 
 const uuidParam = z.uuid();
+const recoveryEnvironmentCipherSchema = z
+  .object({
+    encrypted: z
+      .string()
+      .min(1)
+      .max(8 * 1_024 * 1_024),
+    iv: z.string().min(1).max(128),
+    authTag: z.string().min(1).max(128),
+  })
+  .strict();
+const recoveryEnvironmentSchema = z
+  .record(z.string().min(1).max(512), z.string().max(1_048_576))
+  .refine((env) => Object.keys(env).length <= 10_000);
+
+export function encryptRecoveryEnvironment(
+  env: Record<string, string>,
+  encryptionKey: string,
+) {
+  return {
+    environmentHmacSha256: deploymentEnvironmentHmacSha256(env, encryptionKey),
+    environmentCipher: encryptDeployEnvValue(
+      JSON.stringify(env),
+      encryptionKey,
+    ),
+  };
+}
+
+export function decryptRecoveryEnvironment(
+  input: {
+    deploymentId: string;
+    environmentHmacSha256: string;
+    environmentCipher: z.infer<typeof recoveryEnvironmentCipherSchema>;
+  },
+  encryptionKey: string,
+): Record<string, string> {
+  const plaintext = decryptDeployEnvValue(
+    {
+      key: `recovery:${input.deploymentId}`,
+      encryptedValue: input.environmentCipher.encrypted,
+      valueIv: input.environmentCipher.iv,
+      valueAuthTag: input.environmentCipher.authTag,
+    },
+    encryptionKey,
+  );
+  const environment = recoveryEnvironmentSchema.parse(JSON.parse(plaintext));
+  if (
+    deploymentEnvironmentHmacSha256(environment, encryptionKey) !==
+    input.environmentHmacSha256
+  ) {
+    throw new Error("environment semantic checksum mismatch");
+  }
+  return environment;
+}
 
 /**
  * The agent's health deadline is 90s and it stops the old container first, so
@@ -527,6 +588,14 @@ export function deployRoutes(options: DeployRouteOptions) {
   const { db, forge } = options;
   const app = new Hono<{ Variables: AuthVariables }>();
   const { agent: agentProxy, domainContext, zoneName } = forge;
+  const recoveryEnvironmentOverrides = new Map<
+    string,
+    {
+      env: Record<string, string>;
+      environmentHmacSha256: string;
+      expiresAt: number;
+    }
+  >();
 
   async function loadTarget(id: string): Promise<DeployTargetRow> {
     if (!uuidParam.safeParse(id).success) {
@@ -591,6 +660,74 @@ export function deployRoutes(options: DeployRouteOptions) {
       .from(deployEnvironments)
       .where(inArray(deployEnvironments.id, ids));
     return new Map(found.map((row) => [row.id, row]));
+  }
+
+  /**
+   * The one environment resolution path used by builds, signed DR inventory,
+   * and recovery preflight. A semantic checksum made anywhere else could drift
+   * from the values the agent later fetches.
+   */
+  async function resolvedEnvironment(
+    row: DeploymentRow,
+    target: DeployTargetRow,
+    project: Pick<typeof projects.$inferSelect, "id" | "slug" | "name">,
+    resolutionOptions: { issueS3CredentialIfMissing?: boolean } = {},
+  ) {
+    const rows = await db
+      .select()
+      .from(deployEnvVars)
+      .where(eq(deployEnvVars.targetId, target.id));
+    const envoy = await resolveEnvoyEnv(
+      options.envoyEnv,
+      envoyLinkFor(target, (candidate) =>
+        decryptDeployEnvValue(candidate, options.envEncryptionKey),
+      ),
+    );
+    const environment = row.environmentId
+      ? await findEnvironment(db, {
+          targetId: target.id,
+          environmentId: row.environmentId,
+        })
+      : null;
+    const resolved = await resolveDeploymentEnv({
+      envoy,
+      rows,
+      deployment: {
+        id: row.id,
+        sha: row.gitSha,
+        ref: row.gitRef,
+        hostname: row.hostname,
+        kind: row.kind,
+        environmentId: row.environmentId,
+        environmentName: environmentLabel(row.kind, environment),
+      },
+      project: { slug: project.slug, name: project.name },
+      resolvers: createDeployBindingResolvers({
+        db,
+        projectId: project.id,
+        projectSlug: project.slug,
+        deploymentId: row.id,
+        deploymentKind: row.kind,
+        environmentId: row.environmentId,
+        databaseEncryptionSecret: options.databaseEncryptionSecret,
+        databaseHosts: options.databaseHosts,
+        meilisearchUrl: options.meilisearchUrl,
+        s3Endpoint: options.s3Endpoint,
+        s3Region: options.s3Region,
+        s3CredentialEncryptionKey: options.s3CredentialEncryptionKey,
+        issueS3CredentialIfMissing:
+          resolutionOptions.issueS3CredentialIfMissing,
+      }),
+      decrypt: (candidate) =>
+        decryptDeployEnvValue(candidate, options.envEncryptionKey),
+    });
+    return {
+      ...resolved,
+      environmentHmacSha256: deploymentEnvironmentHmacSha256(
+        resolved.env,
+        options.envEncryptionKey,
+      ),
+    };
   }
 
   /**
@@ -3854,6 +3991,648 @@ export function deployRoutes(options: DeployRouteOptions) {
     });
   });
 
+  /**
+   * Immutable production artifacts for the Forge host snapshot. Docker's
+   * Config.Image can still be the local build tag after the same bytes were
+   * pushed to GHCR, so the restored control-plane row is authoritative.
+   */
+  agent.get("/recovery/inventory", async (context) => {
+    const live = await db.query.deployments.findMany({
+      where: and(
+        eq(deployments.kind, "production"),
+        eq(deployments.status, "ready"),
+      ),
+    });
+    const images = [];
+    for (const row of live) {
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.id, row.targetId),
+      });
+      const project = target
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, target.projectId),
+          })
+        : null;
+      const environment =
+        target && project
+          ? await resolvedEnvironment(row, target, project, {
+              issueS3CredentialIfMissing: false,
+            }).catch(() => null)
+          : null;
+      const recoveryEnvironment = environment
+        ? encryptRecoveryEnvironment(environment.env, options.envEncryptionKey)
+        : null;
+      images.push({
+        service: project?.slug ?? target?.name ?? row.hostname,
+        deploymentId: row.id,
+        reference: row.imageTag,
+        digest: row.imageDigest,
+        platform: "linux/amd64",
+        domain: await primaryHostname(row.targetId),
+        imageSizeBytes: row.imageSizeBytes,
+        environmentHmacSha256:
+          recoveryEnvironment?.environmentHmacSha256 ?? null,
+        environmentCipher: recoveryEnvironment?.environmentCipher ?? null,
+        recoverable:
+          target !== undefined &&
+          project !== null &&
+          environment !== null &&
+          row.port !== null &&
+          row.resolvedBuilder !== null &&
+          row.imageDigest !== null &&
+          row.imageTag?.endsWith(`@${row.imageDigest}`) === true,
+      });
+    }
+    return context.json({ expected: live.length, images });
+  });
+
+  /** One-time bridge for deployments that went live before digest publication. */
+  agent.post("/recovery/backfill", async (context) => {
+    const parsed = z
+      .object({
+        builders: z
+          .record(z.uuid(), z.enum(["dockerfile", "nixpacks"]))
+          .default({}),
+      })
+      .safeParse(await context.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid builder overrides",
+          },
+        },
+        400,
+      );
+    }
+    const live = await db.query.deployments.findMany({
+      where: and(
+        eq(deployments.kind, "production"),
+        eq(deployments.status, "ready"),
+      ),
+    });
+    const results: Array<{
+      deploymentId: string;
+      published: boolean;
+      reference: string | null;
+      error: string | null;
+    }> = [];
+    for (const row of live) {
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.id, row.targetId),
+      });
+      const project = target
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, target.projectId),
+          })
+        : null;
+      const recordedBuilder = row.buildSpec?.builder;
+      const builderValue =
+        row.resolvedBuilder ??
+        (recordedBuilder === "dockerfile" || recordedBuilder === "nixpacks"
+          ? recordedBuilder
+          : parsed.data.builders[row.id]);
+      const builder =
+        builderValue === "dockerfile" || builderValue === "nixpacks"
+          ? builderValue
+          : undefined;
+      if (!target || !project || !row.imageTag || !builder) {
+        results.push({
+          deploymentId: row.id,
+          published: false,
+          reference: row.imageTag,
+          error:
+            "Missing target, project, local image, or explicit historical builder",
+        });
+        continue;
+      }
+      if (row.imageDigest && row.imageTag.endsWith(`@${row.imageDigest}`)) {
+        await db
+          .update(deployments)
+          .set({ resolvedBuilder: builder })
+          .where(eq(deployments.id, row.id));
+        results.push({
+          deploymentId: row.id,
+          published: true,
+          reference: row.imageTag,
+          error: null,
+        });
+        continue;
+      }
+      const request = toAgentRequest({
+        deployment: row,
+        target,
+        projectSlug: project.slug,
+      });
+      request.build.builder = builder;
+      const response = await agentProxy.json<AgentRecoveryPublishResult | null>(
+        `/deployments/${row.id}/publish-recovery`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ request, localImage: row.imageTag }),
+          timeoutMs: 20 * 60_000,
+        },
+      );
+      if (
+        response.status < 200 ||
+        response.status >= 300 ||
+        !response.body?.reference ||
+        !response.body.digest ||
+        !response.body.reference.endsWith(`@${response.body.digest}`)
+      ) {
+        results.push({
+          deploymentId: row.id,
+          published: false,
+          reference: row.imageTag,
+          error: "Forge agent did not return a verified immutable image",
+        });
+        continue;
+      }
+      await db
+        .update(deployments)
+        .set({
+          imageTag: response.body.reference,
+          imageDigest: response.body.digest,
+          resolvedBuilder: builder,
+        })
+        .where(eq(deployments.id, row.id));
+      results.push({
+        deploymentId: row.id,
+        published: true,
+        reference: response.body.reference,
+        error: null,
+      });
+    }
+    const published = results.filter((item) => item.published).length;
+    const body = {
+      expected: live.length,
+      published,
+      allPublished: live.length > 0 && published === live.length,
+      results,
+    };
+    return context.json(body, body.allPublished ? 200 : 409);
+  });
+
+  /**
+   * Recreates every live production deployment from its private digest. This is
+   * agent-token protected and intentionally cannot enqueue a build: a missing
+   * digest or unresolved historical builder is a recovery STOP, not permission
+   * to spend the RTO rebuilding source.
+   */
+  agent.post("/recovery/restore", async (context) => {
+    const recoveryInput = z
+      .object({
+        agentUrl: z
+          .string()
+          .regex(/^http:\/\/100\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}:4010$/),
+        commitContainerIds: z.boolean(),
+        expectedDeployments: z
+          .array(
+            z
+              .object({
+                deploymentId: z.uuid(),
+                imageReference: z
+                  .string()
+                  .regex(/^ghcr\.io\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/),
+                imageDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+                hostname: z.string().min(1).max(253),
+                environmentHmacSha256: z.string().regex(/^[0-9a-f]{64}$/),
+                environmentCipher: recoveryEnvironmentCipherSchema,
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(1_000)
+          .superRefine((items, context) => {
+            for (const key of ["deploymentId", "hostname"] as const) {
+              if (
+                new Set(items.map((item) => item[key])).size !== items.length
+              ) {
+                context.addIssue({
+                  code: "custom",
+                  message: `Recovery ${key} values must be unique`,
+                });
+              }
+            }
+          }),
+      })
+      .strict()
+      .safeParse(await context.req.json().catch(() => null));
+    if (!recoveryInput.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_RECOVERY_AGENT",
+            message: "Recovery requires an explicit Tailscale agent URL",
+          },
+        },
+        400,
+      );
+    }
+    const recoveryAgent = new DeployAgentProxy({
+      baseUrl: recoveryInput.data.agentUrl,
+      token: options.agentToken,
+    });
+    const live = await db.query.deployments.findMany({
+      where: and(
+        eq(deployments.kind, "production"),
+        eq(deployments.status, "ready"),
+      ),
+    });
+    const expectedById = new Map(
+      recoveryInput.data.expectedDeployments.map((item) => [
+        item.deploymentId,
+        item,
+      ]),
+    );
+    const recoveryEnvironments = new Map<
+      string,
+      { env: Record<string, string>; environmentHmacSha256: string }
+    >();
+    try {
+      for (const item of recoveryInput.data.expectedDeployments) {
+        const environment = decryptRecoveryEnvironment(
+          item,
+          options.envEncryptionKey,
+        );
+        recoveryEnvironments.set(item.deploymentId, {
+          env: environment,
+          environmentHmacSha256: item.environmentHmacSha256,
+        });
+      }
+    } catch {
+      return context.json(
+        {
+          expected: recoveryInput.data.expectedDeployments.length,
+          restored: 0,
+          allRestored: false,
+          containerIdsCommitted: false,
+          results: [],
+          error: {
+            code: "RECOVERY_SNAPSHOT_MISMATCH",
+            message:
+              "The signed Forge snapshot contains an invalid encrypted environment",
+          },
+        },
+        409,
+      );
+    }
+    const liveInventory = await Promise.all(
+      live.map(async (row) => ({
+        deploymentId: row.id,
+        imageReference: row.imageTag,
+        imageDigest: row.imageDigest,
+        hostname: await primaryHostname(row.targetId),
+      })),
+    );
+    const inventoryMatches =
+      live.length === recoveryInput.data.expectedDeployments.length &&
+      liveInventory.every((item) => {
+        const expected = expectedById.get(item.deploymentId);
+        return (
+          expected !== undefined &&
+          item.imageReference === expected.imageReference &&
+          item.imageDigest === expected.imageDigest &&
+          item.hostname === expected.hostname &&
+          recoveryEnvironments.has(item.deploymentId)
+        );
+      });
+    if (!inventoryMatches) {
+      return context.json(
+        {
+          expected: recoveryInput.data.expectedDeployments.length,
+          restored: 0,
+          allRestored: false,
+          containerIdsCommitted: false,
+          results: [],
+          error: {
+            code: "RECOVERY_SNAPSHOT_MISMATCH",
+            message:
+              "Restored control-plane deployments do not exactly match the signed Forge snapshot",
+          },
+        },
+        409,
+      );
+    }
+    const results: Array<{
+      deploymentId: string;
+      hostname: string;
+      imageReference: string | null;
+      environmentHmacSha256: string | null;
+      previousContainerId: string | null;
+      containerId: string | null;
+      restored: boolean;
+      error: string | null;
+    }> = [];
+
+    for (const row of live) {
+      const expectedDeployment = expectedById.get(row.id);
+      if (!expectedDeployment) {
+        throw new Error("validated recovery inventory lost a deployment");
+      }
+      const recoveryHostname = expectedDeployment.hostname;
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.id, row.targetId),
+      });
+      const project = target
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, target.projectId),
+          })
+        : null;
+      const immutable =
+        row.imageTag?.match(/@(?<digest>sha256:[0-9a-f]{64})$/)?.groups
+          ?.digest ?? null;
+      if (
+        !target ||
+        !project ||
+        row.port === null ||
+        immutable === null ||
+        immutable !== row.imageDigest ||
+        (row.resolvedBuilder !== "dockerfile" &&
+          row.resolvedBuilder !== "nixpacks")
+      ) {
+        results.push({
+          deploymentId: row.id,
+          hostname: recoveryHostname,
+          imageReference: row.imageTag,
+          environmentHmacSha256: null,
+          previousContainerId: row.containerId,
+          containerId: null,
+          restored: false,
+          error:
+            "Missing target, port, exact digest, or resolved builder; source rebuild is disabled",
+        });
+        continue;
+      }
+
+      const request = toAgentRequest({
+        deployment: row,
+        target,
+        projectSlug: project.slug,
+      });
+      request.build.builder = row.resolvedBuilder;
+      const recoveryEnvironment = recoveryEnvironments.get(row.id);
+      if (!recoveryEnvironment) {
+        throw new Error("validated recovery environment was lost");
+      }
+      recoveryEnvironmentOverrides.set(row.id, {
+        ...recoveryEnvironment,
+        expiresAt: Date.now() + 15 * 60_000,
+      });
+      let response: { status: number; body: AgentRecoveryResult | null };
+      try {
+        response = await recoveryAgent.json<AgentRecoveryResult | null>(
+          `/deployments/${row.id}/recover`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              request,
+              imageReference: row.imageTag,
+              expectedEnvironmentHmacSha256:
+                expectedDeployment.environmentHmacSha256,
+              port: row.port,
+            }),
+            timeoutMs: 12 * 60_000,
+          },
+        );
+      } finally {
+        recoveryEnvironmentOverrides.delete(row.id);
+      }
+      if (
+        response.status >= 200 &&
+        response.status < 300 &&
+        response.body?.restored &&
+        response.body.containerId &&
+        /^[0-9a-f]{64}$/.test(response.body.containerId) &&
+        response.body.environmentHmacSha256 ===
+          expectedDeployment.environmentHmacSha256
+      ) {
+        const routesPublished = await forge.publishRoutesWithAgent(
+          {
+            ...row,
+            containerId: response.body.containerId,
+          },
+          recoveryAgent,
+        );
+        if (!routesPublished) {
+          results.push({
+            deploymentId: row.id,
+            hostname: recoveryHostname,
+            imageReference: row.imageTag,
+            environmentHmacSha256: response.body.environmentHmacSha256,
+            previousContainerId: row.containerId,
+            containerId: response.body.containerId,
+            restored: false,
+            error: "Recovered container but failed to publish its Caddy routes",
+          });
+          continue;
+        }
+        results.push({
+          deploymentId: row.id,
+          hostname: recoveryHostname,
+          imageReference: row.imageTag,
+          environmentHmacSha256: response.body?.environmentHmacSha256 ?? null,
+          previousContainerId: row.containerId,
+          containerId: response.body.containerId,
+          restored: true,
+          error: null,
+        });
+      } else {
+        results.push({
+          deploymentId: row.id,
+          hostname: recoveryHostname,
+          imageReference: row.imageTag,
+          environmentHmacSha256: response.body?.environmentHmacSha256 ?? null,
+          previousContainerId: row.containerId,
+          containerId: null,
+          restored: false,
+          error: response.body?.error ?? "Forge agent refused recovery",
+        });
+      }
+    }
+
+    const restored = results.filter((result) => result.restored).length;
+    let containerIdsCommitted = false;
+    if (
+      recoveryInput.data.commitContainerIds &&
+      live.length > 0 &&
+      restored === live.length
+    ) {
+      try {
+        await db.transaction(async (tx) => {
+          for (const result of results) {
+            if (!result.containerId)
+              throw new Error("missing recovery container id");
+            const prior = result.previousContainerId;
+            const [updated] = await tx
+              .update(deployments)
+              .set({ containerId: result.containerId })
+              .where(
+                and(
+                  eq(deployments.id, result.deploymentId),
+                  prior === null
+                    ? isNull(deployments.containerId)
+                    : eq(deployments.containerId, prior),
+                ),
+              )
+              .returning({ id: deployments.id });
+            if (!updated)
+              throw new Error(
+                "deployment container id changed during recovery",
+              );
+          }
+        });
+        containerIdsCommitted = true;
+      } catch {
+        for (const result of results) {
+          result.restored = false;
+          result.error =
+            "Control-plane container IDs changed during recovery; no IDs were committed";
+        }
+      }
+    }
+    const finalRestored = results.filter((result) => result.restored).length;
+    const body = {
+      expected: live.length,
+      restored: finalRestored,
+      allRestored: live.length > 0 && finalRestored === live.length,
+      containerIdsCommitted,
+      results,
+    };
+    return context.json(body, body.allRestored ? 200 : 409);
+  });
+
+  /**
+   * Forge-only DR leaves the surviving Pi database untouched until cutover.
+   * This endpoint atomically compare-and-swaps the complete live deployment
+   * set, and is idempotent so a cutover or rollback can be resumed safely.
+   */
+  agent.post("/recovery/container-ids", async (context) => {
+    const containerId = z.string().regex(/^[0-9a-f]{12,64}$/);
+    const parsed = z
+      .object({
+        mode: z.enum(["activate", "rollback"]),
+        mappings: z
+          .array(
+            z.object({
+              deploymentId: z.uuid(),
+              previousContainerId: containerId.nullable(),
+              recoveryContainerId: z.string().regex(/^[0-9a-f]{64}$/),
+            }),
+          )
+          .min(1)
+          .max(1_000),
+      })
+      .superRefine((value, refinement) => {
+        if (
+          new Set(value.mappings.map((item) => item.deploymentId)).size !==
+          value.mappings.length
+        ) {
+          refinement.addIssue({
+            code: "custom",
+            message: "duplicate deployment mapping",
+          });
+        }
+      })
+      .safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid recovery container mapping",
+          },
+        },
+        400,
+      );
+    }
+    const live = await db.query.deployments.findMany({
+      where: and(
+        eq(deployments.kind, "production"),
+        eq(deployments.status, "ready"),
+      ),
+      columns: { id: true, containerId: true },
+    });
+    const mappings = new Map(
+      parsed.data.mappings.map((item) => [item.deploymentId, item]),
+    );
+    if (
+      live.length === 0 ||
+      live.length !== mappings.size ||
+      live.some((row) => !mappings.has(row.id))
+    ) {
+      return context.json(
+        {
+          error: {
+            code: "RECOVERY_SET_MISMATCH",
+            message: "Mapping is not the complete live production set",
+          },
+        },
+        409,
+      );
+    }
+    try {
+      let updated = 0;
+      let alreadyApplied = 0;
+      await db.transaction(async (tx) => {
+        for (const row of live) {
+          const mapping = mappings.get(row.id);
+          if (!mapping) throw new Error("missing deployment mapping");
+          const expected =
+            parsed.data.mode === "activate"
+              ? mapping.previousContainerId
+              : mapping.recoveryContainerId;
+          const desired =
+            parsed.data.mode === "activate"
+              ? mapping.recoveryContainerId
+              : mapping.previousContainerId;
+          if (row.containerId === desired) {
+            alreadyApplied += 1;
+            continue;
+          }
+          if (row.containerId !== expected)
+            throw new Error("container id compare-and-swap failed");
+          const [changed] = await tx
+            .update(deployments)
+            .set({ containerId: desired })
+            .where(
+              and(
+                eq(deployments.id, row.id),
+                expected === null
+                  ? isNull(deployments.containerId)
+                  : eq(deployments.containerId, expected),
+              ),
+            )
+            .returning({ id: deployments.id });
+          if (!changed)
+            throw new Error("container id changed during transaction");
+          updated += 1;
+        }
+      });
+      return context.json({
+        applied: true,
+        mode: parsed.data.mode,
+        expected: live.length,
+        updated,
+        alreadyApplied,
+      });
+    } catch {
+      return context.json(
+        {
+          error: {
+            code: "RECOVERY_CAS_FAILED",
+            message:
+              "Live container IDs differ from the signed recovery mapping",
+          },
+        },
+        409,
+      );
+    }
+  });
+
   agent.post("/deployments/:id/status", async (context) => {
     const parsed = deploymentStatusUpdateSchema.safeParse(
       await context.req.json().catch(() => null),
@@ -3970,57 +4749,18 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (!project) {
         throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
       }
-      const rows = await db
-        .select()
-        .from(deployEnvVars)
-        .where(eq(deployEnvVars.targetId, target.id));
-      // Step 2 of resolution, and only for a target that was deliberately
-      // linked. Layered beneath `deploy_env_vars`, so a key set on the target
-      // still wins over the same key in the Envoy file.
-      const envoy = await resolveEnvoyEnv(
-        options.envoyEnv,
-        envoyLinkFor(target, (candidate) =>
-          decryptDeployEnvValue(candidate, options.envEncryptionKey),
-        ),
-      );
-      // The environment is what makes `scope: "environment"` rows resolve at
-      // all, and what `deployment.environment` reports to the container.
-      const environment = row.environmentId
-        ? await findEnvironment(db, {
-            targetId: target.id,
-            environmentId: row.environmentId,
-          })
-        : null;
-      const resolved = await resolveDeploymentEnv({
-        envoy,
-        rows,
-        deployment: {
-          id: row.id,
-          sha: row.gitSha,
-          ref: row.gitRef,
-          hostname: row.hostname,
-          kind: row.kind,
-          environmentId: row.environmentId,
-          environmentName: environmentLabel(row.kind, environment),
-        },
-        project: { slug: project.slug, name: project.name },
-        resolvers: createDeployBindingResolvers({
-          db,
-          projectId: project.id,
-          projectSlug: project.slug,
-          deploymentId: row.id,
-          deploymentKind: row.kind,
-          environmentId: row.environmentId,
-          databaseEncryptionSecret: options.databaseEncryptionSecret,
-          databaseHosts: options.databaseHosts,
-          meilisearchUrl: options.meilisearchUrl,
-          s3Endpoint: options.s3Endpoint,
-          s3Region: options.s3Region,
-          s3CredentialEncryptionKey: options.s3CredentialEncryptionKey,
-        }),
-        decrypt: (candidate) =>
-          decryptDeployEnvValue(candidate, options.envEncryptionKey),
-      });
+      const override = recoveryEnvironmentOverrides.get(row.id);
+      if (override && override.expiresAt <= Date.now()) {
+        recoveryEnvironmentOverrides.delete(row.id);
+      }
+      const resolved =
+        override && override.expiresAt > Date.now()
+          ? {
+              env: override.env,
+              keys: Object.keys(override.env).sort(),
+              environmentHmacSha256: override.environmentHmacSha256,
+            }
+          : await resolvedEnvironment(row, target, project);
       console.info(
         JSON.stringify({
           event: "deploy-env-resolved",
@@ -4045,6 +4785,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         deploymentId: row.id,
         kind: row.kind,
         cloneToken,
+        environmentHmacSha256: resolved.environmentHmacSha256,
         env: resolved.env,
       });
     } catch (error) {

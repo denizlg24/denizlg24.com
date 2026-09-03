@@ -1,0 +1,590 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+cleanup_files=()
+cleanup_dirs=()
+cleanup_containers=()
+cleanup() {
+  local container
+  for container in "${cleanup_containers[@]}"; do docker rm -f "$container" >/dev/null 2>&1 || true; done
+  ((${#cleanup_files[@]} == 0)) || rm -f -- "${cleanup_files[@]}"
+  ((${#cleanup_dirs[@]} == 0)) || rm -rf -- "${cleanup_dirs[@]}"
+}
+trap cleanup EXIT
+
+root=""; combined=false
+while (($#)); do case "$1" in --root) root="${2:-}"; shift 2 ;; --combined) combined=true; shift ;; *) exit 2 ;; esac; done
+((EUID == 0)) || { echo "STOP: restore requires root" >&2; exit 1; }
+[[ "$root" == /srv/deniz-dr/restore/* && -d "$root" ]] || { echo "STOP: unsafe restore root" >&2; exit 1; }
+manifest="$root/snapshot-manifest.json"
+[[ "$(jq -r .profile "$manifest")" == pi ]] || { echo "STOP: Pi snapshot required" >&2; exit 1; }
+nutrition_expected="$(jq '(.inventory.authoritative | index("nutrition-config")) != null' "$manifest")"
+
+verify_artifact() {
+  local relative="$1" expected
+  expected="$(jq -er --arg path "$relative" '.artifacts[] | select(.path==$path) | .sha256' "$manifest")"
+  [[ "$(sha256sum "$root/$relative" | awk '{print $1}')" == "$expected" ]] || { echo "STOP: artifact checksum failed: $relative" >&2; exit 1; }
+}
+while IFS= read -r relative; do verify_artifact "$relative"; done < <(jq -r '.artifacts[].path' "$manifest")
+
+zstd -dc "$root/artifacts/config.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C / -xf -
+install -d -m 0700 /etc/deniz-dr
+zstd -dc "$root/artifacts/config-recovery-host.tar.zst" | tar --numeric-owner -C /etc/deniz-dr -xf -
+chmod 0600 /etc/deniz-dr/pi.env /etc/deniz-dr/pi-restic-password /etc/deniz-dr/pi-signing-key /etc/deniz-dr/external.env
+for required in /etc/deniz-dr/pi.env /etc/deniz-dr/pi-restic-password /etc/deniz-dr/pi-signing-key /etc/deniz-dr/external.env; do
+  [[ -f "$required" && ! -L "$required" ]] || { echo "STOP: recovered Pi backup continuity credential is missing" >&2; exit 1; }
+done
+binary_root=/usr/local/lib/deniz-cloud/amd64
+[[ -d "$binary_root" && -f "$binary_root/SHA256SUMS" ]] || { echo "STOP: amd64 host binary recovery bundle is missing" >&2; exit 1; }
+(cd "$binary_root" && sha256sum -c SHA256SUMS >/dev/null) \
+  || { echo "STOP: amd64 host binary recovery checksum failed" >&2; exit 1; }
+install -m 0755 "$binary_root/cloud-terminal" /usr/local/bin/cloud-terminal
+install -m 0755 "$binary_root/cloud-storage-metadata" /usr/local/bin/cloud-storage-metadata
+[[ -f "$(dirname "$0")/posix-storage-host.sh" && ! -L "$(dirname "$0")/posix-storage-host.sh" ]] \
+  || { echo "STOP: recovery storage host implementation is missing" >&2; exit 1; }
+install -m 0755 "$(dirname "$0")/posix-storage-host.sh" /usr/local/lib/deniz-cloud/posix-storage-host.sh
+env_file=/opt/deniz-cloud/infra/compose/.env.pi
+compose=/opt/deniz-cloud/infra/compose/docker-compose.pi.yml
+[[ -f "$env_file" && -f "$compose" ]] || { echo "STOP: restored Pi compose contract is incomplete" >&2; exit 1; }
+compose_files=(-f "$compose")
+namespace_mode="$(awk -F= '$1=="STORAGE_NAMESPACE_MODE" {print $2; exit}' "$env_file")"
+if [[ "$namespace_mode" == broker-mounted ]]; then
+  posix_compose=/opt/deniz-cloud/infra/compose/docker-compose.posix.yml
+  [[ -f "$posix_compose" ]] || { echo "STOP: broker-mounted restore lacks its POSIX compose contract" >&2; exit 1; }
+  compose_files+=(-f "$posix_compose")
+fi
+pi_override=/srv/deniz-dr/pi-images.override.yml
+markets_override=/srv/deniz-dr/markets-images.override.yml
+nutrition_override=/srv/deniz-dr/nutrition-images.override.yml
+printf 'services:\n' > "$pi_override"
+printf 'services:\n' > "$markets_override"
+printf 'services:\n' > "$nutrition_override"
+while IFS=$'\t' read -r scoped_service reference; do
+  [[ "$reference" =~ ^[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "STOP: mutable Pi image reference" >&2; exit 1; }
+  scope="${scoped_service%%/*}"; service="${scoped_service#*/}"
+  [[ "$service" =~ ^[a-zA-Z0-9_-]+$ && "$scope" != "$scoped_service" ]] || { echo "STOP: unsafe Pi image service" >&2; exit 1; }
+  docker pull "$reference" >/dev/null
+  case "$scope" in
+    pi) printf '  %s:\n    image: %s\n' "$service" "$reference" >> "$pi_override" ;;
+    markets) printf '  %s:\n    image: %s\n' "$service" "$reference" >> "$markets_override" ;;
+    nutrition) printf '  %s:\n    image: %s\n' "$service" "$reference" >> "$nutrition_override" ;;
+    *) echo "STOP: unknown Pi image scope" >&2; exit 1 ;;
+  esac
+done < <(jq -r '.images[] | [.service,.reference] | @tsv' "$manifest")
+[[ "$(grep -c '^  ' "$pi_override")" -gt 0 && "$(grep -c '^  ' "$markets_override")" -gt 0 ]] \
+  || { echo "STOP: digest-only Pi image overrides are incomplete" >&2; exit 1; }
+if [[ "$nutrition_expected" == true && -f /opt/nutrition-api/docker-compose.yml ]]; then
+  [[ "$(grep -c '^  ' "$nutrition_override")" -gt 0 ]] \
+    || { echo "STOP: captured nutrition Compose has no digest-only image override" >&2; exit 1; }
+else
+  [[ "$(grep -c '^  ' "$nutrition_override")" -eq 0 ]] \
+    || { echo "STOP: nutrition image inventory has no captured Compose contract" >&2; exit 1; }
+fi
+
+export POSTGRES_DATA_DIR=/srv/deniz-dr/pi/postgres
+export MONGO_DATA_DIR=/srv/deniz-dr/pi/mongodb
+export REDIS_DATA_DIR=/srv/deniz-dr/pi/redis
+export MEILI_DATA_DIR=/srv/deniz-dr/pi/meili
+export MONGOT_DATA_DIR=/srv/deniz-dr/pi/mongot
+export SSD_STORAGE_PATH=/mnt/ssd/deniz-cloud/namespace
+export HDD_STORAGE_PATH=/mnt/hdd/deniz-cloud/namespace
+export STORAGE_BROKER_MOUNT_PATH=/srv/deniz-cloud/api-storage
+export BACKUP_DIR=/mnt/hdd/backups
+export HOST_CONTROL_DIR=/var/lib/deniz-cloud
+tailnet_ip="$(tailscale ip -4 | head -1)"
+[[ "$tailnet_ip" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "STOP: target has no Tailscale IPv4" >&2; exit 1; }
+export API_TAILNET_BIND_ADDRESS="$tailnet_ip"
+export TERMINAL_SERVER_URL="ws://${tailnet_ip}:3003"
+set_env_value() {
+  local key="$1" value="$2"
+  if grep -q "^${key}=" "$env_file"; then
+    sed -i -E "s|^${key}=.*$|${key}=${value}|" "$env_file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$env_file"
+  fi
+  grep -Fxq "${key}=${value}" "$env_file" || { echo "STOP: failed to persist ${key}" >&2; exit 1; }
+}
+set_env_value API_TAILNET_BIND_ADDRESS "$API_TAILNET_BIND_ADDRESS"
+set_env_value TERMINAL_SERVER_URL "$TERMINAL_SERVER_URL"
+if [[ "$combined" == true ]]; then
+  export DEPLOY_AGENT_URL="http://${tailnet_ip}:4010"
+  set_env_value DEPLOY_AGENT_URL "$DEPLOY_AGENT_URL"
+fi
+install -d -m 0700 "$BACKUP_DIR" "$HOST_CONTROL_DIR"
+
+dc() { docker compose --env-file "$env_file" "${compose_files[@]}" -f "$pi_override" "$@"; }
+dc up -d postgres mongodb redis
+for _ in $(seq 1 90); do
+  dc ps --format json | jq -es 'map(select(.Service=="postgres" or .Service=="mongodb" or .Service=="redis")) | length==3 and all(.[];.Health=="healthy")' >/dev/null && break
+  sleep 2
+done
+dc ps --format json | jq -es 'map(select(.Service=="postgres" or .Service=="mongodb" or .Service=="redis")) | length==3 and all(.[];.Health=="healthy")' >/dev/null \
+  || { echo "STOP: databases did not become healthy" >&2; exit 1; }
+
+expected_postgres="$(jq -er .databaseVersions.postgres "$manifest")"
+expected_mongodb="$(jq -er .databaseVersions.mongodb "$manifest")"
+expected_redis="$(jq -er .databaseVersions.redis "$manifest")"
+actual_postgres="$(docker exec "$(dc ps -q postgres)" postgres --version | sed 's/^postgres (PostgreSQL) //')"
+actual_mongodb="$(docker exec "$(dc ps -q mongodb)" mongod --version | awk '/Build Info/{exit} /^db version/{print $3; exit}' | sed 's/^v//')"
+actual_redis="$(docker exec "$(dc ps -q redis)" redis-server --version | sed -n 's/.* v=\([^ ]*\).*/\1/p')"
+for pair in "$expected_postgres:$actual_postgres:PostgreSQL" "$expected_mongodb:$actual_mongodb:MongoDB" "$expected_redis:$actual_redis:Redis"; do
+  expected="${pair%%:*}"; remainder="${pair#*:}"; actual="${remainder%%:*}"; database_name="${remainder#*:}"
+  [[ -n "$expected" && -n "$actual" && "${actual%%.*}" == "${expected%%.*}" ]] \
+    || { echo "STOP: ${database_name} major version differs from snapshot (${expected} -> ${actual})" >&2; exit 1; }
+done
+
+postgres_container="$(dc ps -q postgres)"
+postgres_user="$(docker exec "$postgres_container" sh -ceu 'printf %s "$POSTGRES_USER"')"
+[[ "$postgres_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "STOP: unsafe bootstrap PostgreSQL role" >&2; exit 1; }
+# initdb already created POSTGRES_USER. Remove only that duplicate CREATE; all
+# ALTER ROLE, membership, grants and every other role still restore strictly.
+bootstrap_create_role="$(docker exec "$postgres_container" sh -ceu \
+  'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT format('\''CREATE ROLE %I;'\'', current_user)"')"
+[[ "$bootstrap_create_role" == 'CREATE ROLE '*';' && "$bootstrap_create_role" != *[$'\r\n']* ]] \
+  || { echo "STOP: could not render the PostgreSQL bootstrap role statement safely" >&2; exit 1; }
+zstd -dc "$root/artifacts/postgres-globals.sql.zst" \
+  | awk -v duplicate="$bootstrap_create_role" '$0 != duplicate' \
+  | docker exec -i "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+for dump in "$root"/artifacts/postgres-*.dump; do
+  [[ -f "$dump" ]] || continue
+  database="$(basename "$dump" .dump)"; database="${database#postgres-}"
+  [[ "$database" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "STOP: unsafe PostgreSQL dump name" >&2; exit 1; }
+  docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" dropdb --maintenance-db=template1 --force --if-exists -U "$POSTGRES_USER" -- "$1"' sh "$database"
+  docker exec -i "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --exit-on-error --create -U "$POSTGRES_USER" -d template1' < "$dump"
+done
+
+mongo_container="$(dc ps -q mongodb)"
+mongo_user="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_USERNAME"')"
+mongo_password="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_PASSWORD"')"
+encoded_mongo_user="$(jq -rn --arg value "$mongo_user" '$value|@uri')"
+encoded_mongo_password="$(jq -rn --arg value "$mongo_password" '$value|@uri')"
+mongo_restore_config="$(mktemp /srv/deniz-dr/mongorestore.XXXXXX.yml)"
+cleanup_files+=("$mongo_restore_config")
+printf 'uri: "mongodb://%s:%s@127.0.0.1:27017/?authSource=admin&replicaSet=rs0"\n' \
+  "$encoded_mongo_user" "$encoded_mongo_password" > "$mongo_restore_config"
+docker cp "$mongo_restore_config" "${mongo_container}:/tmp/deniz-dr-mongorestore.yml" >/dev/null
+rm -f -- "$mongo_restore_config"
+docker exec "$mongo_container" chmod 0600 /tmp/deniz-dr-mongorestore.yml
+docker exec -i "$mongo_container" mongorestore --config /tmp/deniz-dr-mongorestore.yml --archive --gzip --oplogReplay --drop \
+  < "$root/artifacts/mongodb.archive.gz"
+docker exec "$mongo_container" rm -f -- /tmp/deniz-dr-mongorestore.yml
+
+redis_container="$(dc ps -q redis)"
+redis_image_id="$(docker inspect -f '{{.Image}}' "$redis_container")"
+[[ "$redis_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "STOP: restored Redis container has no immutable image id" >&2; exit 1; }
+dc stop redis
+redis_data=/srv/deniz-dr/pi/redis
+[[ -d "$redis_data" && ! -L "$redis_data" ]] || { echo "STOP: unsafe Redis recovery data directory" >&2; exit 1; }
+for stale_redis_state in "$redis_data/appendonlydir" "$redis_data/appendonly.aof"; do
+  [[ ! -L "$stale_redis_state" ]] || { echo "STOP: unsafe Redis bootstrap persistence path" >&2; exit 1; }
+done
+# Redis 7 prefers an existing AOF over dump.rdb. The initial health-check boot
+# creates an empty AOF, so remove only those known bootstrap artifacts before
+# making the signed RDB authoritative for the real restore boot.
+rm -rf -- "$redis_data/appendonlydir"
+rm -f -- "$redis_data/appendonly.aof"
+cp -- "$root/artifacts/redis-dump.rdb" "$redis_data/dump.rdb"
+chown --reference="$redis_data" "$redis_data/dump.rdb"
+redis_seed_container="deniz-dr-redis-seed-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+docker run -d --name "$redis_seed_container" --network none --user 0:0 \
+  --mount "type=bind,source=${redis_data},target=/data" --tmpfs /tmp \
+  --entrypoint redis-server "$redis_image_id" \
+  --dir /data --dbfilename dump.rdb --appendonly no --save '' --protected-mode no >/dev/null
+cleanup_containers+=("$redis_seed_container")
+for _ in $(seq 1 60); do
+  docker exec "$redis_seed_container" redis-cli ping 2>/dev/null | grep -qx PONG && break
+  sleep 1
+done
+docker exec "$redis_seed_container" redis-cli ping 2>/dev/null | grep -qx PONG \
+  || { echo "STOP: Redis RDB-to-AOF seed did not become ready" >&2; exit 1; }
+docker exec "$redis_seed_container" redis-cli CONFIG SET appendonly yes | grep -qx OK \
+  || { echo "STOP: Redis refused to enable AOF for the restored RDB" >&2; exit 1; }
+redis_aof_ready=false
+for _ in $(seq 1 120); do
+  redis_persistence="$(docker exec "$redis_seed_container" redis-cli INFO persistence | tr -d '\r')"
+  if grep -qx 'aof_enabled:1' <<< "$redis_persistence" \
+    && grep -qx 'aof_rewrite_in_progress:0' <<< "$redis_persistence" \
+    && grep -qx 'aof_last_bgrewrite_status:ok' <<< "$redis_persistence" \
+    && grep -Eq '^aof_base_size:[1-9][0-9]*$' <<< "$redis_persistence"; then
+    redis_aof_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "$redis_aof_ready" == true ]] || { echo "STOP: Redis restored AOF rewrite did not complete" >&2; exit 1; }
+docker stop "$redis_seed_container" >/dev/null
+docker rm "$redis_seed_container" >/dev/null
+dc up -d redis
+for _ in $(seq 1 60); do
+  redis_container="$(dc ps -q redis)"
+  [[ -n "$redis_container" ]] && docker exec "$redis_container" sh -ceu 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' 2>/dev/null | grep -q PONG && break
+  sleep 1
+done
+redis_container="$(dc ps -q redis)"
+redis_semantic_script="$(mktemp /srv/deniz-dr/redis-semantic.XXXXXX.lua)"
+cleanup_files+=("$redis_semantic_script" "${redis_semantic_script}.actual" \
+  "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected")
+install -m 0600 "$(dirname "$0")/redis-semantic.lua" "$redis_semantic_script"
+docker cp "$redis_semantic_script" "${redis_container}:/tmp/deniz-dr-redis-semantic.lua" >/dev/null
+docker exec "$redis_container" \
+  sh -ceu 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --raw --eval /tmp/deniz-dr-redis-semantic.lua' \
+  | jq -S . > "${redis_semantic_script}.actual"
+if jq -e 'has("capturedAtMs")' "$root/meta/redis-semantic.json" >/dev/null; then
+  redis_verified_at="$(jq -er '.capturedAtMs | select(type=="number" and .>=0 and floor==.)' "${redis_semantic_script}.actual")"
+  jq -S 'del(.capturedAtMs)' "${redis_semantic_script}.actual" > "${redis_semantic_script}.actual.normalized"
+  jq -S --argjson verifiedAt "$redis_verified_at" '
+    .entries |= map(select(.expiresAtMs==null or .expiresAtMs>$verifiedAt)) |
+    .keys=(.entries|length) | del(.capturedAtMs)
+  ' "$root/meta/redis-semantic.json" > "${redis_semantic_script}.expected"
+else
+  jq -S '.entries |= map(del(.expiresAtMs)) | del(.capturedAtMs)' \
+    "${redis_semantic_script}.actual" > "${redis_semantic_script}.actual.normalized"
+  jq -S . "$root/meta/redis-semantic.json" > "${redis_semantic_script}.expected"
+fi
+cmp -s "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected" \
+  || { echo "STOP: Redis key types or value fingerprints differ" >&2; exit 1; }
+docker exec "$redis_container" rm -f -- /tmp/deniz-dr-redis-semantic.lua
+rm -f -- "$redis_semantic_script" "${redis_semantic_script}.actual" \
+  "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected"
+
+namespace_tmp="$(mktemp -d /srv/deniz-dr/namespace.XXXXXX)"
+cleanup_dirs+=("$namespace_tmp")
+zstd -dc "$root/artifacts/namespace.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf -
+(cd "$namespace_tmp" && sha256sum -c SHA256SUMS >/dev/null)
+/opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" >/dev/null
+for branch in ssd hdd object-store; do
+  case "$branch" in
+    ssd | hdd) destination="/mnt/${branch}/deniz-cloud/namespace" ;;
+    object-store) destination=/mnt/ssd/deniz-cloud/internal/.s3-v2 ;;
+  esac
+  install -d -m 0700 "$destination"
+  [[ -z "$(find "$destination" -mindepth 1 -print -quit)" ]] || { echo "STOP: namespace destination is not empty" >&2; exit 1; }
+  zstd -dc "$namespace_tmp/${branch}.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$destination" -xf -
+done
+namespace_verification="$(/opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" \
+  --ssd-root /mnt/ssd/deniz-cloud/namespace --hdd-root /mnt/hdd/deniz-cloud/namespace \
+  --object-root /mnt/ssd/deniz-cloud/internal/.s3-v2)"
+jq -e '.verified==true and .mismatches==0 and .entriesChecked>0' <<< "$namespace_verification" >/dev/null \
+  || { echo "STOP: restored namespace evidence is incomplete" >&2; exit 1; }
+chown 1000:1000 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
+chmod 0700 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
+rm -rf -- "$namespace_tmp"
+
+# Rebind the restored physical-tier contract to the recovery host's two logical
+# branches. Both bind mounts intentionally share one backing filesystem, while
+# distinct branch IDs preserve tier identity. The source snapshot is verified
+# before these target-specific marker updates.
+posix_config=/etc/deniz-cloud/posix-storage.env
+[[ -f "$posix_config" && ! -L "$posix_config" ]] \
+  || { echo "STOP: restored POSIX storage configuration is missing or unsafe" >&2; exit 1; }
+recovery_filesystem_uuid() {
+  local target="$1" source
+  mountpoint -q "$target" || { echo "STOP: recovery logical branch is not mounted: ${target}" >&2; return 1; }
+  source="$(findmnt -n -o SOURCE --target "$target")"
+  source="${source%%\[*}"
+  [[ "$source" == /dev/* ]] || { echo "STOP: recovery branch lacks a block-device source" >&2; return 1; }
+  blkid -s UUID -o value "$source"
+}
+ssd_recovery_uuid="$(recovery_filesystem_uuid /mnt/ssd)"
+hdd_recovery_uuid="$(recovery_filesystem_uuid /mnt/hdd)"
+[[ "$ssd_recovery_uuid" =~ ^[0-9A-Fa-f-]{8,64}$ && "$ssd_recovery_uuid" == "$hdd_recovery_uuid" ]] \
+  || { echo "STOP: logical recovery branches do not share one valid filesystem UUID" >&2; exit 1; }
+declare -A recovery_branch_ids=()
+for role in ssd hdd; do
+  marker="/mnt/${role}/deniz-cloud/namespace/.denizcloud-branch.json"
+  [[ -f "$marker" && ! -L "$marker" ]] || { echo "STOP: restored ${role} branch marker is missing" >&2; exit 1; }
+  recovery_branch_ids[$role]="$(jq -er --arg role "$role" '
+    select(.schemaVersion==2 and .role==$role and (.branchId|type)=="string" and
+      (.branchId|test("^[0-9A-Fa-f-]{8,64}$"))) | .branchId
+  ' "$marker")" || { echo "STOP: restored ${role} branch marker is invalid" >&2; exit 1; }
+  marker_tmp="$(mktemp "${marker}.XXXXXX")"
+  jq --arg uuid "$ssd_recovery_uuid" '.filesystemUuids=[$uuid]' "$marker" > "$marker_tmp"
+  chown --reference="$marker" "$marker_tmp"
+  chmod --reference="$marker" "$marker_tmp"
+  mv -- "$marker_tmp" "$marker"
+done
+[[ "${recovery_branch_ids[ssd]}" != "${recovery_branch_ids[hdd]}" ]] \
+  || { echo "STOP: restored logical branch IDs are not distinct" >&2; exit 1; }
+set_posix_env_value() {
+  local key="$1" value="$2"
+  [[ "$key" =~ ^DENIZ_POSIX_[A-Z0-9_]+$ && "$value" =~ ^[A-Za-z0-9_./,:=-]+$ ]] \
+    || { echo "STOP: unsafe recovery POSIX configuration value" >&2; return 1; }
+  if grep -q "^${key}=" "$posix_config"; then
+    sed -i -E "s|^${key}=.*$|${key}=${value}|" "$posix_config"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$posix_config"
+  fi
+  grep -Fxq "${key}=${value}" "$posix_config"
+}
+set_posix_env_value DENIZ_POSIX_SSD_UUIDS "$ssd_recovery_uuid"
+set_posix_env_value DENIZ_POSIX_HDD_UUIDS "$hdd_recovery_uuid"
+set_posix_env_value DENIZ_POSIX_SSD_MEMBERS /mnt/ssd
+set_posix_env_value DENIZ_POSIX_HDD_MEMBERS /mnt/hdd
+set_posix_env_value DENIZ_POSIX_SSD_BRANCH_ID "${recovery_branch_ids[ssd]}"
+set_posix_env_value DENIZ_POSIX_HDD_BRANCH_ID "${recovery_branch_ids[hdd]}"
+set_posix_env_value DENIZ_POSIX_TAILSCALE_IP "$tailnet_ip"
+chmod 0600 "$posix_config"
+set_env_value SSD_STORAGE_PATH /mnt/ssd/deniz-cloud/namespace
+set_env_value HDD_STORAGE_PATH /mnt/hdd/deniz-cloud/namespace
+set_env_value BACKUP_DIR /mnt/hdd/backups
+set_env_value SSD_DEVICE "$ssd_recovery_uuid"
+set_env_value HDD_DEVICES "$hdd_recovery_uuid"
+set_env_value MICROSD_DEVICE ""
+
+samba_config=/etc/samba/deniz-cloud-storage.conf
+samba_passdb="$root/meta/samba-passdb.smbpasswd"
+samba_principals="$root/meta/samba-principals.json"
+samba_routes="$root/meta/samba-principal-routes.tar.zst"
+[[ -f "$samba_config" && ! -L "$samba_config" && -f "$samba_passdb" && ! -L "$samba_passdb" &&
+   -f "$samba_principals" && ! -L "$samba_principals" && -f "$samba_routes" && ! -L "$samba_routes" ]] \
+  || { echo "STOP: restored Samba recovery contract is incomplete" >&2; exit 1; }
+jq -e '
+  length>0 and any(.[]; .name=="deniz-api-broker") and
+  ([.[].name]|unique|length)==length and
+  all(.[];
+    (.name=="deniz-api-broker" or (.name|test("^dc-[a-z0-9-]+-[0-9a-f]{8}$"))) and
+    (.home|type)=="string" and (.home|startswith("/")) and (.shell|test("/(nologin|false)$")))
+' "$samba_principals" >/dev/null || { echo "STOP: Samba principal inventory is invalid" >&2; exit 1; }
+if ! getent group 1000 >/dev/null; then groupadd -g 1000 deniz-cloud-storage; fi
+getent group deniz-cloud-storage >/dev/null || groupadd -o -g 1000 deniz-cloud-storage
+if ! getent passwd 1000 >/dev/null; then
+  useradd --uid 1000 --gid 1000 --no-create-home --home-dir /home/denizlg24 --shell /usr/sbin/nologin denizlg24
+fi
+storage_user="$(getent passwd 1000 | cut -d: -f1 | head -1)"
+[[ "$storage_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "STOP: recovery storage uid 1000 has no safe Unix name" >&2; exit 1; }
+getent group deniz-cloud-smb >/dev/null || groupadd --system deniz-cloud-smb
+getent group deniz-cloud-metadata >/dev/null || groupadd --system deniz-cloud-metadata
+getent passwd deniz-cloud-metadata >/dev/null \
+  || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --gid deniz-cloud-metadata deniz-cloud-metadata
+while IFS=$'\t' read -r principal home shell; do
+  [[ "$principal" == deniz-api-broker || "$principal" =~ ^dc-[a-z0-9-]+-[0-9a-f]{8}$ ]] \
+    || { echo "STOP: unsafe Samba recovery principal" >&2; exit 1; }
+  [[ "$home" == /* && "$home" != *$'\n'* && "$shell" =~ /(nologin|false)$ ]] \
+    || { echo "STOP: unsafe Samba recovery principal attributes" >&2; exit 1; }
+  if ! getent passwd "$principal" >/dev/null; then
+    useradd --system --no-create-home --home-dir "$home" --shell /usr/sbin/nologin \
+      --gid 1000 --groups deniz-cloud-smb "$principal"
+  else
+    usermod --home "$home" --shell /usr/sbin/nologin --gid 1000 --append --groups deniz-cloud-smb "$principal"
+  fi
+done < <(jq -r '.[] | [.name,.home,.shell] | @tsv' "$samba_principals")
+install -d -m 0755 /etc/samba/deniz-cloud-personal
+[[ -z "$(find /etc/samba/deniz-cloud-personal -mindepth 1 -print -quit)" ]] \
+  || { echo "STOP: clean target has unexpected Samba principal routes" >&2; exit 1; }
+zstd -dc "$samba_routes" | tar --numeric-owner -C /etc/samba/deniz-cloud-personal -xf -
+unexpected_samba_route="$(find /etc/samba/deniz-cloud-personal -mindepth 1 ! -type f -print -quit)"
+[[ -z "$unexpected_samba_route" ]] || { echo "STOP: restored Samba route tree contains an unsafe entry" >&2; exit 1; }
+unexpected_samba_route="$(find /etc/samba/deniz-cloud-personal -mindepth 1 -type f ! -name 'dc-*-????????.conf' -print -quit)"
+[[ -z "$unexpected_samba_route" ]] || { echo "STOP: restored Samba route tree contains an unexpected file" >&2; exit 1; }
+while IFS= read -r route; do
+  route_principal="$(basename "$route" .conf)"
+  [[ "$route" == "/etc/samba/deniz-cloud-personal/${route_principal}.conf" &&
+     "$route_principal" =~ ^dc-[a-z0-9-]+-[0-9a-f]{8}$ &&
+     "$(wc -l < "$route" | tr -d ' ')" == 1 ]] \
+    || { echo "STOP: restored Samba principal route has an unsafe shape" >&2; exit 1; }
+  jq -e --arg principal "$route_principal" 'any(.[]; .name==$principal)' "$samba_principals" >/dev/null \
+    || { echo "STOP: Samba route has no matching principal" >&2; exit 1; }
+  grep -Eq '^path = /srv/deniz-cloud/storage/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' "$route" \
+    || { echo "STOP: Samba principal route escapes the restored namespace" >&2; exit 1; }
+done < <(find /etc/samba/deniz-cloud-personal -mindepth 1 -type f -name '*.conf' -print | sort)
+while IFS= read -r passdb_line; do
+  passdb_principal="${passdb_line%%:*}"
+  passdb_flags="$(cut -d: -f5 <<< "$passdb_line")"
+  if [[ "$passdb_principal" == dc-* && "$passdb_flags" != *D* ]]; then
+    [[ -f "/etc/samba/deniz-cloud-personal/${passdb_principal}.conf" ]] \
+      || { echo "STOP: enabled Samba principal has no restored route" >&2; exit 1; }
+  fi
+done < "$samba_passdb"
+sed -i -E "s/^([[:space:]]*force user = ).*$/\\1${storage_user}/" "$samba_config"
+grep -qE "^[[:space:]]*force user = ${storage_user}$" "$samba_config" \
+  || { echo "STOP: Samba recovery storage user remap failed" >&2; exit 1; }
+pdbedit -s "$samba_config" -i "smbpasswd:${samba_passdb}" -e tdbsam >/dev/null
+while IFS= read -r principal; do
+  pdbedit -s "$samba_config" -L -u "$principal" >/dev/null 2>&1 \
+    || { echo "STOP: Samba recovery principal import failed: ${principal}" >&2; exit 1; }
+done < <(jq -r '.[].name' "$samba_principals")
+samba_expected_auth="$(mktemp /srv/deniz-dr/samba-expected.XXXXXX)"
+samba_actual_auth="$(mktemp /srv/deniz-dr/samba-actual.XXXXXX)"
+cleanup_files+=("$samba_expected_auth" "$samba_actual_auth")
+awk -F: '$1=="deniz-api-broker" || $1 ~ /^dc-[a-z0-9-]+-[0-9a-f]{8}$/ {
+  printf "%s:%s:%s:%s\n", $1, $3, $4, $5
+}' "$samba_passdb" | sort > "$samba_expected_auth"
+pdbedit -s "$samba_config" -L -w \
+  | awk -F: '$1=="deniz-api-broker" || $1 ~ /^dc-[a-z0-9-]+-[0-9a-f]{8}$/ {
+      printf "%s:%s:%s:%s\n", $1, $3, $4, $5
+    }' \
+  | sort > "$samba_actual_auth"
+[[ "$(wc -l < "$samba_actual_auth" | tr -d ' ')" == "$(jq length "$samba_principals")" ]] \
+  || { echo "STOP: restored Samba passdb account count differs" >&2; exit 1; }
+cmp -s "$samba_actual_auth" "$samba_expected_auth" \
+  || { echo "STOP: restored Samba password hashes or account flags differ" >&2; exit 1; }
+rm -f -- "$samba_expected_auth" "$samba_actual_auth"
+
+systemctl daemon-reload
+systemctl enable --now deniz-cloud-storage.target
+metadata_socket=/run/deniz-cloud/storage-metadata.sock
+for _ in $(seq 1 60); do
+  if systemctl is-active --quiet deniz-cloud-storage.target deniz-cloud-storage-metadata.service \
+    && [[ -S "$metadata_socket" ]] \
+    && curl -fsS --unix-socket "$metadata_socket" http://localhost/healthz | jq -e '.status == "ok"' >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+systemctl is-active --quiet deniz-cloud-storage.target deniz-cloud-storage-metadata.service \
+  || { echo "STOP: storage target or metadata service is not active" >&2; exit 1; }
+[[ -S "$metadata_socket" ]] || { echo "STOP: storage metadata socket is unavailable" >&2; exit 1; }
+curl -fsS --unix-socket "$metadata_socket" http://localhost/healthz | jq -e '.status == "ok"' >/dev/null \
+  || { echo "STOP: storage metadata health failed" >&2; exit 1; }
+
+postgres_rows="$(mktemp /srv/deniz-dr/postgres-semantic.XXXXXX)"
+cleanup_files+=("$postgres_rows" "${postgres_rows}.json" "${postgres_rows}.expected" \
+  "${postgres_rows}.roles" "${postgres_rows}.roles.expected" \
+  "${postgres_rows}.databases" "${postgres_rows}.databases.expected")
+while IFS= read -r database; do
+  [[ "$database" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "STOP: unsafe PostgreSQL semantic database name" >&2; exit 1; }
+  cat <<'SQL' | docker exec -i "$postgres_container" sh -ceu \
+    'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
+    sh "$database" \
+    | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
+        select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$postgres_rows"
+SELECT format(
+  'SELECT json_build_object(''database'', %L, ''schema'', %L, ''table'', %L, ''rows'', count(*))::text FROM %I.%I;',
+  :'database', schemaname, tablename, schemaname, tablename
+)
+FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1
+\gexec
+SQL
+done < <(jq -r '.tables[].database' "$root/meta/postgres-semantic.json" | sort -u)
+jq -s 'sort_by(.database,.schema,.table)' "$postgres_rows" > "${postgres_rows}.json"
+jq '.tables | sort_by(.database,.schema,.table)' "$root/meta/postgres-semantic.json" > "${postgres_rows}.expected"
+cmp -s "${postgres_rows}.json" "${postgres_rows}.expected" || { echo "STOP: PostgreSQL table counts differ" >&2; exit 1; }
+docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "
+  SELECT coalesce(json_agg(row_to_json(r) ORDER BY r.name)::text, '\''[]'\'') FROM (
+    SELECT rolname AS name, rolsuper AS superuser, rolinherit AS inherit,
+           rolcreaterole AS create_role, rolcreatedb AS create_db, rolcanlogin AS can_login,
+           coalesce((SELECT array_agg(parent.rolname ORDER BY parent.rolname)
+                     FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid
+                     WHERE m.member=role.oid), ARRAY[]::name[]) AS memberships
+    FROM pg_roles role WHERE rolname !~ '\''^pg_'\''
+  ) r"' | jq -S . > "${postgres_rows}.roles"
+jq -S .roles "$root/meta/postgres-semantic.json" > "${postgres_rows}.roles.expected"
+cmp -s "${postgres_rows}.roles" "${postgres_rows}.roles.expected" || { echo "STOP: PostgreSQL roles or memberships differ" >&2; exit 1; }
+docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$1"' sh "
+  SELECT coalesce(json_agg(row_to_json(d) ORDER BY d.name)::text, '[]') FROM (
+    SELECT datname AS name, pg_get_userbyid(datdba) AS owner,
+           datallowconn AS allow_connections,
+           coalesce((SELECT array_agg(value ORDER BY value)
+                     FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::aclitem[]) AS acl
+    FROM pg_database WHERE NOT datistemplate
+  ) d" | jq -S . > "${postgres_rows}.databases"
+jq -S .databases "$root/meta/postgres-semantic.json" > "${postgres_rows}.databases.expected"
+cmp -s "${postgres_rows}.databases" "${postgres_rows}.databases.expected" \
+  || { echo "STOP: PostgreSQL database owners, ACLs, or connectivity differ" >&2; exit 1; }
+rm -f -- "$postgres_rows" "${postgres_rows}.json" "${postgres_rows}.expected" \
+  "${postgres_rows}.roles" "${postgres_rows}.roles.expected" \
+  "${postgres_rows}.databases" "${postgres_rows}.databases.expected"
+
+mongo_semantic_js="$(mktemp /srv/deniz-dr/mongo-semantic.XXXXXX.js)"
+cleanup_files+=("$mongo_semantic_js" "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected")
+install -m 0600 "$(dirname "$0")/mongo-semantic.js" "$mongo_semantic_js"
+docker cp "$mongo_semantic_js" "${mongo_container}:/tmp/deniz-dr-semantic.js" >/dev/null
+mongo_semantic_env="$(mktemp /srv/deniz-dr/mongo-semantic.XXXXXX.env)"
+cleanup_files+=("$mongo_semantic_env")
+printf 'DR_MONGO_USER=%s\nDR_MONGO_PASSWORD=%s\n' "$mongo_user" "$mongo_password" > "$mongo_semantic_env"
+docker exec --env-file "$mongo_semantic_env" "$mongo_container" \
+  mongosh --quiet --nodb --file /tmp/deniz-dr-semantic.js | tail -1 | jq -S . > "${mongo_semantic_js}.actual"
+rm -f -- "$mongo_semantic_env"
+jq -S . "$root/meta/mongodb-semantic.json" > "${mongo_semantic_js}.expected"
+cmp -s "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected" || { echo "STOP: MongoDB documents, indexes, users, or roles differ" >&2; exit 1; }
+docker exec "$mongo_container" rm -f -- /tmp/deniz-dr-semantic.js
+rm -f -- "$mongo_semantic_js" "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected"
+
+dc up -d
+for _ in $(seq 1 120); do
+  if dc ps --format json | jq -es '
+    map(select(.Service=="meilisearch" or .Service=="mongot" or .Service=="api")) |
+    length==3 and all(.[]; .Health=="healthy")
+  ' >/dev/null && curl -fsS http://127.0.0.1:3001/healthz >/dev/null; then
+    break
+  fi
+  sleep 2
+done
+dc ps --format json | jq -es '
+  map(select(.Service=="meilisearch" or .Service=="mongot" or .Service=="api")) |
+  length==3 and all(.[]; .Health=="healthy")
+' >/dev/null || { echo "STOP: Meilisearch, mongot, or API did not become healthy" >&2; exit 1; }
+curl -fsS http://127.0.0.1:3001/healthz >/dev/null || { echo "STOP: Pi API health failed" >&2; exit 1; }
+synthetic_token="$(awk -F= '$1 == "DR_SYNTHETIC_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$env_file")"
+[[ ${#synthetic_token} -ge 32 && "$synthetic_token" != *[$'\r\n"\\']* ]] \
+  || { echo "STOP: restored deep-health credential is missing" >&2; exit 1; }
+synthetic_config="$(mktemp /srv/deniz-dr/deep-health.XXXXXX.curl)"
+cleanup_files+=("$synthetic_config")
+printf 'url = "http://127.0.0.1:3001/healthz/deep"\nheader = "X-DR-Synthetic-Token: %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 60\n' \
+  "$synthetic_token" > "$synthetic_config"
+rebuild_config="$(mktemp /srv/deniz-dr/rebuild-search.XXXXXX.curl)"
+cleanup_files+=("$rebuild_config")
+printf 'url = "http://127.0.0.1:3001/healthz/recovery/rebuild-search"\nheader = "X-DR-Synthetic-Token: %s"\nrequest = "POST"\nfail-with-body\nsilent\nshow-error\nmax-time = 300\n' \
+  "$synthetic_token" > "$rebuild_config"
+curl --config "$rebuild_config" \
+  | jq -e '.indexed >= 0' >/dev/null \
+  || { echo "STOP: storage search rebuild failed" >&2; exit 1; }
+rm -f -- "$rebuild_config"
+curl --config "$synthetic_config" | jq -e '.status == "ok" and all(.checks[]; .status == "ok")' >/dev/null \
+  || { echo "STOP: Pi deep dependency transaction failed" >&2; exit 1; }
+rm -f -- "$synthetic_config"
+systemctl enable --now cloud-terminal.service
+for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:3003/healthz >/dev/null && break; sleep 1; done
+curl -fsS http://127.0.0.1:3003/healthz >/dev/null || { echo "STOP: cloud terminal health failed" >&2; exit 1; }
+
+markets_compose=/opt/markets-relay/docker-compose.markets.yml
+markets_env=/opt/markets-relay/.env.markets
+[[ -f "$markets_compose" && -f "$markets_env" ]] || { echo "STOP: restored markets relay contract is incomplete" >&2; exit 1; }
+docker compose --env-file "$markets_env" -f "$markets_compose" -f "$markets_override" up -d
+for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:3004/healthz >/dev/null && break; sleep 1; done
+curl -fsS http://127.0.0.1:3004/healthz >/dev/null || { echo "STOP: markets relay health failed" >&2; exit 1; }
+
+nutrition_verified=false
+if [[ "$nutrition_expected" == true ]]; then
+  [[ -d /opt/nutrition-api ]] || { echo "STOP: snapshot expected nutrition API config but restored none" >&2; exit 1; }
+  if [[ -f /opt/nutrition-api/docker-compose.yml ]]; then
+    nutrition_compose=(docker compose)
+    [[ ! -f /opt/nutrition-api/.env ]] || nutrition_compose+=(--env-file /opt/nutrition-api/.env)
+    "${nutrition_compose[@]}" -f /opt/nutrition-api/docker-compose.yml -f "$nutrition_override" up -d
+  elif [[ -f /etc/systemd/system/nutrition-api.service ]]; then
+    systemctl enable --now nutrition-api.service
+  else
+    echo "STOP: nutrition API exists but has no captured restore contract" >&2
+    exit 1
+  fi
+  nutrition_health="$(awk -F= '$1 == "NUTRITION_HEALTH_URL" {sub(/^[^=]*=/, ""); print; exit}' "$env_file")"
+  [[ "$nutrition_health" == http://127.0.0.1:* ]] \
+    || { echo "STOP: NUTRITION_HEALTH_URL must target the restored loopback service" >&2; exit 1; }
+  nutrition_endpoint="${nutrition_health#http://127.0.0.1:}"
+  nutrition_port="${nutrition_endpoint%%/*}"
+  if [[ ! "$nutrition_port" =~ ^[1-9][0-9]{0,4}$ ]] || ((10#$nutrition_port > 65535)); then
+    echo "STOP: NUTRITION_HEALTH_URL has an invalid loopback port" >&2
+    exit 1
+  fi
+  curl -fsS --max-time 15 "$nutrition_health" >/dev/null || { echo "STOP: nutrition API health failed" >&2; exit 1; }
+  nutrition_verified=true
+elif [[ -d /opt/nutrition-api ]]; then
+  echo "STOP: restored unexpected nutrition API state" >&2
+  exit 1
+fi
+postgres_summary="$(jq '{databases:(.databases|length),tables:(.tables|length),rows:([.tables[].rows]|add // 0),roles:(.roles|length)}' "$root/meta/postgres-semantic.json")"
+mongodb_summary="$(jq '{databases:(.databases|length),collections:([.databases[].collections|length]|add // 0),documents:([.databases[].collections[].documents]|add // 0),indexes:([.databases[].collections[].indexes|length]|add // 0),users:(.users|length),roles:(.roles|length)}' "$root/meta/mongodb-semantic.json")"
+redis_summary="$(jq '{keys}' "$root/meta/redis-semantic.json")"
+jq -n --argjson postgres "$postgres_summary" --argjson mongodb "$mongodb_summary" \
+  --argjson redis "$redis_summary" --argjson namespace "$namespace_verification" \
+  --argjson imagesVerified "$(jq '.images|length' "$manifest")" \
+  --argjson nutritionExpected "$nutrition_expected" \
+  --argjson nutritionVerified "$nutrition_verified" \
+  '{restored:true,profile:"pi",databasesVerified:true,postgres:$postgres,mongodb:$mongodb,redis:$redis,
+    namespace:{entriesChecked:$namespace.entriesChecked,mismatches:$namespace.mismatches},imagesVerified:$imagesVerified,
+    nutritionExpected:$nutritionExpected,nutritionVerified:$nutritionVerified,
+    servicesVerified:(["postgres","mongodb","redis","meilisearch","mongot","api","deniz-cloud-storage.target","cloud-storage-metadata","cloud-terminal","markets-relay"] +
+      (if $nutritionVerified then ["nutrition-api"] else [] end)),
+    deepDependencyTransaction:true,publicCutover:false}'

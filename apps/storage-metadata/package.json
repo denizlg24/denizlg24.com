@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --compile --outfile dist/cloud-storage-metadata",
-    "build:pi": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile dist/cloud-storage-metadata-arm64",
+    "build:amd64": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile dist/cloud-storage-metadata-amd64",
+    "build:arm64": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile dist/cloud-storage-metadata-arm64",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

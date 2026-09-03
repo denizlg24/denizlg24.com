@@ -1590,6 +1590,16 @@ export class StorageService {
         "Only superusers can trigger reindex",
       );
     }
+    return this.rebuildSearchIndex();
+  }
+
+  /**
+   * Rebuilds derived search state from the restored PostgreSQL catalog. This
+   * intentionally has no principal parameter: callers must provide their own
+   * trusted boundary (the normal route does that above; disaster recovery uses
+   * a separate, timing-safe synthetic token).
+   */
+  async rebuildSearchIndex(): Promise<number> {
     const index = this.meili.index(STORAGE_INDEX_UID);
     await index.deleteAllDocuments().waitTask();
     const [allFiles, allFolders] = await Promise.all([

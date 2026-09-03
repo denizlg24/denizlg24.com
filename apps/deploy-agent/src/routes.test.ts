@@ -6,6 +6,8 @@ import type {
   AgentApplyEnvRequest,
   AgentGcRequest,
   AgentHealth,
+  AgentRecoveryPublishRequest,
+  AgentRecoveryRequest,
 } from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
@@ -88,6 +90,8 @@ function app(
   }[] = [];
   const collected: AgentGcRequest[] = [];
   const envApplied: AgentApplyEnvRequest[] = [];
+  const recovered: AgentRecoveryRequest[] = [];
+  const published: AgentRecoveryPublishRequest[] = [];
   const routes: CaddyRouteEntry[] = [
     {
       deploymentId: "dep-1",
@@ -105,6 +109,8 @@ function app(
     rehosted,
     collected,
     envApplied,
+    recovered,
+    published,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
@@ -131,6 +137,24 @@ function app(
             error: null,
           }
         );
+      },
+      recover: async (request) => {
+        recovered.push(request);
+        return {
+          restored: true,
+          containerId: "container-recovered",
+          port: request.port,
+          imageReference: request.imageReference,
+          environmentHmacSha256: request.expectedEnvironmentHmacSha256,
+          error: null,
+        };
+      },
+      publishRecovery: async (request) => {
+        published.push(request);
+        return {
+          reference: `ghcr.io/denizlg24/forge-recovery/app@sha256:${"a".repeat(64)}`,
+          digest: `sha256:${"a".repeat(64)}`,
+        };
       },
       rehost: async (deploymentId, hostnames, routeOptions) => {
         if (!routes.some((route) => route.deploymentId === deploymentId)) {
@@ -552,6 +576,104 @@ describe("POST /deployments/:id/apply-env", () => {
 
     expect(response.status).toBe(400);
     expect(envApplied).toHaveLength(0);
+  });
+});
+
+describe("immutable recovery routes", () => {
+  const request = deploymentRequest({ build: { builder: "dockerfile" } });
+  const digest = `sha256:${"a".repeat(64)}`;
+  const imageReference = `ghcr.io/denizlg24/forge-recovery/app@${digest}`;
+
+  it("restores only a digest-pinned image for the matching deployment", async () => {
+    const { instance, recovered } = app();
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/recover`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({
+          request,
+          imageReference,
+          expectedEnvironmentHmacSha256: "b".repeat(64),
+          port: 24_817,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      restored: true,
+      imageReference,
+      port: 24_817,
+    });
+    expect(recovered).toHaveLength(1);
+  });
+
+  it("rejects a mutable recovery tag before it reaches Docker", async () => {
+    const { instance, recovered } = app();
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/recover`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({
+          request,
+          imageReference: "ghcr.io/denizlg24/forge-recovery/hello-world:latest",
+          expectedEnvironmentHmacSha256: "b".repeat(64),
+          port: 24_817,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(recovered).toHaveLength(0);
+  });
+
+  it("publishes the matching live image as an immutable reference", async () => {
+    const { instance, published } = app();
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/publish-recovery`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ request, localImage: "forge/hello-world:live" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      reference: imageReference,
+      digest,
+    });
+    expect(published).toHaveLength(1);
+  });
+
+  it("rejects a body/path deployment mismatch on both routes", async () => {
+    for (const [path, body] of [
+      [
+        "recover",
+        {
+          request,
+          imageReference,
+          expectedEnvironmentHmacSha256: "b".repeat(64),
+          port: 24_817,
+        },
+      ],
+      ["publish-recovery", { request, localImage: "forge/hello-world:live" }],
+    ] as const) {
+      const response = await app().instance.request(
+        `/deployments/${crypto.randomUUID()}/${path}`,
+        {
+          method: "POST",
+          headers: { ...AUTH, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: "DEPLOYMENT_ID_MISMATCH" },
+      });
+    }
   });
 });
 

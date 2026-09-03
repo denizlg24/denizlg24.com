@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+config="${1:-}"; evidence="${2:-}"
+[[ -n "$config" && -n "$evidence" && -f "$evidence" ]] || { echo "Usage: sign-isolation-evidence CONFIG JSON" >&2; exit 2; }
+dr_require_private_file "$config"
+# shellcheck disable=SC1090
+source "$config"
+dr_validate_json "$script_dir/schemas/source-isolation.schema.json" "$evidence"
+jq -e '.schemaVersion==1 and .sourcesBlocked==true and .publicSourceEndpointsBlocked==true and
+  .piCloud.online==true and .piCloud.blockedFromTarget==true and .forge.online==true and .forge.blockedFromTarget==true' \
+  "$evidence" >/dev/null || dr_die "isolation evidence does not prove the rehearsal precondition"
+dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-isolation "$evidence" "${evidence}.sig"
+printf 'Signed source isolation evidence: %s.sig\n' "$evidence"

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-31T10:00:00Z",
+  "cloudflare": {
+    "records": [],
+    "drTunnel": {
+      "id": "dr-tunnel-id",
+      "name": "deniz-dr",
+      "status": "inactive"
+    },
+    "drTunnelConfigurationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "tailscalePolicySha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "betterStack": { "monitors": [], "heartbeats": [] },
+  "secretsIncluded": false
+}

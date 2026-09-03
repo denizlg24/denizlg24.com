@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-31T10:00:00Z",
+  "snapshotId": "pi-cloud-20260831T100000Z",
+  "host": "pi-cloud",
+  "profile": "pi",
+  "generation": "2026-Q3",
+  "resticSnapshotId": "abcdef0123456789",
+  "forgeControlPlaneSha256": "fcb62420a9184c5b6cd274fc89599f2f9e0c02d284dce82dd18ec5a3d69fe02f",
+  "snapshotManifest": {
+    "path": "snapshot-manifest.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "objects": [
+    {
+      "path": "config",
+      "bytes": 128,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}

@@ -1,0 +1,638 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${script_dir}/lib/common.sh"
+
+config="${DR_RECOVERY_CONFIG:-${HOME}/.config/deniz-dr/config.env}"
+target_host=""
+profile=""
+snapshot="latest"
+check_only=false
+no_cutover=false
+accept_stale_snapshot=false
+provider=""
+region=""
+size=""
+report=""
+report_mutable=false
+resource_sampler_started=false
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID,FORGE_ID [target]
+  --host root@IP
+  --check-only
+  --no-cutover
+  --accept-stale-snapshot
+  --provider hetzner --region REGION --size recommended
+
+Runs on macOS. --check-only performs the complete local iCloud/signature/restic
+preflight and prints all intended mutations without contacting a target.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --host) target_host="${2:-}"; shift 2 ;;
+    --profile) profile="${2:-}"; shift 2 ;;
+    --snapshot) snapshot="${2:-}"; shift 2 ;;
+    --check-only) check_only=true; shift ;;
+    --no-cutover) no_cutover=true; shift ;;
+    --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
+    --provider) provider="${2:-}"; shift 2 ;;
+    --region) region="${2:-}"; shift 2 ;;
+    --size) size="${2:-}"; shift 2 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+[[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || { usage; exit 2; }
+dr_require_private_file "$config"
+# shellcheck disable=SC1090
+source "$config"
+: "${DR_SYNC_COMMAND:=${script_dir}/macos/dr-sync}"
+: "${DR_ICLOUD_HELPER:=${HOME}/Library/Application Support/deniz-dr/macos/dr-icloud-state}"
+: "${DR_REPORT_ROOT:=${HOME}/Documents/Recovery Reports}"
+: "${DR_BREAK_GLASS_FILE:?DR_BREAK_GLASS_FILE is required}"
+dr_read_env_file "$DR_BREAK_GLASS_FILE"
+dr_require_commands jq ssh scp ssh-keyscan ssh-keygen restic tar zstd curl git cmp
+[[ "$(uname -s)" == Darwin ]] || dr_die "recover must run on macOS"
+[[ -x "$DR_SYNC_COMMAND" ]] || dr_die "dr-sync is not installed: ${DR_SYNC_COMMAND}"
+[[ -x "$DR_ICLOUD_HELPER" && ! -L "$DR_ICLOUD_HELPER" ]] \
+  || dr_die "native iCloud helper is not installed: ${DR_ICLOUD_HELPER}; run infra/dr/macos/install"
+export DR_ICLOUD_HELPER
+: "${DR_COMPLETION_SIGNING_KEY:?DR_COMPLETION_SIGNING_KEY is required}"
+: "${DR_ALLOWED_SIGNERS:?DR_ALLOWED_SIGNERS is required}"
+dr_require_private_file "$DR_COMPLETION_SIGNING_KEY"
+[[ -f "$DR_ALLOWED_SIGNERS" && ! -L "$DR_ALLOWED_SIGNERS" ]] || dr_die "allowed signers file is missing"
+require_secret() {
+  local name="$1" minimum="$2" value
+  value="${!name:-}"
+  [[ ${#value} -ge minimum && "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+    || dr_die "${name} is missing or unsafe"
+}
+require_curl_config_secret() {
+  local name="$1" minimum="$2" value="${!1:-}"
+  require_secret "$name" "$minimum"
+  [[ "$value" != *'"'* && "$value" != *\\* ]] || dr_die "${name} contains unsafe curl-config characters"
+}
+require_curl_config_secret DR_TAILSCALE_OAUTH_CLIENT_ID 8
+require_curl_config_secret DR_TAILSCALE_OAUTH_CLIENT_SECRET 20
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  [[ "${DR_GHCR_USERNAME:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,38}$ ]] || dr_die "DR_GHCR_USERNAME is missing or unsafe"
+  require_secret DR_GHCR_TOKEN 20
+  require_curl_config_secret DR_DEPLOY_AGENT_TOKEN 32
+fi
+if [[ "$no_cutover" == false ]]; then
+  require_curl_config_secret DR_CLOUDFLARE_API_TOKEN 20
+  require_secret DR_CLOUDFLARE_DR_TUNNEL_TOKEN 20
+  require_curl_config_secret DR_BETTERSTACK_API_TOKEN 20
+  for identifier_name in DR_CLOUDFLARE_ACCOUNT_ID DR_CLOUDFLARE_ZONE_ID DR_CLOUDFLARE_DR_TUNNEL_ID; do
+    identifier_value="${!identifier_name:-}"
+    [[ "$identifier_value" =~ ^[A-Za-z0-9_-]+$ ]] || dr_die "${identifier_name} is missing or unsafe"
+  done
+  : "${DR_EXTERNAL_STATE:?DR_EXTERNAL_STATE is required for cutover}"
+  [[ -f "$DR_EXTERNAL_STATE" && ! -L "$DR_EXTERNAL_STATE" ]] || dr_die "external state contract is missing or unsafe"
+fi
+repo_root="$(cd "${script_dir}/../.." && pwd)"
+recovery_tool_revision="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+[[ "$recovery_tool_revision" =~ ^[0-9a-f]{40}$ ]] || dr_die "recovery checkout has no full Git revision"
+recovery_tool_dirty=false
+[[ -z "$(git -C "$repo_root" status --porcelain)" ]] || recovery_tool_dirty=true
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  : "${DR_RESTIC_PASSWORD_FILE_PI:?DR_RESTIC_PASSWORD_FILE_PI is required}"
+  dr_require_private_file "$DR_RESTIC_PASSWORD_FILE_PI"
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  : "${DR_RESTIC_PASSWORD_FILE_FORGE:?DR_RESTIC_PASSWORD_FILE_FORGE is required}"
+  dr_require_private_file "$DR_RESTIC_PASSWORD_FILE_FORGE"
+fi
+
+if [[ -n "$provider" ]]; then
+  [[ -z "$target_host" ]] || dr_die "--provider and --host are mutually exclusive"
+  [[ "$provider" == hetzner ]] || dr_die "only the rehearsed Hetzner adapter is supported"
+  [[ -n "$region" && "$size" == recommended ]] || dr_die "Hetzner requires --region and --size recommended"
+  require_curl_config_secret DR_HETZNER_TOKEN 20
+fi
+if [[ "$check_only" == false && -z "$target_host" && -z "$provider" ]]; then
+  dr_die "--host is required outside --check-only"
+fi
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/deniz-recovery.XXXXXX")"
+cleanup() {
+  local status=$?
+  if ((status != 0)) && [[ "$resource_sampler_started" == true ]] && declare -F collect_resource_metrics >/dev/null; then
+    (collect_resource_metrics) || true
+  fi
+  rm -rf -- "$work"
+  if ((status != 0)) && [[ "$report_mutable" == true && -n "$report" && -f "$report" ]]; then
+    jq '.result="failed" | .updatedAt=(now|todate) |
+      .phases |= map(if .status=="running" then .status="failed" | .finishedAt=(now|todate) else . end)' \
+      "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+    if [[ -n ${DR_COMPLETION_SIGNING_KEY:-} ]]; then
+      (dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}.sig") || true
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+install -d -m 0700 "$DR_REPORT_ROOT"
+
+selected='[]'
+hydrate_one() {
+  local host="$1" selected_snapshot="$2" result destination
+  destination="$work/hydrated-$host"
+  result="$("$DR_SYNC_COMMAND" --config "$config" hydrate --host "$host" --snapshot "$selected_snapshot" --destination "$destination")"
+  jq -e '.hydrated == true and .verified == true' <<< "$result" >/dev/null || dr_die "hydration did not verify: ${host}"
+  selected="$(jq -c --argjson item "$result" '. + [$item]' <<< "$selected")"
+}
+
+# Forge-only uses the surviving Pi control plane. Combined and Pi recovery need
+# the Pi snapshot; combined additionally needs Forge host config and images.
+pi_snapshot="$snapshot"; forge_snapshot="$snapshot"
+if [[ "$profile" == all ]]; then
+  if [[ "$snapshot" == latest ]]; then
+    pair="$("$DR_SYNC_COMMAND" --config "$config" select-pair)"
+    jq -e '.paired==true and .pi.snapshotId!=.forge.snapshotId and
+      .forgeControlPlaneSha256==.pi.forgeControlPlaneSha256 and
+      .pi.forgeControlPlaneSha256==.forge.forgeControlPlaneSha256' <<< "$pair" >/dev/null \
+      || dr_die "Mac bridge did not return a valid compatible snapshot pair"
+    pi_snapshot="$(jq -er .pi.snapshotId <<< "$pair")"
+    forge_snapshot="$(jq -er .forge.snapshotId <<< "$pair")"
+  elif [[ "$snapshot" =~ ^(pi-cloud-[0-9]{8}T[0-9]{6}Z),(forge-[0-9]{8}T[0-9]{6}Z)$ ]]; then
+    pi_snapshot="${BASH_REMATCH[1]}"
+    forge_snapshot="${BASH_REMATCH[2]}"
+  else
+    dr_die "combined recovery requires --snapshot latest or PI_SNAPSHOT_ID,FORGE_SNAPSHOT_ID"
+  fi
+fi
+if [[ "$profile" == pi || "$profile" == all ]]; then hydrate_one pi-cloud "$pi_snapshot"; fi
+if [[ "$profile" == forge || "$profile" == all ]]; then hydrate_one forge "$forge_snapshot"; fi
+
+artifact_bytes=0; restored_bytes=0; image_bytes=0; newest_epoch=0; oldest_epoch=9999999999
+package_source=""; version_source=""; snapshot_git_revisions='[]'; expected_services='[]'
+pi_control_plane=""; forge_control_plane=""
+while IFS= read -r item; do
+  path="$(jq -r .path <<< "$item")"
+  hydrated_host="$(jq -er .host <<< "$item")"
+  case "$hydrated_host" in
+    pi-cloud) hydrated_password_file="$DR_RESTIC_PASSWORD_FILE_PI" ;;
+    forge) hydrated_password_file="$DR_RESTIC_PASSWORD_FILE_FORGE" ;;
+    *) dr_die "hydration returned an unknown host" ;;
+  esac
+  restic_id="$(jq -r .resticSnapshotId <<< "$item")"
+  restore_bytes="$(RESTIC_REPOSITORY="$path/repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+    restic stats --mode restore-size --json "$restic_id" | jq -er '.total_size | select(type=="number" and .>=0)')" \
+    || dr_die "restic could not calculate local restore size"
+  local_available="$(dr_bytes_available "$path")"
+  ((local_available >= restore_bytes + 1073741824)) \
+    || dr_die "insufficient local free space for plaintext restore of ${hydrated_host} (${restore_bytes} bytes plus reserve required)"
+  RESTIC_REPOSITORY="$path/repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+    restic restore "$restic_id" --target "$path/restored" >/dev/null
+  manifest="$(find "$path/restored" -name snapshot-manifest.json -type f -print -quit)"
+  [[ -n "$manifest" ]] || dr_die "restic snapshot has no snapshot manifest"
+  version_lock_candidate="$(dirname "$manifest")/meta/versions.lock.json"
+  [[ -f "$version_lock_candidate" && ! -L "$version_lock_candidate" ]] || dr_die "snapshot has no captured version lock"
+  [[ "$(dr_sha256 "$version_lock_candidate")" == "$(jq -er .versionLockSha256 "$manifest")" ]] \
+    || dr_die "snapshot version-lock checksum mismatch"
+  dr_validate_json "$script_dir/schemas/version-lock.schema.json" "$version_lock_candidate"
+  jq -S . "$version_lock_candidate" > "$work/version-lock.candidate"
+  if [[ -z "$version_source" ]]; then
+    install -m 0600 "$work/version-lock.candidate" "$work/version-lock.selected"
+    version_source="$work/version-lock.selected"
+  elif ! cmp -s "$version_source" "$work/version-lock.candidate"; then
+    dr_die "selected Pi and Forge snapshots use different recovery version locks"
+  fi
+  package_candidate="$(dirname "$manifest")/meta/host-packages.json"
+  [[ -f "$package_candidate" ]] || dr_die "snapshot has no exact host package manifest"
+  jq -S . "$package_candidate" > "$work/host-packages.candidate"
+  if [[ -z "$package_source" ]]; then
+    install -m 0600 "$work/host-packages.candidate" "$work/host-packages.selected"
+    package_source="$work/host-packages.selected"
+  else
+    jq -e --slurpfile selected "$package_source" '
+      to_entries | all(.[]; . as $entry |
+        ($selected[0] | has($entry.key) | not) or $selected[0][$entry.key]==$entry.value)
+    ' "$work/host-packages.candidate" >/dev/null \
+      || dr_die "selected Pi and Forge snapshots record conflicting host package versions"
+    jq -S -s '.[0] * .[1]' "$package_source" "$work/host-packages.candidate" > "$work/host-packages.merged"
+    mv -- "$work/host-packages.merged" "$package_source"
+  fi
+  ready="$path/ready/$(jq -r .snapshotId <<< "$item").json"
+  [[ "$(dr_sha256 "$manifest")" == "$(jq -r .snapshotManifest.sha256 "$ready")" ]] || dr_die "restored snapshot manifest hash mismatch"
+  dr_validate_json "$script_dir/schemas/snapshot-manifest.schema.json" "$manifest"
+  jq -e '
+    .totals.artifactBytes==([.artifacts[].bytes]|add // 0) and
+    .totals.restoredBytes==([.restoreFootprint[].bytes]|add // 0) and
+    .totals.fileCount==(.artifacts|length) and
+    .totals.imageBytes==([.images | group_by(.reference)[] | .[0].imageSizeBytes]|add // 0) and
+    ([.artifacts[].path]|unique|length)==(.artifacts|length) and
+    ([.restoreFootprint[].component]|unique|length)==(.restoreFootprint|length) and
+    (if .profile=="pi" then
+      ([.restoreFootprint[] | [.component,.method]]|sort)==[
+        ["config","uncompressed-tar"],
+        ["mongodb","allocated-verified-restore"],
+        ["namespace","allocated-source-inventory"],
+        ["postgresql","allocated-verified-restore"],
+        ["recovery-host","uncompressed-tar"],
+        ["redis","max-memory-rdb"],
+        ["samba","restored-files"]
+      ]
+     else
+      ([.restoreFootprint[] | [.component,.method]]|sort)==[
+        ["config","uncompressed-tar"],
+        ["recovery-host","uncompressed-tar"]
+      ]
+     end) and
+    ([.images[] | [.service,.deploymentId // ""]]|unique|length)==(.images|length)
+  ' "$manifest" >/dev/null || dr_die "snapshot manifest totals or inventories are inconsistent"
+  control_plane_candidate="$work/${hydrated_host}.forge-control-plane.json"
+  jq -S -c '.forgeControlPlane | sort_by(.deploymentId)' "$manifest" > "$control_plane_candidate"
+  jq -e 'length>0 and ([.[].deploymentId]|unique|length)==length' "$control_plane_candidate" >/dev/null \
+    || dr_die "snapshot has no unique Forge control-plane pairing inventory"
+  control_plane_sha256="$(dr_json_sha256 "$control_plane_candidate")"
+  [[ "$control_plane_sha256" == "$(jq -er .forgeControlPlaneSha256 "$manifest")" &&
+     "$control_plane_sha256" == "$(jq -er .forgeControlPlaneSha256 "$ready")" ]] \
+    || dr_die "snapshot Forge control-plane pairing digest is inconsistent"
+  case "$hydrated_host" in
+    pi-cloud) pi_control_plane="$control_plane_candidate" ;;
+    forge) forge_control_plane="$control_plane_candidate" ;;
+  esac
+  artifact_bytes=$((artifact_bytes + $(jq -r .totals.artifactBytes "$manifest")))
+  restored_bytes=$((restored_bytes + $(jq -r .totals.restoredBytes "$manifest")))
+  image_bytes=$((image_bytes + $(jq -r .totals.imageBytes "$manifest")))
+  created="$(jq -r .createdAt "$manifest")"
+  if [[ "$hydrated_host" == pi-cloud ]]; then
+    manifest_services="$(jq -c '[.images[].service] + ["cloud-terminal","cloud-storage-metadata","deniz-cloud-storage.target"] +
+      (if (.inventory.authoritative | index("nutrition-config")) then ["nutrition-api"] else [] end)' "$manifest")"
+  else
+    manifest_services="$(jq -c '[.images[].service] + ["forge-agent","forge-caddy","forge-buildkit"]' "$manifest")"
+  fi
+  expected_services="$(jq -cn --argjson current "$expected_services" --argjson additions "$manifest_services" \
+    '$current + $additions | unique | sort')"
+  snapshot_git_revisions="$(jq -c --arg revision "$(jq -er .gitRevision "$manifest")" '. + [$revision] | unique' <<< "$snapshot_git_revisions")"
+  epoch="$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$created" +%s)"
+  ((epoch > newest_epoch)) && newest_epoch=$epoch
+  ((epoch < oldest_epoch)) && oldest_epoch=$epoch
+done < <(jq -c '.[]' <<< "$selected")
+
+if [[ "$profile" == all ]]; then
+  dr_assert_forge_control_plane_pair "$pi_control_plane" "$forge_control_plane"
+fi
+control_plane_source="$pi_control_plane"
+[[ -n "$forge_control_plane" ]] && control_plane_source="$forge_control_plane"
+forge_deployment_count="$(jq -r length "$control_plane_source")"
+
+now="$(date +%s)"
+((newest_epoch <= now + 300)) || dr_die "selected snapshot time is more than five minutes in the future"
+age=$((now - oldest_epoch))
+stale=false; ((age > 86400)) && stale=true
+required_disk="$(dr_required_disk_bytes "$restored_bytes" "$image_bytes")"
+snapshot_ids="$(jq -c '[.[].snapshotId]' <<< "$selected")"
+local_tool_versions="$(jq -cn \
+  --arg git "$(git --version)" \
+  --arg jq "$(jq --version)" \
+  --arg restic "$(restic version)" \
+  --arg ssh "$(ssh -V 2>&1 | head -1)" \
+  --arg tar "$(tar --version 2>&1 | head -1)" \
+  --arg zstd "$(zstd --version | head -1)" \
+  '{git:$git,jq:$jq,restic:$restic,ssh:$ssh,tar:$tar,zstd:$zstd}')"
+
+intended='["install exact recorded host packages","join Tailscale as tag:dr","create users, swap, firewall, mounts and Docker networks","stream and semantically restore authoritative state","start and locally verify selected services"]'
+if [[ "$no_cutover" == false ]]; then
+  intended="$(jq -c '. + ["fence old writable hosts","switch selected profile lease(s) to dr","apply DR tunnel and DNS patch","wait for external verification","retain signed reverse patch"]' <<< "$intended")"
+fi
+jq -n --arg profile "$profile" --argjson snapshots "$snapshot_ids" --argjson ageSeconds "$age" \
+  --argjson artifactBytes "$artifact_bytes" --argjson restoredBytes "$restored_bytes" \
+  --argjson imageBytes "$image_bytes" --argjson requiredDiskBytes "$required_disk" \
+  --argjson stale "$stale" --argjson staleAccepted "$accept_stale_snapshot" \
+  --arg recoveryToolRevision "$recovery_tool_revision" --argjson recoveryToolDirty "$recovery_tool_dirty" \
+  --argjson snapshotGitRevisions "$snapshot_git_revisions" --argjson localToolVersions "$local_tool_versions" \
+  --argjson expectedServices "$expected_services" --argjson forgeDeploymentCount "$forge_deployment_count" --argjson intendedMutations "$intended" \
+  --argjson cutoverRequested "$([[ "$no_cutover" == false ]] && printf true || printf false)" \
+  '{localPreflight:"verified",profile:$profile,iCloudConfirmedSnapshots:$snapshots,oldestSnapshotAgeSeconds:$ageSeconds,
+    backupArtifactBytes:$artifactBytes,restoredBytes:$restoredBytes,imageBytes:$imageBytes,requiredTargetDiskBytes:$requiredDiskBytes,
+    stale:$stale,staleAccepted:$staleAccepted,recoveryToolRevision:$recoveryToolRevision,recoveryToolDirty:$recoveryToolDirty,
+    snapshotGitRevisions:$snapshotGitRevisions,localToolVersions:$localToolVersions,
+    expectedServices:$expectedServices,forgeControlPlaneDeployments:$forgeDeploymentCount,
+    cutoverRequested:$cutoverRequested,intendedMutations:$intendedMutations}' | tee "$work/preflight.json"
+preflight="$(jq -c . "$work/preflight.json")"
+
+if [[ "$stale" == true ]]; then
+  [[ "$accept_stale_snapshot" == true ]] \
+    || dr_die "newest selected iCloud-confirmed snapshot set is older than 24 hours (${age}s); rerun with --accept-stale-snapshot only after reviewing the data-loss window"
+  if [[ "$check_only" == false ]]; then
+    printf 'Selected iCloud-confirmed snapshots are %ss old. Type ACCEPT STALE to continue: ' "$age" >&2
+    IFS= read -r stale_confirmation
+    [[ "$stale_confirmation" == "ACCEPT STALE" ]] || dr_die "stale recovery point was not confirmed"
+  fi
+fi
+
+if [[ "$check_only" == true ]]; then exit 0; fi
+[[ "$recovery_tool_dirty" == false ]] || dr_die "execute recovery requires a clean, committed checkout; review and commit the recovery tooling first"
+
+if [[ -n "$provider" ]]; then
+  provider_key="$(printf '%s\0%s\0%s\0%s' "$profile" "$snapshot_ids" "$provider" "$region" | shasum -a 256 | cut -c1-20)"
+  provider_state="$DR_REPORT_ROOT/provider-${provider_key}.json"
+  if [[ -f "$provider_state" ]]; then
+    chmod 0600 "$provider_state"
+    provider_result="$(cat "$provider_state")"
+  else
+    provider_result="$("$script_dir/providers/hetzner" create --region "$region" --size "$size" \
+      --required-disk-bytes "$required_disk" --token-stdin <<< "$DR_HETZNER_TOKEN")"
+    printf '%s\n' "$provider_result" > "${provider_state}.tmp"
+    chmod 0600 "${provider_state}.tmp"
+    mv -- "${provider_state}.tmp" "$provider_state"
+  fi
+  jq -e --argjson required "$required_disk" '
+    .provider=="hetzner" and .requiredDiskBytes==$required and
+    .quotedCapacity.architecture=="x86" and .quotedCapacity.cores>=8 and
+    .quotedCapacity.memoryBytes>=16000000000 and .quotedCapacity.diskBytes>=$required and
+    .quotedCapacity.locationAvailable==true
+  ' <<< "$provider_result" >/dev/null || dr_die "saved provider state is incompatible with this recovery capacity"
+  target_host="root@$(jq -er .ipv4 <<< "$provider_result")"
+  printf 'Recovery provider state: %s\n' "$provider_state"
+fi
+[[ "$target_host" =~ ^root@([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "--host must be root@ plus an explicit IPv4 address"
+
+recovery_key="$(printf '%s\0%s\0%s' "$target_host" "$profile" "$snapshot_ids" | shasum -a 256 | cut -c1-20)"
+recovery_id="dr-${recovery_key}"
+report_dir="$DR_REPORT_ROOT/$recovery_id"
+report="$report_dir/report.json"
+cutover_requested="$([[ "$no_cutover" == false ]] && printf true || printf false)"
+resume=false
+ssh_host="$target_host"
+known_hosts="$work/known_hosts"
+if [[ -f "$report" && -f "$report_dir/known_hosts" ]] && jq -e '.target.tailnetHost != null' "$report" >/dev/null; then
+  known_hosts="$report_dir/known_hosts"
+  ssh_host="$(jq -er .target.tailnetHost "$report")"
+  [[ "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
+    || dr_die "existing recovery checkpoint has an invalid Tailscale transport"
+  fingerprint="$(jq -er .target.fingerprint "$report")"
+else
+  for _ in $(seq 1 60); do
+    ssh-keyscan -T 5 "${target_host#*@}" > "$known_hosts" 2>/dev/null && [[ -s "$known_hosts" ]] && break
+    sleep 5
+  done
+  [[ -s "$known_hosts" ]] || dr_die "could not fingerprint target after five minutes"
+  fingerprint="$(ssh-keygen -lf "$known_hosts" -E sha256 | awk 'NR==1 {print $2}')"
+  printf 'New recovery target fingerprint: %s\nType the full fingerprint to trust this host: ' "$fingerprint" >&2
+  IFS= read -r answer
+  [[ "$answer" == "$fingerprint" ]] || dr_die "target fingerprint was not confirmed"
+fi
+ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes)
+if [[ "$ssh_host" != "$target_host" ]]; then
+  ssh_opts+=(-o "HostKeyAlias=${target_host#*@}")
+fi
+if [[ -f "$report" ]]; then
+  dr_assert_recovery_preflight_compatible "$report" "$work/preflight.json"
+  jq -e --arg id "$recovery_id" --arg profile "$profile" --argjson snapshots "$snapshot_ids" \
+    --arg host "$target_host" --arg fingerprint "$fingerprint" --argjson cutover "$cutover_requested" \
+    '.recoveryId==$id and .profile==$profile and .snapshotIds==$snapshots and
+     .target.host==$host and .target.fingerprint==$fingerprint and
+     ((.cutover.requested==$cutover and (.result=="in-progress" or .result=="failed")) or
+      (.cutover.requested==false and $cutover==true and .result=="verified-no-cutover"))' \
+    "$report" >/dev/null || dr_die "existing recovery checkpoint is incompatible or terminal"
+  if jq -e '.result=="verified-no-cutover"' "$report" >/dev/null; then
+    dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-recovery "${report}.sig" "$report"
+  fi
+  resume=true
+fi
+target_json="$(ssh "${ssh_opts[@]}" "$ssh_host" 'set -eu; [[ $(id -u) == 0 ]]; for _ in $(seq 1 24); do timedatectl show -p NTPSynchronized --value | grep -qx yes && break; sleep 5; done; timedatectl show -p NTPSynchronized --value | grep -qx yes; getent ahostsv4 github.com >/dev/null; timeout 10 bash -c "</dev/tcp/github.com/443"; . /etc/os-release; populated=$(find /srv /opt -mindepth 1 -maxdepth 2 -print -quit 2>/dev/null || true); root_device=$(findmnt -no SOURCE -T /); rotational=$(lsblk -ndo ROTA "$root_device" | head -1); [[ "$rotational" == 0 || "$rotational" == 1 ]]; jq -n --arg os "$ID" --arg version "$VERSION_ID" --arg arch "$(uname -m)" --arg virt "$(systemd-detect-virt 2>/dev/null || true)" --arg populated "$populated" --argjson rotational "$rotational" --argjson vcpu "$(nproc)" --argjson memoryBytes "$(awk "/MemTotal/{print \$2*1024}" /proc/meminfo)" --argjson diskBytes "$(df -B1 --output=size / | tail -1)" --argjson availableBytes "$(df -B1 --output=avail / | tail -1)" "{os:\$os,version:\$version,architecture:\$arch,virtualization:\$virt,vcpu:\$vcpu,memoryBytes:\$memoryBytes,diskBytes:\$diskBytes,availableBytes:\$availableBytes,populated:\$populated,storageRotational:(\$rotational==1),timeSynchronized:true,outboundNetwork:true}"')"
+jq -e --argjson required "$required_disk" --argjson resume "$resume" '
+  .os=="ubuntu" and .version=="24.04" and .architecture=="x86_64" and
+  .virtualization!="lxc" and .virtualization!="docker" and .vcpu>=8 and
+  .memoryBytes>=16000000000 and .diskBytes>=$required and .storageRotational==false and
+  ($resume or (.availableBytes>=$required and .populated==""))
+' <<< "$target_json" >/dev/null || dr_die "target is unsupported, undersized, or not empty"
+
+install -d -m 0700 "$report_dir/checkpoints"
+if [[ "$known_hosts" != "$report_dir/known_hosts" ]]; then
+  install -m 0600 "$known_hosts" "$report_dir/known_hosts"
+fi
+report_mutable=true
+rm -f -- "${report}.sig"
+if [[ -f "$report" ]]; then
+  jq --argjson cutover "$cutover_requested" --argjson preflight "$preflight" \
+    '.result="in-progress" | .cutover.requested=$cutover | .preflight=$preflight | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+else
+  jq -n --arg id "$recovery_id" --arg now "$(date -u +%FT%TZ)" --arg profile "$profile" --argjson snapshots "$snapshot_ids" \
+    --arg host "$target_host" --arg fingerprint "$fingerprint" --argjson target "$target_json" \
+    --argjson cutoverRequested "$cutover_requested" --argjson preflight "$preflight" \
+    '{schemaVersion:1,recoveryId:$id,createdAt:$now,updatedAt:$now,profile:$profile,snapshotIds:$snapshots,
+      preflight:$preflight,
+      target:{host:$host,fingerprint:$fingerprint,os:($target.os+" "+$target.version),architecture:$target.architecture,vcpu:$target.vcpu,memoryBytes:$target.memoryBytes,diskBytes:$target.diskBytes,storageRotational:$target.storageRotational},
+      cutover:{requested:$cutoverRequested,performed:false,fenced:false,reversePatch:null},resourceMetrics:null,
+      phases:[],checks:[],exceptions:[],result:"in-progress"}' > "$report"
+fi
+
+phase_done() { dr_phase_done "$report" "$report_dir/checkpoints" "$1"; }
+begin_phase() { dr_begin_phase "$report" "$1"; }
+finish_phase() { dr_finish_phase "$report" "$report_dir/checkpoints" "$1"; }
+remote_root="/srv/deniz-dr/restore/$recovery_id"
+resource_unit="deniz-dr-resource-${recovery_key}.service"
+resource_samples="$remote_root/resource-samples.jsonl"
+
+start_resource_sampler() {
+  ssh "${ssh_opts[@]}" "$ssh_host" \
+    "systemctl is-active --quiet '$resource_unit' || systemd-run --quiet --collect --unit '$resource_unit' --property RuntimeMaxSec=5h '$remote_root/bin/resource-sampler' run --output '$resource_samples'"
+  resource_sampler_started=true
+}
+
+collect_resource_metrics() {
+  local metrics
+  ssh "${ssh_opts[@]}" "$ssh_host" "systemctl stop '$resource_unit' >/dev/null 2>&1 || true"
+  metrics="$(ssh "${ssh_opts[@]}" "$ssh_host" "'$remote_root/bin/resource-sampler' summarize --input '$resource_samples'")"
+  jq -e '.samples>=1 and .sampleIntervalSeconds==5 and .peakCpuPercent>=0 and
+    .peakMemoryUsedBytes>=0 and .minMemoryAvailableBytes>=0 and
+    .peakDiskUsedBytes>=0 and .minDiskAvailableBytes>=0 and
+    .physicalInterfaceCount>=1 and
+    .physicalNetworkReceiveBytes>=0 and .physicalNetworkTransmitBytes>=0' \
+    <<< "$metrics" >/dev/null || dr_die "target resource sampler returned invalid evidence"
+  jq --argjson metrics "$metrics" '.resourceMetrics=$metrics | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+  resource_sampler_started=false
+}
+
+mint_tailscale_auth_key() {
+  : "${DR_TAILSCALE_OAUTH_CLIENT_ID:?DR_TAILSCALE_OAUTH_CLIENT_ID is required}"
+  : "${DR_TAILSCALE_OAUTH_CLIENT_SECRET:?DR_TAILSCALE_OAUTH_CLIENT_SECRET is required}"
+  [[ "$DR_TAILSCALE_OAUTH_CLIENT_ID" != *[$'\r\n"\\']* && "$DR_TAILSCALE_OAUTH_CLIENT_SECRET" != *[$'\r\n"\\']* ]] \
+    || dr_die "Tailscale OAuth credentials contain unsafe curl-config characters"
+  local oauth_config="$work/tailscale-oauth.curl" token_response access_token key_body key_config key_response
+  {
+    printf 'url = "https://api.tailscale.com/api/v2/oauth/token"\n'
+    printf 'request = "POST"\n'
+    printf 'data-urlencode = "grant_type=client_credentials"\n'
+    printf 'data-urlencode = "client_id=%s"\n' "$DR_TAILSCALE_OAUTH_CLIENT_ID"
+    printf 'data-urlencode = "client_secret=%s"\n' "$DR_TAILSCALE_OAUTH_CLIENT_SECRET"
+    printf 'data-urlencode = "scope=auth_keys"\n'
+    printf 'data-urlencode = "tags=tag:dr"\n'
+    printf 'fail-with-body\nsilent\nshow-error\nmax-time = 30\n'
+  } > "$oauth_config"
+  chmod 0600 "$oauth_config"
+  token_response="$(curl --config "$oauth_config")"
+  rm -f -- "$oauth_config"
+  access_token="$(jq -er '.access_token | select(type=="string" and length>0)' <<< "$token_response")" \
+    || dr_die "Tailscale OAuth token exchange failed"
+  [[ "$access_token" =~ ^[A-Za-z0-9._~-]+$ ]] || dr_die "Tailscale returned an unsafe OAuth token"
+  jq -e '(.scope | strings | split(" ") | index("auth_keys")) != null' <<< "$token_response" >/dev/null \
+    || dr_die "Tailscale OAuth client did not grant the required auth_keys scope"
+  key_body="$(jq -cn '{capabilities:{devices:{create:{reusable:false,ephemeral:false,preauthorized:true,tags:["tag:dr"]}}},expirySeconds:3600,description:"deniz disaster recovery"}')"
+  key_config="$work/tailscale-key.curl"
+  {
+    printf 'url = "https://api.tailscale.com/api/v2/tailnet/-/keys"\n'
+    printf 'request = "POST"\n'
+    printf 'header = "Authorization: Bearer %s"\n' "$access_token"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'data = "%s"\n' "${key_body//\"/\\\"}"
+    printf 'fail-with-body\nsilent\nshow-error\nmax-time = 30\n'
+  } > "$key_config"
+  chmod 0600 "$key_config"
+  key_response="$(curl --config "$key_config")"
+  rm -f -- "$key_config"
+  access_token=""
+  jq -er '.key | select(type=="string" and startswith("tskey-auth-"))' <<< "$key_response" \
+    || dr_die "Tailscale did not return a one-time auth key"
+}
+
+if ! phase_done bootstrap; then
+  begin_phase bootstrap
+  ssh "${ssh_opts[@]}" "$ssh_host" "install -d -m 0700 '$remote_root' '$remote_root/bin'"
+  scp "${ssh_opts[@]}" "$script_dir/remote/bootstrap" "$script_dir/remote/restore-pi" "$script_dir/remote/restore-forge" \
+    "$script_dir/remote/resource-sampler" \
+    "$script_dir/lib/mongo-semantic.js" "$script_dir/lib/redis-semantic.lua" \
+    "$repo_root/infra/scripts/posix-storage-host.sh" "$ssh_host:$remote_root/bin/"
+  scp "${ssh_opts[@]}" "$package_source" "$version_source" "$ssh_host:$remote_root/"
+  ssh "${ssh_opts[@]}" "$ssh_host" "mv '$remote_root/version-lock.selected' '$remote_root/versions.lock.json'"
+  mint_tailscale_auth_key > "$work/tailscale.key"; chmod 0600 "$work/tailscale.key"
+  scp "${ssh_opts[@]}" "$work/tailscale.key" "$ssh_host:$remote_root/tailscale.key"; rm -f -- "$work/tailscale.key"
+  bootstrap_result="$(ssh "${ssh_opts[@]}" "$ssh_host" "chmod 0700 '$remote_root/bin/'* && '$remote_root/bin/bootstrap' --profile '$profile' --packages '$remote_root/host-packages.selected' --versions '$remote_root/versions.lock.json' --tailscale-key-file '$remote_root/tailscale.key'")"
+  ssh_host="root@$(jq -er .tailnetIp <<< "$bootstrap_result")"
+  [[ "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
+    || dr_die "bootstrap returned an invalid Tailscale transport"
+  jq --arg tailnetHost "$ssh_host" '.target.tailnetHost=$tailnetHost | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+  ssh_opts=(-o BatchMode=yes -o ConnectTimeout=5 -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target_host#*@}")
+  tailnet_ready=false
+  for _ in $(seq 1 60); do
+    if ssh "${ssh_opts[@]}" "$ssh_host" true >/dev/null 2>&1; then tailnet_ready=true; break; fi
+    sleep 5
+  done
+  [[ "$tailnet_ready" == true ]] || dr_die "target did not become reachable over Tailscale after five minutes"
+  finish_phase bootstrap
+fi
+start_resource_sampler
+
+copy_snapshot() {
+  local host="$1" item local_root manifest_root
+  item="$(jq -c --arg host "$host" '.[] | select(.host==$host)' <<< "$selected")"
+  [[ -n "$item" ]] || dr_die "missing selected snapshot: ${host}"
+  local_root="$(jq -r .path <<< "$item")/restored"
+  manifest_root="$(dirname "$(find "$local_root" -name snapshot-manifest.json -type f -print -quit)")"
+  tar -C "$manifest_root" -cf - . | ssh "${ssh_opts[@]}" "$ssh_host" "install -d -m 0700 '$remote_root/$host' && tar -C '$remote_root/$host' -xf -"
+}
+
+check_remote_headroom() {
+  local phase="$1" disk size available
+  read -r size available <<< "$(ssh "${ssh_opts[@]}" "$ssh_host" 'df -B1 --output=size,avail / | tail -1')"
+  [[ "$size" =~ ^[0-9]+$ && "$available" =~ ^[0-9]+$ ]] || dr_die "target returned invalid disk headroom data"
+  disk="$(jq -cn --argjson size "$size" --argjson available "$available" '{size:$size,available:$available}')"
+  jq -e '.size > 0 and (.available * 5 >= .size)' <<< "$disk" >/dev/null \
+    || dr_die "target disk has less than 20% free after ${phase}"
+  jq --arg phase "$phase" --argjson disk "$disk" \
+    '.checks += [{name:("disk headroom after " + $phase),status:"ok",detail:(($disk.available|tostring) + " bytes free; at least 20% retained")}] | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+}
+
+if [[ "$profile" == pi || "$profile" == all ]] && ! phase_done restore-pi; then
+  begin_phase restore-pi
+  copy_snapshot pi-cloud
+  combined_flag=""; [[ "$profile" == all ]] && combined_flag="--combined"
+  restore_pi_output="$(ssh "${ssh_opts[@]}" "$ssh_host" "'$remote_root/bin/restore-pi' --root '$remote_root/pi-cloud' $combined_flag")"
+  restore_pi_result="$(tail -1 <<< "$restore_pi_output")"
+  jq -e '.restored==true and .databasesVerified==true and .namespace.mismatches==0 and
+    .namespace.entriesChecked>0 and .imagesVerified>0 and .deepDependencyTransaction==true and
+    .nutritionExpected == .nutritionVerified and
+    ((.nutritionExpected == false) or (.servicesVerified | index("nutrition-api") != null)) and
+    (["postgres","mongodb","redis","meilisearch","mongot","api","deniz-cloud-storage.target","cloud-storage-metadata","cloud-terminal","markets-relay"] - .servicesVerified | length)==0' \
+    <<< "$restore_pi_result" >/dev/null || dr_die "Pi restore did not return complete semantic evidence"
+  jq --argjson evidence "$restore_pi_result" \
+    '.checks += [{name:"Pi semantic restore",status:"ok",detail:"database semantics, namespace metadata, immutable images, required services, and the deep dependency transaction passed",evidence:$evidence}] | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+  check_remote_headroom restore-pi
+  finish_phase restore-pi
+fi
+
+if [[ "$profile" == forge || "$profile" == all ]] && ! phase_done restore-forge; then
+  begin_phase restore-forge
+  copy_snapshot forge
+  printf '%s\n%s\n' "$DR_GHCR_USERNAME" "$DR_GHCR_TOKEN" > "$work/ghcr.auth"; chmod 0600 "$work/ghcr.auth"
+  printf '%s' "${DR_DEPLOY_AGENT_TOKEN:?DR_DEPLOY_AGENT_TOKEN is required}" > "$work/api.token"; chmod 0600 "$work/api.token"
+  scp "${ssh_opts[@]}" "$work/ghcr.auth" "$work/api.token" "$ssh_host:$remote_root/"
+  rm -f -- "$work/ghcr.auth" "$work/api.token"
+  if [[ "$profile" == forge ]]; then
+    : "${DR_RECOVERY_API_URL:?DR_RECOVERY_API_URL is required for Forge-only recovery}"
+    api_url="$DR_RECOVERY_API_URL"
+    [[ "$api_url" =~ ^http://100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:3001$ ]] \
+      || dr_die "DR_RECOVERY_API_URL must be the surviving Pi API's Tailscale IPv4 URL on port 3001"
+  else
+    api_url="http://127.0.0.1:3001"
+  fi
+  agent_url="http://${ssh_host#root@}:4010"
+  activation_flag=""; [[ "$profile" == forge ]] && activation_flag="--defer-control-plane-activation"
+  restore_forge_output="$(ssh "${ssh_opts[@]}" "$ssh_host" "'$remote_root/bin/restore-forge' --root '$remote_root/forge' --ghcr-auth '$remote_root/ghcr.auth' --api-token-file '$remote_root/api.token' --api-url '$api_url' --agent-url '$agent_url' $activation_flag")"
+  restore_forge_result="$(tail -1 <<< "$restore_forge_output")"
+  jq -e --argjson deferred "$([[ "$profile" == forge ]] && printf true || printf false)" '.restored==true and .expected>0 and .deploymentsRestored==.expected and
+    .domainsVerified==.expected and .digestsVerified==.expected and .environmentsVerified==.expected and
+    (.domains|length)==.expected and (.domains|unique|length)==.expected and
+    (.activationMappings|length)==.expected and
+    (if $deferred then .controlPlaneCommitted==false else .controlPlaneCommitted==true end) and
+    (["forge-buildkit","forge-caddy","forge-agent"] - .servicesVerified | length)==0' <<< "$restore_forge_result" >/dev/null \
+    || dr_die "Forge restore did not return complete digest/domain evidence"
+  jq --argjson evidence "$restore_forge_result" \
+    '.checks += [{name:"Forge immutable restore",status:"ok",detail:"every expected deployment digest, keyed environment semantic checksum, and local Caddy domain passed through the recovery agent",evidence:$evidence}] | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+  check_remote_headroom restore-forge
+  finish_phase restore-forge
+fi
+
+if ! phase_done install-continuity; then
+  begin_phase install-continuity
+  tar --exclude='infra/dr/opentofu/.terraform' --exclude='*.tfstate' --exclude='*.tfstate.*' \
+    -C "$repo_root" -cf - infra/dr \
+    infra/scripts/posix-namespace-backup.sh infra/scripts/posix-namespace-restore-verify.sh \
+    | ssh "${ssh_opts[@]}" "$ssh_host" 'install -d -m 0755 /opt/deniz-cloud/infra && tar -C /opt/deniz-cloud -xf -'
+  continuity_command='set -e; getent group deniz-dr >/dev/null || groupadd --system deniz-dr; install -d -m 0750 -o root -g deniz-dr /var/lib/deniz-dr /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -d -m 0700 /var/lib/deniz-dr/staging /var/lib/deniz-dr/external-state /etc/deniz-dr; setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -m 0644 /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.timer /etc/systemd/system/; systemctl daemon-reload'
+  if [[ "$profile" == pi || "$profile" == all ]]; then
+    continuity_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer 2>/dev/null || true'
+  fi
+  if [[ "$profile" == forge || "$profile" == all ]]; then
+    continuity_command+='; id forge >/dev/null 2>&1; usermod -a -G deniz-dr forge; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer 2>/dev/null || true'
+  fi
+  ssh "${ssh_opts[@]}" "$ssh_host" "$continuity_command"
+  finish_phase install-continuity
+fi
+
+if ! phase_done remove-plaintext-staging; then
+  begin_phase remove-plaintext-staging
+  ssh "${ssh_opts[@]}" "$ssh_host" "rm -rf -- '$remote_root/pi-cloud' '$remote_root/forge'; rm -f -- '$remote_root/ghcr.auth' '$remote_root/api.token' '$remote_root/tailscale.key'; test ! -e '$remote_root/pi-cloud' && test ! -e '$remote_root/forge' && test ! -e '$remote_root/ghcr.auth' && test ! -e '$remote_root/api.token' && test ! -e '$remote_root/tailscale.key'"
+  finish_phase remove-plaintext-staging
+fi
+
+if [[ "$no_cutover" == false ]]; then
+  "$script_dir/cutover" --config "$config" --host "$target_host" --ssh-host "$ssh_host" --profile "$profile" --report "$report" --ssh-known-hosts "$known_hosts"
+else
+  jq '.result="verified-no-cutover" | .updatedAt=(now|todate)' "$report" > "${report}.tmp" && mv "${report}.tmp" "$report"
+fi
+collect_resource_metrics
+dr_validate_json "$script_dir/schemas/recovery-report.schema.json" "$report"
+dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}.sig"
+"$script_dir/report" "$report" > "$report_dir/report.txt"
+printf 'Recovery report: %s\n' "$report"

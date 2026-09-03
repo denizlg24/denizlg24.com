@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+config=""; patch_file=""; report=""
+while (($#)); do case "$1" in --config) config="${2:-}"; shift 2 ;; --patch) patch_file="${2:-}"; shift 2 ;; --report) report="${2:-}"; shift 2 ;; *) exit 2 ;; esac; done
+[[ -f "$config" && -f "$patch_file" && -f "$report" ]] || dr_die "Usage: rollback --config FILE --patch reverse-dns-patch.json --report recovery-report.json"
+dr_require_private_file "$config"
+# shellcheck disable=SC1090
+source "$config"; dr_read_env_file "$DR_BREAK_GLASS_FILE"
+: "${DR_ACTIVE_RECOVERY_OVERRIDE:=${config}.active-recovery.env}"
+[[ "$DR_ACTIVE_RECOVERY_OVERRIDE" == /* ]] || dr_die "active recovery override path must be absolute"
+dr_require_commands curl jq ssh openssl dig
+dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-reverse "${patch_file}.sig" "$patch_file"
+dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-recovery "${report}.sig" "$report"
+dr_validate_json "$script_dir/schemas/recovery-report.schema.json" "$report"
+dr_validate_json "$script_dir/schemas/reverse-patch.schema.json" "$patch_file"
+jq -e --arg patch "$patch_file" '(.result=="recovered" or .result=="failed") and .cutover.reversePatch==$patch' "$report" >/dev/null \
+  || dr_die "recovery report does not authorize this reverse patch"
+profile="$(jq -er '.profile | select(.=="pi" or .=="forge" or .=="all")' "$report")"
+jq -e --arg profile "$profile" '
+  .schemaVersion == 1 and
+  (.zoneId | type == "string" and length > 0) and
+  (.records | type == "array") and
+  (.activeSites | type == "array") and
+  ([.activeSites[].profile] | sort) ==
+    (if $profile == "all" then ["forge", "pi"] else [$profile] end) and
+  all(.activeSites[];
+    (.id | type == "string" and length > 0) and
+    (.name | type == "string" and test("^[A-Za-z0-9._-]+$")) and
+    .type == "TXT" and .content == "home" and
+    (.ttl | type == "number" and . >= 1 and . <= 60) and
+    (.proxied | type == "boolean")) and
+  all(.records[];
+    (.id | type == "string" and length > 0) and
+    (.name | type == "string" and test("^[A-Za-z0-9._-]+$")) and
+    (.type == "A" or .type == "CNAME") and
+    (.content | type == "string" and length > 0) and
+    (.ttl | type == "number" and . >= 1 and . <= 60) and
+    (.proxied | type == "boolean")) and
+  (if $profile == "forge" then
+    .survivingPiDeployAgentUrl != null and (.forgeContainerMappings|length)>0 and
+    all(.forgeContainerMappings[];
+      (.deploymentId|type=="string") and
+      (.previousContainerId==null or (.previousContainerId|test("^[0-9a-f]{12,64}$"))) and
+      (.recoveryContainerId|test("^[0-9a-f]{64}$")))
+   else .survivingPiDeployAgentUrl == null and (.forgeContainerMappings|length)==0 end)
+' "$patch_file" >/dev/null || dr_die "signed reverse patch has an invalid shape for this recovery profile"
+: "${DR_EXTERNAL_STATE:?DR_EXTERNAL_STATE is required}"
+[[ -f "$DR_EXTERNAL_STATE" && -f "$(dirname "$report")/known_hosts" ]] \
+  || dr_die "rollback health contract or target fingerprint is missing"
+dr_validate_json "$script_dir/schemas/external-state.schema.json" "$DR_EXTERNAL_STATE"
+: "${DR_CLOUDFLARE_API_TOKEN:?missing Cloudflare recovery token}"
+[[ "$DR_CLOUDFLARE_API_TOKEN" != *[$'\r\n"\\']* ]] || dr_die "Cloudflare token contains unsafe curl-config characters"
+zone="$(jq -er .zoneId "$patch_file")"
+[[ "$zone" =~ ^[A-Za-z0-9_-]+$ ]] || dr_die "reverse patch contains an unsafe Cloudflare zone id"
+call() {
+  local id="$1" body="$2"
+  printf 'url = "https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s"\nrequest = "PUT"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "%s"\nfail-with-body\nsilent\nshow-error\n' "$zone" "$id" "$DR_CLOUDFLARE_API_TOKEN" "${body//\"/\\\"}" \
+    | curl --config - | jq -e '.success==true' >/dev/null
+}
+cloudflare_get() {
+  local path="$1"
+  printf 'url = "https://api.cloudflare.com/client/v4/%s"\nheader = "Authorization: Bearer %s"\nfail-with-body\nsilent\nshow-error\n' \
+    "$path" "$DR_CLOUDFLARE_API_TOKEN" | curl --config -
+}
+apply_forge_container_mapping() {
+  local mode="$1" mappings="$2" body response expected
+  : "${DR_RECOVERY_API_URL:?Forge-only rollback requires DR_RECOVERY_API_URL}"
+  : "${DR_DEPLOY_AGENT_TOKEN:?Forge-only rollback requires DR_DEPLOY_AGENT_TOKEN}"
+  [[ "$DR_RECOVERY_API_URL" =~ ^http://100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:3001$ &&
+     ${#DR_DEPLOY_AGENT_TOKEN} -ge 32 && "$DR_DEPLOY_AGENT_TOKEN" != *[$'\r\n"\\']* ]] \
+    || dr_die "Forge-only rollback credentials are unsafe"
+  body="$(jq -cn --arg mode "$mode" --argjson mappings "$mappings" '{mode:$mode,mappings:$mappings}')"
+  response="$(printf 'url = "%s/api/deploy/agent/recovery/container-ids"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "%s"\nfail-with-body\nsilent\nshow-error\nmax-time = 60\n' \
+    "$DR_RECOVERY_API_URL" "$DR_DEPLOY_AGENT_TOKEN" "${body//\"/\\\"}" | curl --config -)"
+  expected="$(jq 'length' <<< "$mappings")"
+  jq -e --arg mode "$mode" --argjson expected "$expected" \
+    '.applied==true and .mode==$mode and .expected==$expected and (.updated+.alreadyApplied)==$expected' \
+    <<< "$response" >/dev/null || dr_die "Forge-only container mapping ${mode} failed"
+}
+zone_response="$(cloudflare_get "zones/$zone")"
+jq -e --arg id "$zone" '.success==true and .result.id==$id and (.result.name_servers|length)>=2' \
+  <<< "$zone_response" >/dev/null || dr_die "Cloudflare zone read/scope preflight failed"
+zone_name_servers="$(jq -c '.result.name_servers' <<< "$zone_response")"
+authoritative_visible() {
+  local name="$1" type="$2" expected="${3%.}" name_server live
+  while IFS= read -r name_server; do
+    [[ "$name_server" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
+    live="$(dig "@$name_server" +short "$type" "$name" | tr -d '"' | sed 's/\.$//' | awk 'NF')"
+    [[ "$live" == "$expected" ]] || return 1
+  done < <(jq -r '.[]' <<< "$zone_name_servers")
+}
+printf 'This rollback is safe only before the DR site accepts writes. Type ROLLBACK: ' >&2
+IFS= read -r answer; [[ "$answer" == ROLLBACK ]] || dr_die "rollback was not confirmed"
+
+public_target="$(jq -er .target.host "$report")"
+target="$(jq -er .target.tailnetHost "$report")"
+[[ "$public_target" =~ ^root@([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "report public target is invalid"
+[[ "$target" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || dr_die "report Tailscale target is invalid"
+known_hosts="$(dirname "$report")/known_hosts"
+ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${public_target#*@}")
+dr_require_private_file "$DR_ACTIVE_RECOVERY_OVERRIDE"
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  grep -Fxq "DR_PI_SSH=${target}" "$DR_ACTIVE_RECOVERY_OVERRIDE" || dr_die "Mac bridge override does not point Pi at this recovery target"
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  grep -Fxq "DR_FORGE_SSH=${target}" "$DR_ACTIVE_RECOVERY_OVERRIDE" || dr_die "Mac bridge override does not point Forge at this recovery target"
+fi
+stop_command='set -e; systemctl stop deniz-dr-tunnel.service 2>/dev/null || true'
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  stop_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/pi.env; cd /opt/deniz-cloud/infra/compose && docker compose --env-file .env.pi -f docker-compose.pi.yml down'
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  stop_command+='; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service forge-agent forge-caddy; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/forge.env'
+fi
+ssh "${ssh_opts[@]}" "$target" "$stop_command" \
+  || dr_die "DR writer could not be fenced; DNS was not changed"
+while IFS= read -r port; do
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || dr_die "invalid reviewed TLS port"
+  ssh "${ssh_opts[@]}" "$target" "ufw --force delete allow '${port}/tcp'" >/dev/null 2>&1 || true
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | .port' "$DR_EXTERNAL_STATE" | sort -nu)
+
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  [[ -n ${DR_PI_SSH:-} ]] || dr_die "original Pi SSH endpoint is missing"
+  if ! ssh -o BatchMode=yes "$DR_PI_SSH" sudo bash -s <<'REMOTE_PI_RESTORE'
+set -Eeuo pipefail
+compose_root=/opt/deniz-cloud/infra/compose
+cd "$compose_root"
+compose_files=(-f docker-compose.pi.yml)
+namespace_mode="$(awk -F= '$1=="STORAGE_NAMESPACE_MODE" {print $2; exit}' .env.pi)"
+if [[ "$namespace_mode" == broker-mounted ]]; then
+  [[ -f docker-compose.posix.yml ]]
+  compose_files+=(-f docker-compose.posix.yml)
+fi
+docker compose --env-file .env.pi "${compose_files[@]}" up -d
+systemctl start deniz-cloud-storage.target cloud-terminal.service cloudflared.service
+
+cd /opt/markets-relay
+docker compose --env-file .env.markets -f docker-compose.markets.yml up -d
+
+nutrition_health=""
+if [[ -f /opt/nutrition-api/docker-compose.yml ]]; then
+  cd /opt/nutrition-api
+  nutrition_compose=(docker compose)
+  [[ ! -f .env ]] || nutrition_compose+=(--env-file .env)
+  "${nutrition_compose[@]}" -f docker-compose.yml up -d
+  nutrition_health="$(awk -F= '$1=="NUTRITION_HEALTH_URL" {sub(/^[^=]*=/, ""); print; exit}' "$compose_root/.env.pi")"
+elif [[ -f /etc/systemd/system/nutrition-api.service ]]; then
+  systemctl start nutrition-api.service
+  nutrition_health="$(awk -F= '$1=="NUTRITION_HEALTH_URL" {sub(/^[^=]*=/, ""); print; exit}' "$compose_root/.env.pi")"
+elif [[ -d /opt/nutrition-api ]]; then
+  exit 1
+fi
+if [[ -d /opt/nutrition-api ]]; then
+  [[ "$nutrition_health" == http://127.0.0.1:* ]]
+  nutrition_endpoint="${nutrition_health#http://127.0.0.1:}"
+  nutrition_port="${nutrition_endpoint%%/*}"
+  [[ "$nutrition_port" =~ ^[1-9][0-9]{0,4}$ ]]
+  ((10#$nutrition_port <= 65535))
+  curl -fsS --max-time 15 "$nutrition_health" >/dev/null
+fi
+
+healthy=false
+for _ in $(seq 1 60); do
+  if curl -fsS http://127.0.0.1:3001/healthz >/dev/null \
+    && curl -fsS http://127.0.0.1:3003/healthz >/dev/null \
+    && curl -fsS http://127.0.0.1:3004/healthz >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 2
+done
+[[ "$healthy" == true ]]
+
+metadata_socket=/run/deniz-cloud/storage-metadata.sock
+systemctl is-active --quiet deniz-cloud-storage.target deniz-cloud-storage-metadata.service
+[[ -S "$metadata_socket" ]]
+curl -fsS --unix-socket "$metadata_socket" http://localhost/healthz | jq -e '.status == "ok"' >/dev/null
+
+synthetic_token="$(awk -F= '$1=="DR_SYNTHETIC_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$compose_root/.env.pi")"
+[[ ${#synthetic_token} -ge 32 && "$synthetic_token" != *[$'\r\n"\\']* ]]
+synthetic_config="$(mktemp /tmp/deniz-dr-rollback-deep.XXXXXX.curl)"
+trap 'rm -f -- "$synthetic_config"' EXIT
+chmod 0600 "$synthetic_config"
+printf 'url = "http://127.0.0.1:3001/healthz/deep"\nheader = "X-DR-Synthetic-Token: %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 60\n' \
+  "$synthetic_token" > "$synthetic_config"
+curl --config "$synthetic_config" | jq -e '.status == "ok" and all(.checks[]; .status == "ok")' >/dev/null
+REMOTE_PI_RESTORE
+  then
+    dr_die "original Pi profile did not pass local and deep health; DNS was not changed"
+  fi
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  [[ -n ${DR_FORGE_SSH:-} ]] || dr_die "original Forge SSH endpoint is missing"
+  if ! ssh -o BatchMode=yes "$DR_FORGE_SSH" sudo bash -s <<'REMOTE_FORGE_RESTORE'
+set -Eeuo pipefail
+state=/var/lib/deniz-dr/forge-fenced-containers
+[[ -f "$state" && ! -L "$state" && -s "$state" ]]
+systemctl start forge-buildkit forge-caddy
+while IFS= read -r id; do
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  deployment_id="$(docker inspect -f '{{index .Config.Labels "forge.deployment"}}' "$id")"
+  [[ "$deployment_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+  docker start "$id" >/dev/null
+  [[ "$(docker inspect -f '{{.State.Running}}' "$id")" == true ]]
+done < "$state"
+systemctl start forge-agent cloudflared
+agent_ip="$(tailscale ip -4 | head -1)"
+[[ "$agent_ip" == 100.* ]]
+agent_healthy=false
+for _ in $(seq 1 60); do
+  if curl -fsS "http://${agent_ip}:4010/healthz" >/dev/null; then
+    agent_healthy=true
+    break
+  fi
+  sleep 2
+done
+[[ "$agent_healthy" == true ]]
+
+routes=/srv/forge/routes.json
+[[ -f "$routes" && ! -L "$routes" ]]
+domains_checked=0
+while IFS= read -r id; do
+  deployment_id="$(docker inspect -f '{{index .Config.Labels "forge.deployment"}}' "$id")"
+  jq -e --arg deployment "$deployment_id" \
+    '[.[] | select(.deploymentId==$deployment)] | length==1 and (.[0].hostnames|length)>0' "$routes" >/dev/null
+  while IFS= read -r domain; do
+    [[ "$domain" =~ ^[A-Za-z0-9.-]+$ && "$domain" == *.* ]]
+    status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 \
+      --resolve "${domain}:8080:127.0.0.1" "http://${domain}:8080/")"
+    [[ "$status" =~ ^[234][0-9][0-9]$ ]]
+    domains_checked=$((domains_checked + 1))
+  done < <(jq -r --arg deployment "$deployment_id" '.[] | select(.deploymentId==$deployment) | .hostnames[]' "$routes")
+done < "$state"
+((domains_checked > 0))
+REMOTE_FORGE_RESTORE
+  then
+    dr_die "original Forge profile did not become healthy; DNS was not changed"
+  fi
+fi
+if [[ "$profile" == forge ]]; then
+  original_agent_url="$(jq -er .survivingPiDeployAgentUrl "$patch_file")"
+  [[ "$original_agent_url" =~ ^https?://[A-Za-z0-9._-]+:[1-9][0-9]{0,4}$ ]] \
+    || dr_die "reverse patch lacks the surviving Pi deploy-agent route"
+  ssh -o BatchMode=yes "$DR_PI_SSH" \
+    "sudo bash -ceu 'lock=/var/lib/deniz-dr/locks/pi-cloud.lock; acquired=false; for _ in \$(seq 1 300); do if mkdir \"\$lock\" 2>/dev/null; then acquired=true; break; fi; sleep 2; done; [ \"\$acquired\" = true ]; printf %s\\n forge-home-rollback > \"\$lock/owner\"; cleanup() { rm -f -- \"\$lock/owner\"; rmdir -- \"\$lock\"; }; trap cleanup EXIT; env_file=/opt/deniz-cloud/infra/compose/.env.pi; sed -i -E \"s|^DEPLOY_AGENT_URL=.*$|DEPLOY_AGENT_URL=\$1|\" \"\$env_file\"; grep -qx \"DEPLOY_AGENT_URL=\$1\" \"\$env_file\"; cd /opt/deniz-cloud/infra/compose; files=\"-f docker-compose.pi.yml\"; mode=\$(awk -F= '\''\$1==\"STORAGE_NAMESPACE_MODE\" {print \$2; exit}'\'' .env.pi); if [ \"\$mode\" = broker-mounted ]; then test -f docker-compose.posix.yml; files=\"\$files -f docker-compose.posix.yml\"; fi; docker compose --env-file .env.pi \$files up -d api; for _ in \$(seq 1 60); do curl -fsS http://127.0.0.1:3001/healthz >/dev/null && exit 0; sleep 2; done; exit 1' bash '$original_agent_url'" \
+    || dr_die "surviving Pi could not restore its home deploy-agent proxy"
+  apply_forge_container_mapping rollback "$(jq -c .forgeContainerMappings "$patch_file")"
+fi
+
+while IFS= read -r record; do
+  id="$(jq -r .id <<< "$record")"
+  body="$(jq -c '{type,name,content,ttl,proxied,priority,comment} | with_entries(select(.value != null))' <<< "$record")"
+  call "$id" "$body"
+  if [[ "$(jq -r .type <<< "$record")" == A && "$(jq -r .proxied <<< "$record")" == false ]]; then
+    record_name="$(jq -er .name <<< "$record")"
+    record_content="$(jq -er .content <<< "$record")"
+    record_visible=false
+    for _ in $(seq 1 60); do
+      recursive="$(dig @1.1.1.1 +short A "$record_name" | awk 'NF')"
+      if [[ "$recursive" == "$record_content" ]] && authoritative_visible "$record_name" A "$record_content"; then
+        record_visible=true
+        break
+      fi
+      sleep 2
+    done
+    [[ "$record_visible" == true ]] || dr_die "home database DNS did not become authoritative: ${record_name}"
+  fi
+done < <(jq -c '.records[]' "$patch_file")
+while IFS= read -r active; do
+  [[ "$(jq -er .content <<< "$active")" == home ]] || dr_die "reverse patch does not restore a reviewed home lease"
+  call "$(jq -er .id <<< "$active")" "$(jq -c 'del(.profile) | {type,name,content,ttl,proxied,comment} | with_entries(select(.value != null))' <<< "$active")"
+done < <(jq -c '.activeSites[]' "$patch_file")
+while IFS= read -r active; do
+  active_name="$(jq -er .name <<< "$active")"
+  [[ "$active_name" =~ ^[A-Za-z0-9._-]+$ ]] || dr_die "reverse patch contains an unsafe active-site name"
+  active_visible=false
+  for _ in $(seq 1 60); do
+    live_active="$(dig @1.1.1.1 +short TXT "$active_name" | tr -d '"' | head -1)"
+    if [[ "$live_active" == home ]] && authoritative_visible "$active_name" TXT home; then active_visible=true; break; fi
+    sleep 2
+  done
+  [[ "$active_visible" == true ]] || dr_die "home active-site lease did not become publicly visible: ${active_name}"
+done < <(jq -c '.activeSites[]' "$patch_file")
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  active_name="$(jq -er '.activeSites[] | select(.profile=="pi") | .name' "$patch_file")"
+  ssh -o BatchMode=yes "$DR_PI_SSH" \
+    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/pi.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/pi.env; sudo systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; sudo systemctl start deniz-dr-heartbeat@pi.service" \
+    || dr_die "original Pi backup continuity did not resume"
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  active_name="$(jq -er '.activeSites[] | select(.profile=="forge") | .name' "$patch_file")"
+  ssh -o BatchMode=yes "$DR_FORGE_SSH" \
+    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/forge.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/forge.env; sudo systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; sudo systemctl start deniz-dr-heartbeat@forge.service" \
+    || dr_die "original Forge backup continuity did not resume"
+fi
+for _ in $(seq 1 30); do
+  public_ok=true
+  while IFS= read -r url; do curl -fsS --max-time 10 "$url" >/dev/null || public_ok=false; done \
+    < <(jq -r --arg profile "$profile" '.healthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
+  [[ "$public_ok" == true ]] && break
+  sleep 10
+done
+[[ "$public_ok" == true ]] || dr_die "original public endpoints did not recover after DNS rollback"
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  forge_public_ok=true
+  while IFS= read -r domain; do
+    [[ "$domain" =~ ^[A-Za-z0-9.-]+$ && "$domain" == *.* ]] || dr_die "signed Forge evidence contains an unsafe domain"
+    domain_ok=false
+    for _ in $(seq 1 30); do
+      status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "https://${domain}/" || true)"
+      if [[ "$status" =~ ^[234][0-9][0-9]$ ]]; then domain_ok=true; break; fi
+      sleep 2
+    done
+    [[ "$domain_ok" == true ]] || forge_public_ok=false
+  done < <(jq -r '.checks[] | select(.name=="Forge immutable restore") | .evidence.domains[]' "$report")
+  [[ "$forge_public_ok" == true ]] || dr_die "one or more original Forge deployment domains did not recover"
+  ssh -o BatchMode=yes "$DR_FORGE_SSH" sudo bash -s <<'REMOTE_FORGE_UNFENCE'
+set -Eeuo pipefail
+state=/var/lib/deniz-dr/forge-fenced-containers
+[[ -f "$state" && ! -L "$state" && -s "$state" ]]
+while IFS= read -r id; do
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  [[ "$(docker inspect -f '{{.State.Running}}' "$id")" == true ]]
+done < "$state"
+rm -f -- "$state"
+REMOTE_FORGE_UNFENCE
+fi
+rm -f -- "$DR_ACTIVE_RECOVERY_OVERRIDE"
+jq '.result="rolled-back" | .updatedAt=(now|todate) |
+  .checks += [{name:"rollback",status:"ok",detail:"DR writer and backup jobs fenced, original profile and backup continuity restored, Mac bridge returned home, signed reverse DNS patch applied, and public health passed"}]' \
+  "$report" > "${report}.tmp"
+mv -- "${report}.tmp" "$report"
+dr_validate_json "$script_dir/schemas/recovery-report.schema.json" "$report"
+dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}.sig"
+jq -n --arg patch "$patch_file" '{rolledBack:true,patch:$patch,warning:"If DR accepted writes, restore the new DR snapshot home instead of using DNS rollback."}'

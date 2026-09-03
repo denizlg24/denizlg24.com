@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://denizlg24.com/schemas/dr/external-export-v1.json",
+  "title": "DR redacted external-state export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "createdAt",
+    "cloudflare",
+    "tailscalePolicySha256",
+    "betterStack",
+    "secretsIncluded"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "cloudflare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records", "drTunnel", "drTunnelConfigurationSha256"],
+      "properties": {
+        "records": { "type": "array" },
+        "drTunnel": { "type": "object" },
+        "drTunnelConfigurationSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "tailscalePolicySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "betterStack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monitors", "heartbeats"],
+      "properties": {
+        "monitors": { "type": "array" },
+        "heartbeats": { "type": "array" }
+      }
+    },
+    "secretsIncluded": { "const": false }
+  }
+}

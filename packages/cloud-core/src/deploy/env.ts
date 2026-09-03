@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import {
   DEPLOY_BINDING_NAMESPACE_NAMES,
   DEPLOY_BINDING_NAMESPACES,
@@ -326,6 +328,25 @@ export async function resolveDeploymentEnv(
 
   const env = Object.fromEntries(resolved);
   return { env, keys: Object.keys(env).sort() };
+}
+
+/**
+ * A secret-safe semantic checksum of the exact environment handed to Forge.
+ * The encryption key makes low-entropy values impractical to guess from a
+ * signed DR manifest, while the sorted tuple representation makes the result
+ * independent of object insertion order.
+ */
+export function deploymentEnvironmentHmacSha256(
+  env: Readonly<Record<string, string>>,
+  encryptionKey: string,
+): string {
+  const canonical = Object.keys(env)
+    .sort()
+    .map((key) => [key, env[key]]);
+  return createHmac("sha256", encryptionKey)
+    .update("deniz-cloud/forge-environment/v1\0")
+    .update(JSON.stringify(canonical))
+    .digest("hex");
 }
 
 /**

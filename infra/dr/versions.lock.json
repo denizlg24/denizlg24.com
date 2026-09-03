@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "ubuntu": "24.04",
+  "architecture": "x86_64",
+  "dockerAptMajor": "5:29",
+  "dockerComposeMajor": "5",
+  "postgres": "16-alpine",
+  "mongodb": "8.2.11",
+  "redis": "7-alpine",
+  "meilisearch": "v1.38",
+  "mongot": "1.70.1",
+  "buildkit": "v0.32.2",
+  "mergerfs": {
+    "version": "2.42.0",
+    "amd64Url": "https://github.com/trapexit/mergerfs/releases/download/2.42.0/mergerfs_2.42.0.ubuntu-noble_amd64.deb",
+    "amd64Sha256": "7161ac65fb12cda88832a32226451d2dd83d1f56b84f3ed18f3e303233bc7760"
+  },
+  "cloudflaredAptOrigin": "https://pkg.cloudflare.com/cloudflared",
+  "resticMinimum": "0.17.0"
+}

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "activeSites": {
+    "pi": {
+      "recordId": "pi-active-record-id",
+      "name": "_active-site-pi.denizlg24.com",
+      "expectedHomeContent": "home",
+      "drContent": "dr"
+    },
+    "forge": {
+      "recordId": "forge-active-record-id",
+      "name": "_active-site-forge.denizlg24.com",
+      "expectedHomeContent": "home",
+      "drContent": "dr"
+    }
+  },
+  "records": [
+    {
+      "id": "api-record-id",
+      "name": "api.denizlg24.com",
+      "type": "CNAME",
+      "kind": "tunnel",
+      "profiles": ["pi"],
+      "expectedHomeContent": "PRODUCTION_TUNNEL.cfargotunnel.com",
+      "ttl": 1,
+      "proxied": true
+    },
+    {
+      "id": "replace-for-each-forge-deployment-record-id",
+      "name": "replace-forge-deployment.denizlg24.com",
+      "type": "CNAME",
+      "kind": "tunnel",
+      "profiles": ["forge"],
+      "expectedHomeContent": "PRODUCTION_TUNNEL.cfargotunnel.com",
+      "ttl": 1,
+      "proxied": true
+    },
+    {
+      "id": "postgres-record-id",
+      "name": "postgres.denizlg24.com",
+      "type": "A",
+      "kind": "database",
+      "profiles": ["pi"],
+      "expectedHomeContent": "HOME_PUBLIC_IP",
+      "ttl": 60,
+      "proxied": false
+    },
+    {
+      "id": "mongodb-record-id",
+      "name": "mongodb.denizlg24.com",
+      "type": "A",
+      "kind": "database",
+      "profiles": ["pi"],
+      "expectedHomeContent": "HOME_PUBLIC_IP",
+      "ttl": 60,
+      "proxied": false
+    },
+    {
+      "id": "redis-record-id",
+      "name": "redis.denizlg24.com",
+      "type": "A",
+      "kind": "database",
+      "profiles": ["pi"],
+      "expectedHomeContent": "HOME_PUBLIC_IP",
+      "ttl": 60,
+      "proxied": false
+    }
+  ],
+  "healthUrls": [
+    { "url": "https://api.denizlg24.com/healthz", "profiles": ["pi"] },
+    {
+      "url": "https://replace-forge-deployment.denizlg24.com",
+      "profiles": ["forge"]
+    }
+  ],
+  "preCutoverHealthUrls": [
+    { "url": "https://dr-probe.denizlg24.com", "profiles": ["pi", "forge"] },
+    { "url": "https://dr-pi-probe.denizlg24.com/healthz", "profiles": ["pi"] },
+    { "url": "https://dr-forge-probe.denizlg24.com", "profiles": ["forge"] }
+  ],
+  "tlsEndpoints": [
+    { "host": "postgres.denizlg24.com", "port": 5433, "profiles": ["pi"] },
+    { "host": "mongodb.denizlg24.com", "port": 27018, "profiles": ["pi"] },
+    { "host": "redis.denizlg24.com", "port": 6380, "profiles": ["pi"] }
+  ],
+  "betterStackMonitorIds": [
+    { "id": "replace-api-monitor-id", "profiles": ["pi"] },
+    { "id": "replace-forge-monitor-id", "profiles": ["forge"] },
+    { "id": "replace-deep-monitor-id", "profiles": ["pi"] }
+  ]
+}

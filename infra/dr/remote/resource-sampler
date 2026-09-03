@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+action="${1:-}"
+shift || true
+path=""
+while (($#)); do
+  case "$1" in
+    --output | --input) path="${2:-}"; shift 2 ;;
+    *) exit 2 ;;
+  esac
+done
+
+if [[ "$action" == run || "$action" == once ]]; then
+  [[ "$path" =~ ^/srv/deniz-dr/restore/dr-[0-9a-f]{20}/resource-samples\.jsonl$ ||
+     "$action" == once && "$path" =~ ^/tmp/deniz-dr-resource-samples-[0-9a-f]+\.jsonl$ ]] \
+    || { echo "STOP: unsafe resource-sample output path" >&2; exit 1; }
+elif [[ "$action" == summarize ]]; then
+  [[ "$path" =~ ^/srv/deniz-dr/restore/dr-[0-9a-f]{20}/resource-samples\.jsonl$ ||
+     "$path" =~ ^/tmp/deniz-dr-resource-samples-[0-9a-f]+\.jsonl$ ]] \
+    || { echo "STOP: unsafe resource-sample input path" >&2; exit 1; }
+fi
+
+sample() {
+  local memory_total memory_available disk_size disk_used disk_available load1
+  local cpu_total cpu_idle network_receive=0 network_transmit=0 physical_interfaces=0 interface
+  read -r memory_total memory_available < <(awk '
+    /^MemTotal:/ {total=$2*1024}
+    /^MemAvailable:/ {available=$2*1024}
+    END {printf "%.0f %.0f\n", total, available}
+  ' /proc/meminfo)
+  read -r disk_size disk_used disk_available < <(df -B1 --output=size,used,avail / | tail -1)
+  read -r cpu_total cpu_idle < <(awk '/^cpu / {
+    total=0; for (i=2; i<=NF; i++) total+=$i; print total, $5+$6; exit
+  }' /proc/stat)
+  for interface in /sys/class/net/*; do
+    [[ -e "$interface/device" ]] || continue
+    physical_interfaces=$((physical_interfaces + 1))
+    network_receive=$((network_receive + $(<"$interface/statistics/rx_bytes")))
+    network_transmit=$((network_transmit + $(<"$interface/statistics/tx_bytes")))
+  done
+  read -r load1 _ < /proc/loadavg
+  jq -cn --arg at "$(date -u +%FT%TZ)" --argjson memoryTotalBytes "$memory_total" \
+    --argjson memoryAvailableBytes "$memory_available" --argjson diskSizeBytes "$disk_size" \
+    --argjson diskUsedBytes "$disk_used" --argjson diskAvailableBytes "$disk_available" \
+    --argjson cpuTotalJiffies "$cpu_total" --argjson cpuIdleJiffies "$cpu_idle" \
+    --argjson load1 "$load1" --argjson physicalInterfaceCount "$physical_interfaces" \
+    --argjson physicalNetworkReceiveBytes "$network_receive" \
+    --argjson physicalNetworkTransmitBytes "$network_transmit" \
+    '{at:$at,memoryTotalBytes:$memoryTotalBytes,memoryAvailableBytes:$memoryAvailableBytes,
+      diskSizeBytes:$diskSizeBytes,diskUsedBytes:$diskUsedBytes,diskAvailableBytes:$diskAvailableBytes,
+      cpuTotalJiffies:$cpuTotalJiffies,cpuIdleJiffies:$cpuIdleJiffies,load1:$load1,
+      physicalInterfaceCount:$physicalInterfaceCount,
+      physicalNetworkReceiveBytes:$physicalNetworkReceiveBytes,
+      physicalNetworkTransmitBytes:$physicalNetworkTransmitBytes}'
+}
+
+case "$action" in
+  once)
+    sample > "$path"
+    ;;
+  run)
+    install -d -m 0700 "$(dirname "$path")"
+    while true; do
+      sample >> "$path"
+      sleep 5
+    done
+    ;;
+  summarize)
+    [[ -f "$path" && ! -L "$path" && -s "$path" ]] \
+      || { echo "STOP: resource samples are missing" >&2; exit 1; }
+    jq -s '
+      . as $samples |
+      if length < 1 then error("resource samples are empty") else . end |
+      [range(1; length) as $index |
+        ($samples[$index].cpuTotalJiffies - $samples[$index - 1].cpuTotalJiffies) as $total |
+        ($samples[$index].cpuIdleJiffies - $samples[$index - 1].cpuIdleJiffies) as $idle |
+        if $total > 0 and $idle >= 0 and $idle <= $total then (($total - $idle) * 100 / $total) else empty end
+      ] as $cpu |
+      [range(1; length) as $index |
+        $samples[$index].physicalNetworkReceiveBytes - $samples[$index - 1].physicalNetworkReceiveBytes |
+        select(. >= 0)
+      ] as $receive |
+      [range(1; length) as $index |
+        $samples[$index].physicalNetworkTransmitBytes - $samples[$index - 1].physicalNetworkTransmitBytes |
+        select(. >= 0)
+      ] as $transmit |
+      {
+        sampleIntervalSeconds:5,
+        samples:length,
+        startedAt:.[0].at,
+        finishedAt:.[-1].at,
+        peakCpuPercent:([$cpu[],0] | max),
+        peakLoad1:([.[].load1] | max),
+        peakMemoryUsedBytes:([.[] | .memoryTotalBytes - .memoryAvailableBytes] | max),
+        minMemoryAvailableBytes:([.[].memoryAvailableBytes] | min),
+        peakDiskUsedBytes:([.[].diskUsedBytes] | max),
+        minDiskAvailableBytes:([.[].diskAvailableBytes] | min),
+        physicalInterfaceCount:([.[].physicalInterfaceCount] | min),
+        physicalNetworkReceiveBytes:($receive | add // 0),
+        physicalNetworkTransmitBytes:($transmit | add // 0)
+      }
+    ' "$path"
+    ;;
+  *)
+    echo "Usage: resource-sampler run|once --output PATH | summarize --input PATH" >&2
+    exit 2
+    ;;
+esac

@@ -123,6 +123,28 @@ jobs:
           [[ "$FORGE_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "FORGE_ADDR=$FORGE_ADDR" >> "$GITHUB_ENV"
 
+      - name: Fence the Forge backup snapshot
+        run: |
+          lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-forge-agent"
+          [[ "$lock_token" =~ ^[0-9]+-[0-9]+-forge-agent$ ]]
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${FORGE_ADDR}" \
+            "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-forge.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/forge.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
+          echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+
+      - name: Install current disaster-recovery tooling
+        run: |
+          tar -czf dr-runtime.tgz \
+            --exclude='infra/dr/opentofu/.terraform' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.*' \
+            infra/dr \
+            infra/scripts/posix-namespace-backup.sh \
+            infra/scripts/posix-namespace-restore-verify.sh
+          scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            dr-runtime.tgz "denizlg24@${FORGE_ADDR}:/tmp/dr-runtime.tgz"
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${FORGE_ADDR}" \
+            "sudo install -d -m 0755 /opt/deniz-cloud/infra && sudo tar -xzf /tmp/dr-runtime.tgz -C /opt/deniz-cloud && rm -f /tmp/dr-runtime.tgz"
+
       - name: Stage the binary
         run: |
           scp \
@@ -193,3 +215,9 @@ jobs:
             echo "Tailnet, SSH, staging copy and checksum all succeeded."
             echo "Nothing was installed and the service was not restarted."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release the Forge backup fence
+        if: always() && env.DR_DEPLOY_LOCK_TOKEN != ''
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${FORGE_ADDR}" \
+            "set -e; lock=/var/lib/deniz-dr/locks/forge.lock; test \"\$(cat \"\$lock/owner\" 2>/dev/null)\" = '$DR_DEPLOY_LOCK_TOKEN'; rm -f \"\$lock/owner\"; rmdir \"\$lock\""

@@ -16,6 +16,10 @@ import {
 } from "../../db/schema";
 import { NotFoundError } from "../../errors";
 
+type CredentialDatabase =
+  | Database
+  | Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export interface ResolvedS3Credential {
   id: string;
   accessKeyId: string;
@@ -91,7 +95,7 @@ function newSecretAccessKey(): string {
 }
 
 export async function issueS3Credential(
-  db: Database,
+  db: CredentialDatabase,
   input: {
     projectId: string | null;
     label: string;

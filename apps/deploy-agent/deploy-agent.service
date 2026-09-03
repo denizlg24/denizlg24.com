@@ -27,7 +27,7 @@ KillSignal=SIGTERM
 
 # /srv/forge holds build trees and logs. Docker's own state is reached through
 # the socket, not the filesystem.
-ReadWritePaths=/srv/forge
+ReadWritePaths=/srv/forge /var/lib/deniz-dr/locks
 StateDirectory=forge
 
 # /run/forge is where a deployment's resolved environment lives for the length

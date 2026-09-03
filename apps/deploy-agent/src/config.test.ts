@@ -28,6 +28,8 @@ const TOUCHED = [
   "BUILD_MEMORY_LIMIT_MB",
   "MEMORY_HEADROOM_MB",
   "CADDY_LISTEN",
+  "RECOVERY_REGISTRY_PREFIX",
+  "DR_HOST_MUTATION_LOCK_PATH",
 ];
 
 function configWith(overrides: Record<string, string | undefined> = {}) {
@@ -76,6 +78,12 @@ describe("agentConfigFromEnv", () => {
     expect(config.serializeBunInstalls).toBe(true);
     expect(config.memoryHeadroomMb).toBe(1_024);
     expect(config.caddyListen).toBe(DEFAULT_LISTEN);
+    expect(config.recoveryRegistryPrefix).toBe(
+      "ghcr.io/denizlg24/forge-recovery",
+    );
+    expect(config.hostMutationLockPath).toBe(
+      "/var/lib/deniz-dr/locks/forge.lock",
+    );
   });
 
   it("treats a whitespace Caddy listen address as unset", () => {
@@ -148,6 +156,9 @@ describe("agentConfigFromEnv", () => {
     expect(() => configWith({ BUILD_ROOT: "relative/path" })).toThrow(
       /absolute path/,
     );
+    expect(() =>
+      configWith({ DR_HOST_MUTATION_LOCK_PATH: "relative/forge.lock" }),
+    ).toThrow(/absolute path/);
   });
 
   it("accepts only the managed BuildKit container transport", () => {

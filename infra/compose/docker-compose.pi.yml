@@ -341,6 +341,7 @@ services:
       DEPLOY_S3_ENDPOINT: ${DEPLOY_S3_ENDPOINT:-https://api.denizlg24.com/v2}
       DEPLOY_S3_REGION: ${DEPLOY_S3_REGION:-auto}
       DISK_MIN_HEADROOM_PERCENT: ${DISK_MIN_HEADROOM_PERCENT:-10}
+      DR_SYNTHETIC_TOKEN: ${DR_SYNTHETIC_TOKEN:-}
       DOCKER_HOST: tcp://docker-proxy:2375
       # Cloudflare, resolved separately from the agent: without it a deployment
       # still builds, runs and routes through Caddy, it just has no public name.

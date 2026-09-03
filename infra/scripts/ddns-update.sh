@@ -17,9 +17,19 @@ set +a
 
 : "${CF_API_TOKEN:?CF_API_TOKEN is required}"
 : "${CF_ZONE_ID:?CF_ZONE_ID is required}"
+[[ ${#CF_API_TOKEN} -ge 20 && "$CF_API_TOKEN" != *[$'\r\n"\\']* && "$CF_ZONE_ID" =~ ^[A-Za-z0-9_-]+$ ]] \
+  || { echo "[$(date -Iseconds)] ERROR: Cloudflare credentials are unsafe" >&2; exit 1; }
 
 cf_api="https://api.cloudflare.com/client/v4"
 record_names="${DDNS_RECORDS:-mongodb.denizlg24.com,postgres.denizlg24.com,redis.denizlg24.com,me.denizlg24.com}"
+active_site_record="${DDNS_ACTIVE_SITE_RECORD:-_active-site-pi.denizlg24.com}"
+active_site_value="${DDNS_ACTIVE_SITE_VALUE:-home}"
+[[ "$active_site_record" =~ ^[A-Za-z0-9._-]+$ && "$active_site_value" =~ ^[A-Za-z0-9_-]+$ ]] \
+  || { echo "[$(date -Iseconds)] ERROR: active-site lease configuration is unsafe" >&2; exit 1; }
+curl_config="$(mktemp "${TMPDIR:-/tmp}/deniz-ddns.XXXXXX")"
+chmod 600 "$curl_config"
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$CF_API_TOKEN" > "$curl_config"
+trap 'rm -f -- "$curl_config"' EXIT
 
 get_public_ip() {
   local endpoint
@@ -36,10 +46,18 @@ get_public_ip() {
 
 cloudflare_request() {
   curl --fail-with-body --silent --show-error \
-    -H "Authorization: Bearer ${CF_API_TOKEN}" \
-    -H "Content-Type: application/json" \
+    --config "$curl_config" \
     "$@"
 }
+
+lease_lookup="$(cloudflare_request "${cf_api}/zones/${CF_ZONE_ID}/dns_records?type=TXT&name=${active_site_record}")"
+lease_value="$(jq -er '.result | if length == 1 then .[0].content else empty end' <<< "$lease_lookup")" \
+  || { echo "[$(date -Iseconds)] ERROR: active-site lease is missing or ambiguous" >&2; exit 1; }
+lease_value="${lease_value#\"}"; lease_value="${lease_value%\"}"
+if [[ "$lease_value" != "$active_site_value" ]]; then
+  echo "[$(date -Iseconds)] FENCED: active-site lease is ${lease_value}; home DDNS made no changes"
+  exit 0
+fi
 
 current_ip="$(get_public_ip | tr -d '[:space:]')"
 if [[ ! "$current_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
@@ -58,23 +76,25 @@ fi
 IFS=',' read -r -a records <<< "$record_names"
 for record in "${records[@]}"; do
   record="${record//[[:space:]]/}"
+  [[ "$record" =~ ^[A-Za-z0-9.-]+$ && "$record" == *.* ]] \
+    || { echo "[$(date -Iseconds)] ERROR: unsafe DDNS record name" >&2; exit 1; }
   lookup="$(
     cloudflare_request \
       "${cf_api}/zones/${CF_ZONE_ID}/dns_records?type=A&name=${record}"
   )"
   record_id="$(
-    python3 -c \
-      'import json,sys; data=json.load(sys.stdin); print(data["result"][0]["id"] if data.get("result") else "")' \
-      <<< "$lookup"
+    jq -r '.result[0].id // empty' <<< "$lookup"
   )"
   if [[ -z "$record_id" ]]; then
     echo "[$(date -Iseconds)] ERROR: A record not found for ${record}" >&2
     exit 1
   fi
+  [[ "$record_id" =~ ^[A-Za-z0-9_-]+$ ]] \
+    || { echo "[$(date -Iseconds)] ERROR: unsafe Cloudflare record id" >&2; exit 1; }
 
   payload="$(
-    RECORD_NAME="$record" RECORD_IP="$current_ip" python3 -c \
-      'import json,os; print(json.dumps({"type":"A","name":os.environ["RECORD_NAME"],"content":os.environ["RECORD_IP"],"ttl":300,"proxied":False}))'
+    jq -cn --arg name "$record" --arg content "$current_ip" \
+      '{type:"A",name:$name,content:$content,ttl:60,proxied:false}'
   )"
   cloudflare_request \
     --request PUT \

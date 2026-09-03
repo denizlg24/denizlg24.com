@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+config="${DR_RECOVERY_CONFIG:-${HOME}/.config/deniz-dr/config.env}"
+while (($#)); do case "$1" in --config) config="${2:-}"; shift 2 ;; *) echo "Usage: status [--config FILE]" >&2; exit 2 ;; esac; done
+command="${DR_SYNC_COMMAND:-$script_dir/macos/dr-sync}"
+export DR_ICLOUD_HELPER="${DR_ICLOUD_HELPER:-${HOME}/Library/Application Support/deniz-dr/macos/dr-icloud-state}"
+[[ -x "$DR_ICLOUD_HELPER" && ! -L "$DR_ICLOUD_HELPER" ]] \
+  || { echo "STOP: native iCloud helper is not installed: ${DR_ICLOUD_HELPER}; run infra/dr/macos/install" >&2; exit 1; }
+"$command" --config "$config" status

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "recoveryId": "dr-0123456789abcdef",
+  "createdAt": "2026-08-31T10:00:00Z",
+  "updatedAt": "2026-08-31T10:30:00Z",
+  "profile": "all",
+  "snapshotIds": ["pi-cloud-20260831T100000Z", "forge-20260831T100000Z"],
+  "preflight": {
+    "localPreflight": "verified",
+    "profile": "all",
+    "iCloudConfirmedSnapshots": [
+      "pi-cloud-20260831T100000Z",
+      "forge-20260831T100000Z"
+    ],
+    "oldestSnapshotAgeSeconds": 3600,
+    "backupArtifactBytes": 128,
+    "restoredBytes": 256,
+    "imageBytes": 1024,
+    "requiredTargetDiskBytes": 300000000000,
+    "stale": false,
+    "staleAccepted": false,
+    "recoveryToolRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "recoveryToolDirty": false,
+    "snapshotGitRevisions": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+    "localToolVersions": {
+      "git": "git version 2.51.0",
+      "jq": "jq-1.7.1",
+      "restic": "restic 0.18.0",
+      "ssh": "OpenSSH_10.0p2",
+      "tar": "bsdtar 3.7.7",
+      "zstd": "*** zstd command line interface 64-bits v1.5.7"
+    },
+    "expectedServices": ["api", "forge-agent", "postgres"],
+    "forgeControlPlaneDeployments": 14,
+    "cutoverRequested": false,
+    "intendedMutations": ["install exact recorded host packages"]
+  },
+  "target": {
+    "host": "root@192.0.2.10",
+    "tailnetHost": "root@100.64.0.10",
+    "fingerprint": "SHA256:test",
+    "os": "ubuntu 24.04",
+    "architecture": "x86_64",
+    "vcpu": 8,
+    "memoryBytes": 17179869184,
+    "diskBytes": 343597383680,
+    "storageRotational": false
+  },
+  "cutover": {
+    "requested": false,
+    "performed": false,
+    "fenced": false,
+    "reversePatch": null
+  },
+  "resourceMetrics": {
+    "sampleIntervalSeconds": 5,
+    "samples": 361,
+    "startedAt": "2026-08-31T10:00:00Z",
+    "finishedAt": "2026-08-31T10:30:00Z",
+    "peakCpuPercent": 87.5,
+    "peakLoad1": 7.25,
+    "peakMemoryUsedBytes": 12884901888,
+    "minMemoryAvailableBytes": 4294967296,
+    "peakDiskUsedBytes": 214748364800,
+    "minDiskAvailableBytes": 128849018880,
+    "physicalInterfaceCount": 1,
+    "physicalNetworkReceiveBytes": 96636764160,
+    "physicalNetworkTransmitBytes": 1073741824
+  },
+  "phases": [
+    {
+      "name": "bootstrap",
+      "status": "ok",
+      "startedAt": "2026-08-31T10:00:00Z",
+      "finishedAt": "2026-08-31T10:05:00Z"
+    }
+  ],
+  "checks": [
+    {
+      "name": "bootstrap checkpoint",
+      "status": "ok",
+      "detail": "completed and checkpointed"
+    }
+  ],
+  "exceptions": [],
+  "result": "verified-no-cutover"
+}

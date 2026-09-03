@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+username=""
+while (($#)); do
+  case "$1" in --username) username="${2:-}"; shift 2 ;; *) echo "Usage: install-forge-registry --username USER < TOKEN" >&2; exit 2 ;; esac
+done
+((EUID == 0)) || { echo "STOP: root is required" >&2; exit 1; }
+[[ "$username" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "STOP: invalid GHCR username" >&2; exit 1; }
+token_file="$(mktemp "${TMPDIR:-/tmp}/forge-ghcr.XXXXXX")"
+cleanup() { rm -f -- "$token_file"; }; trap cleanup EXIT
+head -c 4096 > "$token_file"
+[[ -s "$token_file" ]] || { echo "STOP: empty GHCR token" >&2; exit 1; }
+install -d -m 0700 -o forge -g forge /srv/forge/.docker
+sudo -u forge docker login ghcr.io --username "$username" --password-stdin < "$token_file" >/dev/null
+chmod 0600 /srv/forge/.docker/config.json
+chown forge:forge /srv/forge/.docker/config.json
+jq -n '{installed:true,registry:"ghcr.io",owner:"forge",secretPrinted:false}'

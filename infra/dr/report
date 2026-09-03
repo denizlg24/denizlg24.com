@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+input="${1:-}"
+[[ -f "$input" ]] || { echo "Usage: report REPORT.json" >&2; exit 2; }
+jq -r '
+  "DISASTER RECOVERY REPORT",
+  "Recovery ID: \(.recoveryId)",
+  "Result: \(.result)",
+  "Profile: \(.profile)",
+  "Snapshots: \(.snapshotIds | join(", "))",
+  "Oldest selected snapshot age: \(.preflight.oldestSnapshotAgeSeconds)s (24-hour iCloud RPO met: \(.preflight.oldestSnapshotAgeSeconds <= 86400))",
+  "Restore footprint: \(.preflight.restoredBytes) bytes expanded, \(.preflight.backupArtifactBytes) bytes encrypted artifacts, \(.preflight.imageBytes) bytes images",
+  "Required target disk: \(.preflight.requiredTargetDiskBytes) bytes",
+  "Target: \(.target.host) (\(.target.architecture), \(.target.vcpu) vCPU, \((.target.memoryBytes/1073741824|floor)) GiB RAM, SSD/NVMe verified: \(.target.storageRotational == false))",
+  (if .resourceMetrics then
+    "Measured recovery resources: peak CPU \(.resourceMetrics.peakCpuPercent)%, peak load \(.resourceMetrics.peakLoad1), peak memory \(.resourceMetrics.peakMemoryUsedBytes) bytes, peak disk \(.resourceMetrics.peakDiskUsedBytes) bytes, minimum free disk \(.resourceMetrics.minDiskAvailableBytes) bytes, physical RX/TX \(.resourceMetrics.physicalNetworkReceiveBytes)/\(.resourceMetrics.physicalNetworkTransmitBytes) bytes"
+   else "Measured recovery resources: unavailable (recovery did not reach final evidence collection)" end),
+  "Cutover requested: \(.cutover.requested)",
+  "Cutover performed: \(.cutover.performed)",
+  "Old sites fenced: \(.cutover.fenced)",
+  "Reverse patch: \(.cutover.reversePatch // "none")",
+  "Created: \(.createdAt)",
+  "Updated: \(.updatedAt)",
+  "",
+  "Checks:",
+  (.checks[] | "- [\(.status)] \(.name): \(.detail)" + (if .evidence then "\n  evidence=" + (.evidence|tojson) else "" end)),
+  "",
+  "Exceptions:",
+  (if (.exceptions|length)==0 then "- none" else (.exceptions[] | "- \(.code): \(.detail)") end),
+  "",
+  "Keep this report and its signed reverse patch. Continue elevated monitoring for 24 hours."
+' "$input"

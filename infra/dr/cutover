@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+config=""; target=""; ssh_host=""; profile=""; report=""; known_hosts=""
+token_file=""; tunnel_started=false; public_mutated=false; override_written=false; opened_ports=()
+cleanup() {
+  local status=$?
+  [[ -z "$token_file" ]] || rm -f -- "$token_file"
+  if ((status != 0)) && [[ "$override_written" == true && "$public_mutated" == false ]]; then
+    rm -f -- "$DR_ACTIVE_RECOVERY_OVERRIDE"
+  fi
+  if ((status != 0)) && [[ "$tunnel_started" == true && "$public_mutated" == false ]]; then
+    ssh "${ssh_opts[@]}" "$ssh_host" "systemctl disable --now deniz-dr-tunnel.service" >/dev/null 2>&1 || true
+  fi
+  if ((status != 0)) && [[ "$public_mutated" == false && ${#opened_ports[@]} -gt 0 ]]; then
+    for port in "${opened_ports[@]}"; do
+      ssh "${ssh_opts[@]}" "$ssh_host" "ufw --force delete allow '${port}/tcp'" >/dev/null 2>&1 || true
+    done
+  fi
+}
+trap cleanup EXIT
+while (($#)); do
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --host) target="${2:-}"; shift 2 ;;
+    --ssh-host) ssh_host="${2:-}"; shift 2 ;;
+    --profile) profile="${2:-}"; shift 2 ;;
+    --report) report="${2:-}"; shift 2 ;;
+    --ssh-known-hosts) known_hosts="${2:-}"; shift 2 ;;
+    *) exit 2 ;;
+  esac
+done
+[[ -f "$config" && -f "$report" && -f "$known_hosts" ]] || dr_die "cutover inputs are incomplete"
+[[ "$target" =~ ^root@([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "cutover public target is invalid"
+[[ "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || dr_die "cutover Tailscale target is invalid"
+[[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || dr_die "cutover profile is invalid"
+dr_require_private_file "$config"
+# shellcheck disable=SC1090
+source "$config"
+dr_read_env_file "$DR_BREAK_GLASS_FILE"
+dr_require_commands curl jq ssh scp openssl dig
+dr_validate_json "$script_dir/schemas/recovery-report.schema.json" "$report"
+jq -e --arg profile "$profile" --arg host "$target" '
+  .profile==$profile and .target.host==$host and .target.storageRotational==false and
+  .cutover.requested==true and .cutover.performed==false and
+  (.result=="in-progress" or .result=="verified-no-cutover") and
+  (.phases|length)>0 and all(.phases[]; .status=="ok") and
+  (.checks|length)>0 and all(.checks[]; .status=="ok") and (.exceptions|length)==0
+' "$report" >/dev/null || dr_die "recovery report has not passed every pre-cutover gate"
+: "${DR_ACTIVE_RECOVERY_OVERRIDE:=${config}.active-recovery.env}"
+[[ "$DR_ACTIVE_RECOVERY_OVERRIDE" == /* && -d "$(dirname "$DR_ACTIVE_RECOVERY_OVERRIDE")" && ! -L "$(dirname "$DR_ACTIVE_RECOVERY_OVERRIDE")" ]] \
+  || dr_die "active recovery override must be an absolute path in an existing real directory"
+: "${DR_EXTERNAL_STATE:?DR_EXTERNAL_STATE is required}"
+[[ -f "$DR_EXTERNAL_STATE" ]] || dr_die "external state contract is missing"
+dr_validate_json "$script_dir/schemas/external-state.schema.json" "$DR_EXTERNAL_STATE"
+jq -e '
+  (.activeSites | [.pi,.forge] | all(.[];
+    (.recordId|type=="string" and length>0) and (.name|type=="string" and test("^[A-Za-z0-9._-]+$")) and
+    .expectedHomeContent=="home" and .drContent=="dr")) and
+  all(.records[];
+    (.id|type=="string" and length>0) and (.name|type=="string" and length>0) and
+    (.type=="A" or .type=="CNAME") and
+    ((.kind=="database" and .type=="A") or (.kind=="tunnel" and .type=="CNAME")) and
+    (.expectedHomeContent|type=="string" and length>0) and
+    (.ttl|type=="number" and .>=1 and .<=60) and (.proxied|type=="boolean") and
+    (.profiles|type=="array" and length>0 and all(.[]; .=="pi" or .=="forge"))) and
+  all(.healthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and
+  all(.preCutoverHealthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and
+  all(.tlsEndpoints[]; (.host|type=="string" and length>0) and (.port|type=="number" and .>=1 and .<=65535) and (.profiles|length>0)) and
+  all(.betterStackMonitorIds[]; (.id|type=="string" and test("^[A-Za-z0-9_-]+$")) and (.profiles|length>0))
+' "$DR_EXTERNAL_STATE" >/dev/null || dr_die "external state contract failed runtime safety validation"
+jq -e --arg profile "$profile" '
+  any(.records[]; $profile=="all" or (.profiles | index($profile))) and
+  any(.preCutoverHealthUrls[]; $profile=="all" or (.profiles | index($profile))) and
+  any(.healthUrls[]; $profile=="all" or (.profiles | index($profile))) and
+  any(.betterStackMonitorIds[]; $profile=="all" or (.profiles | index($profile)))
+' "$DR_EXTERNAL_STATE" >/dev/null || dr_die "external state contract has no complete selection for this profile"
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  forge_domains="$(jq -c '.checks[] | select(.name=="Forge immutable restore") | .evidence.domains' "$report")"
+  jq -e --argjson domains "$forge_domains" -f "$script_dir/lib/forge-external-state.jq" \
+    "$DR_EXTERNAL_STATE" >/dev/null \
+    || dr_die "reviewed DNS and external-health state do not contain every signed Forge deployment domain"
+fi
+: "${DR_CLOUDFLARE_API_TOKEN:?missing Cloudflare recovery token}"
+: "${DR_CLOUDFLARE_ACCOUNT_ID:?missing Cloudflare account id}"
+: "${DR_CLOUDFLARE_ZONE_ID:?missing Cloudflare zone id}"
+: "${DR_CLOUDFLARE_DR_TUNNEL_ID:?missing dedicated DR tunnel id}"
+: "${DR_CLOUDFLARE_DR_TUNNEL_TOKEN:?missing dedicated DR tunnel token}"
+: "${DR_BETTERSTACK_API_TOKEN:?missing Better Stack recovery token}"
+[[ "$DR_CLOUDFLARE_API_TOKEN" != *[$'\r\n"\\']* && "$DR_BETTERSTACK_API_TOKEN" != *[$'\r\n"\\']* ]] \
+  || dr_die "recovery API token contains unsafe curl-config characters"
+for identifier in "$DR_CLOUDFLARE_ACCOUNT_ID" "$DR_CLOUDFLARE_ZONE_ID" "$DR_CLOUDFLARE_DR_TUNNEL_ID"; do
+  [[ "$identifier" =~ ^[A-Za-z0-9_-]+$ ]] || dr_die "unsafe Cloudflare identifier"
+done
+ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target#*@}")
+
+cf_api() {
+  local method="$1" path="$2" body="${3:-}"
+  {
+    printf 'url = "https://api.cloudflare.com/client/v4/%s"\n' "$path"
+    printf 'request = "%s"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nfail-with-body\nsilent\nshow-error\n' "$method" "$DR_CLOUDFLARE_API_TOKEN"
+    if [[ -n "$body" ]]; then printf 'data = "%s"\n' "${body//\"/\\\"}"; fi
+  } | curl --config -
+}
+apply_forge_container_mapping() {
+  local mode="$1" mappings="$2" body response expected
+  : "${DR_RECOVERY_API_URL:?Forge-only cutover requires DR_RECOVERY_API_URL}"
+  : "${DR_DEPLOY_AGENT_TOKEN:?Forge-only cutover requires DR_DEPLOY_AGENT_TOKEN}"
+  [[ "$DR_RECOVERY_API_URL" =~ ^http://100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:3001$ &&
+     ${#DR_DEPLOY_AGENT_TOKEN} -ge 32 && "$DR_DEPLOY_AGENT_TOKEN" != *[$'\r\n"\\']* ]] \
+    || dr_die "Forge-only control-plane activation credentials are unsafe"
+  body="$(jq -cn --arg mode "$mode" --argjson mappings "$mappings" '{mode:$mode,mappings:$mappings}')"
+  response="$(printf 'url = "%s/api/deploy/agent/recovery/container-ids"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "%s"\nfail-with-body\nsilent\nshow-error\nmax-time = 60\n' \
+    "$DR_RECOVERY_API_URL" "$DR_DEPLOY_AGENT_TOKEN" "${body//\"/\\\"}" | curl --config -)"
+  expected="$(jq 'length' <<< "$mappings")"
+  jq -e --arg mode "$mode" --argjson expected "$expected" \
+    '.applied==true and .mode==$mode and .expected==$expected and (.updated+.alreadyApplied)==$expected' \
+    <<< "$response" >/dev/null || dr_die "Forge-only container mapping ${mode} failed"
+}
+
+zone_response="$(cf_api GET "zones/$DR_CLOUDFLARE_ZONE_ID")"
+jq -e --arg id "$DR_CLOUDFLARE_ZONE_ID" '.success==true and .result.id==$id and (.result.name_servers|length)>=2' \
+  <<< "$zone_response" >/dev/null || dr_die "Cloudflare zone read/scope preflight failed"
+zone_name_servers="$(jq -c '.result.name_servers' <<< "$zone_response")"
+authoritative_visible() {
+  local name="$1" type="$2" expected="${3%.}" name_server live
+  while IFS= read -r name_server; do
+    [[ "$name_server" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
+    live="$(dig "@$name_server" +short "$type" "$name" | tr -d '"' | sed 's/\.$//' | awk 'NF')"
+    [[ "$live" == "$expected" ]] || return 1
+  done < <(jq -r '.[]' <<< "$zone_name_servers")
+}
+
+reverse="$(dirname "$report")/reverse-dns-patch.json"
+records='[]'
+while IFS= read -r entry; do
+  id="$(jq -r .id <<< "$entry")"
+  response="$(cf_api GET "zones/$DR_CLOUDFLARE_ZONE_ID/dns_records/$id")"
+  jq -e '.success==true' <<< "$response" >/dev/null || dr_die "Cloudflare record read failed"
+  live="$(jq -c .result <<< "$response")"
+  expected="$(jq -r .expectedHomeContent <<< "$entry")"
+  [[ "$(jq -r .content <<< "$live")" == "$expected" ]] || dr_die "Cloudflare live state differs from the reviewed base: $(jq -r .name <<< "$entry")"
+  records="$(jq -c --argjson item "$live" '. + [$item]' <<< "$records")"
+done < <(jq -c --arg profile "$profile" '.records[] | select($profile=="all" or (.profiles | index($profile)))' "$DR_EXTERNAL_STATE")
+active_sites='[]'
+while IFS= read -r site; do
+  active_id="$(jq -er .recordId <<< "$site")"
+  site_profile="$(jq -er .profile <<< "$site")"
+  active_live="$(cf_api GET "zones/$DR_CLOUDFLARE_ZONE_ID/dns_records/$active_id" | jq -er '.result')"
+  [[ "$(jq -r .content <<< "$active_live")" == home ]] || dr_die "${site_profile} active-site lease is not at the reviewed home value"
+  active_live="$(jq -c --arg profile "$site_profile" '. + {profile:$profile}' <<< "$active_live")"
+  active_sites="$(jq -c --argjson item "$active_live" '. + [$item]' <<< "$active_sites")"
+done < <(jq -c --arg profile "$profile" '.activeSites | to_entries[] | select($profile=="all" or .key==$profile) | (.value + {profile:.key})' "$DR_EXTERNAL_STATE")
+surviving_pi_agent_url=""
+forge_container_mappings='[]'
+if [[ "$profile" == forge ]]; then
+  [[ -n ${DR_PI_SSH:-} ]] || dr_die "Forge-only cutover requires the surviving Pi SSH endpoint"
+  surviving_pi_agent_url="$(ssh -o BatchMode=yes "$DR_PI_SSH" "sudo awk -F= '\$1==\"DEPLOY_AGENT_URL\" {sub(/^[^=]*=/,\"\"); print; exit}' /opt/deniz-cloud/infra/compose/.env.pi")"
+  [[ "$surviving_pi_agent_url" =~ ^https?://[A-Za-z0-9._-]+:[1-9][0-9]{0,4}$ ]] \
+    || dr_die "surviving Pi has no safe DEPLOY_AGENT_URL to preserve"
+  forge_restore_evidence="$(jq -ce '[.checks[] | select(.name=="Forge immutable restore") | .evidence] |
+    if length==1 then .[0] else error("expected exactly one Forge restore check") end' "$report")" \
+    || dr_die "signed report does not contain exactly one Forge restore result"
+  forge_container_mappings="$(jq -c '.activationMappings' <<< "$forge_restore_evidence")"
+  jq -e --argjson expected "$(jq '.expected' <<< "$forge_restore_evidence")" '. | length==$expected and $expected>0 and
+    (map(.deploymentId)|unique|length)==$expected and all(.[]; (.deploymentId|type=="string") and
+    (.previousContainerId==null or (.previousContainerId|test("^[0-9a-f]{12,64}$"))) and
+    (.recoveryContainerId|test("^[0-9a-f]{64}$")))' <<< "$forge_container_mappings" >/dev/null \
+    || dr_die "signed report lacks a safe Forge-only activation mapping"
+fi
+jq -n --arg createdAt "$(date -u +%FT%TZ)" --arg zoneId "$DR_CLOUDFLARE_ZONE_ID" --argjson activeSites "$active_sites" --argjson records "$records" \
+  --arg survivingPiDeployAgentUrl "$surviving_pi_agent_url" --argjson forgeContainerMappings "$forge_container_mappings" \
+  '{schemaVersion:1,createdAt:$createdAt,zoneId:$zoneId,activeSites:$activeSites,records:$records,
+    survivingPiDeployAgentUrl:(if $survivingPiDeployAgentUrl=="" then null else $survivingPiDeployAgentUrl end),
+    forgeContainerMappings:$forgeContainerMappings}' > "$reverse"
+dr_validate_json "$script_dir/schemas/reverse-patch.schema.json" "$reverse"
+dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-reverse "$reverse" "${reverse}.sig"
+jq --arg reverse "$reverse" '.cutover.reversePatch=$reverse | .updatedAt=(now|todate) |
+  .checks += [{name:"reverse patch prepared",status:"ok",detail:"live Cloudflare base captured and signed before mutation"}]' \
+  "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+token_file="$(mktemp "${TMPDIR:-/tmp}/dr-tunnel-token.XXXXXX")"; chmod 0600 "$token_file"; printf '%s' "$DR_CLOUDFLARE_DR_TUNNEL_TOKEN" > "$token_file"
+scp "${ssh_opts[@]}" "$token_file" "$ssh_host:/etc/deniz-dr-tunnel-token.tmp"
+rm -f -- "$token_file"; token_file=""
+ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0600 -o root -g root /etc/deniz-dr-tunnel-token.tmp /etc/deniz-dr-tunnel-token && rm -f /etc/deniz-dr-tunnel-token.tmp && printf '%s\\n' '[Unit]' 'Description=Dedicated disaster-recovery Cloudflare tunnel' 'After=network-online.target' 'Wants=network-online.target' '' '[Service]' 'ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:20242 run --token-file /etc/deniz-dr-tunnel-token' 'Restart=always' 'RestartSec=5' 'NoNewPrivileges=yes' 'ProtectSystem=strict' 'ProtectHome=yes' '' '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/deniz-dr-tunnel.service && systemctl daemon-reload && systemctl enable --now deniz-dr-tunnel"
+ssh "${ssh_opts[@]}" "$ssh_host" "for i in \$(seq 1 60); do curl -fsS http://127.0.0.1:20242/ready >/dev/null && exit 0; sleep 2; done; exit 1" \
+  || dr_die "dedicated DR tunnel did not become locally ready"
+tunnel_started=true
+cloudflare_tunnel_ready=false
+for _ in $(seq 1 30); do
+  if cf_api GET "accounts/$DR_CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$DR_CLOUDFLARE_DR_TUNNEL_ID" \
+    | jq -e '.success==true and (.result.status=="healthy" or .result.status=="degraded")' >/dev/null; then
+    cloudflare_tunnel_ready=true
+    break
+  fi
+  sleep 5
+done
+[[ "$cloudflare_tunnel_ready" == true ]] || dr_die "Cloudflare edge did not observe the dedicated DR tunnel"
+while IFS= read -r url; do
+  probe_ready=false
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 10 "$url" >/dev/null; then probe_ready=true; break; fi
+    sleep 2
+  done
+  [[ "$probe_ready" == true ]] || dr_die "dedicated DR tunnel external probe failed: ${url}"
+done < <(jq -r --arg profile "$profile" '.preCutoverHealthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
+target_ip="${target#*@}"
+while IFS=$'\t' read -r host port; do
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || dr_die "invalid reviewed TLS port"
+  if [[ ! " ${opened_ports[*]} " == *" ${port} "* ]]; then
+    ssh -n "${ssh_opts[@]}" "$ssh_host" "ufw allow '${port}/tcp' comment 'DR reviewed TLS cutover'" >/dev/null
+    opened_ports+=("$port")
+  fi
+  openssl s_client -connect "${target_ip}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+    || dr_die "pre-cutover TLS probe failed for ${host}:${port} at ${target_ip}"
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+jq '.checks += [{name:"dedicated DR tunnel",status:"ok",detail:"local readiness, Cloudflare edge status, and external probe hostnames passed before cutover"},
+                {name:"pre-cutover external TLS",status:"ok",detail:"selected direct TLS services passed against the new public IP before DNS mutation"}] | .updatedAt=(now|todate)' \
+  "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}.sig"
+
+printf 'Pre-cutover checks passed. Reverse patch: %s\nType CUTOVER to fence writers and move public traffic: ' "$reverse" >&2
+IFS= read -r confirmation
+[[ "$confirmation" == CUTOVER ]] || dr_die "public cutover was not confirmed"
+
+fenced=true
+fence_one() {
+  local host="$1" command="$2"
+  [[ -n "$host" ]] || { fenced=false; return 0; }
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" true >/dev/null 2>&1; then
+    ssh -o BatchMode=yes "$host" "$command" || fenced=false
+  else
+    fenced=false
+  fi
+}
+fence_forge() {
+  local host="$1"
+  [[ -n "$host" ]] || { fenced=false; return 0; }
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" true >/dev/null 2>&1; then
+    fenced=false
+    return 0
+  fi
+  ssh -o BatchMode=yes "$host" sudo bash -s <<'REMOTE_FORGE_FENCE' || fenced=false
+set -Eeuo pipefail
+umask 077
+systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer
+systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service forge-agent forge-caddy forge-buildkit cloudflared
+state=/var/lib/deniz-dr/forge-fenced-containers
+[[ ! -L "$state" ]]
+if [[ ! -e "$state" ]]; then
+  temporary="$(mktemp /var/lib/deniz-dr/forge-fenced-containers.XXXXXX)"
+  cleanup() { rm -f -- "$temporary"; }
+  trap cleanup EXIT
+  docker ps --no-trunc -q --filter label=forge.deployment > "$temporary"
+  [[ -s "$temporary" ]]
+  while IFS= read -r id; do
+    [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+    [[ -n "$(docker inspect -f '{{index .Config.Labels "forge.deployment"}}' "$id")" ]]
+  done < "$temporary"
+  mv -- "$temporary" "$state"
+  trap - EXIT
+fi
+[[ -f "$state" && ! -L "$state" && -s "$state" ]]
+while IFS= read -r id; do
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  [[ -n "$(docker inspect -f '{{index .Config.Labels "forge.deployment"}}' "$id")" ]]
+  docker stop "$id" >/dev/null
+done < "$state"
+[[ -z "$(docker ps --no-trunc -q --filter label=forge.deployment)" ]]
+REMOTE_FORGE_FENCE
+}
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  fence_one "${DR_PI_SSH:-}" "sudo systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; sudo systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service cloudflared.service; test -f /opt/markets-relay/docker-compose.markets.yml && test -f /opt/markets-relay/.env.markets; cd /opt/markets-relay && sudo docker compose --env-file .env.markets -f docker-compose.markets.yml down; if [ -f /opt/nutrition-api/docker-compose.yml ]; then cd /opt/nutrition-api && sudo docker compose -f docker-compose.yml down; elif [ -f /etc/systemd/system/nutrition-api.service ]; then sudo systemctl stop nutrition-api.service; elif [ -d /opt/nutrition-api ]; then exit 1; fi; cd /opt/deniz-cloud/infra/compose && sudo docker compose --env-file .env.pi -f docker-compose.pi.yml down"
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  fence_forge "${DR_FORGE_SSH:-}"
+fi
+[[ "$fenced" == true ]] || dr_die "an old writable host cannot be proven off or fenced"
+jq '.cutover.fenced=true | .checks += [{name:"old writable hosts fenced",status:"ok",detail:"every selected source was reached over SSH; Pi core/relay/nutrition and the exact running Forge deployment set were stopped with tunnels, backups, and heartbeats"}] | .updatedAt=(now|todate)' \
+  "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+
+[[ ! -e "$DR_ACTIVE_RECOVERY_OVERRIDE" ]] || dr_die "active recovery override already exists; review the previous incident before cutover"
+override_tmp="$(mktemp "${DR_ACTIVE_RECOVERY_OVERRIDE}.tmp.XXXXXX")"
+if [[ "$profile" == pi || "$profile" == all ]]; then printf 'DR_PI_SSH=%s\n' "$ssh_host" >> "$override_tmp"; fi
+if [[ "$profile" == forge || "$profile" == all ]]; then printf 'DR_FORGE_SSH=%s\n' "$ssh_host" >> "$override_tmp"; fi
+printf 'DR_RECOVERY_KNOWN_HOSTS=%s\n' "$known_hosts" >> "$override_tmp"
+printf 'DR_RECOVERY_HOST_KEY_ALIAS=%s\n' "${target#*@}" >> "$override_tmp"
+chmod 0600 "$override_tmp"
+mv -- "$override_tmp" "$DR_ACTIVE_RECOVERY_OVERRIDE"
+override_written=true
+
+public_mutated=true
+activate_command='set -e'
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  activate_command+='; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=dr/" /etc/deniz-dr/pi.env; grep -qx "DR_ACTIVE_SITE_VALUE=dr" /etc/deniz-dr/pi.env'
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  activate_command+='; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=dr/" /etc/deniz-dr/forge.env; grep -qx "DR_ACTIVE_SITE_VALUE=dr" /etc/deniz-dr/forge.env'
+fi
+while IFS= read -r site; do
+  active_id="$(jq -er .recordId <<< "$site")"
+  active_name="$(jq -er .name <<< "$site")"
+  active_body="$(jq -cn --arg name "$active_name" '{type:"TXT",name:$name,content:"dr",ttl:60,proxied:false}')"
+  cf_api PUT "zones/$DR_CLOUDFLARE_ZONE_ID/dns_records/$active_id" "$active_body" | jq -e '.success==true' >/dev/null
+  active_visible=false
+  for _ in $(seq 1 60); do
+    live_active="$(dig @1.1.1.1 +short TXT "$active_name" | tr -d '"' | head -1)"
+    if [[ "$live_active" == dr ]] && authoritative_visible "$active_name" TXT dr; then active_visible=true; break; fi
+    sleep 2
+  done
+  [[ "$active_visible" == true ]] || dr_die "active-site DR lease did not become publicly visible: ${active_name}"
+  activate_command+='; for i in $(seq 1 60); do live=$(dig @1.1.1.1 +short TXT '"$active_name"' | tr -d '\''"'\'' | head -1); [ "$live" = dr ] && break; sleep 2; done; [ "$live" = dr ]'
+done < <(jq -c --arg profile "$profile" '.activeSites | to_entries[] | select($profile=="all" or .key==$profile) | .value' "$DR_EXTERNAL_STATE")
+if [[ "$profile" == forge ]]; then
+  recovery_agent_url="http://${ssh_host#root@}:4010"
+  ssh -o BatchMode=yes "$DR_PI_SSH" \
+    "sudo bash -ceu 'lock=/var/lib/deniz-dr/locks/pi-cloud.lock; acquired=false; for _ in \$(seq 1 300); do if mkdir \"\$lock\" 2>/dev/null; then acquired=true; break; fi; sleep 2; done; [ \"\$acquired\" = true ]; printf %s\\n forge-dr-cutover > \"\$lock/owner\"; cleanup() { rm -f -- \"\$lock/owner\"; rmdir -- \"\$lock\"; }; trap cleanup EXIT; env_file=/opt/deniz-cloud/infra/compose/.env.pi; sed -i -E \"s|^DEPLOY_AGENT_URL=.*$|DEPLOY_AGENT_URL=\$1|\" \"\$env_file\"; grep -qx \"DEPLOY_AGENT_URL=\$1\" \"\$env_file\"; cd /opt/deniz-cloud/infra/compose; files=\"-f docker-compose.pi.yml\"; mode=\$(awk -F= '\''\$1==\"STORAGE_NAMESPACE_MODE\" {print \$2; exit}'\'' .env.pi); if [ \"\$mode\" = broker-mounted ]; then test -f docker-compose.posix.yml; files=\"\$files -f docker-compose.posix.yml\"; fi; docker compose --env-file .env.pi \$files up -d api; for _ in \$(seq 1 60); do curl -fsS http://127.0.0.1:3001/healthz >/dev/null && exit 0; sleep 2; done; exit 1' bash '$recovery_agent_url'" \
+    || dr_die "surviving Pi could not switch its deploy-agent proxy to DR; apply the signed reverse patch"
+  apply_forge_container_mapping activate "$forge_container_mappings"
+  jq '.checks += [{name:"Forge split-host routing",status:"ok",detail:"surviving Pi now proxies the recovery agent and atomically references the exact recovered container set"}] | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+fi
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  activate_command+='; systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; systemctl start deniz-dr-heartbeat@pi.service'
+fi
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  activate_command+='; systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; systemctl start deniz-dr-heartbeat@forge.service'
+fi
+ssh "${ssh_opts[@]}" "$ssh_host" "$activate_command" \
+  || dr_die "recovery host backup continuity could not be activated; apply the signed reverse patch"
+while IFS= read -r entry; do
+  id="$(jq -r .id <<< "$entry")"; kind="$(jq -r .kind <<< "$entry")"
+  if [[ "$kind" == tunnel ]]; then content="${DR_CLOUDFLARE_DR_TUNNEL_ID}.cfargotunnel.com"; else content="$target_ip"; fi
+  body="$(jq -cn --arg type "$(jq -r .type <<< "$entry")" --arg name "$(jq -r .name <<< "$entry")" --arg content "$content" \
+    --argjson ttl "$(jq -r .ttl <<< "$entry")" --argjson proxied "$(jq -r .proxied <<< "$entry")" '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied}')"
+  cf_api PUT "zones/$DR_CLOUDFLARE_ZONE_ID/dns_records/$id" "$body" | jq -e '.success==true' >/dev/null
+  if [[ "$kind" == database ]]; then
+    record_visible=false
+    for _ in $(seq 1 60); do
+      record_name="$(jq -r .name <<< "$entry")"
+      recursive="$(dig @1.1.1.1 +short A "$record_name" | awk 'NF')"
+      if [[ "$recursive" == "$target_ip" ]] && authoritative_visible "$record_name" A "$target_ip"; then
+        record_visible=true
+        break
+      fi
+      sleep 2
+    done
+    [[ "$record_visible" == true ]] || dr_die "direct database DNS did not become authoritative: ${record_name}"
+  fi
+done < <(jq -c --arg profile "$profile" '.records[] | select($profile=="all" or (.profiles | index($profile)))' "$DR_EXTERNAL_STATE")
+
+# External-monitor evidence must be newer than the final public DNS mutation,
+# not merely newer than the operator's confirmation or source-fencing work.
+cutover_epoch="$(date +%s)"
+failures=0
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  if ! ssh "${ssh_opts[@]}" "$ssh_host" bash -s <<'REMOTE_DEEP_CHECK'
+set -Eeuo pipefail
+umask 077
+env_file=/opt/deniz-cloud/infra/compose/.env.pi
+token="$(awk -F= '$1=="DR_SYNTHETIC_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$env_file")"
+[[ ${#token} -ge 32 && "$token" != *[$'\r\n"\\']* ]]
+config="$(mktemp /srv/deniz-dr/post-cutover-deep.XXXXXX.curl)"
+cleanup() { rm -f -- "$config"; }
+trap cleanup EXIT
+printf 'url = "http://127.0.0.1:3001/healthz/deep"\nheader = "X-DR-Synthetic-Token: %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 60\n' "$token" > "$config"
+curl --config "$config" | jq -e '.status=="ok" and all(.checks[]; .status=="ok")' >/dev/null
+REMOTE_DEEP_CHECK
+  then
+    failures=$((failures + 1))
+  fi
+fi
+forge_domains_verified=0
+if [[ "$profile" == forge || "$profile" == all ]]; then
+  while IFS= read -r domain; do
+    [[ "$domain" =~ ^[A-Za-z0-9.-]+$ && "$domain" == *.* ]] || dr_die "signed Forge evidence contains an unsafe domain"
+    domain_ready=false
+    for _ in $(seq 1 30); do
+      http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "https://${domain}/" || true)"
+      if [[ "$http_status" =~ ^[234][0-9][0-9]$ ]]; then domain_ready=true; break; fi
+      sleep 2
+    done
+    if [[ "$domain_ready" == true ]]; then
+      forge_domains_verified=$((forge_domains_verified + 1))
+    else
+      failures=$((failures + 1))
+    fi
+  done < <(jq -r '.checks[] | select(.name=="Forge immutable restore") | .evidence.domains[]' "$report")
+  expected_forge_domains="$(jq -er '.checks[] | select(.name=="Forge immutable restore") | .evidence.expected' "$report")"
+  [[ "$forge_domains_verified" -eq "$expected_forge_domains" && "$forge_domains_verified" -gt 0 ]] \
+    || failures=$((failures + 1))
+fi
+while IFS= read -r url; do
+  for _ in $(seq 1 30); do curl -fsS --max-time 10 "$url" >/dev/null && break; sleep 10; done
+  curl -fsS --max-time 10 "$url" >/dev/null || failures=$((failures + 1))
+done < <(jq -r --arg profile "$profile" '.healthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
+while IFS=$'\t' read -r host port; do
+  openssl s_client -connect "${host}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+    || failures=$((failures + 1))
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+((failures == 0)) || dr_die "post-cutover external health checks failed; apply the signed reverse patch"
+
+better_get() {
+  local monitor_id="$1"
+  printf 'url = "https://uptime.betterstack.com/api/v2/monitors/%s"\nheader = "Authorization: Bearer %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 30\n' \
+    "$monitor_id" "$DR_BETTERSTACK_API_TOKEN" | curl --config -
+}
+while IFS= read -r monitor_id; do
+  monitor_up=false
+  for _ in $(seq 1 36); do
+    if better_get "$monitor_id" | jq -e --argjson cutoff "$cutover_epoch" '
+      .data.attributes.status == "up" and
+      (.data.attributes.last_checked_at | strings | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $cutoff
+    ' >/dev/null; then
+      monitor_up=true
+      break
+    fi
+    sleep 10
+  done
+  [[ "$monitor_up" == true ]] || dr_die "Better Stack has not externally confirmed monitor ${monitor_id}"
+done < <(jq -r --arg profile "$profile" '.betterStackMonitorIds[] | select($profile=="all" or (.profiles | index($profile))) | .id' "$DR_EXTERNAL_STATE")
+jq --arg reverse "$reverse" '.cutover.performed=true | .cutover.fenced=true | .cutover.reversePatch=$reverse |
+  .checks += [{name:"Cloudflare cutover",status:"ok",detail:"reviewed records and active-site leases updated; direct records verified on recursive and authoritative DNS"},
+              {name:"active backup continuity",status:"ok",detail:"Mac bridge follows the recovery node and selected backup/heartbeat timers are enabled"},
+              {name:"external health",status:"ok",detail:"public HTTP and database TLS endpoints passed after cutover"},
+              {name:"post-cutover semantic and domain verification",status:"ok",detail:"the selected Pi deep transaction and every restored Forge domain passed after public mutation"},
+              {name:"Better Stack external verification",status:"ok",detail:"every reviewed monitor performed a post-cutover check and reports up"}] |
+  .result="recovered" | .updatedAt=(now|todate)' "$report" > "${report}.tmp" && mv "${report}.tmp" "$report"
+public_mutated=true

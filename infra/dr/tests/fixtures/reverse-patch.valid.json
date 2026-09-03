@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-31T10:20:00Z",
+  "zoneId": "zone-id",
+  "activeSites": [
+    {
+      "id": "pi-active-record-id",
+      "type": "TXT",
+      "name": "_active-site-pi.denizlg24.com",
+      "content": "home",
+      "ttl": 60,
+      "proxied": false,
+      "profile": "pi"
+    },
+    {
+      "id": "forge-active-record-id",
+      "type": "TXT",
+      "name": "_active-site-forge.denizlg24.com",
+      "content": "home",
+      "ttl": 60,
+      "proxied": false,
+      "profile": "forge"
+    }
+  ],
+  "records": [
+    {
+      "id": "api-record-id",
+      "type": "CNAME",
+      "name": "api.denizlg24.com",
+      "content": "production-tunnel.cfargotunnel.com",
+      "ttl": 1,
+      "proxied": true
+    }
+  ],
+  "survivingPiDeployAgentUrl": null,
+  "forgeContainerMappings": []
+}

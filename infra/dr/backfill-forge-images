@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+config=""; builders=""; expected=""
+while (($#)); do
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --builders) builders="${2:-}"; shift 2 ;;
+    --expected) expected="${2:-}"; shift 2 ;;
+    *) echo "Usage: backfill-forge-images --config FILE --builders JSON --expected COUNT" >&2; exit 2 ;;
+  esac
+done
+dr_require_private_file "$config"
+[[ -f "$builders" && "$expected" =~ ^[1-9][0-9]*$ ]] || dr_die "builder map and expected count are required"
+jq -e 'type=="object" and all(to_entries[]; (.key|test("^[0-9a-f-]{36}$")) and (.value=="dockerfile" or .value=="nixpacks"))' \
+  "$builders" >/dev/null || dr_die "invalid deployment builder map"
+# shellcheck disable=SC1090
+source "$config"
+dr_read_env_file "$DR_BREAK_GLASS_FILE"
+: "${DR_DEPLOY_AGENT_TOKEN:?missing deploy agent token}"
+: "${DR_FORGE_CONTROL_API_URL:=https://api.denizlg24.com}"
+[[ "$DR_FORGE_CONTROL_API_URL" =~ ^https://[A-Za-z0-9._-]+(:[1-9][0-9]{0,4})?$ &&
+   "$DR_DEPLOY_AGENT_TOKEN" != *[$'\r\n"\\']* && ${#DR_DEPLOY_AGENT_TOKEN} -ge 32 ]] \
+  || dr_die "Forge backfill URL or token is unsafe"
+work="$(mktemp -d "${TMPDIR:-/tmp}/dr-forge-backfill.XXXXXX")"
+cleanup() { rm -rf -- "$work"; }; trap cleanup EXIT
+jq -n --slurpfile builders "$builders" '{builders:$builders[0]}' > "$work/body.json"
+printf 'url = "%s/api/deploy/agent/recovery/backfill"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata-binary = @%s\nfail-with-body\nsilent\nshow-error\nmax-time = 7200\n' \
+  "$DR_FORGE_CONTROL_API_URL" "$DR_DEPLOY_AGENT_TOKEN" "$work/body.json" > "$work/request.curl"
+curl --config "$work/request.curl" > "$work/response.json"
+jq -e --argjson expected "$expected" \
+  '.allPublished==true and .expected==$expected and .published==$expected and all(.results[]; .reference|test("@sha256:[0-9a-f]{64}$"))' \
+  "$work/response.json" >/dev/null || dr_die "Forge recovery backfill is incomplete"
+jq '{backfilled:true,expected,published,deployments:[.results[]|{deploymentId,reference}]}' "$work/response.json"

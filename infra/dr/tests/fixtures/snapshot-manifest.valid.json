@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "pi-cloud-20260831T100000Z",
+  "createdAt": "2026-08-31T10:00:00Z",
+  "host": "pi-cloud",
+  "profile": "pi",
+  "generation": "2026-Q3",
+  "gitRevision": "0123456789abcdef0123456789abcdef01234567",
+  "versionLockSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "databaseVersions": {
+    "postgres": "17.6",
+    "mongodb": "8.0.13",
+    "redis": "8.2.1"
+  },
+  "artifacts": [
+    {
+      "class": "postgres",
+      "path": "artifacts/postgres-cloud.dump",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bytes": 128,
+      "restoreOrder": 1,
+      "verifier": "pg_restore --list"
+    }
+  ],
+  "images": [
+    {
+      "service": "pi/api",
+      "reference": "ghcr.io/denizlg24/deniz-cloud-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "platform": "linux/arm64",
+      "imageSizeBytes": 1024
+    }
+  ],
+  "forgeControlPlane": [
+    {
+      "deploymentId": "11111111-1111-4111-8111-111111111111",
+      "imageReference": "ghcr.io/denizlg24/example@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "imageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "hostname": "app.denizlg24.com"
+    }
+  ],
+  "forgeControlPlaneSha256": "fcb62420a9184c5b6cd274fc89599f2f9e0c02d284dce82dd18ec5a3d69fe02f",
+  "restoreFootprint": [
+    { "component": "config", "method": "uncompressed-tar", "bytes": 10 },
+    {
+      "component": "mongodb",
+      "method": "allocated-verified-restore",
+      "bytes": 50
+    },
+    {
+      "component": "namespace",
+      "method": "allocated-source-inventory",
+      "bytes": 56
+    },
+    {
+      "component": "postgresql",
+      "method": "allocated-verified-restore",
+      "bytes": 100
+    },
+    { "component": "recovery-host", "method": "uncompressed-tar", "bytes": 10 },
+    { "component": "redis", "method": "max-memory-rdb", "bytes": 20 },
+    { "component": "samba", "method": "restored-files", "bytes": 10 }
+  ],
+  "inventory": {
+    "authoritative": ["postgres"],
+    "derived": ["meilisearch"],
+    "disposable": ["cache"],
+    "unclassifiedWritable": []
+  },
+  "totals": {
+    "artifactBytes": 128,
+    "restoredBytes": 256,
+    "imageBytes": 1024,
+    "fileCount": 1
+  }
+}

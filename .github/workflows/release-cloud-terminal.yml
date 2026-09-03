@@ -1,0 +1,151 @@
+name: Release cloud terminal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/terminal/**"
+      - "apps/storage-metadata/**"
+      - "packages/cloud-core/**"
+      - "packages/schemas/**"
+      - ".github/workflows/release-cloud-terminal.yml"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and boot ${{ matrix.arch }} terminal
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: bun-linux-x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: bun install --frozen-lockfile
+      - name: Typecheck and test
+        run: |
+          bunx turbo typecheck --filter=terminal
+          bunx turbo test --filter=terminal
+          bunx turbo typecheck --filter=storage-metadata
+          bunx turbo test --filter=storage-metadata
+      - name: Compile native artifact
+        run: |
+          mkdir -p "dist/${{ matrix.arch }}"
+          bun build apps/terminal/src/index.ts --compile --target=${{ matrix.target }} --outfile="dist/${{ matrix.arch }}/cloud-terminal"
+          bun build apps/storage-metadata/src/index.ts --compile --target=${{ matrix.target }} --outfile="dist/${{ matrix.arch }}/cloud-storage-metadata"
+          chmod 0755 "dist/${{ matrix.arch }}/cloud-terminal"
+          chmod 0755 "dist/${{ matrix.arch }}/cloud-storage-metadata"
+          (cd "dist/${{ matrix.arch }}" && sha256sum cloud-terminal cloud-storage-metadata > SHA256SUMS)
+      - name: Boot and health-check artifact
+        env:
+          TERMINAL_TICKET_SECRET: ci-only-terminal-secret-at-least-32-bytes
+          PORT: "33003"
+        run: |
+          "dist/${{ matrix.arch }}/cloud-terminal" >terminal.log 2>&1 &
+          terminal_pid=$!
+          trap 'kill "$terminal_pid" 2>/dev/null || true' EXIT
+          for _ in {1..30}; do
+            curl --fail --silent http://127.0.0.1:33003/healthz >/dev/null && exit 0
+            sleep 1
+          done
+          cat terminal.log >&2
+          exit 1
+      - name: Boot and health-check metadata artifact
+        env:
+          STORAGE_METADATA_SOCKET: /tmp/cloud-storage-metadata.sock
+          STORAGE_METADATA_SOCKET_GID: "1000"
+          STORAGE_METADATA_TOKEN: ci-only-metadata-token
+          STORAGE_NAMESPACE_ROOT: /tmp/cloud-storage-namespace
+          STORAGE_NAMESPACE_WITNESS_PATH_HOST: /tmp/cloud-storage-namespace/.witness
+          STORAGE_NAMESPACE_WITNESS_VALUE: ci-mounted
+        run: |
+          mkdir -p /tmp/cloud-storage-namespace
+          echo ci-mounted > /tmp/cloud-storage-namespace/.witness
+          "dist/${{ matrix.arch }}/cloud-storage-metadata" >metadata.log 2>&1 &
+          metadata_pid=$!
+          trap 'kill "$metadata_pid" 2>/dev/null || true' EXIT
+          for _ in {1..30}; do
+            curl --fail --silent --unix-socket /tmp/cloud-storage-metadata.sock http://localhost/healthz >/dev/null && exit 0
+            sleep 1
+          done
+          cat metadata.log >&2
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-terminal-${{ matrix.arch }}
+          path: dist/${{ matrix.arch }}/
+          retention-days: 30
+          if-no-files-found: error
+
+  deploy:
+    name: Install both recovery architectures on Pi
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PI_HOST: ${{ vars.PI_HOST }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: cloud-terminal-amd64
+          path: dist/amd64
+      - uses: actions/download-artifact@v5
+        with:
+          name: cloud-terminal-arm64
+          path: dist/arm64
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      - name: Resolve Pi and acquire coordinated host lock
+        run: |
+          test -n "$PI_HOST"
+          [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          PI_ADDR="$(tailscale ip -4 "$PI_HOST")"
+          [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
+          lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud-binaries"
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
+          echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+      - name: Install and verify architecture bundle
+        run: |
+          chmod 0755 dist/{amd64,arm64}/cloud-terminal dist/{amd64,arm64}/cloud-storage-metadata
+          (cd dist/amd64 && sha256sum -c SHA256SUMS)
+          (cd dist/arm64 && sha256sum -c SHA256SUMS)
+          tar -C dist -czf cloud-host-binaries.tgz amd64 arm64
+          scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes cloud-host-binaries.tgz \
+            "denizlg24@${PI_ADDR}:/tmp/cloud-host-binaries.tgz"
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "sudo bash -ceu 'install -d -m 0755 /usr/local/lib/deniz-cloud; tar -xzf /tmp/cloud-host-binaries.tgz -C /usr/local/lib/deniz-cloud; rm -f /tmp/cloud-host-binaries.tgz; cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS; cd ../arm64 && sha256sum -c SHA256SUMS; test \"\$(uname -m)\" = aarch64; install -m 0755 cloud-terminal /usr/local/bin/cloud-terminal; install -m 0755 cloud-storage-metadata /usr/local/bin/cloud-storage-metadata; systemctl try-restart cloud-terminal.service deniz-cloud-storage-metadata.service'"
+      - name: Verify active host services
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "set -e; if systemctl is-active --quiet cloud-terminal.service; then curl -fsS http://127.0.0.1:3003/healthz >/dev/null; fi; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then curl -fsS --unix-socket /run/deniz-cloud/storage-metadata.sock http://localhost/healthz >/dev/null; fi"
+      - name: Release coordinated host lock
+        if: always()
+        run: |
+          if [[ -n "${PI_ADDR:-}" && -n "${DR_DEPLOY_LOCK_TOKEN:-}" ]]; then
+            ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+              "lock=/var/lib/deniz-dr/locks/pi-cloud.lock; test \"\$(cat \"\$lock/owner\" 2>/dev/null)\" = '$DR_DEPLOY_LOCK_TOKEN' && rm -f \"\$lock/owner\" && rmdir \"\$lock\"" || true
+          fi

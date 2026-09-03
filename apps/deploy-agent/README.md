@@ -42,6 +42,7 @@ and invokes the host's narrowly scoped installer.
 | `MEMORY_HEADROOM_MB` | `1024` | Kept for Linux, Docker, the agent and Caddy; excluded from deploy capacity. |
 | `HEALTH_POLL_MS` | `2000` | The gate's poll interval; the budget comes from the request. |
 | `CONTAINER_DRAIN_MS` | `10000` | How long a superseded container keeps serving after the route flips. |
+| `DR_HOST_MUTATION_LOCK_PATH` | `/var/lib/deniz-dr/locks/forge.lock` | Shared with the root-run Forge backup. Every route, container, image-publication, and GC mutation holds it; the `forge` service account therefore belongs to `deniz-dr`. |
 
 Preview routes use Caddy forward-auth against the control plane. Existing
 Cloud/Forge superuser sessions pass; signed share links are exchanged for a

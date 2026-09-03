@@ -2,12 +2,16 @@ import type {
   AgentApplyEnvRequest,
   AgentGcReport,
   AgentGcRequest,
+  AgentRecoveryPublishRequest,
+  AgentRecoveryRequest,
 } from "@repo/schemas/cloud";
 import {
   agentApplyEnvRequestSchema,
   agentDeploymentRequestSchema,
   agentGcRequestSchema,
   agentPromoteRequestSchema,
+  agentRecoveryPublishRequestSchema,
+  agentRecoveryRequestSchema,
 } from "@repo/schemas/cloud";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -31,6 +35,17 @@ export interface AgentRouteOptions {
   teardown: (deploymentId: string) => Promise<TeardownResult>;
   restart: (deploymentId: string) => Promise<RestartResult>;
   applyEnv: (request: AgentApplyEnvRequest) => Promise<ApplyEnvResult>;
+  recover: (request: AgentRecoveryRequest) => Promise<{
+    restored: boolean;
+    containerId: string | null;
+    port: number | null;
+    imageReference: string;
+    environmentHmacSha256: string | null;
+    error: string | null;
+  }>;
+  publishRecovery: (
+    request: AgentRecoveryPublishRequest,
+  ) => Promise<{ reference: string; digest: string }>;
   rehost: (
     deploymentId: string,
     hostnames: string[],
@@ -369,6 +384,66 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     }
     const result = await options.applyEnv(parsed.data);
     return context.json(result, result.recreated ? 200 : 409);
+  });
+
+  guarded.post("/deployments/:id/recover", async (context) => {
+    const parsed = agentRecoveryRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "Invalid digest-only recovery request",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    if (parsed.data.request.deploymentId !== context.req.param("id")) {
+      return context.json(
+        {
+          error: {
+            code: "DEPLOYMENT_ID_MISMATCH",
+            message: "The body names a different deployment than the path",
+          },
+        },
+        400,
+      );
+    }
+    const result = await options.recover(parsed.data);
+    return context.json(result, result.restored ? 200 : 409);
+  });
+
+  guarded.post("/deployments/:id/publish-recovery", async (context) => {
+    const parsed = agentRecoveryPublishRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "Invalid recovery publication request",
+          },
+        },
+        400,
+      );
+    }
+    if (parsed.data.request.deploymentId !== context.req.param("id")) {
+      return context.json(
+        {
+          error: {
+            code: "DEPLOYMENT_ID_MISMATCH",
+            message: "The body names a different deployment than the path",
+          },
+        },
+        400,
+      );
+    }
+    return context.json(await options.publishRecovery(parsed.data));
   });
 
   /**

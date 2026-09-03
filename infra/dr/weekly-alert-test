@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+: "${BETTERSTACK_API_TOKEN:?BETTERSTACK_API_TOKEN is required}"
+: "${BETTERSTACK_REQUESTER_EMAIL:?BETTERSTACK_REQUESTER_EMAIL is required}"
+[[ ${#BETTERSTACK_API_TOKEN} -ge 20 && "$BETTERSTACK_API_TOKEN" != *[$'\r\n"\\']* ]] \
+  || { echo "STOP: Better Stack token is unsafe" >&2; exit 1; }
+[[ "$BETTERSTACK_REQUESTER_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
+  || { echo "STOP: Better Stack requester email is unsafe" >&2; exit 1; }
+work="$(mktemp -d "${TMPDIR:-/tmp}/dr-alert-test.XXXXXX")"
+cleanup() { rm -rf -- "$work"; }; trap cleanup EXIT
+jq -n --arg requester "$BETTERSTACK_REQUESTER_EMAIL" --arg date "$(date -u +%F)" \
+  --arg policy "${BETTERSTACK_POLICY_ID:-}" \
+  '{summary:("[DR TEST] Weekly recovery alert " + $date),requester_email:$requester,
+    description:"Scheduled alert-path test. Acknowledge this incident and record the acknowledgement in the DR evidence ledger.",
+    email:true,push:true,call:false,sms:false} + (if $policy=="" then {} else {policy_id:$policy} end)' > "$work/body.json"
+printf 'url = "https://uptime.betterstack.com/api/v3/incidents"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata-binary = @%s\nfail-with-body\nsilent\nshow-error\nmax-time = 30\n' \
+  "$BETTERSTACK_API_TOKEN" "$work/body.json" > "$work/request.curl"
+curl --config "$work/request.curl" | jq -e '.data.type == "incident"' > "$work/response.json"
+if [[ -n ${BETTERSTACK_WEEKLY_HEARTBEAT_URL:-} ]]; then
+  [[ "$BETTERSTACK_WEEKLY_HEARTBEAT_URL" == https://uptime.betterstack.com/* &&
+     "$BETTERSTACK_WEEKLY_HEARTBEAT_URL" != *[$'\r\n"\\']* ]] \
+    || { echo "STOP: weekly heartbeat URL is unsafe" >&2; exit 1; }
+  printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$BETTERSTACK_WEEKLY_HEARTBEAT_URL" | curl --config - >/dev/null
+fi
+jq -n '{created:true,label:"DR TEST",requiresAcknowledgement:true,secretsPrinted:false}'

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://denizlg24.com/schemas/dr/rehearsal-report-v1.json",
+  "title": "DR rehearsal report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rehearsal",
+    "startedAt",
+    "finishedAt",
+    "durationSeconds",
+    "sourceIsolation",
+    "freshClone",
+    "recoveryReport",
+    "rollbackPerformed",
+    "targetDestroyed",
+    "underFourHours",
+    "objectives",
+    "result",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "rehearsal": { "enum": [1, 2] },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "durationSeconds": { "type": "integer", "minimum": 0 },
+    "sourceIsolation": { "type": "string" },
+    "freshClone": { "type": ["string", "null"] },
+    "recoveryReport": { "type": ["string", "null"] },
+    "rollbackPerformed": { "type": "boolean" },
+    "targetDestroyed": { "type": "boolean" },
+    "underFourHours": { "type": "boolean" },
+    "objectives": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rpoTargetSeconds",
+        "rtoTargetSeconds",
+        "recoveryPointAgeSeconds",
+        "rpoMet",
+        "rtoMet",
+        "resourceMetrics"
+      ],
+      "properties": {
+        "rpoTargetSeconds": { "const": 86400 },
+        "rtoTargetSeconds": { "const": 14400 },
+        "recoveryPointAgeSeconds": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "rpoMet": { "type": ["boolean", "null"] },
+        "rtoMet": { "type": "boolean" },
+        "resourceMetrics": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": [
+            "sampleIntervalSeconds",
+            "samples",
+            "startedAt",
+            "finishedAt",
+            "peakCpuPercent",
+            "peakLoad1",
+            "peakMemoryUsedBytes",
+            "minMemoryAvailableBytes",
+            "peakDiskUsedBytes",
+            "minDiskAvailableBytes",
+            "physicalInterfaceCount",
+            "physicalNetworkReceiveBytes",
+            "physicalNetworkTransmitBytes"
+          ],
+          "properties": {
+            "sampleIntervalSeconds": { "const": 5 },
+            "samples": { "type": "integer", "minimum": 1 },
+            "startedAt": { "type": "string", "format": "date-time" },
+            "finishedAt": { "type": "string", "format": "date-time" },
+            "peakCpuPercent": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "peakLoad1": { "type": "number", "minimum": 0 },
+            "peakMemoryUsedBytes": { "type": "integer", "minimum": 0 },
+            "minMemoryAvailableBytes": { "type": "integer", "minimum": 0 },
+            "peakDiskUsedBytes": { "type": "integer", "minimum": 0 },
+            "minDiskAvailableBytes": { "type": "integer", "minimum": 0 },
+            "physicalInterfaceCount": { "type": "integer", "minimum": 1 },
+            "physicalNetworkReceiveBytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "physicalNetworkTransmitBytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "result": { "enum": ["passed", "failed"] },
+    "failure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["exitStatus", "detail"],
+      "properties": {
+        "exitStatus": { "type": "integer", "minimum": 1 },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "result": { "const": "passed" } },
+        "required": ["result"]
+      },
+      "then": {
+        "properties": {
+          "recoveryReport": { "type": "string", "minLength": 1 },
+          "underFourHours": { "const": true },
+          "objectives": {
+            "type": "object",
+            "properties": {
+              "recoveryPointAgeSeconds": {
+                "type": "integer",
+                "maximum": 86400
+              },
+              "rpoMet": { "const": true },
+              "rtoMet": { "const": true },
+              "resourceMetrics": { "type": "object" }
+            }
+          },
+          "failure": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "result": { "const": "failed" } },
+        "required": ["result"]
+      },
+      "then": {
+        "properties": {
+          "failure": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "rehearsal": { "const": 2 } },
+        "required": ["rehearsal"]
+      },
+      "then": {
+        "properties": {
+          "freshClone": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ]
+}

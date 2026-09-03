@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   type ActivityRecorder,
   AuthenticationError,
@@ -119,6 +120,15 @@ export interface CloudApiOptions {
     mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
   ops?: ReturnType<typeof opsRoutes>;
+  deepHealth?: {
+    token: string;
+    check: () => Promise<{
+      status: "ok" | "down";
+      timestamp: string;
+      checks: Record<string, unknown>;
+    }>;
+    rebuildSearch: () => Promise<number>;
+  };
   opsTools?: OpsToolsConfig;
   /** Absent when the host has no deploy agent configured. */
   deploy?: ReturnType<typeof deployRoutes>;
@@ -303,6 +313,27 @@ export function createCloudApiApp(options: CloudApiOptions) {
       version: process.env.APP_VERSION ?? pkg.version,
     }),
   );
+  app.get("/healthz/deep", async (context) => {
+    const configured = options.deepHealth;
+    const supplied = context.req.header("X-DR-Synthetic-Token") ?? "";
+    const allowed =
+      configured !== undefined &&
+      supplied.length === configured.token.length &&
+      timingSafeEqual(Buffer.from(supplied), Buffer.from(configured.token));
+    if (!allowed || !configured) return context.notFound();
+    const result = await configured.check();
+    return context.json(result, result.status === "ok" ? 200 : 503);
+  });
+  app.post("/healthz/recovery/rebuild-search", async (context) => {
+    const configured = options.deepHealth;
+    const supplied = context.req.header("X-DR-Synthetic-Token") ?? "";
+    const allowed =
+      configured !== undefined &&
+      supplied.length === configured.token.length &&
+      timingSafeEqual(Buffer.from(supplied), Buffer.from(configured.token));
+    if (!allowed || !configured) return context.notFound();
+    return context.json({ indexed: await configured.rebuildSearch() });
+  });
 
   const previewAccess = options.previewAccess;
   if (previewAccess) {

@@ -122,6 +122,12 @@ observed_member_uuids() {
   for member in "${member_arr[@]}"; do
     mountpoint -q "$member" || { echo "member is not mounted: $member" >&2; return 1; }
     src=$(findmnt -n -o SOURCE --target "$member") || return 1
+    # A recovery host represents both logical tiers as bind mounts on one
+    # filesystem. findmnt renders those sources as /dev/vda1[/subdirectory];
+    # validate the backing block device UUID rather than passing that decorated
+    # source string to blkid.
+    src="${src%%\[*}"
+    [[ "$src" == /dev/* ]] || { echo "member has no block-device backing source: $member" >&2; return 1; }
     uuid=$(blkid -s UUID -o value "$src" 2>/dev/null) || true
     [[ -n "$uuid" ]] || { echo "member has no filesystem UUID: $member" >&2; return 1; }
     out+=("${uuid,,}")

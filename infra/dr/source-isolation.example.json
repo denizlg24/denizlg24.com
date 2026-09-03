@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-31T00:00:00Z",
+  "sourcesBlocked": true,
+  "piCloud": {
+    "online": true,
+    "blockedFromTarget": true,
+    "evidence": "firewall rule/export path"
+  },
+  "forge": {
+    "online": true,
+    "blockedFromTarget": true,
+    "evidence": "firewall rule/export path"
+  },
+  "publicSourceEndpointsBlocked": true,
+  "verifiedBy": "operator@example.com"
+}

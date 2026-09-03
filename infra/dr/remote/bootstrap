@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+profile=""
+packages=""
+versions=""
+tailscale_key_file=""
+cleanup() { [[ -z "$tailscale_key_file" ]] || rm -f -- "$tailscale_key_file"; }
+trap cleanup EXIT
+while (($#)); do
+  case "$1" in
+    --profile) profile="${2:-}"; shift 2 ;;
+    --packages) packages="${2:-}"; shift 2 ;;
+    --versions) versions="${2:-}"; shift 2 ;;
+    --tailscale-key-file) tailscale_key_file="${2:-}"; shift 2 ;;
+    *) echo "Usage: bootstrap --profile pi|forge|all --packages JSON --versions JSON --tailscale-key-file FILE" >&2; exit 2 ;;
+  esac
+done
+[[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || exit 2
+((EUID == 0)) || { echo "STOP: remote bootstrap requires root" >&2; exit 1; }
+[[ -f "$packages" && -f "$versions" && -f "$tailscale_key_file" ]] || { echo "STOP: bootstrap inputs are missing" >&2; exit 1; }
+[[ "$(. /etc/os-release; printf '%s' "$VERSION_ID")" == 24.04 ]] || { echo "STOP: Ubuntu 24.04 is required" >&2; exit 1; }
+[[ "$(uname -m)" == x86_64 ]] || { echo "STOP: x86_64 is required" >&2; exit 1; }
+
+export DEBIAN_FRONTEND=noninteractive
+# Package post-install scripts must not expose a stock Samba listener or start
+# a restored production tunnel before the recovery firewall and explicit
+# cutover unit exist. The DR storage service invokes smbd directly; the DR
+# tunnel has its own unit, so these vendor units remain masked.
+systemctl mask smbd.service nmbd.service samba-ad-dc.service cloudflared.service >/dev/null 2>&1 || true
+apt-get update -qq
+apt-get install -y ca-certificates curl gnupg jq zstd acl attr ufw fail2ban openssl dnsutils
+
+install -d -m 0755 /etc/apt/keyrings
+if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+fi
+. /etc/os-release
+printf 'Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: %s\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$VERSION_CODENAME" \
+  > /etc/apt/sources.list.d/docker.sources
+
+if [[ ! -f /usr/share/keyrings/tailscale-archive-keyring.gpg ]]; then
+  curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.noarmor.gpg" \
+    -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+fi
+curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.tailscale-keyring.list" \
+  -o /etc/apt/sources.list.d/tailscale.list
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared %s main\n' "$VERSION_CODENAME" \
+  > /etc/apt/sources.list.d/cloudflared.list
+
+apt-get update -qq
+install_exact_or_stop() {
+  local package="$1" recorded candidate
+  recorded="$(jq -r --arg package "$package" '.[$package] // empty' "$packages")"
+  [[ -n "$recorded" ]] || { echo "STOP: snapshot did not record ${package}" >&2; return 1; }
+  candidate="$(apt-cache madison "$package" | awk '{print $3}' | grep -Fx "$recorded" | head -1 || true)"
+  [[ "$candidate" == "$recorded" ]] || { echo "STOP: recorded package is unavailable: ${package}=${recorded}" >&2; return 1; }
+  apt-get install -y "${package}=${recorded}"
+}
+required_packages=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic tailscale cloudflared)
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  required_packages+=(cifs-utils fuse3 nftables samba samba-common-bin samba-vfs-modules smbclient)
+fi
+for package in "${required_packages[@]}"; do
+  install_exact_or_stop "$package"
+done
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  mergerfs_version="$(jq -er '.mergerfs.version' "$versions")"
+  mergerfs_url="$(jq -er '.mergerfs.amd64Url' "$versions")"
+  mergerfs_sha256="$(jq -er '.mergerfs.amd64Sha256' "$versions")"
+  [[ "$mergerfs_version" == 2.42.0 &&
+     "$mergerfs_url" == "https://github.com/trapexit/mergerfs/releases/download/${mergerfs_version}/mergerfs_${mergerfs_version}.ubuntu-noble_amd64.deb" &&
+     "$mergerfs_sha256" =~ ^[0-9a-f]{64}$ ]] \
+    || { echo "STOP: mergerfs recovery artifact contract is invalid" >&2; exit 1; }
+  mergerfs_deb="$(mktemp /tmp/mergerfs.XXXXXX.deb)"
+  curl --proto '=https' --tlsv1.2 -fsSL "$mergerfs_url" -o "$mergerfs_deb"
+  [[ "$(sha256sum "$mergerfs_deb" | awk '{print $1}')" == "$mergerfs_sha256" ]] \
+    || { rm -f -- "$mergerfs_deb"; echo "STOP: mergerfs recovery artifact checksum failed" >&2; exit 1; }
+  [[ "$(dpkg-deb -f "$mergerfs_deb" Version)" == "$mergerfs_version"* ]] \
+    || { rm -f -- "$mergerfs_deb"; echo "STOP: mergerfs recovery artifact version differs" >&2; exit 1; }
+  apt-get install -y "$mergerfs_deb"
+  rm -f -- "$mergerfs_deb"
+  [[ "$(mergerfs --version | awk 'NR==1{sub(/^v/,"",$NF);print $NF}')" == "$mergerfs_version" ]] \
+    || { echo "STOP: installed mergerfs version differs" >&2; exit 1; }
+fi
+cloudflared_package="$(jq -r '.cloudflared' "$packages")"
+dpkg --compare-versions "$cloudflared_package" ge 2025.4.0 \
+  || { echo "STOP: recorded cloudflared lacks token-file support" >&2; exit 1; }
+
+systemctl enable --now docker tailscaled
+key="$(cat "$tailscale_key_file")"
+[[ -n "$key" && "$key" != *$'\n'* ]] || { echo "STOP: empty or unsafe Tailscale credential" >&2; exit 1; }
+unset key
+tailscale up --auth-key="file:${tailscale_key_file}" --advertise-tags=tag:dr --hostname="deniz-dr-$(date -u +%Y%m%d)"
+rm -f -- "$tailscale_key_file"
+tailnet_ip="$(tailscale ip -4 | head -1)"
+[[ "$tailnet_ip" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || { echo "STOP: Tailscale did not assign an IPv4 address" >&2; exit 1; }
+
+getent group deniz-dr >/dev/null || groupadd --system deniz-dr
+getent group forge >/dev/null || groupadd --system forge
+id forge >/dev/null 2>&1 || useradd --system --gid forge --groups docker,deniz-dr --home-dir /srv/forge --shell /usr/sbin/nologin forge
+usermod -a -G docker,deniz-dr forge
+getent group pi-terminal >/dev/null || groupadd --system pi-terminal
+id pi-terminal >/dev/null 2>&1 || useradd --system --gid pi-terminal --home-dir /var/lib/pi-terminal --shell /usr/sbin/nologin pi-terminal
+
+install -d -m 0750 -o forge -g forge /srv/forge /srv/forge/caddy /srv/forge/access
+install -d -m 0750 -o root -g deniz-dr /var/lib/deniz-dr /var/lib/deniz-dr/locks
+setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx /var/lib/deniz-dr/locks
+install -d -m 0700 /srv/deniz-dr /srv/deniz-dr/pi /srv/deniz-dr/forge
+install -d -m 0750 /srv/deniz-dr/pi/postgres /srv/deniz-dr/pi/mongodb /srv/deniz-dr/pi/redis /srv/deniz-dr/pi/meili /srv/deniz-dr/pi/mongot
+install -d -m 0700 \
+  /srv/deniz-dr/pi/member-ssd/deniz-cloud/namespace \
+  /srv/deniz-dr/pi/member-ssd/deniz-cloud/internal/.capacity \
+  /srv/deniz-dr/pi/member-hdd/deniz-cloud/namespace \
+  /srv/deniz-dr/pi/member-hdd/deniz-cloud/internal/.capacity \
+  /srv/deniz-dr/pi/member-hdd/backups
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  install -d -m 0700 /mnt/ssd /mnt/hdd
+  for pair in \
+    "/srv/deniz-dr/pi/member-ssd:/mnt/ssd" \
+    "/srv/deniz-dr/pi/member-hdd:/mnt/hdd"; do
+    source_path="${pair%%:*}"; target_path="${pair#*:}"
+    mountpoint -q "$target_path" || mount --bind "$source_path" "$target_path"
+    grep -Fq "$source_path $target_path none bind" /etc/fstab \
+      || printf '%s %s none bind 0 0\n' "$source_path" "$target_path" >> /etc/fstab
+  done
+  install -d -m 0755 \
+    /mnt/hdd-disks/d1/deniz-cloud/internal/.capacity \
+    /mnt/hdd-disks/d2/deniz-cloud/internal/.capacity \
+    /srv/deniz-cloud/internal/.capacity \
+    /srv/deniz-cloud/api-storage
+  chmod 0755 /mnt/ssd/deniz-cloud/internal/.capacity /mnt/hdd/deniz-cloud/internal/.capacity
+fi
+install -d -m 0755 /mnt/storage
+if ! mountpoint -q /mnt/storage; then
+  install -d -m 0755 /srv/deniz-dr/forge/storage
+  mount --bind /srv/deniz-dr/forge/storage /mnt/storage
+  grep -Fq '/srv/deniz-dr/forge/storage /mnt/storage none bind' /etc/fstab \
+    || printf '/srv/deniz-dr/forge/storage /mnt/storage none bind 0 0\n' >> /etc/fstab
+fi
+
+if ! swapon --show=NAME --noheadings | grep -q .; then
+  fallocate -l 8G /swapfile
+  chmod 0600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  grep -Fq '/swapfile none swap sw' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
+fi
+
+docker network inspect forge-apps >/dev/null 2>&1 || docker network create forge-apps >/dev/null
+ufw --force reset >/dev/null
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH via Tailscale'
+ufw allow in on tailscale0 to any port 3001 proto tcp comment 'Pi API via Tailscale'
+ufw allow in on tailscale0 to any port 4010 proto tcp comment 'Forge agent via Tailscale'
+ufw allow 41641/udp comment 'Tailscale direct'
+# Public database ingress is deliberately absent here. Cutover opens only the
+# reviewed profile's direct TLS ports immediately before the external preflight;
+# --no-cutover therefore leaves the restored target private to the tailnet.
+ufw --force enable >/dev/null
+systemctl enable --now fail2ban
+jq -n --arg profile "$profile" --arg tailnetIp "$tailnet_ip" \
+  '{bootstrapped:true,profile:$profile,tailnetIp:$tailnetIp,publicCutover:false}'

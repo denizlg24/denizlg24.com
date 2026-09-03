@@ -1,0 +1,901 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${script_dir}/lib/common.sh"
+
+profile=""
+mode="--execute"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: backup --profile pi|forge [--execute|--check-only]
+
+Creates a consistent staged backup, writes it to the active quarterly restic
+generation, verifies the repository, then publishes a signed READY manifest.
+It must run as root on the selected source host.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --profile) [[ $# -ge 2 ]] || { usage; exit 2; }; profile="$2"; shift 2 ;;
+    --execute | --check-only) mode="$1"; shift ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+[[ "$profile" == pi || "$profile" == forge ]] || { usage; exit 2; }
+[[ "$mode" == --check-only || ${EUID:-$(id -u)} -eq 0 ]] || dr_die "backup execution requires root"
+
+host_name="$([[ "$profile" == pi ]] && printf pi-cloud || printf forge)"
+generation="${DR_GENERATION:-$(date -u +%Y)-Q$(( (10#$(date -u +%m) - 1) / 3 + 1 ))}"
+remote_root="${DR_REMOTE_ROOT:-/var/lib/deniz-dr}"
+[[ "$generation" =~ ^[0-9]{4}-Q[1-4]$ ]] || dr_die "DR_GENERATION must be YYYY-Q1..Q4"
+[[ "$remote_root" == /* && "$remote_root" != / && "$remote_root" != *$'\n'* ]] \
+  || dr_die "DR_REMOTE_ROOT must be a safe absolute directory"
+if [[ "$mode" == --execute && "$remote_root" != /var/lib/deniz-dr ]]; then
+  dr_die "backup execution is confined to /var/lib/deniz-dr"
+fi
+repository="${remote_root}/repositories/${host_name}/${generation}"
+ready_root="${remote_root}/ready/${host_name}/${generation}"
+staging_root="${remote_root}/staging"
+lock_root="${remote_root}/locks"
+password_file="${DR_RESTIC_PASSWORD_FILE:-}"
+signing_key="${DR_SIGNING_KEY:-}"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+snapshot_id="${host_name}-${timestamp}"
+stage="${staging_root}/${snapshot_id}"
+lock_dir="${lock_root}/${host_name}.lock"
+postgres_snapshot_pid=""
+verification_containers=()
+
+heartbeat() {
+  local url="$1"
+  [[ -n "$url" ]] || return 0
+  [[ "$url" == https://uptime.betterstack.com/* && "$url" != *[$'\r\n"\\']* ]] || return 1
+  printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$url" | curl --config - >/dev/null || true
+}
+
+assert_active_site() {
+  local record="${DR_ACTIVE_SITE_RECORD:?DR_ACTIVE_SITE_RECORD is required}"
+  local expected="${DR_ACTIVE_SITE_VALUE:?DR_ACTIVE_SITE_VALUE is required}" live
+  [[ "$record" =~ ^[A-Za-z0-9._-]+$ && "$expected" =~ ^[A-Za-z0-9_-]+$ ]] \
+    || dr_die "active-site backup fence configuration is unsafe"
+  live="$(dig +short TXT "$record" | tr -d '"' | awk 'NF {print; count++} END {if (count != 1) exit 1}')" \
+    || dr_die "active-site backup lease is missing or ambiguous"
+  [[ "$live" == "$expected" ]] \
+    || dr_die "active-site backup fence is ${live}, expected ${expected}; no READY will be published"
+}
+
+cleanup() {
+  local status=$? verification_container
+  if [[ "$postgres_snapshot_pid" =~ ^[0-9]+$ ]]; then
+    kill "$postgres_snapshot_pid" >/dev/null 2>&1 || true
+    wait "$postgres_snapshot_pid" >/dev/null 2>&1 || true
+  fi
+  if ((${#verification_containers[@]} > 0)) && command -v docker >/dev/null 2>&1; then
+    for verification_container in "${verification_containers[@]}"; do
+      docker rm -f "$verification_container" >/dev/null 2>&1 || true
+    done
+  fi
+  if [[ -d "$lock_dir" && -f "${lock_dir}/pid" ]] && [[ "$(cat "${lock_dir}/pid")" == "$$" ]]; then
+    dr_unlock "$lock_dir" || true
+  fi
+  if [[ -d "$stage" ]]; then rm -rf -- "$stage"; fi
+  if [[ "$mode" == --execute ]]; then
+    if ((status == 0)); then
+      heartbeat "${DR_BACKUP_SUCCESS_HEARTBEAT_URL:-}"
+    elif [[ -n ${DR_BACKUP_FAILURE_HEARTBEAT_URL:-} ]]; then
+      heartbeat "$DR_BACKUP_FAILURE_HEARTBEAT_URL"
+    elif [[ -n ${DR_BACKUP_SUCCESS_HEARTBEAT_URL:-} ]]; then
+      heartbeat "${DR_BACKUP_SUCCESS_HEARTBEAT_URL%/}/fail"
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+dr_require_commands jq tar zstd ssh-keygen
+[[ -n "$password_file" ]] || dr_die "DR_RESTIC_PASSWORD_FILE is required"
+[[ -n "$signing_key" ]] || dr_die "DR_SIGNING_KEY is required"
+dr_require_private_file "$password_file"
+dr_require_private_file "$signing_key"
+
+allowlist="${DR_CONFIG_ALLOWLIST:-${script_dir}/config/${profile}.allowlist}"
+[[ -f "$allowlist" ]] || dr_die "config allowlist is missing: ${allowlist}"
+
+if [[ "$mode" == --check-only ]]; then
+  jq -n --arg profile "$profile" --arg host "$host_name" --arg generation "$generation" \
+    --arg repository "$repository" --arg allowlist "$allowlist" \
+    '{ready:true,writes:false,profile:$profile,host:$host,generation:$generation,repository:$repository,allowlist:$allowlist}'
+  exit 0
+fi
+
+dr_require_commands restic curl find stat git docker setfacl dig mkfifo
+assert_active_site
+for managed_path in \
+  "$remote_root" \
+  "$remote_root/repositories" \
+  "$remote_root/repositories/$host_name" \
+  "$repository" \
+  "$remote_root/ready" \
+  "$remote_root/ready/$host_name" \
+  "$ready_root" \
+  "$staging_root" \
+  "$lock_root"; do
+  [[ ! -e "$managed_path" || -d "$managed_path" && ! -L "$managed_path" ]] \
+    || dr_die "managed backup path is not a real directory: ${managed_path}"
+done
+install -d -m 0700 "$ready_root" "$staging_root" "$lock_root" "$(dirname "$repository")"
+deploy_lock_wait="${DR_DEPLOY_LOCK_WAIT_SECONDS:-900}"
+[[ "$deploy_lock_wait" =~ ^[0-9]+$ && "$deploy_lock_wait" -le 3600 ]] || dr_die "DR_DEPLOY_LOCK_WAIT_SECONDS must be 0..3600"
+dr_lock "$lock_dir" "$(( $(date +%s) + deploy_lock_wait ))"
+install -d -m 0700 "$stage/artifacts" "$stage/meta"
+restore_footprint_rows="$stage/meta/restore-footprint.ndjson"
+: > "$restore_footprint_rows"
+
+record_restore_footprint() {
+  local component="$1" method="$2" bytes="$3"
+  [[ "$component" =~ ^[a-z0-9-]+$ && "$method" =~ ^[a-z0-9-]+$ && "$bytes" =~ ^[0-9]+$ ]] \
+    || dr_die "invalid restore-footprint evidence"
+  jq -cn --arg component "$component" --arg method "$method" --argjson bytes "$bytes" \
+    '{component:$component,method:$method,bytes:$bytes}' >> "$restore_footprint_rows"
+}
+
+allocated_tree_bytes() {
+  local path="$1" bytes
+  bytes="$(du -s -B1 -- "$path" | awk 'NR==1 {print $1}')"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || dr_die "could not measure allocated restore bytes: ${path}"
+  printf '%s\n' "$bytes"
+}
+
+expanded_zstd_bytes() {
+  local path="$1" bytes
+  bytes="$(zstd -dc "$path" | wc -c | tr -d ' ')"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || dr_die "could not measure expanded archive bytes: ${path}"
+  printf '%s\n' "$bytes"
+}
+
+git_revision="${DR_GIT_REVISION:-$(git -C "${script_dir}/../.." rev-parse HEAD 2>/dev/null || true)}"
+[[ "$git_revision" =~ ^[0-9a-f]{40}$ ]] || dr_die "a full DR_GIT_REVISION is required"
+version_lock="${script_dir}/versions.lock.json"
+dr_validate_json "${script_dir}/schemas/version-lock.schema.json" "$version_lock"
+install -m 0600 "$version_lock" "$stage/meta/versions.lock.json"
+version_lock_sha256="$(dr_sha256 "$stage/meta/versions.lock.json")"
+
+archive_allowlist() {
+  local list_file="$stage/meta/config-paths.txt" path required label missing=0
+  : > "$list_file"
+  while IFS='|' read -r path required label || [[ -n "$path" ]]; do
+    [[ -z "$path" || "$path" == \#* ]] && continue
+    [[ "$path" == /* && "$path" != *$'\n'* ]] || dr_die "unsafe allowlist path: ${path}"
+    if [[ -e "$path" && ! -L "$path" ]]; then
+      printf '%s\n' "${path#/}" >> "$list_file"
+    elif [[ "$required" == required ]]; then
+      dr_note "missing required config path (${label}): ${path}"
+      missing=$((missing + 1))
+    fi
+  done < "$allowlist"
+  ((missing == 0)) || dr_die "required config allowlist entries are missing"
+  tar --xattrs --acls --numeric-owner --sparse -C / -T "$list_file" -cf - \
+    | zstd -T0 -6 -q -o "$stage/artifacts/config.tar.zst"
+  record_restore_footprint config uncompressed-tar "$(expanded_zstd_bytes "$stage/artifacts/config.tar.zst")"
+}
+
+archive_recovery_host_credentials() {
+  local env_source="${DR_HOST_ENV_FILE:-/etc/deniz-dr/${profile}.env}"
+  local credentials="$stage/meta/recovery-host" output_env="$stage/meta/recovery-host/${profile}.env"
+  dr_require_private_file "$env_source"
+  install -d -m 0700 "$credentials"
+  install -m 0600 "$password_file" "$credentials/${profile}-restic-password"
+  install -m 0600 "$signing_key" "$credentials/${profile}-signing-key"
+  awk '!/^DR_RESTIC_PASSWORD_FILE=/ && !/^DR_SIGNING_KEY=/ && !/^DR_ACTIVE_SITE_VALUE=/ && !/^DR_GIT_REVISION=/' "$env_source" > "$output_env"
+  printf 'DR_RESTIC_PASSWORD_FILE=/etc/deniz-dr/%s-restic-password\n' "$profile" >> "$output_env"
+  printf 'DR_SIGNING_KEY=/etc/deniz-dr/%s-signing-key\n' "$profile" >> "$output_env"
+  printf 'DR_ACTIVE_SITE_VALUE=home\n' >> "$output_env"
+  printf 'DR_GIT_REVISION=%s\n' "$git_revision" >> "$output_env"
+  chmod 0600 "$output_env"
+  if [[ "$profile" == pi ]]; then
+    dr_require_private_file /etc/deniz-dr/external.env
+    install -m 0600 /etc/deniz-dr/external.env "$credentials/external.env"
+  fi
+  tar --numeric-owner -C "$credentials" -cf - . | zstd -T0 -6 -q -o "$stage/artifacts/config-recovery-host.tar.zst"
+  record_restore_footprint recovery-host uncompressed-tar \
+    "$(expanded_zstd_bytes "$stage/artifacts/config-recovery-host.tar.zst")"
+  rm -rf -- "$credentials"
+}
+
+samba_principals_dump() {
+  local passdb="$stage/meta/samba-passdb.smbpasswd" principals="$stage/meta/samba-principals.json"
+  local passdb_before="${passdb}.before" passdb_after="${passdb}.after"
+  local principals_before="${principals}.before" principals_after="${principals}.after"
+  local routes="$stage/meta/samba-principal-routes.tar.zst" routes_after
+  routes_after="${routes}.after"
+  local route_root=/etc/samba/deniz-cloud-personal principal passdb_line passdb_flags unexpected route route_principal
+  dr_require_commands pdbedit getent
+  capture_samba_passdb() {
+    pdbedit -L -w \
+      | awk -F: '$1=="deniz-api-broker" || $1 ~ /^dc-[a-z0-9-]+-[0-9a-f]{8}$/ {print}' \
+      | sort > "$1"
+  }
+  capture_samba_principals() {
+    getent passwd \
+      | awk -F: '$1=="deniz-api-broker" || $1 ~ /^dc-[a-z0-9-]+-[0-9a-f]{8}$/ {
+          printf "%s|%s|%s|%s|%s\n", $1, $3, $4, $6, $7
+        }' \
+      | jq -Rn '[inputs | split("|") | {name:.[0],uid:(.[1]|tonumber),gid:(.[2]|tonumber),home:.[3],shell:.[4]}]' \
+        > "$1"
+  }
+  capture_samba_routes() {
+    local output="$1"
+    if [[ -d "$route_root" && ! -L "$route_root" ]]; then
+      unexpected="$(find "$route_root" -mindepth 1 ! -type f -print -quit)"
+      [[ -z "$unexpected" ]] || dr_die "Samba route tree contains an unsafe entry"
+      tar --numeric-owner --sort=name -C "$route_root" -cf - . | zstd -T1 -6 -q -o "$output"
+    else
+      [[ ! -e "$route_root" && ! -L "$route_root" ]] || dr_die "Samba route root is unsafe"
+      tar --numeric-owner --files-from=/dev/null -cf - | zstd -T1 -6 -q -o "$output"
+    fi
+  }
+  capture_samba_passdb "$passdb_before"
+  capture_samba_principals "$principals_before"
+  capture_samba_routes "$routes"
+  capture_samba_routes "$routes_after"
+  capture_samba_principals "$principals_after"
+  capture_samba_passdb "$passdb_after"
+  if ! cmp -s "$passdb_before" "$passdb_after" ||
+     ! cmp -s "$principals_before" "$principals_after" ||
+     ! cmp -s "$routes" "$routes_after"; then
+    dr_die "Samba principals or routes changed during backup"
+  fi
+  mv -- "$passdb_before" "$passdb"
+  mv -- "$principals_before" "$principals"
+  rm -f -- "$passdb_after" "$principals_after" "$routes_after"
+  jq -e '
+    length>0 and any(.[]; .name=="deniz-api-broker") and
+    ([.[].name]|unique|length)==length and
+    all(.[];
+      (.name=="deniz-api-broker" or (.name|test("^dc-[a-z0-9-]+-[0-9a-f]{8}$"))) and
+      (.uid|type)=="number" and .uid>=0 and (.uid|floor)==.uid and
+      (.gid|type)=="number" and .gid>=0 and (.gid|floor)==.gid and
+      (.home|type)=="string" and (.home|startswith("/")) and
+      (.shell|test("/(nologin|false)$")))
+  ' "$principals" >/dev/null || dr_die "Samba Unix principal inventory is incomplete"
+  [[ "$(awk -F: '$1=="deniz-api-broker" {count++} END {print count+0}' "$passdb")" == 1 ]] \
+    || dr_die "Samba API broker password hash is missing"
+  [[ "$(wc -l < "$passdb" | tr -d ' ')" == "$(jq length "$principals")" ]] \
+    || dr_die "Samba passdb and Unix principal inventories have different counts"
+  while IFS= read -r principal; do
+    jq -e --arg principal "$principal" 'any(.[]; .name==$principal)' "$principals" >/dev/null \
+      || dr_die "Samba passdb account has no matching Unix principal: ${principal}"
+  done < <(cut -d: -f1 "$passdb")
+  while IFS= read -r principal; do
+    passdb_line="$(grep -E "^${principal}:" "$passdb" || true)"
+    [[ -n "$passdb_line" ]] || dr_die "Samba password hash is missing for ${principal}"
+    if [[ "$principal" == dc-* ]]; then
+      passdb_flags="$(cut -d: -f5 <<< "$passdb_line")"
+      if [[ "$passdb_flags" != *D* ]]; then
+        [[ -f "/etc/samba/deniz-cloud-personal/${principal}.conf" && ! -L "/etc/samba/deniz-cloud-personal/${principal}.conf" ]] \
+          || dr_die "enabled Samba principal route is missing or unsafe: ${principal}"
+      fi
+    fi
+  done < <(jq -r '.[].name' "$principals")
+  if [[ -d "$route_root" ]]; then
+    while IFS= read -r route; do
+      route_principal="$(basename "$route" .conf)"
+      [[ "$route" == "$route_root/${route_principal}.conf" &&
+         "$route_principal" =~ ^dc-[a-z0-9-]+-[0-9a-f]{8}$ &&
+         "$(wc -l < "$route" | tr -d ' ')" == 1 ]] \
+        || dr_die "Samba route has an unsafe shape"
+      jq -e --arg principal "$route_principal" 'any(.[]; .name==$principal)' "$principals" >/dev/null \
+        || dr_die "Samba route has no matching Unix principal"
+      grep -Eq '^path = /srv/deniz-cloud/storage/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' "$route" \
+        || dr_die "Samba route escapes the namespace"
+    done < <(find "$route_root" -mindepth 1 -type f -print | sort)
+  fi
+  local samba_bytes
+  samba_bytes=$(( $(wc -c < "$passdb") + $(wc -c < "$principals") + $(expanded_zstd_bytes "$routes") ))
+  record_restore_footprint samba restored-files "$samba_bytes"
+  chmod 0600 "$passdb" "$principals"
+}
+
+postgres_dump() {
+  local container="${DR_POSTGRES_CONTAINER:-deniz-cloud-postgres-1}" db list="$stage/meta/postgres-databases.txt"
+  local rows="$stage/meta/postgres-rows.tsv"
+  local forge_control_plane_rows="$stage/meta/forge-control-plane.ndjson"
+  local expected_deployments="${DR_EXPECTED_FORGE_DEPLOYMENTS:-}"
+  docker inspect "$container" >/dev/null 2>&1 || dr_die "PostgreSQL container not found: ${container}"
+  [[ "$expected_deployments" =~ ^[1-9][0-9]*$ ]] \
+    || dr_die "DR_EXPECTED_FORGE_DEPLOYMENTS must be a reviewed positive count on Pi and Forge"
+
+  capture_postgres_roles() {
+    local output="$1" target="${2:-$container}"
+    docker exec "$target" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "
+      SELECT coalesce(json_agg(row_to_json(r) ORDER BY r.name)::text, '\''[]'\'') FROM (
+        SELECT rolname AS name, rolsuper AS superuser, rolinherit AS inherit,
+               rolcreaterole AS create_role, rolcreatedb AS create_db, rolcanlogin AS can_login,
+               coalesce((SELECT array_agg(parent.rolname ORDER BY parent.rolname)
+                         FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid
+                         WHERE m.member=role.oid), ARRAY[]::name[]) AS memberships
+        FROM pg_roles role WHERE rolname !~ '\''^pg_'\''
+      ) r"' | jq -S . > "$output"
+  }
+
+  capture_postgres_databases() {
+    local output="$1" target="${2:-$container}"
+    docker exec "$target" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$1"' sh "
+      SELECT coalesce(json_agg(row_to_json(d) ORDER BY d.name)::text, '[]') FROM (
+        SELECT datname AS name, pg_get_userbyid(datdba) AS owner,
+               datallowconn AS allow_connections,
+               coalesce((SELECT array_agg(value ORDER BY value)
+                         FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::aclitem[]) AS acl
+        FROM pg_database WHERE NOT datistemplate
+      ) d" | jq -S . > "$output"
+  }
+
+  dump_postgres_database() {
+    local database="$1" snapshot holder_pid
+    local holder_in="$stage/meta/postgres-snapshot.in" holder_out="$stage/meta/postgres-snapshot.out"
+    rm -f -- "$holder_in" "$holder_out"
+    mkfifo -m 0600 "$holder_in" "$holder_out"
+    docker exec -i "$container" sh -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1"' \
+      sh "$database" < "$holder_in" > "$holder_out" &
+    holder_pid=$!
+    postgres_snapshot_pid="$holder_pid"
+    exec 8>"$holder_in"
+    exec 9<"$holder_out"
+    printf 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n' >&8
+    IFS= read -r snapshot <&9 \
+      || dr_die "PostgreSQL snapshot exporter exited before returning a snapshot"
+    [[ "$snapshot" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$ ]] \
+      || dr_die "PostgreSQL returned an unsafe snapshot identifier"
+
+    docker exec "$container" sh -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -Fc --create --snapshot="$2" -d "$1"' \
+      sh "$database" "$snapshot" > "$stage/artifacts/postgres-${database}.dump"
+    {
+      printf "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET TRANSACTION SNAPSHOT '%s';\n" "$snapshot"
+      cat <<'SQL'
+SELECT format(
+  'SELECT json_build_object(''database'', %L, ''schema'', %L, ''table'', %L, ''rows'', count(*))::text FROM %I.%I;',
+  :'database', schemaname, tablename, schemaname, tablename
+)
+FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1
+\gexec
+COMMIT;
+SQL
+    } | docker exec -i "$container" sh -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
+      sh "$database" \
+      | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
+          select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$rows"
+
+    # Capture the exact Forge rows that this database snapshot contains. A
+    # combined recovery compares this signed inventory with the independently
+    # produced Forge image snapshot before it contacts or provisions a target.
+    {
+      printf "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET TRANSACTION SNAPSHOT '%s';\n" "$snapshot"
+      cat "$script_dir/lib/postgres-forge-control-plane.sql"
+      printf 'COMMIT;\n'
+    } | docker exec -i "$container" sh -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
+      sh "$database" \
+      | jq -ce 'select(.database|type=="string") |
+          .deployments |= sort_by(.deploymentId)' >> "$forge_control_plane_rows"
+
+    printf 'ROLLBACK;\n\\q\n' >&8
+    exec 8>&-
+    exec 9<&-
+    wait "$holder_pid" || dr_die "PostgreSQL snapshot exporter did not close cleanly"
+    postgres_snapshot_pid=""
+    rm -f -- "$holder_in" "$holder_out"
+  }
+
+  verify_postgres_restore() {
+    local verify_container="deniz-dr-verify-postgres-${timestamp,,}" verify_data="$stage/meta/postgres-verify-data"
+    local verify_env="$stage/meta/postgres-verify.env" verify_rows="$stage/meta/postgres-verify.ndjson"
+    local verify_tables="$stage/meta/postgres-verify.tables.json" verify_roles="$stage/meta/postgres-verify.roles.json"
+    local verify_databases="$stage/meta/postgres-verify.databases.json" image_id postgres_user postgres_password postgres_database
+    local bootstrap_create_role dump database ready=false
+    image_id="$(docker inspect -f '{{.Image}}' "$container")"
+    postgres_user="$(docker exec "$container" sh -ceu 'printf %s "$POSTGRES_USER"')"
+    postgres_password="$(docker exec "$container" sh -ceu 'printf %s "$POSTGRES_PASSWORD"')"
+    postgres_database="$(docker exec "$container" sh -ceu 'printf %s "$POSTGRES_DB"')"
+    [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ && "$postgres_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ &&
+       "$postgres_database" =~ ^[A-Za-z0-9_.-]+$ && -n "$postgres_password" &&
+       "$postgres_password" != *[$'\r\n']* ]] \
+      || dr_die "PostgreSQL disposable restore credentials or image are unsafe"
+    install -d -m 0700 "$verify_data"
+    printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' \
+      "$postgres_user" "$postgres_password" "$postgres_database" > "$verify_env"
+    chmod 0600 "$verify_env"
+    docker run -d --name "$verify_container" --network none --user 0:0 --shm-size 256m \
+      --env-file "$verify_env" --mount "type=bind,source=${verify_data},target=/var/lib/postgresql/data" \
+      --tmpfs /tmp "$image_id" >/dev/null
+    verification_containers+=("$verify_container")
+    for _ in $(seq 1 90); do
+      if [[ "$(docker exec "$verify_container" sh -ceu \
+        'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1"' \
+        2>/dev/null)" == 1 ]]; then
+        ready=true
+        break
+      fi
+      sleep 1
+    done
+    [[ "$ready" == true ]] || dr_die "disposable PostgreSQL verifier did not become ready"
+    bootstrap_create_role="$(docker exec "$verify_container" sh -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT format('\''CREATE ROLE %I;'\'', current_user)"')"
+    [[ "$bootstrap_create_role" == 'CREATE ROLE '*';' && "$bootstrap_create_role" != *[$'\r\n']* ]] \
+      || dr_die "could not render the PostgreSQL bootstrap role statement safely"
+    zstd -dc "$stage/artifacts/postgres-globals.sql.zst" \
+      | awk -v duplicate="$bootstrap_create_role" '$0 != duplicate' \
+      | docker exec -i "$verify_container" sh -ceu \
+          'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
+    for dump in "$stage"/artifacts/postgres-*.dump; do
+      [[ -f "$dump" ]] || continue
+      database="$(basename "$dump" .dump)"
+      database="${database#postgres-}"
+      [[ "$database" =~ ^[A-Za-z0-9_.-]+$ ]] || dr_die "unsafe PostgreSQL dump name during disposable restore"
+      docker exec "$verify_container" sh -ceu \
+        'PGPASSWORD="$POSTGRES_PASSWORD" dropdb --maintenance-db=template1 --force --if-exists -U "$POSTGRES_USER" -- "$1"' \
+        sh "$database"
+      docker exec -i "$verify_container" sh -ceu \
+        'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore --exit-on-error --create -U "$POSTGRES_USER" -d template1' \
+        < "$dump" >/dev/null
+    done
+    : > "$verify_rows"
+    while IFS= read -r database; do
+      cat <<'SQL' | docker exec -i "$verify_container" sh -ceu \
+        'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
+        sh "$database" \
+        | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
+            select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$verify_rows"
+SELECT format(
+  'SELECT json_build_object(''database'', %L, ''schema'', %L, ''table'', %L, ''rows'', count(*))::text FROM %I.%I;',
+  :'database', schemaname, tablename, schemaname, tablename
+)
+FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1
+\gexec
+SQL
+    done < "$list"
+    jq -s 'sort_by(.database,.schema,.table)' "$verify_rows" > "$verify_tables"
+    capture_postgres_roles "$verify_roles" "$verify_container"
+    capture_postgres_databases "$verify_databases" "$verify_container"
+    if ! cmp -s "$verify_tables" "$stage/meta/postgres-tables.json" \
+      || ! cmp -s "$verify_roles" "$stage/meta/postgres-roles.before.json" \
+      || ! cmp -s "$verify_databases" "$stage/meta/postgres-databases.before.json"; then
+      dr_die "disposable PostgreSQL restore differs from its semantic inventory"
+    fi
+    record_restore_footprint postgresql allocated-verified-restore "$(allocated_tree_bytes "$verify_data")"
+    docker rm -f "$verify_container" >/dev/null
+    rm -rf -- "$verify_data"
+    rm -f -- "$verify_env" "$verify_rows" "$verify_tables" "$verify_roles" "$verify_databases"
+  }
+
+  capture_postgres_roles "$stage/meta/postgres-roles.before.json"
+  capture_postgres_databases "$stage/meta/postgres-databases.before.json"
+  docker exec "$container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --globals-only' \
+    > "$stage/meta/postgres-globals.before.sql"
+  docker exec "$container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select datname from pg_database where datallowconn and not datistemplate order by 1"' > "$list"
+  [[ -s "$list" ]] || dr_die "PostgreSQL database inventory is empty"
+  while IFS= read -r db; do
+    [[ "$db" =~ ^[A-Za-z0-9_.-]+$ ]] || dr_die "unsafe PostgreSQL database name"
+  done < "$list"
+  : > "$rows"
+  : > "$forge_control_plane_rows"
+  while IFS= read -r db; do
+    dump_postgres_database "$db"
+  done < "$list"
+  jq -s 'sort_by(.database,.schema,.table)' "$rows" > "$stage/meta/postgres-tables.json"
+  jq -s 'if length==1 then .[0].deployments else error("expected one Forge control-plane database") end |
+    sort_by(.deploymentId)' "$forge_control_plane_rows" > "$stage/meta/forge-control-plane.json" \
+    || dr_die "PostgreSQL snapshot did not contain exactly one Forge control-plane inventory"
+  jq -e --argjson expected "$expected_deployments" '
+    length==$expected and ([.[].deploymentId]|unique|length)==length and
+    all(.[]; . as $item |
+      ($item.deploymentId|test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+      ($item.imageReference|test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
+      ($item.imageDigest|test("^sha256:[0-9a-f]{64}$")) and
+      ($item.imageReference|endswith("@" + $item.imageDigest)) and
+      ($item.hostname|type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$")))
+  ' "$stage/meta/forge-control-plane.json" >/dev/null \
+    || dr_die "PostgreSQL snapshot Forge control plane differs from the reviewed deployment baseline"
+  capture_postgres_roles "$stage/meta/postgres-roles.after.json"
+  capture_postgres_databases "$stage/meta/postgres-databases.after.json"
+  docker exec "$container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --globals-only' \
+    > "$stage/meta/postgres-globals.after.sql"
+  cmp -s "$stage/meta/postgres-roles.before.json" "$stage/meta/postgres-roles.after.json" \
+    || dr_die "PostgreSQL roles changed during the logical backup"
+  cmp -s "$stage/meta/postgres-databases.before.json" "$stage/meta/postgres-databases.after.json" \
+    || dr_die "PostgreSQL database ownership or ACLs changed during the logical backup"
+  cmp -s "$stage/meta/postgres-globals.before.sql" "$stage/meta/postgres-globals.after.sql" \
+    || dr_die "PostgreSQL global objects changed during the logical backup"
+  zstd -T0 -6 -q "$stage/meta/postgres-globals.before.sql" -o "$stage/artifacts/postgres-globals.sql.zst"
+  verify_postgres_restore
+  mv -- "$stage/meta/postgres-roles.before.json" "$stage/meta/postgres-roles.json"
+  mv -- "$stage/meta/postgres-databases.before.json" "$stage/meta/postgres-databases.json"
+  rm -f -- "$stage/meta/postgres-roles.after.json" "$stage/meta/postgres-databases.after.json" \
+    "$stage/meta/postgres-globals.before.sql" "$stage/meta/postgres-globals.after.sql"
+  jq -n --slurpfile tables "$stage/meta/postgres-tables.json" --slurpfile roles "$stage/meta/postgres-roles.json" \
+    --slurpfile databases "$stage/meta/postgres-databases.json" \
+    '{tables:$tables[0],roles:$roles[0],databases:$databases[0]}' > "$stage/meta/postgres-semantic.json"
+  rm -f -- "$stage/meta/postgres-tables.json" "$stage/meta/postgres-roles.json" "$stage/meta/postgres-databases.json"
+}
+
+mongodb_dump() {
+  local container="${DR_MONGODB_CONTAINER:-deniz-cloud-mongodb-1}" config_path="/tmp/deniz-dr-${snapshot_id}.yml"
+  docker inspect "$container" >/dev/null 2>&1 || dr_die "MongoDB container not found: ${container}"
+  local mongo_user mongo_password
+  mongo_user="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^MONGO_INITDB_ROOT_USERNAME=//p' | head -1)"
+  mongo_password="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^MONGO_INITDB_ROOT_PASSWORD=//p' | head -1)"
+  [[ -n "$mongo_user" && -n "$mongo_password" && "$mongo_user" != *[$'\r\n']* &&
+     "$mongo_password" != *[$'\r\n']* ]] || dr_die "MongoDB backup credentials are unavailable or unsafe"
+  local local_config="$stage/meta/mongodump.yml" encoded_user encoded_password
+  encoded_user="$(jq -rn --arg value "$mongo_user" '$value|@uri')"
+  encoded_password="$(jq -rn --arg value "$mongo_password" '$value|@uri')"
+  printf 'uri: "mongodb://%s:%s@127.0.0.1:27017/?authSource=admin&replicaSet=rs0"\n' "$encoded_user" "$encoded_password" > "$local_config"
+  docker cp "$local_config" "${container}:${config_path}" >/dev/null
+  rm -f -- "$local_config"
+  docker exec "$container" chmod 0600 "$config_path"
+  docker exec "$container" mongodump --config "$config_path" --oplog --archive --gzip > "$stage/artifacts/mongodb.archive.gz"
+  docker exec "$container" rm -f -- "$config_path"
+  local remote_js="/tmp/deniz-dr-semantic-${snapshot_id}.js"
+  local verify_container="deniz-dr-verify-mongo-${timestamp,,}" verify_data="$stage/meta/mongodb-verify-data" image_id ready=false
+  image_id="$(docker inspect -f '{{.Image}}' "$container")"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || dr_die "MongoDB container has no immutable local image id"
+  install -d -m 0700 "$verify_data"
+  docker run -d --name "$verify_container" --network none --user 0:0 \
+    --mount "type=bind,source=${verify_data},target=/data/db" --tmpfs /tmp \
+    "$image_id" mongod --bind_ip_all --quiet --setParameter diagnosticDataCollectionEnabled=false >/dev/null
+  verification_containers+=("$verify_container")
+  for _ in $(seq 1 90); do
+    if docker exec "$verify_container" mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok===1 ? 0 : 1)' >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || dr_die "disposable MongoDB verifier did not become ready"
+  docker exec -i "$verify_container" mongorestore --archive --gzip --oplogReplay --drop \
+    < "$stage/artifacts/mongodb.archive.gz" >/dev/null
+  docker cp "$script_dir/lib/mongo-semantic.js" "${verify_container}:${remote_js}" >/dev/null
+  docker exec -e DR_MONGO_URI=mongodb://127.0.0.1:27017 "$verify_container" mongosh --quiet --nodb --file "$remote_js" \
+    | tail -1 | jq . > "$stage/meta/mongodb-semantic.json"
+  docker exec "$verify_container" rm -f -- "$remote_js"
+  record_restore_footprint mongodb allocated-verified-restore "$(allocated_tree_bytes "$verify_data")"
+  docker rm -f "$verify_container" >/dev/null
+  rm -rf -- "$verify_data"
+}
+
+redis_dump() {
+  local container="${DR_REDIS_CONTAINER:-deniz-cloud-redis-1}" redis_password redis_used_memory rdb_bytes
+  local verify_container="deniz-dr-verify-redis-${timestamp,,}" verify_data="$stage/meta/redis-verify-data" image_id ready=false
+  docker inspect "$container" >/dev/null 2>&1 || dr_die "Redis container not found: ${container}"
+  redis_password="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^REDIS_PASSWORD=//p' | head -1)"
+  [[ -n "$redis_password" && "$redis_password" != *[$'\r\n']* ]] \
+    || dr_die "Redis backup credential is unavailable or unsafe"
+  local redis_env="$stage/meta/redis-backup.env"
+  printf 'REDISCLI_AUTH=%s\n' "$redis_password" > "$redis_env"
+  docker exec --env-file "$redis_env" "$container" sh -ceu 'redis-cli SAVE >/dev/null; redis-check-rdb /data/dump.rdb >/dev/null'
+  docker cp "${container}:/data/dump.rdb" "$stage/artifacts/redis-dump.rdb" >/dev/null
+  redis_used_memory="$(docker exec --env-file "$redis_env" "$container" redis-cli --raw INFO memory \
+    | tr -d '\r' | awk -F: '$1=="used_memory" && $2 ~ /^[0-9]+$/ {print $2; found=1} END {if (!found) exit 1}')" \
+    || dr_die "could not measure Redis restore footprint"
+  rdb_bytes="$(allocated_tree_bytes "$stage/artifacts/redis-dump.rdb")"
+  ((rdb_bytes >= redis_used_memory)) || rdb_bytes="$redis_used_memory"
+  record_restore_footprint redis max-memory-rdb "$rdb_bytes"
+  image_id="$(docker inspect -f '{{.Image}}' "$container")"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || dr_die "Redis container has no immutable local image id"
+  install -d -m 0700 "$verify_data"
+  install -m 0600 "$stage/artifacts/redis-dump.rdb" "$verify_data/dump.rdb"
+  docker run -d --name "$verify_container" --network none --user 0:0 \
+    --mount "type=bind,source=${verify_data},target=/data" --tmpfs /tmp \
+    --entrypoint redis-server "$image_id" --dir /data --dbfilename dump.rdb --appendonly no --save '' --protected-mode no >/dev/null
+  verification_containers+=("$verify_container")
+  for _ in $(seq 1 60); do
+    if docker exec "$verify_container" redis-cli ping 2>/dev/null | grep -qx PONG; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || dr_die "disposable Redis verifier did not become ready"
+  docker cp "$script_dir/lib/redis-semantic.lua" "${verify_container}:/tmp/deniz-dr-redis-semantic.lua" >/dev/null
+  docker exec "$verify_container" redis-cli --raw --eval /tmp/deniz-dr-redis-semantic.lua \
+    | jq -S . > "$stage/meta/redis-semantic.json"
+  docker exec "$verify_container" redis-check-rdb /data/dump.rdb >/dev/null
+  docker rm -f "$verify_container" >/dev/null
+  rm -rf -- "$verify_data"
+  rm -f -- "$redis_env"
+}
+
+namespace_dump() {
+  local destination="$stage/meta/namespace-work" output backup_dir namespace_bytes
+  install -d -m 0700 "$destination"
+  output="$(POSIX_BACKUP_DESTINATION="$destination" "${script_dir}/../scripts/posix-namespace-backup.sh" --execute)"
+  backup_dir="$(jq -er '.directory' <<< "$output")"
+  [[ "$backup_dir" == "$destination"/* ]] || dr_die "namespace backup returned an unsafe path"
+  namespace_bytes="$(jq -s '[.[].allocatedBytes] | add // 0' "$backup_dir/manifest.jsonl")"
+  [[ "$namespace_bytes" =~ ^[0-9]+$ ]] || dr_die "namespace backup returned an invalid allocated-byte inventory"
+  record_restore_footprint namespace allocated-source-inventory "$namespace_bytes"
+  tar --xattrs --acls --numeric-owner --sparse -C "$backup_dir" -cf - . \
+    | zstd -T0 -3 -q -o "$stage/artifacts/namespace.tar.zst"
+  rm -rf -- "$destination"
+}
+
+forge_images() {
+  local output="$stage/meta/images.json" agent_env="${DR_FORGE_AGENT_ENV:-/etc/forge/agent.env}"
+  local api_url token curl_config response expected_deployments="${DR_EXPECTED_FORGE_DEPLOYMENTS:-}"
+  [[ "$expected_deployments" =~ ^[1-9][0-9]*$ ]] || dr_die "DR_EXPECTED_FORGE_DEPLOYMENTS must be a reviewed positive count"
+  [[ -f "$agent_env" && ! -L "$agent_env" ]] || dr_die "Forge agent environment is missing"
+  api_url="$(awk -F= '$1 == "CONTROL_PLANE_URL" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
+  token="$(awk -F= '$1 == "AGENT_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
+  [[ "$api_url" =~ ^https?://[A-Za-z0-9._-]+(:[1-9][0-9]{0,4})?$ &&
+     ${#token} -ge 32 && "$token" != *[$'\r\n"\\']* ]] \
+    || dr_die "Forge recovery inventory credentials are invalid"
+  curl_config="$stage/meta/forge-inventory.curl"
+  printf 'url = "%s/api/deploy/agent/recovery/inventory"\nheader = "Authorization: Bearer %s"\nfail-with-body\nsilent\nshow-error\nmax-time = 30\n' \
+    "$api_url" "$token" > "$curl_config"
+  response="$(curl --config "$curl_config")"
+  rm -f -- "$curl_config"
+  jq -e --argjson baseline "$expected_deployments" '
+    .expected == $baseline and
+    (.expected == (.images | length)) and
+    ([.images[].deploymentId] | unique | length) == .expected and
+    all(.images[];
+      .recoverable == true and
+      (.reference | test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
+      (.digest | test("^sha256:[0-9a-f]{64}$")) and
+      (.reference | endswith("@" + .digest))
+      and .platform=="linux/amd64" and
+      (.imageSizeBytes | type=="number" and .>0 and floor==.) and
+      (.environmentHmacSha256 | type=="string" and test("^[0-9a-f]{64}$")) and
+      (.environmentCipher | type=="object" and
+        (.encrypted|type=="string" and length>0) and
+        (.iv|type=="string" and length>0) and
+        (.authTag|type=="string" and length>0)) and
+      (.domain | type=="string" and test("^[A-Za-z0-9.-]+$") and contains("."))
+    )
+  ' <<< "$response" >/dev/null || dr_die "one or more live Forge deployments lack an immutable recovery artifact"
+  jq '[.images[] | {service,deploymentId,reference,digest,platform,domain,imageSizeBytes,environmentHmacSha256,environmentCipher}] | sort_by(.deploymentId)' \
+    <<< "$response" > "$output"
+  jq '[.images[] | {deploymentId,imageReference:.reference,imageDigest:.digest,hostname:.domain}] | sort_by(.deploymentId)' \
+    <<< "$response" > "$stage/meta/forge-control-plane.json"
+  jq '[group_by(.reference)[] | .[0].imageSizeBytes] | add // 0' "$output" > "$stage/meta/forge-image-bytes"
+}
+
+record_compose_images() {
+  local scope="$1" env_file="$2" compose_file="$3" output="$4" service container image_id reference size architecture manifest_list compose_model
+  local -a compose_command=(docker compose)
+  [[ -z "$env_file" ]] || compose_command+=(--env-file "$env_file")
+  compose_command+=(-f "$compose_file")
+  compose_model="$("${compose_command[@]}" config --format json)"
+  jq -e '.services | type=="object" and length>0' <<< "$compose_model" >/dev/null \
+    || dr_die "Compose image model is empty: ${scope}"
+  : > "$output"
+  while IFS= read -r service; do
+    [[ "$service" =~ ^[a-zA-Z0-9_-]+$ ]] || dr_die "unsafe Compose service name: ${service}"
+    container="$("${compose_command[@]}" ps --all -q "$service")"
+    [[ "$container" =~ ^[0-9a-f]{64}$ ]] || dr_die "Compose service has no unique created container: ${scope}/${service}"
+    image_id="$(docker inspect -f '{{.Image}}' "$container")"
+    reference="$(docker image inspect -f '{{json .RepoDigests}}' "$image_id" | jq -er '.[0] | select(test("@sha256:[0-9a-f]{64}$"))')" \
+      || dr_die "Compose service lacks a registry digest: ${scope}/${service}"
+    manifest_list="$(docker buildx imagetools inspect "$reference" --raw)" \
+      || dr_die "could not inspect recovery platforms: ${scope}/${service}"
+    jq -e '[.manifests[]?.platform | select(.os=="linux") | .architecture] | unique |
+      (index("amd64") != null and index("arm64") != null)' <<< "$manifest_list" >/dev/null \
+      || dr_die "recovery image is not published for both amd64 and arm64: ${scope}/${service}"
+    size="$(docker image inspect -f '{{.Size}}' "$image_id")"
+    architecture="$(docker image inspect -f '{{.Architecture}}' "$image_id")"
+    [[ "$size" =~ ^[0-9]+$ && "$architecture" =~ ^(amd64|arm64)$ ]] || dr_die "invalid image metadata: ${scope}/${service}"
+    jq -cn --arg service "${scope}/${service}" --arg reference "$reference" \
+      --arg digest "${reference##*@}" --arg platform "linux/${architecture}" --argjson imageSizeBytes "$size" \
+      '{service:$service,reference:$reference,digest:$digest,platform:$platform,imageSizeBytes:$imageSizeBytes}' >> "$output"
+  # Profile-gated admin tools are intentionally disposable and are not started
+  # by recovery. Every service in the default Compose model must have an exact
+  # created container and a multi-architecture registry digest.
+  done < <(jq -r '.services | to_entries[] | select((.value.profiles // []) | length==0) | .key' <<< "$compose_model")
+  [[ -s "$output" ]] || dr_die "Compose image inventory is empty: ${scope}"
+}
+
+pi_images() {
+  local main_env="/opt/deniz-cloud/infra/compose/.env.pi"
+  local main_compose="/opt/deniz-cloud/infra/compose/docker-compose.pi.yml"
+  local relay_env="/opt/markets-relay/.env.markets"
+  local relay_compose="/opt/markets-relay/docker-compose.markets.yml"
+  local nutrition_env=""
+  local nutrition_compose="/opt/nutrition-api/docker-compose.yml"
+  [[ -f "$main_env" && -f "$main_compose" && -f "$relay_env" && -f "$relay_compose" ]] \
+    || dr_die "Pi Compose image inventory inputs are incomplete"
+  record_compose_images pi "$main_env" "$main_compose" "$stage/meta/pi-images.ndjson"
+  record_compose_images markets "$relay_env" "$relay_compose" "$stage/meta/markets-images.ndjson"
+  if [[ -f "$nutrition_compose" ]]; then
+    [[ ! -f /opt/nutrition-api/.env ]] || nutrition_env=/opt/nutrition-api/.env
+    record_compose_images nutrition "$nutrition_env" "$nutrition_compose" "$stage/meta/nutrition-images.ndjson"
+  else
+    : > "$stage/meta/nutrition-images.ndjson"
+  fi
+  jq -s 'sort_by(.service)' "$stage/meta/pi-images.ndjson" "$stage/meta/markets-images.ndjson" \
+    "$stage/meta/nutrition-images.ndjson" > "$stage/meta/images.json"
+  jq '[group_by(.reference)[] | .[0].imageSizeBytes] | add // 0' "$stage/meta/images.json" > "$stage/meta/pi-image-bytes"
+  rm -f -- "$stage/meta/pi-images.ndjson" "$stage/meta/markets-images.ndjson" "$stage/meta/nutrition-images.ndjson"
+}
+
+archive_allowlist
+archive_recovery_host_credentials
+host_package_names=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic cloudflared tailscale)
+if [[ "$profile" == pi ]]; then
+  host_package_names+=(cifs-utils fuse3 nftables samba samba-common-bin samba-vfs-modules smbclient)
+fi
+dpkg-query -W -f='${Package}\t${Version}\n' "${host_package_names[@]}" \
+  2>/dev/null | jq -Rsc 'split("\n") | map(select(length>0) | split("\t") | {key:.[0],value:.[1]}) | from_entries' \
+  > "$stage/meta/host-packages.json"
+[[ "$(jq length "$stage/meta/host-packages.json")" == "${#host_package_names[@]}" ]] \
+  || dr_die "one or more exact recovery host package versions are unavailable"
+database_versions='{}'
+if [[ "$profile" == pi ]]; then
+  dr_require_commands mergerfs
+  [[ "$(mergerfs --version | awk 'NR==1{sub(/^v/,"",$NF);print $NF}')" == "$(jq -er .mergerfs.version "$version_lock")" ]] \
+    || dr_die "live mergerfs version differs from the recovery version lock"
+  samba_principals_dump
+  postgres_dump
+  mongodb_dump
+  redis_dump
+  namespace_dump
+  pi_images
+  database_versions="$(jq -cn \
+    --arg postgres "$(docker exec "${DR_POSTGRES_CONTAINER:-deniz-cloud-postgres-1}" postgres --version | sed 's/^postgres (PostgreSQL) //')" \
+    --arg mongodb "$(docker exec "${DR_MONGODB_CONTAINER:-deniz-cloud-mongodb-1}" mongod --version | awk '/Build Info/{exit} /^db version/{print $3; exit}' | sed 's/^v//')" \
+    --arg redis "$(docker exec "${DR_REDIS_CONTAINER:-deniz-cloud-redis-1}" redis-server --version | sed -n 's/.* v=\([^ ]*\).*/\1/p')" \
+    '{postgres:$postgres,mongodb:$mongodb,redis:$redis}')"
+  jq -e 'all(.[]; length > 0)' <<< "$database_versions" >/dev/null \
+    || dr_die "could not record exact database versions"
+else
+  forge_images
+fi
+forge_control_plane_sha256="$(dr_json_sha256 "$stage/meta/forge-control-plane.json")"
+[[ "$forge_control_plane_sha256" =~ ^[0-9a-f]{64}$ ]] \
+  || dr_die "could not hash the Forge control-plane pairing inventory"
+
+artifacts_json="$stage/meta/artifacts.json"
+find "$stage/artifacts" -type f -print0 | sort -z | while IFS= read -r -d '' artifact; do
+  relative="${artifact#"$stage"/}"
+  name="$(basename "$artifact")"
+  case "$name" in
+    postgres-*) class=postgres; order=10; verifier=postgres-semantic ;;
+    mongodb*) class=mongodb; order=20; verifier=mongodb-semantic ;;
+    redis-*) class=redis; order=30; verifier=redis-semantic ;;
+    namespace*) class=namespace; order=40; verifier=posix-namespace-restore-verify.sh ;;
+    config*) class=config; order=5; verifier=config-contract ;;
+    *) dr_die "unclassified staged artifact: ${name}" ;;
+  esac
+  jq -cn --arg class "$class" --arg path "$relative" --arg sha "$(dr_sha256 "$artifact")" \
+    --arg verifier "$verifier" --argjson bytes "$(stat -f '%z' "$artifact" 2>/dev/null || stat -c '%s' "$artifact")" \
+    --argjson order "$order" '{class:$class,path:$path,sha256:$sha,bytes:$bytes,restoreOrder:$order,verifier:$verifier}'
+done | jq -s 'sort_by(.restoreOrder,.path)' > "$artifacts_json"
+
+artifact_bytes="$(jq '[.[].bytes] | add // 0' "$artifacts_json")"
+restore_footprint="$stage/meta/restore-footprint.json"
+jq -s 'sort_by(.component)' "$restore_footprint_rows" > "$restore_footprint"
+rm -f -- "$restore_footprint_rows"
+jq -e 'length>=2 and ([.[].component]|unique|length)==length and all(.[]; .bytes>=0 and (.bytes|floor)==.bytes)' \
+  "$restore_footprint" >/dev/null || dr_die "restore-footprint evidence is incomplete or duplicated"
+restored_bytes="$(jq '[.[].bytes] | add // 0' "$restore_footprint")"
+nutrition_captured=false
+[[ "$profile" != pi || ! -d /opt/nutrition-api || -L /opt/nutrition-api ]] || nutrition_captured=true
+if [[ "$profile" == forge ]]; then
+  image_bytes="$(cat "$stage/meta/forge-image-bytes")"
+else
+  image_bytes="$(cat "$stage/meta/pi-image-bytes")"
+fi
+file_count="$(find "$stage/artifacts" -type f | wc -l | tr -d ' ')"
+
+jq -n \
+  --arg snapshotId "$snapshot_id" --arg createdAt "$(date -u +%FT%TZ)" --arg host "$host_name" \
+  --arg profile "$profile" --arg generation "$generation" --arg gitRevision "$git_revision" \
+  --arg versionLockSha256 "$version_lock_sha256" \
+  --arg forgeControlPlaneSha256 "$forge_control_plane_sha256" \
+  --argjson nutritionCaptured "$nutrition_captured" \
+  --argjson databaseVersions "$database_versions" \
+  --slurpfile artifacts "$artifacts_json" --slurpfile images "$stage/meta/images.json" \
+  --slurpfile forgeControlPlane "$stage/meta/forge-control-plane.json" \
+  --slurpfile restoreFootprint "$restore_footprint" \
+  --argjson artifactBytes "$artifact_bytes" --argjson restoredBytes "$restored_bytes" \
+  --argjson imageBytes "$image_bytes" --argjson fileCount "$file_count" \
+  '{schemaVersion:1,snapshotId:$snapshotId,createdAt:$createdAt,host:$host,profile:$profile,generation:$generation,
+    gitRevision:$gitRevision,versionLockSha256:$versionLockSha256,databaseVersions:$databaseVersions,
+    artifacts:$artifacts[0],images:$images[0],forgeControlPlane:$forgeControlPlane[0],
+    forgeControlPlaneSha256:$forgeControlPlaneSha256,
+    restoreFootprint:$restoreFootprint[0],
+    inventory:{authoritative:(if $profile=="pi" then (["postgres","mongodb","redis","namespace-ssd","namespace-hdd","project-object-store","cloud-config","samba-principals","relay-config"] + (if $nutritionCaptured then ["nutrition-config"] else [] end)) else ["forge-control-state","forge-config","forge-images"] end),derived:(if $profile=="pi" then ["meilisearch","mongot"] else ["forge-builds","forge-buildkit-cache","forge-cache","forge-logs"] end),disposable:(if $profile=="pi" then ["docker-socket","proc-sys-rootfs-views","mongot-secrets-volume","partial-uploads","generated-archives"] else ["docker-runtime","forge-agent-staging"] end),unclassifiedWritable:[]},
+    totals:{artifactBytes:$artifactBytes,restoredBytes:$restoredBytes,imageBytes:$imageBytes,fileCount:$fileCount}}' \
+  > "$stage/snapshot-manifest.json"
+
+dr_validate_json "${script_dir}/schemas/snapshot-manifest.schema.json" "$stage/snapshot-manifest.json"
+jq -e '
+  .totals.artifactBytes==([.artifacts[].bytes]|add // 0) and
+  .totals.restoredBytes==([.restoreFootprint[].bytes]|add // 0) and
+  .totals.fileCount==(.artifacts|length) and
+  .totals.imageBytes==([.images | group_by(.reference)[] | .[0].imageSizeBytes]|add // 0) and
+  ([.artifacts[].path]|unique|length)==(.artifacts|length) and
+  ([.restoreFootprint[].component]|unique|length)==(.restoreFootprint|length) and
+  (if .profile=="pi" then
+    ([.restoreFootprint[] | [.component,.method]]|sort)==[
+      ["config","uncompressed-tar"],
+      ["mongodb","allocated-verified-restore"],
+      ["namespace","allocated-source-inventory"],
+      ["postgresql","allocated-verified-restore"],
+      ["recovery-host","uncompressed-tar"],
+      ["redis","max-memory-rdb"],
+      ["samba","restored-files"]
+    ]
+   else
+    ([.restoreFootprint[] | [.component,.method]]|sort)==[
+      ["config","uncompressed-tar"],
+      ["recovery-host","uncompressed-tar"]
+    ]
+   end) and
+  ([.images[] | [.service,.deploymentId // ""]]|unique|length)==(.images|length) and
+  ([.forgeControlPlane[].deploymentId]|unique|length)==(.forgeControlPlane|length) and
+  (if .profile=="forge" then
+    (.forgeControlPlane == ([.images[] | {deploymentId,imageReference:.reference,imageDigest:.digest,hostname:.domain}] | sort_by(.deploymentId)))
+   else true end)
+' "$stage/snapshot-manifest.json" >/dev/null || dr_die "snapshot manifest totals or inventories are inconsistent"
+if [[ -n ${DR_SECRET_CANARY:-} ]] && grep -Fq -- "$DR_SECRET_CANARY" "$stage/snapshot-manifest.json"; then
+  dr_die "secret canary leaked into the snapshot manifest"
+fi
+
+export RESTIC_REPOSITORY="$repository" RESTIC_PASSWORD_FILE="$password_file"
+if [[ ! -f "$repository/config" ]]; then restic init >/dev/null; fi
+backup_json="$(mktemp "${staging_root}/restic-backup.XXXXXX.json")"
+(cd "$stage" && restic backup --json --host "$host_name" --tag "dr-${profile}" --tag "$generation" .) > "$backup_json"
+restic_snapshot_id="$(jq -rs '[.[] | select(.message_type=="summary")][-1].snapshot_id // empty' "$backup_json")"
+rm -f -- "$backup_json"
+[[ "$restic_snapshot_id" =~ ^[0-9a-f]+$ ]] || dr_die "restic did not return a snapshot id"
+
+restic forget --host "$host_name" --tag "dr-${profile}" --keep-within 14d --keep-daily 90 --keep-monthly 12 --prune >/dev/null
+restic check >/dev/null
+
+objects_json="$stage/meta/repository-objects.json"
+find "$repository" -type f ! -path '*/locks/*' ! -name '*.tmp' -print0 | sort -z \
+  | while IFS= read -r -d '' object; do
+      relative="${object#"$repository"/}"
+      dr_assert_restic_object_path "$relative"
+      jq -cn --arg path "$relative" --arg sha "$(dr_sha256 "$object")" \
+        --argjson bytes "$(stat -f '%z' "$object" 2>/dev/null || stat -c '%s' "$object")" \
+        '{path:$path,bytes:$bytes,sha256:$sha}'
+    done | jq -s . > "$objects_json"
+[[ "$(jq length "$objects_json")" -gt 0 ]] || dr_die "repository object inventory is empty"
+
+ready="$ready_root/${snapshot_id}.json"
+[[ ! -e "$ready" && ! -L "$ready" && ! -e "${ready}.sig" && ! -L "${ready}.sig" ]] \
+  || dr_die "immutable READY manifest already exists: ${snapshot_id}"
+jq -n --arg snapshotId "$snapshot_id" --arg createdAt "$(date -u +%FT%TZ)" --arg host "$host_name" \
+  --arg profile "$profile" --arg generation "$generation" --arg resticSnapshotId "$restic_snapshot_id" \
+  --arg forgeControlPlaneSha256 "$forge_control_plane_sha256" \
+  --arg manifestPath "snapshot-manifest.json" --arg manifestSha "$(dr_sha256 "$stage/snapshot-manifest.json")" \
+  --slurpfile objects "$objects_json" \
+  '{schemaVersion:1,createdAt:$createdAt,snapshotId:$snapshotId,host:$host,profile:$profile,generation:$generation,
+    resticSnapshotId:$resticSnapshotId,forgeControlPlaneSha256:$forgeControlPlaneSha256,
+    snapshotManifest:{path:$manifestPath,sha256:$manifestSha},objects:$objects[0]}' > "${ready}.tmp"
+dr_validate_json "${script_dir}/schemas/ready-manifest.schema.json" "${ready}.tmp"
+if [[ -n ${DR_SECRET_CANARY:-} ]] && grep -Fq -- "$DR_SECRET_CANARY" "${ready}.tmp"; then
+  dr_die "secret canary leaked into READY"
+fi
+assert_active_site
+# Publish the detached signature first and the signed manifest last. Readers
+# discover only *.json, so interruption can leave at most an ignored orphan
+# signature, never a newest unsigned READY that blocks an older good backup.
+dr_sign_file "$signing_key" deniz-dr-ready "${ready}.tmp" "${ready}.tmp.sig"
+mv -- "${ready}.tmp.sig" "${ready}.sig"
+mv -- "${ready}.tmp" "$ready"
+setfacl -R -m g:deniz-dr:rX,m::rX "$repository" "$ready_root"
+
+jq -n --arg snapshotId "$snapshot_id" --arg host "$host_name" --arg generation "$generation" \
+  --arg resticSnapshotId "$restic_snapshot_id" --arg ready "$ready" \
+  '{backedUp:true,verified:true,snapshotId:$snapshotId,host:$host,generation:$generation,resticSnapshotId:$resticSnapshotId,readyManifest:$ready}'

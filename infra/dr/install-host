@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$script_dir/lib/common.sh"
+profile=""; ssh_user=""; mode=--check-only; defer_timers=false
+while (($#)); do
+  case "$1" in
+    --profile) profile="${2:-}"; shift 2 ;;
+    --ssh-user) ssh_user="${2:-}"; shift 2 ;;
+    --execute | --check-only) mode="$1"; shift ;;
+    --defer-timers) defer_timers=true; shift ;;
+    *) echo "Usage: install-host --profile pi|forge --ssh-user USER [--check-only|--execute] [--defer-timers]" >&2; exit 2 ;;
+  esac
+done
+[[ "$profile" == pi || "$profile" == forge ]] || exit 2
+id "$ssh_user" >/dev/null 2>&1 || { echo "STOP: SSH user does not exist" >&2; exit 1; }
+if [[ "$mode" == --check-only ]]; then
+  jq -n --arg profile "$profile" --arg sshUser "$ssh_user" --argjson timersDeferred "$defer_timers" \
+    '{writes:false,profile:$profile,sshUser:$sshUser,timersDeferred:$timersDeferred,installs:["backup command","systemd service/timer","group-readable restic repository","signed READY contract"]}'
+  exit 0
+fi
+((EUID == 0)) || { echo "STOP: install-host requires root" >&2; exit 1; }
+host_env="/etc/deniz-dr/${profile}.env"
+dr_require_private_file "$host_env"
+# shellcheck disable=SC1090
+source "$host_env"
+: "${DR_RESTIC_PASSWORD_FILE:?DR_RESTIC_PASSWORD_FILE is required}"
+: "${DR_SIGNING_KEY:?DR_SIGNING_KEY is required}"
+: "${DR_ACTIVE_SITE_RECORD:?DR_ACTIVE_SITE_RECORD is required}"
+: "${DR_ACTIVE_SITE_VALUE:?DR_ACTIVE_SITE_VALUE is required}"
+[[ "$DR_ACTIVE_SITE_VALUE" == home ]] || dr_die "initial host backup ownership must be home"
+expected_record="_active-site-${profile}.denizlg24.com"
+[[ "$DR_ACTIVE_SITE_RECORD" == "$expected_record" ]] || dr_die "${profile} must use its profile-scoped active-site record"
+dr_require_private_file "$DR_RESTIC_PASSWORD_FILE"
+dr_require_private_file "$DR_SIGNING_KEY"
+if [[ "$profile" == pi ]]; then dr_require_private_file /etc/deniz-dr/external.env; fi
+if ! command -v dig >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y dnsutils
+fi
+getent group deniz-dr >/dev/null || groupadd --system deniz-dr
+usermod -a -G deniz-dr "$ssh_user"
+if [[ "$profile" == forge ]]; then
+  id forge >/dev/null 2>&1 || dr_die "Forge service account is missing"
+  usermod -a -G deniz-dr forge
+fi
+install -d -m 0750 -o root -g deniz-dr /var/lib/deniz-dr /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks
+install -d -m 0700 /var/lib/deniz-dr/external-state
+setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks
+install -d -m 0700 /etc/deniz-dr
+repo_root="$(cd "$script_dir/../.." && pwd)"
+install_root=/opt/deniz-cloud
+if [[ "$repo_root" != "$install_root" ]]; then
+  install -d -m 0755 "$install_root/infra"
+  tar --exclude='infra/dr/opentofu/.terraform' --exclude='*.tfstate' --exclude='*.tfstate.*' \
+    -C "$repo_root" -cf - infra/dr infra/scripts/posix-namespace-backup.sh infra/scripts/posix-namespace-restore-verify.sh \
+    | tar -C "$install_root" -xf -
+fi
+installed_dr="$install_root/infra/dr"
+[[ -x "$installed_dr/backup" && -x "$installed_dr/heartbeat" ]] || dr_die "installed DR runtime is incomplete"
+install -m 0644 "$installed_dr/systemd/deniz-dr-backup@.service" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-backup@.timer" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.service" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.timer" /etc/systemd/system/
+if [[ "$profile" == pi ]]; then
+  install -m 0644 "$installed_dr/systemd/deniz-dr-external-export.service" /etc/systemd/system/
+  install -m 0644 "$installed_dr/systemd/deniz-dr-external-export.timer" /etc/systemd/system/
+fi
+systemctl daemon-reload
+if [[ "$defer_timers" == true ]]; then
+  systemctl disable --now "deniz-dr-backup@${profile}.timer" "deniz-dr-heartbeat@${profile}.timer" 2>/dev/null || true
+  [[ "$profile" != pi ]] || systemctl disable --now deniz-dr-external-export.timer 2>/dev/null || true
+else
+  systemctl enable --now "deniz-dr-backup@${profile}.timer"
+  systemctl enable --now "deniz-dr-heartbeat@${profile}.timer"
+  if [[ "$profile" == pi ]]; then systemctl enable --now deniz-dr-external-export.timer; fi
+fi
+jq -n --arg profile "$profile" --argjson timerEnabled "$([[ "$defer_timers" == false ]] && printf true || printf false)" \
+  '{installed:true,profile:$profile,timerEnabled:$timerEnabled,secretsCreated:false,next:(if $timerEnabled then "observe the first signed backup and heartbeat" else "complete the Forge image backfill, then rerun without --defer-timers" end)}'

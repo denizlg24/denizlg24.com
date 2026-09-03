@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://denizlg24.com/schemas/dr/version-lock-v1.json",
+  "title": "DR recovery version lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "ubuntu",
+    "architecture",
+    "dockerAptMajor",
+    "dockerComposeMajor",
+    "postgres",
+    "mongodb",
+    "redis",
+    "meilisearch",
+    "mongot",
+    "buildkit",
+    "mergerfs",
+    "cloudflaredAptOrigin",
+    "resticMinimum"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "ubuntu": { "const": "24.04" },
+    "architecture": { "const": "x86_64" },
+    "dockerAptMajor": { "type": "string", "minLength": 1 },
+    "dockerComposeMajor": { "type": "string", "minLength": 1 },
+    "postgres": { "type": "string", "minLength": 1 },
+    "mongodb": { "type": "string", "minLength": 1 },
+    "redis": { "type": "string", "minLength": 1 },
+    "meilisearch": { "type": "string", "minLength": 1 },
+    "mongot": { "type": "string", "minLength": 1 },
+    "buildkit": { "type": "string", "minLength": 1 },
+    "mergerfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "amd64Url", "amd64Sha256"],
+      "properties": {
+        "version": { "const": "2.42.0" },
+        "amd64Url": {
+          "const": "https://github.com/trapexit/mergerfs/releases/download/2.42.0/mergerfs_2.42.0.ubuntu-noble_amd64.deb"
+        },
+        "amd64Sha256": {
+          "const": "7161ac65fb12cda88832a32226451d2dd83d1f56b84f3ed18f3e303233bc7760"
+        }
+      }
+    },
+    "cloudflaredAptOrigin": { "type": "string", "pattern": "^https://" },
+    "resticMinimum": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    }
+  }
+}

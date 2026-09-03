@@ -17,7 +17,7 @@ Type=simple
 # dedicated account with no shell and no sudo rather than a human's login.
 User=forge
 Group=forge
-SupplementaryGroups=docker
+SupplementaryGroups=docker deniz-dr
 EnvironmentFile=/etc/forge/agent.env
 
 # AGENT_BIND_ADDRESS is a Tailscale address, and `After=tailscaled.service`
@@ -55,7 +55,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/forge /mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache
+ReadWritePaths=/srv/forge /mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache /var/lib/deniz-dr/locks
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

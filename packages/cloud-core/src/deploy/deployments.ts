@@ -146,6 +146,12 @@ export async function recordDeploymentStatus(
       heartbeatAt: now,
       ...(update.port === undefined ? {} : { port: update.port }),
       ...(update.imageTag === undefined ? {} : { imageTag: update.imageTag }),
+      ...(update.imageDigest === undefined
+        ? {}
+        : { imageDigest: update.imageDigest }),
+      ...(update.resolvedBuilder === undefined
+        ? {}
+        : { resolvedBuilder: update.resolvedBuilder }),
       ...(update.containerId === undefined
         ? {}
         : { containerId: update.containerId }),

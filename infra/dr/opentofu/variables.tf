@@ -1,0 +1,42 @@
+variable "cloudflare_account_id" { type = string }
+variable "cloudflare_zone_id" { type = string }
+variable "dr_tunnel_id" { type = string }
+variable "active_site_records" { type = map(string) }
+variable "dr_tunnel_ingress" {
+  type = list(object({
+    hostname           = string
+    service            = string
+    origin_host_header = optional(string)
+  }))
+}
+variable "dr_probe_records" {
+  type = set(string)
+}
+variable "managed_records" {
+  type = map(object({ name = string, type = string, content = string, ttl = number, proxied = bool }))
+}
+variable "public_monitors" {
+  type = map(object({ url = string, keyword = optional(string) }))
+}
+variable "maintenance_window" {
+  type = object({
+    days     = list(string)
+    from     = string
+    to       = string
+    timezone = string
+  })
+  default = {
+    days     = ["sun"]
+    from     = "03:00:00"
+    to       = "04:00:00"
+    timezone = "Copenhagen"
+  }
+}
+variable "synthetic_monitor_token" {
+  type      = string
+  sensitive = true
+  validation {
+    condition     = length(var.synthetic_monitor_token) >= 32
+    error_message = "synthetic_monitor_token must contain at least 32 characters"
+  }
+}

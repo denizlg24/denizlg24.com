@@ -1445,6 +1445,9 @@ export const deployments = pgTable(
     dnsRecordId: varchar("dns_record_id", { length: 64 }),
     port: integer("port"),
     imageTag: text("image_tag"),
+    /** Digest of the private GHCR recovery artifact for this exact run. */
+    imageDigest: text("image_digest"),
+    resolvedBuilder: varchar("resolved_builder", { length: 16 }),
     containerId: varchar("container_id", { length: 64 }),
     imageSizeBytes: bigint("image_size_bytes", { mode: "number" }),
     /** The admitted working set, frozen when this row is enqueued. */
@@ -1496,6 +1499,14 @@ export const deployments = pgTable(
     check(
       "deployments_environment_shape",
       sql`(kind::text = 'environment') = (environment_id IS NOT NULL)`,
+    ),
+    check(
+      "deployments_resolved_builder",
+      sql`resolved_builder IS NULL OR resolved_builder IN ('dockerfile', 'nixpacks')`,
+    ),
+    check(
+      "deployments_recovery_digest",
+      sql`image_digest IS NULL OR (image_digest ~ '^sha256:[0-9a-f]{64}$' AND image_tag IS NOT NULL AND image_tag LIKE ('%@' || image_digest))`,
     ),
   ],
 );

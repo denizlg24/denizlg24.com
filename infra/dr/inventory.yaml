@@ -1,0 +1,129 @@
+schemaVersion: 1
+observedAt: "2026-08-30T00:00:00Z"
+stopOnUnclassifiedWritable: true
+hosts:
+  pi-cloud:
+    profile: pi
+    authoritative:
+      - id: postgres
+        paths: ["${POSTGRES_DATA_DIR}"]
+        owner: "postgres container uid"
+        restoreOrder: 10
+        backup: logical-dump
+        verifier: postgres-semantic
+      - id: mongodb
+        paths: ["${MONGO_DATA_DIR}"]
+        owner: "mongodb container uid"
+        restoreOrder: 20
+        backup: mongodump-oplog
+        verifier: mongodb-semantic
+      - id: redis
+        paths: ["${REDIS_DATA_DIR}"]
+        owner: "redis container uid"
+        restoreOrder: 30
+        backup: rdb
+        verifier: redis-semantic
+      - id: namespace-ssd
+        paths: [/mnt/ssd/deniz-cloud/namespace]
+        owner: root
+        restoreOrder: 40
+        backup: posix-namespace
+        verifier: posix-namespace-restore-verify.sh
+      - id: namespace-hdd
+        paths: [/mnt/hdd/deniz-cloud/namespace]
+        owner: root
+        restoreOrder: 40
+        backup: posix-namespace
+        verifier: posix-namespace-restore-verify.sh
+      - id: project-object-store
+        paths: [/mnt/ssd/deniz-cloud/internal/.s3-v2]
+        owner: "api container uid"
+        restoreOrder: 40
+        backup: posix-namespace-object-tree
+        verifier: posix-namespace-restore-verify.sh
+      - id: cloud-config
+        paths: [/opt/deniz-cloud/infra, /opt/deniz-cloud/infra/compose/.env.pi, /etc/deniz-cloud, /etc/systemd/system/cloud-terminal.service, /etc/systemd/system/deniz-cloud-storage.target, /etc/systemd/system/deniz-cloud-storage-namespace.service, /etc/systemd/system/deniz-cloud-storage-metadata.service, /etc/systemd/system/deniz-cloud-storage-firewall.service, /etc/systemd/system/deniz-cloud-storage-smb.service, /etc/systemd/system/deniz-cloud-storage-api-broker.service, /etc/systemd/system/deniz-cloud-storage-watchdog.service, /etc/samba/deniz-cloud-storage.conf, /var/lib/deniz-cloud, /usr/local/lib/deniz-cloud]
+        owner: root
+        restoreOrder: 5
+        backup: allowlist-tar
+        verifier: config-contract
+      - id: samba-principals
+        paths: [unix-principal-inventory, encrypted-samba-password-hash-export, /etc/samba/deniz-cloud-personal]
+        owner: root
+        restoreOrder: 6
+        backup: pdbedit-export
+        verifier: samba-principal-contract
+      - id: relay-config
+        paths: [/opt/markets-relay/docker-compose.markets.yml, /opt/markets-relay/.env.markets]
+        owner: root
+        restoreOrder: 5
+        backup: allowlist-tar
+        verifier: compose-config
+      - id: nutrition-config
+        paths: [/opt/nutrition-api]
+        owner: root
+        restoreOrder: 5
+        backup: allowlist-tar
+        verifier: configured-command
+    derived:
+      - {id: meilisearch, paths: ["${MEILI_DATA_DIR}"], rebuild: deep-health-reindex}
+      - {id: mongot, paths: ["${MONGOT_DATA_DIR}"], rebuild: mongodb-search-index-sync}
+    disposable:
+      - {id: docker-socket, paths: [/var/run/docker.sock]}
+      - {id: proc-sys-rootfs-views, paths: [/proc, /sys, /]}
+      - {id: mongot-secrets-volume, paths: [deniz-cloud_mongot-secrets], recreate: mongo-init}
+      - {id: partial-uploads, paths: [/mnt/ssd/deniz-cloud/internal/.s3-v2-temp, /mnt/ssd/deniz-cloud/internal/.tus-partial], recreate: empty}
+      - {id: generated-archives, paths: [/mnt/ssd/deniz-cloud/internal/.archives], recreate: empty}
+  forge:
+    profile: forge
+    authoritative:
+      - id: forge-control-state
+        paths: [postgres-deploy-tables]
+        owner: postgres
+        restoreOrder: 10
+        backup: pi-postgres-logical-dump
+        verifier: forge-control-semantic
+      - id: forge-config
+        paths: [/etc/forge, /srv/forge/caddy, /srv/forge/routes.json, /etc/systemd/system/forge-agent.service, /etc/systemd/system/forge-buildkit.service, /etc/systemd/system/forge-caddy.service, /etc/cloudflared]
+        owner: root
+        restoreOrder: 5
+        backup: allowlist-tar
+        verifier: forge-config-contract
+      - id: forge-images
+        paths: [private-ghcr-digests]
+        owner: forge
+        restoreOrder: 30
+        backup: registry-by-digest
+        verifier: clean-worker-digest-pull
+    derived:
+      - {id: forge-builds, paths: [/mnt/storage/forge/builds], rebuild: source-checkout}
+      - {id: forge-buildkit-cache, paths: [/mnt/storage/forge/buildkit], rebuild: image-pull-or-build}
+      - {id: forge-cache, paths: [/mnt/storage/forge/cache], rebuild: lazy}
+      - {id: forge-logs, paths: [/mnt/storage/forge/logs, /srv/forge/access], rebuild: empty}
+    disposable:
+      - {id: docker-runtime, paths: [/var/lib/docker], recreate: registry-pull}
+      - {id: forge-agent-staging, paths: [/var/lib/forge-agent/staging], recreate: release}
+writableMountContract:
+  composeFiles:
+    - infra/compose/docker-compose.pi.yml
+    - infra/compose/docker-compose.posix.yml
+    - infra/compose/docker-compose.markets.yml
+  namedVolumes:
+    deniz-cloud_mongot-secrets: disposable
+  bindVariables:
+    POSTGRES_DATA_DIR: authoritative
+    MONGO_DATA_DIR: authoritative
+    REDIS_DATA_DIR: authoritative
+    MEILI_DATA_DIR: derived
+    MONGOT_DATA_DIR: derived
+    SSD_STORAGE_PATH: authoritative
+    HDD_STORAGE_PATH: authoritative
+    STORAGE_BROKER_MOUNT_PATH: disposable-view
+    BACKUP_DIR: disposable-working-copy
+    HOST_CONTROL_DIR: authoritative
+reconciledStorageUsage:
+  contract: physical-branches-not-merged-view
+  ssdObservedBytes: 73000000000
+  hddObservedBytes: 1700000000
+  note: "The plan's earlier /mnt/storage ambiguity is resolved by sizing from both physical namespace branches, the independent project S3 object tree, and Forge image bytes; the merged mount is never counted as a third copy. Re-run backup inventory before every snapshot."
+unclassifiedWritable: []

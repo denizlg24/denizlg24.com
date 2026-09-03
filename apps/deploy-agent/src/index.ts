@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-
+import type { ResolvedBuilder } from "./build";
 import { BuildLogStore } from "./build-log";
 import { CaddyRouter } from "./caddy";
 import { agentConfigFromEnv } from "./config";
@@ -8,14 +8,20 @@ import { DockerClient } from "./docker";
 import { type Exec, spawnExec } from "./exec";
 import { runGarbageCollection } from "./gc";
 import { HealthService } from "./health";
+import { HostMutationLock } from "./host-mutation-lock";
 import { createDeploymentRunner } from "./pipeline";
 import { PortAllocator } from "./ports";
 import { DeploymentQueue, type QueueLogger } from "./queue";
+import {
+  assertRecoveryEnvironmentHmac,
+  publishRecoveryImage,
+} from "./recovery-image";
 import { RequestLogStore } from "./request-log";
 import { createAgentApp } from "./routes";
 import {
   applyDeploymentEnv,
   restartDeployment,
+  runDeployment,
   teardownDeployment,
 } from "./run";
 import { ForgeTelemetry } from "./telemetry";
@@ -53,6 +59,9 @@ const controlPlane = new ControlPlaneClient({
 
 const logs = new BuildLogStore({ root: config.logRoot });
 const ports = new PortAllocator();
+const hostMutationLock = new HostMutationLock(config.hostMutationLockPath);
+const withHostMutation = <T>(owner: string, operation: () => Promise<T>) =>
+  hostMutationLock.run(owner, new AbortController().signal, operation);
 const caddy = new CaddyRouter({
   statePath: config.caddyStatePath,
   adminUrl: config.caddyAdminUrl,
@@ -87,7 +96,10 @@ const queue = new DeploymentQueue({
     network: config.dockerNetwork,
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
     drainMs: config.drainMs,
+    recoveryRegistryPrefix: config.recoveryRegistryPrefix,
     healthPollMs: config.healthPollMs,
+    acquireHostMutationLock: (owner, signal) =>
+      hostMutationLock.acquire(owner, signal),
     secrets: async (request, signal) => {
       const resolved = await controlPlane.env(request.deploymentId, signal);
       return { cloneToken: resolved.cloneToken, env: resolved.env };
@@ -142,76 +154,161 @@ const app = createAgentApp({
   logs,
   routes: () => caddy.routes(),
   teardown: (deploymentId) =>
-    teardownDeployment({ deploymentId, exec, routes: caddy, ports }),
+    withHostMutation(`teardown:${deploymentId}`, () =>
+      teardownDeployment({ deploymentId, exec, routes: caddy, ports }),
+    ),
   restart: (deploymentId) =>
-    restartDeployment({
-      deploymentId,
-      exec,
-      port: routedPort(deploymentId),
-      healthPollMs: config.healthPollMs,
+    withHostMutation(`restart:${deploymentId}`, () =>
+      restartDeployment({
+        deploymentId,
+        exec,
+        port: routedPort(deploymentId),
+        healthPollMs: config.healthPollMs,
+      }),
+    ),
+  applyEnv: (body) =>
+    withHostMutation(`apply-env:${body.request.deploymentId}`, async () => {
+      const deploymentId = body.request.deploymentId;
+      // The route table is the honest source for a running port, but a deployment
+      // whose route was never published has none — the caller's recorded port is
+      // the only thing left, and without either there is nothing to publish on.
+      const port = routedPort(deploymentId) ?? body.port ?? null;
+      if (port === null) {
+        return {
+          recreated: false,
+          containerId: null,
+          healthy: false,
+          rolledBack: false,
+          error: "No routed port for this deployment; redeploy it instead",
+        };
+      }
+      // Fetched here rather than accepted in the body for the same reason the
+      // build path does it: a request body is logged and retried, a secret set
+      // should be neither.
+      //
+      // An unreachable control plane, or one answering a body the schema refuses,
+      // is reported as an apply result rather than allowed to become a 500. The
+      // route's contract is 200 or 409 with a structured result, and the cloud page
+      // reads `error` to name which deployment failed.
+      let resolved: Awaited<ReturnType<typeof controlPlane.env>>;
+      try {
+        resolved = await controlPlane.env(deploymentId);
+      } catch (error) {
+        return {
+          recreated: false,
+          containerId: null,
+          healthy: false,
+          rolledBack: false,
+          error: `Could not resolve the environment: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        };
+      }
+      return applyDeploymentEnv({
+        request: body.request,
+        port,
+        network: config.dockerNetwork,
+        env: resolved.env,
+        exec,
+        healthPollMs: config.healthPollMs,
+        note: (message) =>
+          logger.info("env apply", { deploymentId, detail: message }),
+      });
     }),
-  applyEnv: async (body) => {
-    const deploymentId = body.request.deploymentId;
-    // The route table is the honest source for a running port, but a deployment
-    // whose route was never published has none — the caller's recorded port is
-    // the only thing left, and without either there is nothing to publish on.
-    const port = routedPort(deploymentId) ?? body.port ?? null;
-    if (port === null) {
-      return {
-        recreated: false,
-        containerId: null,
-        healthy: false,
-        rolledBack: false,
-        error: "No routed port for this deployment; redeploy it instead",
-      };
-    }
-    // Fetched here rather than accepted in the body for the same reason the
-    // build path does it: a request body is logged and retried, a secret set
-    // should be neither.
-    //
-    // An unreachable control plane, or one answering a body the schema refuses,
-    // is reported as an apply result rather than allowed to become a 500. The
-    // route's contract is 200 or 409 with a structured result, and the cloud page
-    // reads `error` to name which deployment failed.
-    let resolved: Awaited<ReturnType<typeof controlPlane.env>>;
-    try {
-      resolved = await controlPlane.env(deploymentId);
-    } catch (error) {
-      return {
-        recreated: false,
-        containerId: null,
-        healthy: false,
-        rolledBack: false,
-        error: `Could not resolve the environment: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      };
-    }
-    return applyDeploymentEnv({
-      request: body.request,
-      port,
-      network: config.dockerNetwork,
-      env: resolved.env,
-      exec,
-      healthPollMs: config.healthPollMs,
-      note: (message) =>
-        logger.info("env apply", { deploymentId, detail: message }),
-    });
-  },
+  recover: (body) =>
+    withHostMutation(`recovery:${body.request.deploymentId}`, async () => {
+      const deploymentId = body.request.deploymentId;
+      const log = await logs.open(deploymentId);
+      ports.reserve(body.port, deploymentId);
+      try {
+        const pulled = await exec({
+          command: ["docker", "pull", body.imageReference],
+          signal: new AbortController().signal,
+          timeoutMs: 10 * 60_000,
+        });
+        if (pulled.exitCode !== 0) {
+          throw new Error("digest-only recovery image pull failed");
+        }
+        const resolved = await controlPlane.env(deploymentId);
+        assertRecoveryEnvironmentHmac(
+          resolved.environmentHmacSha256,
+          body.expectedEnvironmentHmacSha256,
+        );
+        const builder: ResolvedBuilder =
+          body.request.build.builder === "nixpacks" ? "nixpacks" : "dockerfile";
+        const outcome = await runDeployment({
+          request: body.request,
+          builder,
+          imageTag: body.imageReference,
+          port: body.port,
+          log,
+          signal: new AbortController().signal,
+          exec,
+          routes: caddy,
+          network: config.dockerNetwork,
+          env: resolved.env,
+          healthPollMs: config.healthPollMs,
+        });
+        return {
+          restored: true,
+          containerId: outcome.containerId,
+          port: outcome.port,
+          imageReference: body.imageReference,
+          environmentHmacSha256: resolved.environmentHmacSha256,
+          error: null,
+        };
+      } catch (error) {
+        ports.releaseOwner(deploymentId);
+        return {
+          restored: false,
+          containerId: null,
+          port: null,
+          imageReference: body.imageReference,
+          environmentHmacSha256: null,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        await logs.close(deploymentId).catch(() => {});
+      }
+    }),
+  publishRecovery: (body) =>
+    withHostMutation(
+      `publish-recovery:${body.request.deploymentId}`,
+      async () => {
+        const log = await logs.open(body.request.deploymentId);
+        try {
+          const published = await publishRecoveryImage({
+            exec,
+            log,
+            request: body.request,
+            localImage: body.localImage,
+            registryPrefix: config.recoveryRegistryPrefix,
+            signal: new AbortController().signal,
+          });
+          return { reference: published.reference, digest: published.digest };
+        } finally {
+          await logs.close(body.request.deploymentId).catch(() => {});
+        }
+      },
+    ),
   rehost: (deploymentId, hostnames, options) =>
-    caddy.rehost(deploymentId, hostnames, options),
+    withHostMutation(`rehost:${deploymentId}`, () =>
+      caddy.rehost(deploymentId, hostnames, options),
+    ),
   collectGarbage: (request) =>
-    runGarbageCollection(request, {
-      exec,
-      buildRoot: config.buildRoot,
-      logRoot: config.logRoot,
-      accessLogRoot: config.accessLogRoot,
-      cacheRoot: config.cacheRoot,
-      dockerDataRoot: config.dockerDataRoot,
-      buildDataRoot: config.buildRoot,
-      buildxBuilder: config.buildxBuilder,
-      acquireBuilderMaintenance: () => queue.tryAcquireBuildMaintenance(),
-    }),
+    withHostMutation("garbage-collection", () =>
+      runGarbageCollection(request, {
+        exec,
+        buildRoot: config.buildRoot,
+        logRoot: config.logRoot,
+        accessLogRoot: config.accessLogRoot,
+        cacheRoot: config.cacheRoot,
+        dockerDataRoot: config.dockerDataRoot,
+        buildDataRoot: config.buildRoot,
+        buildxBuilder: config.buildxBuilder,
+        acquireBuilderMaintenance: () => queue.tryAcquireBuildMaintenance(),
+      }),
+    ),
 });
 
 // Caddy opens the access-log files but will not create the directory holding
@@ -235,6 +332,9 @@ await mkdir(config.accessLogRoot, { recursive: true, mode: 0o750 }).catch(
 // Before the queue starts claiming: a build that finishes first would publish
 // its route into a table that has not read the persisted one yet, and the
 // resulting /load would drop every other live deployment.
+// This only reads the persisted route authority and republishes it to Caddy;
+// it does not change the state archived by DR. It also has to complete while a
+// release workflow still holds the mutation fence and waits for /healthz.
 const restored = await caddy.restore().catch((error: unknown) => {
   logger.error("could not restore the Caddy config", {
     error: error instanceof Error ? error.message : String(error),

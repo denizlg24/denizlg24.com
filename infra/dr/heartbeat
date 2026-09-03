@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+kind="${1:-}"
+case "$kind" in
+  host) url="${DR_HOST_HEARTBEAT_URL:-}" ;;
+  external-export) url="${DR_EXTERNAL_EXPORT_HEARTBEAT_URL:-}" ;;
+  *) echo "Usage: heartbeat host|external-export" >&2; exit 2 ;;
+esac
+[[ "$url" == https://uptime.betterstack.com/* && "$url" != *[$'\r\n"\\']* ]] || { echo "STOP: heartbeat URL is missing or unsafe" >&2; exit 1; }
+printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$url" | curl --config - >/dev/null
+jq -n --arg kind "$kind" '{sent:true,kind:$kind,secretsPrinted:false}'

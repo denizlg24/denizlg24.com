@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Deniz disaster-recovery backup every six hours (%i)
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:17:00 UTC
+RandomizedDelaySec=12m
+Persistent=true
+Unit=deniz-dr-backup@%i.service
+
+[Install]
+WantedBy=timers.target

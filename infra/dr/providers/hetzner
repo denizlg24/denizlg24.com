@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+action="${1:-}"; shift || true
+region=""; size=""; server_id=""; firewall_id=""; required_disk_bytes=""; token_stdin=false
+while (($#)); do
+  case "$1" in
+    --region) region="${2:-}"; shift 2 ;;
+    --size) size="${2:-}"; shift 2 ;;
+    --server-id) server_id="${2:-}"; shift 2 ;;
+    --firewall-id) firewall_id="${2:-}"; shift 2 ;;
+    --required-disk-bytes) required_disk_bytes="${2:-}"; shift 2 ;;
+    --token-stdin) token_stdin=true; shift ;;
+    *) exit 2 ;;
+  esac
+done
+[[ "$token_stdin" == true ]] || exit 2
+if [[ "$action" == create ]]; then
+  [[ "$region" =~ ^[a-z0-9-]+$ && "$size" == recommended && -z "$server_id" && -z "$firewall_id" &&
+     "$required_disk_bytes" =~ ^[0-9]+$ && ${#required_disk_bytes} -le 16 &&
+     "$required_disk_bytes" -ge 300000000000 && "$required_disk_bytes" -le 1000000000000000 ]] || exit 2
+elif [[ "$action" == destroy ]]; then
+  [[ "$server_id" =~ ^[1-9][0-9]*$ && "$firewall_id" =~ ^[1-9][0-9]*$ && -z "$region" && -z "$size" &&
+     -z "$required_disk_bytes" ]] || exit 2
+else
+  exit 2
+fi
+token="$(head -1)"
+[[ ${#token} -ge 20 && "$token" != *[$'\r\n"\\']* ]] || { echo "STOP: empty or unsafe Hetzner token" >&2; exit 1; }
+server_type=cpx52
+api() {
+  local method="$1" path="$2" body="${3:-}"
+  if [[ -n "$body" ]]; then
+    printf 'url = "https://api.hetzner.cloud/v1/%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "%s"\nfail-with-body\nsilent\nshow-error\n' "$path" "$method" "$token" "${body//\"/\\\"}" | curl --config -
+  else
+    printf 'url = "https://api.hetzner.cloud/v1/%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nfail-with-body\nsilent\nshow-error\n' "$path" "$method" "$token" | curl --config -
+  fi
+}
+if [[ "$action" == destroy ]]; then
+  live="$(api GET "servers/$server_id" | jq -er .server)"
+  [[ "$(jq -r '.labels.purpose // empty' <<< "$live")" == disaster-recovery && \
+     "$(jq -r .name <<< "$live")" == deniz-dr-* ]] \
+    || { echo "STOP: refusing to destroy a server not labelled for disaster recovery" >&2; exit 1; }
+  firewall="$(api GET "firewalls/$firewall_id" | jq -er .firewall)"
+  [[ "$(jq -r '.labels.purpose // empty' <<< "$firewall")" == disaster-recovery && \
+     "$(jq -r .name <<< "$firewall")" == "$(jq -r .name <<< "$live")-firewall" ]] \
+    || { echo "STOP: refusing to destroy an unverified firewall" >&2; exit 1; }
+  api DELETE "servers/$server_id" | jq -e '.action.status == "running" or .action.status == "success"' >/dev/null
+  firewall_destroyed=false
+  for _ in $(seq 1 60); do
+    if api DELETE "firewalls/$firewall_id" >/dev/null 2>&1; then firewall_destroyed=true; break; fi
+    sleep 2
+  done
+  [[ "$firewall_destroyed" == true ]] || { echo "STOP: server deletion started but its DR firewall could not be deleted" >&2; exit 1; }
+  jq -n --argjson serverId "$server_id" --argjson firewallId "$firewall_id" --arg destroyedAt "$(date -u +%FT%TZ)" \
+    '{provider:"hetzner",serverId:$serverId,firewallId:$firewallId,destroyed:true,destroyedAt:$destroyedAt}'
+  exit 0
+fi
+quote="$(api GET "server_types?name=$server_type" | jq -ce --arg serverType "$server_type" --arg region "$region" \
+  --argjson requiredDiskBytes "$required_disk_bytes" -f "$script_dir/hetzner-server-type.jq")" \
+  || { echo "STOP: recommended Hetzner capacity is unavailable or undersized; use a larger operator-supplied host" >&2; exit 1; }
+price="$(jq -er .hourlyGrossEur <<< "$quote")"
+printf 'Hetzner %s in %s: %s vCPU, %s GB RAM, %s GB disk, EUR %s/hour gross (live API quote).\n' \
+  "$server_type" "$region" "$(jq -r .cores <<< "$quote")" "$(( $(jq -r .memoryBytes <<< "$quote") / 1000000000 ))" \
+  "$(( $(jq -r .diskBytes <<< "$quote") / 1000000000 ))" "$price" >&2
+ssh_key_id="${DR_HETZNER_SSH_KEY_ID:?DR_HETZNER_SSH_KEY_ID is required}"
+[[ "$ssh_key_id" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: unsafe Hetzner SSH key id" >&2; exit 1; }
+name="deniz-dr-$(date -u +%Y%m%d-%H%M%S)"
+firewall_body="$(jq -cn --arg name "${name}-firewall" '{name:$name,labels:{purpose:"disaster-recovery"},rules:([22,5433,27018,6380,6381] | map({direction:"in",protocol:"tcp",port:(tostring),source_ips:["0.0.0.0/0","::/0"]})) + [{direction:"in",protocol:"udp",port:"41641",source_ips:["0.0.0.0/0","::/0"]}]}' )"
+firewall_created="$(api POST firewalls "$firewall_body")"
+firewall_id="$(jq -er .firewall.id <<< "$firewall_created")"
+server_created=false
+cleanup_failed_create() {
+  local status=$? server_deleted=false firewall_deleted=false
+  if ((status != 0)); then
+    if [[ "$server_created" == true && -n ${id:-} ]]; then
+      for _ in $(seq 1 60); do
+        if api DELETE "servers/$id" >/dev/null 2>&1; then server_deleted=true; break; fi
+        sleep 2
+      done
+    else
+      server_deleted=true
+    fi
+    if [[ -n "$firewall_id" ]]; then
+      for _ in $(seq 1 60); do
+        if api DELETE "firewalls/$firewall_id" >/dev/null 2>&1; then firewall_deleted=true; break; fi
+        sleep 2
+      done
+    else
+      firewall_deleted=true
+    fi
+    [[ "$server_deleted" == true && "$firewall_deleted" == true ]] \
+      || printf 'STOP: failed Hetzner create cleanup is incomplete; inspect server %s and firewall %s\n' "${id:-none}" "${firewall_id:-none}" >&2
+  fi
+}
+trap cleanup_failed_create EXIT
+body="$(jq -cn --arg name "$name" --arg type "$server_type" --arg location "$region" --argjson key "$ssh_key_id" --argjson firewall "$firewall_id" '{name:$name,server_type:$type,location:$location,image:"ubuntu-24.04",ssh_keys:[$key],firewalls:[{firewall:$firewall}],start_after_create:true,labels:{purpose:"disaster-recovery"}}')"
+created="$(api POST servers "$body")"
+id="$(jq -er .server.id <<< "$created")"; ipv4="$(jq -er .server.public_net.ipv4.ip <<< "$created")"
+server_created=true
+for _ in $(seq 1 60); do
+  server="$(api GET "servers/$id" | jq -c .server)"
+  status="$(jq -r .status <<< "$server")"
+  firewall_status="$(jq -r --argjson id "$firewall_id" '.public_net.firewalls[]? | select(.firewall.id==$id) | .status' <<< "$server")"
+  [[ "$status" == running && "$firewall_status" == applied ]] && break
+  sleep 2
+done
+[[ "$status" == running && "$firewall_status" == applied ]] || { echo "STOP: Hetzner server or cloud firewall did not become ready" >&2; exit 1; }
+trap - EXIT
+jq -n --argjson id "$id" --argjson firewallId "$firewall_id" --arg ipv4 "$ipv4" --arg type "$server_type" \
+  --arg region "$region" --arg price "$price" --argjson capacity "$quote" --argjson requiredDiskBytes "$required_disk_bytes" \
+  '{provider:"hetzner",serverId:$id,firewallId:$firewallId,ipv4:$ipv4,serverType:$type,region:$region,
+    hourlyGrossEur:$price,requiredDiskBytes:$requiredDiskBytes,quotedCapacity:$capacity}'

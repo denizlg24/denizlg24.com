@@ -58,6 +58,7 @@ describe("ControlPlaneClient.env", () => {
         deploymentId: DEPLOYMENT_ID,
         kind: "production",
         cloneToken: null,
+        environmentHmacSha256: "a".repeat(64),
         env: {
           NEXT_PUBLIC_URL: "https://app.denizlg24.com",
           POSTGRES_PRISMA_URL: "postgresql://x",

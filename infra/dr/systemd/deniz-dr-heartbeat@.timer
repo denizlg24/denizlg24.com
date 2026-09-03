@@ -1,0 +1,12 @@
+[Unit]
+Description=Send Deniz DR host heartbeat every five minutes (%i)
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+AccuracySec=30s
+Persistent=true
+Unit=deniz-dr-heartbeat@%i.service
+
+[Install]
+WantedBy=timers.target

@@ -29,7 +29,7 @@ import {
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
-import { smbCredentials } from "@repo/cloud-core/db/schema";
+import { files, smbCredentials, users } from "@repo/cloud-core/db/schema";
 import {
   CloudflareCustomHostnameClient,
   CloudflareDnsClient,
@@ -39,7 +39,7 @@ import {
   githubAppConfigFromEnv,
 } from "@repo/cloud-core/deploy";
 import type { DiskKind } from "@repo/schemas/cloud";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
 
@@ -67,6 +67,10 @@ import {
 import { opsRoutes } from "./ops/routes";
 import { MetricsSampler } from "./ops/sampler";
 import { OpsScheduler } from "./ops/scheduler";
+import {
+  DeepSyntheticService,
+  filesystemSyntheticProbe,
+} from "./ops/synthetic";
 import { projectRoutes } from "./projects/routes";
 import { TerminalGateway } from "./terminal/gateway";
 import { TerminalWebSocketProxy } from "./terminal/proxy";
@@ -421,6 +425,185 @@ export async function createRuntimeApp() {
       forgeToken: deployAgentToken ?? null,
       diskHeadroomPercent: numberEnv("DISK_MIN_HEADROOM_PERCENT", 10, 1, 99),
     });
+    const syntheticToken = process.env.DR_SYNTHETIC_TOKEN || null;
+    if (syntheticToken && syntheticToken.length < 32) {
+      throw new Error("DR_SYNTHETIC_TOKEN must be at least 32 characters");
+    }
+    const synthetic = syntheticToken
+      ? new DeepSyntheticService({
+          postgres: async (canary) => {
+            await db.transaction(async (tx) => {
+              await tx.execute(
+                sql`create temporary table deniz_dr_synthetic (value text not null) on commit drop`,
+              );
+              await tx.execute(
+                sql`insert into deniz_dr_synthetic (value) values (${canary})`,
+              );
+              const result = await tx.execute(
+                sql`select value from deniz_dr_synthetic limit 1`,
+              );
+              if (result[0]?.value !== canary)
+                throw new Error("canary read did not match its write");
+            });
+          },
+          mongodb: async (canary) => {
+            const collection = mongoAdmin
+              .db("admin")
+              .collection<{ _id: string; value: string; expiresAt: Date }>(
+                "deniz_dr_synthetic",
+              );
+            try {
+              await collection.insertOne({
+                _id: canary,
+                value: canary,
+                expiresAt: new Date(Date.now() + 60_000),
+              });
+              const found = await collection.findOne({ _id: canary });
+              if (found?.value !== canary)
+                throw new Error("canary read did not match its write");
+            } finally {
+              await collection.deleteOne({ _id: canary });
+            }
+          },
+          redis: async (canary) => {
+            const key = `deniz:dr:synthetic:${canary}`;
+            try {
+              await redis.set(key, canary, { EX: 60 });
+              if ((await redis.get(key)) !== canary)
+                throw new Error("canary read did not match its write");
+            } finally {
+              await redis.del(key);
+            }
+          },
+          posix: filesystemSyntheticProbe(storageConfig.ssdStoragePath),
+          objectStorage: filesystemSyntheticProbe(storageConfig.s3.rootPath),
+          search: async (canary) => {
+            const index = meili.index("deniz_dr_synthetic");
+            try {
+              await index
+                .addDocuments([{ id: canary, value: canary }], {
+                  primaryKey: "id",
+                })
+                .waitTask();
+              const found = await index.getDocument<{
+                id: string;
+                value: string;
+              }>(canary);
+              if (found.value !== canary)
+                throw new Error("canary read did not match its write");
+            } finally {
+              await index
+                .deleteDocument(canary)
+                .waitTask()
+                .catch(() => undefined);
+            }
+          },
+          storageProtocol: async (canary) => {
+            const operator = await db.query.users.findFirst({
+              where: eq(users.role, "superuser"),
+            });
+            if (!operator)
+              throw new Error("no superuser exists for storage synthetic");
+            const { passwordHash: _passwordHash, ...safeOperator } = operator;
+            const principal = { user: safeOperator };
+            const roots = await storageService.roots(principal);
+            const userRoot = roots.userRoot;
+            if (!userRoot)
+              throw new Error("superuser storage root is unavailable");
+            const filename = `.dr-synthetic-${canary}`;
+            const payload = `deniz-dr-${canary}`;
+            const targetPath = `${userRoot.path.replace(/\/$/, "")}/${filename}`;
+            let fileId: string | null = null;
+            let uploadId: string | null = null;
+            let completed = false;
+            try {
+              const metadata = [
+                `filename ${Buffer.from(filename).toString("base64")}`,
+                `targetFolder ${Buffer.from(userRoot.path).toString("base64")}`,
+                `filetype ${Buffer.from("text/plain").toString("base64")}`,
+              ].join(",");
+              const upload = await storageService.createUpload(
+                principal,
+                new Request("http://synthetic.invalid/api/storage/uploads", {
+                  method: "POST",
+                  headers: {
+                    "Tus-Resumable": "1.0.0",
+                    "Upload-Length": String(Buffer.byteLength(payload)),
+                    "Upload-Metadata": metadata,
+                  },
+                }),
+              );
+              uploadId = upload.id;
+              const offset = await storageService.uploadChunk(
+                principal,
+                upload.id,
+                new Request(
+                  `http://synthetic.invalid/api/storage/uploads/${upload.id}`,
+                  {
+                    method: "PATCH",
+                    headers: {
+                      "Content-Type": "application/offset+octet-stream",
+                      "Tus-Resumable": "1.0.0",
+                      "Upload-Offset": "0",
+                    },
+                    body: payload,
+                  },
+                ),
+              );
+              if (offset !== Buffer.byteLength(payload)) {
+                throw new Error(
+                  "TUS upload offset did not reach its declared length",
+                );
+              }
+              completed = true;
+              const file = await db.query.files.findFirst({
+                where: eq(files.path, targetPath),
+              });
+              if (!file || file.ownerId !== operator.id) {
+                throw new Error(
+                  "TUS upload did not create the expected file row",
+                );
+              }
+              fileId = file.id;
+              const full = await storageService.download(
+                principal,
+                file.id,
+                new Request("http://synthetic.invalid/download"),
+              );
+              if (full.status !== 200 || (await full.text()) !== payload) {
+                throw new Error(
+                  "storage download did not reproduce the upload",
+                );
+              }
+              const ranged = await storageService.download(
+                principal,
+                file.id,
+                new Request("http://synthetic.invalid/download", {
+                  headers: { Range: "bytes=3-7" },
+                }),
+              );
+              if (
+                ranged.status !== 206 ||
+                (await ranged.text()) !== payload.slice(3, 8)
+              ) {
+                throw new Error(
+                  "storage range response did not match the upload",
+                );
+              }
+            } finally {
+              if (fileId) {
+                await storageService
+                  .deleteFile(principal, fileId)
+                  .catch(() => undefined);
+              } else if (uploadId && !completed) {
+                await storageService
+                  .cancelUpload(principal, uploadId)
+                  .catch(() => undefined);
+              }
+            }
+          },
+        })
+      : null;
     const activityRecorder = new ActivityRecorder({
       sink: databaseActivitySink(db),
     });
@@ -616,6 +799,14 @@ export async function createRuntimeApp() {
         scheduler,
         terminal,
       }),
+      deepHealth:
+        synthetic && syntheticToken
+          ? {
+              token: syntheticToken,
+              check: () => synthetic.check(),
+              rebuildSearch: () => storageService.rebuildSearchIndex(),
+            }
+          : undefined,
       deploy,
       forge: forgeMonitor
         ? forgeManagementRoutes({

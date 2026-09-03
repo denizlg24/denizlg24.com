@@ -69,6 +69,8 @@ export interface RunOptions {
   healthPollMs?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** Runs after health succeeds and before any hostname is routed. */
+  afterHealthy?: () => Promise<void>;
 }
 
 export interface RunOutcome {
@@ -995,6 +997,7 @@ export async function runDeployment(options: RunOptions): Promise<RunOutcome> {
   try {
     await options.onPhase?.("health-check");
     await awaitHealthy(options, outcome);
+    await options.afterHealthy?.();
   } catch (error) {
     await captureContainerLogs(options, outcome.containerName).catch(() => {});
     await removeContainer(options.exec, outcome.containerName).catch(() => {});

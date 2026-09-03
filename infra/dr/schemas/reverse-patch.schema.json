@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://denizlg24.com/schemas/dr/reverse-patch-v1.json",
+  "title": "DR signed Cloudflare reverse patch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "createdAt",
+    "zoneId",
+    "activeSites",
+    "records",
+    "survivingPiDeployAgentUrl",
+    "forgeContainerMappings"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "zoneId": { "type": "string", "minLength": 1 },
+    "activeSites": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/cloudflareRecord" },
+          {
+            "type": "object",
+            "required": ["profile"],
+            "properties": {
+              "profile": { "enum": ["pi", "forge"] },
+              "type": { "const": "TXT" },
+              "content": { "const": "home" }
+            }
+          }
+        ]
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cloudflareRecord" }
+    },
+    "survivingPiDeployAgentUrl": {
+      "type": ["string", "null"],
+      "pattern": "^https?://[A-Za-z0-9._-]+:[1-9][0-9]{0,4}$"
+    },
+    "forgeContainerMappings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/forgeContainerMapping" }
+    }
+  },
+  "$defs": {
+    "forgeContainerMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deploymentId",
+        "previousContainerId",
+        "recoveryContainerId"
+      ],
+      "properties": {
+        "deploymentId": { "type": "string", "format": "uuid" },
+        "previousContainerId": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{12,64}$"
+        },
+        "recoveryContainerId": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "cloudflareRecord": {
+      "type": "object",
+      "required": ["id", "type", "name", "content", "ttl", "proxied"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "content": { "type": "string" },
+        "ttl": { "type": "integer", "minimum": 1 },
+        "proxied": { "type": "boolean" },
+        "profile": { "enum": ["pi", "forge"] }
+      }
+    }
+  }
+}

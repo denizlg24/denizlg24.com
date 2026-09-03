@@ -110,6 +110,16 @@ fi
 # by the service user because both processes run as `forge`.
 install -d -m 0750 -o forge -g forge /srv/forge/access
 
+# The unprivileged agent and root-run DR backup coordinate every authoritative
+# route/container mutation through this directory. Establish the service-group
+# contract before installing a unit that names it in SupplementaryGroups.
+getent group deniz-dr >/dev/null || groupadd --system deniz-dr
+usermod -a -G deniz-dr forge
+install -d -m 0750 -o root -g deniz-dr \
+  /var/lib/deniz-dr /var/lib/deniz-dr/locks
+setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx \
+  /var/lib/deniz-dr/locks
+
 systemctl daemon-reload
 systemctl enable forge-buildkit.service >/dev/null
 if [ "$buildkit_changed" = "1" ]; then

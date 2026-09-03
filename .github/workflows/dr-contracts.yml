@@ -1,0 +1,80 @@
+name: Disaster recovery contracts
+
+on:
+  push:
+    paths:
+      - ".github/workflows/dr-*.yml"
+      - ".gitleaksignore"
+      - "apps/api/**"
+      - "apps/deploy-agent/**"
+      - "infra/dr/**"
+      - "infra/scripts/ddns-update.sh"
+      - "infra/scripts/posix-namespace-*.sh"
+      - "infra/tailscale/policy.hujson"
+      - "packages/cloud-core/**"
+      - "packages/schemas/**"
+      - "bun.lock"
+      - "package.json"
+  pull_request:
+    paths:
+      - ".github/workflows/dr-*.yml"
+      - ".gitleaksignore"
+      - "apps/api/**"
+      - "apps/deploy-agent/**"
+      - "infra/dr/**"
+      - "infra/scripts/ddns-update.sh"
+      - "infra/scripts/posix-namespace-*.sh"
+      - "infra/tailscale/policy.hujson"
+      - "packages/cloud-core/**"
+      - "packages/schemas/**"
+      - "bun.lock"
+      - "package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: 1.12.2
+          tofu_wrapper: false
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install validation tools
+        run: sudo apt-get update -qq && sudo apt-get install -y acl attr shellcheck zstd
+      - name: Validate scripts, signatures, schemas, and dry-run safety
+        run: bun run dr:test
+      - name: Restore a namespace snapshot into disposable filesystems
+        run: sudo TMPDIR="$RUNNER_TEMP" ./infra/dr/tests/namespace-roundtrip.sh
+      - name: Restore database snapshots into disposable containers
+        run: |
+          docker pull postgres:16-alpine
+          docker pull mongo:8.2.11
+          docker pull redis:7-alpine
+          TMPDIR="$RUNNER_TEMP" ./infra/dr/tests/database-roundtrip.sh
+      - name: Validate external control-plane configuration
+        working-directory: infra/dr/opentofu
+        run: |
+          tofu fmt -check -recursive
+          tofu init -backend=false
+          tofu validate
+      - name: Shellcheck recovery scripts
+        run: shellcheck --severity=warning infra/dr/{backup,backfill-forge-images,cutover,external-export,heartbeat,install-forge-registry,install-host,recover,rehearse,report,rollback,sign-isolation-evidence,status,weekly-alert-test} infra/dr/lib/common.sh infra/dr/macos/{dr-sync,install,uninstall} infra/dr/providers/hetzner infra/dr/remote/{bootstrap,resource-sampler,restore-forge,restore-pi} infra/dr/tests/{database-roundtrip,namespace-roundtrip,run}.sh infra/scripts/{ddns-update,posix-namespace-backup,posix-namespace-restore-verify}.sh
+
+  secret-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan complete repository history with redacted output
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

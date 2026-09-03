@@ -1,0 +1,16 @@
+[Unit]
+Description=Deniz DR host heartbeat (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-dr/%i.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/deniz-dr/%i.env
+ExecStart=/opt/deniz-cloud/infra/dr/heartbeat host
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+UMask=0077

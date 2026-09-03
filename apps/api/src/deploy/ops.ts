@@ -115,6 +115,14 @@ export class ForgeOps {
    * previous release rather than taking the site down.
    */
   async publishRoutes(row: DeploymentRow): Promise<boolean> {
+    return this.publishRoutesWithAgent(row, this.agent);
+  }
+
+  /** Recovery may restore Forge onto a new tailnet address before cutover. */
+  async publishRoutesWithAgent(
+    row: DeploymentRow,
+    agent: DeployAgentProxy,
+  ): Promise<boolean> {
     invalidatePreviewDeploymentCache(this.db, row.hostname);
     const routing = await routeHostnames(this.db, row);
     const hostnames = routing.serve;
@@ -124,7 +132,7 @@ export class ForgeOps {
     const destinations = new Set(routing.redirects.map((entry) => entry.to));
     const legacyCanonical =
       destinations.size === 1 ? [...destinations][0] : null;
-    const response = await this.agent
+    const response = await agent
       .post(`/deployments/${row.id}/promote`, {
         hostnames,
         redirects: routing.redirects,

@@ -1,0 +1,22 @@
+# path|required|label
+/opt/deniz-cloud/infra|required|cloud-infra
+/opt/deniz-cloud/infra/compose/.env.pi|required|cloud-env
+/etc/deniz-cloud|required|cloud-host-config
+/etc/systemd/system/cloud-terminal.service|required|terminal-unit
+/etc/systemd/system/deniz-cloud-storage.target|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-namespace.service|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-metadata.service|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-firewall.service|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-smb.service|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-api-broker.service|required|storage-units
+/etc/systemd/system/deniz-cloud-storage-watchdog.service|required|storage-units
+/etc/samba/deniz-cloud-storage.conf|required|storage-samba-config
+/var/lib/deniz-cloud|required|cloud-host-state
+/opt/markets-relay/docker-compose.markets.yml|required|relay-compose
+/opt/markets-relay/.env.markets|required|relay-env
+/opt/nutrition-api|optional|nutrition-api
+/etc/systemd/system/nutrition-api.service|optional|nutrition-api-unit
+/usr/local/bin/cloud-terminal|required|terminal-binary
+/usr/local/bin/cloud-storage-metadata|required|storage-metadata-binary
+/usr/local/lib/deniz-cloud|required|multi-architecture-host-binaries
+/var/lib/deniz-dr/external-state|optional|external-control-plane-export

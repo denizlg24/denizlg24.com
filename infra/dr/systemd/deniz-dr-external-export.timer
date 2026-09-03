@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Deniz DR external-state export
+
+[Timer]
+OnCalendar=*-*-* 02:41:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=deniz-dr-external-export.service
+
+[Install]
+WantedBy=timers.target
