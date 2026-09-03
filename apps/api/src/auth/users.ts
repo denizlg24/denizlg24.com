@@ -4,6 +4,7 @@ import {
   authAccount,
   authUser,
   authVerification,
+  CREDENTIAL_ACCOUNT_ISSUER,
   type Database,
   hashPassword,
   type SafeUserRecord,
@@ -201,6 +202,7 @@ export async function completePendingSignup(
       await tx.insert(authAccount).values({
         id: `credential:${legacyUser.id}`,
         accountId: legacyUser.id,
+        issuer: CREDENTIAL_ACCOUNT_ISSUER,
         providerId: "credential",
         userId: legacyUser.id,
         password: passwordHash,

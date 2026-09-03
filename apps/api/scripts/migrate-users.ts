@@ -7,6 +7,7 @@ import {
   authTwoFactor,
   authUser,
   authVerification,
+  CREDENTIAL_ACCOUNT_ISSUER,
   createDb,
   type Database,
   recoveryCodes,
@@ -264,6 +265,7 @@ async function applyUserMigration(
           .values({
             id: `credential:${user.id}`,
             accountId: user.id,
+            issuer: CREDENTIAL_ACCOUNT_ISSUER,
             providerId: "credential",
             userId: user.id,
             password: user.passwordHash,

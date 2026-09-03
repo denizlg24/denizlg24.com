@@ -1,6 +1,7 @@
 import {
   authAccount,
   authUser,
+  CREDENTIAL_ACCOUNT_ISSUER,
   createDb,
   hashPassword,
   users,
@@ -56,6 +57,7 @@ try {
     await db.insert(authAccount).values({
       id: `credential:${userId}`,
       accountId: userId,
+      issuer: CREDENTIAL_ACCOUNT_ISSUER,
       providerId: "credential",
       userId,
       password: passwordHash,

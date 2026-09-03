@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const authUser = pgTable("auth_user", {
@@ -55,6 +56,7 @@ export const authAccount = pgTable(
   "auth_account",
   {
     id: text("id").primaryKey(),
+    issuer: text("issuer").notNull(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
     userId: text("user_id")
@@ -72,7 +74,13 @@ export const authAccount = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("authAccount_userId_idx").on(table.userId)],
+  (table) => [
+    index("authAccount_userId_idx").on(table.userId),
+    uniqueIndex("authAccount_issuer_accountId_idx").on(
+      table.issuer,
+      table.accountId,
+    ),
+  ],
 );
 
 export const authVerification = pgTable(

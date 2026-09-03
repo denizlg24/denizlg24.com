@@ -1,3 +1,4 @@
+export { CREDENTIAL_ACCOUNT_ISSUER } from "./account";
 export {
   decryptLegacyTotpSecret,
   type EncryptedLegacyTotpSecret,

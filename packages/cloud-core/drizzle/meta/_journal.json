@@ -281,6 +281,13 @@
       "when": 1786722715934,
       "tag": "0039_resource_connection_environment",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788415520692,
+      "tag": "0040_auth_account_issuer",
+      "breakpoints": true
     }
   ]
 }
