@@ -2024,10 +2024,11 @@ export class StorageService {
    * cannot tell it from a file dropped in over SMB: it adopts it under a
    * freshly minted ID and `upsertFile` deletes the row holding that path under
    * any other one. So the ID the upload returned — the ID the client is holding,
-   * and the ID a share link would be minted from — was replaced a few seconds
-   * later. Measured at roughly eleven seconds on the Pi, and for that whole
-   * window `assertNamespaceIdentity` refused to serve the file at all, because
-   * an unstamped entry cannot be verified against anything.
+   * and the ID a share link would be minted from — was replaced by the next
+   * scan. Projection is scan-driven rather than watcher-driven, so the window
+   * is the scan interval, five minutes on the Pi, and for all of it
+   * `assertNamespaceIdentity` refused to serve the file at all: an unstamped
+   * entry cannot be verified against anything.
    *
    * Adoption is for entries this service did not write. It has to guess an
    * owner from an ancestor and invent an ID; here both are already known, so
