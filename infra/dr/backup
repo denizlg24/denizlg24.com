@@ -339,14 +339,19 @@ postgres_dump() {
       ) r"' | jq -S . > "$output"
   }
 
+  # The ACL is aggregated as text because aclitem has no ordering operator:
+  # ORDER BY over it aborts the statement with "could not identify an ordering
+  # operator". The JSON is unchanged, since aclitem serialises as a string.
+  # Keep SQL comments out of these statements — psql receives them as one
+  # argument, and a `--` comment swallowed the rest of the query.
   capture_postgres_databases() {
     local output="$1" target="${2:-$container}"
     docker exec "$target" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$1"' sh "
       SELECT coalesce(json_agg(row_to_json(d) ORDER BY d.name)::text, '[]') FROM (
         SELECT datname AS name, pg_get_userbyid(datdba) AS owner,
                datallowconn AS allow_connections,
-               coalesce((SELECT array_agg(value ORDER BY value)
-                         FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::aclitem[]) AS acl
+               coalesce((SELECT array_agg(value::text ORDER BY value::text)
+                         FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::text[]) AS acl
         FROM pg_database WHERE NOT datistemplate
       ) d" | jq -S . > "$output"
   }
@@ -386,8 +391,10 @@ SQL
     } | docker exec -i "$container" sh -ceu \
       'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
       sh "$database" \
-      | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
-          select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$rows"
+      | jq -c 'if (.database|type=="string") and (.schema|type=="string")
+            and (.table|type=="string")
+            and (.rows|type=="number" and .>=0 and floor==.)
+          then . else error("invalid table row-count record") end' >> "$rows"
 
     # Capture the exact Forge rows that this database snapshot contains. A
     # combined recovery compares this signed inventory with the independently
@@ -399,8 +406,9 @@ SQL
     } | docker exec -i "$container" sh -ceu \
       'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
       sh "$database" \
-      | jq -ce 'select(.database|type=="string") |
-          .deployments |= sort_by(.deploymentId)' >> "$forge_control_plane_rows"
+      | jq -c 'if (.database|type=="string")
+          then (.deployments |= sort_by(.deploymentId))
+          else error("invalid forge control-plane record") end' >> "$forge_control_plane_rows"
 
     printf 'ROLLBACK;\n\\q\n' >&8
     exec 8>&-
@@ -467,8 +475,10 @@ SQL
       cat <<'SQL' | docker exec -i "$verify_container" sh -ceu \
         'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
         sh "$database" \
-        | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
-            select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$verify_rows"
+        | jq -c 'if (.database|type=="string") and (.schema|type=="string")
+              and (.table|type=="string")
+              and (.rows|type=="number" and .>=0 and floor==.)
+            then . else error("invalid table row-count record") end' >> "$verify_rows"
 SELECT format(
   'SELECT json_build_object(''database'', %L, ''schema'', %L, ''table'', %L, ''rows'', count(*))::text FROM %I.%I;',
   :'database', schemaname, tablename, schemaname, tablename
@@ -527,7 +537,18 @@ SQL
     || dr_die "PostgreSQL roles changed during the logical backup"
   cmp -s "$stage/meta/postgres-databases.before.json" "$stage/meta/postgres-databases.after.json" \
     || dr_die "PostgreSQL database ownership or ACLs changed during the logical backup"
-  cmp -s "$stage/meta/postgres-globals.before.sql" "$stage/meta/postgres-globals.after.sql" \
+  # Compared with the nonce normalised, never raw. pg_dump wraps its output in
+  # `\restrict <token>` / `\unrestrict <token>` — added in the 2025 security
+  # releases to stop meta-command injection through crafted object names — and
+  # regenerates that token on every invocation. Two dumps of an unchanged
+  # cluster therefore never compare equal, so this guard could only ever report
+  # a change that had not happened. The directive itself is still compared, so
+  # a dump that stopped being restricted is still caught.
+  normalize_globals() {
+    sed -E 's/^\\(restrict|unrestrict) [A-Za-z0-9]+$/\\\1 <nonce>/' "$1"
+  }
+  cmp -s <(normalize_globals "$stage/meta/postgres-globals.before.sql") \
+         <(normalize_globals "$stage/meta/postgres-globals.after.sql") \
     || dr_die "PostgreSQL global objects changed during the logical backup"
   zstd -T0 -6 -q "$stage/meta/postgres-globals.before.sql" -o "$stage/artifacts/postgres-globals.sql.zst"
   verify_postgres_restore
@@ -558,7 +579,11 @@ mongodb_dump() {
   docker exec "$container" chmod 0600 "$config_path"
   docker exec "$container" mongodump --config "$config_path" --oplog --archive --gzip > "$stage/artifacts/mongodb.archive.gz"
   docker exec "$container" rm -f -- "$config_path"
-  local remote_js="/tmp/deniz-dr-semantic-${snapshot_id}.js"
+  # Not under /tmp: the verifier below mounts a tmpfs there, and `docker cp`
+  # into a path covered by a tmpfs mount writes to the image layer underneath
+  # it. The copy reports success and the running container never sees the file,
+  # so mongosh failed with ENOENT on a script that had just been copied in.
+  local remote_js="/deniz-dr-semantic-${snapshot_id}.js"
   local verify_container="deniz-dr-verify-mongo-${timestamp,,}" verify_data="$stage/meta/mongodb-verify-data" image_id ready=false
   image_id="$(docker inspect -f '{{.Image}}' "$container")"
   [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || dr_die "MongoDB container has no immutable local image id"
@@ -619,8 +644,10 @@ redis_dump() {
     sleep 1
   done
   [[ "$ready" == true ]] || dr_die "disposable Redis verifier did not become ready"
-  docker cp "$script_dir/lib/redis-semantic.lua" "${verify_container}:/tmp/deniz-dr-redis-semantic.lua" >/dev/null
-  docker exec "$verify_container" redis-cli --raw --eval /tmp/deniz-dr-redis-semantic.lua \
+  # Outside /tmp for the same reason as the MongoDB verifier: this container
+  # mounts a tmpfs there and `docker cp` would land beneath it.
+  docker cp "$script_dir/lib/redis-semantic.lua" "${verify_container}:/deniz-dr-redis-semantic.lua" >/dev/null
+  docker exec "$verify_container" redis-cli --raw --eval /deniz-dr-redis-semantic.lua \
     | jq -S . > "$stage/meta/redis-semantic.json"
   docker exec "$verify_container" redis-check-rdb /data/dump.rdb >/dev/null
   docker rm -f "$verify_container" >/dev/null
