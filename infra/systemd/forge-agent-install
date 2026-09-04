@@ -29,6 +29,8 @@ install_dr_runtime() {
   # private root-owned directory before publishing anything under /opt.
   tar -tzf "$DR_RUNTIME" | awk '
     /(^|\/)\.\.?($|\/)/ || /\/\// || /^\// { exit 1 }
+    /^infra\/$/ { next }
+    /^infra\/scripts\/$/ { next }
     /^infra\/dr\/$/ { next }
     /^infra\/dr\/[A-Za-z0-9._\/-]+$/ { next }
     /^infra\/scripts\/posix-namespace-(backup|restore-verify)\.sh$/ { next }
