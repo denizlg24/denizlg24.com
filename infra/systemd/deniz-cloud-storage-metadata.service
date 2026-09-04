@@ -29,6 +29,15 @@ RuntimeDirectoryMode=0755
 # restart that caused it.
 RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/bin/cloud-storage-metadata
+# Type=simple calls the service started the moment the process is forked, which
+# is before the binary has bound its socket — so the Before= above ordered the
+# SMB unit ahead of a socket that was not there yet, and its ExecStartPre
+# validation failed with "Metadata socket is absent". smbd's own Restart=
+# recovered two seconds later, but by then the enclosing target's start job had
+# failed and took the API broker's job down with it as a dependency failure,
+# which no Restart= retries. ExecStartPost runs inside the start job, so waiting
+# here is what makes the ordering mean what the Before= says it means.
+ExecStartPost=/bin/sh -c 'for _ in $(seq 1 100); do [ -S /run/deniz-cloud/storage-metadata.sock ] && exit 0; sleep 0.1; done; echo "metadata socket did not appear" >&2; exit 1'
 Restart=on-failure
 RestartSec=2
 UMask=0007
