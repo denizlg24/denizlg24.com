@@ -40,3 +40,14 @@ variable "synthetic_monitor_token" {
     error_message = "synthetic_monitor_token must contain at least 32 characters"
   }
 }
+
+# Better Stack refuses to create an escalation policy on the free plan: the
+# POST comes back 403 "please upgrade your account". Every monitor and
+# heartbeat below still alerts on its own email/push/critical_alert settings,
+# so what an unset policy costs is the repeat and the escalation chain, not the
+# alert. The DR plan says to use the free tier where it fits and to verify
+# entitlements at implementation time; this is where it did not fit.
+variable "escalation_policy_enabled" {
+  type    = bool
+  default = false
+}

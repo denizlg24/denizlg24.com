@@ -2,6 +2,14 @@
 // Kept here so a change to who can reach the deploy agent is reviewable in the
 // same place as the code that assumes it.
 {
+    // Named so the casting grants below read as devices rather than as
+    // addresses. These are the two nodes that are neither tagged nor
+    // infrastructure, so nothing else in this file can refer to them.
+    "hosts": {
+        "macbook":        "100.109.20.37",
+        "living-room-tv": "100.124.208.57",
+    },
+
     "tagOwners": {
         "tag:ci": ["denizlg24@github"],
         "tag:pi": ["denizlg24@github"],
@@ -89,6 +97,28 @@
             "src": ["tag:ci"],
             "dst": ["tag:forge"],
             "ip":  ["tcp:22", "tcp:4010"],
+        },
+        // Casting to the TV. Nothing to do with the cloud, and recorded here
+        // only because this file is the whole tailnet policy rather than the
+        // deployment half of it: OpenTofu replaces the document wholesale, so a
+        // rule that lives only in the admin console is a rule the next apply
+        // deletes. Discovery is the TV answering back on a high ephemeral port,
+        // which is why the first grant runs in that direction.
+        {
+            "src": ["living-room-tv"],
+            "dst": ["macbook"],
+            "ip":  ["tcp:45114"],
+        },
+        {
+            "src": ["denizlg24@github"],
+            "dst": ["living-room-tv"],
+            "ip":  ["udp:*"],
+        },
+        {
+            "src": ["denizlg24@github"],
+            "dst": ["living-room-tv"],
+            // 8008/8009 are the Chromecast control channels, 8443 its TLS one.
+            "ip":  ["tcp:8008", "tcp:8009", "tcp:8443"],
         },
     ],
 

@@ -41,7 +41,15 @@ resource "cloudflare_dns_record" "managed" {
 
   # Home DDNS and reviewed DR cutover own the live destination. OpenTofu owns
   # record existence/type/TTL but must never reclaim traffic during an outage.
-  lifecycle { ignore_changes = [content] }
+  #
+  # `comment` is ignored for a second reason: Forge stamps `forge domain <id>`
+  # on every record it creates and finds its own records back by asking
+  # Cloudflare to filter on that prefix. Twelve of the records below carry one,
+  # so overwriting the comment would drop them out of `listManagedRecords` and
+  # its GC pass would stop reaping them — a Forge domain deleted later would
+  # leave its CNAME behind forever. Nothing reads the string this config would
+  # write in its place, so the marker Forge depends on wins.
+  lifecycle { ignore_changes = [content, comment] }
 }
 
 resource "cloudflare_dns_record" "active_site" {
@@ -67,10 +75,12 @@ resource "tailscale_acl" "reviewed" {
 }
 
 data "betteruptime_severity" "high" {
-  name = "High Severity"
+  count = var.escalation_policy_enabled ? 1 : 0
+  name  = "High Severity"
 }
 
 resource "betteruptime_policy" "disaster_recovery" {
+  count        = var.escalation_policy_enabled ? 1 : 0
   name         = "Disaster recovery paging"
   repeat_count = 3
   repeat_delay = 60
@@ -78,9 +88,13 @@ resource "betteruptime_policy" "disaster_recovery" {
   steps {
     type        = "escalation"
     wait_before = 0
-    urgency_id  = data.betteruptime_severity.high.id
+    urgency_id  = data.betteruptime_severity.high[0].id
     step_members { type = "entire_team" }
   }
+}
+
+locals {
+  dr_policy_id = var.escalation_policy_enabled ? betteruptime_policy.disaster_recovery[0].id : null
 }
 
 resource "betteruptime_monitor_group" "disaster_recovery" {
@@ -103,7 +117,7 @@ resource "betteruptime_monitor" "public" {
   email                = true
   push                 = true
   critical_alert       = true
-  policy_id            = betteruptime_policy.disaster_recovery.id
+  policy_id            = local.dr_policy_id
   monitor_group_id     = betteruptime_monitor_group.disaster_recovery.id
   maintenance_days     = var.maintenance_window.days
   maintenance_from     = var.maintenance_window.from
@@ -135,7 +149,7 @@ resource "betteruptime_heartbeat" "dr" {
   email                = true
   push                 = true
   critical_alert       = true
-  policy_id            = betteruptime_policy.disaster_recovery.id
+  policy_id            = local.dr_policy_id
   heartbeat_group_id   = betteruptime_heartbeat_group.disaster_recovery.id
   maintenance_days     = var.maintenance_window.days
   maintenance_from     = var.maintenance_window.from
