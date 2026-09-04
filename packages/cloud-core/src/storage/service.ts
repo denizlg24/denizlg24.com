@@ -2018,6 +2018,64 @@ export class StorageService {
   }
 
   /**
+   * Stamps identity onto bytes this service just published.
+   *
+   * Without this the entry reaches the projector unstamped, and the projector
+   * cannot tell it from a file dropped in over SMB: it adopts it under a
+   * freshly minted ID and `upsertFile` deletes the row holding that path under
+   * any other one. So the ID the upload returned — the ID the client is holding,
+   * and the ID a share link would be minted from — was replaced a few seconds
+   * later. Measured at roughly eleven seconds on the Pi, and for that whole
+   * window `assertNamespaceIdentity` refused to serve the file at all, because
+   * an unstamped entry cannot be verified against anything.
+   *
+   * Adoption is for entries this service did not write. It has to guess an
+   * owner from an ancestor and invent an ID; here both are already known, so
+   * guessing is strictly worse than saying. `assign` is idempotent for the same
+   * ID, so a retried finalize converges.
+   *
+   * A failure removes the bytes and fails the upload. The alternative is to log
+   * and continue, as a root does — but a root is re-stamped every time its
+   * owner opens storage, and nothing re-stamps a file. Continuing would hand
+   * back an ID that is already scheduled to be discarded, which is worse than
+   * an error the client can retry.
+   */
+  async #stampUploadIdentity(
+    diskPath: string,
+    targetPath: string,
+    metadata: ProtectedMetadata,
+  ): Promise<void> {
+    if (!this.#metadata) return;
+    try {
+      await this.#metadata.assign(targetPath, metadata);
+    } catch (error) {
+      // An entry already carrying another ID is the lost half of a race for
+      // one deterministic logical path, which is the same case the insert's
+      // unique violation catches below. Those bytes are the winner's; deleting
+      // them is how a loser takes a successful upload down with it.
+      if (
+        error instanceof MetadataClientError &&
+        error.code === "IDENTITY_CONFLICT"
+      ) {
+        throw new StorageServiceError(
+          409,
+          "FILE_EXISTS",
+          "A file already exists at the target path",
+        );
+      }
+      await deletePath(diskPath).catch(console.error);
+      if (error instanceof MetadataClientError) {
+        throw new StorageServiceError(
+          503,
+          "STORAGE_METADATA_UNAVAILABLE",
+          "Uploaded bytes could not be given a verifiable identity",
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Confirms the namespace entry at this file's path still carries this file's
    * ID before any of its bytes are served.
    *
@@ -2194,9 +2252,17 @@ export class StorageService {
       throw new Error("Upload parent folder no longer exists");
     }
     const now = new Date();
+    await this.#stampUploadIdentity(finalDiskPath, upload.targetPath, {
+      checksum,
+      createdAt: now.toISOString(),
+      id: fileId,
+      mimeType: upload.mimeType,
+      ownerId: upload.ownerId,
+    });
     try {
       await this.db.transaction(async (tx) => {
         await tx.insert(files).values({
+          createdAt: now,
           id: fileId,
           ownerId: upload.ownerId,
           folderId: folder.id,
