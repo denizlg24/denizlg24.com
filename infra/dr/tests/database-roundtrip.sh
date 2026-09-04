@@ -190,7 +190,10 @@ docker stop "$redis_bootstrap" >/dev/null
 docker run --rm --network none --user 0:0 \
   --mount "type=bind,source=$work/redis-target,target=/data" \
   redis:7-alpine sh -c 'rm -rf /data/appendonlydir /data/appendonly.aof'
-install -m 0600 "$work/redis-source/dump.rdb" "$work/redis-target/dump.rdb"
+docker run --rm --network none --user 0:0 \
+  --mount "type=bind,source=$work/redis-source,target=/source,readonly" \
+  --mount "type=bind,source=$work/redis-target,target=/target" \
+  redis:7-alpine sh -c 'install -m 0600 /source/dump.rdb /target/dump.rdb'
 
 docker run -d --name "$redis_seed" --network none --user 0:0 \
   --mount "type=bind,source=$work/redis-target,target=/data" \
