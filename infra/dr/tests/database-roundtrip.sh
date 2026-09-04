@@ -22,6 +22,15 @@ cleanup() {
     "$redis_source" "$redis_verify" "$redis_bootstrap" "$redis_seed" "$redis_target"; do
     docker rm -fv "$container" >/dev/null 2>&1 || true
   done
+  # Redis 7 creates appendonlydir as the container user. Hosted Linux runners
+  # cannot remove those files directly even though the bind-mount root was
+  # made writable for the integration container. Clean the bind mount from a
+  # disposable root container before removing the private test directory.
+  if [[ -d "$work" ]] && docker image inspect redis:7-alpine >/dev/null 2>&1; then
+    docker run --rm --network none --user 0:0 \
+      --mount "type=bind,source=$work,target=/work" \
+      redis:7-alpine sh -c 'rm -rf /work/*' >/dev/null 2>&1 || true
+  fi
   [[ "$work" == "${TMPDIR:-/tmp}"/dr-database-roundtrip.* ]] && rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -178,8 +187,9 @@ docker run -d --name "$redis_bootstrap" --network none --user 0:0 \
 for _ in $(seq 1 60); do docker exec "$redis_bootstrap" redis-cli ping 2>/dev/null | grep -qx PONG && break; sleep 1; done
 docker stop "$redis_bootstrap" >/dev/null
 [[ -d "$work/redis-target/appendonlydir" ]] || { echo "Redis bootstrap did not create the expected AOF" >&2; exit 1; }
-rm -rf -- "$work/redis-target/appendonlydir"
-rm -f -- "$work/redis-target/appendonly.aof"
+docker run --rm --network none --user 0:0 \
+  --mount "type=bind,source=$work/redis-target,target=/data" \
+  redis:7-alpine sh -c 'rm -rf /data/appendonlydir /data/appendonly.aof'
 install -m 0600 "$work/redis-source/dump.rdb" "$work/redis-target/dump.rdb"
 
 docker run -d --name "$redis_seed" --network none --user 0:0 \

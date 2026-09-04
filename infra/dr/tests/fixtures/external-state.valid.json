@@ -21,6 +21,7 @@
       "type": "CNAME",
       "kind": "tunnel",
       "profiles": ["pi"],
+      "publicHostnames": ["api.denizlg24.com"],
       "expectedHomeContent": "home-tunnel.cfargotunnel.com",
       "ttl": 60,
       "proxied": true

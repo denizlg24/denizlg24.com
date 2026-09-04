@@ -5,7 +5,7 @@ all(
   . as $domain |
   any(
     $state.records[];
-    .name == $domain and
+    (.publicHostnames | index($domain)) and
     .kind == "tunnel" and
     (.profiles | index("forge"))
   ) and

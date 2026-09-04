@@ -67,6 +67,8 @@ jq -e '
     ((.kind=="database" and .type=="A") or (.kind=="tunnel" and .type=="CNAME")) and
     (.expectedHomeContent|type=="string" and length>0) and
     (.ttl|type=="number" and .>=1 and .<=60) and (.proxied|type=="boolean") and
+    (.publicHostnames|type=="array" and length>0 and
+      all(.publicHostnames[]; type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) and
     (.profiles|type=="array" and length>0 and all(.[]; .=="pi" or .=="forge"))) and
   all(.healthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and
   all(.preCutoverHealthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and

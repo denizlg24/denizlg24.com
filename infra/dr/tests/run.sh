@@ -333,7 +333,7 @@ if (dr_validate_json "$dr_root/schemas/recovery-report.schema.json" "$temporary/
   dr_die "runtime schema guard accepted a missing required field"
 fi
 
-forge_domain='replace-forge-deployment.denizlg24.com'
+forge_domain='replace-customer-domain.example'
 jq -e --argjson domains "[\"$forge_domain\"]" -f "$dr_root/lib/forge-external-state.jq" \
   "$dr_root/external-state.example.json" >/dev/null \
   || dr_die "Forge external-state contract rejected the reviewed example"

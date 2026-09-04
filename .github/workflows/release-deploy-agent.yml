@@ -138,7 +138,7 @@ jobs:
         if: env.DR_FENCING_ENABLED != 'true'
         run: echo '::notice::Forge DR fencing is deferred until DR_FORGE_FENCING_ENABLED is set to true.'
 
-      - name: Install current disaster-recovery tooling
+      - name: Package current disaster-recovery tooling
         run: |
           tar -czf dr-runtime.tgz \
             --exclude='infra/dr/opentofu/.terraform' \
@@ -147,11 +147,6 @@ jobs:
             infra/dr \
             infra/scripts/posix-namespace-backup.sh \
             infra/scripts/posix-namespace-restore-verify.sh
-          scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
-            dr-runtime.tgz "denizlg24@${FORGE_ADDR}:/tmp/dr-runtime.tgz"
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${FORGE_ADDR}" \
-            "sudo install -d -m 0755 /opt/deniz-cloud/infra && sudo tar -xzf /tmp/dr-runtime.tgz -C /opt/deniz-cloud && rm -f /tmp/dr-runtime.tgz"
-
       - name: Stage the binary
         run: |
           scp \
@@ -167,6 +162,7 @@ jobs:
             infra/systemd/forge-buildkit.service \
             infra/systemd/forge-buildkitd.toml \
             infra/systemd/forge-agent-install \
+            dr-runtime.tgz \
             "denizlg24@${FORGE_ADDR}:/var/lib/forge-agent/staging/"
 
       # scp reports success on a short write often enough to be worth one
@@ -187,7 +183,8 @@ jobs:
         if: env.DEPLOY_MODE == 'deploy'
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
-            "denizlg24@${FORGE_ADDR}" "sudo /usr/local/sbin/forge-agent-install"
+            "denizlg24@${FORGE_ADDR}" \
+            "sudo /usr/local/sbin/forge-agent-install && sudo /usr/local/sbin/forge-agent-install --install-dr-runtime"
 
       # /healthz is deliberately unauthenticated and the runner is on the
       # tailnet, so this asks the agent directly rather than trusting
@@ -215,7 +212,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "denizlg24@${FORGE_ADDR}" \
-            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-caddy.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install"
+            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-caddy.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install /var/lib/forge-agent/staging/dr-runtime.tgz"
           {
             echo "### Validate-only run"
             echo

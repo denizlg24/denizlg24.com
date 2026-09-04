@@ -31,7 +31,9 @@ managed_records = {
   postgres = { name = "postgres.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
   mongodb  = { name = "mongodb.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
   redis    = { name = "redis.denizlg24.com", type = "A", content = "HOME_IP", ttl = 60, proxied = false }
-  # Repeat for every current Forge deployment before import/apply.
+  # Add every mutable in-zone Forge origin record before import/apply. A
+  # Cloudflare-for-SaaS custom hostname is represented by the shared fallback
+  # origin (forge-server.denizlg24.com), not by trying to manage customer DNS.
   forge_app_example = { name = "REPLACE.denizlg24.com", type = "CNAME", content = "PRODUCTION_TUNNEL.cfargotunnel.com", ttl = 1, proxied = true }
 }
 

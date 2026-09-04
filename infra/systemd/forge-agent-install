@@ -16,6 +16,83 @@ STAGED=/var/lib/forge-agent/staging/forge-agent
 TARGET=/usr/local/bin/forge-agent
 PREVIOUS=/var/lib/forge-agent/forge-agent.prev
 STAGING_DIR=/var/lib/forge-agent/staging
+DR_RUNTIME="$STAGING_DIR/dr-runtime.tgz"
+DR_HOST_CONFIG="$STAGING_DIR/forge.env"
+
+install_dr_runtime() {
+  local unpack
+  [ -f "$DR_RUNTIME" ] && [ -s "$DR_RUNTIME" ] \
+    || { echo "nothing staged at $DR_RUNTIME" >&2; exit 1; }
+
+  # The archive is supplied by CI through a deploy-user-writable directory.
+  # Accept only the reviewed runtime trees, reject links, and extract beneath a
+  # private root-owned directory before publishing anything under /opt.
+  tar -tzf "$DR_RUNTIME" | awk '
+    /(^|\/)\.\.?($|\/)/ || /\/\// || /^\// { exit 1 }
+    /^infra\/dr\/$/ { next }
+    /^infra\/dr\/[A-Za-z0-9._\/-]+$/ { next }
+    /^infra\/scripts\/posix-namespace-(backup|restore-verify)\.sh$/ { next }
+    { exit 1 }
+  ' || { echo "staged DR runtime contains an unexpected path" >&2; exit 1; }
+  tar -tvzf "$DR_RUNTIME" | awk '
+    substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { exit 1 }
+  ' || { echo "staged DR runtime contains a non-file entry" >&2; exit 1; }
+  unpack="$(mktemp -d /var/lib/forge-agent/dr-runtime.XXXXXX)"
+  trap 'rm -rf -- "$unpack"' RETURN
+  tar -xzf "$DR_RUNTIME" --no-same-owner --no-same-permissions -C "$unpack"
+  if find "$unpack" -type l -print -quit | grep -q .; then
+    echo "staged DR runtime contains a symbolic link" >&2
+    exit 1
+  fi
+
+  install -d -m 0755 /opt/deniz-cloud/infra /opt/deniz-cloud/infra/scripts
+  rm -rf -- /opt/deniz-cloud/infra/dr.new
+  install -d -m 0755 /opt/deniz-cloud/infra/dr.new
+  cp -a "$unpack/infra/dr/." /opt/deniz-cloud/infra/dr.new/
+  chown -R root:root /opt/deniz-cloud/infra/dr.new
+  if [ -e /opt/deniz-cloud/infra/dr ]; then
+    rm -rf -- /opt/deniz-cloud/infra/dr.previous
+    mv /opt/deniz-cloud/infra/dr /opt/deniz-cloud/infra/dr.previous
+  fi
+  mv /opt/deniz-cloud/infra/dr.new /opt/deniz-cloud/infra/dr
+  install -m 0755 -o root -g root \
+    "$unpack/infra/scripts/posix-namespace-backup.sh" \
+    "$unpack/infra/scripts/posix-namespace-restore-verify.sh" \
+    /opt/deniz-cloud/infra/scripts/
+  if ! command -v restic >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y restic
+  fi
+  rm -f -- "$DR_RUNTIME"
+  rm -rf -- "$unpack"
+  trap - RETURN
+  echo "disaster-recovery runtime installed"
+}
+
+install_dr_host_config() {
+  [ -f "$DR_HOST_CONFIG" ] && [ -s "$DR_HOST_CONFIG" ] \
+    || { echo "nothing staged at $DR_HOST_CONFIG" >&2; exit 1; }
+  [ -x /opt/deniz-cloud/infra/dr/install-host ] \
+    || { echo "install the DR runtime first" >&2; exit 1; }
+  install -d -m 0700 /etc/deniz-dr
+  install -m 0600 -o root -g root "$DR_HOST_CONFIG" /etc/deniz-dr/forge.env
+  rm -f -- "$DR_HOST_CONFIG"
+  /opt/deniz-cloud/infra/dr/install-host \
+    --profile forge --ssh-user denizlg24 --execute --defer-timers
+}
+
+if [ "${1:-}" = "--install-dr-runtime" ]; then
+  [ "$#" -eq 1 ] || { echo "unexpected arguments" >&2; exit 2; }
+  install_dr_runtime
+  exit 0
+fi
+if [ "${1:-}" = "--install-dr-host-config" ]; then
+  [ "$#" -eq 1 ] || { echo "unexpected arguments" >&2; exit 2; }
+  install_dr_host_config
+  exit 0
+fi
+[ "$#" -eq 0 ] || { echo "unexpected arguments" >&2; exit 2; }
 
 [ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
 [ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }

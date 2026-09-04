@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      PI_HOST: ${{ vars.PI_HOST }}
+      PI_HOST: ${{ vars.PI_TAILNET_HOST }}
       DR_FENCING_ENABLED: ${{ vars.DR_PI_FENCING_ENABLED }}
     steps:
       - uses: actions/checkout@v7

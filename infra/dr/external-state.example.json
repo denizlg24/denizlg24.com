@@ -21,16 +21,21 @@
       "type": "CNAME",
       "kind": "tunnel",
       "profiles": ["pi"],
+      "publicHostnames": ["api.denizlg24.com"],
       "expectedHomeContent": "PRODUCTION_TUNNEL.cfargotunnel.com",
       "ttl": 1,
       "proxied": true
     },
     {
-      "id": "replace-for-each-forge-deployment-record-id",
-      "name": "replace-forge-deployment.denizlg24.com",
+      "id": "forge-fallback-origin-record-id",
+      "name": "forge-server.denizlg24.com",
       "type": "CNAME",
       "kind": "tunnel",
       "profiles": ["forge"],
+      "publicHostnames": [
+        "replace-forge-deployment.denizlg24.com",
+        "replace-customer-domain.example"
+      ],
       "expectedHomeContent": "PRODUCTION_TUNNEL.cfargotunnel.com",
       "ttl": 1,
       "proxied": true
@@ -41,6 +46,7 @@
       "type": "A",
       "kind": "database",
       "profiles": ["pi"],
+      "publicHostnames": ["postgres.denizlg24.com"],
       "expectedHomeContent": "HOME_PUBLIC_IP",
       "ttl": 60,
       "proxied": false
@@ -51,6 +57,7 @@
       "type": "A",
       "kind": "database",
       "profiles": ["pi"],
+      "publicHostnames": ["mongodb.denizlg24.com"],
       "expectedHomeContent": "HOME_PUBLIC_IP",
       "ttl": 60,
       "proxied": false
@@ -61,6 +68,7 @@
       "type": "A",
       "kind": "database",
       "profiles": ["pi"],
+      "publicHostnames": ["redis.denizlg24.com"],
       "expectedHomeContent": "HOME_PUBLIC_IP",
       "ttl": 60,
       "proxied": false
@@ -70,6 +78,10 @@
     { "url": "https://api.denizlg24.com/healthz", "profiles": ["pi"] },
     {
       "url": "https://replace-forge-deployment.denizlg24.com",
+      "profiles": ["forge"]
+    },
+    {
+      "url": "https://replace-customer-domain.example",
       "profiles": ["forge"]
     }
   ],
