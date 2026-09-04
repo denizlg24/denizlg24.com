@@ -29,7 +29,12 @@ import {
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
-import { files, smbCredentials, users } from "@repo/cloud-core/db/schema";
+import {
+  files,
+  smbCredentials,
+  tusUploads,
+  users,
+} from "@repo/cloud-core/db/schema";
 import {
   CloudflareCustomHostnameClient,
   CloudflareDnsClient,
@@ -475,7 +480,13 @@ export async function createRuntimeApp() {
               await redis.del(key);
             }
           },
-          posix: filesystemSyntheticProbe(storageConfig.ssdStoragePath),
+          // Not `ssdStoragePath`: in broker-mounted mode that env var names the
+          // read-only `.capacity` bind the container uses for statfs, so a write
+          // probe there is EROFS by design. The staging tree is writable in both
+          // modes, and in legacy mode it sits inside the SSD storage root
+          // anyway. The authoritative namespace is covered by `storageProtocol`,
+          // which writes a real file through the broker.
+          posix: filesystemSyntheticProbe(storageConfig.tempUploadPath),
           objectStorage: filesystemSyntheticProbe(storageConfig.s3.rootPath),
           search: async (canary) => {
             const index = meili.index("deniz_dr_synthetic");
@@ -512,10 +523,9 @@ export async function createRuntimeApp() {
               throw new Error("superuser storage root is unavailable");
             const filename = `.dr-synthetic-${canary}`;
             const payload = `deniz-dr-${canary}`;
-            const targetPath = `${userRoot.path.replace(/\/$/, "")}/${filename}`;
             let fileId: string | null = null;
             let uploadId: string | null = null;
-            let completed = false;
+            let storedPath: string | null = null;
             try {
               const metadata = [
                 `filename ${Buffer.from(filename).toString("base64")}`,
@@ -555,9 +565,19 @@ export async function createRuntimeApp() {
                   "TUS upload offset did not reach its declared length",
                 );
               }
-              completed = true;
+              // The upload applies the service's own naming policy to the
+              // requested filename — `.dr-synthetic-<uuid>` is stored as
+              // `.dr_synthetic_<uuid>` — so the row is addressed by the path
+              // that was actually written, never by the name asked for here.
+              const record = await db.query.tusUploads.findFirst({
+                where: eq(tusUploads.id, upload.id),
+              });
+              if (record?.status !== "completed") {
+                throw new Error("TUS upload did not finalize");
+              }
+              storedPath = record.targetPath;
               const file = await db.query.files.findFirst({
-                where: eq(files.path, targetPath),
+                where: eq(files.path, storedPath),
               });
               if (!file || file.ownerId !== operator.id) {
                 throw new Error(
@@ -591,11 +611,23 @@ export async function createRuntimeApp() {
                 );
               }
             } finally {
+              // A finalized upload the checks above rejected still wrote real
+              // bytes into the namespace. Resolving the row from the stored
+              // path is what keeps a failing probe from leaving one behind on
+              // every monitor hit.
+              if (!fileId && storedPath) {
+                fileId =
+                  (
+                    await db.query.files
+                      .findFirst({ where: eq(files.path, storedPath) })
+                      .catch(() => undefined)
+                  )?.id ?? null;
+              }
               if (fileId) {
                 await storageService
                   .deleteFile(principal, fileId)
                   .catch(() => undefined);
-              } else if (uploadId && !completed) {
+              } else if (uploadId) {
                 await storageService
                   .cancelUpload(principal, uploadId)
                   .catch(() => undefined);
