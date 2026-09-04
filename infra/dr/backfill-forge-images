@@ -23,7 +23,18 @@ source "$config"
 dr_read_env_file "$DR_BREAK_GLASS_FILE"
 : "${DR_DEPLOY_AGENT_TOKEN:?missing deploy agent token}"
 : "${DR_FORGE_CONTROL_API_URL:=https://api.denizlg24.com}"
-[[ "$DR_FORGE_CONTROL_API_URL" =~ ^https://[A-Za-z0-9._-]+(:[1-9][0-9]{0,4})?$ &&
+# Loopback is permitted, and for a full run it is the only address that works.
+# This publishes every production image in one request, and the public name
+# resolves through the Cloudflare tunnel, where the edge closes an origin
+# connection at about 100 seconds and answers 524 — long before fourteen
+# sequential image pushes finish. The request is not retried from where it
+# stopped, so through the edge the command can only ever pin the couple of
+# images that fit inside that window. Run it on the control-plane host against
+# 127.0.0.1 instead; the deploy agent token is already in that host's compose
+# environment, so this needs no secret the host does not already hold.
+# Plain http is accepted only for loopback, which never leaves the machine.
+[[ ( "$DR_FORGE_CONTROL_API_URL" =~ ^https://[A-Za-z0-9._-]+(:[1-9][0-9]{0,4})?$ ||
+     "$DR_FORGE_CONTROL_API_URL" =~ ^http://(127\.0\.0\.1|localhost)(:[1-9][0-9]{0,4})?$ ) &&
    "$DR_DEPLOY_AGENT_TOKEN" != *[$'\r\n"\\']* && ${#DR_DEPLOY_AGENT_TOKEN} -ge 32 ]] \
   || dr_die "Forge backfill URL or token is unsafe"
 work="$(mktemp -d "${TMPDIR:-/tmp}/dr-forge-backfill.XXXXXX")"

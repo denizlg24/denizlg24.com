@@ -1,7 +1,6 @@
 # path|required|label
 /etc/forge|required|forge-host-config
 /srv/forge/caddy|required|caddy-state
-/srv/forge/routes.json|required|route-state
 /etc/systemd/system/forge-agent.service|required|agent-unit
 /etc/systemd/system/forge-buildkit.service|required|buildkit-unit
 /etc/systemd/system/forge-caddy.service|required|caddy-unit

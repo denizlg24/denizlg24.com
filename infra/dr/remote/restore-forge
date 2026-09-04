@@ -102,7 +102,10 @@ fi
 domains_verified=0
 while IFS= read -r domain; do
   [[ "$domain" =~ ^[A-Za-z0-9.-]+$ && "$domain" == *.* ]] || { echo "STOP: unsafe Forge recovery domain" >&2; exit 1; }
-  jq -e --arg domain "$domain" 'any(.[]; (.hostnames // []) | index($domain))' /srv/forge/routes.json >/dev/null \
+  # The agent's route state, whose default path this is. It was read from
+  # /srv/forge/routes.json, which nothing has ever written — so this check
+  # could only fail, and it gates every recovered domain.
+  jq -e --arg domain "$domain" 'any(.[]; (.hostnames // []) | index($domain))' /srv/forge/caddy/config.json >/dev/null \
     || { echo "STOP: restored Caddy state lacks ${domain}" >&2; exit 1; }
   http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 \
     --resolve "${domain}:8080:127.0.0.1" "http://${domain}:8080/")"

@@ -84,7 +84,7 @@ hosts:
         backup: pi-postgres-logical-dump
         verifier: forge-control-semantic
       - id: forge-config
-        paths: [/etc/forge, /srv/forge/caddy, /srv/forge/routes.json, /etc/systemd/system/forge-agent.service, /etc/systemd/system/forge-buildkit.service, /etc/systemd/system/forge-caddy.service, /etc/cloudflared]
+        paths: [/etc/forge, /srv/forge/caddy, /srv/forge/caddy/config.json, /etc/systemd/system/forge-agent.service, /etc/systemd/system/forge-buildkit.service, /etc/systemd/system/forge-caddy.service, /etc/cloudflared]
         owner: root
         restoreOrder: 5
         backup: allowlist-tar

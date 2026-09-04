@@ -183,6 +183,9 @@ jobs:
 
       - name: Copy infrastructure assets
         run: |
+          # The hosts get this tree as a tar, so it arrives with no git
+          # metadata and `backup` cannot resolve a revision on its own.
+          printf '%s\n' "$GITHUB_SHA" > infra/dr/.git-revision
           tar -czf cloud-infra.tgz \
             --exclude='infra/dr/opentofu/.terraform' \
             --exclude='*.tfstate' \

@@ -221,7 +221,8 @@ for _ in $(seq 1 60); do
 done
 [[ "$agent_healthy" == true ]]
 
-routes=/srv/forge/routes.json
+# The agent writes its route state here; /srv/forge/routes.json never existed.
+routes=/srv/forge/caddy/config.json
 [[ -f "$routes" && ! -L "$routes" ]]
 domains_checked=0
 while IFS= read -r id; do

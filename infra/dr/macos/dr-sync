@@ -684,7 +684,7 @@ status_all() {
         dr_assert_restic_object_path "$relative"
         expected_bytes="$(jq -er .bytes <<< "$object")"
         target="$mirror_repo/$relative"
-        actual_bytes="$(if [[ -f "$target" && ! -L "$target" ]]; then stat -f '%z' "$target" 2>/dev/null || stat -c '%s' "$target"; else printf 0; fi)"
+        actual_bytes="$(if [[ -f "$target" && ! -L "$target" ]]; then dr_file_bytes "$target"; else printf 0; fi)"
         if [[ "$actual_bytes" != "$expected_bytes" ]]; then
           queue_objects=$((queue_objects + 1))
           queue_bytes=$((queue_bytes + expected_bytes))

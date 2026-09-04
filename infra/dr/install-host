@@ -59,6 +59,13 @@ if [[ "$repo_root" != "$install_root" ]]; then
   tar --exclude='infra/dr/opentofu/.terraform' --exclude='*.tfstate' --exclude='*.tfstate.*' \
     -C "$repo_root" -cf - infra/dr infra/scripts/posix-namespace-backup.sh infra/scripts/posix-namespace-restore-verify.sh \
     | tar -C "$install_root" -xf -
+  # Same reason the CI copy stamps it: the installed tree has no git metadata,
+  # and `backup` refuses to publish a snapshot it cannot attribute to a commit.
+  if revision="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null)" &&
+     [[ "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$revision" > "$install_root/infra/dr/.git-revision"
+    chmod 0644 "$install_root/infra/dr/.git-revision"
+  fi
 fi
 installed_dr="$install_root/infra/dr"
 [[ -x "$installed_dr/backup" && -x "$installed_dr/heartbeat" ]] || dr_die "installed DR runtime is incomplete"

@@ -4126,15 +4126,38 @@ export function deployRoutes(options: DeployRouteOptions) {
         projectSlug: project.slug,
       });
       request.build.builder = builder;
-      const response = await agentProxy.json<AgentRecoveryPublishResult | null>(
-        `/deployments/${row.id}/publish-recovery`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ request, localImage: row.imageTag }),
-          timeoutMs: 20 * 60_000,
-        },
-      );
+      // A publish that never answers is one deployment's failure, not the
+      // run's. `agentProxy.json` throws rather than returning a status when the
+      // agent is unreachable or the 20 minutes elapse, and an uncaught throw
+      // here escaped the `results` array this loop exists to fill: the request
+      // 500'd and every deployment after it was abandoned. These images are
+      // several gigabytes each over a home uplink, so a push outrunning the
+      // timeout is an ordinary event, and the caller re-runs to finish the
+      // rest — which only works if the rest were attempted.
+      let response: Awaited<
+        ReturnType<typeof agentProxy.json<AgentRecoveryPublishResult | null>>
+      >;
+      try {
+        response = await agentProxy.json<AgentRecoveryPublishResult | null>(
+          `/deployments/${row.id}/publish-recovery`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ request, localImage: row.imageTag }),
+            timeoutMs: 20 * 60_000,
+          },
+        );
+      } catch (error) {
+        results.push({
+          deploymentId: row.id,
+          published: false,
+          reference: row.imageTag,
+          error: `Forge agent did not answer the recovery publish: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        continue;
+      }
       if (
         response.status < 200 ||
         response.status >= 300 ||

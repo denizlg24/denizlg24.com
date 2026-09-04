@@ -85,6 +85,23 @@ dr_sha256() {
   fi
 }
 
+# Size of one file in bytes, portably.
+#
+# GNU stat accepts -f, but there it means "file-system status": it writes that
+# whole report to *stdout* and exits non-zero. A BSD-first probe with only
+# stderr redirected therefore concatenated a filesystem dump with the real
+# answer from the fallback, and every caller feeding the result to
+# `jq --argjson` died on "invalid JSON text". Probe the GNU form first, for the
+# same reason `dr_require_private_file` already does.
+dr_file_bytes() {
+  local path="$1" bytes
+  if bytes="$(stat -c '%s' "$path" 2>/dev/null)"; then
+    printf '%s\n' "$bytes"
+  else
+    stat -f '%z' "$path"
+  fi
+}
+
 dr_bytes_available() {
   df -Pk "$1" | awk 'NR == 2 {print $4 * 1024}'
 }

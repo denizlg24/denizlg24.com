@@ -160,8 +160,22 @@ expanded_zstd_bytes() {
   printf '%s\n' "$bytes"
 }
 
-git_revision="${DR_GIT_REVISION:-$(git -C "${script_dir}/../.." rev-parse HEAD 2>/dev/null || true)}"
-[[ "$git_revision" =~ ^[0-9a-f]{40}$ ]] || dr_die "a full DR_GIT_REVISION is required"
+# The git lookup only ever works from a checkout, and this does not run from
+# one: the hosts receive `infra/` as a tar, so `/opt/deniz-cloud` has no `.git`
+# and `rev-parse` fails there. That left the revision empty and every scheduled
+# backup died on the assertion below — on both hosts, for as long as the timers
+# had been armed. The revision has to travel with the copied tree instead, so
+# whatever populates `/opt/deniz-cloud` writes `.git-revision` beside this
+# script and it is read here.
+git_revision="${DR_GIT_REVISION:-}"
+if [[ -z "$git_revision" ]]; then
+  git_revision="$(git -C "${script_dir}/../.." rev-parse HEAD 2>/dev/null || true)"
+fi
+if [[ -z "$git_revision" && -f "${script_dir}/.git-revision" && ! -L "${script_dir}/.git-revision" ]]; then
+  git_revision="$(tr -dc '0-9a-f' < "${script_dir}/.git-revision" | head -c 40)"
+fi
+[[ "$git_revision" =~ ^[0-9a-f]{40}$ ]] \
+  || dr_die "a full DR_GIT_REVISION is required (no checkout, and no valid ${script_dir}/.git-revision)"
 version_lock="${script_dir}/versions.lock.json"
 dr_validate_json "${script_dir}/schemas/version-lock.schema.json" "$version_lock"
 install -m 0600 "$version_lock" "$stage/meta/versions.lock.json"
@@ -651,7 +665,10 @@ forge_images() {
       .recoverable == true and
       (.reference | test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
       (.digest | test("^sha256:[0-9a-f]{64}$")) and
-      (.reference | endswith("@" + .digest))
+      # Bound before the pipe: inside `.reference | ...` the input is already
+      # the reference string, so `.digest` indexed a string and the filter
+      # errored out every time instead of comparing anything.
+      (.digest as $digest | .reference | endswith("@" + $digest))
       and .platform=="linux/amd64" and
       (.imageSizeBytes | type=="number" and .>0 and floor==.) and
       (.environmentHmacSha256 | type=="string" and test("^[0-9a-f]{64}$")) and
@@ -775,7 +792,7 @@ find "$stage/artifacts" -type f -print0 | sort -z | while IFS= read -r -d '' art
     *) dr_die "unclassified staged artifact: ${name}" ;;
   esac
   jq -cn --arg class "$class" --arg path "$relative" --arg sha "$(dr_sha256 "$artifact")" \
-    --arg verifier "$verifier" --argjson bytes "$(stat -f '%z' "$artifact" 2>/dev/null || stat -c '%s' "$artifact")" \
+    --arg verifier "$verifier" --argjson bytes "$(dr_file_bytes "$artifact")" \
     --argjson order "$order" '{class:$class,path:$path,sha256:$sha,bytes:$bytes,restoreOrder:$order,verifier:$verifier}'
 done | jq -s 'sort_by(.restoreOrder,.path)' > "$artifacts_json"
 
@@ -867,7 +884,7 @@ find "$repository" -type f ! -path '*/locks/*' ! -name '*.tmp' -print0 | sort -z
       relative="${object#"$repository"/}"
       dr_assert_restic_object_path "$relative"
       jq -cn --arg path "$relative" --arg sha "$(dr_sha256 "$object")" \
-        --argjson bytes "$(stat -f '%z' "$object" 2>/dev/null || stat -c '%s' "$object")" \
+        --argjson bytes "$(dr_file_bytes "$object")" \
         '{path:$path,bytes:$bytes,sha256:$sha}'
     done | jq -s . > "$objects_json"
 [[ "$(jq length "$objects_json")" -gt 0 ]] || dr_die "repository object inventory is empty"
