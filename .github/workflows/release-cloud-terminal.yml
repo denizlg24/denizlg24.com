@@ -152,7 +152,7 @@ jobs:
       - name: Verify active host services
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "set -e; if systemctl is-active --quiet cloud-terminal.service; then curl -fsS http://127.0.0.1:3003/healthz >/dev/null; fi; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then curl -fsS --unix-socket /run/deniz-cloud/storage-metadata.sock http://localhost/healthz >/dev/null; fi"
+            "set -e; if systemctl is-active --quiet cloud-terminal.service; then curl -fsS 'http://${PI_ADDR}:3003/healthz' >/dev/null; fi; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then curl -fsS --unix-socket /run/deniz-cloud/storage-metadata.sock http://localhost/healthz >/dev/null; fi"
       - name: Release coordinated host lock
         if: always()
         run: |
