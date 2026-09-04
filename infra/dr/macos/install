@@ -16,9 +16,33 @@ done
 [[ "$config" != *[$'\r\n\\<>&']* ]] || { echo "STOP: config path is unsafe for launchd XML" >&2; exit 1; }
 mode="$(stat -f '%Lp' "$config")"
 [[ "$mode" == 600 || "$mode" == 400 ]] || { echo "STOP: config must be mode 0600 or 0400" >&2; exit 1; }
+# The directories these commands were actually found in become the agent's
+# PATH. Checking them against the installing shell's PATH and then writing a
+# plist with no PATH at all is a check that proves nothing: launchd starts an
+# agent with /usr/bin:/bin:/usr/sbin:/sbin, so a Homebrew restic satisfies the
+# check here and is missing every hour after. The hourly failure is silent
+# where it matters — the cycle is the only thing that copies a backup offsite,
+# so the first sign would have been the 12h iCloud heartbeat going off.
+declared_path_dirs=()
 for required_command in swiftc plutil launchctl jq ssh scp restic ssh-keygen curl find git tar zstd; do
-  command -v "$required_command" >/dev/null 2>&1 \
+  resolved="$(command -v "$required_command" 2>/dev/null)" \
     || { echo "STOP: required Mac recovery command is missing: ${required_command}" >&2; exit 1; }
+  [[ "$resolved" == /* ]] \
+    || { echo "STOP: required Mac recovery command is not an absolute path: ${required_command}" >&2; exit 1; }
+  resolved_dir="$(dirname "$resolved")"
+  [[ "$resolved_dir" != *[$'\r\n\\<>&:']* ]] \
+    || { echo "STOP: command directory is unsafe for launchd XML: ${resolved_dir}" >&2; exit 1; }
+  for seen in "${declared_path_dirs[@]:-}"; do
+    [[ "$seen" != "$resolved_dir" ]] || continue 2
+  done
+  declared_path_dirs+=("$resolved_dir")
+done
+agent_path="$(
+  IFS=:
+  printf '%s' "${declared_path_dirs[*]}"
+)"
+for system_dir in /usr/bin /bin /usr/sbin /sbin; do
+  case ":${agent_path}:" in *":${system_dir}:"*) ;; *) agent_path="${agent_path}:${system_dir}" ;; esac
 done
 
 install_root="${HOME}/Library/Application Support/deniz-dr"
@@ -57,8 +81,10 @@ chmod 0700 "$install_root/macos/dr-icloud-state"
 escaped_install="${install_root//&/\\&}"; escaped_install="${escaped_install//|/\\|}"
 escaped_config="${config//&/\\&}"; escaped_config="${escaped_config//|/\\|}"
 escaped_log="${log_root//&/\\&}"; escaped_log="${escaped_log//|/\\|}"
+escaped_agent_path="${agent_path//&/\\&}"; escaped_agent_path="${escaped_agent_path//|/\\|}"
 plist_tmp="$(mktemp "${launch_agents}/com.denizlg24.dr-sync.XXXXXX.plist")"
 sed -e "s|__INSTALL_ROOT__|$escaped_install|g" -e "s|__CONFIG_PATH__|$escaped_config|g" -e "s|__LOG_ROOT__|$escaped_log|g" \
+  -e "s|__AGENT_PATH__|$escaped_agent_path|g" \
   "$script_dir/com.denizlg24.dr-sync.plist.in" > "$plist_tmp"
 plutil -lint "$plist_tmp" >/dev/null
 mv -f -- "$plist_tmp" "$plist"

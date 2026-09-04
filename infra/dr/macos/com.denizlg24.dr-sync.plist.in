@@ -17,6 +17,15 @@
   <true/>
   <key>ProcessType</key>
   <string>Background</string>
+  <!-- launchd would otherwise start this with /usr/bin:/bin:/usr/sbin:/sbin,
+       which on a Mac with Homebrew tooling has no restic, jq or zstd. The
+       installer writes the directories it actually resolved each required
+       command in, so the preflight check and the runtime agree. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__AGENT_PATH__</string>
+  </dict>
   <key>StandardOutPath</key>
   <string>__LOG_ROOT__/dr-sync.log</string>
   <key>StandardErrorPath</key>
