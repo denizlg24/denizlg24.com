@@ -5,9 +5,51 @@
 
 DR_SCHEMA_VERSION=1
 
+# Cleanup that has to run even when a command aborts.
+#
+# `dr_die` exits, and an `exit` does not fire a function's RETURN trap. So
+# every fatal path taken after a remote host lock was acquired left that lock
+# behind — and a held host lock is exactly what the release workflows refuse to
+# deploy through, so one failed offsite sync stopped deploys until an operator
+# removed the directory by hand. Handlers registered here run on `dr_die`, and
+# on any other exit once `dr_install_exit_cleanup` has been called.
+#
+# A handler must be idempotent and must not fail the exit: it can run after the
+# thing it releases is already gone, or twice if a RETURN trap got there first.
+dr_cleanup_handlers=()
+
+dr_on_exit() {
+  dr_cleanup_handlers[${#dr_cleanup_handlers[@]}]="$1"
+}
+
+dr_run_cleanup() {
+  local index
+  index=${#dr_cleanup_handlers[@]}
+  while ((index > 0)); do
+    index=$((index - 1))
+    eval "${dr_cleanup_handlers[index]}" || true
+  done
+  dr_cleanup_handlers=()
+}
+
+dr_install_exit_cleanup() {
+  trap dr_run_cleanup EXIT
+}
+
 dr_die() {
   printf 'STOP: %s\n' "$*" >&2
+  dr_run_cleanup
   exit 1
+}
+
+# Shell-quotes its arguments into one string, for building a deferred command.
+# `printf %q` rather than ${x@Q} because /bin/bash here is 3.2.
+dr_quote() {
+  local part out=""
+  for part in "$@"; do
+    out+="$(printf '%q' "$part") "
+  done
+  printf '%s' "${out% }"
 }
 
 dr_note() {

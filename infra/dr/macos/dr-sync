@@ -222,6 +222,17 @@ validate_completion_binding() {
   ' "$completion" >/dev/null || dr_die "completion does not bind the selected READY"
 }
 
+# Releases a host lock this process owns. Idempotent by construction: the
+# owner test fails when the lock is gone or belongs to someone else, so a
+# second call after the RETURN trap already ran is a no-op.
+release_remote_lock() {
+  local endpoint="$1" lock="$2" token="$3"
+  shift 3
+  ssh "$@" "$endpoint" \
+    "test \"\$(cat '$lock/owner' 2>/dev/null)\" = '$token' && rm -f '$lock/owner' && rmdir '$lock'" \
+    >/dev/null 2>&1 || true
+}
+
 pull_host() {
   local host="$1" endpoint signer remote_ready remote_relative remote_generation remote_filename tmp generation snapshot repository cache object relative expected target remote_lock lock_token local_ready observed_dir observed_ready
   local -a transport_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes)
@@ -240,8 +251,13 @@ pull_host() {
   ssh "${transport_opts[@]}" "$endpoint" \
     "set -e; acquired=false; for _ in \$(seq 1 450); do if mkdir '$remote_lock' 2>/dev/null; then acquired=true; break; fi; sleep 2; done; [ \"\$acquired\" = true ]; printf '%s\\n' '$lock_token' > '$remote_lock/owner'" \
     || dr_die "timed out waiting for the coordinated backup/deploy/pull lock on ${host}"
+  # Registered as well as trapped, because the RETURN trap below covers only
+  # the paths that return. Everything in this function reports failure with
+  # `dr_die`, which exits, and a held lock blocks this host's release
+  # workflows until someone clears it by hand.
+  dr_on_exit "release_remote_lock $(dr_quote "$endpoint" "$remote_lock" "$lock_token" "${transport_opts[@]}")"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/dr-pull.XXXXXX")"
-  trap 'rm -rf -- "$tmp"; ssh "${transport_opts[@]}" "$endpoint" "test \"\$(cat '\''$remote_lock/owner'\'' 2>/dev/null)\" = '\''$lock_token'\'' && rm -f '\''$remote_lock/owner'\'' && rmdir '\''$remote_lock'\''" >/dev/null 2>&1 || true' RETURN
+  trap 'rm -rf -- "$tmp"; release_remote_lock "$endpoint" "$remote_lock" "$lock_token" "${transport_opts[@]}"' RETURN
   if [[ "$snapshot_filter" == latest ]]; then
     remote_ready="$(ssh "${transport_opts[@]}" "$endpoint" "find '$DR_REMOTE_ROOT/ready/$host' -type f -name '*.json' -print | sort | tail -1")"
   else
@@ -691,6 +707,10 @@ status_all() {
   done | jq -s --arg lastHeartbeatAt "$last_heartbeat_at" --argjson lastHeartbeatAge "$last_heartbeat_age" \
     '{schemaVersion:1,createdAt:(now|todate),lastICloudHeartbeatAt:(if $lastHeartbeatAt=="" then null else $lastHeartbeatAt end),lastICloudHeartbeatAgeSeconds:$lastHeartbeatAge,hosts:.}'
 }
+
+# Registered handlers release any coordinated host lock still held when this
+# process exits for a reason other than a normal return.
+dr_install_exit_cleanup
 
 case "$command_name" in
   pull) while IFS= read -r host; do pull_host "$host"; done < <(hosts) ;;
