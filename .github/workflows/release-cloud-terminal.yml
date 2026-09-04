@@ -148,7 +148,7 @@ jobs:
           scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes cloud-host-binaries.tgz \
             "denizlg24@${PI_ADDR}:/tmp/cloud-host-binaries.tgz"
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "sudo bash -ceu 'install -d -m 0755 /usr/local/lib/deniz-cloud; tar -xzf /tmp/cloud-host-binaries.tgz -C /usr/local/lib/deniz-cloud; rm -f /tmp/cloud-host-binaries.tgz; cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS; cd ../arm64 && sha256sum -c SHA256SUMS; test \"\$(uname -m)\" = aarch64; install -m 0755 cloud-terminal /usr/local/bin/cloud-terminal; install -m 0755 cloud-storage-metadata /usr/local/bin/cloud-storage-metadata; systemctl try-restart cloud-terminal.service deniz-cloud-storage-metadata.service'"
+            "sudo bash -ceu 'install -d -m 0755 /usr/local/lib/deniz-cloud; tar -xzf /tmp/cloud-host-binaries.tgz -C /usr/local/lib/deniz-cloud; rm -f /tmp/cloud-host-binaries.tgz; cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS; cd ../arm64 && sha256sum -c SHA256SUMS; test \"\$(uname -m)\" = aarch64; install -m 0755 cloud-terminal /usr/local/bin/cloud-terminal; install -m 0755 cloud-storage-metadata /usr/local/bin/cloud-storage-metadata; systemctl try-restart cloud-terminal.service; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then systemctl stop deniz-cloud-storage-watchdog.service; systemctl restart deniz-cloud-storage-metadata.service; systemctl start deniz-cloud-storage-watchdog.service; fi'"
       - name: Verify active host services
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
