@@ -403,7 +403,24 @@ mount_broker() {
   if mountpoint -q "$broker_mount"; then broker_is_current || { echo "Broker path has a foreign mount" >&2; return 1; }; return; fi
   install -d -m 0755 -o root -g root "$broker_mount"
   [[ -z "$(find "$broker_mount" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo "Unmounted broker path is not empty" >&2; return 1; }
-  mount -t cifs //127.0.0.1/ApiBroker "$broker_mount" -o "credentials=$credentials,vers=3.1.1,seal,sign,uid=1000,gid=1000,forceuid,forcegid,nosuid,nodev,noexec,noperm,nounix,cache=none,actimeo=0,serverino"
+  # smbd is Type=notify but announces readiness before it accepts on 445, so a
+  # mount fired the instant that unit goes active loses with mount error(112).
+  # The unit's Restart= does recover, but only after the enclosing target's
+  # start job has already failed — which is what made
+  # `systemctl start deniz-cloud-storage.target` fail on a boundary that then
+  # came up seconds later. Retrying here keeps that command's exit status
+  # meaningful for a deploy or a recovery that has to wait on it.
+  local attempt
+  for attempt in $(seq 1 8); do
+    if mount -t cifs //127.0.0.1/ApiBroker "$broker_mount" -o "credentials=$credentials,vers=3.1.1,seal,sign,uid=1000,gid=1000,forceuid,forcegid,nosuid,nodev,noexec,noperm,nounix,cache=none,actimeo=0,serverino"; then
+      break
+    fi
+    if [[ "$attempt" -eq 8 ]]; then
+      echo "API broker mount did not succeed before the server accepted" >&2
+      return 1
+    fi
+    sleep 2
+  done
   if ! broker_is_current || [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" != "$STORAGE_NAMESPACE_WITNESS_VALUE" ]]; then
     broker_is_current && umount "$broker_mount" || true
     echo "API broker verification failed and was rolled back" >&2
