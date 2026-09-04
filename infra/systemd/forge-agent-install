@@ -32,7 +32,7 @@ install_dr_runtime() {
     /^infra\/$/ { next }
     /^infra\/scripts\/$/ { next }
     /^infra\/dr\/$/ { next }
-    /^infra\/dr\/[A-Za-z0-9._\/-]+$/ { next }
+    /^infra\/dr\/[A-Za-z0-9._@\/-]+$/ { next }
     /^infra\/scripts\/posix-namespace-(backup|restore-verify)\.sh$/ { next }
     { exit 1 }
   ' || { echo "staged DR runtime contains an unexpected path" >&2; exit 1; }
