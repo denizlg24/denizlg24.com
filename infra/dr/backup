@@ -947,6 +947,15 @@ assert_active_site
 dr_sign_file "$signing_key" deniz-dr-ready "${ready}.tmp" "${ready}.tmp.sig"
 mv -- "${ready}.tmp.sig" "${ready}.sig"
 mv -- "${ready}.tmp" "$ready"
+# The Mac bridge pulls both trees over SSH as the operator account, so the
+# whole chain down to them has to be traversable — not just the leaves. The
+# per-host directories are created by the `install -d` above, which sets a mode
+# that collapses the inherited ACL mask, and `scp` reports an unreadable parent
+# as "No such file or directory", so the pull failed pointing at a path that
+# was there all along. setfacl recomputes the mask, which is what makes the
+# group entry effective again.
+setfacl -m g:deniz-dr:rx,d:g:deniz-dr:rx,d:m:rx \
+  "$(dirname "$repository")" "$(dirname "$ready_root")"
 setfacl -R -m g:deniz-dr:rX,m::rX "$repository" "$ready_root"
 
 jq -n --arg snapshotId "$snapshot_id" --arg host "$host_name" --arg generation "$generation" \
