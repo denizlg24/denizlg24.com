@@ -317,8 +317,18 @@ pull_host() {
     if [[ -e "$target" ]]; then
       [[ -f "$target" && ! -L "$target" && "$(dr_sha256 "$target")" == "$expected" ]] || dr_die "immutable cache collision: ${relative}"
     else
-      [[ ! -e "${target}.partial" && ! -L "${target}.partial" ]] \
-        || dr_die "unsafe partial cache object exists: ${relative}"
+      # Cleared rather than refused, as the iCloud mirror below already does.
+      # A `.partial` is unverified by definition and only this loop writes one,
+      # so it holds nothing worth keeping — the object is re-fetched and
+      # hash-checked immediately after. Refusing made an interrupted pull
+      # permanent: a laptop sleeping mid-transfer left one behind and every
+      # later cycle aborted on it until someone deleted it by hand, which is
+      # precisely the case a resumable pull exists to survive.
+      if [[ -e "${target}.partial" || -L "${target}.partial" ]]; then
+        [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
+          || dr_die "unsafe partial cache object exists: ${relative}"
+        rm -f -- "${target}.partial"
+      fi
       scp -q "${transport_opts[@]}" "$endpoint:$repository/$relative" "${target}.partial"
       [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
         || dr_die "downloaded cache object is unsafe: ${relative}"
@@ -584,8 +594,13 @@ hydrate_host() {
     dr_assert_managed_directory_path "$working" "$(dirname "$target")"
     install -d -m 0700 "$(dirname "$target")"
     dr_assert_managed_directory_path "$working" "$(dirname "$target")"
-    [[ ! -e "${target}.partial" && ! -L "${target}.partial" ]] \
-      || dr_die "unsafe partial hydrate object exists: ${relative}"
+    # Same reasoning as the pull: an abandoned partial is disposable, and
+    # refusing one turns a single interruption into a permanent failure.
+    if [[ -e "${target}.partial" || -L "${target}.partial" ]]; then
+      [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
+        || dr_die "unsafe partial hydrate object exists: ${relative}"
+      rm -f -- "${target}.partial"
+    fi
     cp -p -- "$mirror_repo/$relative" "${target}.partial"
     [[ -f "${target}.partial" && ! -L "${target}.partial" ]] \
       || dr_die "partial hydrate object is unsafe: ${relative}"
