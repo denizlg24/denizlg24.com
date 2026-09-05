@@ -1,0 +1,16 @@
+[Unit]
+Description=Mirror Deniz DR snapshots into object storage hourly (%i)
+
+[Timer]
+# Hourly rather than once after the backup: the sync is idempotent and cheap
+# when there is nothing to do, and an hourly tick means a run that failed, was
+# interrupted, or lost the host lock to a backup heals itself without anyone
+# noticing. Tying it to backup completion instead would turn any single failure
+# into a snapshot that silently never leaves the host.
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=deniz-dr-r2-sync@%i.service
+
+[Install]
+WantedBy=timers.target

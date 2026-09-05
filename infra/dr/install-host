@@ -78,6 +78,12 @@ if [[ -d "$installed_dr/systemd/deniz-dr-backup@${profile}.timer.d" ]]; then
 fi
 install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.service" /etc/systemd/system/
 install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.timer" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.service" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.timer" /etc/systemd/system/
+# The object-storage client is a recovery dependency, so it goes on PATH rather
+# than being reached through the checkout: a recovery host restores /opt from a
+# snapshot it cannot read until this exists.
+install -m 0755 "$installed_dr/lib/r2-object" /usr/local/bin/r2-object
 if [[ "$profile" == pi ]]; then
   install -m 0644 "$installed_dr/systemd/deniz-dr-external-export.service" /etc/systemd/system/
   install -m 0644 "$installed_dr/systemd/deniz-dr-external-export.timer" /etc/systemd/system/

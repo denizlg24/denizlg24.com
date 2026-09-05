@@ -65,7 +65,7 @@ jobs:
           tofu init -backend=false
           tofu validate
       - name: Shellcheck recovery scripts
-        run: shellcheck --severity=warning infra/dr/{backup,backfill-forge-images,cutover,external-export,heartbeat,install-forge-registry,install-host,recover,rehearse,report,rollback,sign-isolation-evidence,status,weekly-alert-test} infra/dr/lib/common.sh infra/dr/macos/{dr-sync,install,uninstall} infra/dr/providers/hetzner infra/dr/remote/{bootstrap,resource-sampler,restore-forge,restore-pi} infra/dr/tests/{database-roundtrip,namespace-roundtrip,run}.sh infra/scripts/{ddns-update,posix-namespace-backup,posix-namespace-restore-verify}.sh
+        run: shellcheck --severity=warning infra/dr/{backup,backfill-forge-images,cutover,external-export,heartbeat,install-forge-registry,install-host,r2-sync,recover,rehearse,report,rollback,sign-isolation-evidence,status,weekly-alert-test} infra/dr/lib/common.sh infra/dr/macos/{dr-sync,install,uninstall} infra/dr/providers/hetzner infra/dr/remote/{bootstrap,resource-sampler,restore-forge,restore-pi} infra/dr/tests/{database-roundtrip,namespace-roundtrip,run}.sh infra/scripts/{ddns-update,posix-namespace-backup,posix-namespace-restore-verify}.sh
 
   secret-history:
     runs-on: ubuntu-24.04

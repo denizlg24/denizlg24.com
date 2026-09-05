@@ -1,0 +1,34 @@
+[Unit]
+Description=Mirror published Deniz DR snapshots into object storage (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-dr/%i.env
+ConditionPathExists=/etc/deniz-dr/r2.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/deniz-dr/%i.env
+EnvironmentFile=/etc/deniz-dr/r2.env
+ExecStart=/opt/deniz-cloud/infra/dr/r2-sync --profile %i --execute
+# Uploading must never compete with serving. The copy is pure throughput and
+# has hours of slack, so it yields to everything the host does for real.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# ProtectHome makes /root read-only, and restic falls back to $HOME for its
+# cache. Without a writable cache it re-reads repository indexes on every
+# operation, which on a repository this size is the difference between a
+# minute and an hour.
+RuntimeDirectory=deniz-dr-r2-sync-%i
+Environment=RESTIC_CACHE_DIR=/var/cache/deniz-dr-restic
+CacheDirectory=deniz-dr-restic
+CacheDirectoryMode=0700
+PrivateTmp=yes
+ProtectHome=yes
+UMask=0077
+TimeoutStartSec=6h
+
+[Install]
+WantedBy=multi-user.target

@@ -11,6 +11,7 @@ config="${DR_RECOVERY_CONFIG:-${HOME}/.config/deniz-dr/config.env}"
 target_host=""
 profile=""
 snapshot="latest"
+source_kind=icloud
 check_only=false
 no_cutover=false
 accept_stale_snapshot=false
@@ -25,13 +26,21 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID,FORGE_ID [target]
   --host root@IP
+  --source icloud|r2
   --check-only
   --no-cutover
   --accept-stale-snapshot
   --provider hetzner --region REGION --size recommended
 
-Runs on macOS. --check-only performs the complete local iCloud/signature/restic
+Runs on macOS. --check-only performs the complete local signature/restic
 preflight and prints all intended mutations without contacting a target.
+
+--source selects where snapshots are read from. "icloud" (the default) hydrates
+the mirrored repository out of iCloud Drive through the Mac bridge. "r2" reads
+the repository directly from object storage, which needs no hydration, no
+locally staged copy of the repository, and no working iCloud - only the restic
+password and the R2 credentials. Prefer it unless iCloud holds the only copy of
+the snapshot you need.
 USAGE
 }
 
@@ -41,6 +50,7 @@ while (($#)); do
     --host) target_host="${2:-}"; shift 2 ;;
     --profile) profile="${2:-}"; shift 2 ;;
     --snapshot) snapshot="${2:-}"; shift 2 ;;
+    --source) source_kind="${2:-}"; shift 2 ;;
     --check-only) check_only=true; shift ;;
     --no-cutover) no_cutover=true; shift ;;
     --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
@@ -52,6 +62,7 @@ while (($#)); do
 done
 
 [[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || { usage; exit 2; }
+[[ "$source_kind" == icloud || "$source_kind" == r2 ]] || { usage; exit 2; }
 dr_require_private_file "$config"
 # shellcheck disable=SC1090
 source "$config"
@@ -62,10 +73,26 @@ source "$config"
 dr_read_env_file "$DR_BREAK_GLASS_FILE"
 dr_require_commands jq ssh scp ssh-keyscan ssh-keygen restic tar zstd curl git cmp
 [[ "$(uname -s)" == Darwin ]] || dr_die "recover must run on macOS"
-[[ -x "$DR_SYNC_COMMAND" ]] || dr_die "dr-sync is not installed: ${DR_SYNC_COMMAND}"
-[[ -x "$DR_ICLOUD_HELPER" && ! -L "$DR_ICLOUD_HELPER" ]] \
-  || dr_die "native iCloud helper is not installed: ${DR_ICLOUD_HELPER}; run infra/dr/macos/install"
-export DR_ICLOUD_HELPER
+# The Mac bridge and its native helper are dependencies of reading from iCloud,
+# not of recovery itself. Requiring them unconditionally meant a broken or
+# signed-out iCloud blocked a recovery that had no need to touch it - which is
+# precisely the situation object storage exists to survive.
+if [[ "$source_kind" == icloud ]]; then
+  [[ -x "$DR_SYNC_COMMAND" ]] || dr_die "dr-sync is not installed: ${DR_SYNC_COMMAND}"
+  [[ -x "$DR_ICLOUD_HELPER" && ! -L "$DR_ICLOUD_HELPER" ]] \
+    || dr_die "native iCloud helper is not installed: ${DR_ICLOUD_HELPER}; run infra/dr/macos/install"
+  export DR_ICLOUD_HELPER
+else
+  dr_require_commands r2-object
+  : "${R2_ENDPOINT:?R2_ENDPOINT is required for --source r2}"
+  : "${R2_BUCKET:?R2_BUCKET is required for --source r2}"
+  : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required for --source r2}"
+  : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required for --source r2}"
+  [[ "$R2_ENDPOINT" =~ ^https://[A-Za-z0-9.-]+$ ]] || dr_die "R2_ENDPOINT must be a bare https origin"
+  [[ "$R2_BUCKET" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || dr_die "R2_BUCKET is not a valid bucket name"
+  export R2_ENDPOINT R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+  export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+fi
 : "${DR_COMPLETION_SIGNING_KEY:?DR_COMPLETION_SIGNING_KEY is required}"
 : "${DR_ALLOWED_SIGNERS:?DR_ALLOWED_SIGNERS is required}"
 dr_require_private_file "$DR_COMPLETION_SIGNING_KEY"
@@ -144,19 +171,146 @@ trap cleanup EXIT
 install -d -m 0700 "$DR_REPORT_ROOT"
 
 selected='[]'
+
+host_secrets() {
+  # Echoes "SIGNER_IDENTITY PASSWORD_FILE" for the host, so the two source
+  # paths cannot disagree about which key verifies which host's manifest.
+  case "$1" in
+    pi-cloud) printf '%s %s' "$DR_HOST_SIGNER_PI" "${DR_RESTIC_PASSWORD_FILE_PI:?DR_RESTIC_PASSWORD_FILE_PI is required for Pi data}" ;;
+    forge) printf '%s %s' "$DR_HOST_SIGNER_FORGE" "${DR_RESTIC_PASSWORD_FILE_FORGE:?DR_RESTIC_PASSWORD_FILE_FORGE is required for Forge data}" ;;
+    *) dr_die "unknown host: $1" ;;
+  esac
+}
+
 hydrate_one() {
   local host="$1" selected_snapshot="$2" result destination
   destination="$work/hydrated-$host"
   result="$("$DR_SYNC_COMMAND" --config "$config" hydrate --host "$host" --snapshot "$selected_snapshot" --destination "$destination")"
   jq -e '.hydrated == true and .verified == true' <<< "$result" >/dev/null || dr_die "hydration did not verify: ${host}"
-  selected="$(jq -c --argjson item "$result" '. + [$item]' <<< "$selected")"
+  # The repository location is carried on the item rather than reconstructed by
+  # each consumer, because it is a local directory here and a URI for object
+  # storage, and nothing downstream should care which.
+  selected="$(jq -c --argjson item "$(jq -c '. + {source:"icloud", repository:(.path + "/repository")}' <<< "$result")" \
+    '. + [$item]' <<< "$selected")"
+}
+
+# READY manifests are keyed <host>/<generation>/ready/<snapshotId>.json. The
+# generation is part of the key rather than something the caller supplies, so
+# the listing is what resolves it - a recovery must not need to be told which
+# quarter the last good backup fell in.
+r2_ready_keys() {
+  r2-object list "${1}/" | awk -F'\t' '$2 ~ /\/ready\/[^/]+\.json$/ {print $2}' | sort
+}
+
+stage_from_r2() {
+  local host="$1" want="$2" destination key ready signer password_file
+  local snapshot_id restic_id generation item
+  destination="$work/r2-$host"
+  install -d -m 0700 "$destination"
+  read -r signer password_file <<< "$(host_secrets "$host")"
+  dr_require_private_file "$password_file"
+
+  if [[ "$want" == latest ]]; then
+    key="$(r2_ready_keys "$host" | tail -1)"
+    [[ -n "$key" ]] || dr_die "object storage holds no READY manifest for ${host}"
+  else
+    [[ "$want" =~ ^[a-z-]+-[0-9]{8}T[0-9]{6}Z$ ]] || dr_die "unsafe snapshot id: ${want}"
+    key="$(r2_ready_keys "$host" | grep -F "/ready/${want}.json" | head -1)" \
+      || dr_die "object storage holds no READY manifest for ${want}"
+    [[ -n "$key" ]] || dr_die "object storage holds no READY manifest for ${want}"
+  fi
+
+  ready="$destination/ready.json"
+  r2-object get "$key" "$ready" >/dev/null || dr_die "could not read READY manifest ${key}"
+  r2-object get "${key}.sig" "${ready}.sig" >/dev/null \
+    || dr_die "READY manifest ${key} has no signature in object storage"
+  # Same gate as the iCloud path: object storage is not trusted to tell the
+  # truth about completeness, the signature is.
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${ready}.sig" "$ready"
+  dr_validate_json "$script_dir/schemas/ready-manifest.schema.json" "$ready"
+
+  snapshot_id="$(jq -er .snapshotId "$ready")"
+  restic_id="$(jq -er .resticSnapshotId "$ready")"
+  generation="$(jq -er .generation "$ready")"
+  [[ "$(jq -er .host "$ready")" == "$host" ]] \
+    || dr_die "READY manifest at ${key} describes a different host"
+  [[ "$want" == latest || "$snapshot_id" == "$want" ]] \
+    || dr_die "READY manifest at ${key} is not snapshot ${want}"
+
+  # A signed manifest proves a backup completed; it does not prove the copy into
+  # object storage did. The snapshot object is written last, so its presence is
+  # the thing worth asserting before a recovery commits to this source.
+  RESTIC_REPOSITORY="s3:${R2_ENDPOINT}/${R2_BUCKET}/${host}" RESTIC_PASSWORD_FILE="$password_file" \
+    restic snapshots --json --no-lock "$restic_id" 2>/dev/null | jq -e 'length == 1' >/dev/null \
+    || dr_die "object storage does not hold restic snapshot ${restic_id} for ${host}"
+
+  item="$(jq -nc --arg host "$host" --arg snapshotId "$snapshot_id" --arg generation "$generation" \
+    --arg path "$destination" --arg resticSnapshotId "$restic_id" \
+    --arg repository "s3:${R2_ENDPOINT}/${R2_BUCKET}/${host}" \
+    '{hydrated:true,verified:true,source:"r2",host:$host,snapshotId:$snapshotId,
+      generation:$generation,path:$path,resticSnapshotId:$resticSnapshotId,repository:$repository}')"
+  selected="$(jq -c --argjson item "$item" '. + [$item]' <<< "$selected")"
+}
+
+stage_one() {
+  if [[ "$source_kind" == r2 ]]; then stage_from_r2 "$@"; else hydrate_one "$@"; fi
+}
+
+# Downloads one READY manifest, verifies its signature, and echoes
+# "<snapshotId> <forgeControlPlaneSha256>". Verification happens here rather
+# than at the point of use so that no unsigned manifest can influence which
+# pair gets selected.
+r2_manifest_facts() {
+  local host="$1" key="$2" signer password_file scratch
+  read -r signer password_file <<< "$(host_secrets "$host")"
+  : "$password_file"
+  scratch="$work/pair/$(printf '%s' "$key" | tr '/' '_')"
+  install -d -m 0700 "$work/pair"
+  if [[ ! -f "$scratch" ]]; then
+    r2-object get "$key" "$scratch" >/dev/null || return 1
+    r2-object get "${key}.sig" "${scratch}.sig" >/dev/null || return 1
+    dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${scratch}.sig" "$scratch"
+  fi
+  jq -er '"\(.snapshotId) \(.forgeControlPlaneSha256)"' "$scratch"
+}
+
+# A Pi snapshot and a Forge snapshot may only be restored together when both
+# observed the same Forge control plane; otherwise the recovered Forge would
+# describe deployments the recovered Pi has never heard of. The bridge computes
+# this pairing over the iCloud mirror, so object storage needs its own - newest
+# compatible pair wins, and no pair at all is a hard stop rather than a guess.
+select_pair_r2() {
+  local pi_keys=() forge_keys=() pi_facts forge_facts
+  local pi_id pi_sha forge_id forge_sha
+  # Newest first, bounded: a recovery should try the most recent compatible
+  # pair, not walk the entire retention window downloading manifests.
+  # `tail -r` rather than `tac` because this script only runs on macOS.
+  mapfile -t pi_keys < <(r2_ready_keys pi-cloud | tail -20 | tail -r)
+  mapfile -t forge_keys < <(r2_ready_keys forge | tail -20 | tail -r)
+  ((${#pi_keys[@]} > 0)) || dr_die "object storage holds no READY manifest for pi-cloud"
+  ((${#forge_keys[@]} > 0)) || dr_die "object storage holds no READY manifest for forge"
+  for pi_key in "${pi_keys[@]}"; do
+    pi_facts="$(r2_manifest_facts pi-cloud "$pi_key")" || continue
+    read -r pi_id pi_sha <<< "$pi_facts"
+    for forge_key in "${forge_keys[@]}"; do
+      forge_facts="$(r2_manifest_facts forge "$forge_key")" || continue
+      read -r forge_id forge_sha <<< "$forge_facts"
+      [[ "$pi_sha" == "$forge_sha" ]] || continue
+      [[ "$pi_id" != "$forge_id" ]] || continue
+      printf '%s %s\n' "$pi_id" "$forge_id"
+      return 0
+    done
+  done
+  dr_die "object storage holds no Pi and Forge snapshot pair with a matching Forge control plane"
 }
 
 # Forge-only uses the surviving Pi control plane. Combined and Pi recovery need
 # the Pi snapshot; combined additionally needs Forge host config and images.
 pi_snapshot="$snapshot"; forge_snapshot="$snapshot"
 if [[ "$profile" == all ]]; then
-  if [[ "$snapshot" == latest ]]; then
+  if [[ "$snapshot" == latest && "$source_kind" == r2 ]]; then
+    read -r pi_snapshot forge_snapshot <<< "$(select_pair_r2)"
+  elif [[ "$snapshot" == latest ]]; then
     pair="$("$DR_SYNC_COMMAND" --config "$config" select-pair)"
     jq -e '.paired==true and .pi.snapshotId!=.forge.snapshotId and
       .forgeControlPlaneSha256==.pi.forgeControlPlaneSha256 and
@@ -171,14 +325,15 @@ if [[ "$profile" == all ]]; then
     dr_die "combined recovery requires --snapshot latest or PI_SNAPSHOT_ID,FORGE_SNAPSHOT_ID"
   fi
 fi
-if [[ "$profile" == pi || "$profile" == all ]]; then hydrate_one pi-cloud "$pi_snapshot"; fi
-if [[ "$profile" == forge || "$profile" == all ]]; then hydrate_one forge "$forge_snapshot"; fi
+if [[ "$profile" == pi || "$profile" == all ]]; then stage_one pi-cloud "$pi_snapshot"; fi
+if [[ "$profile" == forge || "$profile" == all ]]; then stage_one forge "$forge_snapshot"; fi
 
 artifact_bytes=0; restored_bytes=0; image_bytes=0; newest_epoch=0; oldest_epoch=9999999999
 package_source=""; version_source=""; snapshot_git_revisions='[]'; expected_services='[]'
 pi_control_plane=""; forge_control_plane=""
 while IFS= read -r item; do
   path="$(jq -r .path <<< "$item")"
+  item_repository="$(jq -er .repository <<< "$item")"
   hydrated_host="$(jq -er .host <<< "$item")"
   case "$hydrated_host" in
     pi-cloud) hydrated_password_file="$DR_RESTIC_PASSWORD_FILE_PI" ;;
@@ -186,13 +341,13 @@ while IFS= read -r item; do
     *) dr_die "hydration returned an unknown host" ;;
   esac
   restic_id="$(jq -r .resticSnapshotId <<< "$item")"
-  restore_bytes="$(RESTIC_REPOSITORY="$path/repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+  restore_bytes="$(RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
     restic stats --mode restore-size --json "$restic_id" | jq -er '.total_size | select(type=="number" and .>=0)')" \
     || dr_die "restic could not calculate local restore size"
   local_available="$(dr_bytes_available "$path")"
   ((local_available >= restore_bytes + 1073741824)) \
     || dr_die "insufficient local free space for plaintext restore of ${hydrated_host} (${restore_bytes} bytes plus reserve required)"
-  RESTIC_REPOSITORY="$path/repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+  RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
     restic restore "$restic_id" --target "$path/restored" >/dev/null
   manifest="$(find "$path/restored" -name snapshot-manifest.json -type f -print -quit)"
   [[ -n "$manifest" ]] || dr_die "restic snapshot has no snapshot manifest"

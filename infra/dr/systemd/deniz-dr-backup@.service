@@ -25,5 +25,12 @@ ProtectHome=yes
 # manifest read.
 RuntimeDirectory=deniz-dr-backup-%i
 Environment=DOCKER_CONFIG=/run/deniz-dr-backup-%i/docker
+# ProtectHome=yes makes /root read-only and restic resolves its cache under
+# $HOME, so every run logged "unable to open cache: mkdir /root/.cache:
+# read-only file system" and then re-read the repository index for each
+# operation it performed. Give it a cache the unit owns.
+Environment=RESTIC_CACHE_DIR=/var/cache/deniz-dr-restic
+CacheDirectory=deniz-dr-restic
+CacheDirectoryMode=0700
 UMask=0077
 TimeoutStartSec=5h

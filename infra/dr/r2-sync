@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Mirror published DR snapshots from this host's local restic repository into
+# object storage.
+#
+# The local repository lives on the same machine as the data it protects, so it
+# is not a backup of that machine - it is a staging area. This is the step that
+# makes a snapshot survive the host, and it runs on a timer rather than as part
+# of `backup` so that a slow or failing upload can never fail, delay, or hold a
+# lock across a backup that has otherwise already succeeded.
+#
+# It is idempotent by construction: every run compares what the local repository
+# holds against what object storage holds and copies only the difference. A run
+# that is interrupted, or that skips because a backup holds the host lock, costs
+# nothing but a retry on the next tick.
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${script_dir}/lib/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: r2-sync --profile pi|forge [--execute|--check-only]
+
+Copies any snapshot present in the local restic repository but absent from
+object storage, then publishes the signed READY manifest that attests to it.
+Default is --check-only.
+USAGE
+}
+
+profile=""; mode=--check-only
+while (($#)); do
+  case "$1" in
+    --profile) profile="${2:-}"; shift 2 ;;
+    --execute) mode=--execute; shift ;;
+    --check-only) mode=--check-only; shift ;;
+    *) usage; exit 2 ;;
+  esac
+done
+[[ "$profile" == pi || "$profile" == forge ]] || { usage; exit 2; }
+
+dr_require_commands jq restic r2-object
+
+host_name="$([[ "$profile" == pi ]] && printf pi-cloud || printf forge)"
+generation="${DR_GENERATION:-$(date -u +%Y)-Q$(( (10#$(date -u +%m) - 1) / 3 + 1 ))}"
+[[ "$generation" =~ ^[0-9]{4}-Q[1-4]$ ]] || dr_die "DR_GENERATION must be YYYY-Q1..Q4"
+
+remote_root="${DR_REMOTE_ROOT:-/var/lib/deniz-dr}"
+[[ "$remote_root" == /* && "$remote_root" != / && "$remote_root" != *$'\n'* ]] \
+  || dr_die "DR_REMOTE_ROOT must be a safe absolute directory"
+
+repository="${remote_root}/repositories/${host_name}/${generation}"
+ready_root="${remote_root}/ready/${host_name}/${generation}"
+lock_dir="${remote_root}/locks/${host_name}.lock"
+password_file="${DR_RESTIC_PASSWORD_FILE:-}"
+
+dr_require_private_file "$password_file"
+[[ -d "$repository" ]] || dr_die "local repository is missing: ${repository}"
+
+: "${R2_ENDPOINT:?R2_ENDPOINT is required}"
+: "${R2_BUCKET:?R2_BUCKET is required}"
+: "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}"
+: "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}"
+export R2_ENDPOINT R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+
+# The endpoint is account-wide and every bucket in the account hangs off it, so
+# the bucket name is the only thing separating this from unrelated data. Refuse
+# anything that could traverse out of the prefix this profile owns.
+[[ "$R2_ENDPOINT" =~ ^https://[A-Za-z0-9.-]+$ ]] || dr_die "R2_ENDPOINT must be a bare https origin"
+[[ "$R2_BUCKET" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || dr_die "R2_BUCKET is not a valid bucket name"
+
+remote_repository="s3:${R2_ENDPOINT}/${R2_BUCKET}/${host_name}"
+
+heartbeat() {
+  local url="$1"
+  [[ -n "$url" ]] || return 0
+  [[ "$url" == https://uptime.betterstack.com/* && "$url" != *[$'\r\n"\\']* ]] || return 1
+  printf 'url = "%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "$url" | curl --config - >/dev/null || true
+}
+
+emit() { jq -nc "$@"; }
+
+# `restic snapshots` on a repository that has never been initialised is an error
+# rather than an empty list, and on the very first run that is the expected
+# state, not a failure.
+remote_snapshot_ids() {
+  restic -r "$remote_repository" --password-file "$password_file" \
+    snapshots --json --no-lock 2>/dev/null | jq -r '.[]?.short_id' || true
+}
+
+local_snapshots() {
+  restic -r "$repository" --password-file "$password_file" \
+    snapshots --json --no-lock | jq -c '.[] | {id: .short_id, time: .time, paths: .paths}'
+}
+
+if [[ "$mode" == --check-only ]]; then
+  have="$(remote_snapshot_ids | wc -l | tr -d ' ')"
+  want="$(local_snapshots | wc -l | tr -d ' ')"
+  emit --arg repo "$remote_repository" --argjson local "$want" --argjson remote "$have" \
+    '{writes:false,repository:$repo,localSnapshots:$local,remoteSnapshots:$remote}'
+  exit 0
+fi
+
+# A backup writing the repository must not be read mid-write, and the Mac bridge
+# takes the same lock. Losing the race is an ordinary outcome on a host that
+# backs up daily and syncs hourly, so it reports and exits zero rather than
+# waking anyone up.
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  emit --arg owner "$(cat "${lock_dir}/owner" 2>/dev/null || cat "${lock_dir}/pid" 2>/dev/null || echo unknown)" \
+    '{synced:false,skipped:"host-lock-held",lockOwner:$owner}'
+  exit 0
+fi
+printf '%s\n' "$$" > "${lock_dir}/pid"
+dr_install_exit_cleanup
+dr_on_exit 'dr_unlock "$lock_dir" || true'
+
+if ! restic -r "$remote_repository" --password-file "$password_file" cat config >/dev/null 2>&1; then
+  restic -r "$remote_repository" --password-file "$password_file" init >/dev/null \
+    || dr_die "could not initialise the object-storage repository"
+fi
+
+mapfile -t remote_ids < <(remote_snapshot_ids)
+copied=0; copied_ids='[]'
+while IFS= read -r snapshot; do
+  id="$(jq -er .id <<< "$snapshot")"
+  present=false
+  for existing in "${remote_ids[@]:-}"; do
+    [[ "$existing" == "$id" ]] && { present=true; break; }
+  done
+  [[ "$present" == true ]] && continue
+  restic -r "$remote_repository" --password-file "$password_file" \
+    copy --from-repo "$repository" --from-password-file "$password_file" "$id" >/dev/null \
+    || dr_die "copy of snapshot ${id} into object storage failed"
+  copied=$((copied + 1))
+  copied_ids="$(jq -c --arg id "$id" '. + [$id]' <<< "$copied_ids")"
+done < <(local_snapshots)
+
+# The repository proves integrity; the signed READY manifest proves that a
+# backup run declared the snapshot complete. Recovery checks both, so a
+# repository published without its manifests is not a recovery source.
+manifests=0
+if [[ -d "$ready_root" ]]; then
+  while IFS= read -r -d '' manifest; do
+    base="$(basename "$manifest")"
+    dr_assert_safe_relative_path "$base"
+    key="${host_name}/${generation}/ready/${base}"
+    r2-object head "$key" >/dev/null 2>&1 && continue
+    r2-object put "$key" "$manifest" >/dev/null || dr_die "could not publish manifest ${base}"
+    manifests=$((manifests + 1))
+  done < <(find "$ready_root" -maxdepth 1 -type f \( -name '*.json' -o -name '*.json.sig' \) -print0)
+fi
+
+heartbeat "${DR_R2_SYNC_HEARTBEAT_URL:-}"
+
+emit --arg repo "$remote_repository" --argjson copied "$copied" \
+  --argjson ids "$copied_ids" --argjson manifests "$manifests" \
+  '{synced:true,repository:$repo,snapshotsCopied:$copied,snapshotIds:$ids,manifestsPublished:$manifests}'

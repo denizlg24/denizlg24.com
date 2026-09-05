@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Minimal S3/R2 object client for the disaster-recovery tooling.
+
+restic moves the repository itself, but the signed READY manifest that proves a
+snapshot is complete is not a restic object, and neither the Pi nor a recovery
+Mac is guaranteed to have the AWS CLI or rclone. Recovery tooling that depends
+on a package manager working is tooling that fails on the day it is needed, so
+this speaks SigV4 with nothing but the Python standard library.
+
+Only the four verbs the DR scripts actually use are implemented. Objects handled
+here are manifests and signatures - kilobytes - so bodies are read into memory
+rather than streamed.
+
+Environment:
+  R2_ENDPOINT             https://<account>.r2.cloudflarestorage.com
+  R2_BUCKET               bucket name
+  AWS_ACCESS_KEY_ID       R2 access key id
+  AWS_SECRET_ACCESS_KEY   R2 secret access key
+  AWS_DEFAULT_REGION      defaults to "auto", which is what R2 expects
+"""
+
+from __future__ import annotations
+
+import datetime
+import hashlib
+import hmac
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+UNRESERVED_SAFE = "-_.~"
+
+
+def fail(message: str) -> "None":
+    sys.stderr.write(f"STOP: {message}\n")
+    raise SystemExit(1)
+
+
+def env(name: str, default: str | None = None) -> str:
+    value = os.environ.get(name, default)
+    if not value:
+        fail(f"{name} is required")
+    return value
+
+
+def sign(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+
+
+def signing_key(secret: str, date: str, region: str, service: str) -> bytes:
+    k = sign(("AWS4" + secret).encode("utf-8"), date)
+    k = sign(k, region)
+    k = sign(k, service)
+    return sign(k, "aws4_request")
+
+
+def canonical_uri(bucket: str, key: str) -> str:
+    # Each path segment is encoded independently: "/" separates segments and
+    # must survive, everything else follows RFC 3986 unreserved rules.
+    segments = [bucket] + [s for s in key.split("/") if s != ""]
+    return "/" + "/".join(urllib.parse.quote(s, safe=UNRESERVED_SAFE) for s in segments)
+
+
+def request(
+    method: str,
+    key: str,
+    body: bytes = b"",
+    query: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
+    endpoint = env("R2_ENDPOINT").rstrip("/")
+    bucket = env("R2_BUCKET")
+    access = env("AWS_ACCESS_KEY_ID")
+    secret = env("AWS_SECRET_ACCESS_KEY")
+    region = os.environ.get("AWS_DEFAULT_REGION") or "auto"
+    service = "s3"
+
+    host = urllib.parse.urlparse(endpoint).netloc
+    now = datetime.datetime.now(datetime.timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(body).hexdigest()
+
+    uri = canonical_uri(bucket, key)
+    query = query or {}
+    canonical_query = "&".join(
+        f"{urllib.parse.quote(k, safe=UNRESERVED_SAFE)}="
+        f"{urllib.parse.quote(v, safe=UNRESERVED_SAFE)}"
+        for k, v in sorted(query.items())
+    )
+
+    headers = {
+        "host": host,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    signed_headers = ";".join(sorted(headers))
+    canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
+    canonical_request = "\n".join(
+        [method, uri, canonical_query, canonical_headers, signed_headers, payload_hash]
+    )
+
+    scope = f"{date_stamp}/{region}/{service}/aws4_request"
+    to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signature = hmac.new(
+        signing_key(secret, date_stamp, region, service),
+        to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    headers["Authorization"] = (
+        f"AWS4-HMAC-SHA256 Credential={access}/{scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+
+    url = endpoint + uri + (f"?{canonical_query}" if canonical_query else "")
+    req = urllib.request.Request(url, data=body or None, method=method)
+    for name, value in headers.items():
+        req.add_header(name, value)
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+    except urllib.error.URLError as error:
+        fail(f"{method} {key}: {error.reason}")
+        raise
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        fail("usage: r2-object get|put|head|list KEY [FILE]")
+    verb = argv[1]
+
+    if verb == "get":
+        if len(argv) != 4:
+            fail("usage: r2-object get KEY DEST")
+        status, body = request("GET", argv[2])
+        if status != 200:
+            fail(f"GET {argv[2]} returned HTTP {status}")
+        # Written via a temporary name so a truncated transfer cannot be
+        # mistaken for a complete object by whatever reads it next.
+        temporary = argv[3] + ".partial"
+        with open(temporary, "wb") as handle:
+            handle.write(body)
+        os.replace(temporary, argv[3])
+        print(len(body))
+        return 0
+
+    if verb == "put":
+        if len(argv) < 4:
+            fail("usage: r2-object put KEY SRC")
+        with open(argv[3], "rb") as handle:
+            payload = handle.read()
+        status, body = request("PUT", argv[2], payload)
+        if status not in (200, 201):
+            fail(f"PUT {argv[2]} returned HTTP {status}: {body[:200]!r}")
+        print(len(payload))
+        return 0
+
+    if verb == "head":
+        status, _ = request("HEAD", argv[2])
+        return 0 if status == 200 else 1
+
+    if verb == "list":
+        prefix = argv[2] if len(argv) > 2 else ""
+        token = None
+        while True:
+            query = {"list-type": "2", "prefix": prefix, "max-keys": "1000"}
+            if token:
+                query["continuation-token"] = token
+            status, body = request("GET", "", query=query)
+            if status != 200:
+                fail(f"LIST {prefix} returned HTTP {status}")
+            root = ET.fromstring(body)
+            namespace = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
+            for item in root.findall("s3:Contents", namespace):
+                name = item.findtext("s3:Key", default="", namespaces=namespace)
+                size = item.findtext("s3:Size", default="0", namespaces=namespace)
+                print(f"{size}\t{name}")
+            truncated = root.findtext("s3:IsTruncated", default="false", namespaces=namespace)
+            if truncated != "true":
+                return 0
+            token = root.findtext("s3:NextContinuationToken", namespaces=namespace)
+            if not token:
+                return 0
+
+    fail(f"unknown verb: {verb}")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
