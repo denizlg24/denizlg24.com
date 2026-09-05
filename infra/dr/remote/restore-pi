@@ -448,8 +448,10 @@ while IFS= read -r database; do
   cat <<'SQL' | docker exec -i "$postgres_container" sh -ceu \
     'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -q -v ON_ERROR_STOP=1 -v database="$1" -U "$POSTGRES_USER" -d "$1" -At' \
     sh "$database" \
-    | jq -ce 'select(.database|type=="string") | select(.schema|type=="string") |
-        select(.table|type=="string") | select(.rows|type=="number" and .>=0 and floor==.)' >> "$postgres_rows"
+    | jq -c 'if (.database|type=="string") and (.schema|type=="string")
+          and (.table|type=="string")
+          and (.rows|type=="number" and .>=0 and floor==.)
+        then . else error("invalid table row-count record") end' >> "$postgres_rows"
 SELECT format(
   'SELECT json_build_object(''database'', %L, ''schema'', %L, ''table'', %L, ''rows'', count(*))::text FROM %I.%I;',
   :'database', schemaname, tablename, schemaname, tablename
