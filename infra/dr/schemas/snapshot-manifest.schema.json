@@ -34,6 +34,7 @@
     "generation": { "type": "string", "pattern": "^[0-9]{4}-Q[1-4]$" },
     "gitRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "versionLockSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hostPackagesSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "databaseVersions": {
       "type": "object",
       "additionalProperties": { "type": "string" }

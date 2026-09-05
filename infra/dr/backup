@@ -222,6 +222,15 @@ archive_recovery_host_credentials() {
   printf 'DR_ACTIVE_SITE_VALUE=home\n' >> "$output_env"
   printf 'DR_GIT_REVISION=%s\n' "$git_revision" >> "$output_env"
   chmod 0600 "$output_env"
+  # Keep each profile's offsite credentials separate on a combined DR host.
+  local r2_config
+  for r2_config in /etc/deniz-dr/r2.env "/etc/deniz-dr/r2-${profile}.env"; do
+    if [[ -f "$r2_config" ]]; then
+      dr_require_private_file "$r2_config"
+      cat "$r2_config" >> "$credentials/r2-${profile}.env"
+      printf '\n' >> "$credentials/r2-${profile}.env"
+    fi
+  done
   if [[ "$profile" == pi ]]; then
     dr_require_private_file /etc/deniz-dr/external.env
     install -m 0600 /etc/deniz-dr/external.env "$credentials/external.env"
@@ -854,6 +863,7 @@ jq -n \
   --arg snapshotId "$snapshot_id" --arg createdAt "$(date -u +%FT%TZ)" --arg host "$host_name" \
   --arg profile "$profile" --arg generation "$generation" --arg gitRevision "$git_revision" \
   --arg versionLockSha256 "$version_lock_sha256" \
+  --arg hostPackagesSha256 "$(dr_sha256 "$stage/meta/host-packages.json")" \
   --arg forgeControlPlaneSha256 "$forge_control_plane_sha256" \
   --argjson nutritionCaptured "$nutrition_captured" \
   --argjson databaseVersions "$database_versions" \
@@ -863,7 +873,7 @@ jq -n \
   --argjson artifactBytes "$artifact_bytes" --argjson restoredBytes "$restored_bytes" \
   --argjson imageBytes "$image_bytes" --argjson fileCount "$file_count" \
   '{schemaVersion:1,snapshotId:$snapshotId,createdAt:$createdAt,host:$host,profile:$profile,generation:$generation,
-    gitRevision:$gitRevision,versionLockSha256:$versionLockSha256,databaseVersions:$databaseVersions,
+    gitRevision:$gitRevision,versionLockSha256:$versionLockSha256,hostPackagesSha256:$hostPackagesSha256,databaseVersions:$databaseVersions,
     artifacts:$artifacts[0],images:$images[0],forgeControlPlane:$forgeControlPlane[0],
     forgeControlPlaneSha256:$forgeControlPlaneSha256,
     restoreFootprint:$restoreFootprint[0],
@@ -913,7 +923,7 @@ restic_snapshot_id="$(jq -rs '[.[] | select(.message_type=="summary")][-1].snaps
 rm -f -- "$backup_json"
 [[ "$restic_snapshot_id" =~ ^[0-9a-f]+$ ]] || dr_die "restic did not return a snapshot id"
 
-restic forget --host "$host_name" --tag "dr-${profile}" --keep-within 14d --keep-daily 90 --keep-monthly 12 --prune >/dev/null
+restic forget --group-by host --host "$host_name" --tag "dr-${profile}" --keep-within 14d --keep-daily 90 --keep-monthly 12 --prune >/dev/null
 restic check >/dev/null
 
 objects_json="$stage/meta/repository-objects.json"

@@ -55,6 +55,14 @@
         "intendedMutations"
       ],
       "properties": {
+        "packagePolicySha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "targetPackagesSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "localPreflight": { "const": "verified" },
         "profile": { "enum": ["pi", "forge", "all"] },
         "iCloudConfirmedSnapshots": {

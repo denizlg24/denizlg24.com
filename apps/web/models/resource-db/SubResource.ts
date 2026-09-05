@@ -4,6 +4,7 @@ import { connectResourceDB } from "@/lib/mongodb-resource";
 export interface ISubResourceHttpCheck {
   type: "http";
   url: string;
+  credentialId?: "dr-synthetic" | null;
   expectStatus: number | null;
   expectJsonPath: string | null;
   expectEquals: string | null;
@@ -36,6 +37,7 @@ const SubResourceCheckSchema = new Schema(
   {
     type: { type: String, enum: ["http", "tcp"], required: true },
     url: { type: String },
+    credentialId: { type: String, enum: ["dr-synthetic", null], default: null },
     expectStatus: { type: Number, default: null },
     expectJsonPath: { type: String, default: null },
     expectEquals: { type: String, default: null },

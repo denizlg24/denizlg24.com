@@ -248,8 +248,8 @@ fence_forge() {
   ssh -o BatchMode=yes "$host" sudo bash -s <<'REMOTE_FORGE_FENCE' || fenced=false
 set -Eeuo pipefail
 umask 077
-systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer
-systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service forge-agent forge-caddy forge-buildkit cloudflared
+systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer deniz-dr-r2-sync@forge.timer deniz-dr-r2-retention@forge.timer
+systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service deniz-dr-r2-sync@forge.service deniz-dr-r2-retention@forge.service forge-agent forge-caddy forge-buildkit cloudflared
 state=/var/lib/deniz-dr/forge-fenced-containers
 [[ ! -L "$state" ]]
 if [[ ! -e "$state" ]]; then
@@ -275,7 +275,7 @@ done < "$state"
 REMOTE_FORGE_FENCE
 }
 if [[ "$profile" == pi || "$profile" == all ]]; then
-  fence_one "${DR_PI_SSH:-}" "sudo systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; sudo systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service cloudflared.service; test -f /opt/markets-relay/docker-compose.markets.yml && test -f /opt/markets-relay/.env.markets; cd /opt/markets-relay && sudo docker compose --env-file .env.markets -f docker-compose.markets.yml down; if [ -f /opt/nutrition-api/docker-compose.yml ]; then cd /opt/nutrition-api && sudo docker compose -f docker-compose.yml down; elif [ -f /etc/systemd/system/nutrition-api.service ]; then sudo systemctl stop nutrition-api.service; elif [ -d /opt/nutrition-api ]; then exit 1; fi; cd /opt/deniz-cloud/infra/compose && sudo docker compose --env-file .env.pi -f docker-compose.pi.yml down"
+  fence_one "${DR_PI_SSH:-}" "sudo systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer; sudo systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-r2-sync@pi.service deniz-dr-r2-retention@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service cloudflared.service; test -f /opt/markets-relay/docker-compose.markets.yml && test -f /opt/markets-relay/.env.markets; cd /opt/markets-relay && sudo docker compose --env-file .env.markets -f docker-compose.markets.yml down; if [ -f /opt/nutrition-api/docker-compose.yml ]; then cd /opt/nutrition-api && sudo docker compose -f docker-compose.yml down; elif [ -f /etc/systemd/system/nutrition-api.service ]; then sudo systemctl stop nutrition-api.service; elif [ -d /opt/nutrition-api ]; then exit 1; fi; cd /opt/deniz-cloud/infra/compose && sudo docker compose --env-file .env.pi -f docker-compose.pi.yml down"
 fi
 if [[ "$profile" == forge || "$profile" == all ]]; then
   fence_forge "${DR_FORGE_SSH:-}"
@@ -326,10 +326,10 @@ if [[ "$profile" == forge ]]; then
     "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
 fi
 if [[ "$profile" == pi || "$profile" == all ]]; then
-  activate_command+='; systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; systemctl start deniz-dr-heartbeat@pi.service'
+  activate_command+='; systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer; systemctl start deniz-dr-heartbeat@pi.service; systemctl start --no-block deniz-dr-r2-retention@pi.service'
 fi
 if [[ "$profile" == forge || "$profile" == all ]]; then
-  activate_command+='; systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; systemctl start deniz-dr-heartbeat@forge.service'
+  activate_command+='; systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer deniz-dr-r2-sync@forge.timer deniz-dr-r2-retention@forge.timer; systemctl start deniz-dr-heartbeat@forge.service; systemctl start --no-block deniz-dr-r2-retention@forge.service'
 fi
 ssh "${ssh_opts[@]}" "$ssh_host" "$activate_command" \
   || dr_die "recovery host backup continuity could not be activated; apply the signed reverse patch"

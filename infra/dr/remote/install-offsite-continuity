@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+profile="${1:-}"
+fallback="${2:-}"
+[[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || exit 2
+((EUID == 0)) || exit 1
+root=/opt/deniz-cloud/infra/dr
+source "$root/lib/common.sh"
+install -m 0755 "$root/lib/r2-object" /usr/local/bin/r2-object
+install -m 0644 "$root"/systemd/deniz-dr-r2-{sync,retention}@.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+touch /etc/deniz-dr/allowed_signers
+for selected in pi forge; do
+  [[ "$profile" == all || "$profile" == "$selected" ]] || continue
+  # Old snapshots predate offsite credential capture. Only real recovery
+  # stages this fallback from the operator's private configuration.
+  target="/etc/deniz-dr/r2-${selected}.env"
+  if [[ ! -f "$target" ]]; then
+    dr_require_private_file "$fallback/r2-${selected}.env"
+    install -m 0600 "$fallback/r2-${selected}.env" "$target"
+  fi
+  dr_require_private_file "$target"
+  (
+    set -a
+    # shellcheck disable=SC1090
+    source "/etc/deniz-dr/${selected}.env"
+    # shellcheck disable=SC1090
+    source "$target"
+    set +a
+    : "${DR_R2_SYNC_HEARTBEAT_URL:?offsite heartbeat is required}"
+    PYTHONPATH="$root/lib" python3 -c 'from r2_catalog import r2_env; r2_env()'
+  )
+  signer="$([[ "$selected" == pi ]] && printf pi-cloud || printf forge)"
+  key="$(ssh-keygen -y -f "/etc/deniz-dr/${selected}-signing-key")"
+  awk -v signer="$signer" '$1 != signer' /etc/deniz-dr/allowed_signers > /etc/deniz-dr/allowed_signers.tmp
+  printf '%s %s\n' "$signer" "$key" >> /etc/deniz-dr/allowed_signers.tmp
+  mv /etc/deniz-dr/allowed_signers.tmp /etc/deniz-dr/allowed_signers
+  systemctl disable --now "deniz-dr-r2-sync@${selected}.timer" "deniz-dr-r2-retention@${selected}.timer"
+done
+chmod 0644 /etc/deniz-dr/allowed_signers
+systemctl daemon-reload

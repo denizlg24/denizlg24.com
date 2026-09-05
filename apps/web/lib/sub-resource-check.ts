@@ -4,6 +4,7 @@ import type {
   ISubResourceTcpCheck,
   SubResourceCheck,
 } from "@/models/resource-db/SubResource";
+import { healthCheckHeaders } from "./health-check-credential";
 
 const CHECK_TIMEOUT_MS = 10_000;
 
@@ -25,6 +26,7 @@ function readJsonPath(body: unknown, path: string): unknown {
 
 async function runHttpCheck(
   check: ISubResourceHttpCheck,
+  responses?: Map<string, Promise<Response>>,
 ): Promise<SubResourceCheckResult> {
   const startedAt = Date.now();
   const controller = new AbortController();
@@ -34,16 +36,32 @@ async function runHttpCheck(
   );
 
   try {
-    const res = await fetch(check.url, {
-      signal: controller.signal,
-      cache: "no-store",
-      headers: { "User-Agent": "denizlg24-status-check/1.0" },
-    });
+    const key = JSON.stringify([check.url, check.credentialId ?? null]);
+    let pending = responses?.get(key);
+    if (!pending) {
+      const headers = await healthCheckHeaders(check.url, check.credentialId);
+      pending = fetch(check.url, {
+        signal: controller.signal,
+        cache: "no-store",
+        // Never forward a credential to a redirect destination.
+        ...(check.credentialId ? { redirect: "error" as const } : {}),
+        headers: { "User-Agent": "denizlg24-status-check/1.0", ...headers },
+      });
+      responses?.set(key, pending);
+    }
+    const res = (await pending).clone();
     const responseTimeMs = Date.now() - startedAt;
 
     const statusOk =
       check.expectStatus != null ? res.status === check.expectStatus : res.ok;
-    if (!statusOk) {
+    // Deep health returns 503 when any dependency fails. A component row
+    // must still evaluate its own result, so one failed search probe does not
+    // falsely mark PostgreSQL and MongoDB down too.
+    const componentResult =
+      check.credentialId === "dr-synthetic" &&
+      /^checks\.[A-Za-z]+\.status$/.test(check.expectJsonPath ?? "") &&
+      res.status === 503;
+    if (!statusOk && !componentResult) {
       return {
         isHealthy: false,
         status: res.status,
@@ -109,7 +127,8 @@ function runTcpCheck(
 
 export function runSubResourceCheck(
   check: SubResourceCheck,
+  responses?: Map<string, Promise<Response>>,
 ): Promise<SubResourceCheckResult> {
-  if (check.type === "http") return runHttpCheck(check);
+  if (check.type === "http") return runHttpCheck(check, responses);
   return runTcpCheck(check);
 }

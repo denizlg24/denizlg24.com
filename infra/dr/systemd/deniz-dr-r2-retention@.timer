@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly bounded offsite retention with daily lock retry (%i)
+
+[Timer]
+OnCalendar=*-*-* 10:43:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=deniz-dr-r2-retention@%i.service
+
+[Install]
+WantedBy=timers.target

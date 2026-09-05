@@ -386,7 +386,15 @@ export async function runAllSubResourceChecks(
   const SubResource = await getSubResourceModel();
   const HealthCheckLog = await getHealthCheckLogModel();
 
-  const subResources = await SubResource.find({ isActive: true });
+  const PingResource = await getPingResourceModel();
+  const activeParents = await PingResource.find({ isActive: true }).distinct(
+    "_id",
+  );
+  const subResources = await SubResource.find({
+    isActive: true,
+    parentResourceId: { $in: activeParents },
+  });
+  const responses = new Map<string, Promise<Response>>();
   const summaries: SubResourceCheckSummary[] = [];
 
   for (const sub of subResources) {
@@ -395,7 +403,7 @@ export async function runAllSubResourceChecks(
       if (elapsed < 5 * 60 * 1000) continue;
     }
 
-    const result = await runSubResourceCheck(sub.check);
+    const result = await runSubResourceCheck(sub.check, responses);
     const checkedAt = new Date();
 
     await SubResource.updateOne(

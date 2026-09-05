@@ -1,0 +1,17 @@
+[Unit]
+Description=Website resource and dependency health checks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=/etc/deniz-cloud/resource-health-checks.env
+ExecStart=/usr/local/lib/deniz-cloud/deniz-resource-health-checks
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+MemoryMax=256M
+TimeoutStartSec=4min
+UMask=0077

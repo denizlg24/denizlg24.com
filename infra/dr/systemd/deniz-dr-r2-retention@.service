@@ -1,0 +1,26 @@
+[Unit]
+Description=Verify and retain Deniz DR offsite recovery points (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-dr/%i.env
+ConditionPathExists=|/etc/deniz-dr/r2.env
+ConditionPathExists=|/etc/deniz-dr/r2-%i.env
+ConditionPathExists=/etc/deniz-dr/allowed_signers
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/deniz-dr/%i.env
+EnvironmentFile=-/etc/deniz-dr/r2.env
+EnvironmentFile=-/etc/deniz-dr/r2-%i.env
+Environment=DR_ALLOWED_SIGNERS=/etc/deniz-dr/allowed_signers
+Environment=RESTIC_CACHE_DIR=/var/cache/deniz-dr-restic
+CacheDirectory=deniz-dr-restic
+CacheDirectoryMode=0700
+ExecStart=/opt/deniz-cloud/infra/dr/r2-retention --profile %i --execute
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=yes
+ProtectHome=yes
+UMask=0077
+TimeoutStartSec=6h

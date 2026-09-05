@@ -3,14 +3,17 @@ Description=Mirror published Deniz DR snapshots into object storage (%i)
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/deniz-dr/%i.env
-ConditionPathExists=/etc/deniz-dr/r2.env
+ConditionPathExists=|/etc/deniz-dr/r2.env
+ConditionPathExists=|/etc/deniz-dr/r2-%i.env
 
 [Service]
 Type=oneshot
 User=root
 Group=root
 EnvironmentFile=/etc/deniz-dr/%i.env
-EnvironmentFile=/etc/deniz-dr/r2.env
+EnvironmentFile=-/etc/deniz-dr/r2.env
+EnvironmentFile=-/etc/deniz-dr/r2-%i.env
+Environment=DR_R2_REQUIRE_RETENTION=true
 ExecStart=/opt/deniz-cloud/infra/dr/r2-sync --profile %i --execute
 # Uploading must never compete with serving. The copy is pure throughput and
 # has hours of slack, so it yields to everything the host does for real.

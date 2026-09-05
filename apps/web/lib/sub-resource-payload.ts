@@ -15,6 +15,13 @@ export function parseSubResourceCheck(input: unknown): ParsedCheck {
     if (typeof check.url !== "string" || !/^https?:\/\//.test(check.url)) {
       return { error: "HTTP check requires a valid url" };
     }
+    if (
+      check.credentialId != null &&
+      (check.credentialId !== "dr-synthetic" ||
+        check.url !== "https://api.denizlg24.com/healthz/deep")
+    ) {
+      return { error: "Health credential is not allowed for this endpoint" };
+    }
     const expectStatus =
       typeof check.expectStatus === "number" ? check.expectStatus : null;
     const expectJsonPath =
@@ -34,6 +41,9 @@ export function parseSubResourceCheck(input: unknown): ParsedCheck {
       value: {
         type: "http",
         url: check.url,
+        ...(check.credentialId === "dr-synthetic"
+          ? { credentialId: "dr-synthetic" as const }
+          : {}),
         expectStatus,
         expectJsonPath,
         expectEquals,

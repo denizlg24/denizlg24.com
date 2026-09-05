@@ -12,6 +12,8 @@ target_host=""
 profile=""
 snapshot="latest"
 source_kind=icloud
+source_explicit=false
+preview_mode=""
 check_only=false
 no_cutover=false
 accept_stale_snapshot=false
@@ -28,6 +30,7 @@ Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID
   --host root@IP
   --source icloud|r2
   --check-only
+  --plan | --simulate | --rehearsal (R2 metadata only; no target or bulk storage)
   --no-cutover
   --accept-stale-snapshot
   --provider hetzner --region REGION --size recommended
@@ -50,7 +53,9 @@ while (($#)); do
     --host) target_host="${2:-}"; shift 2 ;;
     --profile) profile="${2:-}"; shift 2 ;;
     --snapshot) snapshot="${2:-}"; shift 2 ;;
-    --source) source_kind="${2:-}"; shift 2 ;;
+    --source) source_kind="${2:-}"; source_explicit=true; shift 2 ;;
+    --plan) preview_mode=plan; shift ;;
+    --simulate | --rehearsal) preview_mode=simulate; shift ;;
     --check-only) check_only=true; shift ;;
     --no-cutover) no_cutover=true; shift ;;
     --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
@@ -65,13 +70,26 @@ done
 [[ "$source_kind" == icloud || "$source_kind" == r2 ]] || { usage; exit 2; }
 dr_require_private_file "$config"
 # shellcheck disable=SC1090
+if [[ -n "$preview_mode" ]]; then
+  [[ "$source_explicit" == false || "$source_kind" == r2 ]] || dr_die "metadata rehearsal requires --source r2"
+  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false ]] \
+    || dr_die "--plan/--simulate cannot be combined with execution, stale override or target options"
+  set -a
+  source "$config"
+  set +a
+  dr_require_commands python3 restic ssh-keygen
+  exec python3 "$script_dir/lib/recovery_plan.py" --profile "$profile" --snapshot "$snapshot" --mode "$preview_mode"
+fi
+set -a
+# shellcheck disable=SC1090
 source "$config"
+set +a
 : "${DR_SYNC_COMMAND:=${script_dir}/macos/dr-sync}"
 : "${DR_ICLOUD_HELPER:=${HOME}/Library/Application Support/deniz-dr/macos/dr-icloud-state}"
 : "${DR_REPORT_ROOT:=${HOME}/Documents/Recovery Reports}"
 : "${DR_BREAK_GLASS_FILE:?DR_BREAK_GLASS_FILE is required}"
 dr_read_env_file "$DR_BREAK_GLASS_FILE"
-dr_require_commands jq ssh scp ssh-keyscan ssh-keygen restic tar zstd curl git cmp
+dr_require_commands python3 jq ssh scp ssh-keyscan ssh-keygen restic tar zstd curl git cmp
 [[ "$(uname -s)" == Darwin ]] || dr_die "recover must run on macOS"
 # The Mac bridge and its native helper are dependencies of reading from iCloud,
 # not of recovery itself. Requiring them unconditionally meant a broken or
@@ -194,138 +212,14 @@ hydrate_one() {
     '. + [$item]' <<< "$selected")"
 }
 
-# READY manifests are keyed <host>/<generation>/ready/<snapshotId>.json. The
-# generation is part of the key rather than something the caller supplies, so
-# the listing is what resolves it - a recovery must not need to be told which
-# quarter the last good backup fell in.
-r2_ready_keys() {
-  # Dynamic regex rather than an /.../ literal: a literal cannot contain an
-  # unescaped "/" even inside a bracket expression, and BSD awk rejects it
-  # outright rather than doing something surprising.
-  r2-object list "${1}/" | awk -F'\t' '$2 ~ "/ready/[^/]+[.]json$" {print $2}' | sort
-}
-
-stage_from_r2() {
-  local host="$1" want="$2" destination key ready signer password_file
-  local snapshot_id restic_id generation item
-  destination="$work/r2-$host"
-  install -d -m 0700 "$destination"
-  read -r signer password_file <<< "$(host_secrets "$host")"
-  dr_require_private_file "$password_file"
-
-  if [[ "$want" == latest ]]; then
-    key="$(r2_ready_keys "$host" | tail -1)"
-    [[ -n "$key" ]] || dr_die "object storage holds no READY manifest for ${host}"
-  else
-    [[ "$want" =~ ^[a-z-]+-[0-9]{8}T[0-9]{6}Z$ ]] || dr_die "unsafe snapshot id: ${want}"
-    key="$(r2_ready_keys "$host" | grep -F "/ready/${want}.json" | head -1)" \
-      || dr_die "object storage holds no READY manifest for ${want}"
-    [[ -n "$key" ]] || dr_die "object storage holds no READY manifest for ${want}"
-  fi
-
-  ready="$destination/ready.json"
-  r2-object get "$key" "$ready" >/dev/null || dr_die "could not read READY manifest ${key}"
-  r2-object get "${key}.sig" "${ready}.sig" >/dev/null \
-    || dr_die "READY manifest ${key} has no signature in object storage"
-  # Same gate as the iCloud path: object storage is not trusted to tell the
-  # truth about completeness, the signature is.
-  dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${ready}.sig" "$ready"
-  dr_validate_json "$script_dir/schemas/ready-manifest.schema.json" "$ready"
-
-  snapshot_id="$(jq -er .snapshotId "$ready")"
-  restic_id="$(jq -er .resticSnapshotId "$ready")"
-  generation="$(jq -er .generation "$ready")"
-  [[ "$(jq -er .host "$ready")" == "$host" ]] \
-    || dr_die "READY manifest at ${key} describes a different host"
-  [[ "$want" == latest || "$snapshot_id" == "$want" ]] \
-    || dr_die "READY manifest at ${key} is not snapshot ${want}"
-
-  # A signed manifest proves a backup completed; it does not prove the copy into
-  # object storage did. The snapshot object is written last, so its presence is
-  # the thing worth asserting before a recovery commits to this source.
-  #
-  # The manifest names the snapshot's id in the *host's* repository, and
-  # `restic copy` gives the copy a new id in the destination while recording the
-  # source in `original`. Asserting the manifest's id directly therefore looks
-  # for something that cannot exist here, and restoring by it would fail even
-  # though the data is present and correct. Resolve through `original`, and
-  # carry the id that is actually valid in this repository.
-  local resolved_id
-  resolved_id="$(RESTIC_REPOSITORY="s3:${R2_ENDPOINT}/${R2_BUCKET}/${host}" \
-    RESTIC_PASSWORD_FILE="$password_file" restic snapshots --json --no-lock 2>/dev/null \
-    | jq -r --arg want "$restic_id" '.[] | select(.id == $want or .original == $want) | .id' | head -1)"
-  [[ -n "$resolved_id" ]] \
-    || dr_die "object storage does not hold restic snapshot ${restic_id} for ${host}"
-
-  item="$(jq -nc --arg host "$host" --arg snapshotId "$snapshot_id" --arg generation "$generation" \
-    --arg path "$destination" --arg resticSnapshotId "$resolved_id" \
-    --arg sourceResticSnapshotId "$restic_id" \
-    --arg repository "s3:${R2_ENDPOINT}/${R2_BUCKET}/${host}" \
-    '{hydrated:true,verified:true,source:"r2",host:$host,snapshotId:$snapshotId,
-      generation:$generation,path:$path,resticSnapshotId:$resticSnapshotId,
-      sourceResticSnapshotId:$sourceResticSnapshotId,repository:$repository}')"
-  selected="$(jq -c --argjson item "$item" '. + [$item]' <<< "$selected")"
-}
-
-stage_one() {
-  if [[ "$source_kind" == r2 ]]; then stage_from_r2 "$@"; else hydrate_one "$@"; fi
-}
-
-# Downloads one READY manifest, verifies its signature, and echoes
-# "<snapshotId> <forgeControlPlaneSha256>". Verification happens here rather
-# than at the point of use so that no unsigned manifest can influence which
-# pair gets selected.
-r2_manifest_facts() {
-  local host="$1" key="$2" signer password_file scratch
-  read -r signer password_file <<< "$(host_secrets "$host")"
-  : "$password_file"
-  scratch="$work/pair/$(printf '%s' "$key" | tr '/' '_')"
-  install -d -m 0700 "$work/pair"
-  if [[ ! -f "$scratch" ]]; then
-    r2-object get "$key" "$scratch" >/dev/null || return 1
-    r2-object get "${key}.sig" "${scratch}.sig" >/dev/null || return 1
-    dr_verify_file "$DR_ALLOWED_SIGNERS" "$signer" deniz-dr-ready "${scratch}.sig" "$scratch"
-  fi
-  jq -er '"\(.snapshotId) \(.forgeControlPlaneSha256)"' "$scratch"
-}
-
-# A Pi snapshot and a Forge snapshot may only be restored together when both
-# observed the same Forge control plane; otherwise the recovered Forge would
-# describe deployments the recovered Pi has never heard of. The bridge computes
-# this pairing over the iCloud mirror, so object storage needs its own - newest
-# compatible pair wins, and no pair at all is a hard stop rather than a guess.
-select_pair_r2() {
-  local pi_keys=() forge_keys=() pi_facts forge_facts
-  local pi_id pi_sha forge_id forge_sha
-  # Newest first, bounded: a recovery should try the most recent compatible
-  # pair, not walk the entire retention window downloading manifests.
-  # `tail -r` rather than `tac` because this script only runs on macOS.
-  mapfile -t pi_keys < <(r2_ready_keys pi-cloud | tail -20 | tail -r)
-  mapfile -t forge_keys < <(r2_ready_keys forge | tail -20 | tail -r)
-  ((${#pi_keys[@]} > 0)) || dr_die "object storage holds no READY manifest for pi-cloud"
-  ((${#forge_keys[@]} > 0)) || dr_die "object storage holds no READY manifest for forge"
-  for pi_key in "${pi_keys[@]}"; do
-    pi_facts="$(r2_manifest_facts pi-cloud "$pi_key")" || continue
-    read -r pi_id pi_sha <<< "$pi_facts"
-    for forge_key in "${forge_keys[@]}"; do
-      forge_facts="$(r2_manifest_facts forge "$forge_key")" || continue
-      read -r forge_id forge_sha <<< "$forge_facts"
-      [[ "$pi_sha" == "$forge_sha" ]] || continue
-      [[ "$pi_id" != "$forge_id" ]] || continue
-      printf '%s %s\n' "$pi_id" "$forge_id"
-      return 0
-    done
-  done
-  dr_die "object storage holds no Pi and Forge snapshot pair with a matching Forge control plane"
-}
-
 # Forge-only uses the surviving Pi control plane. Combined and Pi recovery need
 # the Pi snapshot; combined additionally needs Forge host config and images.
 pi_snapshot="$snapshot"; forge_snapshot="$snapshot"
+if [[ "$source_kind" == r2 ]]; then
+  selected="$(python3 "$script_dir/lib/recovery_plan.py" --profile "$profile" --snapshot "$snapshot" --stage "$work")"
+else
 if [[ "$profile" == all ]]; then
-  if [[ "$snapshot" == latest && "$source_kind" == r2 ]]; then
-    read -r pi_snapshot forge_snapshot <<< "$(select_pair_r2)"
-  elif [[ "$snapshot" == latest ]]; then
+  if [[ "$snapshot" == latest ]]; then
     pair="$("$DR_SYNC_COMMAND" --config "$config" select-pair)"
     jq -e '.paired==true and .pi.snapshotId!=.forge.snapshotId and
       .forgeControlPlaneSha256==.pi.forgeControlPlaneSha256 and
@@ -340,8 +234,10 @@ if [[ "$profile" == all ]]; then
     dr_die "combined recovery requires --snapshot latest or PI_SNAPSHOT_ID,FORGE_SNAPSHOT_ID"
   fi
 fi
-if [[ "$profile" == pi || "$profile" == all ]]; then stage_one pi-cloud "$pi_snapshot"; fi
-if [[ "$profile" == forge || "$profile" == all ]]; then stage_one forge "$forge_snapshot"; fi
+if [[ "$profile" == pi || "$profile" == all ]]; then hydrate_one pi-cloud "$pi_snapshot"; fi
+if [[ "$profile" == forge || "$profile" == all ]]; then hydrate_one forge "$forge_snapshot"; fi
+
+fi
 
 artifact_bytes=0; restored_bytes=0; image_bytes=0; newest_epoch=0; oldest_epoch=9999999999
 package_source=""; version_source=""; snapshot_git_revisions='[]'; expected_services='[]'
@@ -380,19 +276,15 @@ while IFS= read -r item; do
   fi
   package_candidate="$(dirname "$manifest")/meta/host-packages.json"
   [[ -f "$package_candidate" ]] || dr_die "snapshot has no exact host package manifest"
-  jq -S . "$package_candidate" > "$work/host-packages.candidate"
-  if [[ -z "$package_source" ]]; then
-    install -m 0600 "$work/host-packages.candidate" "$work/host-packages.selected"
-    package_source="$work/host-packages.selected"
-  else
-    jq -e --slurpfile selected "$package_source" '
-      to_entries | all(.[]; . as $entry |
-        ($selected[0] | has($entry.key) | not) or $selected[0][$entry.key]==$entry.value)
-    ' "$work/host-packages.candidate" >/dev/null \
-      || dr_die "selected Pi and Forge snapshots record conflicting host package versions"
-    jq -S -s '.[0] * .[1]' "$package_source" "$work/host-packages.candidate" > "$work/host-packages.merged"
-    mv -- "$work/host-packages.merged" "$package_source"
+  if jq -e 'has("hostPackagesSha256")' "$manifest" >/dev/null; then
+    [[ "$(dr_sha256 "$package_candidate")" == "$(jq -er .hostPackagesSha256 "$manifest")" ]] \
+      || dr_die "host package manifest checksum mismatch"
   fi
+  package_inputs=("$package_candidate")
+  [[ -z "$package_source" ]] || package_inputs+=("$package_source")
+  python3 "$script_dir/lib/recovery_packages.py" "${package_inputs[@]}" > "$work/host-packages.merged"
+  package_source="$work/host-packages.selected"
+  mv -- "$work/host-packages.merged" "$package_source"
   ready="$path/ready/$(jq -r .snapshotId <<< "$item").json"
   [[ "$(dr_sha256 "$manifest")" == "$(jq -r .snapshotManifest.sha256 "$ready")" ]] || dr_die "restored snapshot manifest hash mismatch"
   dr_validate_json "$script_dir/schemas/snapshot-manifest.schema.json" "$manifest"
@@ -446,7 +338,10 @@ while IFS= read -r item; do
   expected_services="$(jq -cn --argjson current "$expected_services" --argjson additions "$manifest_services" \
     '$current + $additions | unique | sort')"
   snapshot_git_revisions="$(jq -c --arg revision "$(jq -er .gitRevision "$manifest")" '. + [$revision] | unique' <<< "$snapshot_git_revisions")"
-  epoch="$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$created" +%s)"
+  epoch="$(dr_iso8601_epoch "$created")"
+  capture="$(jq -er .snapshotId "$manifest")"; capture="${capture##*-}"
+  capture_epoch="$(dr_iso8601_epoch "${capture:0:4}-${capture:4:2}-${capture:6:2}T${capture:9:2}:${capture:11:2}:${capture:13:2}Z")"
+  ((capture_epoch >= epoch)) || epoch="$capture_epoch"
   ((epoch > newest_epoch)) && newest_epoch=$epoch
   ((epoch < oldest_epoch)) && oldest_epoch=$epoch
 done < <(jq -c '.[]' <<< "$selected")
@@ -473,7 +368,7 @@ local_tool_versions="$(jq -cn \
   --arg zstd "$(zstd --version | head -1)" \
   '{git:$git,jq:$jq,restic:$restic,ssh:$ssh,tar:$tar,zstd:$zstd}')"
 
-intended='["install exact recorded host packages","join Tailscale as tag:dr","create users, swap, firewall, mounts and Docker networks","stream and semantically restore authoritative state","start and locally verify selected services"]'
+intended='["install the exact reviewed recovery host package baseline","join Tailscale as tag:dr","create users, swap, firewall, mounts and Docker networks","stream and semantically restore authoritative state","start and locally verify selected services"]'
 if [[ "$no_cutover" == false ]]; then
   intended="$(jq -c '. + ["fence old writable hosts","switch selected profile lease(s) to dr","apply DR tunnel and DNS patch","wait for external verification","retain signed reverse patch"]' <<< "$intended")"
 fi
@@ -483,9 +378,11 @@ jq -n --arg profile "$profile" --argjson snapshots "$snapshot_ids" --argjson age
   --argjson stale "$stale" --argjson staleAccepted "$accept_stale_snapshot" \
   --arg recoveryToolRevision "$recovery_tool_revision" --argjson recoveryToolDirty "$recovery_tool_dirty" \
   --argjson snapshotGitRevisions "$snapshot_git_revisions" --argjson localToolVersions "$local_tool_versions" \
+  --arg packagePolicySha256 "$(dr_sha256 "$script_dir/config/recovery-packages.json")" \
+  --arg targetPackagesSha256 "$(dr_sha256 "$package_source")" \
   --argjson expectedServices "$expected_services" --argjson forgeDeploymentCount "$forge_deployment_count" --argjson intendedMutations "$intended" \
   --argjson cutoverRequested "$([[ "$no_cutover" == false ]] && printf true || printf false)" \
-  '{localPreflight:"verified",profile:$profile,iCloudConfirmedSnapshots:$snapshots,oldestSnapshotAgeSeconds:$ageSeconds,
+  '{packagePolicySha256:$packagePolicySha256,targetPackagesSha256:$targetPackagesSha256,localPreflight:"verified",profile:$profile,iCloudConfirmedSnapshots:$snapshots,oldestSnapshotAgeSeconds:$ageSeconds,
     backupArtifactBytes:$artifactBytes,restoredBytes:$restoredBytes,imageBytes:$imageBytes,requiredTargetDiskBytes:$requiredDiskBytes,
     stale:$stale,staleAccepted:$staleAccepted,recoveryToolRevision:$recoveryToolRevision,recoveryToolDirty:$recoveryToolDirty,
     snapshotGitRevisions:$snapshotGitRevisions,localToolVersions:$localToolVersions,
@@ -781,12 +678,36 @@ if ! phase_done install-continuity; then
     | ssh "${ssh_opts[@]}" "$ssh_host" 'install -d -m 0755 /opt/deniz-cloud/infra && tar -C /opt/deniz-cloud -xf -'
   continuity_command='set -e; getent group deniz-dr >/dev/null || groupadd --system deniz-dr; install -d -m 0750 -o root -g deniz-dr /var/lib/deniz-dr /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -d -m 0700 /var/lib/deniz-dr/staging /var/lib/deniz-dr/external-state /etc/deniz-dr; setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -m 0644 /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.timer /etc/systemd/system/; systemctl daemon-reload'
   if [[ "$profile" == pi || "$profile" == all ]]; then
-    continuity_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer 2>/dev/null || true'
+    continuity_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer 2>/dev/null || true'
   fi
   if [[ "$profile" == forge || "$profile" == all ]]; then
-    continuity_command+='; id forge >/dev/null 2>&1; usermod -a -G deniz-dr forge; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer 2>/dev/null || true'
+    continuity_command+='; id forge >/dev/null 2>&1; usermod -a -G deniz-dr forge; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer deniz-dr-r2-sync@forge.timer deniz-dr-r2-retention@forge.timer 2>/dev/null || true'
   fi
   ssh "${ssh_opts[@]}" "$ssh_host" "$continuity_command"
+  # Future snapshots contain per-profile R2 settings; older snapshots use a
+  # private operator-config fallback. Metadata-only modes never reach this.
+  python3 - "$work" "$profile" <<'PYCODE'
+import os, pathlib, sys
+work, profile = pathlib.Path(sys.argv[1]), sys.argv[2]
+for selected in (('pi', 'forge') if profile == 'all' else (profile,)):
+    values = {key: os.environ.get(key, '') for key in
+              ('R2_ENDPOINT', 'R2_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY')}
+    values['DR_R2_SYNC_HEARTBEAT_URL'] = os.environ.get('DR_R2_SYNC_HEARTBEAT_URL_' + selected.upper(), '')
+    if not all(values.values()):
+        continue  # The remote helper requires the restored archive instead.
+    if any(not value.isascii() or any(c.isspace() or c in "'\"\\`$;" for c in value)
+           for value in values.values()):
+        raise SystemExit('unsafe R2 continuity environment value')
+    target = work / ('r2-' + selected + '.env')
+    target.write_text(''.join(key + "='" + value + "'\n" for key, value in values.items()))
+    target.chmod(0o600)
+PYCODE
+  for continuity_env in "$work"/r2-*.env; do
+    [[ -f "$continuity_env" ]] || continue
+    scp "${ssh_opts[@]}" "$continuity_env" "$ssh_host:$remote_root/"
+    rm -f -- "$continuity_env"
+  done
+  ssh "${ssh_opts[@]}" "$ssh_host" "bash /opt/deniz-cloud/infra/dr/remote/install-offsite-continuity '$profile' '$remote_root'; result=\$?; rm -f '$remote_root'/r2-*.env; exit \$result"
   finish_phase install-continuity
 fi
 

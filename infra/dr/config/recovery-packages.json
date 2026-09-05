@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "ubuntu": "24.04",
+  "architecture": "x86_64",
+  "observedAt": "2026-09-05",
+  "reason": "Recovery-only baseline: use the versions already running on the x86_64 Forge host for the shared host runtime. Source hosts keep their installed versions. All unlisted package disagreements remain fatal.",
+  "overrides": {
+    "cloudflared": {
+      "acceptedSourceVersions": ["2026.3.0", "2026.7.3"],
+      "targetVersion": "2026.7.3"
+    },
+    "docker-ce": {
+      "acceptedSourceVersions": [
+        "5:29.3.0-1~ubuntu.24.04~noble",
+        "5:29.7.2-1~ubuntu.24.04~noble"
+      ],
+      "targetVersion": "5:29.7.2-1~ubuntu.24.04~noble"
+    },
+    "docker-ce-cli": {
+      "acceptedSourceVersions": [
+        "5:29.3.0-1~ubuntu.24.04~noble",
+        "5:29.7.2-1~ubuntu.24.04~noble"
+      ],
+      "targetVersion": "5:29.7.2-1~ubuntu.24.04~noble"
+    },
+    "docker-buildx-plugin": {
+      "acceptedSourceVersions": [
+        "0.31.1-1~ubuntu.24.04~noble",
+        "0.36.1-1~ubuntu.24.04~noble"
+      ],
+      "targetVersion": "0.36.1-1~ubuntu.24.04~noble"
+    },
+    "docker-compose-plugin": {
+      "acceptedSourceVersions": [
+        "5.1.0-1~ubuntu.24.04~noble",
+        "5.4.0-1~ubuntu.24.04~noble"
+      ],
+      "targetVersion": "5.4.0-1~ubuntu.24.04~noble"
+    },
+    "nftables": {
+      "acceptedSourceVersions": ["1.0.9-1build1", "1.0.9-1ubuntu0.1"],
+      "targetVersion": "1.0.9-1ubuntu0.1"
+    }
+  }
+}

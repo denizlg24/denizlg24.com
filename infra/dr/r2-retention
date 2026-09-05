@@ -8,7 +8,7 @@ while (($#)); do
   case "$1" in
     --profile) profile="${2:-}"; shift 2 ;;
     --execute|--check-only) mode="$1"; shift ;;
-    *) echo 'Usage: r2-sync --profile pi|forge [--check-only|--execute]' >&2; exit 2 ;;
+    *) echo 'Usage: r2-retention --profile pi|forge [--check-only|--execute]' >&2; exit 2 ;;
   esac
 done
 [[ "$profile" == pi || "$profile" == forge ]] || dr_die 'profile must be pi or forge'
@@ -21,11 +21,23 @@ heartbeat() {
   printf 'url = "%s%s"\nfail\nsilent\nshow-error\nmax-time = 15\n' "${url%/}" "$suffix" | curl --config - >/dev/null || true
 }
 if [[ "$mode" == --execute ]]; then
+  marker="${DR_REMOTE_ROOT:-/var/lib/deniz-dr}/r2-retention-${profile}.success"
+  failed="${marker%.success}.failed"
+  if [[ ! -f "$failed" && -f "$marker" ]] && python3 - "$marker" <<'PYCODE'
+import pathlib,sys,time
+age=time.time()-pathlib.Path(sys.argv[1]).stat().st_mtime
+sys.exit(0 if 0 <= age < 6*86400 else 1)
+PYCODE
+  then
+    echo '{"writes":false,"skipped":"weekly-retention-already-completed"}'
+    exit 0
+  fi
   if ! mkdir "$lock_dir" 2>/dev/null; then
     echo '{"writes":false,"skipped":"host-lock-held"}'
     exit 0
   fi
   printf '%s\n' "$$" > "$lock_dir/pid"
-  trap 'result=$?; dr_unlock "$lock_dir"; if ((result)); then heartbeat /fail; else heartbeat ""; fi' EXIT
+  trap 'result=$?; dr_unlock "$lock_dir"; if ((result)); then touch "$failed"; heartbeat /fail; else rm -f "$failed"; heartbeat ""; fi' EXIT
 fi
-python3 "$script_dir/lib/r2_sync.py" --profile "$profile" "$mode"
+python3 "$script_dir/lib/r2_retention.py" --profile "$profile" "$mode"
+if [[ "$mode" == --execute ]]; then touch "$marker"; fi

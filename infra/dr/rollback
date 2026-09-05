@@ -112,10 +112,10 @@ if [[ "$profile" == forge || "$profile" == all ]]; then
 fi
 stop_command='set -e; systemctl stop deniz-dr-tunnel.service 2>/dev/null || true'
 if [[ "$profile" == pi || "$profile" == all ]]; then
-  stop_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/pi.env; cd /opt/deniz-cloud/infra/compose && docker compose --env-file .env.pi -f docker-compose.pi.yml down'
+  stop_command+='; systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer; systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-r2-sync@pi.service deniz-dr-r2-retention@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/pi.env; cd /opt/deniz-cloud/infra/compose && docker compose --env-file .env.pi -f docker-compose.pi.yml down'
 fi
 if [[ "$profile" == forge || "$profile" == all ]]; then
-  stop_command+='; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service forge-agent forge-caddy; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/forge.env'
+  stop_command+='; systemctl disable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer deniz-dr-r2-sync@forge.timer deniz-dr-r2-retention@forge.timer; systemctl stop deniz-dr-backup@forge.service deniz-dr-heartbeat@forge.service deniz-dr-r2-sync@forge.service deniz-dr-r2-retention@forge.service forge-agent forge-caddy; sed -i -E "s/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/" /etc/deniz-dr/forge.env'
 fi
 ssh "${ssh_opts[@]}" "$target" "$stop_command" \
   || dr_die "DR writer could not be fenced; DNS was not changed"
@@ -290,13 +290,13 @@ done < <(jq -c '.activeSites[]' "$patch_file")
 if [[ "$profile" == pi || "$profile" == all ]]; then
   active_name="$(jq -er '.activeSites[] | select(.profile=="pi") | .name' "$patch_file")"
   ssh -o BatchMode=yes "$DR_PI_SSH" \
-    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/pi.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/pi.env; sudo systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-external-export.timer; sudo systemctl start deniz-dr-heartbeat@pi.service" \
+    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/pi.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/pi.env; sudo systemctl enable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer; sudo systemctl start deniz-dr-heartbeat@pi.service" \
     || dr_die "original Pi backup continuity did not resume"
 fi
 if [[ "$profile" == forge || "$profile" == all ]]; then
   active_name="$(jq -er '.activeSites[] | select(.profile=="forge") | .name' "$patch_file")"
   ssh -o BatchMode=yes "$DR_FORGE_SSH" \
-    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/forge.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/forge.env; sudo systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer; sudo systemctl start deniz-dr-heartbeat@forge.service" \
+    "set -e; for i in \$(seq 1 60); do live=\$(dig @1.1.1.1 +short TXT '$active_name' | tr -d '\"' | head -1); [ \"\$live\" = home ] && break; sleep 2; done; [ \"\$live\" = home ]; sudo sed -i -E 's/^DR_ACTIVE_SITE_VALUE=.*/DR_ACTIVE_SITE_VALUE=home/' /etc/deniz-dr/forge.env; sudo grep -qx 'DR_ACTIVE_SITE_VALUE=home' /etc/deniz-dr/forge.env; sudo systemctl enable --now deniz-dr-backup@forge.timer deniz-dr-heartbeat@forge.timer deniz-dr-r2-sync@forge.timer deniz-dr-r2-retention@forge.timer; sudo systemctl start deniz-dr-heartbeat@forge.service" \
     || dr_die "original Forge backup continuity did not resume"
 fi
 for _ in $(seq 1 30); do

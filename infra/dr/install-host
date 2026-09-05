@@ -80,6 +80,16 @@ install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.service" /etc/systemd
 install -m 0644 "$installed_dr/systemd/deniz-dr-heartbeat@.timer" /etc/systemd/system/
 install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.service" /etc/systemd/system/
 install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.timer" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-r2-retention@.service" /etc/systemd/system/
+install -m 0644 "$installed_dr/systemd/deniz-dr-r2-retention@.timer" /etc/systemd/system/
+# Preserve the other profile's key when both run on a recovery host.
+touch /etc/deniz-dr/allowed_signers
+signer="$([[ "$profile" == pi ]] && printf pi-cloud || printf forge)"
+awk -v signer="$signer" '$1 != signer' /etc/deniz-dr/allowed_signers > /etc/deniz-dr/allowed_signers.tmp
+printf '%s %s\n' "$([[ "$profile" == pi ]] && printf pi-cloud || printf forge)" \
+  "$(ssh-keygen -y -f "$DR_SIGNING_KEY")" >> /etc/deniz-dr/allowed_signers.tmp
+mv /etc/deniz-dr/allowed_signers.tmp /etc/deniz-dr/allowed_signers
+chmod 0644 /etc/deniz-dr/allowed_signers
 # The object-storage client is a recovery dependency, so it goes on PATH rather
 # than being reached through the checkout: a recovery host restores /opt from a
 # snapshot it cannot read until this exists.
@@ -90,11 +100,14 @@ if [[ "$profile" == pi ]]; then
 fi
 systemctl daemon-reload
 if [[ "$defer_timers" == true ]]; then
-  systemctl disable --now "deniz-dr-backup@${profile}.timer" "deniz-dr-heartbeat@${profile}.timer" 2>/dev/null || true
+  systemctl disable --now "deniz-dr-r2-sync@${profile}.timer" "deniz-dr-r2-retention@${profile}.timer" "deniz-dr-backup@${profile}.timer" "deniz-dr-heartbeat@${profile}.timer" 2>/dev/null || true
   [[ "$profile" != pi ]] || systemctl disable --now deniz-dr-external-export.timer 2>/dev/null || true
 else
   systemctl enable --now "deniz-dr-backup@${profile}.timer"
   systemctl enable --now "deniz-dr-heartbeat@${profile}.timer"
+  if [[ -f /etc/deniz-dr/r2.env || -f /etc/deniz-dr/r2-${profile}.env ]]; then
+    systemctl enable --now "deniz-dr-r2-sync@${profile}.timer" "deniz-dr-r2-retention@${profile}.timer"
+  fi
   if [[ "$profile" == pi ]]; then systemctl enable --now deniz-dr-external-export.timer; fi
 fi
 jq -n --arg profile "$profile" --argjson timerEnabled "$([[ "$defer_timers" == false ]] && printf true || printf false)" \

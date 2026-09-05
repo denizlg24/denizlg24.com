@@ -132,8 +132,10 @@ locals {
   heartbeats = {
     pi_host         = { period = 300, grace = 240 }
     forge_host      = { period = 300, grace = 240 }
-    pi_backup       = { period = 21600, grace = 900 }
+    pi_backup       = { period = 86400, grace = 10800 }
     forge_backup    = { period = 21600, grace = 900 }
+    pi_r2_sync      = { period = 3600, grace = 21600 }
+    forge_r2_sync   = { period = 3600, grace = 3600 }
     external_export = { period = 86400, grace = 3600 }
     icloud_warning  = { period = 3600, grace = 39600 }
     icloud_critical = { period = 3600, grace = 82800 }

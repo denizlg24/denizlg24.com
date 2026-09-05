@@ -1,0 +1,11 @@
+[Unit]
+Description=Check website resource health every five minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=5min
+RandomizedDelaySec=10s
+Unit=deniz-resource-health-checks.service
+
+[Install]
+WantedBy=timers.target

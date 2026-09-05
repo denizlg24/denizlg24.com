@@ -16,6 +16,8 @@ for script in \
   "$dr_root"/heartbeat \
   "$dr_root"/install-forge-registry \
   "$dr_root"/install-host \
+  "$dr_root"/r2-sync \
+  "$dr_root"/r2-retention \
   "$dr_root"/recover \
   "$dr_root"/rehearse \
   "$dr_root"/report \
@@ -28,6 +30,7 @@ for script in \
   "$dr_root"/macos/uninstall \
   "$dr_root"/providers/hetzner \
   "$dr_root"/remote/bootstrap \
+  "$dr_root"/remote/install-offsite-continuity \
   "$dr_root"/remote/resource-sampler \
   "$dr_root"/remote/restore-forge \
   "$dr_root"/remote/restore-pi \
@@ -39,6 +42,7 @@ for script in \
   bash -n "$script"
 done
 
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2.py'
 bun "$dr_root/tests/validate-schemas.ts"
 node --check "$dr_root/lib/mongo-semantic.js"
 grep -Fq "redis.call('PEXPIRETIME', key)" "$dr_root/lib/redis-semantic.lua" \
