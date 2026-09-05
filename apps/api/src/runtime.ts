@@ -31,6 +31,7 @@ import {
 } from "@repo/cloud-core";
 import {
   files,
+  folders,
   smbCredentials,
   tusUploads,
   users,
@@ -79,6 +80,14 @@ import {
 import { projectRoutes } from "./projects/routes";
 import { TerminalGateway } from "./terminal/gateway";
 import { TerminalWebSocketProxy } from "./terminal/proxy";
+
+/**
+ * Reserved folder for deep-health canaries, matching the name
+ * `infra/scripts/posix-namespace-backup.sh` prunes from its namespace
+ * inventories. The two must agree: a canary written outside it moves a real
+ * directory's mtime, which makes every namespace backup refuse itself.
+ */
+const SYNTHETIC_FOLDER_NAME = ".dr-synthetic";
 
 function authSecret(): string {
   const secret = requiredEnv("BETTER_AUTH_SECRET");
@@ -523,13 +532,36 @@ export async function createRuntimeApp() {
               throw new Error("superuser storage root is unavailable");
             const filename = `.dr-synthetic-${canary}`;
             const payload = `deniz-dr-${canary}`;
+            // The canary goes in a reserved folder, not straight into the
+            // user root. `posix-namespace-backup.sh` prunes `.dr-synthetic`
+            // from its inventories precisely so these writes cannot perturb
+            // them — but only the pruned directory's own mtime is hidden.
+            // Writing into the root moved *its* mtime every three minutes,
+            // and the namespace archive runs far longer than that, so the
+            // before/after comparison never matched and every backup refused
+            // itself as inconsistent. Created with the name preserved: the
+            // default naming policy would snake-case it out of the prune.
+            const syntheticFolderPath = `${userRoot.path.replace(/\/$/, "")}/${SYNTHETIC_FOLDER_NAME}`;
+            if (
+              !(await db.query.folders.findFirst({
+                where: eq(folders.path, syntheticFolderPath),
+              }))
+            ) {
+              await storageService
+                .createFolder(
+                  principal,
+                  { name: SYNTHETIC_FOLDER_NAME, parentId: userRoot.id },
+                  "preserve",
+                )
+                .catch(() => undefined);
+            }
             let fileId: string | null = null;
             let uploadId: string | null = null;
             let storedPath: string | null = null;
             try {
               const metadata = [
                 `filename ${Buffer.from(filename).toString("base64")}`,
-                `targetFolder ${Buffer.from(userRoot.path).toString("base64")}`,
+                `targetFolder ${Buffer.from(syntheticFolderPath).toString("base64")}`,
                 `filetype ${Buffer.from("text/plain").toString("base64")}`,
               ].join(",");
               const upload = await storageService.createUpload(

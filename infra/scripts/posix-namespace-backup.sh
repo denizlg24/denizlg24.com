@@ -7,6 +7,15 @@ umask 077
 readonly production_ssd_branch="/mnt/ssd/deniz-cloud/namespace"
 readonly production_hdd_branch="/mnt/hdd/deniz-cloud/namespace"
 readonly production_object_store="/mnt/ssd/deniz-cloud/internal/.s3-v2"
+
+# Reserved directory name for deep-health canaries. The storage synthetics
+# create and delete a file continuously — the public deep-dependency monitor
+# calls them every three minutes — while this archive takes far longer than
+# that. Any canary path, or any directory whose mtime one of them moves, makes
+# the before/after inventory differ and the backup refuse itself as
+# inconsistent, forever. They hold no data, so they are pruned from the
+# inventories, the entry counts and the archive alike.
+readonly synthetic_dir_name=".dr-synthetic"
 readonly production_destination="/mnt/hdd/backups"
 readonly branch_marker_name=".denizcloud-branch.json"
 
@@ -57,7 +66,7 @@ done
   echo "Authoritative object store is missing or unsafe: ${object_store}" >&2
   exit 1
 }
-unexpected_entry=$(find "$object_store" -mindepth 1 ! -type f ! -type d -print -quit)
+unexpected_entry=$(find "$object_store" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o \( ! -type f ! -type d -print -quit \))
 [[ -z "$unexpected_entry" ]] || {
   echo "Object store contains an unsupported symlink or special entry: ${unexpected_entry}" >&2
   exit 1
@@ -81,7 +90,7 @@ for branch in "$ssd_branch" "$hdd_branch"; do
     echo "Branch marker is missing, refusing to back up: ${branch}" >&2
     exit 1
   }
-  unexpected_entry=$(find "$branch" -mindepth 1 ! -type f ! -type d -print -quit)
+  unexpected_entry=$(find "$branch" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o \( ! -type f ! -type d -print -quit \))
   [[ -z "$unexpected_entry" ]] || {
     echo "Namespace contains an unsupported symlink or special entry: ${unexpected_entry}" >&2
     exit 1
@@ -94,9 +103,9 @@ tar --help 2>/dev/null | grep -q -- --xattrs || {
   exit 1
 }
 
-ssd_entries=$(( $(find "$ssd_branch" -mindepth 1 \( -type f -o -type d \) | wc -l) + 1 ))
-hdd_entries=$(( $(find "$hdd_branch" -mindepth 1 \( -type f -o -type d \) | wc -l) + 1 ))
-object_entries=$(( $(find "$object_store" -mindepth 1 \( -type f -o -type d \) | wc -l) + 1 ))
+ssd_entries=$(( $(find "$ssd_branch" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o \( -type f -o -type d \) -print | wc -l) + 1 ))
+hdd_entries=$(( $(find "$hdd_branch" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o \( -type f -o -type d \) -print | wc -l) + 1 ))
+object_entries=$(( $(find "$object_store" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o \( -type f -o -type d \) -print | wc -l) + 1 ))
 
 if [[ "$mode" == "--dry-run" ]]; then
   jq -n \
@@ -182,7 +191,7 @@ emit_branch_manifest() {
         id:(if $id=="" then null else $id end),
         protectedXattrHash:$hash,uid:$uid,gid:$gid,mode:$mode,aclHash:$aclHash,
         allocatedBytes:$allocated,sparse:$sparse,mtimeEpoch:$mtime}' >> "$output"
-  done < <(printf '%s\0' "$branch"; find "$branch" -mindepth 1 -print0 | sort -z)
+  done < <(printf '%s\0' "$branch"; find "$branch" -mindepth 1 \( -name "$synthetic_dir_name" -prune \) -o -print0 | sort -z)
 }
 
 : > "$manifest"
