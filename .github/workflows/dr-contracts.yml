@@ -47,7 +47,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Install validation tools
-        run: sudo apt-get update -qq && sudo apt-get install -y acl attr shellcheck zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y acl attr bzip2 shellcheck zstd
+      - name: Install the pinned restic release
+        env:
+          # Ubuntu ships 0.16.4, below the resticMinimum in infra/dr/versions.lock.json.
+          RESTIC_VERSION: 0.19.1
+          RESTIC_SHA256: f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL -o restic.bz2 \
+            "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2"
+          echo "${RESTIC_SHA256}  restic.bz2" | sha256sum -c -
+          bunzip2 restic.bz2
+          sudo install -m 755 restic /usr/local/bin/restic
+          restic version
       - name: Validate scripts, signatures, schemas, and dry-run safety
         run: bun run dr:test
       - name: Restore a namespace snapshot into disposable filesystems
@@ -65,7 +78,7 @@ jobs:
           tofu init -backend=false
           tofu validate
       - name: Shellcheck recovery scripts
-        run: shellcheck --severity=warning infra/dr/{backup,backfill-forge-images,cutover,external-export,heartbeat,install-forge-registry,install-host,r2-sync,recover,rehearse,report,rollback,sign-isolation-evidence,status,weekly-alert-test} infra/dr/lib/common.sh infra/dr/macos/{dr-sync,install,uninstall} infra/dr/providers/hetzner infra/dr/remote/{bootstrap,resource-sampler,restore-forge,restore-pi} infra/dr/tests/{database-roundtrip,namespace-roundtrip,run}.sh infra/scripts/{ddns-update,posix-namespace-backup,posix-namespace-restore-verify}.sh
+        run: shellcheck --severity=warning infra/dr/{backup,backfill-forge-images,cutover,external-export,heartbeat,install-forge-registry,install-host,r2-retention,r2-sync,recover,rehearse,report,rollback,sign-isolation-evidence,status,weekly-alert-test} infra/dr/lib/common.sh infra/dr/macos/{dr-sync,install,uninstall} infra/dr/providers/hetzner infra/dr/remote/{bootstrap,install-offsite-continuity,resource-sampler,restore-forge,restore-pi} infra/dr/tests/{database-roundtrip,namespace-roundtrip,run}.sh infra/scripts/{ddns-update,posix-namespace-backup,posix-namespace-restore-verify}.sh
 
   secret-history:
     runs-on: ubuntu-24.04
