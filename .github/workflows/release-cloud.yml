@@ -187,22 +187,34 @@ jobs:
           # metadata and `backup` cannot resolve a revision on its own.
           printf '%s\n' "$GITHUB_SHA" > infra/dr/.git-revision
           tar -czf cloud-infra.tgz \
-            --exclude='infra/dr/opentofu/.terraform' \
-            --exclude='*.tfstate' \
-            --exclude='*.tfstate.*' \
             infra/compose \
-            infra/dr \
             infra/fail2ban \
             infra/network \
             infra/scripts \
             infra/systemd
+          # install-host lays the DR runtime down as root and its units execute
+          # from that tree as root, so this half is shipped and extracted
+          # separately. An unprivileged extract cannot unlink inside a
+          # root-owned directory and fails the whole step with a misleading
+          # "File exists" on every file it was going to replace.
+          tar -czf cloud-dr.tgz \
+            --exclude='infra/dr/opentofu/.terraform' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.*' \
+            infra/dr
           scp \
             -o StrictHostKeyChecking=accept-new \
             -o BatchMode=yes \
-            cloud-infra.tgz \
-            "denizlg24@${PI_ADDR}:/tmp/cloud-infra.tgz"
+            cloud-infra.tgz cloud-dr.tgz \
+            "denizlg24@${PI_ADDR}:/tmp/"
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "mkdir -p /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
+            "set -e
+             mkdir -p /opt/deniz-cloud
+             tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud
+             # --no-same-owner: as root, tar would otherwise restore the
+             # runner's numeric uid onto the installed DR runtime.
+             sudo tar --no-same-owner -xzf /tmp/cloud-dr.tgz -C /opt/deniz-cloud
+             rm -f /tmp/cloud-infra.tgz /tmp/cloud-dr.tgz"
 
       # Renders the compose file against the real .env.pi on the Pi. Proves the
       # env file is present, complete and readable without starting anything.
