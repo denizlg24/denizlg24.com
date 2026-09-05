@@ -103,7 +103,7 @@ backup and recovery flow works, and the retention policy behind it.
 - Go, Python, FastAPI
 - Hono, PostgreSQL, MongoDB, Redis
 - Prisma and Drizzle
-- Docker, GitHub Actions, Vercel
+- Docker, GitHub Actions, Forge
 
 This repository is public for transparency and as a record of the systems I
 build and operate. Personal applications are tailored to my environment and

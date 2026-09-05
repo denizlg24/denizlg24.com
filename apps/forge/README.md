@@ -19,21 +19,14 @@ token for a host-only HttpOnly cookie and removes the token from the address
 bar; normal preview visits reuse the Forge superuser session and return to the
 requested preview after login.
 
-## Vercel
+## Deployment
 
-Create a Next.js project rooted at `apps/forge`, with access to files outside
-the root directory enabled. Set this on Production, Preview, and Development:
+Production is `forge.denizlg24.com`, and the app hosts itself: it is built and
+run by Forge from its own Dockerfile.
 
-```text
-NEXT_PUBLIC_CLOUD_API_URL=https://api.denizlg24.com
-```
-
-Production uses `forge.denizlg24.com`. Generated Vercel preview origins are not
-trusted by the API. Forge-hosted `forge-server-*` deployment origins are trusted
-so the app can authenticate during its bootstrap and domain migration; the
-allowlist does not extend to other hosted projects.
-
-## Deploying through Forge
+Forge-hosted `forge-server-*` deployment origins are trusted by the API so the
+app can authenticate during its own bootstrap and domain migration. That
+allowlist does not extend to any other hosted project.
 
 Use the repository root as the build context and `apps/forge/Dockerfile` as the
 Dockerfile path. The target must set:

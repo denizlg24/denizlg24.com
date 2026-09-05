@@ -11,8 +11,8 @@ bunx turbo dev --filter=storage   # :3005, expects apps/api on :3001
 ```
 
 `NEXT_PUBLIC_CLOUD_API_URL` and `NEXT_PUBLIC_STORAGE_APP_URL` come from the
-root `.env`. Both fall back to localhost so a build missing its Vercel
-variables fails loudly instead of pointing at production.
+root `.env`. Both fall back to localhost so a build missing them fails loudly
+instead of pointing at production.
 
 ## Layout
 

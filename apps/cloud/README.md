@@ -11,9 +11,9 @@ Next.js admin surface for the self-hosted cloud. Superuser-only; talks to
 | `NEXT_PUBLIC_STORAGE_APP_URL` | `http://localhost:3005` | Storage app links (project folder deep links: `/folders/:id`) |
 | `NEXT_PUBLIC_DISK_BAY_COUNT` | `12` | Minimum number of hot-swap bays rendered on the disks tab |
 
-These are inlined at build time. The defaults point at local dev on purpose —
-production values come from the Vercel project (`infra/vercel/SETUP.md`), so a
-build that forgets them fails loudly instead of pointing this app at prod.
+These are inlined at build time. The defaults point at local development on
+purpose: a production build that forgets to set them fails loudly instead of
+quietly pointing this app at production.
 
 ## Local development
 
