@@ -1,60 +1,198 @@
-# Disaster recovery operations
+# Disaster recovery implementation
 
-This directory implements the reviewed Pi Cloud + Forge disaster-recovery contract. It is intentionally fail-closed: no public record changes until encrypted iCloud objects, signatures, snapshot age, target capacity, database semantics, namespace metadata, immutable images, local services, source fencing, and Cloudflare’s reviewed base all pass.
+This directory holds the disaster-recovery system for the two hosts that carry
+denizlg24.com: the Raspberry Pi running the cloud API, databases and storage
+namespace, and the Forge host that builds and runs the application deployments.
 
-## Initial rollout
+[docs/dr](../../docs/dr/README.md) describes what is protected, how the backup
+and recovery flow fits together and what the retention policy keeps. This page
+describes how the implementation is organised and which properties it is built
+to hold. The operating procedures themselves are private.
 
-1. Copy `host.example.env` to `/etc/deniz-dr/pi.env` and `/etc/deniz-dr/forge.env` (0600), set the Pi lease to `_active-site-pi.denizlg24.com` and the Forge lease to `_active-site-forge.denizlg24.com`, and create independent restic passwords and SSH signing keys. Before enabling Pi backups, install the package set recorded by `backup`, use the mergerfs version pinned in `versions.lock.json`, and confirm the Samba broker/device Unix accounts, passdb hashes, one-line personal route files, storage units, and `/etc/samba/deniz-cloud-storage.conf` are present. Ensure `/var/lib/deniz-dr` has transient headroom for disposable PostgreSQL, MongoDB, and Redis restores. Install both hosts initially with `--defer-timers`; neither host may publish a backup until OpenTofu has created its active-site lease and the Forge image backfill is complete.
-2. Install the Forge account’s write-scoped GHCR credential with `sudo ./infra/dr/install-forge-registry --username denizlg24 < token-file`. Keep the recovery pull token offline; it is not backed up from the host.
-3. Deploy the API migration and new agent. Fill a private deployment-to-builder map, then run `./infra/dr/backfill-forge-images --config /path/to/dr.env --builders /private/builders.json --expected 14` **on the control-plane host, with `DR_FORGE_CONTROL_API_URL=http://127.0.0.1:3001`**. It publishes every production image in one request; through `api.denizlg24.com` the Cloudflare tunnel closes the origin connection at roughly 100 seconds and returns 524, which is far short of what fourteen sequential pushes need, and the request does not resume, so each attempt pins only the one or two images that fit. The host already holds the deploy agent token in its compose environment. Only after this returns all 14 digest references, rerun `sudo ./infra/dr/install-host --profile forge --ssh-user denizlg24 --execute` without `--defer-timers`.
-4. Install `external.example.env` as `/etc/deniz-dr/external.env` with read-only Cloudflare, Tailscale policy, and Better Stack tokens. Apply `opentofu/` only after importing current DNS, every mutable Forge origin CNAME, both profile-scoped active-site leases, all three permanent DR probe records, and tailnet policy resources and reviewing the plan. Mirror every Forge deployment hostname in the private `external-state.json`; `publicHostnames` maps public Cloudflare-for-SaaS names to their shared `forge-server.denizlg24.com` fallback-origin record. Cutover compares that reviewed public set to the signed snapshot and stops if one is absent. Set the Forge probe's origin Host header to a reviewed representative deployment, add tunnel ingress for every custom hostname, then verify all probe hostnames fail while the tunnel is stopped and pass only when the dedicated tunnel is running. Set Better Stack’s team-level incident-grouping window in the console and record that review; its public API does not expose that setting.
-5. Create a Tailscale OAuth client limited to the `auth_keys` scope and `tag:dr`. Put its ID and secret in the offline break-glass file. Recovery uses it on the Mac to mint a one-time, one-hour, preauthorized key; the OAuth secret is never copied to the recovery server. Confirm the reviewed tailnet policy lets the operator reach `tag:dr` on SSH and required service ports.
-6. Copy `config.example.env` to `~/.config/deniz-dr/config.env` (the default used by `recover` and `status`) and copy `break-glass.example.env` outside the checkout and iCloud. Chmod both 0600, point the config at the independent Pi and Forge restic password files, create the allowed-signers file, then run `macos/install --config ~/.config/deniz-dr/config.env`. This installs the native iCloud helper at the path used automatically by repository and fresh-clone recovery commands. Rerun the installer after updating DR tooling. Set `DR_RECOVERY_CONFIG` or pass `--config` only when intentionally using another private location.
-   Combined `--snapshot latest` verifies signed completion metadata first and selects the newest Pi/Forge pair with the same control-plane digest before hydrating large repositories. To recover an operator-reviewed older pair, pass `--snapshot PI_SNAPSHOT_ID,FORGE_SNAPSHOT_ID`; a single host snapshot ID is accepted only for a single-profile recovery.
-7. Confirm OpenTofu created the five public monitors, eight independent heartbeats, monitor/heartbeat groups, and maintenance windows. The escalation policy is off by default: Better Stack answers 403 "please upgrade your account" to `POST /policies` on the free plan, which fails the whole apply because every monitor and heartbeat references it. Each one still alerts on its own email/push/critical-alert settings, so the free tier loses the repeat and the escalation chain rather than the alert. On a paid plan set `escalation_policy_enabled = true` and re-apply. Configure the GitHub weekly incident secrets, trigger the workflow once, and acknowledge the labelled incident.
-8. Print `break-glass-card.md`; keep one copy offline with the credential-location inventory, never credential values.
+## Design
 
-The release workflows deliberately leave coordinated backup fencing disabled
-during this bootstrap sequence. After `install-host` has created the lock roots,
-OpenTofu has created both `home` active-site TXT leases, and `dig` is installed
-on both hosts, enable enforcement with
-`gh variable set DR_PI_FENCING_ENABLED --body true` and
-`gh variable set DR_FORGE_FENCING_ENABLED --body true`. Rerun each release
-workflow in validate mode before the next production deploy. An unset variable
-is bootstrap mode; any value other than the exact string `true` is rejected.
+The system is fail-closed. No public record changes until encrypted backup
+objects, signatures, snapshot age, target capacity, database semantics,
+namespace metadata, immutable images, local services, source fencing and the
+reviewed Cloudflare base have all passed. A check that cannot be evaluated
+counts as a failure, not as a pass.
 
-## Routine proof
+Two hosts are treated as independent profiles throughout. They hold separate
+restic repositories, separate encryption passwords, separate signing keys and
+separate active-site leases, so either can be recovered without the other and
+a partial recovery never interrupts the surviving side.
 
-- Forge backups run every six hours; the Pi runs daily at 05:17 UTC via the `deniz-dr-backup@pi.timer.d` drop-in, timed to clear `namespace_checksum` (02:00) and `namespace_tiering` (03:00), either of which rewrites the namespace underneath the archive and trips its own consistency check. A Pi success now means each PostgreSQL database was dumped from an exported repeatable-read snapshot, global role/database state stayed unchanged, and PostgreSQL, MongoDB, and Redis artifacts were restored into network-isolated containers created from the exact live image IDs before publication. Redis evidence includes absolute expirations. The filesystem transaction covers both namespace branches and the separate authoritative project S3 object tree; every archive is limited to the exact manifest path set with before/after inventories. Partial uploads and generated ZIP archives remain disposable. The Linux CI contract also restores a synthetic three-tree snapshot with ACLs, xattrs, sparse extents, ownership, modes, mtimes, counts, and full hashes. A success heartbeat additionally means restic backup/prune/check, signed READY publication, and group-readable immutable repository state all completed. Failure calls the same Better Stack heartbeat's `/fail` endpoint immediately; `backup_failure_urls` is also emitted by OpenTofu for explicit host configuration.
-- The Mac cycle must pull both hosts, run `restic check`, copy without delete, wait for native iCloud upload state, verify every object, sign completion, and only then ping both 12-hour/24-hour iCloud heartbeats.
-- `external-export` records redacted Cloudflare, Tailscale, Better Stack state and a daily diff; heartbeat URLs and request-header values are removed.
-- Run `macos/dr-sync --config /private/dr.env verify-full --host pi-cloud` and repeat for Forge before deleting a quarterly generation. It hydrates the entire generation and runs a 100% restic read-data check. Keep quarterly repositories immutable for 90 days and monthly snapshots for 12 months.
-- Review and acknowledge the Monday `[DR TEST]` incident. Record the incident ID in the offline operations log.
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `backup` | Per-host capture, verification and signed publication |
+| `r2-sync`, `r2-retention` | Offsite copy to Cloudflare R2 and its guarded retention pass |
+| `recover`, `remote/` | Preflight, target bootstrap and per-profile restore |
+| `cutover`, `rollback` | Public traffic and backup-ownership transfer, and its reverse |
+| `rehearse` | The two live rehearsal exercises and their signed evidence |
+| `macos/` | The optional Mac bridge that mirrors repositories into iCloud |
+| `opentofu/` | Reviewed DNS, tailnet policy and monitoring contracts |
+| `schemas/` | JSON schemas for manifests, evidence and recovery reports |
+| `config/` | Capture allowlists and the recovery package baseline |
+| `lib/`, `tests/` | Shared logic and the offline test suite |
+| `*.example.env`, `*.example.json` | Shapes of the private files, with no values |
+
+Every file here is configuration-free. Host environments, credentials and the
+break-glass inventory live outside the repository on the machines that need
+them.
+
+## What a successful backup means
+
+A Pi backup runs daily, timed to clear the namespace checksum and tiering
+passes, either of which would rewrite the namespace underneath the archive and
+trip its own consistency check. Forge backs up every six hours.
+
+A success is not "the command exited zero". It means each PostgreSQL database
+was dumped from an exported repeatable-read snapshot with global role and
+database state unchanged; PostgreSQL, MongoDB and Redis artifacts were restored
+into network-isolated containers created from the exact live image IDs and
+compared semantically, with Redis evidence including absolute expirations; the
+filesystem transaction covered both namespace branches and the separate
+authoritative project object tree, limited to the exact manifest path set with
+before-and-after inventories; and restic backup, prune and check, signed
+publication and group-readable immutable repository state all completed.
+
+Partial uploads and generated archives are treated as disposable rather than
+protected state. Continuous integration additionally restores a synthetic
+three-tree snapshot and compares ACLs, extended attributes, sparse extents,
+ownership, modes, timestamps, counts and full hashes.
+
+Failure calls the monitoring heartbeat's failure endpoint immediately rather
+than waiting for a missed schedule.
 
 ## Offsite copies
 
-Two tiers, on deliberately independent providers.
+There are two tiers on deliberately independent providers.
 
-- **Cloudflare R2 is the bulk offsite.** `deniz-dr-r2-sync@pi.timer` runs hourly and copies any snapshot present in the local repository but absent from the bucket, then publishes that snapshot's signed READY manifest and signature. It is idempotent: a run that fails, is interrupted, or loses the host lock to a backup reports and exits zero, and the next tick heals it. It **only ever adds** - there is no delete path, because an unattended prune against an offsite store is how backups disappear quietly.
-- **iCloud is the small independent copy.** It exists so that losing the Cloudflare account does not take the infrastructure and its backups together. iCloud Drive has no API of any kind: bytes reach it only when a signed-in Apple device writes them through File Provider, so that leg cannot run unattended and is bounded by whatever network the Mac is on. Measured on this hardware, the same 73 GiB snapshot took 2.2 hours pushed from the Pi to R2 and 11.7 hours through the Mac bridge, because scp over the tailnet sustains 11-26 Mbps while both endpoints sustain 90+ Mbps to Cloudflare. Keep the bridge for secrets, signed manifests and database dumps; do not route the namespace through it.
+**Cloudflare R2 is the bulk offsite.** An hourly service copies any snapshot
+present in the local repository but absent from the bucket, then publishes that
+snapshot's signed completion manifest and signature. It is idempotent: lock
+contention skips the cycle and any other failure exits nonzero, fails the R2
+heartbeat and is retried on the next tick. Copy and retention are separate
+commands; retention independently verifies the R2 repository before applying
+its guarded policy.
 
-The local repository is on the machine it protects, so publishing to it is staging, not backup. A snapshot is only offsite once `r2-sync` has copied it **and** the restic snapshot object exists in the bucket - restic writes that object last, so its presence is what distinguishes a finished copy from a partial one. `dr-r2-status` on the Pi reports both.
+**iCloud is an optional independent copy.** The Mac bridge copies full
+encrypted repositories, including the namespace, and requires a signed-in Apple
+device and a confirmed File Provider upload. It is a second provider rather
+than the primary path.
 
-Retention is deliberately unfinished: the local repository forgets on `--keep-within 14d --keep-daily 90 --keep-monthly 12 --prune`, and R2 has no equivalent, so the bucket grows without bound. Fix that with its own guards before it matters; a policy that reads the local repository to decide what to delete offsite would let a wiped Pi cascade into deleting the backups of itself.
+The local repository sits on the machine it protects, so publishing to it is
+staging, not backup. A snapshot is offsite only once the copy has run **and**
+the restic snapshot object exists in the bucket — restic writes that object
+last, so its presence is what distinguishes a finished copy from a partial one.
 
-## Recovery and rehearsals
+Retention keeps the latest three snapshots, every snapshot within 14 days, 90
+daily points and 12 monthly points, grouped by host. It reads only R2's own
+inventory, protects recent and last-good copies, limits deletion to a quarter
+of the snapshots per pass, checks the repository before and after pruning, and
+retires obsolete signed manifests last. Failed or overdue retention prevents
+the next copy from clearing the shared alert, so a later upload cannot mask it.
+The [full policy and guards](../../docs/dr/README.md#retention) are documented
+alongside the reasoning.
 
-`recover --source icloud|r2` selects where snapshots are read from. `r2` reads the repository in place: no hydration, no locally staged copy of the repository, and no dependency on iCloud being healthy or even signed in - only the restic password and the R2 credentials in `config.env`. Prefer it unless iCloud holds the only copy of the snapshot you need. Both sources verify the same signed READY manifest against the same allowed-signers file before trusting anything; the R2 path additionally asserts the restic snapshot object is present, since a signed manifest proves a backup completed while only that object proves the copy did. Combined (`--profile all`) recovery resolves its Pi/Forge pair from the bucket rather than the bridge, choosing the newest pair whose `forgeControlPlaneSha256` agree and stopping outright if no compatible pair exists.
+## Recovery
 
-`recover --check-only` performs hydration, signatures, checksums, restic verification, age and capacity calculation without contacting a target. Capacity uses the signed expanded restore footprint measured from disposable database restores, the namespace allocation inventory, Redis memory/RDB evidence, and uncompressed configuration archives; compressed backup bytes are reported separately and never stand in for restored bytes. The signed recovery report retains this preflight evidence and the rehearsal report evaluates the measured 24-hour RPO and four-hour RTO directly. Every snapshot binds a checksum of the validated version lock and exact host-package inventory; execution rejects missing or changed lock evidence, and combined recovery stops if Pi and Forge recorded incompatible host-package versions. The optional Hetzner adapter passes the signed disk requirement into its live quote and rejects a wrong architecture, insufficient CPU/RAM/disk, a deprecated location, or a location reporting no capacity before it creates a firewall or server. On a clean Ubuntu 24.04 x86_64 target, bootstrap installs those exact package versions, verifies and installs the pinned mergerfs release artifact, and keeps vendor Samba and cloudflared units masked until the recovery-specific units and firewall are ready. A recovery point older than 24 hours stops after printing its age; an exceptional recovery requires `--accept-stale-snapshot` and an interactive `ACCEPT STALE` confirmation. `recover --no-cutover` bootstraps and fully verifies a target but leaves public traffic and backup ownership untouched. Pi recovery imports the encrypted Samba password hashes and route inventory, replaces the empty Redis bootstrap AOF with the signed RDB, and verifies database semantics and storage metadata before dependent services start. Pi evidence includes the systemd storage target and the metadata service's Unix-socket health check; an optional restored nutrition service must pass a validated loopback URL, never a public-DNS endpoint that could still reach the source host. Forge recovery stores every deployment's exact resolved environment as authenticated ciphertext in the signed snapshot and binds it with a keyed SHA-256 semantic checksum. The restored API exposes that plaintext only from an in-memory, expiring override while the recovery agent fetches it immediately before launch, then deletes the override; recovery therefore does not depend on Envoy and refuses a mismatch without exposing secrets in manifests, reports, or request bodies. In Forge-only recovery, it also leaves the surviving Pi control-plane container IDs unchanged: the signed report carries the complete old-to-recovery mapping, `cutover` applies that mapping atomically after switching the Pi proxy, and `rollback` compare-and-swaps the same mapping back. Bootstrap records the target's Tailscale address, closes public SSH, and all later restore, cutover, rollback, and resume traffic uses that authenticated tailnet path. The public IP remains only the target identity and DNS destination. Plaintext streamed snapshot staging is deleted after verified restore; only restored service state, encrypted restic repositories, and non-secret recovery tooling remain. The same target/profile/snapshot tuple uses a deterministic report directory, so rerunning resumes only compatible checkpoints; time-dependent RPO and cutover intent may refresh, but changed signed footprint or tool evidence cannot reuse the checkpoint.
+Recovery reads from either offsite source. R2 is read in place: no hydration,
+no locally staged copy of the repository and no dependency on iCloud being
+healthy or even signed in. Both sources verify the same signed manifest against
+the same allowed-signers file before trusting anything, and the R2 path
+additionally asserts that the restic snapshot object is present, since a signed
+manifest proves a backup completed while only that object proves the copy did.
+A combined recovery resolves its Pi and Forge pair by matching control-plane
+digests and stops outright if no compatible pair exists.
 
-The target sampler runs as a bounded transient systemd unit throughout restore
-and cutover. Completed evidence is rejected unless it includes a valid summary
-of peak CPU/load, memory, disk, and physical-network transfer. Rehearsal reports
-carry the same measurements for the post-rehearsal sizing review.
+Three modes sit at different costs:
 
-Cutover requires every selected source SSH endpoint to be reachable, stops its backup jobs with its writers and tunnel, atomically points the selected Mac bridge route at the target using the report’s pinned SSH host key, changes only the selected Pi and/or Forge active-site lease, then enables the selected target backup/heartbeat timers. For Forge, the reviewed external-state file must contain a DNS mutation and an external HTTPS health URL for every domain in the signed restore inventory; a representative dashboard or probe cannot stand in for the recovered applications. There is no boolean override for an unreachable source: recovery may still be verified, but public mutation stops until the source can be authoritatively fenced. Rollback reverses those steps and removes the bridge override only after the home Pi passes local service, metadata-socket, and authenticated deep checks, every fenced Forge container and saved hostname passes through local Caddy, and the selected home lease and source timers are healthy. The profile-scoped lease check at the beginning and end of every backup prevents either side from publishing `READY` while it is not authoritative, without interrupting the unaffected profile during partial recovery.
+- **Plan and simulate** read only R2 metadata and print a recovery plan with no
+  server, no repository hydration, no payload restore and no break-glass
+  secrets. They authenticate the same signed catalog as a real recovery and
+  report compatibility blockers and required target capacity. They are not live
+  restore proof, and the reports say so in their own fields. See
+  [recovery without a VPS](../../docs/dr/README.md#recovery-without-a-vps-or-large-local-disk).
+- **Preflight** performs hydration, signature and checksum verification, restic
+  verification, and age and capacity calculation without contacting a target.
+  Capacity comes from the signed expanded restore footprint measured during the
+  disposable database restores, the namespace allocation inventory, Redis memory
+  evidence and uncompressed configuration archives; compressed backup bytes are
+  reported separately and never stand in for restored bytes.
+- **Full recovery** bootstraps and verifies a real target, optionally stopping
+  before any public change.
 
-Rehearsal 1 uses `rehearse --number 1` on a private clean VPS and signed evidence that both online source hosts and their public endpoints are blocked from the target. Rehearsal 2 executes recovery and rollback from the validated fresh clone, starts from newly hydrated iCloud data, performs cutover, verifies externally, and applies the signed rollback. Both commands fail if elapsed time reaches four hours and emit signed evidence. Hetzner provisioning attaches a dedicated cloud firewall before boot; provider-created rehearsal servers and their firewalls are destroyed automatically only after reports are retained. A supplied `--host` remains the operator’s responsibility and is recorded as such.
+A recovery point older than 24 hours stops after printing its age; proceeding
+requires an explicit flag and an interactive confirmation. Every snapshot binds
+a checksum of the validated version lock and the exact host package inventory,
+and the package baseline resolves the reviewed source versions into one exact
+target baseline; any unreviewed version or unresolved conflict stops recovery
+rather than guessing. Source hosts are never upgraded to make a recovery fit.
 
-The system is not READY until two live reports pass, the current production image count is backfilled, provider/account scope checks and alerts are observed, and an operator completes the printed card without undocumented intervention. Code or unit tests alone cannot satisfy those gates.
+Pi recovery imports the encrypted Samba password hashes and route inventory,
+replaces the empty Redis bootstrap file with the signed database, and verifies
+database semantics and storage metadata before dependent services start. Forge
+recovery stores each deployment's resolved environment as authenticated
+ciphertext inside the signed snapshot; the restored API exposes that plaintext
+only through an in-memory expiring override that the recovery agent consumes
+immediately before launch and then deletes, so recovery does not depend on the
+secrets service being available and a mismatch is refused without exposing
+anything in manifests, reports or request bodies.
+
+Bootstrap records the target's tailnet address and closes public SSH, and all
+later restore, cutover and rollback traffic uses that authenticated private
+path. The public address remains only the target's identity and DNS
+destination. Plaintext staging is deleted after a verified restore. Rerunning
+the same target, profile and snapshot resumes only compatible checkpoints:
+time-dependent inputs may refresh, but changed signed evidence cannot reuse one.
+
+## Cutover and rollback
+
+Cutover requires every selected source endpoint to be reachable. It stops the
+source's backup jobs, writers and tunnel, atomically repoints the Mac bridge
+route at the target using the report's pinned host key, changes only the
+selected profile's active-site lease, then enables the target's backup and
+heartbeat timers. For Forge, the reviewed external-state file must contain a
+DNS mutation and an external health URL for every domain in the signed restore
+inventory — a representative dashboard cannot stand in for the recovered
+applications.
+
+There is no override for an unreachable source. Recovery may still be verified,
+but public mutation stops until the source can be authoritatively fenced.
+
+Rollback reverses those steps and removes the bridge override only after the
+home host passes local service, metadata-socket and authenticated deep checks,
+every fenced container and hostname passes through the local proxy, and the
+home lease and source timers are healthy. The lease check that runs at the
+start and end of every backup is what prevents either side from publishing a
+completion record while it is not authoritative, without interrupting the
+unaffected profile during a partial recovery.
+
+## Rehearsals and readiness
+
+Two live rehearsals exist. The first runs recovery on a clean private server
+with signed evidence that both online source hosts and their public endpoints
+are blocked from the target. The second executes recovery and rollback from a
+validated fresh clone, starting from newly hydrated bridge data, performing
+cutover, verifying externally and applying the signed rollback. Both fail if
+elapsed time reaches four hours and both emit signed evidence. Provider-created
+rehearsal servers are firewalled before boot and destroyed only after their
+reports are retained.
+
+The system is not considered ready until two live reports pass, the current
+production image set is fully pinned, provider and account scope checks and
+alerts are observed, and an operator completes the printed card without
+undocumented intervention. Code and unit tests alone cannot satisfy those
+gates, which is why the test suite is described as offline evidence rather than
+as recovery proof.
+
+## Related monitoring
+
+The website resource checker runs on its own timer on the Pi and shares the web
+application's implementation and its named encrypted deep-health credential.
+[Resource monitoring](../../docs/dr/README.md#resource-monitoring) covers how it
+relates to the external monitoring provider and to the status history the public
+site reads.

@@ -1,80 +1,52 @@
 # Macros
 
-Macro nutrition, micronutrient, recipe, weight trend, and weight tracking built with Next.js 16, Bun, PostgreSQL, Drizzle, Better Auth, and Resend.
+Macro and micronutrient tracking, recipes, weight logging and weight-trend
+estimation. Built with Next.js 16, Bun, PostgreSQL, Drizzle, Better Auth and
+Resend.
 
-## Setup
+This is the one multi-user application in the monorepo, so it owns its own
+database rather than sharing the personal one.
 
-1. Install dependencies:
+## Configuration
 
-```bash
+App values live in the monorepo root `.env`, prefixed so they cannot collide
+with the other applications: a database URL, the auth secret, base URL and
+cookie mode, a cron secret, and credentials for transactional email and the
+nutrition data API. `.env.example` lists the full set.
+
+## Development
+
+```sh
 bun install
-```
-
-2. Add the app values from `.env.example` to the monorepo root `.env`.
-
-```env
-MACROS_DATABASE_URL=
-MACROS_BETTER_AUTH_SECRET=
-MACROS_BETTER_AUTH_URL=http://localhost:3000
-MACROS_BETTER_AUTH_SECURE_COOKIES=false
-MACROS_CRON_SECRET=
-RESEND_API_KEY=
-EMAIL_FROM="Macros <noreply@your-domain.com>"
-NUTRITION_API_BASE_URL=https://nutrition.denizlg24.com
-NUTRITION_API_KEY=
-```
-
-3. Check the committed migration history:
-
-```bash
-cd apps/macros
-bunx drizzle-kit check
-```
-
-For a new local or disposable database, apply the committed migrations with
-`bunx drizzle-kit migrate`. Production migrations are manual and must be
-reviewed and applied before the Forge release that needs them; the app never
-migrates its database at startup. If a new database does not have UUID
-generation enabled, run:
-
-```sql
-create extension if not exists pgcrypto;
-```
-
-4. Start development from the monorepo root:
-
-```bash
 bun run dev:macros
 ```
 
-## Scheduled Jobs
+Per-app tasks run through turbo with a `--filter=macros` scope: `typecheck`,
+`test`, `lint` and `build`.
 
-Production scheduling is managed by an external cron service, not GitHub
-Actions. Configure it with `MACROS_CRON_SECRET` and send the same value as a
-Bearer token when calling these routes on `https://macros.denizlg24.com`:
+The application never migrates its database at startup, and nothing in the
+deployment pipeline applies migrations either. A disposable local database is
+brought up to date with `bunx drizzle-kit migrate`, and `bunx drizzle-kit check`
+validates the committed history. A fresh database also needs the `pgcrypto`
+extension for UUID generation.
 
-- `GET /api/cron/reset-days`
-- `POST /api/cron/recompute-weight-trends`
-- `POST /api/cron/issue-weekly-targets`
+## Scheduled jobs
 
-The jobs are safe to invoke daily; each route determines which user-local days
-or weekly check-ins are due.
+Three cron routes are driven by an external scheduler, authenticated with a
+shared secret sent as a bearer token: a daily reset, a weight-trend
+recomputation, and weekly target issuance. Each route decides for itself which
+user-local days or weekly check-ins are due, so invoking them more often than
+necessary is harmless.
 
-## Scripts
+## How the data model works
 
-- `bun run dev:macros`: start Next.js with Turbopack from the monorepo root.
-- `bunx turbo typecheck --filter=macros`: run TypeScript checks.
-- `bunx turbo test --filter=macros`: run tests.
-- `bunx turbo lint --filter=macros`: run the root Biome checks.
-- `bunx turbo build --filter=macros`: create a production build.
-
-Production deployment and rollback steps are documented in
-`../../docs/internal/deploy/macros.md`.
-
-## Architecture Notes
-
-- Food data is snapshotted locally from `https://nutrition.denizlg24.com`; raw API payloads are kept in JSONB and normalized nutrient rows stay queryable.
-- Recipes can include foods and other recipes. Recipe nutrition is snapshotted whenever ingredients, servings, or serving labels change.
-- Food and recipe log entries store display fields and nutrient rows at log time so historical logs do not change after later edits.
-- Weigh-in photos store object-storage metadata in PostgreSQL. Image bytes belong in object storage, not the database.
-- Weight trend points and energy expenditure estimates are modeled as per-user daily records.
+- Food data is snapshotted locally from the nutrition API. Raw payloads are
+  kept as JSONB alongside normalized nutrient rows that stay queryable.
+- Recipes can contain foods and other recipes. Recipe nutrition is
+  re-snapshotted whenever ingredients, servings or serving labels change.
+- Log entries store display fields and nutrient rows as they were at log time,
+  so editing a food or recipe later does not silently rewrite history.
+- Weigh-in photos keep object-storage metadata in PostgreSQL; the image bytes
+  belong in object storage, not the database.
+- Weight-trend points and energy-expenditure estimates are modelled as
+  per-user daily records.

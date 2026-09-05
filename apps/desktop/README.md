@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# desktop
 
-## Getting Started
+The native client for the personal dashboard: a Next.js application wrapped by
+Tauri. It holds no data of its own — everything comes from the API in
+`apps/web` over HTTP with a bearer token, so the desktop app is a second front
+end to the same surfaces the `/admin` dashboard serves.
 
-First, run the development server:
+The design is deliberately minimalist and editorial: small type, muted
+secondary text, tabular numerals for anything numeric, and sheets rather than
+page navigations wherever a detail view would otherwise cost a route change.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Structure
+
+- `app/dashboard/{feature}/page.tsx` — client pages, one per feature, with
+  their sub-components in a local `_components/` directory
+- `components/ui/` — the shadcn/Radix primitives
+- `components/navigation/` — the sidebar groups
+- `lib/api-wrapper.ts` — the API client; the base URL comes from the
+  environment rather than a hardcoded host
+- `lib/data-types.ts` — a re-export shim over `@repo/schemas`, plus the
+  UI-state types that only exist on the desktop side
+
+API calls return a union of the success type and an error type, so callers
+discriminate on the error shape rather than catching. Mutations are optimistic
+and roll back on failure.
+
+## Development
+
+```sh
+bunx turbo dev --filter=desktop
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Types are shared: the canonical wire contracts are Zod schemas in
+`packages/schemas`, and every TypeScript type is inferred from them. A contract
+change starts there, and `bunx turbo typecheck` surfaces the consequences in
+both this app and the web app at once.

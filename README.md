@@ -72,6 +72,28 @@ it: the API holds the control plane and `deploy-agent` builds images and runs
 containers on the host. Envoy combines a Next.js service with a Rust CLI and
 shares versioned API fixtures across both implementations.
 
+## Running infrastructure
+
+Forge runs the applications and deployments. Pi-Cloud hosts the cloud API,
+databases and storage, with Pi-One and Pi-Two connected to it. Cloudflare
+provides public access; Tailscale provides the private management network.
+
+```mermaid
+flowchart TB
+    public@{ shape: cloud, label: "Public access" }
+    public --> cloudflare["Cloudflare<br/>DNS, TLS and tunnels"]
+    cloudflare --> forge["Forge<br/>Applications and deployments"]
+    cloudflare --> pi["Pi-Cloud<br/>API, databases and storage"]
+    tailscale["Tailscale<br/>Private management network"] <--> forge
+    tailscale <--> pi
+    forge <-->|Control plane| pi
+    pi --- one[Pi-One]
+    pi --- two[Pi-Two]
+```
+
+See [disaster recovery](docs/dr/README.md) for what is protected, how the
+backup and recovery flow works, and the retention policy behind it.
+
 ## Technology
 
 - Bun, TypeScript, Turborepo

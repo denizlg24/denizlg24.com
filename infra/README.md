@@ -1,325 +1,172 @@
-# deniz-cloud infrastructure
+# Infrastructure
 
-The stack is live: `api.denizlg24.com` on the Pi, `cloud.` and `storage.` on
-Vercel. This describes what runs and how to operate it. Historical planning and
-the cutover runbooks live in `docs/internal/` (untracked).
+This directory holds the deployment definitions for the self-hosted cloud: the
+Raspberry Pi that runs the API, databases and storage, and the host units that
+support it. It documents what runs and how the pieces are arranged; the
+operating procedures and the private environment files live outside the
+repository.
+
+The stack is live. `api.denizlg24.com` is served from the Pi behind a
+Cloudflare tunnel; the cloud, storage and deployment dashboards run on Forge
+from their own container images.
 
 ## Layout
 
-- `compose/` — production compose, env examples, database entrypoints.
-- `systemd/` — terminal, reboot sentinel, DDNS, certificate renewal units.
-- `scripts/` — host install, DDNS, TLS helpers.
-- `network/`, `fail2ban/` — UFW, Cloudflare Tunnel, database/SSH jails.
-- `tailscale/`, `vercel/` — remote access and the two Vercel projects.
+| Path | Contents |
+| --- | --- |
+| `compose/` | Production compose files, environment examples, database entrypoints |
+| `systemd/` | Terminal, reboot sentinel, DDNS, certificate renewal and health-check units |
+| `scripts/` | Host install, DDNS and TLS helpers, and the migration safety tooling |
+| `network/`, `fail2ban/` | Firewall rules, Cloudflare Tunnel config, database and SSH jails |
+| `tailscale/` | Private management network configuration |
+| `dr/` | The [disaster-recovery system](dr/README.md) |
+| `forge/` | The [Forge host](forge/README.md) definitions |
 
-Deployed copy lives at `/opt/deniz-cloud/infra` on the Pi. `.env.pi` (mode 600)
-exists only there.
+A copy of this tree is deployed on the Pi. The production environment file
+exists only there, and only the container image ships through continuous
+integration — compose changes are a separate deployment step, which is the most
+common way for the host to end up running a definition that no longer matches
+this directory.
 
-## Deploy
+## How a deploy works
 
-Push to `main`; CI builds `ghcr.io/denizlg24/deniz-cloud-api` for arm64. Then on
-the Pi:
+Pushing to the default branch builds an arm64 image and publishes it to the
+container registry. The host then pulls and recreates the affected services.
+Compose files are validated against the example environment before deployment,
+so a syntax or interpolation error is caught in the repository rather than on
+the host.
 
-```sh
-cd /opt/deniz-cloud/infra/compose
-docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml \
-  --profile tools up -d
-```
+Rollback re-runs the release with a known-good image tag. Bind mounts are
+untouched by that path, which is what makes it non-destructive and why images
+and volumes are left alone while a failed deploy is being diagnosed.
 
-Compose changes must be copied to the Pi as well — only the image ships through
-CI. Validate before deploying:
-
-```sh
-docker compose --env-file infra/compose/.env.pi.example \
-  -f infra/compose/docker-compose.pi.yml config -q
-```
-
-**A healthy container is not a ready one.** The runtime is built lazily on the
-first `/api/*` request and `/healthz` sits outside `/api/*`, so a container
-reports healthy having seeded no tasks, reconciled no Redis ACLs and started no
-workers. After every deploy:
-
-```sh
-curl -s -o /dev/null -w '%{http_code}\n' https://api.denizlg24.com/api/me   # 401
-docker exec deniz-cloud-postgres-1 psql -U admin -d denizcloud -t -A -F'|' \
-  -c "SELECT type, enabled FROM scheduled_tasks WHERE type IN ('metrics_rollup','tiering_pass')"
-```
-
-Expect `metrics_rollup|t` and `tiering_pass|f`.
-
-Rollback: re-run the release workflow with `image_tag` set to the last good SHA.
-Bind mounts are untouched, so this is non-destructive. Do not prune images or
-volumes while diagnosing a failed deploy.
-
-## POSIX migration safety tools
-
-Plan 014's pre-migration snapshot is intentionally separate from the scheduled
-database backups. It freezes and archives both physical storage branches,
-including S3 and upload internals, and captures PostgreSQL, MongoDB, and the
-Redis ACL file. The archive keeps xattrs, POSIX ACLs, sparse allocation,
-ownership, modes, and timestamps. It also records content/tree manifests and
-only the deployed image identifiers; container environments and their secrets
-are never copied into evidence.
-
-Run the preflight first. By default, `--execute` refuses to proceed while the
-API is running. When the operator can guarantee that no storage mutations will
-occur for the duration, `--allow-live-api` records that explicit exception in
-the manifest while leaving the API available:
-
-```sh
-infra/scripts/posix-gate0-snapshot.sh --dry-run --allow-live-api
-infra/scripts/posix-gate0-snapshot.sh --execute --allow-live-api
-```
-
-The live exception is not a database-wide freeze: unrelated session, metric,
-and scheduler rows may continue changing, while each database dump remains
-individually consistent. The archive/manifests still fail verification if
-namespace bytes change during capture. The completed snapshot is private
-rollback material: it contains database role hashes and the Redis ACL, so keep
-its directory mode `0700`, transfer it only over the tailnet, and never commit
-it. Verify restoration on the Pi without touching either live branch:
-
-```sh
-sudo infra/scripts/posix-gate0-restore-verify.sh --execute \
-  /mnt/hdd/backups/posix-gate0-YYYYMMDDTHHMMSSZ
-```
-
-The verifier creates disposable loopback ext4 files and isolated database
-containers with networking disabled, compares the restored trees and every
-file checksum, writes `restore-proof.json`, then removes its temporary mounts,
-loop devices, containers, and volumes. Copy the completed snapshot off the Pi
-and run `sha256sum -c SHA256SUMS` again at the destination before treating Gate
-0 as backed up.
-
-### Disposable POSIX/Samba Gate 1
-
-Gate 1 never mounts a production storage branch. It creates sparse loopback
-ext4 images below `/var/lib/deniz-cloud/posix-gate1`, joins only those images
-with mergerfs, and starts an isolated `smbd`. Samba cannot use
-`bind interfaces only` with Tailscale's non-broadcast TUN interface, so a
-spike-owned nftables chain rejects TCP 445 unless it arrived on `tailscale0`.
-A narrowly scoped `lo`/`127.0.0.1` exception supports encrypted host health
-checks; Samba also enforces Tailscale/localhost `hosts allow`. The firewall is
-installed before `smbd`, retained until listener withdrawal is proven, and
-removed on verified failure or teardown. The normal Samba units remain masked.
-The production API stays online throughout this spike.
-
-Install the pinned host dependencies first:
-
-```sh
-infra/scripts/posix-gate1-install.sh --dry-run
-sudo infra/scripts/posix-gate1-install.sh --execute
-infra/scripts/posix-gate1-preflight.sh
-```
-
-The installer simulates the complete APT transaction before it masks Samba or
-installs anything. If Noble libraries are already at an updates-pocket version
-but `noble-updates` is no longer enabled, restore that Ubuntu source and rerun
-the installer; do not downgrade `libacl1` or `libattr1`.
-
-Build the API probes, then copy this exact layout to the Pi so the lifecycle
-script can resolve its template and bundles without environment overrides:
-
-```sh
-bun run --cwd apps/api build
-ssh pi-cloud 'install -d -m 700 /tmp/posix-gate1-kit/infra/scripts \
-  /tmp/posix-gate1-kit/infra/samba /tmp/posix-gate1-kit/apps/api/dist'
-scp infra/scripts/posix-gate1-spike.sh \
-  infra/scripts/posix-gate1-metadata.sh \
-  infra/scripts/posix-gate1-peer-container.sh \
-  infra/scripts/posix-gate1-tier-crash.sh \
-  pi-cloud:/tmp/posix-gate1-kit/infra/scripts/
-scp infra/samba/posix-gate1-smb.conf.in \
-  pi-cloud:/tmp/posix-gate1-kit/infra/samba/
-scp apps/api/dist/posix-gate1-probe.js \
-  apps/api/dist/posix-gate1-slow-client.js \
-  pi-cloud:/tmp/posix-gate1-kit/apps/api/dist/
-scp apps/api/dist/posix-gate1-peer.js pi-cloud:/tmp/posix-gate1-peer.js
-```
-
-Every mutating lifecycle command requires both `sudo` and `--execute`:
-
-```sh
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute prepare
-# This intentionally requires the prepared phase, before Samba starts.
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute branch-loss-test
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute start-samba
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute host-test
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute api-test
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-tier-crash.sh --execute
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute status
-```
-
-Run the fail-closed checks only against this disposable spike. `watchdog` is a
-bounded, one-shot health check suitable for repeated scheduling. The destructive
-branch-loss probe requires the `prepared` phase with Samba stopped; it unmounts
-only the exact marked HDD loopback branch, withdraws the disposable mergerfs
-namespace, restores the branch, and compares the exact marker hashes:
-
-```sh
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
-# Run only after an actual host reboot:
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute reboot-check
-```
-
-Exit 10 means the disposable namespace was safely withdrawn or a required STOP
-remains; exit 20 means fail-closed behavior could not be proven. A reboot check
-never claims marker preservation from resource absence alone: it stays
-quarantined until the loopback branches are remounted and their markers are
-verified. These checks always report `gate1Passed:false` and never touch a
-production mount.
-
-`host-test` and `api-test` are explicitly partial. They prove deterministic
-SSD/HDD placement, xattr/ACL/backup behavior, encrypted SMB round trips,
-highest-level container binding, Bun full/Range/TUS behavior, a 5.8 GB sparse
-slow-client shape, and bounded RSS. They do **not** pass Gate 1. Native
-Finder/Explorer behavior, protected-EA access, link creation, open-handle
-API↔SMB concurrency, live branch loss/reboot, tier-move crash points, and
-LAN/relay performance remain mandatory STOP-or-pass checks.
-
-The client probes use OS credential prompts and keep evidence private:
-
-```sh
-infra/scripts/posix-gate1-macos.sh --dry-run --host 100.89.155.9 --share Personal
-# PowerShell concurrency adds the validated Pi SSH endpoint and never forwards
-# the SMB credential:
-# .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal --ssh-host denizlg24@pi-cloud
-```
-
-The tier-crash probe uses only the loopback branches. It verifies exact bytes
-and stable xattrs while simulating interruption during copy, after destination
-fsync, after atomic publish, before source unlink, and during reverse promotion.
-Its result is intentionally partial; the production recovery implementation and
-an actual reboot-during-copy check remain later gates.
-
-The protected-xattr adversary is separate because an accepted reserved stream
-name is a Gate 1 failure even when Samba stores it under `user.DosStream.*`
-instead of overwriting the raw xattr. Prepare one exact marked directory under
-the disposable Personal share, seed protected metadata, then run the encrypted
-SMB attack. Its auth file is environment-only and never appears in evidence:
-
-```sh
-run_id="$(cat /proc/sys/kernel/random/uuid)"
-metadata_root="/var/lib/deniz-cloud/posix-gate1/mounts/merged/personal/posix-gate1-metadata-${run_id}"
-metadata_evidence="/var/lib/deniz-cloud/posix-gate1/evidence/metadata-${run_id}.jsonl"
-sudo -u '#1000' mkdir -m 700 "$metadata_root"
-printf 'deniz-cloud-posix-gate1-metadata:%s\n' "$run_id" \
-  | sudo -u '#1000' tee "$metadata_root/.posix-gate1-metadata" >/dev/null
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
-  --action seed --root "$metadata_root" --run-id "$run_id" \
-  --evidence "$metadata_evidence"
-sudo env POSIX_GATE1_SMB_HOST=127.0.0.1 POSIX_GATE1_SMB_SHARE=Personal \
-  POSIX_GATE1_SMB_AUTH_FILE=/var/lib/deniz-cloud/posix-gate1/samba/client.auth \
-  /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
-  --action smb-adversarial --root "$metadata_root" --run-id "$run_id" \
-  --evidence "$metadata_evidence"
-```
-
-The result distinguishes the raw protected attributes from a client-created
-reserved-name stream alias, validates the `fruit:resource=file` AppleDouble
-magic, checks that the `._` sidecar is hidden over SMB, and proves whether a
-normal SMB copy carries protected metadata. A reserved-name stream write,
-protected-value read, copied protected xattr, visible AppleDouble sidecar, or
-unexpected/special namespace entry leaves `allGreen:false` and exits nonzero.
-
-Cleanup is two explicit steps so evidence can be copied before destruction:
-
-```sh
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute stop
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute destroy
-```
-
-`destroy` accepts only the exact marked disposable root after every mount and
-loop device has been removed. It is irreversible for the disposable spike and
-never targets the production namespace.
+**A healthy container is not a ready one.** The runtime is constructed lazily on
+the first API request, and the health endpoint sits outside the API prefix. A
+container can therefore report healthy having seeded no scheduled tasks,
+reconciled no cache ACLs and started no workers. Readiness is confirmed by an
+authenticated request reaching the API and by the scheduled-task table holding
+the expected schedules — not by the container's own health status.
 
 ## Host services
 
-**Terminal** is a compiled binary, never a container, and CI does not ship it:
+Some things deliberately do not run in containers.
 
-```sh
-bun build apps/terminal/src/index.ts --compile --target=bun-linux-arm64 \
-  --outfile cloud-terminal
-sudo install -m 755 -o root -g root cloud-terminal /usr/local/bin/cloud-terminal
-sudo systemctl restart cloud-terminal
-```
+**The terminal daemon** is a compiled binary installed on the host and is not
+shipped by continuous integration, so it is replaced by hand and a code change
+is not live until that happens. It runs as root because it is the primary
+remote administration path, which the daemon refuses to do without an explicit
+opt-in in its unit; it still rejects wildcard and publicly routable binds. Its
+process-scoped kill mode keeps the multiplexer server alive across daemon
+restarts, and sessions are reaped after an idle period.
 
-It runs **as root** (operator decision — it is the primary remote administration
-path), which requires `TERMINAL_ALLOW_ROOT=1` in the unit; the daemon refuses
-uid 0 without it. It still rejects wildcard and publicly routable binds.
-`TERMINAL_TICKET_SECRET` must be byte-identical in `.env.pi` and
-`/etc/deniz-cloud/terminal.env`. `KillMode=process` keeps the tmux server alive
-across daemon restarts; sessions use the `cloud-` prefix and are reaped after
-`SESSION_IDLE_HOURS` (24).
+The API reaches it over the host's tailnet address rather than the container
+bridge gateway: Docker's inter-bridge isolation makes that gateway unroutable
+from the compose network, and the host firewall's default-deny input policy
+requires an explicit rule for the container subnets in any case.
 
-The API reaches the terminal over the host's Tailscale address, not
-`host.docker.internal` — Docker's inter-bridge isolation makes the docker0
-gateway unroutable from the compose network, and UFW's `INPUT` policy is `DROP`,
-so this rule is required:
+**The reboot sentinel** is a file the API writes and a host path unit consumes,
+so a container never holds the ability to reboot the machine directly. The
+directory it writes into must be owned by the same unprivileged user the
+container runs as, or every reboot request fails on permissions.
 
-```sh
-sudo ufw allow from 172.16.0.0/12 to any port 3003 proto tcp
-```
+**Docker access** is only ever through a proxy that permits container list,
+inspect, stats, exec and restart — no images, networks, volumes or secrets. The
+proxy cannot run with a read-only root filesystem because it renders its own
+configuration at start, and a temporary filesystem over that directory would
+hide the template.
 
-**Reboot sentinel**: the API writes `/host-control/reboot-requested`; the host
-path unit deletes it and calls `systemctl reboot`. Source dir is
-`/var/lib/deniz-cloud`, and it must be owned by uid 1000 — the container writes
-the sentinel as the unprivileged `bun` user, so a root-owned directory fails
-every `reboot_server` task with `EACCES`. `install-host-units.sh` creates it that
-way; a host provisioned before that:
+**The MongoDB keyfile** is host-owned and read-only to root, and must match the
+data directory's replica set or the daemon will not start.
 
-```sh
-sudo chown 1000:1000 /var/lib/deniz-cloud
-```
-
-**Docker access** is only ever through `tcp://docker-proxy:2375`, which permits
-container list/inspect/stats, exec and restart — no images, networks, volumes or
-secrets. The proxy cannot run `read_only`: its entrypoint renders
-`haproxy.cfg` at start, and a tmpfs over that directory hides the template.
-
-**MongoDB keyfile** is `/etc/deniz-cloud/mongo/replica-keyfile` (root, 0400).
-It must match the data directory's replica set or mongod will not start. Member
-name stays `mongodb:27017`, replica set `rs0`.
-
-**Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
-anything root-owned makes deletes, renames and uploads fail `EACCES` while reads
-keep working.
+**Storage files must be owned by the API's unprivileged user.** Anything written
+as root makes deletes, renames and uploads fail with permission errors while
+reads keep working, which makes the failure look like an application bug rather
+than an ownership one.
 
 ## Memory
 
-The API is capped at 1200 MiB. Everything else runs uncapped but internally
-bounded: PostgreSQL `shared_buffers=64MB`, WiredTiger 0.25 GiB, mongot
-`-Xmx128m`, Redis `maxmemory=128mb`. Bun is the only genuinely unbounded
-runtime, which is why it is the one with a cgroup limit — an unbounded response
-buffer previously triggered a *global* OOM that had the kernel picking Redis as
-a victim.
+The Pi has just under 4 GB, and the full stack sits at roughly 1.5 GB in steady
+state. The API is capped at 1200 MiB; everything else runs uncapped but
+internally bounded through its own configuration — PostgreSQL shared buffers,
+the MongoDB storage-engine cache, the search process heap, and the Redis memory
+ceiling.
 
-`oom_score_adj` biases the killer away from data: `-500` on postgres and
-mongodb, `500` on the API, `1000` on sidecars and tools.
+Bun is the only genuinely unbounded runtime here, which is why it is the one
+carrying a cgroup limit. An unbounded response buffer previously triggered a
+global out-of-memory condition in which the kernel chose Redis as its victim —
+the failure appeared in a service that had done nothing wrong.
 
-Steady state is roughly 1.5 GiB of 3.9 GiB with the full stack up.
+Out-of-memory score adjustments bias the killer away from data and toward
+replaceable processes: negative on the databases, positive on the API, highest
+on sidecars and tools.
 
-`POSTGRES_MAX_CONNECTIONS` (150) is shared between `DB_POOL_MAX` (25) and every
-dependent project connecting directly. Backends cost ~5 MiB each, so a saturated
-ceiling is a ~750 MiB commitment. If dependents grow past this, add pgbouncer in
-transaction mode rather than raising the ceiling.
+The PostgreSQL connection ceiling is shared between the API's pool and every
+dependent project connecting directly. Each backend costs several megabytes, so
+a saturated ceiling is a commitment of most of a gigabyte. The intended answer
+to growth there is a connection pooler in transaction mode, not a higher
+ceiling. The planner's cache-size setting allocates nothing and is tuned
+independently of that budget.
 
-`effective_cache_size` allocates nothing — it only tells the planner how much OS
-page cache to assume. Tune it separately from the budget above.
+## Migration safety tooling
+
+`scripts/` contains the tooling built for the POSIX storage migration. It is
+recorded here because the safety properties are the interesting part.
+
+The pre-migration snapshot is deliberately separate from the scheduled
+database backups. It freezes and archives both physical storage branches,
+including the object-storage and upload internals, and captures the databases
+and the cache ACL file, preserving extended attributes, POSIX ACLs, sparse
+allocation, ownership, modes and timestamps. It records content and tree
+manifests and only the deployed image identifiers — container environments and
+their secrets are never copied into evidence. By default it refuses to run
+while the API is live; an explicit exception records itself in the manifest
+rather than being silent, and the archive still fails verification if namespace
+bytes change during capture.
+
+The matching verifier restores into disposable loopback filesystems and
+isolated database containers with networking disabled, compares the restored
+trees and every file checksum, writes a proof document, then removes its own
+mounts, loop devices, containers and volumes. Because the completed snapshot
+contains database role hashes and the cache ACL, it is private rollback
+material rather than a backup artifact.
+
+The Samba and mergerfs spike never mounts a production branch. It builds sparse
+loopback images, joins only those with mergerfs, and starts an isolated file
+server. Samba cannot restrict itself to the tailnet interface directly, because
+that interface is a non-broadcast tunnel device, so a dedicated firewall chain
+rejects the SMB port unless the connection arrived on it, with a narrow
+loopback exception for encrypted health checks. The firewall is installed
+before the file server, retained until listener withdrawal is proven, and
+removed on verified failure or teardown. The production units stay masked
+throughout.
+
+Every gate in that spike is fail-closed and reports partial results honestly:
+distinct exit codes separate "safely withdrawn, or a required stop remains"
+from "fail-closed behaviour could not be proven", a reboot check stays
+quarantined until the loopback branches are remounted and their markers
+verified rather than inferring preservation from absence, and the checks report
+an explicit failed overall result so that no subset of them can be mistaken for
+having passed the gate. The adversarial extended-attribute probe is separate
+for the same reason: an accepted reserved stream name is a failure even when
+the file server stores it under an alias instead of overwriting the protected
+attribute.
 
 ## Tools
 
-Adminer and mongo-express are in the `tools` profile, loopback-only, and reached
-through the admin app's superuser `/api/ops/tools/*` proxy. Never publish them.
+The database administration interfaces run in an optional profile, bound to
+loopback only, and are reached through the admin application's authenticated
+proxy. They are never published.
 
 ## Health
 
-Public: `https://api.denizlg24.com/healthz` → 200, JSON `status` = `ok`, plus TCP
-checks on the three public database hostnames.
+The public health endpoint returns a JSON status, alongside TCP checks on the
+public database hostnames.
 
-Component detail: `GET /api/ops/health` (superuser session) returns
-`data.checks.{postgres,mongodb,redis,meilisearch,mongot,disk,tunnel}.status`.
-`apps/web`'s HTTP sub-resource model cannot send an authenticated header yet, so
-the public aggregate and TCP checks remain the integration. Never put
-credentials in a check URL.
+Component detail is available to an authenticated superuser session and covers
+PostgreSQL, MongoDB, Redis, search, disk and the tunnel. The website's
+dependency sub-resources use a deep-health endpoint with a named, encrypted
+credential and per-component JSON assertions, matching what the external
+monitoring provider checks, while the public aggregate and remaining service
+checks continue alongside it. Credentials never appear in a check URL. See
+[resource monitoring](../docs/dr/README.md#resource-monitoring) for how those
+sources fit together.

@@ -1,62 +1,23 @@
 # `@repo/cloud-core`
 
-Pi-side database, service, middleware, search, and sync code for deniz-cloud.
-This package is server-only. Vercel apps must import API contracts from
-`@repo/schemas/cloud`, never from this package.
+The Pi-side database, service, middleware, search and sync code for the
+self-hosted cloud.
 
-## Drizzle baseline
+This package is server-only. Browser applications import API contracts from
+`@repo/schemas/cloud` instead — importing from here would pull database and
+credential handling into a client bundle.
 
-`drizzle/0000_serious_spiral.sql` is the generated baseline for the existing
-production schema after the old `0001`–`0007` migrations. It is migration
-metadata for future diffs; plan 012 decides how it is marked/applied against
-the reused production database.
+## Schema
 
-Generate a future migration:
+`drizzle/` holds the migration history, beginning with a generated baseline of
+the production schema as it stood when this package took ownership of it.
+Migrations are metadata for future diffs; nothing applies them automatically.
+
+Nothing in the deployment pipeline runs migrations — there is no release phase
+— so a schema change is applied deliberately, and reviewed, before the release
+that depends on it goes out. A successful deploy therefore says nothing about
+whether the database has the schema the new code expects.
 
 ```sh
 DATABASE_URL=postgresql://... bun run db:generate
 ```
-
-## Reproduce the old-schema parity audit
-
-The old repository's `scripts/infra/postgres-schema.sql` is a fresh-install
-snapshot that already contains migrations `0001`–`0003`, so applying all old
-migrations after that file is invalid. The parity audit instead reconstructs
-the real pre-`0001` schema from the parent of commit `8e7862c`, applies all
-seven old migrations, and compares that database with the new schema.
-
-1. Start the dev infrastructure from the monorepo root:
-
-   ```sh
-   cp infra/compose/.env.dev.example infra/compose/.env.dev
-   bun run cloud:dev:infra
-   ```
-
-2. Export commit `8e7862c^` of the old `deniz-cloud` repository to a temporary
-   directory. The submodule that used to carry it was removed at decommission;
-   clone from `github.com/denizlg24/deniz-cloud` (archived) or unpack the
-   decommission tarball under the Pi's `BACKUP_DIR`. From its `packages/shared`
-   directory, point `DATABASE_URL` at an empty dev database and run:
-
-   ```sh
-   bunx drizzle-kit push --config drizzle.config.ts --force
-   ```
-
-3. Apply, in filename order, every SQL file from the exported checkout's
-   `packages/shared/drizzle/` directory with `psql -v ON_ERROR_STOP=1`.
-
-4. From this package, compare without approving changes:
-
-   ```sh
-   DATABASE_URL=postgresql://... bun run db:push --strict --verbose
-   ```
-
-   Expected output: `[i] No changes detected`.
-
-5. Confirm the committed snapshot also matches:
-
-   ```sh
-   DATABASE_URL=postgresql://... bun run db:generate
-   ```
-
-   Expected output: `No schema changes, nothing to migrate`.

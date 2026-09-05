@@ -3,8 +3,6 @@
 The executor half of the forge deploy platform. Runs on the deploy host, builds
 and runs deployments, and reports back to the control plane in `apps/api`.
 
-Plan: `docs/internal/plans/deploy-platform.md`.
-
 ## Release
 
 `.github/workflows/release-deploy-agent.yml` builds and tests the host binary,
