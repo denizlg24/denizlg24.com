@@ -199,7 +199,10 @@ hydrate_one() {
 # the listing is what resolves it - a recovery must not need to be told which
 # quarter the last good backup fell in.
 r2_ready_keys() {
-  r2-object list "${1}/" | awk -F'\t' '$2 ~ /\/ready\/[^/]+\.json$/ {print $2}' | sort
+  # Dynamic regex rather than an /.../ literal: a literal cannot contain an
+  # unescaped "/" even inside a bracket expression, and BSD awk rejects it
+  # outright rather than doing something surprising.
+  r2-object list "${1}/" | awk -F'\t' '$2 ~ "/ready/[^/]+[.]json$" {print $2}' | sort
 }
 
 stage_from_r2() {

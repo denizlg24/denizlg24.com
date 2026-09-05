@@ -200,4 +200,13 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    try:
+        raise SystemExit(main(sys.argv))
+    except BrokenPipeError:
+        # A caller that stops reading early (`| head`, or an awk that exits) is
+        # ordinary, and Python would otherwise print an unraisable-exception
+        # traceback at shutdown that looks like a failure in the DR tooling.
+        try:
+            sys.stdout.close()
+        finally:
+            os._exit(0)
