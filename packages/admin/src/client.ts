@@ -92,6 +92,19 @@ export interface AdminTransportConfig {
   credentials?: RequestCredentials;
 }
 
+/**
+ * A non-JSON body is almost always an error page from something in front of the
+ * app — a proxy 502/503, a Next error document — not a message written for a
+ * reader. Splicing its first 180 characters into a toast printed `<!DOCTYPE
+ * html><html lang="en"><head><meta charSet…` and buried the status that was the
+ * only useful part, so only a short plain-text body is ever quoted.
+ */
+function nonJsonErrorMessage(fallback: string, body: string): string {
+  const text = body.trim();
+  if (!text || text.startsWith("<") || text.length > 180) return fallback;
+  return `${fallback}: ${text}`;
+}
+
 async function buildError(res: Response): Promise<AdminApiError> {
   const fallback = `Request failed with HTTP ${res.status}`;
   if (res.status === 401 || res.status === 403) {
@@ -111,9 +124,8 @@ async function buildError(res: Response): Promise<AdminApiError> {
         fallback;
       return new AdminApiError(message, res.status, data ?? undefined);
     }
-    const text = (await res.text()).trim();
     return new AdminApiError(
-      text ? `${fallback}: ${text.slice(0, 180)}` : fallback,
+      nonJsonErrorMessage(fallback, await res.text()),
       res.status,
     );
   } catch {

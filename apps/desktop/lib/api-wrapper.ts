@@ -59,9 +59,13 @@ export class denizApi {
         return { message, code: res.status };
       }
 
+      // A non-JSON body is almost always an error page from something in front
+      // of the app — a proxy 502/503, a Next error document — not a message
+      // written for a reader, so only a short plain-text body is quoted.
       const text = (await res.text()).trim();
+      const quotable = text && !text.startsWith("<") && text.length <= 180;
       return {
-        message: text ? `${fallback}: ${text.slice(0, 180)}` : fallback,
+        message: quotable ? `${fallback}: ${text}` : fallback,
         code: res.status,
       };
     } catch {
