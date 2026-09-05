@@ -37,7 +37,7 @@
   "dependencies": {
     "@repo/schemas": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.4",
+    "hono": "^4.13.5",
     "meilisearch": "^0.60.0",
     "mongodb": "^7.6.0",
     "postgres": "^3.4.9"
