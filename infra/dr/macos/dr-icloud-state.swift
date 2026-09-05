@@ -40,7 +40,16 @@ if command == .hydrate {
 
 while Date() < deadline {
     do {
-        let values = try url.resourceValues(forKeys: [
+        // A `URL` caches resource values on the `NSURL` backing it, so one built
+        // once outside this loop answers every later poll from whatever the
+        // first read returned. An item that was still uploading when the wait
+        // began then reads as not-uploaded for the rest of the loop and the
+        // wait can only end at the deadline — which is indistinguishable from
+        // iCloud being broken, and was diagnosed as exactly that. Rebuild the
+        // URL each poll so every read reaches the File Provider.
+        var probe = URL(fileURLWithPath: path)
+        probe.removeAllCachedResourceValues()
+        let values = try probe.resourceValues(forKeys: [
             .isUbiquitousItemKey,
             .ubiquitousItemIsUploadedKey,
             .ubiquitousItemUploadingErrorKey,
@@ -76,7 +85,7 @@ while Date() < deadline {
             if values.ubiquitousItemDownloadingStatus == .current {
                 // Opening and reading the byte is a second guard against a
                 // stale metadata bit on an evicted placeholder.
-                let handle = try FileHandle(forReadingFrom: url)
+                let handle = try FileHandle(forReadingFrom: probe)
                 _ = try handle.read(upToCount: 1)
                 try handle.close()
                 exit(0)
