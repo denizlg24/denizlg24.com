@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Tauri signs the macOS bundle with the hardened runtime (the release workflow
+    passes APPLE_SIGNING_IDENTITY=- for an ad-hoc identity, and `codesign -dv`
+    reports flags=0x10002(adhoc,runtime)). Under the hardened runtime the
+    microphone is gated by this entitlement as well as by
+    NSMicrophoneUsageDescription in Info.plist: without it the process is denied
+    before TCC ever prompts, so getUserMedia rejects and no permission dialog is
+    shown at all.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

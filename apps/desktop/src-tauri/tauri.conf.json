@@ -32,7 +32,7 @@
     },
     "longDescription": "denizlg24 - Life Dashboard is a personal productivity and life management application. Organize your notes, track your goals, and manage your daily life all in one place.",
     "macOS": {
-      "entitlements": null,
+      "entitlements": "Entitlements.plist",
       "exceptionDomain": "",
       "frameworks": [],
       "providerShortName": null,
@@ -48,7 +48,7 @@
   },
   "productName": "denizlg24 - Life Dashboard",
   "mainBinaryName": "denizlg24-app",
-  "version": "1.10.1",
+  "version": "1.10.2",
   "identifier": "app.denizlg24.com",
   "plugins": {
     "updater": {
