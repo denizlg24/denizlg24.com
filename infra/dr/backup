@@ -673,8 +673,10 @@ namespace_dump() {
   namespace_bytes="$(jq -s '[.[].allocatedBytes] | add // 0' "$backup_dir/manifest.jsonl")"
   [[ "$namespace_bytes" =~ ^[0-9]+$ ]] || dr_die "namespace backup returned an invalid allocated-byte inventory"
   record_restore_footprint namespace allocated-source-inventory "$namespace_bytes"
-  tar --xattrs --acls --numeric-owner --sparse -C "$backup_dir" -cf - . \
-    | zstd -T0 -3 -q -o "$stage/artifacts/namespace.tar.zst"
+  # Uncompressed for the same reason as the branch archives it carries: this
+  # is the artifact restic chunks, and compressing it defeats deduplication.
+  tar --xattrs --acls --numeric-owner --sparse -C "$backup_dir" \
+    -cf "$stage/artifacts/namespace.tar" .
   rm -rf -- "$destination"
 }
 

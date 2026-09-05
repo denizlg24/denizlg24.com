@@ -54,9 +54,24 @@ done
 
 manifest="${backup_dir}/manifest.jsonl"
 [[ -f "$manifest" && ! -L "$manifest" ]] || { echo "Backup has no safe manifest" >&2; exit 1; }
-for required_file in SHA256SUMS ssd.tar.zst hdd.tar.zst object-store.tar.zst backup.json; do
+# Branch archives became plain tar when compression was found to be defeating
+# restic deduplication. Snapshots written before that carry `.tar.zst`, and they
+# stay restorable for the length of the retention window, so both names resolve
+# here rather than the older backups becoming unverifiable.
+branch_archive() {
+  local role="$1" candidate
+  for candidate in "${backup_dir}/${role}.tar" "${backup_dir}/${role}.tar.zst"; do
+    [[ -f "$candidate" && ! -L "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
+  done
+  return 1
+}
+for required_file in SHA256SUMS backup.json; do
   [[ -f "$backup_dir/$required_file" && ! -L "$backup_dir/$required_file" ]] \
     || { echo "Backup member is missing or unsafe: ${required_file}" >&2; exit 1; }
+done
+for role in ssd hdd object-store; do
+  branch_archive "$role" >/dev/null \
+    || { echo "Backup member is missing or unsafe: ${role}.tar" >&2; exit 1; }
 done
 jq -e '
   .schemaVersion==1 and (.backupId|test("^posix-namespace-[0-9]{8}T[0-9]{6}Z$")) and
@@ -102,9 +117,15 @@ if [[ -z "$ssd_root" ]]; then
   trap cleanup EXIT
   for role in ssd hdd object-store; do
     install -d -m 0700 "${work}/${role}"
-    zstd -dc "${backup_dir}/${role}.tar.zst" \
-      | tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
-          --acls --numeric-owner --sparse -C "${work}/${role}" -xf -
+    archive="$(branch_archive "$role")"
+    if [[ "$archive" == *.zst ]]; then
+      zstd -dc "$archive" \
+        | tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
+            --acls --numeric-owner --sparse -C "${work}/${role}" -xf -
+    else
+      tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
+        --acls --numeric-owner --sparse -C "${work}/${role}" -xf "$archive"
+    fi
   done
   ssd_root="${work}/ssd"
   hdd_root="${work}/hdd"

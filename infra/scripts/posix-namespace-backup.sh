@@ -202,11 +202,18 @@ ssd_entries=$(jq -s '[.[] | select(.branch=="ssd")] | length' "$manifest")
 hdd_entries=$(jq -s '[.[] | select(.branch=="hdd")] | length' "$manifest")
 object_entries=$(jq -s '[.[] | select(.branch=="object-store")] | length' "$manifest")
 
+# These archives are deliberately uncompressed. restic deduplicates the
+# repository by content-defined chunking, and a zstd stream re-encodes globally
+# when any input byte changes, so a compressed archive shares no chunks with the
+# run before it: two snapshots of one 73 GiB namespace cost 146 GiB, and the
+# repository grew by a full copy every six hours until it was measured. The
+# namespace is already-compressed media, so zstd returned 1.00x here anyway.
+# Writing plain tar gives up no space and lets restic store only what changed.
 for pair in "ssd:$ssd_branch" "hdd:$hdd_branch" "object-store:$object_store"; do
   role="${pair%%:*}"; branch="${pair#*:}"
   tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
     --acls --sparse --numeric-owner --sort=name --null --no-recursion \
-    -C "$branch" -T "$work/${role}.paths" -cf - | zstd -T0 -3 -o "${work}/${role}.tar.zst" -q
+    -C "$branch" -T "$work/${role}.paths" -cf "${work}/${role}.tar"
 done
 
 # The namespace is live and the underlying filesystems do not provide a common
@@ -237,7 +244,7 @@ jq -n --arg at "$(date --utc +%FT%TZ)" --arg timestamp "$timestamp" \
     branchesIncluded:["ssd","hdd"],objectStoreIncluded:true,mergedViewOnly:false,
     preserves:["xattrs","acls","sparse","timestamps"],
     entries:{ssd:$ssdEntries,hdd:$hddEntries,objectStore:$objectEntries}}' > "${work}/backup.json"
-(cd "$work" && sha256sum ./*.tar.zst manifest.jsonl backup.json > SHA256SUMS)
+(cd "$work" && sha256sum ./*.tar manifest.jsonl backup.json > SHA256SUMS)
 chmod 0600 "$work"/*
 
 result=$(jq -n --arg directory "$work" --argjson manifestEntries "$(wc -l < "$manifest")" \

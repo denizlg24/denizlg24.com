@@ -49,9 +49,8 @@ backup_dir="$(jq -er 'select(.backedUp==true and .manifestEntries==12 and .objec
 for pair in "ssd:$restored_ssd" "hdd:$restored_hdd" "object-store:$restored_object_store"; do
   branch="${pair%%:*}"
   restored="${pair#*:}"
-  zstd -dc "$backup_dir/${branch}.tar.zst" \
-    | tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
-        --acls --numeric-owner --sparse -C "$restored" -xf -
+  tar --xattrs --xattrs-include='security.*' --xattrs-include='user.*' \
+    --acls --numeric-owner --sparse -C "$restored" -xf "$backup_dir/${branch}.tar"
 done
 
 verification="$("$root/infra/scripts/posix-namespace-restore-verify.sh" \

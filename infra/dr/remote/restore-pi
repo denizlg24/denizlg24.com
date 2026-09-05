@@ -251,7 +251,17 @@ rm -f -- "$redis_semantic_script" "${redis_semantic_script}.actual" \
 
 namespace_tmp="$(mktemp -d /srv/deniz-dr/namespace.XXXXXX)"
 cleanup_dirs+=("$namespace_tmp")
-zstd -dc "$root/artifacts/namespace.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf -
+# The namespace archives lost their zstd wrapper once compression was shown to
+# defeat restic deduplication. Snapshots taken before that are still inside the
+# retention window, so both layouts are accepted here.
+namespace_archive="$root/artifacts/namespace.tar"
+[[ -f "$namespace_archive" ]] || namespace_archive="$root/artifacts/namespace.tar.zst"
+[[ -f "$namespace_archive" ]] || { echo "STOP: snapshot carries no namespace archive" >&2; exit 1; }
+if [[ "$namespace_archive" == *.zst ]]; then
+  zstd -dc "$namespace_archive" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf -
+else
+  tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf "$namespace_archive"
+fi
 (cd "$namespace_tmp" && sha256sum -c SHA256SUMS >/dev/null)
 /opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" >/dev/null
 for branch in ssd hdd object-store; do
@@ -261,7 +271,14 @@ for branch in ssd hdd object-store; do
   esac
   install -d -m 0700 "$destination"
   [[ -z "$(find "$destination" -mindepth 1 -print -quit)" ]] || { echo "STOP: namespace destination is not empty" >&2; exit 1; }
-  zstd -dc "$namespace_tmp/${branch}.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$destination" -xf -
+  branch_archive="$namespace_tmp/${branch}.tar"
+  [[ -f "$branch_archive" ]] || branch_archive="$namespace_tmp/${branch}.tar.zst"
+  [[ -f "$branch_archive" ]] || { echo "STOP: snapshot carries no ${branch} branch archive" >&2; exit 1; }
+  if [[ "$branch_archive" == *.zst ]]; then
+    zstd -dc "$branch_archive" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$destination" -xf -
+  else
+    tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$destination" -xf "$branch_archive"
+  fi
 done
 namespace_verification="$(/opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" \
   --ssd-root /mnt/ssd/deniz-cloud/namespace --hdd-root /mnt/hdd/deniz-cloud/namespace \
