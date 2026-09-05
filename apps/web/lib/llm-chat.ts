@@ -60,6 +60,35 @@ export interface ClientToolResultInput {
   isError?: boolean;
 }
 
+function isRejectedToolResult(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "success" in result &&
+    (result as { success: unknown }).success === false
+  );
+}
+
+/**
+ * A thrown non-Error used to collapse to a bare "Tool execution failed", which
+ * tells the model nothing it can act on, and a Zod issue list survives only if
+ * it is serialised — `err.message` on a ZodError is already JSON, but a plain
+ * thrown object was being discarded whole.
+ */
+function describeToolError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name;
+  if (typeof err === "string" && err.trim()) return err;
+  try {
+    const serialized = JSON.stringify(err);
+    if (serialized && serialized !== "{}" && serialized !== "null") {
+      return `Tool execution failed: ${serialized}`;
+    }
+  } catch {
+    // Non-serialisable throw; the generic message is all there is.
+  }
+  return "Tool execution failed";
+}
+
 async function runTool(
   toolUse: Anthropic.ToolUseBlock,
   context: ToolExecutionContext,
@@ -121,17 +150,23 @@ async function runTool(
       };
     }
     const content = JSON.stringify(result);
+    // Roughly half the tools report a refusal as `{ success: false, error }`
+    // rather than by throwing. Without `is_error` the model reads that as a
+    // completed call and re-issues the identical arguments, which is what turns
+    // one rejected write into a run of four or five identical failures.
+    const rejected = isRejectedToolResult(result);
     return {
       content,
-      isError: false,
+      isError: rejected,
       toolResult: {
         type: "tool_result",
         tool_use_id: toolUse.id,
         content,
+        ...(rejected ? { is_error: true } : {}),
       },
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Tool execution failed";
+    const msg = describeToolError(err);
     return {
       content: msg,
       isError: true,
