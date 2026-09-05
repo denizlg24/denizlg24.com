@@ -18,6 +18,16 @@ guard CommandLine.arguments.count >= 3,
 let path = CommandLine.arguments[2]
 let timeout = TimeInterval(CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "3600") ?? 3600
 let url = URL(fileURLWithPath: path)
+// Raw values rather than the CocoaError cases, so this keeps compiling on an
+// older toolchain: 4353 NSUbiquitousFileUnavailableError, 4355
+// NSUbiquitousFileUbiquityServerNotAvailable. Both describe a server or item
+// that is momentarily out of reach. 4354, the quota error, is deliberately not
+// here — no amount of waiting creates storage.
+func isRetryableUbiquityError(_ error: NSError) -> Bool {
+    guard error.domain == NSCocoaErrorDomain else { return false }
+    return error.code == 4353 || error.code == 4355
+}
+
 let deadline = Date().addingTimeInterval(timeout)
 
 if command == .hydrate {
@@ -38,10 +48,20 @@ while Date() < deadline {
             .ubiquitousItemDownloadingStatusKey,
         ])
 
-        if let error = values.ubiquitousItemUploadingError {
+        // The loop below exists to outlast a transient condition, but every
+        // provider error was treated as terminal — including
+        // NSUbiquitousFileUbiquityServerNotAvailable, which means exactly
+        // "the server is not reachable, try again". Seeding tens of
+        // gigabytes takes hours and sees that routinely, and a single
+        // occurrence aborted the whole mirror with the snapshot half copied.
+        // Quota is the error that genuinely needs a person, so it still
+        // fails immediately rather than spinning to the deadline.
+        if let error = values.ubiquitousItemUploadingError as NSError?,
+            !isRetryableUbiquityError(error) {
             fail("iCloud upload failed for \(path): \(error)")
         }
-        if let error = values.ubiquitousItemDownloadingError {
+        if let error = values.ubiquitousItemDownloadingError as NSError?,
+            !isRetryableUbiquityError(error) {
             fail("iCloud download failed for \(path): \(error)")
         }
 

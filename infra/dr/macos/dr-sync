@@ -349,7 +349,7 @@ pull_host() {
     install -m 0600 "$tmp/ready.json.sig" "${local_ready}.sig"
   fi
   jq -n --arg host "$host" --arg snapshotId "$snapshot" --arg generation "$generation" \
-    '{pulled:true,verified:true,host:$host,snapshotId:$snapshot,generation:$generation}'
+    '{pulled:true,verified:true,host:$host,snapshotId:$snapshotId,generation:$generation}'
 }
 
 mirror_host() {
