@@ -130,7 +130,16 @@ for managed_path in \
   [[ ! -e "$managed_path" || -d "$managed_path" && ! -L "$managed_path" ]] \
     || dr_die "managed backup path is not a real directory: ${managed_path}"
 done
-install -d -m 0700 "$ready_root" "$staging_root" "$lock_root" "$(dirname "$repository")"
+install -d -m 0700 "$ready_root" "$staging_root" "$(dirname "$repository")"
+# The lock root is shared, so it must not be created 0700 with the rest. The
+# Mac bridge and every release workflow acquire this same lock over SSH as an
+# unprivileged operator account, and `install-host` grants that through the
+# deniz-dr group. Folding it into the line above silently revoked the grant on
+# every run: the next `mkdir` from either of them failed inside a `2>/dev/null`
+# retry loop and spun for fifteen minutes before giving up, so a completed
+# backup left the host unable to be deployed to or pulled from.
+install -d -m 0750 -o root -g deniz-dr "$lock_root"
+setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx "$lock_root"
 deploy_lock_wait="${DR_DEPLOY_LOCK_WAIT_SECONDS:-900}"
 [[ "$deploy_lock_wait" =~ ^[0-9]+$ && "$deploy_lock_wait" -le 3600 ]] || dr_die "DR_DEPLOY_LOCK_WAIT_SECONDS must be 0..3600"
 dr_lock "$lock_dir" "$(( $(date +%s) + deploy_lock_wait ))"

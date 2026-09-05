@@ -15,5 +15,15 @@ IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 PrivateTmp=yes
 ProtectHome=yes
+# `docker buildx imagetools inspect` verifies that each recovery image really
+# publishes the platform the target will run, and buildx creates its state
+# directory under DOCKER_CONFIG before doing anything — even for a read-only
+# inspect. ProtectHome=yes makes /root read-only, so that mkdir failed and the
+# platform check died with "could not inspect recovery platforms". Point it at
+# a runtime directory the unit owns instead of relaxing the sandbox. Registry
+# auth is not lost with it: the only registry call here is an anonymous
+# manifest read.
+RuntimeDirectory=deniz-dr-backup-%i
+Environment=DOCKER_CONFIG=/run/deniz-dr-backup-%i/docker
 UMask=0077
 TimeoutStartSec=5h
