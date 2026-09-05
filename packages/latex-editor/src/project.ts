@@ -7,8 +7,14 @@ import type {
 
 const TEXT_EXTENSIONS = new Set([
   "asy",
+  // TeX byproducts. They are plain text, and they are exactly what you open
+  // after a failed compile — treating .log as an opaque asset turns the one
+  // readable artifact of a failure into a download prompt.
+  "aux",
+  "bbl",
   "bbx",
   "bib",
+  "blg",
   "bst",
   "cbx",
   "cfg",
@@ -25,12 +31,14 @@ const TEXT_EXTENSIONS = new Set([
   "lbx",
   "lco",
   "ldf",
+  "log",
   "ltx",
   "lua",
   "md",
   "sty",
   "tex",
   "tikz",
+  "toc",
   "txt",
 ]);
 

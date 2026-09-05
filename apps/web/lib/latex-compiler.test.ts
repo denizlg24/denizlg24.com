@@ -86,4 +86,35 @@ describe("compileLatexProject", () => {
     const result = await compileLatexProject(createDefaultLatexProject());
     expect(result.pdf.subarray(0, 5).toString()).toBe("%PDF-");
   }, 60_000);
+
+  // Tectonic's console output names the first failing line and nothing else;
+  // the context that makes a failure fixable is only ever in main.log, which
+  // lives in the workspace this module deletes on the way out.
+  it("attaches the engine log to a failed compilation", async () => {
+    const compile = compileLatexProject({
+      version: 1,
+      name: "failing",
+      mainFile: "main.tex",
+      entries: [
+        {
+          id: "f0f6e1d0-2c2c-4a0e-9b2f-7cbb0f2f9a11",
+          path: "main.tex",
+          kind: "file",
+          encoding: "utf8",
+          content:
+            "\\documentclass{article}\n\\begin{document}\nHello \\undefinedcommandhere\n\\end{document}\n",
+        },
+      ],
+    });
+
+    await expect(compile).rejects.toThrow("LaTeX compilation failed");
+    const log = await compile.then(
+      () => "",
+      (error: { log?: string }) => error.log ?? "",
+    );
+    expect(log).toContain("Undefined control sequence");
+    expect(log).toContain("--- main.log ---");
+    // The engine log, unlike the console output, quotes the offending source.
+    expect(log).toContain("undefinedcommandhere");
+  }, 60_000);
 });

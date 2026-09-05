@@ -10,6 +10,7 @@ import { createCompiler } from "node-latex-compiler";
 
 const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_LOG_BYTES = 256 * 1024;
+const MAX_ENGINE_LOG_CHARS = 64 * 1024;
 const compileLocks = new Set<string>();
 const INCLUDE_SVG_PATTERN = /\\includesvg(?:\s*\[([^\]]*)\])?\s*\{([^{}]+)\}/g;
 const GRAPHICX_OPTIONS = new Set([
@@ -261,6 +262,33 @@ async function prepareSvgAssets(
   ]);
 }
 
+/**
+ * Tectonic's stdout names the first failing line and nothing else — the actual
+ * TeX diagnostics (error context, the offending source lines, package warnings,
+ * unresolved refs) only ever land in the `--keep-logs` file next to the source.
+ * The workspace is a temp directory this module deletes on the way out, so
+ * unless the log is read here the one artifact worth reading is destroyed and
+ * the failure surfaces as a single unactionable line.
+ */
+async function readTectonicLog(
+  workspace: string,
+  mainFile: string,
+): Promise<string> {
+  try {
+    const log = await readFile(
+      join(workspace, `${basename(mainFile, ".tex")}.log`),
+      "utf8",
+    );
+    // TeX logs lead with the engine banner and the full package list; the tail
+    // is where the errors are, and it is what has to fit inside the bound.
+    return log.length > MAX_ENGINE_LOG_CHARS
+      ? log.slice(-MAX_ENGINE_LOG_CHARS)
+      : log;
+  } catch {
+    return "";
+  }
+}
+
 async function runTectonic(
   tectonicPath: string,
   workspace: string,
@@ -315,18 +343,25 @@ async function runTectonic(
     });
     child.once("close", (code) => {
       clearTimeout(timeout);
-      const log = sanitizeLog(output, workspace);
-      if (timedOut) {
-        rejectPromise(new LatexCompilationError("Compilation timed out", log));
+      const consoleLog = sanitizeLog(output, workspace);
+      if (code === 0 && !timedOut) {
+        resolvePromise(consoleLog);
         return;
       }
-      if (code !== 0) {
+      // Only failures pay for the extra read: a successful run's log is a
+      // banner and a page count, and the console output already said so.
+      void readTectonicLog(workspace, mainFile).then((engineLog) => {
+        const name = `${basename(mainFile, ".tex")}.log`;
+        const log = engineLog
+          ? `${consoleLog}\n\n--- ${name} ---\n${sanitizeLog(engineLog, workspace)}`
+          : consoleLog;
         rejectPromise(
-          new LatexCompilationError("LaTeX compilation failed", log),
+          new LatexCompilationError(
+            timedOut ? "Compilation timed out" : "LaTeX compilation failed",
+            log,
+          ),
         );
-        return;
-      }
-      resolvePromise(log);
+      });
     });
   });
 }
