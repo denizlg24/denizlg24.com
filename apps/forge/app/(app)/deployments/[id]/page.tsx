@@ -5,6 +5,7 @@ import {
   deploymentLabel,
   deploymentTone,
   isDeploymentLive,
+  shouldPollDeployment,
 } from "@repo/cloud-ui/deploy-status";
 import { ErrorBlock } from "@repo/cloud-ui/error-block";
 import {
@@ -42,9 +43,11 @@ export default function DeploymentDetailPage() {
     fetchDeployment,
     live ? 10_000 : null,
   );
-  // A deployment that reached a terminal state never changes again.
+  // A deployment that reached a terminal state never changes again — except a
+  // `ready` one still carrying a phase, which is archiving behind the gate and
+  // writes its status once more when the push lands.
   useEffect(() => {
-    if (data) setLive(isDeploymentLive(data.status));
+    if (data) setLive(shouldPollDeployment(data.status, data.phase));
   }, [data]);
 
   const containerId = data?.containerId ?? "";

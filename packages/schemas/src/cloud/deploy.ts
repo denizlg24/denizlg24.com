@@ -49,6 +49,11 @@ export function isTerminalDeploymentStatus(status: DeploymentStatus): boolean {
 /**
  * Where a run got to, for the UI. Distinct from `status` because "building" is
  * four minutes long and a spinner that never changes reads as a hang.
+ *
+ * `backing-up` is the one phase that outlives the gate: it is reported on a
+ * deployment that is already `ready` and serving, while the recovery image is
+ * pushed behind it. Without it the archive push renders as a health check that
+ * never finishes, for up to the 25 minutes the push and its verify pull allow.
  */
 export const DEPLOYMENT_PHASES = [
   "cloning",
@@ -56,6 +61,7 @@ export const DEPLOYMENT_PHASES = [
   "starting",
   "health-check",
   "routing",
+  "backing-up",
 ] as const;
 export const deploymentPhaseSchema = z.enum(DEPLOYMENT_PHASES);
 export type DeploymentPhase = z.infer<typeof deploymentPhaseSchema>;

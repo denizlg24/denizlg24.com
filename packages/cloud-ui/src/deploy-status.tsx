@@ -48,11 +48,31 @@ export function deploymentLabel(
   phase: DeploymentPhase | null,
 ): string {
   if ((status === "building" || status === "deploying") && phase) return phase;
+  // A phase on a `ready` row names work running behind a deployment that is
+  // already serving, so the status has to stay visible next to it — dropping it
+  // would leave the step in the data and invisible in the UI.
+  if (status === "ready" && phase)
+    return `${status} · ${phase.replace(/-/g, " ")}`;
   return status;
 }
 
 export function isDeploymentLive(status: DeploymentStatus): boolean {
   return status === "queued" || status === "building" || status === "deploying";
+}
+
+/**
+ * Wider than `isDeploymentLive`, and deliberately not the same question. A
+ * `ready` row still carrying a phase has the recovery push running behind the
+ * gate and a second status write coming with the image digest; stopping the
+ * poll at `ready` means never observing either. It is not "live" in the sense
+ * the action gates mean — cancelling a deployment that is already serving is
+ * not on offer — so the two stay separate.
+ */
+export function shouldPollDeployment(
+  status: DeploymentStatus,
+  phase: DeploymentPhase | null,
+): boolean {
+  return isDeploymentLive(status) || (status === "ready" && phase !== null);
 }
 
 /**
