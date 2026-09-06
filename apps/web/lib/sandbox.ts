@@ -1,8 +1,18 @@
 import { Sandbox } from "@vercel/sandbox";
 
-// Vercel Sandbox service wrapper. Tool code never imports @vercel/sandbox
-// directly — the same rule llm-service.ts applies to provider SDKs — so
-// lifetime, credential injection, and output truncation live in one place.
+// The single seam every sandbox tool goes through. Tool code never imports a
+// sandbox SDK directly — the same rule llm-service.ts applies to provider SDKs
+// — so lifetime, credential injection, and output truncation live in one place.
+//
+// The backend behind this seam is being replaced. It ran on Vercel Sandbox,
+// which authenticated through a VERCEL_OIDC_TOKEN the Vercel runtime injected;
+// nothing injects it on Forge, so every call has failed since the move off
+// Vercel. `apps/sandbox` is the replacement and is a scaffold today — see its
+// README and B10 in docs/internal/plans/019-ui-ux-fixes-sep5.md.
+//
+// Whether a backend exists at all is answered by `sandbox-config.ts`, which
+// imports nothing — the registry and the system prompt need that answer and
+// must not load a sandbox SDK to get it.
 
 export const SANDBOX_RUNTIME = "node24";
 const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
@@ -106,7 +116,7 @@ export async function getSandbox(conversationId: string): Promise<Sandbox> {
       error instanceof Error ? error.message : "Sandbox creation failed";
     if (/token|credential|unauthorized|forbidden/i.test(message)) {
       throw new SandboxConfigurationError(
-        "Vercel Sandbox is not configured. Set VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.",
+        "No sandbox backend is configured. The Vercel-hosted one stopped working when the platform was exited; its replacement (apps/sandbox, deployed on Forge) is a scaffold and does not execute code yet. Do not retry — use another tool, or say the capability is unavailable.",
       );
     }
     throw error;

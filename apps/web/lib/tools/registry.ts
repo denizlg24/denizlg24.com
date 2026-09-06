@@ -1,3 +1,4 @@
+import { sandboxEnabled } from "../sandbox-config";
 import { agentMemoryTools } from "./agent-memory";
 import { agentTaskTools } from "./agent-tasks";
 import { authenticatorTools } from "./authenticator";
@@ -95,13 +96,33 @@ const allTools: ToolDefinition[] = [
   ...authenticatorTools,
 ];
 
+/**
+ * Tools that cannot work without a sandbox backend. Two of them do not live in
+ * `sandbox.ts` — they read a file *out of* a sandbox that can no longer be
+ * created — which is why this is a name list rather than a module boundary.
+ *
+ * Advertising a tool that always fails costs a turn every time the model
+ * reaches for it, and it reaches for the sandbox on exactly the tasks nothing
+ * else covers. Dropping them is what stops that; they return the moment
+ * SANDBOX_API_URL points at a working deployment.
+ */
+const SANDBOX_DEPENDENT_TOOLS = new Set([
+  ...sandboxTools.map((tool) => tool.schema.name),
+  "import_sandbox_spreadsheet",
+  "upload_sandbox_file",
+]);
+
+const availableTools = sandboxEnabled()
+  ? allTools
+  : allTools.filter((tool) => !SANDBOX_DEPENDENT_TOOLS.has(tool.schema.name));
+
 const toolMap = new Map<string, ToolDefinition>();
-for (const tool of allTools) {
+for (const tool of availableTools) {
   toolMap.set(tool.schema.name, tool);
 }
 
 export function getToolSchemas(): ToolSchema[] {
-  return allTools.map((t) => t.schema);
+  return availableTools.map((t) => t.schema);
 }
 
 export function getToolByName(name: string): ToolDefinition | undefined {

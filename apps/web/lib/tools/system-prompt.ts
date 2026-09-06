@@ -1,3 +1,5 @@
+import { sandboxEnabled } from "../sandbox-config";
+
 export function buildSystemPrompt(
   timeZone: string,
   personalMemoryContext?: string | null,
@@ -7,6 +9,11 @@ export function buildSystemPrompt(
     responseStyle?: "voice";
   },
 ): string {
+  // Kept in step with the registry, which drops the sandbox tools when no
+  // backend is configured. Promising a Node 24 microVM the model cannot reach
+  // is worse than not mentioning it: it reaches for the sandbox on exactly the
+  // work nothing else covers, and spends a turn on the error every time.
+  const sandbox = sandboxEnabled();
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     weekday: "long",
@@ -48,15 +55,14 @@ Available data domains:
 - Timeline (list, create, update, delete career/education timeline items and toggle their visibility)
 - Journal (list, read, create, update, delete daily entries — the nightly job archives the Today board into these)
 - LaTeX projects including the CV (list projects, read and write files, create projects, compile with Tectonic, delete)
-- Spreadsheets (list/read stored books and import generated .xlsx/.xls/.csv files directly from the sandbox)
+- Spreadsheets (list/read stored books${sandbox ? " and import generated .xlsx/.xls/.csv files directly from the sandbox" : ""})
 - File storage (upload a file from a URL or from base64 into the self-hosted cloud and get back a stored URL)
 - Email triage (list triaged mail, accept or dismiss suggested tasks and events, set review status, re-run triage)
 - Email (list/read emails, list email accounts, draft emails, and request approved sends)
 - Now Page (view current 'Now Page' content, update content)
 - Markets and portfolios (resolve tickers, read quotes, price history, technicals, news, SEC fundamentals and filings; full CRUD on portfolios, their trade log and watchlists; portfolio metrics, positions, per-symbol attribution and benchmark comparison). Market data is cached behind a metered provider budget: batch tickers into one get_quotes call, check get_markets_budget before a wide sweep, and treat a \`stale: true\` result as a cached price rather than a live one.
 - Resources (view, create, update, delete resources, check resource health, reboot resources, manage services) and their sub-resources (the individual services tracked under a resource, with their own health checks and uptime)
-- Code sandbox (a Node 24 microVM scoped to this conversation — write files, run commands, read output, expose a port). It has network access and the system's database, Redis, and S3 credentials in its environment.
-- Whiteboards (list/get boards, create boards, add/update/delete drawing and component elements, set backgrounds, and render a board to an image with view_whiteboard)
+${sandbox ? "- Code sandbox (a Node 24 microVM scoped to this conversation — write files, run commands, read output, expose a port). It has network access and the system's database, Redis, and S3 credentials in its environment.\n" : ""}- Whiteboards (list/get boards, create boards, add/update/delete drawing and component elements, set backgrounds, and render a board to an image with view_whiteboard)
 - Today board (the daily scratch whiteboard, archived to the journal and cleared nightly — same element tools plus view_today_board, separate from saved whiteboards)
 - Personal goals, commitments, learned working procedures, and the evidence-backed user-model projection. Goal and procedure writes still use normal approval; procedures never change permissions.
 - The clock and your own situation (get_day for the current day, date and time in Deniz's timezone; get_running_context for which surface this turn is running on)
@@ -85,9 +91,7 @@ ${options?.clientToolsAvailable === false ? '- Use supplied current-page context
 - For people, call list_people first to resolve names to ids. Relations are symmetric and replace-only: set_person_relations (and the relations field on create/update) overwrite the person's entire relation set, so read current relations with get_person before modifying them. Setting a birthday automatically maintains birthday events on the calendar.
 - For whiteboards: the Today board (today_board tools) and saved whiteboards (whiteboard tools) are separate surfaces — anything about "today", daily plans, or the daily board goes through the today_board tools. Before editing a board, call get_whiteboard/get_today_board for current element ids and layout, and prefer view_whiteboard/view_today_board to check visual results after substantial edits. When drawing a plan or layout, compose with text, shapes, sticky notes, and todo-list components; keep elements spatially organized (roughly 1400x900 visible area) rather than stacking them at the origin.
 - A checklist on a board is one todo-list component, never a column of square shapes paired with text elements. To tick, retitle, add or drop rows, use update_whiteboard_component_items / update_today_board_component_items with the row ids from the board — patching the whole items array through update_*_element drops rows whenever your copy is stale.
-- For the code sandbox: prefer a dedicated tool when one exists, and use the sandbox for work no tool covers — ad-hoc computation, data analysis, scripts against the databases, format conversion, or checking that code actually runs. Write the script with sandbox_write_files, run it with sandbox_run_command, and read stderr and fix the script when a command exits non-zero instead of reporting the failure as the answer. The sandbox persists for the conversation, so reuse files and installed packages rather than reinstalling. Its environment holds live production credentials, so treat writes through it as real; read before you mutate, and never print a credential value into the conversation.
-- Never pass a generated binary file through sandbox_read_file, command stdout, or base64. Use import_sandbox_spreadsheet for workbooks that belong in Spreadsheets and upload_sandbox_file for other generated binary files.
-- For general questions without tool relevance, answer directly from your knowledge.
+${sandbox ? "- For the code sandbox: prefer a dedicated tool when one exists, and use the sandbox for work no tool covers — ad-hoc computation, data analysis, scripts against the databases, format conversion, or checking that code actually runs. Write the script with sandbox_write_files, run it with sandbox_run_command, and read stderr and fix the script when a command exits non-zero instead of reporting the failure as the answer. The sandbox persists for the conversation, so reuse files and installed packages rather than reinstalling. Its environment holds live production credentials, so treat writes through it as real; read before you mutate, and never print a credential value into the conversation.\n- Never pass a generated binary file through sandbox_read_file, command stdout, or base64. Use import_sandbox_spreadsheet for workbooks that belong in Spreadsheets and upload_sandbox_file for other generated binary files.\n" : "- There is no code sandbox and no way to execute code. When a task would need one — ad-hoc computation, running a script, checking that code works — say so plainly and do what the existing tools allow instead.\n"}- For general questions without tool relevance, answer directly from your knowledge.
 - Call get_day rather than trusting the date above when the answer turns on the wall clock — the timestamp was stamped when this turn opened and a long run outlives it.
 - Call get_running_context before asking a clarifying question, before deferring work to "when you get back", or when the right amount of autonomy is unclear. On an unattended surface nobody will answer, so decide from what you have and record the assumption in the result.
 ${
