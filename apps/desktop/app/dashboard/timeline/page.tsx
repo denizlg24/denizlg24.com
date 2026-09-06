@@ -12,11 +12,7 @@ export default function TimelineRoute() {
 
   return (
     <AdminProvider value={value}>
-      {loading ? (
-        <TimelineSkeleton />
-      ) : (
-        <TimelinePage newHref="/dashboard/timeline/new" />
-      )}
+      {loading ? <TimelineSkeleton /> : <TimelinePage />}
     </AdminProvider>
   );
 }

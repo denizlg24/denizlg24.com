@@ -43,6 +43,13 @@ import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { CourseGradebookPanel, CourseWorkPanel } from "./course-assignments";
 import { CourseEmailReader, CourseMailPanel } from "./course-mail";
+import {
+  BOARD_STATUSES,
+  STATUS_BAR,
+  STATUS_LABELS,
+  STATUS_TONE,
+  summariseByStatus,
+} from "./coursework-status";
 import { CourseDot, SectionHeading, SemesterCockpit } from "./semester-cockpit";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -211,6 +218,7 @@ function CourseHome({
     (deadline) => !deadline.completed,
   );
   const dateRange = courseDates(course);
+  const workByStatus = summariseByStatus(detail.assignments);
   const hasProjection =
     projection.worstCase !== null && projection.bestCase !== null;
   const [openEmail, setOpenEmail] = useState<ICourseEmailSummary | null>(null);
@@ -315,131 +323,191 @@ function CourseHome({
               <Stat label="Readings" value={stats.openReadings} />
             </div>
 
-            {hasProjection && (
+            {/*
+              Where the open work actually stands. "Open work: 7" cannot
+              distinguish seven rows not started from seven half-finished ones,
+              which is the question the status field exists to answer — and this
+              is the surface you land on, so it has to answer it here rather
+              than one tab away.
+            */}
+            {workByStatus.total > 0 && (
               <section className="space-y-2">
-                <SectionHeading title="Standing" meta="secured vs best case" />
-                <div className="relative h-px w-full bg-border">
-                  <div
-                    className="absolute inset-y-0 left-0 h-px bg-muted-foreground/40"
-                    style={{
-                      width: `${Math.min(100, projection.bestCase ?? 0)}%`,
-                    }}
-                  />
-                  <div
-                    className="absolute -top-px left-0 h-[3px]"
-                    style={{
-                      width: `${Math.min(100, projection.worstCase ?? 0)}%`,
-                      backgroundColor: course.color ?? "var(--accent)",
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span className="tabular-nums">
-                    secured {formatPercent(projection.worstCase)}
-                  </span>
-                  <span className="tabular-nums">
-                    {formatPercent(projection.remainingWeight)} open · best{" "}
-                    {formatPercent(projection.bestCase)}
-                  </span>
-                </div>
-              </section>
-            )}
-
-            <section className="space-y-2">
-              <SectionHeading
-                title="Next up"
-                meta={`${openDeadlines.length} open`}
-              />
-              {openDeadlines.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {openDeadlines.slice(0, 6).map((deadline) => (
-                    <DeadlineLine key={deadline._id} deadline={deadline} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {detail.timetableEntries.length > 0 && (
-              <section className="space-y-2">
-                <SectionHeading title="Schedule" />
-                <div>
-                  {detail.timetableEntries.map((entry) => (
-                    <ListRow
-                      key={entry._id}
-                      title={entry.title}
-                      meta={entry.place}
-                      trailing={`${DAY_NAMES[entry.dayOfWeek] ?? ""} ${entry.startTime}-${entry.endTime}`}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {(course.description ||
-              course.location ||
-              course.homepageUrl ||
-              course.links.length > 0 ||
-              course.customFields.length > 0) && (
-              <section className="space-y-3">
-                <SectionHeading title="About" />
-                {course.description && (
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    {course.description}
-                  </p>
-                )}
-                {course.customFields.length > 0 && (
-                  <dl className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
-                    {course.customFields.map((field) => (
+                <SectionHeading
+                  title="Progress"
+                  meta={`${workByStatus.total} tracked`}
+                />
+                <div className="flex h-1 w-full overflow-hidden rounded-full bg-muted">
+                  {BOARD_STATUSES.map((status) =>
+                    workByStatus.counts[status] > 0 ? (
                       <div
-                        key={field._id}
-                        className="flex items-baseline gap-3 border-b border-border/60 py-1.5"
-                      >
-                        <dt className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          {field.label}
-                        </dt>
-                        <dd className="min-w-0 flex-1 truncate text-right text-sm">
-                          {field.value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-                {(course.location ||
-                  course.homepageUrl ||
-                  course.links.length > 0) && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                    {course.location && (
-                      <span className="text-muted-foreground">
-                        {course.location}
+                        key={status}
+                        className={STATUS_BAR[status]}
+                        style={{
+                          width: `${(workByStatus.counts[status] / workByStatus.total) * 100}%`,
+                        }}
+                      />
+                    ) : null,
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-5 gap-y-1">
+                  {BOARD_STATUSES.map((status) => (
+                    <span
+                      key={status}
+                      className="flex items-baseline gap-1.5 text-[11px]"
+                    >
+                      <span className={STATUS_TONE[status]}>
+                        {STATUS_LABELS[status]}
                       </span>
-                    )}
-                    {course.homepageUrl && (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 hover:underline"
-                        onClick={() => onOpenExternal(course.homepageUrl ?? "")}
-                      >
-                        <ExternalLink className="size-3" />
-                        Homepage
-                      </button>
-                    )}
-                    {course.links.map((link) => (
-                      <button
-                        key={link._id}
-                        type="button"
-                        className="flex items-center gap-1.5 hover:underline"
-                        onClick={() => onOpenExternal(link.url)}
-                      >
-                        <LinkIcon className="size-3" />
-                        {link.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                      <span className="tabular-nums text-muted-foreground">
+                        {workByStatus.counts[status]}
+                      </span>
+                    </span>
+                  ))}
+                </div>
               </section>
             )}
+
+            {/*
+              Two columns from `xl`: what you act on (standing, what is due)
+              beside what you refer to (the week's schedule, the course's own
+              details). Below that width they stack in the same order.
+            */}
+            <div className="grid gap-8 xl:grid-cols-[1.4fr_1fr]">
+              <div className="min-w-0 space-y-8">
+                {hasProjection && (
+                  <section className="space-y-2">
+                    <SectionHeading
+                      title="Standing"
+                      meta="secured vs best case"
+                    />
+                    <div className="relative h-px w-full bg-border">
+                      <div
+                        className="absolute inset-y-0 left-0 h-px bg-muted-foreground/40"
+                        style={{
+                          width: `${Math.min(100, projection.bestCase ?? 0)}%`,
+                        }}
+                      />
+                      <div
+                        className="absolute -top-px left-0 h-[3px]"
+                        style={{
+                          width: `${Math.min(100, projection.worstCase ?? 0)}%`,
+                          backgroundColor: course.color ?? "var(--accent)",
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="tabular-nums">
+                        secured {formatPercent(projection.worstCase)}
+                      </span>
+                      <span className="tabular-nums">
+                        {formatPercent(projection.remainingWeight)} open · best{" "}
+                        {formatPercent(projection.bestCase)}
+                      </span>
+                    </div>
+                  </section>
+                )}
+
+                <section className="space-y-2">
+                  <SectionHeading
+                    title="Next up"
+                    meta={`${openDeadlines.length} open`}
+                  />
+                  {openDeadlines.length === 0 ? (
+                    <EmptyLine />
+                  ) : (
+                    <div>
+                      {openDeadlines.slice(0, 8).map((deadline) => (
+                        <DeadlineLine key={deadline._id} deadline={deadline} />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <div className="min-w-0 space-y-8">
+                {detail.timetableEntries.length > 0 && (
+                  <section className="space-y-2">
+                    <SectionHeading title="Schedule" />
+                    <div>
+                      {detail.timetableEntries.map((entry) => (
+                        <ListRow
+                          key={entry._id}
+                          title={entry.title}
+                          meta={entry.place}
+                          trailing={`${DAY_NAMES[entry.dayOfWeek] ?? ""} ${entry.startTime}-${entry.endTime}`}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {(course.description ||
+                  course.location ||
+                  course.homepageUrl ||
+                  course.links.length > 0 ||
+                  course.customFields.length > 0) && (
+                  <section className="space-y-3">
+                    <SectionHeading title="About" />
+                    {course.description && (
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {course.description}
+                      </p>
+                    )}
+                    {course.customFields.length > 0 && (
+                      <dl className="grid grid-cols-1 gap-x-8 gap-y-1">
+                        {course.customFields.map((field) => (
+                          <div
+                            key={field._id}
+                            className="flex items-baseline gap-3 border-b border-border/60 py-1.5"
+                          >
+                            <dt className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {field.label}
+                            </dt>
+                            <dd className="min-w-0 flex-1 truncate text-right text-sm">
+                              {field.value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                    {(course.location ||
+                      course.homepageUrl ||
+                      course.links.length > 0) && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                        {course.location && (
+                          <span className="text-muted-foreground">
+                            {course.location}
+                          </span>
+                        )}
+                        {course.homepageUrl && (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 hover:underline"
+                            onClick={() =>
+                              onOpenExternal(course.homepageUrl ?? "")
+                            }
+                          >
+                            <ExternalLink className="size-3" />
+                            Homepage
+                          </button>
+                        )}
+                        {course.links.map((link) => (
+                          <button
+                            key={link._id}
+                            type="button"
+                            className="flex items-center gap-1.5 hover:underline"
+                            onClick={() => onOpenExternal(link.url)}
+                          >
+                            <LinkIcon className="size-3" />
+                            {link.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="work">
@@ -449,7 +517,6 @@ function CourseHome({
               deadlines={detail.deadlines}
               kanbanCards={detail.kanbanCards}
               readings={detail.readings}
-              onOpenExternal={onOpenExternal}
               onRefresh={onRefresh}
             />
           </TabsContent>
@@ -630,25 +697,26 @@ function CourseHome({
   );
 }
 
-function normalizeBasePath(path = "/admin/dashboard/courses") {
-  return path.replace(/\/$/, "");
-}
-
-export function CoursesPage({
-  routeBasePath = "/admin/dashboard/courses",
-  buildEditPath,
-}: {
-  routeBasePath?: string;
-  /** Desktop's static export cannot serve dynamic segments, so it routes
-      edits through a query-param page instead of `{basePath}/{id}/edit`. */
-  buildEditPath?: (courseId: string) => string;
-}) {
-  const { client, platform, slots } = useAdmin();
+/**
+ * The course roster, and one course's home when the URL names one.
+ *
+ * The selected course used to be local state, which is why nothing could be
+ * linked to, restored on reload or opened from the agent. It comes from the
+ * host's route now: a path segment on web, a query parameter on desktop, both
+ * resolved by `routes.courses.detail`.
+ */
+export function CoursesPage({ courseId }: { courseId?: string }) {
+  const { client, platform, slots, routes } = useAdmin();
   const router = useRouter();
-  const basePath = normalizeBasePath(routeBasePath);
 
   const [detail, setDetail] = useState<ICourseDetail | null>(null);
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const selectedCourseId = courseId ?? null;
+  const selectCourse = useCallback(
+    (id: string | null) => {
+      router.push(id ? routes.courses.detail(id) : routes.courses.root);
+    },
+    [router, routes],
+  );
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ICourse | null>(null);
   const [isMutating, setIsMutating] = useState(false);
@@ -690,16 +758,12 @@ export function CoursesPage({
   }, []);
 
   const openCreate = () => {
-    router.push(`${basePath}/new`);
+    router.push(routes.courses.new);
   };
 
   const openEdit = () => {
     if (!detail) return;
-    router.push(
-      buildEditPath
-        ? buildEditPath(detail.course._id)
-        : `${basePath}/${detail.course._id}/edit`,
-    );
+    router.push(routes.courses.edit(detail.course._id));
   };
 
   const handleDelete = async () => {
@@ -708,8 +772,8 @@ export function CoursesPage({
     try {
       await client.del<{ success: true }>(`courses/${deleteTarget._id}`);
       setDeleteTarget(null);
-      setSelectedCourseId(null);
       setDetail(null);
+      selectCourse(null);
       setReloadSignal((signal) => signal + 1);
       toast.success("Course deleted");
     } catch {
@@ -728,7 +792,7 @@ export function CoursesPage({
               variant="ghost"
               size="icon"
               className="size-7"
-              onClick={() => setSelectedCourseId(null)}
+              onClick={() => selectCourse(null)}
             >
               <ArrowLeft className="size-4" />
             </Button>
@@ -758,7 +822,7 @@ export function CoursesPage({
       <>
         <CourseHome
           detail={detail}
-          onBack={() => setSelectedCourseId(null)}
+          onBack={() => selectCourse(null)}
           onEdit={openEdit}
           onDelete={() => setDeleteTarget(detail.course)}
           onOpenExternal={(url) => platform.openExternal(url)}
@@ -805,7 +869,7 @@ export function CoursesPage({
           </Empty>
         ) : (
           <SemesterCockpit
-            onSelectCourse={setSelectedCourseId}
+            onSelectCourse={selectCourse}
             reloadSignal={reloadSignal}
             onEmpty={handleEmpty}
           />

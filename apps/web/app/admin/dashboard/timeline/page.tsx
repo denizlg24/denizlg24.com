@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function TimelineRoute() {
   return (
     <AdminFeatureShell>
-      <TimelinePage newHref="/admin/dashboard/timeline/new" />
+      <TimelinePage />
     </AdminFeatureShell>
   );
 }

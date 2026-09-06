@@ -4,7 +4,7 @@ import { AdminFeatureShell } from "../_components/admin-feature-shell";
 export default function CoursesRoute() {
   return (
     <AdminFeatureShell>
-      <CoursesPage routeBasePath="/admin/dashboard/courses" />
+      <CoursesPage />
     </AdminFeatureShell>
   );
 }

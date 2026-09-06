@@ -1,11 +1,17 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { catalog, drJobs } from "./catalog";
+import {
+  emptyConfig,
+  orderedGroups,
+  resolveServices,
+  type StatusConfig,
+} from "./config";
 import { collections } from "./db";
 import {
-  combineHealth,
   FRESHNESS_MS,
   fallbackExplanation,
   freshStatus,
+  overallHealth,
 } from "./health";
 import type { Backup, Health, Incident } from "./model";
 
@@ -44,9 +50,10 @@ export async function publicData() {
   const result = await (async () => {
     if (!process.env.STATUS_MONGODB_URI) return null;
     const c = await collections();
-    const [snapshot, daily, backups, incidents, maintenance] =
+    const [snapshot, config, daily, backups, incidents, maintenance] =
       await Promise.all([
         c.snapshots.findOne({ _id: "latest" }),
+        c.config.findOne({ _id: "config" }),
         c.daily
           .find(
             { day: { $gte: since.toISOString().slice(0, 10) } },
@@ -70,7 +77,7 @@ export async function publicData() {
           .limit(100)
           .toArray(),
       ]);
-    return { snapshot, daily, backups, incidents, maintenance };
+    return { snapshot, config, daily, backups, incidents, maintenance };
   })().catch(() => {
     available = false;
     return null;
@@ -88,23 +95,23 @@ export async function publicData() {
   const currentMaintenance = maintenance.filter(
     (item) => Date.parse(item.startsAt) <= now && Date.parse(item.endsAt) > now,
   );
-  const services = (result?.snapshot?.services ?? catalog).map(
-    ({ evidence, ...service }) => {
-      let status = freshStatus(service.status, service.checkedAt, now);
-      if (
-        (result?.incidents ?? []).some(
-          (incident) =>
-            !incident.resolvedAt && incident.serviceIds.includes(service.id),
-        )
+  const config: StatusConfig = { ...emptyConfig, ...(result?.config ?? {}) };
+  const services = resolveServices(
+    result?.snapshot?.services ?? catalog,
+    config,
+  ).map(({ evidence, ...service }) => {
+    let status = freshStatus(service.status, service.checkedAt, now);
+    if (
+      (result?.incidents ?? []).some(
+        (incident) =>
+          !incident.resolvedAt && incident.serviceIds.includes(service.id),
       )
-        status = "down";
-      if (
-        currentMaintenance.some((item) => item.serviceIds.includes(service.id))
-      )
-        status = "maintenance";
-      return { ...service, status };
-    },
-  );
+    )
+      status = "down";
+    if (currentMaintenance.some((item) => item.serviceIds.includes(service.id)))
+      status = "maintenance";
+    return { ...service, status };
+  });
   const backups = (result?.backups ?? []).map((backup) => ({
     id: backup.id,
     name: backup.name,
@@ -139,8 +146,11 @@ export async function publicData() {
     at: result?.snapshot?.at ?? null,
     generatedAt: new Date(now).toISOString(),
     available: available && !!result?.snapshot,
-    status: combineHealth(services.map((service) => service.status)),
+    status: overallHealth(services.map((service) => service.status)),
     services,
+    groups: orderedGroups(config).filter((group) =>
+      services.some((service) => service.group === group),
+    ),
     daily: result?.daily ?? [],
     backups,
     incidents: (result?.incidents ?? []).map(publicIncident),

@@ -63,10 +63,10 @@ import {
   Undo2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { ProjectEditorSheet } from "./project-editor-sheet";
 
 type VisibilityFilter = "all" | "published" | "hidden";
 
@@ -88,14 +88,13 @@ export function ProjectsSkeleton() {
   );
 }
 
-export function ProjectsPage({ newHref }: { newHref: string }) {
-  const { client, slots } = useAdmin();
+export function ProjectsPage() {
+  const { client, slots, routes } = useAdmin();
+  const router = useRouter();
 
   const [projects, setProjects] = useState<IProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<VisibilityFilter>("all");
-  const [editProject, setEditProject] = useState<IProject | null>(null);
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IProject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [originalOrder, setOriginalOrder] = useState<IProject[]>([]);
@@ -240,15 +239,6 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
     setDeleteTarget(null);
   };
 
-  const handleSaved = (updated: IProject) => {
-    setProjects((prev) =>
-      prev.map((p) => (p._id === updated._id ? updated : p)),
-    );
-    setOriginalOrder((prev) =>
-      prev.map((p) => (p._id === updated._id ? updated : p)),
-    );
-  };
-
   if (loading) {
     return <ProjectsSkeleton />;
   }
@@ -304,7 +294,7 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
           <span className="hidden sm:inline">Refresh</span>
         </Button>
         <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={newHref} title="New Project">
+          <Link href={routes.projects.new} title="New Project">
             <Plus className="size-3.5" />
             <span className="hidden sm:inline">New Project</span>
           </Link>
@@ -371,10 +361,9 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
                   <SortableProjectRow
                     key={project._id}
                     project={project}
-                    onEdit={() => {
-                      setEditProject(project);
-                      setEditSheetOpen(true);
-                    }}
+                    onEdit={() =>
+                      router.push(routes.projects.edit(project._id))
+                    }
                     onToggleActive={() => handleToggleActive(project)}
                     onToggleFeatured={() => handleToggleFeatured(project)}
                     onDelete={() => setDeleteTarget(project)}
@@ -389,10 +378,7 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
               <ProjectRow
                 key={project._id}
                 project={project}
-                onEdit={() => {
-                  setEditProject(project);
-                  setEditSheetOpen(true);
-                }}
+                onEdit={() => router.push(routes.projects.edit(project._id))}
                 onToggleActive={() => handleToggleActive(project)}
                 onToggleFeatured={() => handleToggleFeatured(project)}
                 onDelete={() => setDeleteTarget(project)}
@@ -401,13 +387,6 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
           </div>
         )}
       </div>
-
-      <ProjectEditorSheet
-        project={editProject}
-        open={editSheetOpen}
-        onOpenChange={setEditSheetOpen}
-        onSaved={handleSaved}
-      />
 
       <AlertDialog
         open={!!deleteTarget}

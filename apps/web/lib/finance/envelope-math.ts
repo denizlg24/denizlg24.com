@@ -259,23 +259,47 @@ function spendInWindow(
  */
 const MAX_ROLLOVER_PERIODS = 24;
 
-export function carryInMinor(input: {
-  envelope: Pick<
-    FinanceEnvelope,
-    | "categories"
-    | "includeUncategorized"
-    | "accountId"
-    | "rollover"
-    | "limitMinor"
-    | "period"
-    | "periodStartDay"
-    | "startDate"
-  >;
+type RolloverEnvelope = Pick<
+  FinanceEnvelope,
+  | "categories"
+  | "includeUncategorized"
+  | "accountId"
+  | "rollover"
+  | "limitMinor"
+  | "period"
+  | "periodStartDay"
+  | "startDate"
+>;
+
+/** One period of the walk-back, in the order it was actually lived. */
+export interface RolloverPeriod {
+  periodStart: string;
+  periodEnd: string;
+  limitMinor: number;
+  spentMinor: number;
+  /** Balance brought into this period from the one before it. */
+  carryInMinor: number;
+  /** limit + carryIn − spent, before the `surplus` floor is applied. */
+  remainingMinor: number;
+  /** What actually carried forward — floored at zero under `surplus`. */
+  carryOutMinor: number;
+}
+
+/**
+ * The per-period history behind `carryInMinor`.
+ *
+ * The carry is a single number derived from a walk over earlier periods, and
+ * that number alone cannot be checked or argued with. This returns the walk
+ * itself so a page can show where the balance came from; `carryInMinor` is the
+ * last `carryOutMinor` of the same list, so the two cannot disagree.
+ */
+export function rolloverWalkBack(input: {
+  envelope: RolloverEnvelope;
   ledger: FinanceLedgerEntry[];
   bounds: PeriodBounds;
-}) {
+}): RolloverPeriod[] {
   const { envelope } = input;
-  if (envelope.rollover === "none") return 0;
+  if (envelope.rollover === "none") return [];
 
   const grid = {
     period: envelope.period,
@@ -294,6 +318,7 @@ export function carryInMinor(input: {
     cursor = earlier;
   }
 
+  const walk: RolloverPeriod[] = [];
   let carry = 0;
   // Oldest first: each period's leftover is the next one's starting balance.
   for (const period of history.reverse()) {
@@ -301,9 +326,29 @@ export function carryInMinor(input: {
     const remaining = envelope.limitMinor + carry - spentMinor;
     // `surplus` refuses to carry a deficit, so an overspent month is absorbed
     // there and then instead of quietly shrinking every month that follows.
-    carry = envelope.rollover === "both" ? remaining : Math.max(0, remaining);
+    const carryOut =
+      envelope.rollover === "both" ? remaining : Math.max(0, remaining);
+    walk.push({
+      periodStart: period.start,
+      periodEnd: period.end,
+      limitMinor: envelope.limitMinor,
+      spentMinor,
+      carryInMinor: carry,
+      remainingMinor: remaining,
+      carryOutMinor: carryOut,
+    });
+    carry = carryOut;
   }
-  return carry;
+  return walk;
+}
+
+export function carryInMinor(input: {
+  envelope: RolloverEnvelope;
+  ledger: FinanceLedgerEntry[];
+  bounds: PeriodBounds;
+}) {
+  const walk = rolloverWalkBack(input);
+  return walk.length ? walk[walk.length - 1].carryOutMinor : 0;
 }
 
 function contributionTotal(

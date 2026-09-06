@@ -7,14 +7,9 @@ export default async function EditCourseRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-
   return (
     <AdminFeatureShell>
-      <CourseEditorPage
-        mode="edit"
-        courseId={id}
-        routeBasePath="/admin/dashboard/courses"
-      />
+      <CourseEditorPage mode="edit" courseId={id} />
     </AdminFeatureShell>
   );
 }

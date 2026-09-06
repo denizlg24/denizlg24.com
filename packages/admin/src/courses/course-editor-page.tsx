@@ -23,11 +23,6 @@ const EMPTY_OPTIONS: ICourseOptions = {
 interface CourseEditorPageProps {
   mode: "create" | "edit";
   courseId?: string;
-  routeBasePath: string;
-}
-
-function normalizeBasePath(path: string) {
-  return path.replace(/\/$/, "");
 }
 
 function EditorSkeleton({ title }: { title: string }) {
@@ -57,14 +52,9 @@ function EditorSkeleton({ title }: { title: string }) {
   );
 }
 
-export function CourseEditorPage({
-  mode,
-  courseId,
-  routeBasePath,
-}: CourseEditorPageProps) {
-  const { client, slots } = useAdmin();
+export function CourseEditorPage({ mode, courseId }: CourseEditorPageProps) {
+  const { client, slots, routes } = useAdmin();
   const router = useRouter();
-  const basePath = normalizeBasePath(routeBasePath);
 
   const [course, setCourse] = useState<ICourse | null>(null);
   const [options, setOptions] = useState<ICourseOptions>(EMPTY_OPTIONS);
@@ -102,7 +92,9 @@ export function CourseEditorPage({
   }, [load]);
 
   const goBack = () => {
-    router.push(basePath);
+    router.push(
+      courseId ? routes.courses.detail(courseId) : routes.courses.root,
+    );
   };
 
   const handleSubmit = async (values: CourseFormValues) => {
@@ -116,7 +108,7 @@ export function CourseEditorPage({
         await client.post<{ course: ICourse }>("courses", values);
         toast.success("Course created");
       }
-      router.push(basePath);
+      goBack();
     } catch {
       toast.error(
         mode === "edit" ? "Failed to save course" : "Failed to create course",
@@ -178,12 +170,8 @@ export function CourseEditorPage({
               </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-base font-semibold">
-                  {mode === "edit" && course ? course.name : "New class home"}
+                  {mode === "edit" && course ? course.name : "New class"}
                 </h1>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Configure the course profile, linked records, and manual
-                  deadlines in one workspace.
-                </p>
               </div>
               {saving && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">

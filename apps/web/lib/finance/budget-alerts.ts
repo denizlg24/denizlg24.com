@@ -107,6 +107,7 @@ export function serializeFinanceBudgetAlert(
     firstSeenAt: alert.firstSeenAt.toISOString(),
     lastSeenAt: alert.lastSeenAt.toISOString(),
     acknowledgedAt: alert.acknowledgedAt?.toISOString(),
+    acknowledgedSeverity: alert.acknowledgedSeverity,
     resolvedAt: alert.resolvedAt?.toISOString(),
   };
 }

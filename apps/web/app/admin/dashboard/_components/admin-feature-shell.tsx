@@ -4,6 +4,7 @@ import { prefetchAgentMemoryGraph } from "@repo/admin/agent-memory/graph-prefetc
 import { AdminProvider } from "@repo/admin/provider";
 import { type ReactNode, useEffect, useMemo } from "react";
 import { createWebAdminClient } from "@/lib/admin-client";
+import { WEB_ADMIN_ROUTES } from "@/lib/admin-routes";
 import { webPlatform } from "@/lib/platform-bridge";
 
 export function AdminFeatureShell({ children }: { children: ReactNode }) {
@@ -11,12 +12,7 @@ export function AdminFeatureShell({ children }: { children: ReactNode }) {
     () => ({
       client: createWebAdminClient(),
       platform: webPlatform,
-      routes: {
-        dashboardRoot: "/admin/dashboard",
-        settings: "/admin/dashboard/settings",
-        markets: "/admin/dashboard/markets",
-        portfolios: "/admin/dashboard/markets/portfolios",
-      },
+      routes: WEB_ADMIN_ROUTES,
     }),
     [],
   );

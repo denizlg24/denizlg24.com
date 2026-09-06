@@ -12,11 +12,7 @@ export default function ProjectsRoute() {
 
   return (
     <AdminProvider value={value}>
-      {loading ? (
-        <ProjectsSkeleton />
-      ) : (
-        <ProjectsPage newHref="/dashboard/projects/new" />
-      )}
+      {loading ? <ProjectsSkeleton /> : <ProjectsPage />}
     </AdminProvider>
   );
 }

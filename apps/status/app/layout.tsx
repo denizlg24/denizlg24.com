@@ -1,5 +1,6 @@
+import { TooltipProvider } from "@repo/ui/tooltip";
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Footer, Header } from "@/components/shell";
 import "./globals.css";
 
@@ -7,6 +8,11 @@ const geist = Geist({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-geist",
+});
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-geist-mono",
 });
 const origin = process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com";
 export const metadata: Metadata = {
@@ -51,17 +57,25 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={geist.variable} suppressHydrationWarning>
-      <body>
+    <html
+      lang="en"
+      className={`${geist.variable} ${geistMono.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <body className="flex min-h-full flex-col">
         <script dangerouslySetInnerHTML={{ __html: theme }} />
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <div className="site-wrap">
-          <Header />
-          <main id="main">{children}</main>
-          <Footer />
-        </div>
+        <TooltipProvider delayDuration={120}>
+          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 sm:px-8">
+            <Header />
+            <main id="main" className="flex-1 pb-16">
+              {children}
+            </main>
+            <Footer />
+          </div>
+        </TooltipProvider>
       </body>
     </html>
   );

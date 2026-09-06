@@ -1,6 +1,7 @@
 "use client";
 
 import { PortfoliosPage } from "@repo/admin/markets/portfolios-page";
+import { useAdmin } from "@repo/admin/provider";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
@@ -8,23 +9,20 @@ import { useCallback } from "react";
 export function PortfoliosRoute() {
   const router = useRouter();
   const params = useSearchParams();
+  const { routes } = useAdmin();
 
   const select = useCallback(
     (id: string) => {
-      router.replace(`/admin/dashboard/markets/portfolios?portfolio=${id}`, {
-        scroll: false,
-      });
+      router.replace(routes.market.portfolio(id), { scroll: false });
     },
-    [router],
+    [router, routes],
   );
 
   const openSymbol = useCallback(
     (ticker: string) => {
-      router.push(
-        `/admin/dashboard/markets?ticker=${encodeURIComponent(ticker)}`,
-      );
+      router.push(routes.market.ticker(ticker));
     },
-    [router],
+    [router, routes],
   );
 
   return (

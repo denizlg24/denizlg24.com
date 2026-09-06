@@ -26,6 +26,42 @@ export const maintenanceInput = z
     (value) => Date.parse(value.endsAt) > Date.parse(value.startsAt),
     "Maintenance must end after it starts",
   );
+const serviceId = z.string().trim().min(1).max(160);
+export const serviceConfigInput = z.object({
+  id: serviceId,
+  visible: z.boolean(),
+  name: z.string().trim().max(80),
+  description: z.string().trim().max(400),
+  group: z.string().trim().max(60),
+});
+export const serviceMoveInput = z.object({
+  id: serviceId,
+  direction: z.enum(["up", "down"]),
+});
+// A source key, not a free identifier: the collector only ever writes
+// "monitor:<digits>" or "heartbeat:<digits>", and a binding for anything else
+// could never be resolved.
+export const sourceIdInput = z
+  .string()
+  .trim()
+  .regex(/^(?:monitor|heartbeat):\d{1,32}$/);
+export const bindingInput = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ignore") }),
+  z.object({ kind: z.literal("service"), serviceId }),
+  z.object({
+    kind: z.literal("own"),
+    name: z.string().trim().min(1).max(80),
+    group: z.string().trim().min(1).max(60),
+    description: z.string().trim().max(400),
+  }),
+]);
+// Clearing history is the one irreversible operation here, so it is not a bare
+// button: the phrase has to be typed, exactly, in the same submission.
+export const RESET_PHRASE = "RESET";
+export const historyResetInput = z.object({
+  scope: z.enum(["history", "history-and-incidents"]),
+  confirm: z.literal(RESET_PHRASE),
+});
 // Systemd calendar expressions are validated again by systemd-analyze on the
 // host. Newlines/control characters can never become drop-in directives.
 export const calendarInput = z

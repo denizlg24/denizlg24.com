@@ -38,10 +38,10 @@ import {
   Trash2,
   UserSquare,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { ContactDetailSheet } from "./contact-detail-sheet";
 
 type ContactStatus = IContact["status"];
 type StatusFilter = ContactStatus | "all";
@@ -134,14 +134,13 @@ export function ContactsSkeleton() {
 }
 
 export function ContactsPage() {
-  const { client, slots } = useAdmin();
+  const { client, slots, routes } = useAdmin();
+  const router = useRouter();
 
   const [contacts, setContacts] = useState<IContact[]>([]);
   const [stats, setStats] = useState<ContactStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [selectedContact, setSelectedContact] = useState<IContact | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IContact | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteArchivedOpen, setDeleteArchivedOpen] = useState(false);
@@ -184,12 +183,6 @@ export function ContactsPage() {
         [newStatus]: prev[newStatus] + 1,
       };
     });
-
-    if (selectedContact?.ticketId === ticketId) {
-      setSelectedContact((prev) =>
-        prev ? { ...prev, status: newStatus } : null,
-      );
-    }
   };
 
   const handleDelete = (ticketId: string) => {
@@ -212,9 +205,6 @@ export function ContactsPage() {
         `contacts/${deleteTarget.ticketId}`,
       );
       handleDelete(deleteTarget.ticketId);
-      if (selectedContact?.ticketId === deleteTarget.ticketId) {
-        setSheetOpen(false);
-      }
       toast.success("Contact deleted");
       setDeleteTarget(null);
     } catch {
@@ -251,8 +241,7 @@ export function ContactsPage() {
   };
 
   const handleRowClick = (contact: IContact) => {
-    setSelectedContact(contact);
-    setSheetOpen(true);
+    router.push(routes.contacts.detail(contact.ticketId));
   };
 
   const handleQuickStatus = async (
@@ -503,14 +492,6 @@ export function ContactsPage() {
           />
         </div>
       </div>
-
-      <ContactDetailSheet
-        contact={selectedContact}
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        onStatusChange={handleStatusChange}
-        onDelete={handleDelete}
-      />
 
       <AlertDialog
         open={deleteTarget !== null}

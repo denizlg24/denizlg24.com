@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { createDesktopAdminClient } from "@/lib/admin-client";
+import { DESKTOP_ADMIN_ROUTES } from "@/lib/admin-routes";
 import { desktopPlatform } from "@/lib/platform-bridge";
 
 /**
@@ -23,12 +24,7 @@ export function useDesktopAdmin(): {
     () => ({
       client: createDesktopAdminClient(settings.apiKey),
       platform: desktopPlatform,
-      routes: {
-        dashboardRoot: "/dashboard",
-        settings: "/dashboard/settings",
-        markets: "/dashboard/markets",
-        portfolios: "/dashboard/markets/portfolios",
-      },
+      routes: DESKTOP_ADMIN_ROUTES,
       slots: {
         sidebarTrigger: <SidebarTrigger className="-ml-1 size-7 md:hidden" />,
         // Device settings read the Tauri store and updater, so the route lives

@@ -79,6 +79,23 @@ suite("collector with real MongoDB and simulated upstreams", () => {
       Object.values(c).map((collection) => collection.deleteMany({})),
     );
     await setupDatabase();
+    // Only a chosen source becomes a tile. The unmapped monitor below is left
+    // unbound on purpose, so its absence is the assertion.
+    await c.config.insertOne({
+      _id: "config",
+      services: {},
+      bindings: {
+        "heartbeat:9": {
+          kind: "own",
+          name: "Pi heartbeat",
+          group: "Other services",
+          description: "Scheduled heartbeat monitored by Better Stack.",
+        },
+      },
+      groups: [],
+      updatedAt: at,
+      updatedBy: "test",
+    });
     const preconnect = globalThis.fetch.preconnect;
     fetcher = spyOn(globalThis, "fetch").mockImplementation(
       Object.assign(
@@ -131,6 +148,15 @@ suite("collector with real MongoDB and simulated upstreams", () => {
                     url: "https://api.denizlg24.com/healthz/deep",
                     pronounceable_name: "Deep transactions",
                     status: "down",
+                    last_checked_at: at,
+                  },
+                },
+                {
+                  id: "77",
+                  attributes: {
+                    url: "https://google.com",
+                    pronounceable_name: "google.com",
+                    status: "up",
                     last_checked_at: at,
                   },
                 },
@@ -203,6 +229,49 @@ suite("collector with real MongoDB and simulated upstreams", () => {
     expect(await c.timings.countDocuments()).toBe(1);
     expect(comments).toBe(1);
     expect(await c.daily.countDocuments()).toBe(samples);
+  });
+  test("an unchosen monitor is discovered but never becomes a service", async () => {
+    const c = await collections();
+    const snapshot = await c.snapshots.findOne({ _id: "latest" });
+    expect(
+      snapshot?.services.some((service) => service.id === "monitor:77"),
+    ).toBe(false);
+    // It is still offered in the admin picker, and it never collects timings.
+    expect(await c.sources.findOne({ _id: "monitor:77" })).toMatchObject({
+      kind: "monitor",
+      name: "google.com",
+      url: "https://google.com",
+    });
+    expect(await c.timings.countDocuments({ serviceId: "monitor:77" })).toBe(0);
+    // A chosen one does become a tile, under the name the admin gave it.
+    expect(
+      snapshot?.services.find((service) => service.id === "heartbeat:9")?.name,
+    ).toBe("Pi heartbeat");
+  });
+  test("a service left behind by an unbound source is dropped, not retained", async () => {
+    const c = await collections();
+    await c.snapshots.updateOne(
+      { _id: "latest" },
+      {
+        $push: {
+          services: {
+            id: "monitor:4897079",
+            name: "google.com",
+            group: "Other services",
+            description: "External monitoring by Better Stack.",
+            status: "unknown",
+            checkedAt: null,
+            latencyMs: null,
+            evidence: [],
+          },
+        },
+      },
+    );
+    await collectStatus();
+    const snapshot = await c.snapshots.findOne({ _id: "latest" });
+    expect(
+      snapshot?.services.some((service) => service.id === "monitor:4897079"),
+    ).toBe(false);
   });
   test("provider failure retains incidents and never turns stale monitors green", async () => {
     failBetterStack = true;

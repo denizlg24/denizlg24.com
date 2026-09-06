@@ -9,7 +9,7 @@ export default function BlogRoute() {
 
   return (
     <AdminProvider value={value}>
-      {loading ? <BlogSkeleton /> : <BlogPage newHref="/dashboard/blog/new" />}
+      {loading ? <BlogSkeleton /> : <BlogPage />}
     </AdminProvider>
   );
 }

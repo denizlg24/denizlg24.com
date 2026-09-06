@@ -39,10 +39,10 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { BlogEditorSheet } from "./blog-editor-sheet";
 
 type StatusFilter = "all" | "published" | "draft";
 
@@ -94,14 +94,13 @@ export function BlogSkeleton() {
   );
 }
 
-export function BlogPage({ newHref }: { newHref: string }) {
-  const { client, slots } = useAdmin();
+export function BlogPage() {
+  const { client, slots, routes } = useAdmin();
+  const router = useRouter();
 
   const [blogs, setBlogs] = useState<IBlog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [editBlog, setEditBlog] = useState<IBlog | null>(null);
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IBlog | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -170,12 +169,7 @@ export function BlogPage({ newHref }: { newHref: string }) {
   };
 
   const handleRowClick = (blog: IBlog) => {
-    setEditBlog(blog);
-    setEditSheetOpen(true);
-  };
-
-  const handleSaved = (updated: IBlog) => {
-    setBlogs((prev) => prev.map((b) => (b._id === updated._id ? updated : b)));
+    router.push(routes.blog.edit(blog._id));
   };
 
   const columns: ColumnDef<IBlog, unknown>[] = [
@@ -338,7 +332,7 @@ export function BlogPage({ newHref }: { newHref: string }) {
           <span className="hidden sm:inline">Refresh</span>
         </Button>
         <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={newHref} title="New Post">
+          <Link href={routes.blog.new} title="New Post">
             <Plus className="size-3.5" />
             <span className="hidden sm:inline">New Post</span>
           </Link>
@@ -395,13 +389,6 @@ export function BlogPage({ newHref }: { newHref: string }) {
           />
         </div>
       </div>
-
-      <BlogEditorSheet
-        blog={editBlog}
-        open={editSheetOpen}
-        onOpenChange={setEditSheetOpen}
-        onSaved={handleSaved}
-      />
 
       <AlertDialog
         open={!!deleteTarget}
