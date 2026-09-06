@@ -10,3 +10,31 @@
   --font-inter: var(--font-inter);
   --font-calistoga: var(--font-calistoga);
 }
+
+@theme {
+  --animate-status-glow: status-glow 4s ease-in-out infinite;
+  --animate-status-sheen: status-sheen 4s ease-in-out infinite;
+
+  @keyframes status-glow {
+    0%,
+    100% {
+      opacity: 0.3;
+      transform: scale(0.9);
+    }
+    50% {
+      opacity: 0.65;
+      transform: scale(1.08);
+    }
+  }
+
+  @keyframes status-sheen {
+    0%,
+    45% {
+      transform: translateX(-150%) skewX(-12deg);
+    }
+    75%,
+    100% {
+      transform: translateX(420%) skewX(-12deg);
+    }
+  }
+}

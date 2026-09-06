@@ -7,7 +7,14 @@ import {
 } from "@repo/ui/hover-card";
 import { Skeleton } from "@repo/ui/skeleton";
 import { format, parseISO } from "date-fns";
-import { AlertTriangle, CheckCircle2, HelpCircle, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  HelpCircle,
+  XCircle,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 interface PublicDailyStatus {
@@ -292,12 +299,39 @@ export function ResourceStatus() {
   return (
     <div className="mt-12 text-left">
       <h2 className="text-2xl font-calistoga mb-4">resource status</h2>
-      <div>
+      {/* <div>
         {statuses === null
           ? Array.from({ length: 3 }).map((_, i) => (
               <StatusRowSkeleton key={i} />
             ))
           : statuses.map((s) => <StatusRow key={s.name} resource={s} />)}
+      </div> */}
+      <div className="relative mx-auto w-fit py-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-24 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,var(--accent)_0%,transparent_70%)] opacity-40 blur-2xl motion-safe:animate-status-glow"
+        />
+
+        <Link
+          href="https://status.denizlg24.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group relative isolate inline-flex items-center gap-2.5 overflow-hidden rounded-full border border-border bg-surface py-2 pl-3.5 pr-3 text-sm font-medium text-accent-strong shadow-sm transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-accent hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 -left-8 -z-10 w-8 bg-gradient-to-r from-transparent via-accent/70 to-transparent motion-safe:animate-status-sheen"
+          />
+
+          <span aria-hidden className="relative flex size-2">
+            <span className="absolute inline-flex size-full rounded-full bg-status-good opacity-75 motion-safe:animate-ping" />
+            <span className="relative inline-flex size-2 rounded-full bg-status-good" />
+          </span>
+
+          <span>Status has moved</span>
+
+          <ArrowUpRight className="size-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+        </Link>
       </div>
     </div>
   );
