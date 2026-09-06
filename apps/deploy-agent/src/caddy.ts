@@ -208,11 +208,31 @@ function proxyHandler(upstream: string): Record<string, unknown> {
       },
     },
     // A response from the application is not a Caddy handler error, even when
-    // it is a 5xx. Intercept the whole status class here; dial failures and
-    // containers which disappear mid-request use the server error route below.
+    // it is a 5xx — dial failures and containers which disappear mid-request
+    // use the server error route below instead.
+    //
+    // Matching the status class alone replaced the *body* of every 5xx the app
+    // deliberately produced, so an API route answering
+    // `{ error: "The project agent is unavailable" }` with a 503 reached its
+    // caller as the branded HTML page. The client then had an HTML document
+    // where it expected JSON, which is how a `<!doctype html>` ended up
+    // rendered into a toast.
+    //
+    // The discriminator is what the app sent, not what it returned: a branded
+    // page is worth substituting for a framework error page, never for a
+    // structured error a client is going to parse.
     handle_response: [
       {
-        match: { status_code: [5] },
+        match: {
+          status_code: [5],
+          headers: { "Content-Type": ["text/html*", "text/plain*"] },
+        },
+        routes: [{ handle: [unavailablePageHandler()] }],
+      },
+      // A 5xx with no Content-Type at all is a body-less failure, and the page
+      // is strictly better than a blank response.
+      {
+        match: { status_code: [5], headers: { "Content-Type": [""] } },
         routes: [{ handle: [unavailablePageHandler()] }],
       },
     ],

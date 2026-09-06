@@ -351,6 +351,42 @@ describe("buildCaddyConfig", () => {
     );
   });
 
+  /**
+   * Substituting the page for *every* 5xx replaced the body of the ones the app
+   * meant to send. An API route answering a 503 with a JSON error reached its
+   * caller as an HTML document, which is how a `<!doctype html>` was rendered
+   * into a toast.
+   */
+  it("leaves a structured error body alone and only replaces a page", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        kind: "production" as const,
+        hostnames: ["a.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const proxy = config.apps.http.servers.forge?.routes[0]?.handle[1] as {
+      handle_response: {
+        match: { status_code: number[]; headers?: Record<string, string[]> };
+      }[];
+    };
+
+    const contentTypes = proxy.handle_response.flatMap(
+      (entry) => entry.match.headers?.["Content-Type"] ?? [],
+    );
+    expect(contentTypes).toContain("text/html*");
+    // The one that must never be intercepted.
+    expect(
+      contentTypes.some((value) => value.startsWith("application/json")),
+    ).toBe(false);
+    // Every rule is narrowed by content type; none matches the class alone.
+    for (const entry of proxy.handle_response) {
+      expect(entry.match.headers).toBeDefined();
+    }
+  });
+
   it("serves the unavailable page when the upstream cannot be reached", () => {
     const server = buildCaddyConfig([]).apps.http.servers.forge;
     const handler = server?.errors?.routes[0]?.handle[0] as
