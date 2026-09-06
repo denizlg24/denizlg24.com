@@ -94,3 +94,4 @@ apps/desktop/src-tauri/target/
 # tracked going forward so the working tree stays lean. docs/architecture and
 # docs/security remain tracked.
 docs/internal/
+.env*
