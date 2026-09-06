@@ -77,7 +77,7 @@ export const sandboxTools: ToolDefinition[] = [
   {
     schema: {
       name: "sandbox_run_command",
-      description: `Run a command in the conversation's ${SANDBOX_RUNTIME} sandbox and return exitCode, stdout, and stderr. The sandbox has network access and is provisioned with the system's database, Redis, and S3 credentials as environment variables, so scripts can query real data. Node and npm are available; install packages with npm before importing them. Commands are killed after five minutes.`,
+      description: `Run a command in the conversation's isolated ${SANDBOX_RUNTIME} sandbox and return exitCode, stdout, and stderr. TypeScript and JavaScript run directly with bun; Python runs with python3. The sandbox is offline and has no production credentials. Commands are killed after five minutes.`,
       input_schema: {
         type: "object",
         properties: {
@@ -103,8 +103,8 @@ export const sandboxTools: ToolDefinition[] = [
         required: ["command"],
       },
     },
-    // Arbitrary code with the forwarded production credentials — this belongs
-    // behind the approval gate even though it writes nothing itself.
+    // Arbitrary code is isolated and credential-free, but still belongs behind
+    // the approval gate because it consumes compute and can create artifacts.
     isWrite: true,
     category: "sandbox",
     execute: async (input, context) => {

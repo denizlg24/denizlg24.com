@@ -9,7 +9,7 @@ import { z } from "zod";
  * Bumped when a field changes meaning. `/healthz` reports it so a deploy that
  * rolled out behind its caller is visible rather than silently mismatched.
  */
-export const SANDBOX_PROTOCOL_VERSION = 1;
+export const SANDBOX_PROTOCOL_VERSION = 2;
 
 /**
  * Sessions are keyed by conversation, exactly as `getSandbox(conversationId)`
@@ -20,6 +20,12 @@ export const createSessionSchema = z.object({
   conversationId: z.string().min(1),
   /** Wall-clock ceiling. A session outliving its turn is a leak, not a feature. */
   ttlSeconds: z.number().int().min(60).max(3600).default(900),
+});
+
+export const sessionSchema = z.object({
+  id: z.string().min(1),
+  created: z.boolean(),
+  expiresAt: z.string().datetime(),
 });
 
 export const runCommandSchema = z.object({
@@ -43,13 +49,27 @@ export const writeFilesSchema = z.object({
       z.object({
         path: z.string().min(1),
         /** Base64 so the same route carries text and binary without a branch. */
-        contentBase64: z.string(),
+        contentBase64: z.string().max(2_800_000),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(64),
+});
+
+export const writtenFilesSchema = z.object({
+  written: z.array(z.string()),
+});
+
+export const fileListSchema = z.object({
+  entries: z.array(z.string()),
+});
+
+export const portUrlSchema = z.object({
+  url: z.string().url(),
 });
 
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+export type Session = z.infer<typeof sessionSchema>;
 export type RunCommandInput = z.infer<typeof runCommandSchema>;
 export type CommandResult = z.infer<typeof commandResultSchema>;
 export type WriteFilesInput = z.infer<typeof writeFilesSchema>;

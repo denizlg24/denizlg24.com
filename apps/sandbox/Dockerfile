@@ -15,6 +15,8 @@ RUN bun run --cwd apps/sandbox build
 FROM oven/bun:1.4.0-alpine AS runtime
 WORKDIR /app
 
+RUN apk add --no-cache docker-cli
+
 ENV NODE_ENV=production
 ENV PORT=3005
 

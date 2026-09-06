@@ -1,19 +1,63 @@
 import { describe, expect, it } from "bun:test";
+import type { SandboxConfig } from "./config";
 import { runCommandSchema, SANDBOX_PROTOCOL_VERSION } from "./contract";
-import app from "./index";
+import { createApp } from "./index";
 
-const call = (path: string, init?: RequestInit) =>
-  app.fetch(new Request(`http://sandbox.test${path}`, init));
+const TOKEN = "test-token-that-is-at-least-thirty-two-characters";
+const config: SandboxConfig = {
+  apiToken: TOKEN,
+  dockerBinary: "docker",
+  dockerHost: "unix:///run/user/1001/docker.sock",
+  image: "runtime:test",
+  runtime: "runsc",
+  publicUrl: "https://sandbox.example.test",
+  memoryMb: 1024,
+  cpus: 2,
+  pids: 256,
+  maxSessions: 8,
+  requireRootless: true,
+};
 
-describe("the sandbox scaffold", () => {
-  /**
-   * Forge probes `/` and `/healthz` to decide a deployment is serving. It has to
-   * answer while the app does nothing else, or the scaffold cannot be deployed
-   * at all — and deploying it is the point of landing it before it works.
-   */
-  it("reports healthy so a deploy can go ready", async () => {
-    const response = await call("/healthz");
+const runtime = {
+  health: async () => undefined,
+  createSession: async () => ({
+    id: "a".repeat(32),
+    created: true,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }),
+  stopSession: async () => true,
+  runCommand: async () => ({
+    exitCode: 0,
+    stdout: "ok\n",
+    stderr: "",
+    timedOut: false,
+  }),
+  writeFiles: async () => ["/workspace/main.ts"],
+  listFiles: async () => ["main.ts"],
+  readFile: async () => Buffer.from("console.log('ok')"),
+  portUrl: () => "https://sandbox.example.test/preview",
+  verifyPortToken: () => true,
+  proxyPort: async () => new Response("preview"),
+};
+const app = createApp(config, runtime);
 
+const call = (path: string, init: RequestInit = {}) =>
+  app.fetch(
+    new Request(`http://sandbox.test${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        ...(init.body ? { "content-type": "application/json" } : {}),
+        ...init.headers,
+      },
+    }),
+  );
+
+describe("the sandbox API", () => {
+  it("reports protocol health without authentication", async () => {
+    const response = await app.fetch(
+      new Request("http://sandbox.test/healthz"),
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
@@ -21,41 +65,46 @@ describe("the sandbox scaffold", () => {
     });
   });
 
-  /**
-   * 501, never a plausible-looking empty success. A stub that answered a command
-   * with `{ exitCode: 0, stdout: "" }` would be read as code that ran and
-   * produced nothing, which is worse than the error it replaced.
-   */
-  it("refuses every operation it cannot perform", async () => {
-    const routes: [string, RequestInit][] = [
-      ["/sessions", { method: "POST" }],
-      ["/sessions/abc", { method: "DELETE" }],
-      ["/sessions/abc/commands", { method: "POST" }],
-      ["/sessions/abc/files", { method: "POST" }],
-      ["/sessions/abc/files", {}],
-      ["/sessions/abc/ports/3000", {}],
-    ];
+  it("authenticates every control route", async () => {
+    const response = await app.fetch(
+      new Request("http://sandbox.test/sessions", { method: "POST" }),
+    );
+    expect(response.status).toBe(401);
+  });
 
-    for (const [path, init] of routes) {
-      const response = await call(path, init);
-      expect(response.status).toBe(501);
-      const body = (await response.json()) as { error: string };
-      // The message has to say where the decision is written down, or the next
-      // person to hit it re-derives why the sandbox is gone.
-      expect(body.error).toContain("019-ui-ux-fixes-sep5");
-    }
+  it("creates a session and runs commands", async () => {
+    const created = await call("/sessions", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: "conversation" }),
+    });
+    expect(created.status).toBe(200);
+
+    const command = await call(`/sessions/${"a".repeat(32)}/commands`, {
+      method: "POST",
+      body: JSON.stringify({ command: "bun", args: ["run", "main.ts"] }),
+    });
+    expect(await command.json()).toEqual({
+      exitCode: 0,
+      stdout: "ok\n",
+      stderr: "",
+      timedOut: false,
+    });
+  });
+
+  it("validates requests before the runtime sees them", async () => {
+    const response = await call(`/sessions/${"a".repeat(32)}/commands`, {
+      method: "POST",
+      body: JSON.stringify({ command: "" }),
+    });
+    expect(response.status).toBe(400);
   });
 });
 
 describe("the wire contract", () => {
-  it("bounds a command's runtime rather than letting it hold a slot forever", () => {
+  it("bounds a command's runtime", () => {
     expect(runCommandSchema.parse({ command: "ls" }).timeoutMs).toBe(120_000);
     expect(
       runCommandSchema.safeParse({ command: "ls", timeoutMs: 999_999 }).success,
     ).toBe(false);
-  });
-
-  it("requires a command, since an empty one has no meaning", () => {
-    expect(runCommandSchema.safeParse({ command: "" }).success).toBe(false);
   });
 });

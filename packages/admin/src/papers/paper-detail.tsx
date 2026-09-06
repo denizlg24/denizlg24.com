@@ -92,6 +92,18 @@ const MobilePdfReader = dynamic(
   },
 );
 
+const DesktopPdfReader = dynamic(
+  () => import("./pdf-reader").then((module) => module.DesktopPdfReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background text-xs text-muted-foreground">
+        Loading PDF…
+      </div>
+    ),
+  },
+);
+
 interface PaperDetailProps {
   paper: IPaper;
   notes: PaperNoteRef[];
@@ -287,21 +299,35 @@ export function PaperDetail({
   const percent = readingPercent(paper);
   const pace = requiredPace(paper);
 
-  if (isMobile && readerOpen && paper.pdf) {
+  if (readerOpen && paper.pdf) {
     return (
       <>
-        <MobilePdfReader
-          url={paper.pdf.url}
-          fileName={paper.pdf.fileName}
-          title={paper.title}
-          page={currentPage}
-          onPageChange={goToPage}
-          onTotalPages={handleTotalPages}
-          onClose={() => setReaderOpen(false)}
-          onOpenDetails={() => setDetailsOpen(true)}
-          onHighlightSelection={captureSelection}
-          footnote={pace ? `${pace} p/day` : dueLabel(paper.dueAt)}
-        />
+        {isMobile ? (
+          <MobilePdfReader
+            url={paper.pdf.url}
+            fileName={paper.pdf.fileName}
+            title={paper.title}
+            page={currentPage}
+            onPageChange={goToPage}
+            onTotalPages={handleTotalPages}
+            onClose={() => setReaderOpen(false)}
+            onOpenDetails={() => setDetailsOpen(true)}
+            onHighlightSelection={captureSelection}
+            footnote={pace ? `${pace} p/day` : dueLabel(paper.dueAt)}
+          />
+        ) : (
+          <DesktopPdfReader
+            url={paper.pdf.url}
+            fileName={paper.pdf.fileName}
+            title={paper.title}
+            page={currentPage}
+            onPageChange={goToPage}
+            onTotalPages={handleTotalPages}
+            onClose={() => setReaderOpen(false)}
+            onOpenDetails={() => setDetailsOpen(true)}
+            onHighlightSelection={captureSelection}
+          />
+        )}
         <ReadingSheet
           open={detailsOpen}
           onOpenChange={setDetailsOpen}
@@ -343,11 +369,7 @@ export function PaperDetail({
           </p>
         </div>
         {paper.pdf && (
-          <Button
-            size="sm"
-            className="h-7 md:hidden"
-            onClick={() => setReaderOpen(true)}
-          >
+          <Button size="sm" className="h-7" onClick={() => setReaderOpen(true)}>
             <BookOpen className="size-3.5" /> Read
           </Button>
         )}
