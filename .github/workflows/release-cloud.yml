@@ -170,11 +170,52 @@ jobs:
 
       - name: Fence the Pi backup snapshot
         if: env.DR_FENCING_ENABLED == 'true'
+        env:
+          # A backup snapshot legitimately holds this for a while, so waiting is
+          # the normal case rather than an error. `mkdir` on its own turned any
+          # concurrent backup into a failed deploy.
+          DR_LOCK_WAIT_SECONDS: "900"
+          # Past this, a fence is not held by anything that will ever release
+          # it: nothing else reclaims it, so every later run fails until someone
+          # removes a directory on the Pi by hand. Comfortably longer than the
+          # longest legitimate hold, which is the backup's own wait budget.
+          DR_LOCK_STALE_MINUTES: "60"
         run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud"
           [[ "$lock_token" =~ ^[0-9]+-[0-9]+-cloud$ ]]
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
+            bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
+          set -euo pipefail
+          token="$1"; wait_seconds="$2"; stale_minutes="$3"
+          lease="$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '"' | head -1)"
+          test "$lease" = home
+          lock=/var/lib/deniz-dr/locks/pi-cloud.lock
+          holder() { cat "$lock/owner" 2>/dev/null || echo unknown; }
+          deadline=$(( $(date +%s) + wait_seconds ))
+          while true; do
+            if mkdir "$lock" 2>/dev/null; then break; fi
+            # `find -mmin` rather than `stat`: the age test decides whether the
+            # fence is ever breakable, so it must not be the half of a `||`
+            # that silently answers "not stale" when the syntax is wrong.
+            # Printing nothing here means young, or already gone — either way
+            # the next mkdir is the real contest.
+            if [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; then
+              echo "breaking a deploy fence abandoned by '$(holder)'" >&2
+              # Rename first: whoever wins the rename wins the break, so two
+              # runners cannot both clear it and both proceed.
+              if mv "$lock" "${lock}.abandoned.$$" 2>/dev/null; then
+                rm -rf "${lock}.abandoned.$$"
+              fi
+              continue
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "deploy fence still held after ${wait_seconds}s by '$(holder)'" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          printf '%s\n' "$token" > "$lock/owner"
+          REMOTE
           echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
 
       - name: Record deferred DR fencing
@@ -334,4 +375,19 @@ jobs:
         if: always() && env.DR_DEPLOY_LOCK_TOKEN != ''
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "set -e; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; test \"\$(cat \"\$lock/owner\" 2>/dev/null)\" = '$DR_DEPLOY_LOCK_TOKEN'; rm -f \"\$lock/owner\"; rmdir \"\$lock\""
+            bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
+          set -euo pipefail
+          token="$1"
+          lock=/var/lib/deniz-dr/locks/pi-cloud.lock
+          owner="$(cat "$lock/owner" 2>/dev/null || true)"
+          if [ "$owner" != "$token" ]; then
+            # Someone else holds it — this run's fence was already broken as
+            # abandoned, or never taken. Removing it would unfence a live
+            # backup. Not this step's failure to report, either: the deploy it
+            # guarded has already finished.
+            echo "deploy fence is held by '${owner:-nothing}', not this run; leaving it" >&2
+            exit 0
+          fi
+          rm -f "$lock/owner"
+          rmdir "$lock"
+          REMOTE
