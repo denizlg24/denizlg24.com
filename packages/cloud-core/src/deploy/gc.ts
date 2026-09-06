@@ -72,6 +72,13 @@ export function selectForgeKeepSet(
       if (row.imageTag) keepImageTags.add(row.imageTag);
     }
     if (!row.imageTag) continue;
+    // A run that never shipped is not a rollback candidate. It matters more
+    // than it reads: the agent reserves its image tag on the row *before* the
+    // build, so GC cannot reap an image between the build finishing and the
+    // container starting. A build that then fails leaves a tag naming an image
+    // that was never produced, and counting it here would spend a retention
+    // slot protecting nothing while a real older image was reaped in its place.
+    if (row.status === "failed" || row.status === "cancelled") continue;
     const bucket = perTarget.get(row.targetId);
     if (bucket) bucket.push(row);
     else perTarget.set(row.targetId, [row]);

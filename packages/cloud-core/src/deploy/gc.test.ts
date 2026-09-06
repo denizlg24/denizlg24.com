@@ -84,6 +84,37 @@ describe("selectForgeKeepSet", () => {
     expect(keep.keepImageTags).not.toContain("forge/app:failed");
   });
 
+  /**
+   * The agent reserves an image tag on the row before it builds, so GC cannot
+   * reap the image in the window between the build finishing and the container
+   * starting. A build that then fails leaves a tag naming an image that never
+   * existed; spending a retention slot on it would reap a real older image in
+   * its place, which at the shipped retention of one means every rollback
+   * rebuilds.
+   */
+  it("does not spend a retention slot on a run that never shipped", () => {
+    const keep = selectForgeKeepSet(
+      [
+        candidate({
+          id: "shipped",
+          targetId: "a",
+          status: "superseded",
+          createdAt: new Date("2026-08-01T00:00:00Z"),
+        }),
+        candidate({
+          id: "broken",
+          targetId: "a",
+          status: "failed",
+          createdAt: new Date("2026-08-02T00:00:00Z"),
+        }),
+      ],
+      1,
+    );
+
+    expect(keep.keepImageTags).toContain("forge/app:shipped");
+    expect(keep.keepImageTags).not.toContain("forge/app:broken");
+  });
+
   it("keeps the newest N images per target, counted separately", () => {
     const rows = [
       candidate({

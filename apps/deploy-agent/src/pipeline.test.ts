@@ -142,6 +142,70 @@ describe("createDeploymentRunner", () => {
   });
 
   /**
+   * GC protects an image two ways: a running container references it, or a
+   * deployment row names it in `imageTag`. Between the build finishing and
+   * `docker run` there is neither, and that gap contains an unbounded wait for
+   * the host mutation lock — so a GC pass landing in it reaps the image the
+   * deployment is about to start, and the run fails with "Unable to find image
+   * locally" for a tag built minutes earlier. Reserving the tag on the very
+   * first report is what closes the window.
+   */
+  it("reserves the image tag before the build so GC cannot reap it", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, context, updates } = harness(dir, happyExec());
+      const request = deploymentRequest({ kind: "production" });
+
+      const final = await runner(request, context);
+
+      const first = updates[0];
+      expect(first?.status).toBe("building");
+      expect(first?.phase).toBe("cloning");
+      expect(first?.imageTag).toStartWith("forge/hello-world:");
+      // The same tag the build goes on to produce, not a second spelling of
+      // it — a reservation naming a different image protects nothing.
+      const deploying = updates.find((update) => update.status === "deploying");
+      expect(deploying?.imageTag).toBe(first?.imageTag);
+      expect(final.status).toBe("ready");
+      expect(request.deploymentId).toBeTruthy();
+    });
+  });
+
+  /**
+   * The container is serving and the routes are published by the time the
+   * digest is written. Failing the deployment over that write would release a
+   * live container's port and mark a working deployment failed.
+   */
+  it("stays ready when the digest write fails", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, ports } = harness(dir, happyExec());
+      const reports: DeploymentStatusUpdate[] = [];
+      const context = {
+        signal: new AbortController().signal,
+        report: async (update: DeploymentStatusUpdate) => {
+          reports.push(update);
+          // Only the final one, which is the write this test is about.
+          if (update.status === "ready" && update.phase === null) {
+            throw new Error("control plane unreachable");
+          }
+        },
+        releaseBuildSlot: () => {},
+      };
+
+      const request = deploymentRequest({ kind: "production" });
+
+      const final = await runner(request, context);
+
+      expect(final.status).toBe("ready");
+      expect(final.imageDigest).toStartWith("sha256:");
+      // The live container is still holding its port; the catch would have
+      // handed it back to the next build to collide with at `docker run`.
+      expect([...ports.reservations().values()]).toContain(
+        request.deploymentId,
+      );
+    });
+  });
+
+  /**
    * The push used to sit inside the health `try`, whose catch removes the
    * container and rethrows. So a slow GHCR, a dropped network or a push simply
    * exceeding its 15-minute ceiling tore down a deployment that had already

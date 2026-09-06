@@ -4,7 +4,7 @@ import type {
   DeploymentStatusUpdate,
 } from "@repo/schemas/cloud";
 
-import { runBuild } from "./build";
+import { imageTagFor, runBuild } from "./build";
 import type { BuildLogStore } from "./build-log";
 import type { Exec } from "./exec";
 import { resolveCheckoutModuleGraph } from "./module-graph";
@@ -112,7 +112,22 @@ export function createDeploymentRunner(
     };
 
     try {
-      await context.report({ status: "building", phase: "cloning" });
+      // The image tag is reserved on the row before anything builds, and this
+      // is load-bearing rather than tidy. Garbage collection protects an image
+      // two ways: a running container references it, or a deployment row names
+      // it in `imageTag`. Between the build finishing and `docker run` there is
+      // neither — and that gap contains the wait for the host mutation lock,
+      // which is unbounded. A GC pass landing in it reaps the image the
+      // deployment is about to start, and the run fails with "Unable to find
+      // image locally" for a tag that was built minutes earlier.
+      //
+      // `imageTagFor` is pure and is what `runBuild` tags with, so reserving it
+      // here names the same image the build will produce.
+      await context.report({
+        status: "building",
+        phase: "cloning",
+        imageTag: imageTagFor(request),
+      });
       const resolved = await secrets(request, context.signal);
 
       const build = await runBuild({
@@ -248,7 +263,16 @@ export function createDeploymentRunner(
         imageDigest: recoveryImage?.digest ?? null,
         phase: null,
       };
-      await context.report(ready);
+      // Non-fatal, unlike every other report in this function. The container is
+      // serving and the routes are published; the catch below would release a
+      // live container's port and mark a working deployment failed over a
+      // status write. The queue writes this same update again when the runner
+      // returns, so the digest is not lost either.
+      await context
+        .report(ready)
+        .catch((error: unknown) =>
+          log.note(`recovery reference not recorded: ${errorMessage(error)}`),
+        );
 
       return ready;
     } catch (error) {
