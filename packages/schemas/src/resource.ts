@@ -31,13 +31,34 @@ export const dailyUptimeEntrySchema = z.object({
   totalChecks: z.number(),
   healthyChecks: z.number(),
   avgResponseTimeMs: z.number().nullable(),
+  /**
+   * Uptime is time-weighted, so these are the real numerator and denominator;
+   * the check counts above answer how often it was probed, not how long it was
+   * up. `unobservedMs` is time nothing watched — neither up nor an outage.
+   */
+  healthyMs: z.number(),
+  observedMs: z.number(),
+  unobservedMs: z.number(),
   status: z.enum(["up", "degraded", "down", "unknown"]),
 });
 export type DailyUptimeEntry = z.infer<typeof dailyUptimeEntrySchema>;
 
+export const outageSchema = z.object({
+  startedAt: z.string(),
+  /** Null while the outage is still open at the end of the window. */
+  endedAt: z.string().nullable(),
+  durationMs: z.number(),
+});
+export type Outage = z.infer<typeof outageSchema>;
+
 export const resourceUptimeDataSchema = z.object({
   resourceId: z.string(),
   uptimePercentage: z.number(),
+  /** How much of the window is missing, which bounds how much the figure means. */
+  unobservedPercentage: z.number(),
+  /** Inferred from the sample gaps; null when there were too few to infer from. */
+  cadenceMs: z.number().nullable(),
+  outages: z.array(outageSchema),
   dailyHistory: z.array(dailyUptimeEntrySchema),
 });
 export type ResourceUptimeData = z.infer<typeof resourceUptimeDataSchema>;

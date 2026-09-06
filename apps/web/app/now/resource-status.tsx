@@ -16,12 +16,15 @@ interface PublicDailyStatus {
   totalChecks: number;
   healthyChecks: number;
   avgResponseTimeMs: number | null;
+  observedMs?: number;
+  unobservedMs?: number;
 }
 
 interface PublicSubResourceStatus {
   name: string;
   status: "up" | "down" | "stale";
   uptimePercent30d: number;
+  unobservedPercent30d?: number;
   dailyHistory: PublicDailyStatus[];
 }
 
@@ -29,8 +32,22 @@ interface PublicResourceStatus {
   name: string;
   status: "up" | "degraded" | "down" | "stale";
   uptimePercent30d: number;
+  unobservedPercent30d?: number;
   dailyHistory: PublicDailyStatus[];
   subResources?: PublicSubResourceStatus[];
+}
+
+/**
+ * The percentage is of time observed, so a window with a real hole in it must
+ * not be published as though the whole month were measured. Below a percent of
+ * gap the note is noise; above it, the figure is materially incomplete.
+ */
+const UNOBSERVED_NOTE_THRESHOLD = 1;
+
+function unobservedNote(percent: number | undefined): string {
+  return percent != null && percent >= UNOBSERVED_NOTE_THRESHOLD
+    ? ` · ${percent.toFixed(0)}% unmonitored`
+    : "";
 }
 
 const HEADER_LABEL: Record<PublicResourceStatus["status"], string> = {
@@ -180,6 +197,7 @@ function SubStatusRow({ sub }: { sub: PublicSubResourceStatus }) {
         <span className="flex items-baseline gap-2">
           <span className="text-[10px] text-muted-foreground/70 tabular-nums">
             {sub.uptimePercent30d.toFixed(2)}%
+            {unobservedNote(sub.unobservedPercent30d)}
           </span>
           <span
             className={`text-[10px] font-semibold capitalize ${HEADER_COLOR[sub.status]}`}
@@ -217,7 +235,10 @@ function StatusRow({ resource }: { resource: PublicResourceStatus }) {
       />
       <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground tabular-nums">
         <span>30 days ago</span>
-        <span>{resource.uptimePercent30d.toFixed(2)}% uptime</span>
+        <span>
+          {resource.uptimePercent30d.toFixed(2)}% uptime
+          {unobservedNote(resource.unobservedPercent30d)}
+        </span>
         <span>today</span>
       </div>
       {subs.length > 0 && (

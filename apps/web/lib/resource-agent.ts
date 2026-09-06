@@ -10,6 +10,14 @@ import { connectResourceDB } from "./mongodb-resource";
 import { decryptPassword } from "./safe-email-password";
 import { runSubResourceCheck } from "./sub-resource-check";
 import { dateKeyInTz, getAppTimeZone, inTz } from "./timezone";
+import {
+  computeTimeWeightedUptime,
+  dayStatus,
+  deriveOutages,
+  type Outage,
+  type UptimeSample,
+  uptimePercent,
+} from "./uptime";
 
 const STALE_MS = 10 * 60 * 1000;
 
@@ -32,12 +40,23 @@ export interface DailyUptimeEntry {
   totalChecks: number;
   healthyChecks: number;
   avgResponseTimeMs: number | null;
+  /** Time-weighted, in milliseconds. `observedMs` is the real denominator. */
+  healthyMs: number;
+  observedMs: number;
+  /** Time nothing watched. Not up, and not an outage either. */
+  unobservedMs: number;
   status: "up" | "degraded" | "down" | "unknown";
 }
 
 export interface ResourceUptimeData {
   resourceId: string;
+  /** healthyMs / observedMs over the window — not the ratio of attempts. */
   uptimePercentage: number;
+  /** Share of the 30 days nothing observed, which bounds the number above. */
+  unobservedPercentage: number;
+  /** Inferred from the samples; null when there were too few to infer from. */
+  cadenceMs: number | null;
+  outages: Outage[];
   dailyHistory: DailyUptimeEntry[];
 }
 
@@ -47,12 +66,16 @@ export interface PublicDailyStatus {
   totalChecks: number;
   healthyChecks: number;
   avgResponseTimeMs: number | null;
+  observedMs: number;
+  unobservedMs: number;
 }
 
 export interface PublicSubResourceStatus {
   name: string;
   status: "up" | "down" | "stale";
   uptimePercent30d: number;
+  /** Published beside the percentage because it is what the percentage omits. */
+  unobservedPercent30d: number;
   dailyHistory: PublicDailyStatus[];
 }
 
@@ -60,6 +83,7 @@ export interface PublicResourceStatus {
   name: string;
   status: "up" | "degraded" | "down" | "stale";
   uptimePercent30d: number;
+  unobservedPercent30d: number;
   dailyHistory: PublicDailyStatus[];
   subResources: PublicSubResourceStatus[];
 }
@@ -444,12 +468,17 @@ export async function getUptimeData(
   const HealthCheckLog = await getHealthCheckLogModel();
   const timeZone = await getAppTimeZone();
 
-  const thirtyDaysAgo = new Date();
+  const windowEndMs = Date.now();
+  const thirtyDaysAgo = new Date(windowEndMs);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const windowStartMs = thirtyDaysAgo.getTime();
 
   const objectIds = resourceIds.map((id) => new mongoose.Types.ObjectId(id));
 
-  const pipeline = [
+  // Per-day counts still answer "how often was this probed", which the UI shows
+  // alongside the time-weighted figure; they are no longer what uptime is.
+  const countsByResource = new Map<string, Map<string, RawDayCounts>>();
+  const counts = await HealthCheckLog.aggregate([
     {
       $match: {
         resourceId: { $in: objectIds },
@@ -473,88 +502,86 @@ export async function getUptimeData(
         avgResponseTimeMs: { $avg: "$responseTimeMs" },
       },
     },
-    {
-      $sort: { "_id.day": 1 as const },
-    },
-    {
-      $group: {
-        _id: "$_id.resourceId",
-        days: {
-          $push: {
-            date: "$_id.day",
-            totalChecks: "$totalChecks",
-            healthyChecks: "$healthyChecks",
-            avgResponseTimeMs: "$avgResponseTimeMs",
-          },
-        },
-        totalChecksAll: { $sum: "$totalChecks" },
-        healthyChecksAll: { $sum: "$healthyChecks" },
-      },
-    },
-  ];
-
-  const results = await HealthCheckLog.aggregate(pipeline);
-
-  const uptimeMap = new Map<string, ResourceUptimeData>();
-
-  for (const id of resourceIds) {
-    uptimeMap.set(id, {
-      resourceId: id,
-      uptimePercentage: 0,
-      dailyHistory: buildEmptyHistory(timeZone),
+  ]);
+  for (const row of counts) {
+    const resourceId = row._id.resourceId.toString();
+    const days = countsByResource.get(resourceId) ?? new Map();
+    days.set(row._id.day, {
+      totalChecks: row.totalChecks,
+      healthyChecks: row.healthyChecks,
+      avgResponseTimeMs:
+        row.avgResponseTimeMs != null
+          ? Math.round(row.avgResponseTimeMs)
+          : null,
     });
+    countsByResource.set(resourceId, days);
   }
 
-  for (const row of results) {
-    const resourceId = row._id.toString();
-    const uptimePercentage =
-      row.totalChecksAll > 0
-        ? Math.round((row.healthyChecksAll / row.totalChecksAll) * 10000) / 100
-        : 0;
+  // The interval maths needs every sample, so this reads the raw timestamps
+  // rather than a rollup. Two fields per row keeps that affordable at a
+  // 30-day window; if the cadence is ever tightened far enough to make it
+  // hurt, the answer is a rollup collection, not a coarser denominator.
+  const rows = await HealthCheckLog.find(
+    { resourceId: { $in: objectIds }, checkedAt: { $gte: thirtyDaysAgo } },
+    { resourceId: 1, checkedAt: 1, isHealthy: 1, _id: 0 },
+  )
+    .sort({ resourceId: 1, checkedAt: 1 })
+    .lean();
 
-    const dayMap = new Map<string, DailyUptimeEntry>();
+  const samplesByResource = new Map<string, UptimeSample[]>();
+  for (const row of rows) {
+    const resourceId = row.resourceId.toString();
+    const list = samplesByResource.get(resourceId) ?? [];
+    list.push({ checkedAt: row.checkedAt, isHealthy: Boolean(row.isHealthy) });
+    samplesByResource.set(resourceId, list);
+  }
 
-    for (const day of row.days) {
-      const avgMs =
-        day.avgResponseTimeMs != null
-          ? Math.round(day.avgResponseTimeMs)
-          : null;
-      let status: DailyUptimeEntry["status"] = "unknown";
+  const dayKey = (at: Date) => dateKeyInTz(at, timeZone);
+  const uptimeMap = new Map<string, ResourceUptimeData>();
 
-      if (day.totalChecks > 0) {
-        const ratio = day.healthyChecks / day.totalChecks;
-        if (ratio === 1) {
-          status = "up";
-        } else if (ratio >= 0.5) {
-          status = "degraded";
-        } else {
-          status = "down";
-        }
-      }
+  for (const resourceId of resourceIds) {
+    const samples = samplesByResource.get(resourceId) ?? [];
+    const weighted = computeTimeWeightedUptime(samples, {
+      windowStartMs,
+      windowEndMs,
+      dayKey,
+    });
+    const dayCounts = countsByResource.get(resourceId);
+    const windowMs = Math.max(1, windowEndMs - windowStartMs);
 
-      dayMap.set(day.date, {
-        date: day.date,
-        totalChecks: day.totalChecks,
-        healthyChecks: day.healthyChecks,
-        avgResponseTimeMs: avgMs,
-        status,
-      });
-    }
-
-    const history = buildEmptyHistory(timeZone);
-    for (let i = 0; i < history.length; i++) {
-      const existing = dayMap.get(history[i].date);
-      if (existing) history[i] = existing;
-    }
+    const history = buildEmptyHistory(timeZone).map((entry) => {
+      const window = weighted.byDay.get(entry.date);
+      const observed = dayCounts?.get(entry.date);
+      return {
+        date: entry.date,
+        totalChecks: observed?.totalChecks ?? 0,
+        healthyChecks: observed?.healthyChecks ?? 0,
+        avgResponseTimeMs: observed?.avgResponseTimeMs ?? null,
+        healthyMs: window?.healthyMs ?? 0,
+        observedMs: window?.observedMs ?? 0,
+        unobservedMs: window?.unobservedMs ?? 0,
+        status: dayStatus(window),
+      };
+    });
 
     uptimeMap.set(resourceId, {
       resourceId,
-      uptimePercentage,
+      uptimePercentage: uptimePercent(weighted.total),
+      unobservedPercentage:
+        Math.round((weighted.total.unobservedMs / windowMs) * 10000) / 100,
+      cadenceMs: samples.length > 0 ? weighted.cadenceMs : null,
+      outages: deriveOutages(samples, windowEndMs),
       dailyHistory: history,
     });
   }
 
   return uptimeMap;
+}
+
+interface RawDayCounts {
+  totalChecks: number;
+  healthyChecks: number;
+  avgResponseTimeMs: number | null;
 }
 
 export async function getPublicResourceStatuses(): Promise<
@@ -593,6 +620,8 @@ export async function getPublicResourceStatuses(): Promise<
       totalChecks: d.totalChecks,
       healthyChecks: d.healthyChecks,
       avgResponseTimeMs: d.avgResponseTimeMs,
+      observedMs: d.observedMs,
+      unobservedMs: d.unobservedMs,
     }));
 
   const subsByParent = new Map<string, PublicSubResourceStatus[]>();
@@ -615,6 +644,7 @@ export async function getPublicResourceStatuses(): Promise<
       name: sub.name,
       status,
       uptimePercent30d: uptime?.uptimePercentage ?? 0,
+      unobservedPercent30d: uptime?.unobservedPercentage ?? 100,
       dailyHistory: toDailyHistory(uptime),
     });
     subsByParent.set(parentKey, list);
@@ -640,6 +670,7 @@ export async function getPublicResourceStatuses(): Promise<
       name: r.name,
       status,
       uptimePercent30d: uptime?.uptimePercentage ?? 0,
+      unobservedPercent30d: uptime?.unobservedPercentage ?? 100,
       dailyHistory: toDailyHistory(uptime),
       subResources: subsByParent.get(r._id.toString()) ?? [],
     };
@@ -657,6 +688,9 @@ function buildEmptyHistory(timeZone: string): DailyUptimeEntry[] {
       totalChecks: 0,
       healthyChecks: 0,
       avgResponseTimeMs: null,
+      healthyMs: 0,
+      observedMs: 0,
+      unobservedMs: 0,
       status: "unknown",
     });
   }
