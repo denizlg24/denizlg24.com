@@ -9,11 +9,15 @@ import {
   FileText,
   Highlighter,
   Info,
+  ListTree,
+  Search,
   X,
 } from "lucide-react";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +25,13 @@ import {
   useState,
 } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
+import {
+  findPdfMatches,
+  flattenPdfOutline,
+  highlightPdfText,
+  type PdfOutlineEntry,
+  type PdfSearchResult,
+} from "./pdf-reader-utils";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -261,6 +272,93 @@ interface MobileReaderProps extends ReaderProps {
   footnote?: string;
 }
 
+interface DesktopReaderProps extends ReaderProps {
+  title: string;
+  onClose: () => void;
+  onOpenDetails: () => void;
+}
+
+function usePdfNavigation(document: PDFDocumentProxy | null, query: string) {
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<PdfSearchResult[]>([]);
+  const [outline, setOutline] = useState<ResolvedOutlineEntry[]>([]);
+  const textCache = useRef(new Map<number, string>());
+
+  useEffect(() => {
+    textCache.current = new Map();
+    if (!document) return;
+    let cancelled = false;
+    void document.getOutline().then(async (nodes) => {
+      const flat = flattenPdfOutline(nodes ?? []);
+      const resolved = await Promise.all(
+        flat.map(async (entry) => ({
+          ...entry,
+          page: await outlinePage(document, entry.destination).catch(
+            () => undefined,
+          ),
+        })),
+      );
+      if (!cancelled) setOutline(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [document]);
+
+  useEffect(() => {
+    if (!document || !query.trim()) {
+      setMatches([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void (async () => {
+        const found: PdfSearchResult[] = [];
+        for (let start = 1; start <= document.numPages; start += 8) {
+          const pageNumbers = Array.from(
+            { length: Math.min(8, document.numPages - start + 1) },
+            (_, index) => start + index,
+          );
+          const texts = await Promise.all(
+            pageNumbers.map(async (pageNumber) => {
+              const cached = textCache.current.get(pageNumber);
+              if (cached !== undefined) return cached;
+              const pdfPage = await document.getPage(pageNumber);
+              const content = await pdfPage.getTextContent();
+              const text = content.items
+                .map((item) => ("str" in item ? item.str : ""))
+                .join(" ");
+              textCache.current.set(pageNumber, text);
+              return text;
+            }),
+          );
+          if (cancelled) return;
+          for (const [index, text] of texts.entries()) {
+            found.push(
+              ...findPdfMatches(text, query, pageNumbers[index] ?? start),
+            );
+          }
+        }
+        if (cancelled) return;
+        startTransition(() => {
+          setMatches(found);
+          setSearching(false);
+        });
+      })().catch(() => {
+        if (!cancelled) setSearching(false);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [document, query]);
+
+  return { searching, matches, outline };
+}
+
 /**
  * A paged, full-screen reader. It sits in a fixed overlay so the admin sidebar
  * and header are out of the way entirely rather than competing for a phone
@@ -283,6 +381,10 @@ export function MobilePdfReader({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [viewport, setViewport] = useState({ width: 380, height: 640 });
   const [selection, setSelection] = useState("");
+  const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
+  const [panel, setPanel] = useState<"search" | "outline" | null>(null);
+  const [query, setQuery] = useState("");
+  const navigation = usePdfNavigation(document, query);
 
   const gesture = useRef<{
     startX: number;
@@ -304,21 +406,21 @@ export function MobilePdfReader({
   }, []);
 
   useEffect(() => {
-    if (!chromeVisible) return;
+    if (!chromeVisible || panel) return;
     const timer = window.setTimeout(
       () => setChromeVisible(false),
       CHROME_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [chromeVisible]);
+  }, [chromeVisible, panel]);
 
   // The overlay covers the document, so the page behind it must not scroll
   // under the reader while a gesture is in flight.
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const previous = window.document.body.style.overflow;
+    window.document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previous;
+      window.document.body.style.overflow = previous;
     };
   }, []);
 
@@ -336,13 +438,23 @@ export function MobilePdfReader({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+      ) {
+        return;
+      }
       if (event.key === "ArrowLeft") turn(-1);
       if (event.key === "ArrowRight") turn(1);
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        if (panel) setPanel(null);
+        else onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, turn]);
+  }, [onClose, panel, turn]);
 
   const pageWidth = useMemo(
     () => Math.round(viewport.width * scale),
@@ -471,12 +583,108 @@ export function MobilePdfReader({
           variant="ghost"
           size="icon"
           className="size-8 shrink-0"
+          onClick={() => {
+            setPanel((current) => (current === "search" ? null : "search"));
+            setChromeVisible(true);
+          }}
+          aria-label="Search document"
+        >
+          <Search className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0"
+          onClick={() => {
+            setPanel((current) => (current === "outline" ? null : "outline"));
+            setChromeVisible(true);
+          }}
+          aria-label="Document outline"
+        >
+          <ListTree className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0"
           onClick={onOpenDetails}
           aria-label="Reading details"
         >
           <Info className="size-4" />
         </Button>
       </ReaderBar>
+
+      {panel ? (
+        <div className="absolute inset-x-2 top-12 bottom-20 z-20 overflow-y-auto rounded-md border bg-background shadow-lg">
+          {panel === "search" ? (
+            <div>
+              <div className="sticky top-0 border-b bg-background p-3">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search"
+                  aria-label="Search PDF text"
+                  className="h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="mt-1.5 font-mono text-[9px] text-muted-foreground">
+                  {navigation.searching
+                    ? "Searching…"
+                    : `${navigation.matches.length} matches`}
+                </p>
+              </div>
+              <div className="divide-y">
+                {navigation.matches.map((match) => (
+                  <button
+                    key={`${match.page}:${match.index}`}
+                    type="button"
+                    className="block w-full p-3 text-left"
+                    onClick={() => {
+                      onPageChange(match.page);
+                      setPanel(null);
+                    }}
+                  >
+                    <span className="font-mono text-[9px] text-muted-foreground">
+                      p. {match.page}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5">
+                      {match.excerpt}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {navigation.outline.map((entry, index) => (
+                <button
+                  key={`${entry.title}:${index}`}
+                  type="button"
+                  disabled={!entry.page}
+                  className="block w-full py-3 pr-3 text-left text-xs disabled:opacity-40"
+                  style={{ paddingLeft: `${12 + entry.depth * 14}px` }}
+                  onClick={() => {
+                    if (entry.page) onPageChange(entry.page);
+                    setPanel(null);
+                  }}
+                >
+                  {entry.title}
+                  {entry.page ? (
+                    <span className="ml-2 font-mono text-[9px] text-muted-foreground">
+                      {entry.page}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+              {navigation.outline.length === 0 ? (
+                <p className="p-4 text-center text-xs text-muted-foreground">
+                  —
+                </p>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div
         className="relative flex-1 touch-none overflow-hidden"
@@ -486,7 +694,10 @@ export function MobilePdfReader({
       >
         <Document
           file={url}
-          onLoadSuccess={handleLoad}
+          onLoadSuccess={(loaded) => {
+            setDocument(loaded);
+            handleLoad(loaded);
+          }}
           loading={documentLoading}
           error={documentError}
         >
@@ -503,6 +714,7 @@ export function MobilePdfReader({
                 width={pageWidth}
                 renderAnnotationLayer={false}
                 renderTextLayer
+                customTextRenderer={({ str }) => highlightPdfText(str, query)}
               />
             </div>
           ))}
@@ -551,6 +763,358 @@ export function MobilePdfReader({
           {footnote && <span>{footnote}</span>}
         </div>
       </ReaderBar>
+    </div>
+  );
+}
+
+type ResolvedOutlineEntry = PdfOutlineEntry & { page?: number };
+
+async function outlinePage(
+  document: PDFDocumentProxy,
+  destination: PdfOutlineEntry["destination"],
+): Promise<number | undefined> {
+  const resolved =
+    typeof destination === "string"
+      ? await document.getDestination(destination)
+      : destination;
+  const target = resolved?.[0];
+  if (typeof target === "number") return target + 1;
+  if (!target || typeof target !== "object") return undefined;
+  return (await document.getPageIndex(target)) + 1;
+}
+
+/**
+ * Mouse-and-keyboard reading mode. Its page stays a centred paper-width column
+ * instead of expanding to the monitor, and its chrome is deliberately stable.
+ */
+export function DesktopPdfReader({
+  url,
+  fileName,
+  title,
+  page,
+  onPageChange,
+  onTotalPages,
+  onClose,
+  onOpenDetails,
+  onHighlightSelection,
+}: DesktopReaderProps) {
+  const { numPages, handleLoad } = useDocumentPages(onTotalPages);
+  const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
+  const [width, setWidth] = useState(900);
+  const [selection, setSelection] = useState("");
+  const [panel, setPanel] = useState<"search" | "outline" | null>(null);
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<PdfSearchResult[]>([]);
+  const [outline, setOutline] = useState<ResolvedOutlineEntry[]>([]);
+  const textCache = useRef(new Map<number, string>());
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const turn = useCallback(
+    (delta: number) => {
+      const next = clamp(page + delta, 1, numPages || page + delta);
+      if (next !== page) onPageChange(next);
+    },
+    [numPages, onPageChange, page],
+  );
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const previous = window.document.body.style.overflow;
+    window.document.body.style.overflow = "hidden";
+    return () => {
+      window.document.body.style.overflow = previous;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+      ) {
+        return;
+      }
+      if (event.key === "Escape") onClose();
+      if (selectionText()) return;
+      if (event.key === "ArrowLeft" || event.key === "PageUp") turn(-1);
+      if (event.key === "ArrowRight" || event.key === "PageDown") turn(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, turn]);
+
+  useEffect(() => {
+    if (!document) return;
+    let cancelled = false;
+    void document.getOutline().then(async (nodes) => {
+      const flat = flattenPdfOutline(nodes ?? []);
+      const resolved = await Promise.all(
+        flat.map(async (entry) => ({
+          ...entry,
+          page: await outlinePage(document, entry.destination).catch(
+            () => undefined,
+          ),
+        })),
+      );
+      if (!cancelled) setOutline(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [document]);
+
+  useEffect(() => {
+    if (!document || !query.trim()) {
+      setMatches([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void (async () => {
+        const found: PdfSearchResult[] = [];
+        // Text extraction is independent per page. Work in bounded parallel
+        // batches so large papers do not create hundreds of worker requests at
+        // once, while avoiding a page-by-page network/worker waterfall.
+        for (let start = 1; start <= document.numPages; start += 8) {
+          const pageNumbers = Array.from(
+            { length: Math.min(8, document.numPages - start + 1) },
+            (_, index) => start + index,
+          );
+          const texts = await Promise.all(
+            pageNumbers.map(async (pageNumber) => {
+              const cached = textCache.current.get(pageNumber);
+              if (cached !== undefined) return cached;
+              const pdfPage = await document.getPage(pageNumber);
+              const content = await pdfPage.getTextContent();
+              const text = content.items
+                .map((item) => ("str" in item ? item.str : ""))
+                .join(" ");
+              textCache.current.set(pageNumber, text);
+              return text;
+            }),
+          );
+          if (cancelled) return;
+          for (const [index, text] of texts.entries()) {
+            found.push(
+              ...findPdfMatches(text, query, pageNumbers[index] ?? start),
+            );
+          }
+        }
+        if (cancelled) return;
+        startTransition(() => {
+          setMatches(found);
+          setSearching(false);
+        });
+      })().catch(() => {
+        if (!cancelled) setSearching(false);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [document, query]);
+
+  const handleDocumentLoad = useCallback(
+    (loaded: PDFDocumentProxy) => {
+      textCache.current = new Map();
+      setDocument(loaded);
+      handleLoad(loaded);
+    },
+    [handleLoad],
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onClose}
+          aria-label="Close reader"
+        >
+          <X className="size-4" />
+        </Button>
+        <FileText className="size-3.5 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium">{title}</p>
+          <p className="truncate font-mono text-[9px] text-muted-foreground">
+            {fileName}
+          </p>
+        </div>
+        {onHighlightSelection && selection ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px]"
+            onClick={() => {
+              onHighlightSelection(selection, page);
+              window.getSelection()?.removeAllRanges();
+              setSelection("");
+            }}
+          >
+            <Highlighter className="size-3" /> Highlight
+          </Button>
+        ) : null}
+        <Button
+          variant={panel === "search" ? "secondary" : "ghost"}
+          size="icon"
+          className="size-8"
+          onClick={() =>
+            setPanel((current) => (current === "search" ? null : "search"))
+          }
+          aria-label="Search document"
+        >
+          <Search className="size-4" />
+        </Button>
+        <Button
+          variant={panel === "outline" ? "secondary" : "ghost"}
+          size="icon"
+          className="size-8"
+          onClick={() =>
+            setPanel((current) => (current === "outline" ? null : "outline"))
+          }
+          aria-label="Document outline"
+        >
+          <ListTree className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onOpenDetails}
+          aria-label="Reading details"
+        >
+          <Info className="size-4" />
+        </Button>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        {panel ? (
+          <aside className="w-80 shrink-0 overflow-y-auto border-r bg-background">
+            {panel === "search" ? (
+              <div>
+                <div className="sticky top-0 border-b bg-background p-3">
+                  <input
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search"
+                    aria-label="Search PDF text"
+                    className="h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <p className="mt-1.5 font-mono text-[9px] text-muted-foreground">
+                    {searching ? "Searching…" : `${matches.length} matches`}
+                  </p>
+                </div>
+                <div className="divide-y">
+                  {matches.map((match) => (
+                    <button
+                      key={`${match.page}:${match.index}`}
+                      type="button"
+                      className="block w-full p-3 text-left hover:bg-muted/50"
+                      onClick={() => onPageChange(match.page)}
+                    >
+                      <span className="font-mono text-[9px] text-muted-foreground">
+                        p. {match.page}
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-4">
+                        {match.excerpt}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {outline.map((entry, index) => (
+                  <button
+                    key={`${entry.title}:${index}`}
+                    type="button"
+                    disabled={!entry.page}
+                    className="block w-full py-2 pr-3 text-left text-xs hover:bg-muted/50 disabled:opacity-40"
+                    style={{ paddingLeft: `${12 + entry.depth * 14}px` }}
+                    onClick={() => entry.page && onPageChange(entry.page)}
+                  >
+                    {entry.title}
+                    {entry.page ? (
+                      <span className="ml-2 font-mono text-[9px] text-muted-foreground">
+                        {entry.page}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+                {outline.length === 0 ? (
+                  <p className="p-4 text-center text-xs text-muted-foreground">
+                    —
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </aside>
+        ) : null}
+
+        <div
+          ref={containerRef}
+          onMouseUp={() => setSelection(selectionText())}
+          className="min-w-0 flex-1 overflow-auto bg-muted/25 p-6 dark:[&_.react-pdf__Page]:[filter:invert(1)_hue-rotate(180deg)]"
+        >
+          <Document
+            file={url}
+            onLoadSuccess={handleDocumentLoad}
+            loading={documentLoading}
+            error={documentError}
+          >
+            <div className="mx-auto w-fit overflow-hidden shadow-sm">
+              <Page
+                pageNumber={page}
+                width={clamp(width - 64, 320, 900)}
+                renderAnnotationLayer
+                renderTextLayer
+                customTextRenderer={({ str }) => highlightPdfText(str, query)}
+              />
+            </div>
+          </Document>
+        </div>
+      </div>
+
+      <footer className="flex h-11 shrink-0 items-center justify-center gap-2 border-t bg-background px-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          disabled={page <= 1}
+          onClick={() => turn(-1)}
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="size-4" />
+        </Button>
+        <PageJump page={page} numPages={numPages} onPageChange={onPageChange} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          disabled={!numPages || page >= numPages}
+          onClick={() => turn(1)}
+          aria-label="Next page"
+        >
+          <ChevronRight className="size-4" />
+        </Button>
+      </footer>
     </div>
   );
 }
