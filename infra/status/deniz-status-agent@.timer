@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh backup observations every minute (%i)
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=deniz-status-agent@%i.service
+[Install]
+WantedBy=timers.target

@@ -21,11 +21,13 @@ export const CLOUD_AUTH_TRUSTED_ORIGINS = [
   // code make credentialed requests to the cloud API.
   "https://forge-server-*.denizlg24.com",
   "https://storage.denizlg24.com",
+  "https://status.denizlg24.com",
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:3002",
   "http://localhost:3005",
   "http://localhost:3006",
+  "http://localhost:3007",
 ] as const;
 
 const FORGE_DEPLOYMENT_ORIGIN =

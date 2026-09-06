@@ -48,7 +48,6 @@ import type { DiskKind } from "@repo/schemas/cloud";
 import { eq, sql } from "drizzle-orm";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
-
 import { createCloudApiApp } from "./app";
 import {
   CLOUD_AUTH_TRUSTED_ORIGINS,
@@ -73,6 +72,10 @@ import {
 import { opsRoutes } from "./ops/routes";
 import { MetricsSampler } from "./ops/sampler";
 import { OpsScheduler } from "./ops/scheduler";
+import {
+  statusMonitoringRoutes,
+  statusProbeSchema,
+} from "./ops/status-monitoring";
 import {
   DeepSyntheticService,
   filesystemSyntheticProbe,
@@ -862,6 +865,16 @@ export async function createRuntimeApp() {
         sampler,
         scheduler,
         terminal,
+      }),
+      statusMonitoring: statusMonitoringRoutes({
+        token: process.env.STATUS_COLLECTOR_TOKEN,
+        db,
+        health,
+        synthetic,
+        extraProbes: statusProbeSchema
+          .array()
+          .max(32)
+          .parse(JSON.parse(process.env.STATUS_EXTRA_PROBES || "[]")),
       }),
       deepHealth:
         synthetic && syntheticToken

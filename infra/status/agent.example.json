@@ -1,0 +1,6 @@
+{
+  "profile": "pi",
+  "url": "https://status.denizlg24.com",
+  "token": "replace-with-a-unique-host-token-at-least-32-characters",
+  "stateDirectory": "/var/lib/deniz-status"
+}

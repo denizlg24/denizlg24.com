@@ -1,0 +1,16 @@
+[Unit]
+Description=Report backup status and receive admin commands (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/deniz-status/%i.json
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /opt/deniz-cloud/infra/status/agent.py --config /etc/deniz-status/%i.json
+StateDirectory=deniz-status
+StateDirectoryMode=0700
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+TimeoutStartSec=100

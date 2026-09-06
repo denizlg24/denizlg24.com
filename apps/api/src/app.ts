@@ -39,7 +39,6 @@ import {
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-
 import pkg from "../package.json";
 import { type CloudAuth, isCloudAuthTrustedOrigin } from "./auth/better-auth";
 import {
@@ -56,6 +55,7 @@ import type { deployRoutes } from "./deploy/routes";
 import { authorizePreviewRequest } from "./forge/preview-auth";
 import type { forgeManagementRoutes } from "./forge/routes";
 import type { opsRoutes } from "./ops/routes";
+import type { statusMonitoringRoutes } from "./ops/status-monitoring";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
@@ -120,6 +120,7 @@ export interface CloudApiOptions {
     mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
   ops?: ReturnType<typeof opsRoutes>;
+  statusMonitoring?: ReturnType<typeof statusMonitoringRoutes>;
   deepHealth?: {
     token: string;
     check: () => Promise<{
@@ -313,6 +314,8 @@ export function createCloudApiApp(options: CloudApiOptions) {
       version: process.env.APP_VERSION ?? pkg.version,
     }),
   );
+  if (options.statusMonitoring)
+    app.route("/healthz/status", options.statusMonitoring);
   app.get("/healthz/deep", async (context) => {
     const configured = options.deepHealth;
     const supplied = context.req.header("X-DR-Synthetic-Token") ?? "";

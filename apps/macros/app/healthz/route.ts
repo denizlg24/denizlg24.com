@@ -8,8 +8,11 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     await db.execute(sql`select 1`);
-    return NextResponse.json({ status: "ok" });
+    return NextResponse.json({ status: "ok", service: "macros" });
   } catch {
-    return NextResponse.json({ status: "unavailable" }, { status: 503 });
+    return NextResponse.json(
+      { status: "unavailable", service: "macros" },
+      { status: 503 },
+    );
   }
 }
