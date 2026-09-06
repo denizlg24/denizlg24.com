@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
+import { NativeSelect } from "@repo/ui/native-select";
+import { Textarea } from "@repo/ui/textarea";
+import { cn } from "@repo/ui/utils";
+import { ChevronDown, Trash2, TriangleAlert } from "lucide-react";
 import { adminAction } from "@/app/admin/actions";
 import { Time } from "@/components/time";
+import { RESET_PHRASE } from "@/lib/input";
 import type { Backup, Incident, Maintenance, Service } from "@/lib/model";
+
 export function Fields({
   operation,
   id = "",
@@ -17,6 +26,62 @@ export function Fields({
     </>
   );
 }
+/** A <details> disclosure with the same hairline summary used across the admin. */
+export function Disclosure({
+  summary,
+  note,
+  children,
+  className,
+}: {
+  summary: React.ReactNode;
+  note?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <details className={cn("group border-b", className)}>
+      <summary className="hover:bg-surface/60 flex cursor-pointer list-none items-center gap-2.5 py-3 text-sm [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          aria-hidden
+          className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          {summary}
+        </span>
+        {note ? (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {note}
+          </span>
+        ) : null}
+      </summary>
+      <div className="space-y-4 pb-5 pl-6">{children}</div>
+    </details>
+  );
+}
+export function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground/80">{hint}</p> : null}
+    </div>
+  );
+}
+export function Log({ children }: { children: React.ReactNode }) {
+  return (
+    <pre className="bg-surface/60 max-h-64 overflow-auto rounded-md p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+      {children}
+    </pre>
+  );
+}
 function ServiceSelect({
   services,
   selected = [],
@@ -25,87 +90,99 @@ function ServiceSelect({
   selected?: string[];
 }) {
   return (
-    <label className="form-field">
-      Affected services
-      <select name="serviceIds" multiple required defaultValue={selected}>
+    <Field
+      label="Affected services"
+      hint="Use Command / Ctrl to select more than one."
+    >
+      <select
+        name="serviceIds"
+        multiple
+        required
+        defaultValue={selected}
+        size={Math.min(8, Math.max(4, services.length))}
+        className="border-border focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-[3px]"
+      >
         {services.map((service) => (
           <option key={service.id} value={service.id}>
             {service.name}
           </option>
         ))}
       </select>
-      <small>Use Command / Ctrl to select more than one service.</small>
-    </label>
+    </Field>
   );
 }
 export function NewIncident({ services }: { services: Service[] }) {
   return (
-    <details className="diagnostic">
-      <summary>
-        Publish an incident <span>+</span>
-      </summary>
-      <form action={adminAction} className="admin-form">
+    <Disclosure
+      summary={<span className="font-medium">Publish an incident</span>}
+    >
+      <form action={adminAction} className="max-w-xl space-y-4">
         <Fields operation="incident-create" />
-        <label className="form-field">
-          Public title
-          <input
+        <Field label="Public title">
+          <Input
             name="title"
             required
             maxLength={160}
             placeholder="Storage uploads are delayed"
           />
-        </label>
+        </Field>
         <ServiceSelect services={services} />
-        <label className="form-field">
-          Initial public update
-          <textarea
+        <Field label="Initial public update">
+          <Textarea
             name="text"
             required
+            rows={4}
             maxLength={4000}
             placeholder="What users are experiencing and what you know so far."
           />
-        </label>
-        <button className="primary-button">Publish incident</button>
+        </Field>
+        <Button type="submit" size="sm">
+          Publish incident
+        </Button>
       </form>
-    </details>
+    </Disclosure>
   );
 }
 export function IncidentControls({ incident }: { incident: Incident }) {
+  const upstream = incident.betterStackId ? " in Better Stack" : "";
   return (
     <>
-      <div className="form-actions">
+      <div className="flex flex-wrap gap-2">
         {!incident.acknowledgedAt && !incident.resolvedAt ? (
           <form action={adminAction}>
             <Fields operation="incident-acknowledge" id={incident._id} />
-            <button>
-              Acknowledge{incident.betterStackId ? " in Better Stack" : ""}
-            </button>
+            <Button type="submit" size="sm" variant="outline">
+              Acknowledge{upstream}
+            </Button>
           </form>
         ) : null}
         {!incident.resolvedAt ? (
           <form action={adminAction}>
             <Fields operation="incident-resolve" id={incident._id} />
-            <button>
-              Resolve{incident.betterStackId ? " in Better Stack" : ""}
-            </button>
+            <Button type="submit" size="sm" variant="outline">
+              Resolve{upstream}
+            </Button>
           </form>
         ) : null}
       </div>
-      <form action={adminAction} className="admin-form">
+      <form action={adminAction} className="max-w-xl space-y-4">
         <Fields operation="incident-update" id={incident._id} />
-        <div className="form-grid">
-          <label className="form-field">
-            Visibility
-            <select name="visibility" defaultValue="private">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Visibility">
+            <NativeSelect
+              name="visibility"
+              defaultValue="private"
+              className="w-full"
+            >
               <option value="private">Admin only</option>
               <option value="public">Public status page</option>
-            </select>
-          </label>
-          <label className="form-field">
-            Investigation state
-            <select
+            </NativeSelect>
+          </Field>
+          <Field label="Investigation state">
+            <NativeSelect
               name="state"
               defaultValue={incident.resolvedAt ? "resolved" : "investigating"}
+              className="w-full"
             >
               <option value="investigating">Investigating</option>
               <option value="identified">Cause confirmed</option>
@@ -113,24 +190,22 @@ export function IncidentControls({ incident }: { incident: Incident }) {
               {incident.resolvedAt ? (
                 <option value="resolved">Resolved</option>
               ) : null}
-            </select>
-          </label>
+            </NativeSelect>
+          </Field>
         </div>
-        <label className="form-field">
-          Update
-          <textarea
-            name="text"
-            required
-            maxLength={4000}
-            placeholder="Add observations, a confirmed cause, or a recovery update."
-          />
-          <small>
-            {incident.betterStackId
-              ? "The note is also attached to the Better Stack incident. Public notes are visible to everyone on this page."
-              : "Public notes are visible to everyone on this page."}
-          </small>
-        </label>
-        <button>Post update</button>
+        <Field
+          label="Update"
+          hint={
+            incident.betterStackId
+              ? "Also attached to the Better Stack incident. Public notes are visible to everyone."
+              : "Public notes are visible to everyone."
+          }
+        >
+          <Textarea name="text" required rows={3} maxLength={4000} />
+        </Field>
+        <Button type="submit" size="sm" variant="outline">
+          Post update
+        </Button>
       </form>
     </>
   );
@@ -143,56 +218,99 @@ export function MaintenanceForm({
   window?: Maintenance;
 }) {
   return (
-    <form action={adminAction} className="admin-form">
+    <form action={adminAction} className="max-w-xl space-y-4">
       <Fields operation="maintenance-save" id={window?._id} />
-      <label className="form-field">
-        Public title
-        <input
+      <Field label="Public title">
+        <Input
           name="title"
           defaultValue={window?.title}
           required
           maxLength={160}
         />
-      </label>
-      <label className="form-field">
-        Expected impact
-        <textarea
+      </Field>
+      <Field label="Expected impact">
+        <Textarea
           name="description"
           defaultValue={window?.description}
           required
+          rows={3}
           maxLength={4000}
         />
-      </label>
-      <div className="form-grid">
-        <label className="form-field">
-          Starts (UTC)
-          <input
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Starts (UTC)">
+          <Input
             name="startsAt"
             type="datetime-local"
             defaultValue={window?.startsAt.slice(0, 16)}
             required
           />
-        </label>
-        <label className="form-field">
-          Ends (UTC)
-          <input
+        </Field>
+        <Field label="Ends (UTC)">
+          <Input
             name="endsAt"
             type="datetime-local"
             defaultValue={window?.endsAt.slice(0, 16)}
             required
           />
-        </label>
+        </Field>
       </div>
       <ServiceSelect services={services} selected={window?.serviceIds} />
-      <button className="primary-button">
+      <Button type="submit" size="sm">
         {window ? "Save maintenance" : "Schedule maintenance"}
-      </button>
+      </Button>
     </form>
+  );
+}
+/**
+ * Uptime percentages are only meaningful from the moment the page is real. This
+ * clears what was measured while it was being built; it cannot be undone, which
+ * is why the phrase has to be typed rather than a button merely pressed.
+ */
+export function ResetHistory() {
+  return (
+    <Disclosure
+      summary={
+        <span className="flex items-center gap-2 font-medium text-destructive">
+          <TriangleAlert aria-hidden className="size-3.5" />
+          Reset collected history
+        </span>
+      }
+    >
+      <form action={adminAction} className="max-w-xl space-y-4">
+        <Fields operation="history-reset" />
+        <Field
+          label="What to clear"
+          hint="Service definitions, Better Stack bindings, backups and the current reading are all kept — only the measured record is removed."
+        >
+          <NativeSelect name="scope" defaultValue="history" className="w-full">
+            <option value="history">
+              Uptime history — samples, daily rollups, response timings
+            </option>
+            <option value="history-and-incidents">
+              Uptime history, plus incidents and maintenance windows
+            </option>
+          </NativeSelect>
+        </Field>
+        <Field label={`Type ${RESET_PHRASE} to confirm`}>
+          <Input
+            name="confirm"
+            required
+            autoComplete="off"
+            placeholder={RESET_PHRASE}
+            className="font-mono"
+          />
+        </Field>
+        <Button type="submit" size="sm" variant="destructive">
+          <Trash2 aria-hidden />
+          Clear history permanently
+        </Button>
+      </form>
+    </Disclosure>
   );
 }
 export function BackupControls({ backup }: { backup: Backup }) {
   const dr = backup.provider === "dr";
-  const target = dr ? "dr-command" : "backup-run";
   const identity = (
     <>
       <input type="hidden" name="profile" value={backup.profile ?? ""} />
@@ -201,60 +319,67 @@ export function BackupControls({ backup }: { backup: Backup }) {
   );
   return (
     <>
-      <div className="form-actions">
+      <div className="flex flex-wrap items-center gap-3">
         <form action={adminAction}>
-          <Fields operation={target} id={backup.id} />
+          <Fields operation={dr ? "dr-command" : "backup-run"} id={backup.id} />
           {identity}
           <input type="hidden" name="action" value="run" />
-          <button
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
             disabled={
               backup.status === "running" || backup.status === "pending"
             }
           >
             Run now
-          </button>
+          </Button>
         </form>
-        <span className="health-label">
-          Last report: <Time value={backup.reportedAt} />
+        <span className="text-xs text-muted-foreground">
+          Last report: <Time value={backup.reportedAt || null} />
         </span>
       </div>
-      <details className="diagnostic">
-        <summary>
-          Schedule &amp; availability <span>+</span>
-        </summary>
-        <form action={adminAction} className="admin-form">
-          <Fields
-            operation={dr ? "dr-command" : "backup-schedule"}
-            id={backup.id}
-          />
-          {identity}
-          <input type="hidden" name="action" value="schedule" />
-          <div className="form-grid">
-            <label className="form-field">
-              {dr
+      <form action={adminAction} className="max-w-xl space-y-4">
+        <Fields
+          operation={dr ? "dr-command" : "backup-schedule"}
+          id={backup.id}
+        />
+        {identity}
+        <input type="hidden" name="action" value="schedule" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label={
+              dr
                 ? backup.profile === "mac"
                   ? "Interval (seconds)"
                   : "Systemd calendar (include UTC)"
-                : "Cron expression (Cloud scheduler timezone)"}
-              <input
-                name="schedule"
-                defaultValue={backup.schedule ?? ""}
-                required
-                maxLength={160}
-                placeholder={dr ? "*-*-* 05:17:00 UTC" : "0 3 * * *"}
-              />
-            </label>
-            <label className="form-field">
-              Scheduled runs
-              <select name="enabled" defaultValue={String(backup.enabled)}>
-                <option value="true">Enabled</option>
-                <option value="false">Paused</option>
-              </select>
-            </label>
-          </div>
-          <button>Save schedule</button>
-        </form>
-      </details>
+                : "Cron expression (Cloud scheduler timezone)"
+            }
+          >
+            <Input
+              name="schedule"
+              defaultValue={backup.schedule ?? ""}
+              required
+              maxLength={160}
+              placeholder={dr ? "*-*-* 05:17:00 UTC" : "0 3 * * *"}
+              className="font-mono"
+            />
+          </Field>
+          <Field label="Scheduled runs">
+            <NativeSelect
+              name="enabled"
+              defaultValue={String(backup.enabled)}
+              className="w-full"
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Paused</option>
+            </NativeSelect>
+          </Field>
+        </div>
+        <Button type="submit" size="sm" variant="outline">
+          Save schedule
+        </Button>
+      </form>
     </>
   );
 }

@@ -1,4 +1,9 @@
 import { MongoClient } from "mongodb";
+import {
+  type DiscoveredSource,
+  emptyConfig,
+  type StatusConfig,
+} from "./config";
 import type {
   Backup,
   Command,
@@ -46,6 +51,8 @@ export async function collections() {
       "status_backup_runs",
     ),
     commands: db.collection<Command>("status_commands"),
+    config: db.collection<StatusConfig>("status_config"),
+    sources: db.collection<DiscoveredSource>("status_sources"),
     audit: db.collection<{
       _id: string;
       at: Date;
@@ -82,5 +89,13 @@ export async function setupDatabase() {
       },
     ),
     c.audit.createIndex({ at: -1 }),
+    c.sources.createIndex({ kind: 1, name: 1 }),
+    c.sources.createIndex({ lastSeenAt: -1 }),
   ]);
+}
+/** The admin's overrides, or the all-defaults document when none is stored. */
+export async function statusConfig(): Promise<StatusConfig> {
+  const c = await collections();
+  const stored = await c.config.findOne({ _id: "config" });
+  return { ...emptyConfig, ...(stored ?? {}) };
 }

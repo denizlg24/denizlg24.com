@@ -1,123 +1,123 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/tooltip";
+import { cn } from "@repo/ui/utils";
+import { ArrowUpRight, Info } from "lucide-react";
 import Link from "next/link";
-import { groups } from "@/lib/catalog";
 import type { PublicData } from "@/lib/data";
 import { availability, dailyHealth, healthLabels } from "@/lib/health";
-import type { Health } from "@/lib/model";
+import { Dot, headlines, healthBanner, healthText } from "./health";
+import { SectionHeading } from "./shell";
 import { Time } from "./time";
-export function Dot({ status }: { status: Health }) {
-  return <span aria-hidden="true" className={`status-dot ${status}`} />;
-}
-const headlines: Record<Health, string> = {
-  operational: "All services are online",
-  down: "Service outage",
-  degraded: "Degraded performance",
-  unknown: "No recent data",
-  maintenance: "Under maintenance",
-};
+import { UptimeBar } from "./uptime-bar";
+
+export { Dot } from "./health";
 
 export function Overview({ data }: { data: PublicData }) {
+  // "All services are online" would be a lie while some are not reporting, but
+  // so would "No recent data" while the rest demonstrably are.
+  const silent = data.services.filter(
+    (service) => service.status === "unknown",
+  ).length;
+  const headline =
+    data.status === "operational" && silent
+      ? "All reporting services are online"
+      : headlines[data.status];
   return (
-    <section className="overview" aria-labelledby="overview-title">
-      <h1 id="overview-title">
-        <Dot status={data.status} />
-        <span className="fresh-heading">{headlines[data.status]}</span>
-        <span className="stale-heading">No recent data</span>
-      </h1>
-    </section>
+    <h1
+      className={cn(
+        "mb-8 rounded-md px-5 py-5 text-lg font-semibold tracking-tight sm:text-xl",
+        healthBanner[data.status],
+      )}
+    >
+      {headline}
+    </h1>
   );
 }
 export function ServiceList({ data }: { data: PublicData }) {
   const today = Date.parse(`${data.generatedAt.slice(0, 10)}T00:00:00Z`);
-  const days = Array.from({ length: 90 }, (_, index) =>
+  const window = Array.from({ length: 90 }, (_, index) =>
     new Date(today - (89 - index) * 86400_000).toISOString().slice(0, 10),
   );
   const byService = new Map(
     data.services.map((service) => [
       service.id,
-      data.daily.filter((day) => day.serviceId === service.id),
+      new Map(
+        data.daily
+          .filter((day) => day.serviceId === service.id)
+          .map((day) => [day.day, day]),
+      ),
     ]),
   );
   return (
-    <section className="service-panel">
-      <div className="section-heading">
-        <h2>Current status by service</h2>
-        <span className={`status-pill ${data.status}`}>
-          <Dot status={data.status} />
-          {healthLabels[data.status]}
-        </span>
-      </div>
-      {groups.map((group) => {
+    <section>
+      {data.groups.map((group) => {
         const services = data.services.filter(
           (service) => service.group === group,
         );
         if (!services.length) return null;
         return (
-          <section className="service-group" key={group}>
-            <h3>{group}</h3>
-            {services.map((service) => {
-              const history = byService.get(service.id) ?? [];
-              const indexed = new Map(history.map((day) => [day.day, day]));
-              const measured = availability(history);
-              return (
-                <article
-                  className="service-row"
-                  key={service.id}
-                  id={service.id}
-                >
-                  <div className="service-heading">
-                    <h4>
-                      <Dot status={service.status} />
-                      {service.name}
-                      <span
-                        className="service-info"
-                        role="img"
-                        title={service.description}
-                        aria-label={service.description}
-                      >
-                        i
-                      </span>
-                      {service.status === "operational" ? null : (
-                        <span className={`health-label ${service.status}`}>
-                          {healthLabels[service.status]}
-                        </span>
-                      )}
-                    </h4>
-                    <span
-                      className={`uptime ${service.status}`}
-                      title={`${measured.measured.toLocaleString()} measured minutes`}
-                    >
-                      {measured.percent === null
-                        ? "—"
-                        : `${measured.percent.toFixed(3)}% uptime`}
-                    </span>
-                  </div>
-                  <div
-                    className="uptime-bars"
-                    role="img"
-                    aria-label={`${service.name}: daily health for the past 90 days`}
-                  >
-                    {days.map((day) => {
-                      const count = indexed.get(day);
-                      const state = dailyHealth(count);
-                      const known = count
-                        ? count.operational + count.degraded + count.down
-                        : 0;
-                      return (
-                        <span
-                          key={day}
-                          className={`uptime-bar ${state}`}
-                          title={`${day} UTC · ${healthLabels[state]} · ${known} measured minutes${known < 1440 ? " · partial coverage" : ""}`}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="history-axis">
-                    <span>90 days ago</span>
-                    <span>Today</span>
-                  </div>
-                </article>
-              );
-            })}
+          <section className="mb-10" key={group}>
+            <SectionHeading title={group} />
+            <div className="divide-y">
+              {services.map((service) => {
+                const indexed = byService.get(service.id) ?? new Map();
+                const measured = availability(Array.from(indexed.values()));
+                const days = window.map((day) => {
+                  const count = indexed.get(day);
+                  return {
+                    day,
+                    status: dailyHealth(count),
+                    measured: count
+                      ? count.operational + count.degraded + count.down
+                      : 0,
+                  };
+                });
+                return (
+                  <article className="py-4" key={service.id} id={service.id}>
+                    <div className="mb-2.5 flex items-center justify-between gap-3">
+                      <h3 className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                        <Dot status={service.status} />
+                        <span className="truncate">{service.name}</span>
+                        <Tooltip>
+                          <TooltipTrigger
+                            aria-label={`About ${service.name}`}
+                            className="text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors"
+                          >
+                            <Info aria-hidden className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-64">
+                            {service.description}
+                          </TooltipContent>
+                        </Tooltip>
+                      </h3>
+                      <Tooltip>
+                        <TooltipTrigger
+                          className={cn(
+                            "shrink-0 text-xs tabular-nums",
+                            service.status === "operational"
+                              ? "text-muted-foreground"
+                              : healthText[service.status],
+                          )}
+                        >
+                          {measured.percent === null
+                            ? healthLabels[service.status]
+                            : `${measured.percent.toFixed(3)}%`}
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          {healthLabels[service.status]} ·{" "}
+                          {measured.measured.toLocaleString()} measured minutes
+                          over 90 days
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <UptimeBar days={days} label={service.name} />
+                    <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
+                      <span>90 days ago</span>
+                      <span>Today</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </section>
         );
       })}
@@ -128,23 +128,28 @@ export function ActiveIncidents({ data }: { data: PublicData }) {
   const active = data.incidents.filter((incident) => !incident.resolvedAt);
   if (!active.length) return null;
   return (
-    <aside className="notice-list" aria-label="Active incidents">
+    <aside aria-label="Active incidents" className="mb-10 space-y-px">
       {active.map((incident) => (
         <Link
           prefetch={false}
-          className="notice"
           key={incident.id}
           href={`/incidents#${incident.id}`}
+          className="hover:bg-surface group flex items-start gap-3 rounded-md border-l-2 border-status-critical bg-status-critical/5 px-4 py-3 transition-colors"
         >
-          <Dot status="down" />
-          <div>
-            <strong>{incident.title}</strong>
-            <p>{incident.explanation}</p>
-            <small>
+          <Dot status="down" className="mt-1.5" />
+          <div className="min-w-0 flex-1">
+            <strong className="text-sm font-medium">{incident.title}</strong>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {incident.explanation}
+            </p>
+            <span className="mt-1 block text-xs text-muted-foreground">
               Since <Time value={incident.startedAt} />
-            </small>
+            </span>
           </div>
-          <span aria-hidden="true">↗</span>
+          <ArrowUpRight
+            aria-hidden
+            className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5"
+          />
         </Link>
       ))}
     </aside>

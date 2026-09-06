@@ -1,4 +1,5 @@
 "use client";
+import { Moon, RefreshCw, Sun } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -43,8 +44,8 @@ export function Live({
   return (
     <div data-stale={stale ? "true" : "false"}>
       {children}
-      <div className="freshness">
-        <span className="freshness-text" role="status">
+      <div className="mt-10 flex items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground">
+        <span role="status" className="tabular-nums">
           {!online
             ? "Offline"
             : !at
@@ -55,10 +56,11 @@ export function Live({
         </span>
         <button
           type="button"
-          className="text-button"
           onClick={() => router.refresh()}
+          className="hover:text-foreground flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors"
         >
-          Refresh <span aria-hidden="true">↻</span>
+          <RefreshCw aria-hidden className="size-3" />
+          Refresh
         </button>
       </div>
     </div>
@@ -72,9 +74,9 @@ export function ThemeToggle() {
   );
   return (
     <button
-      className="theme-button"
       type="button"
       aria-label={dark ? "Use light theme" : "Use dark theme"}
+      className="hover:text-foreground hover:bg-surface rounded-md p-1.5 text-muted-foreground transition-colors"
       onClick={() => {
         const next = !dark;
         setDark(next);
@@ -84,7 +86,11 @@ export function ThemeToggle() {
         } catch {}
       }}
     >
-      <span aria-hidden="true">{dark ? "☀" : "◐"}</span>
+      {dark ? (
+        <Sun aria-hidden className="size-4" />
+      ) : (
+        <Moon aria-hidden className="size-4" />
+      )}
     </button>
   );
 }

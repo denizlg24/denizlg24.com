@@ -14,6 +14,22 @@ export function combineHealth(states: Health[]): Health {
   }
   return "operational";
 }
+/**
+ * The page-wide banner, which is deliberately not `combineHealth`.
+ *
+ * Within one service, an unknown observation must outrank an operational one —
+ * a stale signal cannot be masked by a fresh one. Across services that rule is
+ * wrong: it lets two never-pinged heartbeats report "No recent data" over
+ * eighteen services that are demonstrably up. Here an unknown service only
+ * decides the headline when nothing is actually known, and is otherwise counted
+ * next to the headline rather than allowed to replace it.
+ */
+export function overallHealth(states: Health[]): Health {
+  if (!states.length) return "unknown";
+  for (const state of ["down", "degraded", "maintenance"] as const)
+    if (states.includes(state)) return state;
+  return states.includes("operational") ? "operational" : "unknown";
+}
 export function freshStatus(
   status: Health,
   at: string | null,

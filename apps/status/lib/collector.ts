@@ -9,10 +9,19 @@ import {
   textAttribute,
 } from "./better-stack";
 import { appOrigins, catalog } from "./catalog";
+import {
+  bindingTarget,
+  type DiscoveredSource,
+  monitorEnvMap,
+  resolveBinding,
+  type SourceKind,
+  sourceKey,
+} from "./config";
 import { monitoringSchema } from "./contracts";
-import { collections } from "./db";
+import { collections, statusConfig } from "./db";
 import { fromCheck, summarizeService } from "./health";
 import type { Backup, Evidence, Incident, Snapshot, Timing } from "./model";
+import { probeApp } from "./probe";
 
 const apiOrigin = () =>
   process.env.STATUS_CLOUD_API_URL ?? "https://api.denizlg24.com";
@@ -23,26 +32,28 @@ function errorMessage(error: unknown): string {
     ? error.message.slice(0, 500)
     : "Collection failed";
 }
-function monitorService(
-  monitor: BetterResource,
-  mapping: Record<string, string>,
-): string {
-  if (mapping[monitor.id]) return mapping[monitor.id]!;
-  const raw = textAttribute(monitor, "url");
-  if (raw) {
-    try {
-      const url = new URL(raw);
-      if (url.hostname === "api.denizlg24.com")
-        return url.pathname === "/healthz/deep" ? "deep-health" : "api";
-      const app = Object.entries(appOrigins).find(
-        ([, origin]) => origin === url.origin,
-      );
-      if (app) return app[0];
-    } catch {
-      /* Non-HTTP monitors get their own service. */
-    }
-  }
-  return `monitor:${monitor.id}`;
+function describeSource(
+  kind: SourceKind,
+  item: BetterResource,
+  seenAt: string,
+): DiscoveredSource {
+  return {
+    _id: sourceKey(kind, item.id),
+    kind,
+    externalId: item.id,
+    name:
+      textAttribute(item, "pronounceable_name") ??
+      textAttribute(item, "name") ??
+      `${kind === "monitor" ? "Monitor" : "Heartbeat"} ${item.id}`,
+    url: textAttribute(item, "url"),
+    monitorType: textAttribute(item, "monitor_type"),
+    upstreamStatus: textAttribute(item, "status"),
+    lastCheckedAt:
+      textAttribute(item, "last_checked_at") ??
+      textAttribute(item, "last_ping_at"),
+    lastSeenAt: seenAt,
+    missingSince: null,
+  };
 }
 
 export async function collectStatus() {
@@ -66,16 +77,29 @@ export async function collectStatus() {
     throw error;
   }
   try {
-    const previous = await c.snapshots.findOne({ _id: "latest" });
-    const mapping = z
-      .record(z.string(), z.string())
-      .parse(JSON.parse(process.env.STATUS_MONITOR_MAP ?? "{}"));
+    const [previous, config] = await Promise.all([
+      c.snapshots.findOne({ _id: "latest" }),
+      statusConfig(),
+    ]);
+    const envMap = monitorEnvMap();
     const warnings: string[] = [];
     const evidence = new Map<string, Evidence[]>();
     const services = new Map(catalog.map((service) => [service.id, service]));
-    // Retain previously discovered services on a provider outage, as unknown.
+    // Retain a previously discovered service on a provider outage, as unknown —
+    // but only one that can still be re-derived. A Better Stack source that is no
+    // longer bound has nothing left to report, and retaining it unconditionally is
+    // why renamed and deleted monitors stayed on the page forever with no
+    // evidence at all. Host-readiness ids carry no source prefix, so they survive.
+    const adopted = new Set(
+      Object.entries(config.bindings)
+        .filter(([, binding]) => binding.kind === "own")
+        .map(([id]) => id),
+    );
     for (const service of previous?.services ?? [])
-      if (!services.has(service.id))
+      if (
+        !services.has(service.id) &&
+        (adopted.has(service.id) || !/^(?:monitor|heartbeat):/.test(service.id))
+      )
         services.set(service.id, {
           ...service,
           evidence: [],
@@ -117,38 +141,14 @@ export async function collectStatus() {
         betterList("/api/v3/incidents?per_page=50&resolved=false"),
       ),
       mapConcurrent(Object.entries(appOrigins), 4, async ([id, origin]) => {
-        const start = performance.now();
-        try {
-          const response = await fetch(new URL("/healthz", origin), {
-            cache: "no-store",
-            redirect: "error",
-            signal: AbortSignal.timeout(8_000),
-          });
-          const body = await response.json().catch(() => null);
-          const verified = body?.status === "ok" && body?.service === id;
-          add(id, {
-            source: "Application runtime · Vercel probe",
-            status:
-              response.ok && verified
-                ? "operational"
-                : response.status >= 500
-                  ? "down"
-                  : "unknown",
-            at: stamp(),
-            latencyMs: performance.now() - start,
-            detail: verified
-              ? null
-              : `HTTP ${response.status}; expected ${id} health response not received`,
-          });
-        } catch (error) {
-          add(id, {
-            source: "Application runtime · Vercel probe",
-            status: "down",
-            at: stamp(),
-            latencyMs: performance.now() - start,
-            detail: errorMessage(error),
-          });
-        }
+        const result = await probeApp(id, origin);
+        add(id, {
+          source: "Application runtime",
+          status: result.status,
+          at: stamp(),
+          latencyMs: result.latencyMs,
+          detail: result.detail,
+        });
       }),
     ]);
     if (monitoring?.deep)
@@ -244,32 +244,41 @@ export async function collectStatus() {
         detail: check.message ?? check.error ?? null,
       });
     }
-    const monitorMap = new Map<string, string>();
+    const seenAt = stamp();
+    const discovered: DiscoveredSource[] = [];
+    // Source key -> the service its evidence is attributed to, or null when the
+    // admin has not chosen it. Nothing reaches the page on discovery alone.
+    const sourceTarget = new Map<string, string | null>();
+    const bind = (source: DiscoveredSource) => {
+      discovered.push(source);
+      const binding = resolveBinding(config, source, envMap);
+      const target = bindingTarget(binding, source._id);
+      sourceTarget.set(source._id, target);
+      if (target && binding.kind === "own")
+        services.set(target, {
+          ...(services.get(target) ?? {
+            status: "unknown",
+            checkedAt: null,
+            latencyMs: null,
+            evidence: [],
+          }),
+          id: target,
+          name: binding.name.trim() || source.name,
+          group: binding.group,
+          description: binding.description,
+        });
+      return target;
+    };
     for (const monitor of monitors ?? []) {
       if (!numericId(monitor.id)) continue;
-      const id = monitorService(monitor, mapping);
-      monitorMap.set(monitor.id, id);
-      if (!services.has(id))
-        services.set(id, {
-          id,
-          name:
-            textAttribute(monitor, "pronounceable_name") ??
-            `Monitor ${monitor.id}`,
-          group: "Other services",
-          description: "External monitoring by Better Stack.",
-          status: "unknown",
-          checkedAt: null,
-          latencyMs: null,
-          evidence: [],
-        });
-      const state = textAttribute(monitor, "status") ?? "unknown";
-      add(id, {
+      const source = describeSource("monitor", monitor, seenAt);
+      const target = bind(source);
+      if (!target) continue;
+      const state = source.upstreamStatus ?? "unknown";
+      add(target, {
         source: `Better Stack monitor ${monitor.id}`,
         status: state === "validating" ? "degraded" : fromCheck(state),
-        at:
-          state === "maintenance"
-            ? stamp()
-            : (textAttribute(monitor, "last_checked_at") ?? ""),
+        at: state === "maintenance" ? seenAt : (source.lastCheckedAt ?? ""),
         latencyMs: null,
         detail: `Monitor reports ${state}`,
       });
@@ -287,36 +296,55 @@ export async function collectStatus() {
         }
     }
     for (const heartbeat of heartbeats ?? []) {
-      const id = `heartbeat:${heartbeat.id}`;
-      services.set(id, {
-        id,
-        name: textAttribute(heartbeat, "name") ?? `Heartbeat ${heartbeat.id}`,
-        group: "Other services",
-        description: "Scheduled heartbeat monitored by Better Stack.",
-        status: "unknown",
-        checkedAt: null,
+      if (!numericId(heartbeat.id)) continue;
+      const source = describeSource("heartbeat", heartbeat, seenAt);
+      const target = bind(source);
+      if (!target) continue;
+      add(target, {
+        source: `Better Stack heartbeat ${heartbeat.id}`,
+        status: fromCheck(source.upstreamStatus ?? "unknown"),
+        at: seenAt,
         latencyMs: null,
-        evidence: [],
-      });
-      add(id, {
-        source: "Better Stack heartbeat",
-        status: fromCheck(textAttribute(heartbeat, "status") ?? "unknown"),
-        at: stamp(),
-        latencyMs: null,
-        detail: textAttribute(heartbeat, "last_ping_at")
-          ? `Last ping: ${textAttribute(heartbeat, "last_ping_at")}`
+        detail: source.lastCheckedAt
+          ? `Last ping: ${source.lastCheckedAt}`
           : "No ping timestamp available",
       });
     }
+    // Keep the picker populated from what was actually seen, so the admin can
+    // choose sources while Better Stack itself is unreachable, and can tell a
+    // source that has gone away upstream from one that is merely unchosen.
+    const incidentTarget = (item: BetterResource) => {
+      const monitorId = item.relationships?.monitor?.data?.id;
+      const heartbeatId = item.relationships?.heartbeat?.data?.id;
+      const key = monitorId
+        ? sourceKey("monitor", monitorId)
+        : heartbeatId
+          ? sourceKey("heartbeat", heartbeatId)
+          : null;
+      return key ? (sourceTarget.get(key) ?? undefined) : undefined;
+    };
+    if (discovered.length) {
+      await c.sources.bulkWrite(
+        discovered.map((source) => ({
+          updateOne: {
+            filter: { _id: source._id },
+            update: { $set: source },
+            upsert: true,
+          },
+        })),
+      );
+      if (monitors && heartbeats)
+        await c.sources.updateMany(
+          {
+            _id: { $nin: discovered.map((source) => source._id) },
+            missingSince: null,
+          },
+          { $set: { missingSince: seenAt } },
+        );
+    }
     // Active incidents are a separate signal; a passing probe cannot resolve them.
     for (const incident of incidents ?? []) {
-      const monitorId = incident.relationships?.monitor?.data?.id;
-      const heartbeatId = incident.relationships?.heartbeat?.data?.id;
-      const id = monitorId
-        ? monitorMap.get(monitorId)
-        : heartbeatId
-          ? `heartbeat:${heartbeatId}`
-          : undefined;
+      const id = incidentTarget(incident);
       if (id)
         add(id, {
           source: `Better Stack incident ${incident.id}`,
@@ -519,13 +547,7 @@ export async function collectStatus() {
 
     const syncIncident = async (item: BetterResource) => {
       if (!numericId(item.id)) return;
-      const monitorId = item.relationships?.monitor?.data?.id;
-      const heartbeatId = item.relationships?.heartbeat?.data?.id;
-      const serviceId = monitorId
-        ? monitorMap.get(monitorId)
-        : heartbeatId
-          ? `heartbeat:${heartbeatId}`
-          : undefined;
+      const serviceId = incidentTarget(item);
       const startedAt = textAttribute(item, "started_at");
       if (!startedAt || !Number.isFinite(Date.parse(startedAt))) return;
       const service = observed.find((entry) => entry.id === serviceId);
@@ -630,10 +652,16 @@ export async function collectStatus() {
     // is deduplicated by monitor/region/timestamp, including repeated cron calls.
     if (Math.floor(now / 60_000) % 5 === 0 || !previous) {
       await mapConcurrent(
-        (monitors ?? []).filter((m) => numericId(m.id)),
+        (monitors ?? []).filter(
+          (m) =>
+            numericId(m.id) && sourceTarget.get(sourceKey("monitor", m.id)),
+        ),
         3,
         (monitor) =>
           provider(`Timings ${monitor.id}`, async () => {
+            const serviceId = sourceTarget.get(
+              sourceKey("monitor", monitor.id),
+            )!;
             const parsed = responseTimesSchema.parse(
               await betterRequest(
                 `/api/v2/monitors/${monitor.id}/response-times`,
@@ -643,7 +671,7 @@ export async function collectStatus() {
               ({ region, response_times }) =>
                 response_times.map((point) => ({
                   _id: `${monitor.id}:${region}:${point.at}`,
-                  serviceId: monitorMap.get(monitor.id)!,
+                  serviceId,
                   region,
                   at: new Date(point.at),
                   total: point.response_time * 1000,

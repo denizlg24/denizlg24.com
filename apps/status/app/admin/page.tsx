@@ -1,24 +1,49 @@
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { NativeSelect } from "@repo/ui/native-select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@repo/ui/table";
+import { cn } from "@repo/ui/utils";
+import { ArrowUpRight, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import {
   BackupControls,
+  Disclosure,
+  Field,
   Fields,
   IncidentControls,
+  Log,
   MaintenanceForm,
   NewIncident,
+  ResetHistory,
 } from "@/components/admin-forms";
+import { ServicesAdmin } from "@/components/admin-services";
+import { SourcesAdmin } from "@/components/admin-sources";
+import { Dot, healthText } from "@/components/health";
 import { type ChartPoint, ResponseChart } from "@/components/response-chart";
-import { Loading } from "@/components/shell";
-import { Dot } from "@/components/status";
+import { Loading, SectionHeading } from "@/components/shell";
 import { Time } from "@/components/time";
 import { adminSession } from "@/lib/auth";
 import { catalog } from "@/lib/catalog";
+import {
+  orderedGroups,
+  resolveServices,
+  type StatusConfig,
+} from "@/lib/config";
 import { formatDuration } from "@/lib/data";
-import { collections } from "@/lib/db";
+import { collections, statusConfig } from "@/lib/db";
 import { freshStatus, healthLabels } from "@/lib/health";
 import type { Service } from "@/lib/model";
 import { adminAction } from "./actions";
+
 export const metadata: Metadata = {
   title: "Admin",
   robots: { index: false, follow: false },
@@ -28,13 +53,16 @@ type Query = Record<string, string | string[] | undefined>;
 const value = (query: Query, key: string, fallback = "") =>
   typeof query[key] === "string" ? (query[key] as string) : fallback;
 const views = [
-  "overview",
-  "metrics",
-  "incidents",
-  "backups",
-  "maintenance",
-  "audit",
-];
+  ["overview", "Overview"],
+  ["services", "Services"],
+  ["sources", "Better Stack"],
+  ["metrics", "Metrics"],
+  ["incidents", "Incidents"],
+  ["backups", "Backups"],
+  ["maintenance", "Maintenance"],
+  ["audit", "Audit"],
+] as const;
+type View = (typeof views)[number][0];
 
 async function Metrics({
   query,
@@ -44,7 +72,7 @@ async function Metrics({
   services: Service[];
 }) {
   const c = await collections();
-  const serviceId = value(query, "service", "api");
+  const serviceId = value(query, "service", services[0]?.id ?? "api");
   const region = value(query, "region", "eu").slice(0, 40);
   const range = value(query, "range", "day");
   const duration =
@@ -151,23 +179,20 @@ async function Metrics({
   ]);
   const stat = summary[0];
   return (
-    <section className="admin-section">
-      <h2>Response times</h2>
-      <form method="get" className="chart-controls">
+    <section>
+      <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
         <input type="hidden" name="view" value="metrics" />
-        <label className="form-field">
-          Service
-          <select name="service" defaultValue={serviceId}>
+        <Field label="Service">
+          <NativeSelect name="service" defaultValue={serviceId}>
             {services.map((service) => (
               <option key={service.id} value={service.id}>
                 {service.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="form-field">
-          Region
-          <select name="region" defaultValue={region}>
+          </NativeSelect>
+        </Field>
+        <Field label="Region">
+          <NativeSelect name="region" defaultValue={region}>
             {Array.from(new Set([region, ...regions]))
               .sort()
               .map((item) => (
@@ -182,76 +207,79 @@ async function Metrics({
                   )[item] ?? item}
                 </option>
               ))}
-          </select>
-        </label>
-        <label className="form-field">
-          Range
-          <select name="range" defaultValue={range}>
+          </NativeSelect>
+        </Field>
+        <Field label="Range">
+          <NativeSelect name="range" defaultValue={range}>
             <option value="hour">Hour</option>
             <option value="day">Day</option>
             <option value="week">Week</option>
             <option value="month">Month</option>
-          </select>
-        </label>
-        <button>Apply</button>
+          </NativeSelect>
+        </Field>
+        <Button type="submit" size="sm" variant="outline">
+          Apply
+        </Button>
       </form>
       <ResponseChart
         points={series}
         from={from}
         to={to}
-        step={step}
         outages={incidents.map((incident) => ({
           from: Date.parse(incident.startedAt),
           to: incident.resolvedAt ? Date.parse(incident.resolvedAt) : to,
         }))}
       />
-      <dl className="metric-strip">
-        <div>
-          <dt>Mean response</dt>
-          <dd>{formatDuration(stat?.average ?? null)}</dd>
-        </div>
-        <div>
-          <dt>Peak response</dt>
-          <dd>{formatDuration(stat?.peak ?? null)}</dd>
-        </div>
-        <div>
-          <dt>Recorded checks</dt>
-          <dd>{stat?.count.toLocaleString() ?? "0"}</dd>
-        </div>
+      <dl className="my-6 grid grid-cols-3 gap-4 border-y py-4">
+        {[
+          ["Mean response", formatDuration(stat?.average ?? null)],
+          ["Peak response", formatDuration(stat?.peak ?? null)],
+          ["Recorded checks", stat?.count.toLocaleString() ?? "0"],
+        ].map(([term, figure]) => (
+          <div key={term}>
+            <dt className="text-[11px] tracking-wide text-muted-foreground uppercase">
+              {term}
+            </dt>
+            <dd className="mt-1 font-mono text-lg tabular-nums">{figure}</dd>
+          </div>
+        ))}
       </dl>
-      <p>
-        The graph averages timings within each bucket; the peak above uses
-        original observations. Gaps are left open. Incident bands show the
-        recorded interruption window.
+      <p className="mb-8 text-xs text-muted-foreground">
+        Bands are averaged within each bucket; the peak above uses original
+        observations. Shaded regions are recorded interruption windows.
       </p>
-      <h3>Latest health observations</h3>
-      <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Status</th>
-              <th>Probe duration</th>
-              <th>Evidence</th>
-            </tr>
-          </thead>
-          <tbody>
+      <SectionHeading title="Latest health observations" />
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Probe</TableHead>
+              <TableHead>Evidence</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {checks.map((sample) => (
-              <tr key={sample._id}>
-                <td>
+              <TableRow key={sample._id}>
+                <TableCell className="whitespace-nowrap tabular-nums">
                   <Time value={sample.at.toISOString()} />
-                </td>
-                <td>{healthLabels[sample.status]}</td>
-                <td>{formatDuration(sample.latencyMs)}</td>
-                <td>
+                </TableCell>
+                <TableCell className={healthText[sample.status]}>
+                  {healthLabels[sample.status]}
+                </TableCell>
+                <TableCell className="tabular-nums">
+                  {formatDuration(sample.latencyMs)}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
                   {sample.evidence
                     .map((e) => `${e.source}: ${e.detail ?? e.status}`)
                     .join("; ") || "Checks passed"}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </section>
   );
@@ -259,14 +287,35 @@ async function Metrics({
 async function Body({
   view,
   services,
+  config,
   query,
 }: {
-  view: string;
+  view: View;
   services: Service[];
+  config: StatusConfig;
   query: Query;
 }) {
   const c = await collections();
+  const groups = orderedGroups(config);
   if (view === "metrics") return <Metrics query={query} services={services} />;
+  if (view === "services")
+    return (
+      <ServicesAdmin services={services} config={config} groups={groups} />
+    );
+  if (view === "sources") {
+    const sources = await c.sources
+      .find({})
+      .sort({ kind: 1, name: 1 })
+      .toArray();
+    return (
+      <SourcesAdmin
+        sources={sources}
+        config={config}
+        services={services}
+        groups={groups}
+      />
+    );
+  }
   if (view === "incidents") {
     const incidents = await c.incidents
       .find({})
@@ -274,65 +323,75 @@ async function Body({
       .limit(100)
       .toArray();
     return (
-      <section className="admin-section">
-        <h2>Alerts &amp; incident updates</h2>
-        <p>
+      <section>
+        <p className="mb-6 text-sm text-muted-foreground">
           Better Stack incidents retain their original failure observations.
-          Private notes stay off the public page; public updates are published
-          explicitly.
+          Private notes stay off the public page.
         </p>
         <NewIncident services={services} />
         {incidents.map((incident) => (
-          <details className="diagnostic" key={incident._id}>
-            <summary>
-              <Dot status={incident.resolvedAt ? "operational" : "down"} />
-              {incident.title}
-              <span>
-                <Time value={incident.startedAt} />
-              </span>
-            </summary>
-            <div className="admin-section">
-              <p>
-                <strong>Reported cause:</strong> {incident.cause}
-              </p>
-              <p>
-                {incident.betterStackId
-                  ? `Better Stack incident ${incident.betterStackId}`
-                  : "Manually reported"}{" "}
-                ·{" "}
-                {incident.resolvedAt
-                  ? "Resolved"
-                  : incident.acknowledgedAt
-                    ? "Acknowledged"
-                    : "Unacknowledged"}
-              </p>
-              <pre className="log-output">
-                {incident.evidence
-                  .map(
-                    (e) =>
-                      `${e.at} · ${e.source}\n${e.status} · ${e.detail ?? "No additional detail"}`,
-                  )
-                  .join("\n\n") ||
-                  "No matching observations were available when this incident was imported."}
-              </pre>
-              <ol className="timeline">
+          <Disclosure
+            key={incident._id}
+            summary={
+              <>
+                <Dot status={incident.resolvedAt ? "operational" : "down"} />
+                <span className="truncate">{incident.title}</span>
+              </>
+            }
+            note={<Time value={incident.startedAt} />}
+          >
+            <p className="text-sm">
+              <span className="text-muted-foreground">Reported cause: </span>
+              {incident.cause}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {incident.betterStackId
+                ? `Better Stack incident ${incident.betterStackId}`
+                : "Manually reported"}{" "}
+              ·{" "}
+              {incident.resolvedAt
+                ? "Resolved"
+                : incident.acknowledgedAt
+                  ? "Acknowledged"
+                  : "Unacknowledged"}
+            </p>
+            <Log>
+              {incident.evidence
+                .map(
+                  (e) =>
+                    `${e.at} · ${e.source}\n${e.status} · ${e.detail ?? "No additional detail"}`,
+                )
+                .join("\n\n") ||
+                "No matching observations were available when this incident was imported."}
+            </Log>
+            {incident.updates.length ? (
+              <ol className="space-y-3 border-l pl-4">
                 {incident.updates.toReversed().map((update) => (
                   <li key={update.id}>
-                    <div>
-                      <strong>
-                        {update.visibility} · {update.state}
-                      </strong>
-                      <span>
+                    <div className="flex items-baseline gap-2 text-xs">
+                      <Badge
+                        variant={
+                          update.visibility === "public"
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {update.visibility}
+                      </Badge>
+                      <strong className="font-medium">{update.state}</strong>
+                      <span className="text-muted-foreground">
                         <Time value={update.at} /> · {update.author}
                       </span>
                     </div>
-                    <p>{update.text}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      {update.text}
+                    </p>
                   </li>
                 ))}
               </ol>
-              <IncidentControls incident={incident} />
-            </div>
-          </details>
+            ) : null}
+            <IncidentControls incident={incident} />
+          </Disclosure>
         ))}
       </section>
     );
@@ -344,39 +403,38 @@ async function Body({
       .limit(100)
       .toArray();
     return (
-      <section className="admin-section">
-        <h2>Maintenance windows</h2>
-        <p>
-          These windows announce expected impact and mark affected services as
-          under maintenance. Checks continue collecting evidence, and Better
-          Stack alert delivery remains active.
+      <section>
+        <p className="mb-6 text-sm text-muted-foreground">
+          A window marks affected services as under maintenance. Checks keep
+          collecting evidence and Better Stack alerting stays active.
         </p>
-        <details className="diagnostic">
-          <summary>
-            Schedule a window <span>+</span>
-          </summary>
+        <Disclosure
+          summary={<span className="font-medium">Schedule a window</span>}
+        >
           <MaintenanceForm services={services} />
-        </details>
+        </Disclosure>
         {windows.map((window) => (
-          <details className="diagnostic" key={window._id}>
-            <summary>
-              {window.title}
-              <span>
-                {window.cancelledAt ? (
-                  "Cancelled"
-                ) : (
-                  <Time value={window.startsAt} />
-                )}
-              </span>
-            </summary>
+          <Disclosure
+            key={window._id}
+            summary={<span className="truncate">{window.title}</span>}
+            note={
+              window.cancelledAt ? (
+                "Cancelled"
+              ) : (
+                <Time value={window.startsAt} />
+              )
+            }
+          >
             <MaintenanceForm services={services} window={window} />
             {!window.cancelledAt ? (
               <form action={adminAction}>
                 <Fields operation="maintenance-cancel" id={window._id} />
-                <button>Cancel window</button>
+                <Button type="submit" size="sm" variant="ghost">
+                  Cancel window
+                </Button>
               </form>
             ) : null}
-          </details>
+          </Disclosure>
         ))}
       </section>
     );
@@ -388,88 +446,89 @@ async function Body({
       c.commands.find({}).sort({ createdAt: -1 }).limit(30).toArray(),
     ]);
     return (
-      <section className="admin-section">
-        <h2>Backup operations</h2>
-        <p>
+      <section>
+        <p className="mb-6 text-sm text-muted-foreground">
           Cloud jobs use the existing scheduler. Recovery jobs are dispatched to
-          the authenticated host agent, which starts the existing guarded backup
-          services.
+          the authenticated host agent.
         </p>
         {backups.length ? (
           backups.map((backup) => (
-            <details className="diagnostic" key={backup.id}>
-              <summary>
-                {backup.name}
-                <span>{backup.status}</span>
-              </summary>
-              <div className="admin-section">
-                <p>
-                  Last successful: <Time value={backup.lastSuccessAt} /> · Next:{" "}
-                  <Time value={backup.nextRunAt} />
-                </p>
-                <p>
-                  {backup.verification ??
-                    "No separate verification evidence was reported."}
-                </p>
-                <pre className="log-output">
-                  {backup.detail ?? "No output recorded."}
-                </pre>
-                <BackupControls backup={backup} />
-              </div>
-            </details>
+            <Disclosure
+              key={backup.id}
+              summary={<span className="truncate">{backup.name}</span>}
+              note={backup.status}
+            >
+              <p className="text-xs text-muted-foreground">
+                Last successful: <Time value={backup.lastSuccessAt} /> · Next:{" "}
+                <Time value={backup.nextRunAt} />
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {backup.verification ??
+                  "No separate verification evidence was reported."}
+              </p>
+              <Log>{backup.detail ?? "No output recorded."}</Log>
+              <BackupControls backup={backup} />
+            </Disclosure>
           ))
         ) : (
-          <p className="empty-state">
-            No backup reports yet. Connect the Cloud collector and host
-            reporters to enable controls.
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No backup reports yet.
           </p>
         )}
-        <div className="admin-section">
-          <h3>Host commands</h3>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Created</th>
-                  <th>Job</th>
-                  <th>Action</th>
-                  <th>State</th>
-                  <th>Result</th>
-                </tr>
-              </thead>
-              <tbody>
+        <div className="mt-10">
+          <SectionHeading title="Host commands" />
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Job</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>State</TableHead>
+                  <TableHead>Result</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {commands.map((command) => (
-                  <tr key={command._id}>
-                    <td>
+                  <TableRow key={command._id}>
+                    <TableCell className="whitespace-nowrap tabular-nums">
                       <Time value={command.createdAt.toISOString()} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {command.profile} · {command.job}
-                    </td>
-                    <td>{command.action}</td>
-                    <td>{command.state}</td>
-                    <td>{command.detail ?? "Awaiting host"}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{command.action}</TableCell>
+                    <TableCell>{command.state}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {command.detail ?? "Awaiting host"}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
-        <h3>Recent runs</h3>
-        {runs.map((run) => (
-          <details className="diagnostic" key={run._id}>
-            <summary>
-              {run.name}
-              <span>
-                <Time value={run.startedAt} /> · {run.status}
-              </span>
-            </summary>
-            <p className="log-output">{run.verification}</p>
-            <pre className="log-output">
-              {run.detail ?? "No output recorded."}
-            </pre>
-          </details>
-        ))}
+        <div className="mt-10">
+          <SectionHeading title="Recent runs" />
+          {runs.map((run) => (
+            <Disclosure
+              key={run._id}
+              summary={<span className="truncate">{run.name}</span>}
+              note={
+                <>
+                  <Time value={run.startedAt} /> · {run.status}
+                </>
+              }
+            >
+              {run.verification ? (
+                <p className="text-sm text-muted-foreground">
+                  {run.verification}
+                </p>
+              ) : null}
+              <Log>{run.detail ?? "No output recorded."}</Log>
+            </Disclosure>
+          ))}
+        </div>
       </section>
     );
   }
@@ -480,81 +539,92 @@ async function Body({
       .limit(100)
       .toArray();
     return (
-      <section className="admin-section">
-        <h2>Admin audit log</h2>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr key={entry._id}>
-                  <td>
-                    <Time value={entry.at.toISOString()} />
-                  </td>
-                  <td>{entry.actor}</td>
-                  <td>{entry.action}</td>
-                  <td>{entry.target}</td>
-                  <td>{entry.outcome}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <section className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Actor</TableHead>
+              <TableHead>Action</TableHead>
+              <TableHead>Target</TableHead>
+              <TableHead>Outcome</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entries.map((entry) => (
+              <TableRow key={entry._id}>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  <Time value={entry.at.toISOString()} />
+                </TableCell>
+                <TableCell>{entry.actor}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {entry.action}
+                </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {entry.target}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    entry.outcome.startsWith("failed") && healthText.down,
+                  )}
+                >
+                  {entry.outcome}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </section>
     );
   }
   const snapshot = await c.snapshots.findOne({ _id: "latest" });
+  const now = Date.now();
   return (
-    <section className="admin-section">
-      <h2>Collector &amp; dependency health</h2>
-      <p>
+    <section>
+      <p className="mb-6 text-sm text-muted-foreground">
         Last collection: <Time value={snapshot?.at ?? null} />
       </p>
       {snapshot?.warnings.length ? (
-        <div className="editorial-note">
+        <div className="mb-6 space-y-1 border-l-2 border-status-warning bg-status-warning/5 px-4 py-3">
           {snapshot.warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
+            <p key={warning} className="flex items-start gap-2 text-sm">
+              <TriangleAlert
+                aria-hidden
+                className="mt-0.5 size-3.5 shrink-0 text-status-warning"
+              />
+              {warning}
+            </p>
           ))}
         </div>
       ) : null}
-      {services.map((service) => (
-        <details className="diagnostic" key={service.id}>
-          <summary>
-            <Dot
-              status={freshStatus(
-                service.status,
-                service.checkedAt,
-                Date.now(),
-              )}
-            />
-            {service.name}
-            <span>
-              {
-                healthLabels[
-                  freshStatus(service.status, service.checkedAt, Date.now())
-                ]
-              }{" "}
-              · {formatDuration(service.latencyMs)}
-            </span>
-          </summary>
-          <pre>
-            {service.evidence
-              .map(
-                (evidence) =>
-                  `${evidence.source} · ${evidence.at}\n${evidence.status} · ${formatDuration(evidence.latencyMs)}\n${evidence.detail ?? "No error reported"}`,
-              )
-              .join("\n\n") || "No observations recorded."}
-          </pre>
-        </details>
-      ))}
+      {(snapshot?.services ?? services).map((service) => {
+        const status = freshStatus(service.status, service.checkedAt, now);
+        return (
+          <Disclosure
+            key={service.id}
+            summary={
+              <>
+                <Dot status={status} />
+                <span className="truncate">{service.name}</span>
+              </>
+            }
+            note={`${healthLabels[status]} · ${formatDuration(service.latencyMs)}`}
+          >
+            <Log>
+              {service.evidence
+                .map(
+                  (evidence) =>
+                    `${evidence.source} · ${evidence.at}\n${evidence.status} · ${formatDuration(evidence.latencyMs)}\n${evidence.detail ?? "No error reported"}`,
+                )
+                .join("\n\n") || "No observations recorded."}
+            </Log>
+          </Disclosure>
+        );
+      })}
+      <div className="mt-10">
+        <SectionHeading title="Danger zone" />
+        <ResetHistory />
+      </div>
     </section>
   );
 }
@@ -564,50 +634,79 @@ async function Admin({ searchParams }: { searchParams: Promise<Query> }) {
     session = await adminSession();
   } catch {
     return (
-      <section className="admin-login">
-        <h1>Authentication is unavailable.</h1>
-        <p>
+      <section className="py-16">
+        <h1 className="text-xl font-medium">Authentication is unavailable.</h1>
+        <p className="mt-2 max-w-prose text-sm text-muted-foreground">
           The public status page is still available. Your Cloud session has not
           been signed out; try again when the API is reachable.
         </p>
-        <Link href="/">View service status</Link>
+        <Link
+          href="/"
+          className="mt-4 inline-flex items-center gap-1 text-sm underline underline-offset-4"
+        >
+          View service status
+        </Link>
       </section>
     );
   }
   if (!session)
     return (
-      <section className="admin-login">
-        <h1>Sign in</h1>
-        <div className="form-actions">
-          <a
-            className="primary-button"
-            style={{ padding: "10px 16px", borderRadius: 5 }}
-            href="https://cloud.denizlg24.com/login"
-          >
-            Sign in to Cloud ↗
-          </a>
-          <a href="https://forge.denizlg24.com/login">Sign in to Forge ↗</a>
+      <section className="py-16">
+        <h1 className="text-xl font-medium">Sign in</h1>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <Button asChild size="sm">
+            <a href="https://cloud.denizlg24.com/login">
+              Sign in to Cloud
+              <ArrowUpRight aria-hidden />
+            </a>
+          </Button>
+          <Button asChild size="sm" variant="ghost">
+            <a href="https://forge.denizlg24.com/login">
+              Sign in to Forge
+              <ArrowUpRight aria-hidden />
+            </a>
+          </Button>
         </div>
-        <p>
-          <Link prefetch={false} href="/admin">
-            Already signed in? Check session ↻
-          </Link>
-        </p>
+        <Link
+          prefetch={false}
+          href="/admin"
+          className="mt-5 inline-block text-sm text-muted-foreground underline underline-offset-4"
+        >
+          Already signed in? Check session
+        </Link>
       </section>
     );
   const query = await searchParams;
   const requested = value(query, "view", "overview");
-  const view = views.includes(requested) ? requested : "overview";
-  let services = catalog;
+  const view = (
+    views.some(([name]) => name === requested) ? requested : "overview"
+  ) as View;
+  let services: Service[];
+  let config: StatusConfig;
   try {
     const c = await collections();
-    services =
-      (await c.snapshots.findOne({ _id: "latest" }))?.services ?? catalog;
+    const [snapshot, stored] = await Promise.all([
+      c.snapshots.findOne({ _id: "latest" }),
+      statusConfig(),
+    ]);
+    config = stored;
+    // The admin lists hidden tiles too — that is the only way to unhide one.
+    services = resolveServices(snapshot?.services ?? catalog, {
+      ...stored,
+      services: Object.fromEntries(
+        Object.entries(stored.services).map(([id, override]) => [
+          id,
+          { ...override, visible: true },
+        ]),
+      ),
+    });
   } catch {
     return (
-      <section className="admin-login">
-        <h1>The monitoring store is unavailable.</h1>
-        <p>
+      <section className="py-16">
+        <h1 className="text-xl font-medium">
+          The monitoring store is unavailable.
+        </h1>
+        <p className="mt-2 max-w-prose text-sm text-muted-foreground">
           Check the managed MongoDB connection and run the status database setup
           script. No operational controls have been executed.
         </p>
@@ -616,28 +715,42 @@ async function Admin({ searchParams }: { searchParams: Promise<Query> }) {
   }
   return (
     <>
-      <div className="admin-top">
-        <h1>Behind the status.</h1>
-        <span>{session.username} · Administrator</span>
+      <div className="mb-6 flex items-baseline justify-between gap-4">
+        <h1 className="text-2xl tracking-tight">Behind the status.</h1>
+        <span className="text-xs text-muted-foreground">
+          {session.username} · Administrator
+        </span>
       </div>
-      <nav className="admin-nav" aria-label="Admin navigation">
-        {views.map((name) => (
+      <nav
+        aria-label="Admin navigation"
+        className="no-scrollbar -mx-1 mb-8 flex items-center gap-1 overflow-x-auto overflow-y-hidden border-b"
+      >
+        {views.map(([name, label]) => (
           <Link
             prefetch={false}
             key={name}
             href={`/admin?view=${name}`}
             aria-current={view === name ? "page" : undefined}
+            className={cn(
+              "-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm transition-colors",
+              view === name
+                ? "border-accent-strong text-foreground font-medium"
+                : "hover:text-foreground border-transparent text-muted-foreground",
+            )}
           >
-            {name[0]!.toUpperCase() + name.slice(1)}
+            {label}
           </Link>
         ))}
       </nav>
       {value(query, "notice") ? (
-        <p role="status" className="action-feedback">
+        <p
+          role="status"
+          className="bg-surface mb-6 rounded-md px-4 py-3 text-sm"
+        >
           {value(query, "notice").slice(0, 300)}
         </p>
       ) : null}
-      <Body view={view} services={services} query={query} />
+      <Body view={view} services={services} config={config} query={query} />
     </>
   );
 }
