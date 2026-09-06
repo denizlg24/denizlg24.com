@@ -1,54 +1,205 @@
+import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
+import type { SandboxConfig } from "./config";
+import { readConfig } from "./config";
+import {
+  createSessionSchema,
+  runCommandSchema,
+  SANDBOX_PROTOCOL_VERSION,
+  writeFilesSchema,
+} from "./contract";
+import { DockerSandboxRuntime } from "./docker-runtime";
 
-import { SANDBOX_PROTOCOL_VERSION } from "./contract";
+type SandboxRuntime = Pick<
+  DockerSandboxRuntime,
+  | "createSession"
+  | "stopSession"
+  | "runCommand"
+  | "writeFiles"
+  | "listFiles"
+  | "readFile"
+  | "portUrl"
+  | "verifyPortToken"
+  | "proxyPort"
+  | "health"
+>;
 
-/**
- * The code sandbox, unimplemented.
- *
- * The agent's eight sandbox tools ran on Vercel Sandbox, which authenticated
- * through a `VERCEL_OIDC_TOKEN` the Vercel runtime injected. Nothing injects it
- * on Forge, so every call has returned a configuration error since the move.
- * This app is where the capability comes back — on Forge rather than the Pi,
- * because it wants memory and CPU that the box serving the databases should not
- * be lending to model-authored code.
- *
- * Only the shell exists so far: routes, the wire contract and the deployment
- * are settled, execution is not. `/healthz` answers so a deploy can go ready;
- * every real route answers 501 and names what is missing, which is what keeps
- * this honest — a stub that pretended to run code would be worse than the error
- * it replaces.
- *
- * Before implementing, read `docs/internal/plans/019-ui-ux-fixes-sep5.md` (B10)
- * and settle the isolation question first. `FORWARDED_ENV_KEYS` in
- * `apps/web/lib/sandbox.ts` pushes MONGODB_URI, DATABASE_URL, REDIS_URL, the S3
- * access key and secret and CLOUD_API_TOKEN into every sandbox. Handing that set
- * to arbitrary model-authored code is a decision to make deliberately, not one
- * to inherit — a read-only replica URI and a scoped S3 credential would narrow
- * it a long way.
- */
-const app = new Hono();
+function tokenMatches(actual: string | undefined, expected: string): boolean {
+  if (!actual?.startsWith("Bearer ")) return false;
+  const supplied = Buffer.from(actual.slice(7));
+  const wanted = Buffer.from(expected);
+  return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
+}
 
-const notImplemented = (what: string) =>
-  Response.json(
-    {
-      error: `The sandbox is not implemented yet: ${what}. See docs/internal/plans/019-ui-ux-fixes-sep5.md (B10).`,
-      protocolVersion: SANDBOX_PROTOCOL_VERSION,
-    },
-    { status: 501 },
+function errorResponse(error: unknown): Response {
+  const message =
+    error instanceof Error ? error.message : "Sandbox operation failed";
+  const status = /No such container|is not running/i.test(message) ? 404 : 500;
+  return Response.json(
+    { error: message, protocolVersion: SANDBOX_PROTOCOL_VERSION },
+    { status },
   );
+}
 
-app.get("/healthz", (c) =>
-  c.json({ ok: true, protocolVersion: SANDBOX_PROTOCOL_VERSION }),
-);
+export function createApp(
+  config: SandboxConfig,
+  runtime: SandboxRuntime = new DockerSandboxRuntime(config),
+) {
+  const app = new Hono();
+  let healthyUntil = 0;
 
-app.post("/sessions", () => notImplemented("creating a session"));
-app.delete("/sessions/:id", () => notImplemented("stopping a session"));
-app.post("/sessions/:id/commands", () => notImplemented("running a command"));
-app.post("/sessions/:id/files", () => notImplemented("writing files"));
-app.get("/sessions/:id/files", () => notImplemented("listing files"));
-app.get("/sessions/:id/files/*", () => notImplemented("reading a file"));
-app.get("/sessions/:id/ports/:port", () => notImplemented("exposing a port"));
+  app.get("/healthz", async (c) => {
+    try {
+      if (healthyUntil <= Date.now()) {
+        await runtime.health();
+        healthyUntil = Date.now() + 10_000;
+      }
+      return c.json({ ok: true, protocolVersion: SANDBOX_PROTOCOL_VERSION });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Sandbox unavailable";
+      return c.json(
+        {
+          ok: false,
+          error: message,
+          protocolVersion: SANDBOX_PROTOCOL_VERSION,
+        },
+        503,
+      );
+    }
+  });
+
+  app.use("/sessions/*", async (c, next) => {
+    if (c.req.path.includes("/ports/") && c.req.path.includes("/proxy/")) {
+      return next();
+    }
+    if (!tokenMatches(c.req.header("authorization"), config.apiToken)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    return next();
+  });
+  app.use("/sessions", async (c, next) => {
+    if (!tokenMatches(c.req.header("authorization"), config.apiToken)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    return next();
+  });
+
+  app.post("/sessions", async (c) => {
+    const parsed = createSessionSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    try {
+      return c.json(await runtime.createSession(parsed.data));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.delete("/sessions/:id", async (c) => {
+    try {
+      return c.json({ stopped: await runtime.stopSession(c.req.param("id")) });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.post("/sessions/:id/commands", async (c) => {
+    const parsed = runCommandSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    try {
+      return c.json(await runtime.runCommand(c.req.param("id"), parsed.data));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.post("/sessions/:id/files", async (c) => {
+    const parsed = writeFilesSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    try {
+      return c.json({
+        written: await runtime.writeFiles(c.req.param("id"), parsed.data),
+      });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.get("/sessions/:id/files", async (c) => {
+    try {
+      return c.json({
+        entries: await runtime.listFiles(
+          c.req.param("id"),
+          c.req.query("path") || ".",
+        ),
+      });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.get("/sessions/:id/files/*", async (c) => {
+    try {
+      const path = decodeURIComponent(c.req.path.split("/files/")[1] || "");
+      const content = await runtime.readFile(c.req.param("id"), path);
+      return new Response(Uint8Array.from(content).buffer, {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": String(content.byteLength),
+          "cache-control": "no-store",
+        },
+      });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.get("/sessions/:id/ports/:port", (c) => {
+    try {
+      return c.json({
+        url: runtime.portUrl(c.req.param("id"), Number(c.req.param("port"))),
+      });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  app.get("/sessions/:id/ports/:port/proxy/*", async (c) => {
+    const id = c.req.param("id");
+    const port = Number(c.req.param("port"));
+    const marker = `/ports/${port}/proxy/`;
+    const suffix = c.req.path.split(marker)[1] || "";
+    const [expires = "", signature = "", ...pathParts] = suffix.split("/");
+    if (!runtime.verifyPortToken(id, port, expires, signature)) {
+      return c.json({ error: "Preview URL is invalid or expired" }, 401);
+    }
+    try {
+      const url = new URL(c.req.url);
+      const path = `${pathParts.join("/")}${url.search}`;
+      return await runtime.proxyPort(id, port, path);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  return app;
+}
+
+let configuredApp: ReturnType<typeof createApp> | undefined;
+const fetch = (request: Request) => {
+  try {
+    configuredApp ??= createApp(readConfig());
+    return configuredApp.fetch(request);
+  } catch (error) {
+    return errorResponse(error);
+  }
+};
 
 const port = Number(process.env.PORT ?? 3005);
-
-export default { fetch: app.fetch, port };
+export default { fetch, port };

@@ -10,7 +10,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@repo/schemas": "workspace:*",
     "hono": "^4.13.4",
     "zod": "^4.4.3"
   },

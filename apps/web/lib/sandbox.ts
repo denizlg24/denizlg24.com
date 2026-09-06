@@ -1,80 +1,31 @@
-import { Sandbox } from "@vercel/sandbox";
-
-// The single seam every sandbox tool goes through. Tool code never imports a
-// sandbox SDK directly — the same rule llm-service.ts applies to provider SDKs
-// — so lifetime, credential injection, and output truncation live in one place.
-//
-// The backend behind this seam is being replaced. It ran on Vercel Sandbox,
-// which authenticated through a VERCEL_OIDC_TOKEN the Vercel runtime injected;
-// nothing injects it on Forge, so every call has failed since the move off
-// Vercel. `apps/sandbox` is the replacement and is a scaffold today — see its
-// README and B10 in docs/internal/plans/019-ui-ux-fixes-sep5.md.
-//
-// Whether a backend exists at all is answered by `sandbox-config.ts`, which
-// imports nothing — the registry and the system prompt need that answer and
-// must not load a sandbox SDK to get it.
-
-export const SANDBOX_RUNTIME = "node24";
-const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
-const SANDBOX_VCPUS = 2;
-const SANDBOX_PORTS = [3000];
+export const SANDBOX_RUNTIME = "Bun + Python";
+const SANDBOX_PROTOCOL_VERSION = 2;
+const SANDBOX_TTL_SECONDS = 15 * 60;
 const MAX_OUTPUT_CHARS = 30_000;
 const MAX_FILE_CHARS = 60_000;
 const MAX_WRITE_BYTES = 2 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_BINARY_BYTES = 25 * 1024 * 1024;
 
-/**
- * Host credentials forwarded into every sandbox.
- */
-const FORWARDED_ENV_KEYS = [
-  "MONGODB_URI",
-  "DATABASE_URL",
-  "REDIS_URL",
-  "S3_ENDPOINT",
-  "S3_REGION",
-  "S3_ACCESS_KEY_ID",
-  "S3_SECRET_ACCESS_KEY",
-  "CLOUD_API_BASE_URL",
-  "CLOUD_API_TOKEN",
-] as const;
-
 export class SandboxConfigurationError extends Error {}
 
 interface SandboxLease {
-  sandbox: Sandbox;
-  createdAt: number;
+  id: string;
+  expiresAt: number;
 }
 
-// Single-user system: one cache keyed by conversation, per the repo's
-// "module-level caches keyed per session, not per user" convention.
 const leases = new Map<string, SandboxLease>();
+let healthCheck: Promise<void> | undefined;
 
-function sandboxName(conversationId: string): string {
-  // Sandbox names are the lookup key for Sandbox.get, so they must survive a
-  // cold serverless start with only the conversation id in hand.
-  return `chat-${conversationId.replace(/[^a-zA-Z0-9-]/g, "").slice(-32)}`;
-}
-
-function forwardedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of FORWARDED_ENV_KEYS) {
-    const value = process.env[key];
-    if (value) env[key] = value;
+function configuration(): { url: string; token: string } {
+  const url = process.env.SANDBOX_API_URL?.replace(/\/$/, "");
+  const token = process.env.SANDBOX_API_TOKEN;
+  if (!url || !token) {
+    throw new SandboxConfigurationError(
+      "The code sandbox is not configured. SANDBOX_API_URL and SANDBOX_API_TOKEN are both required.",
+    );
   }
-  return env;
-}
-
-function credentials() {
-  const token = process.env.VERCEL_TOKEN ?? process.env.VERCEL_OIDC_TOKEN;
-  const projectId = process.env.VERCEL_PROJECT_ID;
-  const teamId = process.env.VERCEL_TEAM_ID;
-  if (!token || !projectId || !teamId) {
-    // On Vercel the SDK reads VERCEL_OIDC_TOKEN itself; locally it needs all
-    // three, so fall through to the SDK's own resolution rather than guessing.
-    return undefined;
-  }
-  return { token, projectId, teamId };
+  return { url, token };
 }
 
 function truncate(value: string, limit: number): string {
@@ -82,45 +33,61 @@ function truncate(value: string, limit: number): string {
   return `${value.slice(0, limit)}\n… output truncated at ${limit} characters …`;
 }
 
-export async function getSandbox(conversationId: string): Promise<Sandbox> {
-  const existing = leases.get(conversationId);
-  if (existing) return existing.sandbox;
-
-  const name = sandboxName(conversationId);
-  const creds = credentials();
-
-  // A warm sandbox survives across serverless invocations even when this
-  // module's cache does not, so always try to reattach before creating.
-  try {
-    const resumed = await Sandbox.get({ name, resume: true, ...creds });
-    leases.set(conversationId, { sandbox: resumed, createdAt: Date.now() });
-    return resumed;
-  } catch {
-    // No live sandbox under that name — fall through and create one.
+async function sandboxRequest(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const { url, token } = configuration();
+  const response = await fetch(`${url}${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      ...init.headers,
+    },
+    signal: init.signal ?? AbortSignal.timeout(COMMAND_TIMEOUT_MS + 10_000),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      body?.error || `Sandbox request failed with HTTP ${response.status}`,
+    );
   }
+  return response;
+}
 
-  try {
-    const created = await Sandbox.create({
-      name,
-      runtime: SANDBOX_RUNTIME,
-      timeout: SANDBOX_TIMEOUT_MS,
-      ports: SANDBOX_PORTS,
-      resources: { vcpus: SANDBOX_VCPUS },
-      env: forwardedEnv(),
-      ...creds,
+async function ensureCompatibleBackend(): Promise<void> {
+  healthCheck ??= sandboxRequest("/healthz")
+    .then(async (response) => {
+      const body = (await response.json()) as { protocolVersion?: number };
+      if (body.protocolVersion !== SANDBOX_PROTOCOL_VERSION) {
+        throw new SandboxConfigurationError(
+          `Sandbox protocol mismatch: web expects ${SANDBOX_PROTOCOL_VERSION}, backend reports ${body.protocolVersion ?? "none"}.`,
+        );
+      }
+    })
+    .catch((error) => {
+      healthCheck = undefined;
+      throw error;
     });
-    leases.set(conversationId, { sandbox: created, createdAt: Date.now() });
-    return created;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Sandbox creation failed";
-    if (/token|credential|unauthorized|forbidden/i.test(message)) {
-      throw new SandboxConfigurationError(
-        "No sandbox backend is configured. The Vercel-hosted one stopped working when the platform was exited; its replacement (apps/sandbox, deployed on Forge) is a scaffold and does not execute code yet. Do not retry — use another tool, or say the capability is unavailable.",
-      );
-    }
-    throw error;
-  }
+  return healthCheck;
+}
+
+async function session(conversationId: string): Promise<SandboxLease> {
+  const existing = leases.get(conversationId);
+  if (existing && existing.expiresAt > Date.now()) return existing;
+  await ensureCompatibleBackend();
+  const response = await sandboxRequest("/sessions", {
+    method: "POST",
+    body: JSON.stringify({ conversationId, ttlSeconds: SANDBOX_TTL_SECONDS }),
+  });
+  const result = (await response.json()) as { id: string; expiresAt: string };
+  const lease = { id: result.id, expiresAt: Date.parse(result.expiresAt) };
+  leases.set(conversationId, lease);
+  return lease;
 }
 
 export interface SandboxCommandResult {
@@ -135,31 +102,28 @@ export async function runSandboxCommand(options: {
   command: string;
   args?: string[];
   cwd?: string;
-  env?: Record<string, string>;
   timeoutMs?: number;
 }): Promise<SandboxCommandResult> {
-  const sandbox = await getSandbox(options.conversationId);
+  const lease = await session(options.conversationId);
   const timeoutMs = Math.min(
     options.timeoutMs ?? COMMAND_TIMEOUT_MS,
     COMMAND_TIMEOUT_MS,
   );
-  const finished = await sandbox.runCommand({
-    cmd: options.command,
-    args: options.args ?? [],
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    ...(options.env ? { env: options.env } : {}),
-    timeoutMs,
+  const response = await sandboxRequest(`/sessions/${lease.id}/commands`, {
+    method: "POST",
+    body: JSON.stringify({
+      command: options.command,
+      args: options.args ?? [],
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      timeoutMs,
+    }),
+    signal: AbortSignal.timeout(timeoutMs + 10_000),
   });
-  const [stdout, stderr] = await Promise.all([
-    finished.stdout(),
-    finished.stderr(),
-  ]);
+  const result = (await response.json()) as SandboxCommandResult;
   return {
-    exitCode: finished.exitCode,
-    stdout: truncate(stdout, MAX_OUTPUT_CHARS),
-    stderr: truncate(stderr, MAX_OUTPUT_CHARS),
-    // SIGKILL from the sandbox-enforced timeout surfaces as 137.
-    timedOut: finished.exitCode === 137,
+    ...result,
+    stdout: truncate(result.stdout, MAX_OUTPUT_CHARS),
+    stderr: truncate(result.stderr, MAX_OUTPUT_CHARS),
   };
 }
 
@@ -167,7 +131,7 @@ export async function writeSandboxFiles(options: {
   conversationId: string;
   files: Array<{ path: string; content: string }>;
 }): Promise<{ written: string[] }> {
-  const sandbox = await getSandbox(options.conversationId);
+  const lease = await session(options.conversationId);
   const files = options.files.map((file) => {
     const content = Buffer.from(file.content, "utf8");
     if (content.byteLength > MAX_WRITE_BYTES) {
@@ -175,44 +139,43 @@ export async function writeSandboxFiles(options: {
         `"${file.path}" is ${content.byteLength} bytes; the per-file limit is ${MAX_WRITE_BYTES}.`,
       );
     }
-    return { path: file.path, content };
+    return { path: file.path, contentBase64: content.toString("base64") };
   });
-  await sandbox.writeFiles(files);
-  return { written: files.map((file) => file.path) };
+  const response = await sandboxRequest(`/sessions/${lease.id}/files`, {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  });
+  return (await response.json()) as { written: string[] };
 }
 
 export async function readSandboxFile(options: {
   conversationId: string;
   path: string;
 }): Promise<string> {
-  const sandbox = await getSandbox(options.conversationId);
-  const content = await sandbox.fs.readFile(options.path, "utf8");
-  return truncate(content, MAX_FILE_CHARS);
+  const bytes = await readSandboxFileBytes({
+    ...options,
+    maxBytes: MAX_FILE_CHARS * 4,
+  });
+  return truncate(bytes.toString("utf8"), MAX_FILE_CHARS);
 }
 
-/**
- * Read a sandbox file without converting it to UTF-8 or routing its bytes
- * through model-visible output. Use this for generated archives, images,
- * spreadsheets, PDFs, and other binary artifacts.
- */
 export async function readSandboxFileBytes(options: {
   conversationId: string;
   path: string;
   maxBytes?: number;
 }): Promise<Buffer> {
-  const sandbox = await getSandbox(options.conversationId);
+  const lease = await session(options.conversationId);
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BINARY_BYTES;
-  const stats = await sandbox.fs.stat(options.path);
-  if (!stats.isFile()) {
-    throw new Error(`"${options.path}" is not a file`);
-  }
-  if (stats.size > maxBytes) {
+  const response = await sandboxRequest(
+    `/sessions/${lease.id}/files/${encodeURIComponent(options.path)}`,
+  );
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
     throw new Error(
-      `"${options.path}" is ${stats.size} bytes; the limit is ${maxBytes}.`,
+      `"${options.path}" is ${declared} bytes; the limit is ${maxBytes}.`,
     );
   }
-
-  const content = await sandbox.fs.readFile(options.path);
+  const content = Buffer.from(await response.arrayBuffer());
   if (content.byteLength > maxBytes) {
     throw new Error(
       `"${options.path}" is ${content.byteLength} bytes; the limit is ${maxBytes}.`,
@@ -225,27 +188,30 @@ export async function listSandboxFiles(options: {
   conversationId: string;
   path: string;
 }): Promise<string[]> {
-  const sandbox = await getSandbox(options.conversationId);
-  const entries = await sandbox.fs.readdir(options.path, {
-    withFileTypes: true,
-  });
-  return entries.map(
-    (entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`,
+  const lease = await session(options.conversationId);
+  const response = await sandboxRequest(
+    `/sessions/${lease.id}/files?path=${encodeURIComponent(options.path)}`,
   );
+  return ((await response.json()) as { entries: string[] }).entries;
 }
 
 export async function sandboxPortUrl(options: {
   conversationId: string;
   port: number;
 }): Promise<string> {
-  const sandbox = await getSandbox(options.conversationId);
-  return sandbox.domain(options.port);
+  const lease = await session(options.conversationId);
+  const response = await sandboxRequest(
+    `/sessions/${lease.id}/ports/${options.port}`,
+  );
+  return ((await response.json()) as { url: string }).url;
 }
 
 export async function stopSandbox(conversationId: string): Promise<boolean> {
   const lease = leases.get(conversationId);
   leases.delete(conversationId);
   if (!lease) return false;
-  await lease.sandbox.stop();
-  return true;
+  const response = await sandboxRequest(`/sessions/${lease.id}`, {
+    method: "DELETE",
+  });
+  return ((await response.json()) as { stopped: boolean }).stopped;
 }
