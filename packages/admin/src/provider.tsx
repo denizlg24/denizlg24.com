@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useContext } from "react";
 import type { AdminClient } from "./client";
 import type { PlatformBridge } from "./platform";
+import type { AdminRoutes } from "./routes";
 
 /** A settings rail entry the host app owns and routes to itself. */
 export interface SettingsRailEntry {
@@ -22,17 +23,7 @@ export interface AdminSlots {
   settingsExtraSections?: SettingsRailEntry[];
 }
 
-/** Where the host mounts shared multi-page features. */
-export interface AdminRoutes {
-  /** Root path accepted by agent navigation tools. */
-  dashboardRoot: string;
-  /** Base path of the global settings pages, without a trailing slash. */
-  settings: string;
-  /** Full path of the markets dashboard, which finance links across to. */
-  markets: string;
-  /** Full path of the virtual-portfolios surface, paired with markets. */
-  portfolios: string;
-}
+export type { AdminRoutes } from "./routes";
 
 export interface AdminContextValue {
   client: AdminClient;

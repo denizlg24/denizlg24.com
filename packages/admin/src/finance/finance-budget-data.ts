@@ -95,6 +95,28 @@ export async function removeFinanceEnvelopeContribution(
   return envelopeMutationSchema.parse(response).envelope;
 }
 
+const alertsSchema = z.object({
+  alerts: z.array(financeBudgetAlertSchema),
+});
+
+/**
+ * Lists alerts by status. The overview only ever asked for the open ones, so
+ * a resolved alert had nowhere at all to be seen.
+ */
+export async function fetchFinanceBudgetAlerts(
+  client: AdminClient,
+  statuses: Array<"open" | "acknowledged" | "resolved">,
+  options?: AdminRequestOptions,
+) {
+  const params = new URLSearchParams();
+  for (const status of statuses) params.append("status", status);
+  const response = await client.get<unknown>(
+    `finance/budget/alerts?${params}`,
+    options,
+  );
+  return alertsSchema.parse(response).alerts;
+}
+
 export async function evaluateFinanceBudgetAlerts(client: AdminClient) {
   const response = await client.post<unknown>("finance/budget/alerts");
   return evaluationSchema.parse(response);

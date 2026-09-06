@@ -1,57 +1,24 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@repo/ui/sheet";
-import { format, isToday, startOfDay } from "date-fns";
-import { AlarmClock, History, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { AlarmClock, History } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   DURATIONS,
   POMODORO_TARGET,
-  type Session,
   usePomodoroStore,
 } from "@/stores/pomodoro";
-
-function groupSessionsByDate(sessions: Session[]) {
-  const groups = new Map<string, Session[]>();
-  for (const s of sessions) {
-    const dayKey = startOfDay(new Date(s.completedAt)).toISOString();
-    const existing = groups.get(dayKey) ?? [];
-    existing.push(s);
-    groups.set(dayKey, existing);
-  }
-  return Array.from(groups.entries())
-    .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-    .map(([dayIso, items]) => ({
-      date: new Date(dayIso),
-      sessions: items.sort(
-        (a, b) =>
-          new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime(),
-      ),
-      totalFocusMinutes: items.reduce((acc, s) => acc + s.duration / 60, 0),
-    }));
-}
 
 export default function PomodoroPage() {
   const mode = usePomodoroStore((s) => s.mode);
   const seconds = usePomodoroStore((s) => s.seconds);
   const running = usePomodoroStore((s) => s.running);
   const sessionCount = usePomodoroStore((s) => s.sessionCount);
-  const allSessions = usePomodoroStore((s) => s.allSessions);
   const toggleStartPause = usePomodoroStore((s) => s.toggleStartPause);
   const reset = usePomodoroStore((s) => s.reset);
   const switchMode = usePomodoroStore((s) => s.switchMode);
   const clearAllSessions = usePomodoroStore((s) => s.clearAllSessions);
-
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -65,12 +32,6 @@ export default function PomodoroPage() {
   const filledLength = arcLength * progress;
   const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
 
-  const todaySessions = allSessions.filter((s) =>
-    isToday(new Date(s.completedAt)),
-  );
-
-  const groupedSessions = groupSessionsByDate(allSessions);
-
   return (
     <div className="flex flex-col gap-2 pb-4 h-full relative overflow-hidden">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0 z-10">
@@ -79,11 +40,13 @@ export default function PomodoroPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setHistoryOpen(true)}
           className="text-muted-foreground"
+          asChild
         >
-          <History className="size-3.5" />
-          <span className="text-xs">History</span>
+          <Link href="/dashboard/pomodoro/history">
+            <History className="size-3.5" />
+            <span className="text-xs">History</span>
+          </Link>
         </Button>
       </div>
 
@@ -255,67 +218,6 @@ export default function PomodoroPage() {
           )}
         </div>
       </div>
-
-      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-        <SheetContent className="w-full max-w-md! overflow-x-auto overflow-y-auto max-h-screen!">
-          <SheetHeader>
-            <SheetTitle>Session History</SheetTitle>
-            <SheetDescription>
-              {todaySessions.length} session{todaySessions.length !== 1 && "s"}{" "}
-              today
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex flex-col gap-6 px-4 pb-6">
-            {groupedSessions.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No sessions yet. Start your first focus!
-              </p>
-            )}
-            {groupedSessions.map((group) => (
-              <div key={group.date.toISOString()}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {isToday(group.date)
-                      ? "Today"
-                      : format(group.date, "MMM d, yyyy")}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {Math.round(group.totalFocusMinutes)}m total
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  {group.sessions.map((session, i) => (
-                    <div
-                      key={`${session.completedAt}-${i}`}
-                      className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-secondary/50"
-                    >
-                      <span className="text-sm text-card-foreground">
-                        {format(new Date(session.startedAt), "h:mm a")}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {Math.round(session.duration / 60)}m
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          {allSessions.length > 0 && (
-            <SheetFooter>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearAllSessions}
-                className="text-muted-foreground hover:text-destructive w-full"
-              >
-                <Trash2 className="size-3" />
-                <span>Clear all sessions</span>
-              </Button>
-            </SheetFooter>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

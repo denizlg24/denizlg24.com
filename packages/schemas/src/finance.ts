@@ -715,6 +715,20 @@ export const financeEnvelopeStatusSchema = z.object({
 });
 export type FinanceEnvelopeStatus = z.infer<typeof financeEnvelopeStatusSchema>;
 
+/** One period of an envelope's rollover walk-back. */
+export const financeRolloverPeriodSchema = z.object({
+  periodStart: isoDateSchema,
+  periodEnd: isoDateSchema,
+  limitMinor: z.number().int().nonnegative(),
+  spentMinor: z.number().int(),
+  carryInMinor: z.number().int(),
+  /** limit + carryIn − spent, before the `surplus` floor. */
+  remainingMinor: z.number().int(),
+  /** What actually carried forward — floored at zero under `surplus`. */
+  carryOutMinor: z.number().int(),
+});
+export type FinanceRolloverPeriod = z.infer<typeof financeRolloverPeriodSchema>;
+
 export const financeUnbudgetedCategorySchema = z.object({
   category: z.string().nullable(),
   spentMinor: z.number().int().nonnegative(),
@@ -766,6 +780,15 @@ export const financeBudgetAlertSchema = z.object({
   firstSeenAt: isoDateTimeSchema,
   lastSeenAt: isoDateTimeSchema,
   acknowledgedAt: isoDateTimeSchema.optional(),
+  /**
+   * The severity as it stood when the alert was acknowledged.
+   *
+   * A worsening condition reopens an acknowledged alert, so this being lower
+   * than `severity` is the whole explanation for an alert that came back. It
+   * was recorded server-side from the start and simply never serialized, which
+   * left that behaviour looking like a bug from the UI.
+   */
+  acknowledgedSeverity: financeBudgetAlertSeveritySchema.optional(),
   resolvedAt: isoDateTimeSchema.optional(),
 });
 export type FinanceBudgetAlert = z.infer<typeof financeBudgetAlertSchema>;
@@ -776,6 +799,24 @@ export const financeBudgetAlertDecisionSchema = z.object({
 export type FinanceBudgetAlertDecision = z.infer<
   typeof financeBudgetAlertDecisionSchema
 >;
+
+/**
+ * One envelope with everything needed to judge its limit in one place: the
+ * current period's status, the rows that produced it, where the carried
+ * balance came from, and the alerts that name it.
+ */
+export const financeEnvelopeDetailSchema = z.object({
+  envelope: financeEnvelopeSchema,
+  status: financeEnvelopeStatusSchema,
+  currency: financeCurrencySchema,
+  asOfDate: isoDateSchema,
+  /** The rows charged to this envelope in the current period, newest first. */
+  entries: z.array(financeLedgerEntrySchema),
+  /** Oldest first, so it reads as the history it is. */
+  rollover: z.array(financeRolloverPeriodSchema),
+  alerts: z.array(financeBudgetAlertSchema),
+});
+export type FinanceEnvelopeDetail = z.infer<typeof financeEnvelopeDetailSchema>;
 
 /**
  * The mechanical half of a suggestion. `advice` carries no action at all —

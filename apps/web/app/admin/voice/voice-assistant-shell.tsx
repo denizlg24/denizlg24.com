@@ -3,6 +3,7 @@
 import { type AdminContextValue, AdminProvider } from "@repo/admin/provider";
 import { useMemo } from "react";
 import { createWebAdminClient } from "@/lib/admin-client";
+import { WEB_ADMIN_ROUTES } from "@/lib/admin-routes";
 import { webPlatform } from "@/lib/platform-bridge";
 import { VoiceAssistant } from "./voice-assistant";
 
@@ -11,12 +12,7 @@ export function VoiceAssistantShell() {
     () => ({
       client: createWebAdminClient(),
       platform: webPlatform,
-      routes: {
-        dashboardRoot: "/admin/dashboard",
-        settings: "/admin/dashboard/settings",
-        markets: "/admin/dashboard/markets",
-        portfolios: "/admin/dashboard/markets/portfolios",
-      },
+      routes: WEB_ADMIN_ROUTES,
     }),
     [],
   );

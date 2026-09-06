@@ -13,6 +13,8 @@ import type {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import { DatePicker } from "@repo/ui/date-picker";
+import { DateTimePicker } from "@repo/ui/date-time-picker";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import {
@@ -358,20 +360,20 @@ export function CourseForm({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="course-start">Starts</Label>
-              <Input
+              <DatePicker
                 id="course-start"
-                type="date"
-                value={values.startsOn ?? ""}
-                onChange={(event) => setField("startsOn", event.target.value)}
+                value={values.startsOn || undefined}
+                onValueChange={(next) => setField("startsOn", next ?? "")}
+                clearable
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="course-end">Ends</Label>
-              <Input
+              <DatePicker
                 id="course-end"
-                type="date"
-                value={values.endsOn ?? ""}
-                onChange={(event) => setField("endsOn", event.target.value)}
+                value={values.endsOn || undefined}
+                onValueChange={(next) => setField("endsOn", next ?? "")}
+                clearable
               />
             </div>
             <div className="space-y-1.5">
@@ -712,15 +714,12 @@ export function CourseForm({
                       setField("manualDeadlines", deadlines);
                     }}
                   />
-                  <Input
-                    type="datetime-local"
-                    value={deadline.dueAt}
-                    onChange={(event) => {
+                  <DateTimePicker
+                    value={deadline.dueAt || undefined}
+                    aria-label="Deadline due"
+                    onValueChange={(next) => {
                       const deadlines = [...values.manualDeadlines];
-                      deadlines[index] = {
-                        ...deadline,
-                        dueAt: event.target.value,
-                      };
+                      deadlines[index] = { ...deadline, dueAt: next ?? "" };
                       setField("manualDeadlines", deadlines);
                     }}
                   />

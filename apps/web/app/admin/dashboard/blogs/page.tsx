@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function BlogsRoute() {
   return (
     <AdminFeatureShell>
-      <BlogPage newHref="/admin/dashboard/blogs/new" />
+      <BlogPage />
     </AdminFeatureShell>
   );
 }

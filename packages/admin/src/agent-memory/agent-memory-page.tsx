@@ -24,7 +24,6 @@ import {
   agentInsightListResponseSchema,
   agentMemoryContradictionListResponseSchema,
   agentMemoryListResponseSchema,
-  agentMemorySchema,
   agentReflectionOverviewSchema,
   agentResourceSuggestionListResponseSchema,
   agentResourceSuggestionMemoriesResponseSchema,
@@ -62,13 +61,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   Table,
@@ -105,6 +97,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -214,7 +207,8 @@ const DEFAULT_OVERVIEW_QUERY: OverviewQuery = {
 };
 
 export function AgentMemoryPage() {
-  const { client, slots } = useAdmin();
+  const { client, slots, routes } = useAdmin();
+  const router = useRouter();
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [candidates, setCandidates] = useState<AgentMemoryCandidate[]>([]);
   const [meta, setMeta] = useState<OverviewMeta | null>(null);
@@ -233,9 +227,6 @@ export function AgentMemoryPage() {
     null,
   );
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
-  const [selectedMemory, setSelectedMemory] = useState<AgentMemory | null>(
-    null,
-  );
   const [view, setView] = useState<"graph" | "list" | "explore">("graph");
   const [section, setSection] = useState("inbox");
   const [filters, setFilters] = useState<OverviewQuery>(DEFAULT_OVERVIEW_QUERY);
@@ -450,24 +441,12 @@ export function AgentMemoryPage() {
   }, [view, loadGraph]);
 
   const openMemory = useCallback(
-    async (memoryId: string) => {
-      const local = memories.find((memory) => memory.id === memoryId);
-      if (local) {
-        setSelectedMemory(local);
-        return;
-      }
-      try {
-        const raw = await client.get<unknown>(
-          `agent-memory/memories/${memoryId}`,
-        );
-        setSelectedMemory(
-          agentMemorySchema.parse((raw as { memory?: unknown })?.memory),
-        );
-      } catch {
-        toast.error("Failed to load memory");
-      }
+    // The detail page loads by id, so a link is all this has to be — the local
+    // lookup and the fallback fetch both moved there.
+    (memoryId: string) => {
+      router.push(routes.agentMemory.detail(memoryId));
     },
-    [client, memories],
+    [router, routes],
   );
 
   // Optimistically drop decided candidates from the inbox; the caller keeps a
@@ -966,7 +945,7 @@ export function AgentMemoryPage() {
             </div>
           )
         ) : view === "explore" ? (
-          <ExploreDock onSelect={setSelectedMemory} />
+          <ExploreDock onSelect={(memory) => openMemory(memory.id)} />
         ) : (
           <div className="h-full overflow-y-auto px-4 pt-3 pb-8">
             {section === "inbox" && (
@@ -979,7 +958,7 @@ export function AgentMemoryPage() {
                   onAct={actOnInsight}
                 />
                 <ContradictionPanel
-                  onSelectMemory={setSelectedMemory}
+                  onSelectMemory={(memory) => openMemory(memory.id)}
                   refreshGen={contradictionRefreshGen}
                 />
               </>
@@ -987,7 +966,10 @@ export function AgentMemoryPage() {
 
             {section === "memories" && (
               <>
-                <MemoryTable memories={memories} onSelect={setSelectedMemory} />
+                <MemoryTable
+                  memories={memories}
+                  onSelect={(memory) => openMemory(memory.id)}
+                />
                 {meta && (
                   <PageFooter
                     page={memoryTrailRef.current.length + 1}
@@ -1074,7 +1056,7 @@ export function AgentMemoryPage() {
                 onGenerate={generateSuggestions}
                 onDecide={decideSuggestion}
                 onSplitMemory={splitSuggestionMemory}
-                onSelectMemory={setSelectedMemory}
+                onSelectMemory={(memory) => openMemory(memory.id)}
               />
             )}
 
@@ -1112,11 +1094,6 @@ export function AgentMemoryPage() {
           </div>
         )}
       </div>
-
-      <MemoryDetailSheet
-        memory={selectedMemory}
-        onClose={() => setSelectedMemory(null)}
-      />
     </div>
   );
 }
@@ -1163,117 +1140,6 @@ function PageFooter({
         </Button>
       </div>
     </div>
-  );
-}
-
-function MemoryDetailSheet({
-  memory,
-  onClose,
-}: {
-  memory: AgentMemory | null;
-  onClose: () => void;
-}) {
-  return (
-    <Sheet open={memory !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
-        {memory && (
-          <>
-            <SheetHeader>
-              <SheetTitle>Memory</SheetTitle>
-              <SheetDescription className="font-mono text-xs">
-                {memory.id} · revision {memory.revision}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="space-y-5 px-4 pb-8">
-              <p className="whitespace-pre-line text-sm">{memory.statement}</p>
-
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline">{memory.memoryType}</Badge>
-                <Badge variant="outline">{memory.status}</Badge>
-                <Badge variant="secondary">{memory.explicitness}</Badge>
-                <Badge variant="secondary">{memory.trust}</Badge>
-                <Badge variant="secondary">{memory.sensitivity}</Badge>
-                {memory.pinned && <Badge>pinned</Badge>}
-              </div>
-
-              <div className="flex flex-wrap gap-6 text-xs">
-                <Metric label="Confidence" value={percent(memory.confidence)} />
-                <Metric label="Importance" value={percent(memory.importance)} />
-                <Metric
-                  label="Evidence"
-                  value={String(memory.evidenceIds.length)}
-                />
-                <Metric
-                  label="Contradictions"
-                  value={String(memory.contradictionIds.length)}
-                />
-              </div>
-
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p>
-                  Valid{" "}
-                  {memory.temporal.validFrom
-                    ? `from ${formatDate(memory.temporal.validFrom)}`
-                    : "from unknown"}
-                  {memory.temporal.validUntil
-                    ? ` until ${formatDate(memory.temporal.validUntil)}`
-                    : ""}{" "}
-                  · precision {memory.temporal.precision}
-                </p>
-                {memory.temporal.condition && (
-                  <p>Condition: {memory.temporal.condition}</p>
-                )}
-                <p>
-                  Created {formatDate(memory.createdAt)} · updated{" "}
-                  {formatDate(memory.updatedAt)}
-                </p>
-                {memory.supersedesMemoryId && (
-                  <p className="font-mono">
-                    Supersedes {memory.supersedesMemoryId}
-                  </p>
-                )}
-              </div>
-
-              {memory.entityRefs.length > 0 && (
-                <div>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                    Linked entities
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {memory.entityRefs.map((ref) => (
-                      <Badge
-                        key={`${ref.entityType}:${ref.entityId}`}
-                        variant="outline"
-                      >
-                        {ref.entityType}: {ref.label ?? ref.entityId}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {memory.evidenceIds.length > 0 && (
-                <div>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                    Evidence
-                  </h3>
-                  <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
-                    {memory.evidenceIds.slice(0, 20).map((evidenceId) => (
-                      <p key={evidenceId} className="truncate">
-                        {evidenceId}
-                      </p>
-                    ))}
-                    {memory.evidenceIds.length > 20 && (
-                      <p>+{memory.evidenceIds.length - 20} more</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
 

@@ -61,10 +61,10 @@ import {
   Undo2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { TimelineEditorSheet } from "./timeline-editor-sheet";
 
 type CategoryFilter = "all" | "work" | "education" | "personal";
 
@@ -115,14 +115,13 @@ export function TimelineSkeleton() {
   );
 }
 
-export function TimelinePage({ newHref }: { newHref: string }) {
-  const { client, slots } = useAdmin();
+export function TimelinePage() {
+  const { client, slots, routes } = useAdmin();
+  const router = useRouter();
 
   const [items, setItems] = useState<ITimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [editItem, setEditItem] = useState<ITimelineItem | null>(null);
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ITimelineItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [originalOrder, setOriginalOrder] = useState<ITimelineItem[]>([]);
@@ -248,13 +247,6 @@ export function TimelinePage({ newHref }: { newHref: string }) {
     setDeleteTarget(null);
   };
 
-  const handleSaved = (updated: ITimelineItem) => {
-    setItems((prev) => prev.map((i) => (i._id === updated._id ? updated : i)));
-    setOriginalOrder((prev) =>
-      prev.map((i) => (i._id === updated._id ? updated : i)),
-    );
-  };
-
   if (loading) {
     return <TimelineSkeleton />;
   }
@@ -310,7 +302,7 @@ export function TimelinePage({ newHref }: { newHref: string }) {
           <span className="hidden sm:inline">Refresh</span>
         </Button>
         <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={newHref} title="New Item">
+          <Link href={routes.timeline.new} title="New Item">
             <Plus className="size-3.5" />
             <span className="hidden sm:inline">New Item</span>
           </Link>
@@ -379,10 +371,7 @@ export function TimelinePage({ newHref }: { newHref: string }) {
                   <SortableTimelineRow
                     key={item._id}
                     item={item}
-                    onEdit={() => {
-                      setEditItem(item);
-                      setEditSheetOpen(true);
-                    }}
+                    onEdit={() => router.push(routes.timeline.edit(item._id))}
                     onToggleActive={() => handleToggleActive(item)}
                     onDelete={() => setDeleteTarget(item)}
                   />
@@ -392,13 +381,6 @@ export function TimelinePage({ newHref }: { newHref: string }) {
           </DndContext>
         )}
       </div>
-
-      <TimelineEditorSheet
-        item={editItem}
-        open={editSheetOpen}
-        onOpenChange={setEditSheetOpen}
-        onSaved={handleSaved}
-      />
 
       <AlertDialog
         open={!!deleteTarget}

@@ -21,15 +21,7 @@ import {
   DialogTitle,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import { PageHeader } from "@repo/ui/page-header";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
@@ -49,14 +41,14 @@ import {
   RefreshCw,
   Settings2,
   Trash2,
-  Unlink,
   Wallet,
   X,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { BudgetTab } from "./finance-budget-tab";
 import {
   BalanceChart,
   CashflowChart,
@@ -67,16 +59,13 @@ import {
 import {
   beginFinanceLink,
   deleteFinanceRule,
-  disconnectFinanceAccount,
   fetchFinanceDashboard,
   fetchFinanceInstitutions,
   importFinanceCsv,
   resolveFinanceMatch,
   syncFinanceAccount,
-  updateFinanceAccount,
   updateFinanceRule,
 } from "./finance-data";
-import { EntryDetailSheet, EntrySheet } from "./finance-entry-sheet";
 import { FinanceLedgerTable } from "./finance-ledger-table";
 import {
   CONNECTION_TONE,
@@ -86,7 +75,6 @@ import {
   relative,
   SectionHead,
 } from "./finance-primitives";
-import { RuleSheet } from "./finance-rule-sheet";
 import {
   balanceSeries,
   categoryTotals,
@@ -168,28 +156,13 @@ export function FinancePage({
   manageAccounts?: boolean;
 }) {
   const { client, slots, platform, routes } = useAdmin();
+  const router = useRouter();
+  const [tab, setTab] = useState("ledger");
   const [data, setData] = useState<FinanceDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
-  const [entryOpen, setEntryOpen] = useState(false);
-  const [ruleOpen, setRuleOpen] = useState(false);
-  const [ruleSeed, setRuleSeed] = useState<FinanceRecurringCandidate | null>(
-    null,
-  );
-  const [editingRule, setEditingRule] = useState<FinanceRecurringRule | null>(
-    null,
-  );
   const [linkOpen, setLinkOpen] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<FinanceAccount | null>(
-    null,
-  );
-  // Held by id, not by value: linking or editing reloads the dashboard, and a
-  // captured entry object would keep rendering its pre-save state.
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  // The budget tab owns its own fetch and reports its open-alert count back so
-  // the tab strip can badge it without loading the whole payload twice.
-  const [budgetAlerts, setBudgetAlerts] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -225,11 +198,11 @@ export function FinancePage({
       }
       if (document.querySelector("[role=dialog][data-state=open]")) return;
       event.preventDefault();
-      setEntryOpen(true);
+      router.push(routes.finance.entryNew);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [router, routes]);
 
   if (!data) {
     if (loading) return <FinanceSkeleton />;
@@ -259,9 +232,6 @@ export function FinancePage({
       </div>
     );
   }
-
-  const selectedEntry =
-    data.ledger.find((row) => row.id === selectedEntryId) ?? null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -299,13 +269,11 @@ export function FinancePage({
             <span className="hidden sm:inline">Add account</span>
           </Button>
         )}
-        <Button
-          size="sm"
-          onClick={() => setEntryOpen(true)}
-          disabled={!data.accounts.length}
-        >
-          <Plus className="size-3.5" />
-          Entry
+        <Button size="sm" asChild disabled={!data.accounts.length}>
+          <Link href={routes.finance.entryNew}>
+            <Plus className="size-3.5" />
+            Entry
+          </Link>
         </Button>
       </PageHeader>
 
@@ -318,11 +286,31 @@ export function FinancePage({
             range={range}
             manageAccounts={manageAccounts}
             onReload={load}
-            onManage={setSelectedAccount}
+            onManage={(account) =>
+              router.push(routes.finance.account(account.id))
+            }
             onAddAccount={() => setLinkOpen(true)}
           />
 
-          <Tabs defaultValue="ledger" className="space-y-5">
+          {/*
+            Budget and Review are their own routes now, but they stayed in this
+            strip rather than becoming header buttons: they are two of the five
+            things you do on this page, and the strip is where you look for
+            them. Selecting one navigates instead of swapping a panel, which is
+            why activation is manual — with the default, arrow-keying across the
+            strip would navigate away mid-traversal.
+          */}
+          <Tabs
+            value={tab}
+            onValueChange={(next) => {
+              if (next === "budget") return router.push(routes.finance.budget);
+              if (next === "reviews")
+                return router.push(routes.finance.reviews);
+              setTab(next);
+            }}
+            activationMode="manual"
+            className="space-y-5"
+          >
             <TabsList variant="line" className="w-full justify-start">
               <TabsTrigger value="ledger">Ledger</TabsTrigger>
               <TabsTrigger value="recurring">
@@ -347,56 +335,29 @@ export function FinancePage({
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="budget">
-                Budget
-                {budgetAlerts > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-1.5 h-4 px-1 text-[9px]"
-                  >
-                    {budgetAlerts}
-                  </Badge>
-                )}
-              </TabsTrigger>
+              <TabsTrigger value="budget">Budget</TabsTrigger>
               <TabsTrigger value="forecast">Forecast</TabsTrigger>
             </TabsList>
             <TabsContent value="ledger">
               <LedgerTab
                 data={data}
                 range={range}
-                onSelectEntry={(entry) => setSelectedEntryId(entry.id)}
+                onSelectEntry={(entry) =>
+                  router.push(routes.finance.entry(entry.id))
+                }
               />
             </TabsContent>
             <TabsContent value="recurring">
               <RecurringTab
                 data={data}
-                onNew={() => {
-                  setRuleSeed(null);
-                  setEditingRule(null);
-                  setRuleOpen(true);
-                }}
-                onEdit={(rule) => {
-                  setRuleSeed(null);
-                  setEditingRule(rule);
-                  setRuleOpen(true);
-                }}
-                onCandidate={(candidate) => {
-                  setEditingRule(null);
-                  setRuleSeed(candidate);
-                  setRuleOpen(true);
-                }}
+                onNew={() => router.push(routes.finance.ruleNew)}
+                onEdit={(rule) => router.push(routes.finance.rule(rule.id))}
+                onCandidate={(candidate) =>
+                  router.push(
+                    `${routes.finance.ruleNew}${routes.finance.ruleNew.includes("?") ? "&" : "?"}candidate=${encodeURIComponent(candidate.merchantFingerprint)}`,
+                  )
+                }
                 onReload={load}
-              />
-            </TabsContent>
-            <TabsContent value="reviews">
-              <ReviewTab data={data} onReload={load} />
-            </TabsContent>
-            <TabsContent value="budget">
-              <BudgetTab
-                accounts={data.accounts}
-                categories={data.categories}
-                onLedgerChanged={load}
-                onAlertCount={setBudgetAlerts}
               />
             </TabsContent>
             <TabsContent value="forecast">
@@ -406,49 +367,13 @@ export function FinancePage({
         </div>
       </div>
 
-      <EntrySheet
-        open={entryOpen}
-        onOpenChange={setEntryOpen}
-        accounts={data.accounts}
-        categories={data.categories}
-        onCreated={load}
-      />
-      <EntryDetailSheet
-        entry={selectedEntry}
-        accounts={data.accounts}
-        categories={data.categories}
-        ledger={data.ledger}
-        onClose={() => setSelectedEntryId(null)}
-        onSaved={load}
-      />
-      <RuleSheet
-        open={ruleOpen}
-        onOpenChange={(open) => {
-          setRuleOpen(open);
-          if (!open) setEditingRule(null);
-        }}
-        accounts={data.accounts}
-        seed={ruleSeed}
-        rule={editingRule}
-        onSaved={load}
-      />
       {manageAccounts && (
-        <>
-          <LinkDialog
-            open={linkOpen}
-            onOpenChange={setLinkOpen}
-            onNavigate={(url) => void platform.openExternal(url)}
-            onImported={load}
-          />
-          <AccountSheet
-            account={selectedAccount}
-            onClose={() => setSelectedAccount(null)}
-            onSaved={async () => {
-              setSelectedAccount(null);
-              await load();
-            }}
-          />
-        </>
+        <LinkDialog
+          open={linkOpen}
+          onOpenChange={setLinkOpen}
+          onNavigate={(url) => void platform.openExternal(url)}
+          onImported={load}
+        />
       )}
     </div>
   );
@@ -1397,187 +1322,5 @@ function LinkDialog({
         </Tabs>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function AccountSheet({
-  account,
-  onClose,
-  onSaved,
-}: {
-  account: FinanceAccount | null;
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const { client } = useAdmin();
-  const [displayName, setDisplayName] = useState("");
-  const [dailyLimit, setDailyLimit] = useState(4);
-  const [reserve, setReserve] = useState(1);
-  const [timezone, setTimezone] = useState("UTC");
-  const [countsFailed, setCountsFailed] = useState(true);
-  const [attendedExempt, setAttendedExempt] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!account) return;
-    setDisplayName(account.displayName);
-    setDailyLimit(account.budget.dailyFetchLimit);
-    setReserve(account.budget.reservedManualFetches);
-    setTimezone(account.budget.budgetTimezone);
-    setCountsFailed(account.budget.countsFailedAttempts);
-    setAttendedExempt(account.budget.attendedCallsExempt);
-  }, [account]);
-
-  return (
-    <Sheet open={account !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>{account?.displayName}</SheetTitle>
-          <SheetDescription>{account?.institutionName}</SheetDescription>
-        </SheetHeader>
-        {account && (
-          <div className="space-y-6 px-4 pb-6">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Connection</span>
-              <span className="flex items-center gap-2">
-                <StatusDot
-                  tone={CONNECTION_TONE[account.connection.status]}
-                  label={account.connection.status.replaceAll("_", " ")}
-                />
-                {account.connection.status.replaceAll("_", " ")}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Access valid until</span>
-              <span className="tabular-nums">
-                {account.connection.accessValidUntil
-                  ? relative(account.connection.accessValidUntil)
-                  : "—"}
-              </span>
-            </div>
-
-            <FieldRow label="Name" htmlFor="account-name">
-              <Input
-                id="account-name"
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-              />
-            </FieldRow>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FieldRow label="Daily limit" htmlFor="account-limit">
-                <Input
-                  id="account-limit"
-                  type="number"
-                  min={1}
-                  value={dailyLimit}
-                  className="tabular-nums"
-                  onChange={(event) =>
-                    setDailyLimit(Number(event.target.value))
-                  }
-                />
-              </FieldRow>
-              <FieldRow label="Manual reserve" htmlFor="account-reserve">
-                <Input
-                  id="account-reserve"
-                  type="number"
-                  min={0}
-                  value={reserve}
-                  className="tabular-nums"
-                  aria-invalid={reserve >= dailyLimit}
-                  onChange={(event) => setReserve(Number(event.target.value))}
-                />
-              </FieldRow>
-            </div>
-            <FieldRow label="Budget timezone" htmlFor="account-tz">
-              <Input
-                id="account-tz"
-                value={timezone}
-                onChange={(event) => setTimezone(event.target.value)}
-              />
-            </FieldRow>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="account-failed" className="text-xs font-normal">
-                  Count failed attempts
-                </Label>
-                <Switch
-                  id="account-failed"
-                  checked={countsFailed}
-                  onCheckedChange={setCountsFailed}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label
-                  htmlFor="account-attended"
-                  className="text-xs font-normal"
-                >
-                  Attended calls exempt
-                </Label>
-                <Switch
-                  id="account-attended"
-                  checked={attendedExempt}
-                  onCheckedChange={setAttendedExempt}
-                />
-              </div>
-            </div>
-
-            <Button
-              className="w-full"
-              disabled={saving || reserve >= dailyLimit || !displayName.trim()}
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  await updateFinanceAccount(client, account.id, {
-                    displayName: displayName.trim(),
-                    dailyFetchLimit: dailyLimit,
-                    reservedManualFetches: reserve,
-                    budgetTimezone: timezone,
-                    countsFailedAttempts: countsFailed,
-                    attendedCallsExempt: attendedExempt,
-                  });
-                  toast.success("Account updated");
-                  await onSaved();
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : "Update failed",
-                  );
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              {saving && <Loader2 className="size-4 animate-spin" />}
-              Save
-            </Button>
-
-            <ConfirmButton
-              title={`Disconnect ${account.displayName}?`}
-              actionLabel="Disconnect"
-              onConfirm={async () => {
-                try {
-                  await disconnectFinanceAccount(client, account.id);
-                  toast.success("Account disconnected");
-                  await onSaved();
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Disconnect failed",
-                  );
-                }
-              }}
-              trigger={
-                <Button variant="ghost" className="w-full text-destructive">
-                  <Unlink className="size-4" />
-                  Disconnect
-                </Button>
-              }
-            />
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }

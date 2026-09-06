@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function ProjectsRoute() {
   return (
     <AdminFeatureShell>
-      <ProjectsPage newHref="/admin/dashboard/projects/new" />
+      <ProjectsPage />
     </AdminFeatureShell>
   );
 }
