@@ -99,6 +99,17 @@ export function createDeploymentRunner(
     const log = await options.logs.open(request.deploymentId);
     let port: number | null = null;
     let releaseHostMutationLock: (() => Promise<void>) | null = null;
+    // The happy path hands the lock back early, before the recovery push; the
+    // `finally` is the net for every other exit. Clearing the handle first is
+    // what keeps those from both firing.
+    const releaseHostMutationLockOnce = async () => {
+      const release = releaseHostMutationLock;
+      releaseHostMutationLock = null;
+      if (!release) return;
+      await release().catch((error: unknown) =>
+        log.note(`host mutation lock release failed: ${errorMessage(error)}`),
+      );
+    };
 
     try {
       await context.report({ status: "building", phase: "cloning" });
@@ -155,9 +166,6 @@ export function createDeploymentRunner(
         imageSizeBytes: build.imageSizeBytes,
         buildDurationMs: build.buildDurationMs,
       };
-      const recoveryImage: {
-        current: Awaited<ReturnType<typeof publishRecoveryImage>> | null;
-      } = { current: null };
       const outcome = await runDeployment({
         request,
         builder: build.builder,
@@ -173,40 +181,26 @@ export function createDeploymentRunner(
         healthPollMs: options.healthPollMs,
         sleep: options.sleep,
         now: options.now,
-        afterHealthy: async () => {
-          recoveryImage.current = await (
-            options.recoveryImagePublisher ?? publishRecoveryImage
-          )({
-            exec: options.exec,
-            log,
-            request,
-            localImage: build.imageTag,
-            registryPrefix:
-              options.recoveryRegistryPrefix ??
-              "ghcr.io/denizlg24/forge-recovery",
-            signal: context.signal,
-          });
-        },
         onPhase: (phase) =>
           context.report({ status: "deploying", phase, ...built }),
       });
 
-      const ready: DeploymentStatusUpdate = {
+      const serving: DeploymentStatusUpdate = {
         ...built,
-        imageTag: recoveryImage.current?.reference ?? build.imageTag,
-        imageDigest: recoveryImage.current?.digest ?? null,
+        imageTag: build.imageTag,
+        imageDigest: null,
         status: "ready",
-        phase: null,
+        phase: "backing-up",
         port: outcome.port,
         containerId: outcome.containerId,
         error: null,
       };
-      // Reported before the drain rather than after: the site is already live
-      // on the new container, and ten seconds of "deploying" on a deployment
-      // that is serving traffic reads as a stall. The queue writes this same
-      // update again when the runner returns, which costs one idempotent write
-      // and refreshes the heartbeat.
-      await context.report(ready);
+      // Reported before the drain rather than after: the routes are published,
+      // the site is already live on the new container, and ten seconds of
+      // "deploying" on a deployment that is serving traffic reads as a stall.
+      // The phase is what keeps the archive below legible instead of leaving
+      // the row looking finished while minutes of push are still to come.
+      await context.report(serving);
 
       const reaped = await reapSuperseded({
         exec: options.exec,
@@ -220,6 +214,42 @@ export function createDeploymentRunner(
       for (const entry of reaped)
         options.ports.releaseOwner(entry.deploymentId);
 
+      // Everything that mutates the host is done. The push touches nothing on
+      // this box, so holding the lock through it would serialise every other
+      // deployment behind an upload to GHCR for no reason.
+      await releaseHostMutationLockOnce();
+
+      const recoveryImage = await (
+        options.recoveryImagePublisher ?? publishRecoveryImage
+      )({
+        exec: options.exec,
+        log,
+        request,
+        localImage: build.imageTag,
+        registryPrefix:
+          options.recoveryRegistryPrefix ?? "ghcr.io/denizlg24/forge-recovery",
+        signal: context.signal,
+      }).catch((error: unknown) => {
+        // The recovery image is a disaster-recovery convenience. Failing to
+        // archive a deployment that passed its health check and is serving
+        // traffic is not a reason to fail the deploy — and it used to be, since
+        // this ran inside the health `try` whose catch removes the container.
+        log.note(`recovery image publish failed: ${errorMessage(error)}`);
+        return null;
+      });
+
+      // The second write exists because the first could not carry a digest the
+      // push had not produced yet. If the agent dies in between, the row stays
+      // ready with no recovery reference — the same state a failed push leaves,
+      // now without taking the deployment down with it.
+      const ready: DeploymentStatusUpdate = {
+        ...serving,
+        imageTag: recoveryImage?.reference ?? build.imageTag,
+        imageDigest: recoveryImage?.digest ?? null,
+        phase: null,
+      };
+      await context.report(ready);
+
       return ready;
     } catch (error) {
       log.note(`deployment failed: ${errorMessage(error)}`);
@@ -228,11 +258,7 @@ export function createDeploymentRunner(
       if (port !== null) options.ports.release(port);
       throw error;
     } finally {
-      if (releaseHostMutationLock) {
-        await releaseHostMutationLock().catch((error: unknown) =>
-          log.note(`host mutation lock release failed: ${errorMessage(error)}`),
-        );
-      }
+      await releaseHostMutationLockOnce();
       await options.logs.close(request.deploymentId).catch(() => {});
     }
   };

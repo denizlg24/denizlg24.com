@@ -100,6 +100,9 @@ describe("createDeploymentRunner", () => {
         "deploying:starting",
         "deploying:health-check",
         "deploying:routing",
+        // Ready the moment it is serving; the archive that follows is a phase
+        // on a live deployment rather than a silent extension of the probe.
+        "ready:backing-up",
         "ready:-",
       ]);
       expect(final.status).toBe("ready");
@@ -107,8 +110,11 @@ describe("createDeploymentRunner", () => {
       expect(final.imageSizeBytes).toBe(4096);
       expect(final.port).toBe(routes.published[0]);
       // Deploying reports the local build while ready records the digest-only
-      // recovery artifact that is published after the health gate.
+      // recovery artifact that is published after the health gate. The first
+      // ready write cannot carry a digest the push has not produced yet.
       expect(updates[2]?.imageTag).toStartWith("forge/hello-world:");
+      expect(updates[5]?.imageDigest).toBeNull();
+      expect(final.imageDigest).toStartWith("sha256:");
       expect(final.imageTag).toStartWith(
         "ghcr.io/denizlg24/forge-recovery/hello-world@sha256:",
       );
@@ -135,7 +141,61 @@ describe("createDeploymentRunner", () => {
     });
   });
 
-  it("holds the host mutation lock from the first runtime mutation through cleanup", async () => {
+  /**
+   * The push used to sit inside the health `try`, whose catch removes the
+   * container and rethrows. So a slow GHCR, a dropped network or a push simply
+   * exceeding its 15-minute ceiling tore down a deployment that had already
+   * answered HTTP 200. The recovery image is a disaster-recovery convenience;
+   * failing to archive one is not a reason to reject a build that works.
+   */
+  it("keeps a serving deployment when the recovery push fails", async () => {
+    await withTempDir(async (dir) => {
+      const exec = happyExec();
+      const { runner, context, updates, routes } = harness(dir, exec, {
+        recoveryImagePublisher: async () => {
+          throw new Error("push recovery image timed out after 900000ms");
+        },
+      });
+      const request = deploymentRequest({ kind: "production" });
+
+      const final = await runner(request, context);
+
+      expect(final.status).toBe("ready");
+      expect(final.error).toBeNull();
+      expect(routes.published).toHaveLength(1);
+      // No digest to record, so the row falls back to the local build tag —
+      // exactly the state a null recoveryImage already produced.
+      expect(final.imageTag).toStartWith("forge/hello-world:");
+      expect(final.imageDigest).toBeNull();
+      expect(
+        updates.map((update) => `${update.status}:${update.phase ?? "-"}`),
+      ).toEqual([
+        "building:cloning",
+        "building:building",
+        "deploying:starting",
+        "deploying:health-check",
+        "deploying:routing",
+        "ready:backing-up",
+        "ready:-",
+      ]);
+      // A stale container of the same name is cleared *before* the run, so the
+      // assertion has to be about teardown after the container exists: nothing
+      // past `docker run` may remove the one now serving.
+      const started = exec.commands.findIndex((command) =>
+        command.startsWith("docker run"),
+      );
+      expect(started).toBeGreaterThan(-1);
+      expect(
+        exec.commands
+          .slice(started)
+          .some((command) =>
+            command.includes(`rm --force dpl-${request.deploymentId}`),
+          ),
+      ).toBe(false);
+    });
+  });
+
+  it("hands the host mutation lock back before the recovery push", async () => {
     await withTempDir(async (dir) => {
       const events: string[] = [];
       let held = false;
@@ -166,7 +226,10 @@ describe("createDeploymentRunner", () => {
           };
         },
         recoveryImagePublisher: async () => {
-          expect(held).toBe(true);
+          // The push uploads layers to GHCR and touches nothing on this host.
+          // Holding the lock through it serialises every other deployment on
+          // the box behind an upload for no reason.
+          expect(held).toBe(false);
           events.push("publish-recovery");
           const digest = `sha256:${"a".repeat(64)}`;
           return {
@@ -182,8 +245,13 @@ describe("createDeploymentRunner", () => {
       expect(held).toBe(false);
       expect(events[0]).toBe("acquire");
       expect(events).toContain("docker:run");
-      expect(events).toContain("publish-recovery");
-      expect(events.at(-1)).toBe("release");
+      expect(events.at(-1)).toBe("publish-recovery");
+      expect(events.indexOf("release")).toBeLessThan(
+        events.indexOf("publish-recovery"),
+      );
+      // Released once, by the early hand-back — the `finally` must not fire a
+      // second time behind it.
+      expect(events.filter((event) => event === "release")).toHaveLength(1);
     });
   });
 

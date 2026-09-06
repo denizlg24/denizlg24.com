@@ -69,8 +69,6 @@ export interface RunOptions {
   healthPollMs?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
-  /** Runs after health succeeds and before any hostname is routed. */
-  afterHealthy?: () => Promise<void>;
 }
 
 export interface RunOutcome {
@@ -990,6 +988,11 @@ export async function removeContainer(exec: Exec, name: string): Promise<void> {
  * Start, gate, route. The failure branch is the whole reason the gate exists:
  * the new container is removed and the one currently serving the hostname is
  * left exactly as it was, so a broken deploy cannot take the live site down.
+ *
+ * Nothing but the probe belongs inside that `try`. Work that runs after health
+ * succeeds — archiving the image, say — would inherit a `catch` that destroys a
+ * container which has already answered HTTP 200, turning a registry hiccup into
+ * a failed deploy. Anything of that shape goes after this function returns.
  */
 export async function runDeployment(options: RunOptions): Promise<RunOutcome> {
   await options.onPhase?.("starting");
@@ -997,7 +1000,6 @@ export async function runDeployment(options: RunOptions): Promise<RunOutcome> {
   try {
     await options.onPhase?.("health-check");
     await awaitHealthy(options, outcome);
-    await options.afterHealthy?.();
   } catch (error) {
     await captureContainerLogs(options, outcome.containerName).catch(() => {});
     await removeContainer(options.exec, outcome.containerName).catch(() => {});

@@ -8,6 +8,30 @@ const REGISTRY_PREFIX =
   /^ghcr\.io\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?(?:\/[a-z0-9][a-z0-9._-]*)+$/;
 const DIGEST = /\bdigest:\s*(sha256:[0-9a-f]{64})\b/i;
 
+/**
+ * Without a TTY docker emits one line per layer per status change, so a handful
+ * of layers becomes hundreds of entries that bury the build output around them.
+ * `--quiet` is not the fix: it changes what the CLI prints at the end, and the
+ * digest line this module parses is exactly what it stops printing.
+ */
+const PUSH_NOISE =
+  /^(?:[0-9a-f]{6,}: (?:Waiting|Preparing|Pushing|Pushed|Retrying|Already exists|Layer already exists|Mounted from )|The push refers to repository )/;
+
+/**
+ * `onOutput` receives decoder chunks, not lines, so the filter has to buffer to
+ * a newline before it can judge anything.
+ */
+function quietPushWriter(write: (chunk: string) => void): (c: string) => void {
+  let pending = "";
+  return (chunk) => {
+    pending += chunk;
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    const kept = lines.filter((line) => !PUSH_NOISE.test(line.trimEnd()));
+    if (kept.length > 0) write(`${kept.join("\n")}\n`);
+  };
+}
+
 export function assertRecoveryEnvironmentHmac(
   actual: string,
   expected: string,
@@ -66,7 +90,7 @@ export async function publishRecoveryImage(options: {
     command: ["docker", "push", deploymentTag],
     signal,
     timeoutMs: 15 * 60_000,
-    onOutput: (chunk) => options.log.write(chunk),
+    onOutput: quietPushWriter((chunk) => options.log.write(chunk)),
     captureLimitBytes: 256 * 1024,
   });
   const digest = DIGEST.exec(`${pushed.stdout}\n${pushed.stderr}`)?.[1];
