@@ -13,11 +13,11 @@
   "dependencies": {
     "@repo/ui": "workspace:*",
     "mongodb": "^7.6.0",
-    "next": "16.3.3",
+    "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

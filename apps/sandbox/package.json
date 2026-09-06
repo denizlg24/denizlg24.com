@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",
-    "hono": "^4.13.4",
-    "zod": "^4.4.3"
+    "hono": "^4.13.5",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
