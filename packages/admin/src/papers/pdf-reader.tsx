@@ -2,6 +2,7 @@
 
 import { Button } from "@repo/ui/button";
 import { Slider } from "@repo/ui/slider";
+import { cn } from "@repo/ui/utils";
 import {
   ChevronLeft,
   ChevronRight,
@@ -78,6 +79,62 @@ const documentError = (
   </div>
 );
 
+/**
+ * The page number, editable in place.
+ *
+ * Both readers had a page indicator; only the inline one let you type into it,
+ * so the full-screen reader — the one you use when actually reading — was the
+ * one with no way to jump to a page. Same control in both now.
+ */
+function PageJump({
+  page,
+  numPages,
+  onPageChange,
+  className,
+  prefix,
+}: {
+  page: number;
+  numPages: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+  prefix?: string;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const commit = () => {
+    const parsed = Number(draft);
+    setDraft("");
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    onPageChange(clamp(Math.trunc(parsed), 1, numPages || parsed));
+  };
+
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground",
+        className,
+      )}
+    >
+      {prefix}
+      <input
+        type="number"
+        min={1}
+        max={numPages || undefined}
+        value={draft === "" ? page : draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") setDraft("");
+        }}
+        aria-label="Page number"
+        className="w-9 bg-transparent text-right tabular-nums outline-none focus:text-foreground"
+      />
+      <span>/ {numPages || "\u2014"}</span>
+    </span>
+  );
+}
+
 export function InlinePdfReader({
   url,
   fileName,
@@ -88,7 +145,6 @@ export function InlinePdfReader({
 }: ReaderProps) {
   const [width, setWidth] = useState(720);
   const [selection, setSelection] = useState("");
-  const [pageDraft, setPageDraft] = useState("");
   const { numPages, handleLoad } = useDocumentPages(onTotalPages);
 
   const turn = useCallback(
@@ -129,13 +185,6 @@ export function InlinePdfReader({
     if (event.key === "ArrowRight") turn(1);
   };
 
-  const commitPageDraft = () => {
-    const parsed = Number(pageDraft);
-    setPageDraft("");
-    if (!Number.isFinite(parsed) || parsed < 1) return;
-    onPageChange(clamp(Math.trunc(parsed), 1, numPages || parsed));
-  };
-
   return (
     <div className="border-b bg-muted/20">
       <div className="flex h-9 items-center gap-2 border-b bg-background/80 px-3">
@@ -167,23 +216,7 @@ export function InlinePdfReader({
         >
           <ChevronLeft className="size-3.5" />
         </Button>
-        <div className="flex items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground">
-          <input
-            type="number"
-            min={1}
-            max={numPages || undefined}
-            value={pageDraft === "" ? page : pageDraft}
-            onChange={(event) => setPageDraft(event.target.value)}
-            onBlur={commitPageDraft}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-              if (event.key === "Escape") setPageDraft("");
-            }}
-            aria-label="Page number"
-            className="w-9 bg-transparent text-right tabular-nums outline-none focus:text-foreground"
-          />
-          <span>/ {numPages || "—"}</span>
-        </div>
+        <PageJump page={page} numPages={numPages} onPageChange={onPageChange} />
         <Button
           variant="ghost"
           size="icon"
@@ -506,8 +539,14 @@ export function MobilePdfReader({
           }}
         />
         <div className="flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
-          <span>
-            p. {page} / {numPages || "—"} · {percent}%
+          <span className="flex items-center gap-1">
+            <PageJump
+              page={page}
+              numPages={numPages}
+              onPageChange={onPageChange}
+              prefix="p."
+            />
+            <span>· {percent}%</span>
           </span>
           {footnote && <span>{footnote}</span>}
         </div>
