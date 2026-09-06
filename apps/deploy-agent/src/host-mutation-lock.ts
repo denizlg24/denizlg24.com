@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, normalize } from "node:path";
 
 function errorCode(error: unknown): string | null {
@@ -33,6 +33,27 @@ export interface HostMutationLockOptions {
   timeoutMs?: number;
   pollMs?: number;
   now?: () => number;
+  /**
+   * How long a lock whose holder is gone may sit before it is broken. Only
+   * consulted once the recorded pid is known not to be running, so this is a
+   * grace period against a half-published lock, not a hold limit.
+   */
+  staleGraceMs?: number;
+  /** Injected so the reclaim path is testable without spawning processes. */
+  isProcessAlive?: (pid: number) => boolean;
+}
+
+/**
+ * `kill(pid, 0)` sends no signal and only reports reachability. EPERM means the
+ * process exists and belongs to someone else, which is still alive.
+ */
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === "EPERM";
+  }
 }
 
 /**
@@ -46,6 +67,8 @@ export class HostMutationLock {
   readonly #timeoutMs: number;
   readonly #pollMs: number;
   readonly #now: () => number;
+  readonly #staleGraceMs: number;
+  readonly #isProcessAlive: (pid: number) => boolean;
 
   constructor(path: string, options: HostMutationLockOptions = {}) {
     if (
@@ -64,6 +87,8 @@ export class HostMutationLock {
     this.#timeoutMs = options.timeoutMs ?? 60 * 60_000;
     this.#pollMs = options.pollMs ?? 1_000;
     this.#now = options.now ?? Date.now;
+    this.#staleGraceMs = options.staleGraceMs ?? 60_000;
+    this.#isProcessAlive = options.isProcessAlive ?? processIsAlive;
   }
 
   async acquire(
@@ -116,6 +141,9 @@ export class HostMutationLock {
         }
         const code = errorCode(error);
         if (code !== "EEXIST") throw error;
+        // Retry immediately rather than sleeping out the poll: the lock is now
+        // free and the next mkdir is the contest for it.
+        if (await this.#reclaimIfAbandoned()) continue;
       }
       if (this.#now() >= deadline) {
         throw new Error(
@@ -124,6 +152,64 @@ export class HostMutationLock {
       }
       await wait(this.#pollMs, signal);
     }
+  }
+
+  /**
+   * Breaks a lock whose holder is gone.
+   *
+   * Without this a leaked lock is absorbing: nothing on the host reclaims it,
+   * every deployment and the garbage collector queue behind it for the full
+   * hour `timeoutMs` allows, and then they fail. Recovering meant someone
+   * noticing and removing a directory by hand.
+   *
+   * The test is deliberately narrow — the recorded pid is not running — because
+   * the alternative, breaking on age, cannot tell a hung operation from a slow
+   * one and would let two of them mutate the host at once. A lock leaked by a
+   * process that is still alive is therefore still not reclaimed here; that is
+   * a bug at the leak site, and this is the net for a crash.
+   *
+   * The break is a rename, the same publication point `release` uses, so two
+   * agents racing to reclaim cannot both win.
+   */
+  async #reclaimIfAbandoned(): Promise<boolean> {
+    let recordedPid: number;
+    try {
+      const raw = await readFile(`${this.#path}/pid`, "utf8");
+      recordedPid = Number.parseInt(raw.trim(), 10);
+    } catch {
+      // No pid file yet. Either another acquisition is between its mkdir and
+      // its first write, or it died in that window — indistinguishable, so the
+      // grace period decides.
+      return this.#breakIfOlderThanGrace();
+    }
+    if (!Number.isInteger(recordedPid) || recordedPid <= 0) {
+      return this.#breakIfOlderThanGrace();
+    }
+    if (this.#isProcessAlive(recordedPid)) return false;
+    return this.#break();
+  }
+
+  async #breakIfOlderThanGrace(): Promise<boolean> {
+    try {
+      const info = await stat(this.#path);
+      if (this.#now() - info.mtimeMs < this.#staleGraceMs) return false;
+    } catch {
+      // Gone while we looked at it, which is the outcome we wanted anyway.
+      return true;
+    }
+    return this.#break();
+  }
+
+  async #break(): Promise<boolean> {
+    const tombstone = `${this.#path}.abandoned-${process.pid}-${randomUUID()}`;
+    try {
+      await rename(this.#path, tombstone);
+    } catch {
+      // Lost the race to another reclaimer, or the holder released first.
+      return false;
+    }
+    await rm(tombstone, { recursive: true, force: true }).catch(() => {});
+    return true;
   }
 
   async run<T>(
