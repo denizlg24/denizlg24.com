@@ -117,6 +117,25 @@ hint, not a platform ceiling.
   nix's Bun 1.3.0 while the log says the pinned version was copied in. Read the
   version off the crash report or `bun --version` in the build, never off that
   log line.
+- **Restarting the API by hand silently downgrades it.** `API_IMAGE=` is empty in
+  `.env.pi` on purpose: the deploy passes it inline, as
+  `API_IMAGE=ghcr.io/denizlg24/deniz-cloud-api:<40-char sha> API_VERSION=<sha>`.
+  A plain `docker compose --env-file .env.pi ... up -d api` therefore takes the
+  compose default, `:latest`, which on the Pi is whatever was pulled last — it
+  was a month stale when this bit. Omitting `-f docker-compose.posix.yml` on a
+  `STORAGE_NAMESPACE_MODE=broker-mounted` box drops the storage mounts in the
+  same breath. The whole command is:
+
+  ```
+  API_IMAGE='ghcr.io/denizlg24/deniz-cloud-api:<sha>' API_VERSION='<sha>' \
+    docker compose -p deniz-cloud --env-file .env.pi \
+    -f docker-compose.pi.yml -f docker-compose.posix.yml up -d api
+  ```
+
+  Nothing fails when you get this wrong — the container starts, `/healthz`
+  answers, and it serves the old build. `/healthz` reports `version`, which is
+  `API_VERSION`: if it says `latest` rather than a sha, the wrong image is
+  running.
 - **The healthcheck does not mean ready.** `createRuntimeApp()` is built lazily on
   the first `/api/*` request and `/healthz` sits outside `/api/*`. A container can
   report healthy having seeded no tasks, reconciled no Redis ACLs and started no
