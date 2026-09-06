@@ -22,6 +22,7 @@ import {
   updateWhiteboard,
 } from "@/lib/whiteboard";
 import type { ILeanWhiteboard } from "@/models/Whiteboard";
+import { defineTool } from "./define";
 import type { ToolDefinition, ToolImageResult } from "./types";
 
 export const ELEMENT_DATA_GUIDE = `Element formats (canvas coords: +x right, +y down; a typical screen shows ~1400x900):
@@ -379,8 +380,11 @@ export async function renderBoardImage(
 }
 
 export const backgroundInputSchema = z.object({
-  color: z.string(),
-  pattern: z.enum(["none", "dots", "grid", "lines"]).optional(),
+  color: z.string().describe("Background color as a hex string, e.g. #faf9f6."),
+  pattern: z
+    .enum(["none", "dots", "grid", "lines"])
+    .optional()
+    .describe("Background pattern. Left unchanged when omitted."),
 });
 
 export function parseBackground(
@@ -397,81 +401,72 @@ export function parseBackground(
   return { ok: true, background: parsed.data };
 }
 
+const whiteboardId = z
+  .string()
+  .min(1)
+  .describe("The whiteboard _id exactly as list_whiteboards returned it.");
+
+const elementId = z
+  .string()
+  .min(1)
+  .describe("The element id exactly as get_whiteboard returned it.");
+
+const SAVE_FAILED =
+  "Saving the whiteboard failed, so nothing changed. Re-read it with get_whiteboard before retrying.";
+
+/** Every path out of a missing board, so none of them says only "not found". */
 async function requireBoard(
-  whiteboardId: unknown,
+  boardId: string,
 ): Promise<
   { ok: true; board: ILeanWhiteboard } | { ok: false; error: string }
 > {
-  if (typeof whiteboardId !== "string" || whiteboardId.length === 0) {
-    return { ok: false, error: "whiteboardId is required" };
-  }
-  const board = await getWhiteboardById(whiteboardId);
+  const board = await getWhiteboardById(boardId);
   if (!board) {
     return {
       ok: false,
-      error: "Whiteboard not found. Use list_whiteboards to get valid ids.",
+      error: `No whiteboard has id "${boardId}". Call list_whiteboards for the ids that exist.`,
     };
   }
   return { ok: true, board };
 }
 
+function missingElement(board: ILeanWhiteboard, id: string) {
+  return `No element with id "${id}" is on whiteboard "${board.name}". Call get_whiteboard for the element ids it holds.`;
+}
+
 export const whiteboardTools: ToolDefinition[] = [
-  {
-    schema: {
-      name: "list_whiteboards",
-      description:
-        "List all saved whiteboards (name, id, timestamps). The daily 'Today' board is separate — use the today_board tools for it.",
-      input_schema: { type: "object", properties: {} },
-    },
+  defineTool({
+    name: "list_whiteboards",
+    description:
+      "List all saved whiteboards (name, id, timestamps). The daily 'Today' board is separate — use the today_board tools for it.",
     isWrite: false,
     category: "whiteboard",
+    input: z.object({}),
     execute: async () => {
       const whiteboards = await getAllWhiteboards();
       return { success: true, whiteboards };
     },
-  },
-  {
-    schema: {
-      name: "get_whiteboard",
-      description:
-        "Get a whiteboard's content: background and all elements with ids, positions, sizes and data (freehand strokes are summarized with bounds instead of full point lists). Use the element ids with update_whiteboard_element / delete_whiteboard_elements.",
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-        },
-        required: ["whiteboardId"],
-      },
-    },
+  }),
+  defineTool({
+    name: "get_whiteboard",
+    description:
+      "Get a whiteboard's content: background and all elements with ids, positions, sizes and data (freehand strokes are summarized with bounds instead of full point lists). Use the element ids with update_whiteboard_element / delete_whiteboard_elements.",
     isWrite: false,
     category: "whiteboard",
+    input: z.object({ whiteboardId }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
       return { success: true, whiteboard: boardSummary(found.board) };
     },
-  },
-  {
-    schema: {
-      name: "view_whiteboard",
-      description:
-        "Render a whiteboard to a PNG image and attach it to the tool result so you can see exactly what the board looks like. Requires a vision-capable model.",
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-        },
-        required: ["whiteboardId"],
-      },
-    },
+  }),
+  defineTool({
+    name: "view_whiteboard",
+    description:
+      "Render a whiteboard to a PNG image and attach it to the tool result so you can see exactly what the board looks like. Requires a vision-capable model.",
     isWrite: false,
     category: "whiteboard",
+    input: z.object({ whiteboardId }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
@@ -480,57 +475,46 @@ export const whiteboardTools: ToolDefinition[] = [
       }
       return renderBoardImage(found.board);
     },
-  },
-  {
-    schema: {
-      name: "create_whiteboard",
-      description: "Create a new empty whiteboard.",
-      input_schema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Name for the whiteboard." },
-        },
-        required: ["name"],
-      },
-    },
+  }),
+  defineTool({
+    name: "create_whiteboard",
+    description: "Create a new empty whiteboard.",
     isWrite: true,
     category: "whiteboard",
+    input: z.object({
+      name: z
+        .string()
+        .trim()
+        .min(1)
+        .describe("Name for the whiteboard, e.g. 'Kitchen rebuild'."),
+    }),
     execute: async (input) => {
-      if (typeof input.name !== "string" || input.name.trim() === "") {
-        return { success: false, error: "name is required" };
+      const board = await createWhiteboardDoc({ name: input.name });
+      if (!board) {
+        return {
+          success: false,
+          error: `Creating the whiteboard "${input.name}" failed; nothing was saved.`,
+        };
       }
-      const board = await createWhiteboardDoc({ name: input.name.trim() });
-      if (!board)
-        return { success: false, error: "Failed to create whiteboard" };
       return {
         success: true,
         whiteboard: { _id: board._id, name: board.name },
       };
     },
-  },
-  {
-    schema: {
-      name: "add_whiteboard_elements",
-      description: `Add drawing or component elements to a whiteboard. ${ELEMENT_DATA_GUIDE}`,
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-          elements: {
-            type: "array",
-            items: { type: "object" },
-            description:
-              "Elements to add: {type, componentType?, x, y, width?, height?, rotation?, data}. Ids and z-order are assigned automatically.",
-          },
-        },
-        required: ["whiteboardId", "elements"],
-      },
-    },
+  }),
+  defineTool({
+    name: "add_whiteboard_elements",
+    description: `Add drawing or component elements to a whiteboard. ${ELEMENT_DATA_GUIDE}`,
     isWrite: true,
     category: "whiteboard",
+    input: z.object({
+      whiteboardId,
+      elements: z
+        .array(z.record(z.string(), z.unknown()))
+        .describe(
+          "Elements to add: {type, componentType?, x, y, width?, height?, rotation?, data}. Ids and z-order are assigned automatically.",
+        ),
+    }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
@@ -542,47 +526,43 @@ export const whiteboardTools: ToolDefinition[] = [
       const updated = await updateWhiteboard(found.board._id, {
         elements: [...found.board.elements, ...built.elements],
       });
-      if (!updated)
-        return { success: false, error: "Failed to save whiteboard" };
+      if (!updated) return { success: false, error: SAVE_FAILED };
       return {
         success: true,
         addedElementIds: built.elements.map((el) => el.id),
         elementCount: updated.elements.length,
       };
     },
-  },
-  {
-    schema: {
-      name: "update_whiteboard_element",
-      description:
-        "Update one element on a whiteboard: move (x/y), resize (width/height), rotate (degrees), restack (zIndex), or patch data fields (shallow-merged into existing data; e.g. change text, color, fill, todo items).",
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-          elementId: {
-            type: "string",
-            description: "The element id from get_whiteboard.",
-          },
-          x: { type: "number", description: "New x position." },
-          y: { type: "number", description: "New y position." },
-          width: { type: "number", description: "New width." },
-          height: { type: "number", description: "New height." },
-          rotation: { type: "number", description: "Rotation in degrees." },
-          zIndex: { type: "number", description: "New stacking order." },
-          data: {
-            type: "object",
-            description: "Data fields to merge into the element's data.",
-          },
-        },
-        required: ["whiteboardId", "elementId"],
-      },
-    },
+  }),
+  defineTool({
+    name: "update_whiteboard_element",
+    description:
+      "Update one element on a whiteboard: move (x/y), resize (width/height), rotate (degrees), restack (zIndex), or patch data fields (shallow-merged into existing data; e.g. change text, color, fill, todo items).",
     isWrite: true,
     category: "whiteboard",
+    input: z.object({
+      whiteboardId,
+      elementId,
+      x: z.number().optional().describe("New x position in canvas coords."),
+      y: z.number().optional().describe("New y position in canvas coords."),
+      width: z.number().positive().optional().describe("New width in pixels."),
+      height: z
+        .number()
+        .positive()
+        .optional()
+        .describe("New height in pixels."),
+      rotation: z.number().optional().describe("Rotation in degrees."),
+      zIndex: z
+        .number()
+        .optional()
+        .describe("New stacking order; higher draws on top."),
+      data: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          "Data fields to merge into the element's data, e.g. {text, color, fill}.",
+        ),
+    }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
@@ -592,7 +572,7 @@ export const whiteboardTools: ToolDefinition[] = [
       if (!element) {
         return {
           success: false,
-          error: "Element not found. Use get_whiteboard for element ids.",
+          error: missingElement(found.board, input.elementId),
         };
       }
       const { whiteboardId: _id, elementId: _el, ...patch } = input;
@@ -603,56 +583,45 @@ export const whiteboardTools: ToolDefinition[] = [
           el.id === element.id ? applied.element : el,
         ),
       });
-      if (!updated)
-        return { success: false, error: "Failed to save whiteboard" };
+      if (!updated) return { success: false, error: SAVE_FAILED };
       return { success: true, element: summarizeElement(applied.element) };
     },
-  },
-  {
-    schema: {
-      name: "update_whiteboard_component_items",
-      description: `Add, edit or remove the rows of a list component on a whiteboard (checklist rows, quick links). ${COMPONENT_ITEM_GUIDE}`,
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-          elementId: {
-            type: "string",
-            description:
-              "The component element id from get_whiteboard. Must be a todo-list or quick-links component.",
-          },
-          add: {
-            type: "array",
-            items: { type: "object" },
-            description:
-              "Rows to add: {text, completed?} for todo-list, {label, url} for quick-links. completed defaults to false. Ids are assigned automatically.",
-          },
-          insertAt: {
-            type: "number",
-            description:
-              "Index to insert the added rows at. Appends to the end when omitted.",
-            minimum: 0,
-          },
-          update: {
-            type: "array",
-            items: { type: "object" },
-            description:
-              "Row patches, each {id, ...fields}: {id, text?, completed?} for todo-list, {id, label?, url?} for quick-links.",
-          },
-          remove: {
-            type: "array",
-            items: { type: "string" },
-            description: "Row ids to delete.",
-          },
-        },
-        required: ["whiteboardId", "elementId"],
-      },
-    },
+  }),
+  defineTool({
+    name: "update_whiteboard_component_items",
+    description: `Add, edit or remove the rows of a list component on a whiteboard (checklist rows, quick links). ${COMPONENT_ITEM_GUIDE}`,
     isWrite: true,
     category: "whiteboard",
+    input: z.object({
+      whiteboardId,
+      elementId: elementId.describe(
+        "The component element id exactly as get_whiteboard returned it. Must be a todo-list or quick-links component.",
+      ),
+      add: z
+        .array(z.record(z.string(), z.unknown()))
+        .optional()
+        .describe(
+          "Rows to add: {text, completed?} for todo-list, {label, url} for quick-links. completed defaults to false. Ids are assigned automatically.",
+        ),
+      insertAt: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "Index to insert the added rows at. Appends to the end when omitted.",
+        ),
+      update: z
+        .array(z.record(z.string(), z.unknown()))
+        .optional()
+        .describe(
+          "Row patches, each {id, ...fields}: {id, text?, completed?} for todo-list, {id, label?, url?} for quick-links.",
+        ),
+      remove: z
+        .array(z.string())
+        .optional()
+        .describe("Row ids to delete, as returned by get_whiteboard."),
+    }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
@@ -662,7 +631,7 @@ export const whiteboardTools: ToolDefinition[] = [
       if (!element) {
         return {
           success: false,
-          error: "Element not found. Use get_whiteboard for element ids.",
+          error: missingElement(found.board, input.elementId),
         };
       }
       const { whiteboardId: _id, elementId: _el, ...ops } = input;
@@ -673,8 +642,7 @@ export const whiteboardTools: ToolDefinition[] = [
           el.id === element.id ? applied.element : el,
         ),
       });
-      if (!updated)
-        return { success: false, error: "Failed to save whiteboard" };
+      if (!updated) return { success: false, error: SAVE_FAILED };
       return {
         success: true,
         addedItemIds: applied.addedItemIds,
@@ -683,79 +651,45 @@ export const whiteboardTools: ToolDefinition[] = [
         element: summarizeElement(applied.element),
       };
     },
-  },
-  {
-    schema: {
-      name: "delete_whiteboard_elements",
-      description: "Delete elements from a whiteboard by id.",
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-          elementIds: {
-            type: "array",
-            items: { type: "string" },
-            description: "Element ids from get_whiteboard.",
-          },
-        },
-        required: ["whiteboardId", "elementIds"],
-      },
-    },
+  }),
+  defineTool({
+    name: "delete_whiteboard_elements",
+    description: "Delete elements from a whiteboard by id.",
     isWrite: true,
     category: "whiteboard",
+    input: z.object({
+      whiteboardId,
+      elementIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .describe("Element ids exactly as get_whiteboard returned them."),
+    }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
-      const ids = z.array(z.string()).min(1).safeParse(input.elementIds);
-      if (!ids.success)
-        return {
-          success: false,
-          error: "elementIds must be a non-empty string array",
-        };
-      const idSet = new Set(ids.data);
+      const idSet = new Set(input.elementIds);
       const remaining = found.board.elements.filter((el) => !idSet.has(el.id));
       const removed = found.board.elements.length - remaining.length;
       if (removed === 0) {
-        return { success: false, error: "No matching elements found" };
+        return {
+          success: false,
+          error: `None of those ids are on whiteboard "${found.board.name}": ${input.elementIds.join(", ")}. Call get_whiteboard for the element ids it holds.`,
+        };
       }
       const updated = await updateWhiteboard(found.board._id, {
         elements: remaining,
       });
-      if (!updated)
-        return { success: false, error: "Failed to save whiteboard" };
+      if (!updated) return { success: false, error: SAVE_FAILED };
       return { success: true, removed, elementCount: remaining.length };
     },
-  },
-  {
-    schema: {
-      name: "set_whiteboard_background",
-      description:
-        "Set a whiteboard's background color and optional pattern (none, dots, grid, lines).",
-      input_schema: {
-        type: "object",
-        properties: {
-          whiteboardId: {
-            type: "string",
-            description: "The whiteboard _id from list_whiteboards.",
-          },
-          color: {
-            type: "string",
-            description: "Background color as a hex string, e.g. #faf9f6.",
-          },
-          pattern: {
-            type: "string",
-            enum: ["none", "dots", "grid", "lines"],
-            description: "Optional background pattern.",
-          },
-        },
-        required: ["whiteboardId", "color"],
-      },
-    },
+  }),
+  defineTool({
+    name: "set_whiteboard_background",
+    description:
+      "Set a whiteboard's background color and optional pattern (none, dots, grid, lines).",
     isWrite: true,
     category: "whiteboard",
+    input: z.object({ whiteboardId, ...backgroundInputSchema.shape }),
     execute: async (input) => {
       const found = await requireBoard(input.whiteboardId);
       if (!found.ok) return { success: false, error: found.error };
@@ -764,9 +698,8 @@ export const whiteboardTools: ToolDefinition[] = [
       const updated = await updateWhiteboard(found.board._id, {
         background: parsed.background,
       });
-      if (!updated)
-        return { success: false, error: "Failed to save whiteboard" };
+      if (!updated) return { success: false, error: SAVE_FAILED };
       return { success: true, background: updated.background };
     },
-  },
+  }),
 ];
