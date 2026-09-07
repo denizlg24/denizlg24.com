@@ -15,6 +15,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import {
+  ActionButton,
+  AdminFeedback,
+  AdminForm,
+  PendingNewItem,
+} from "@/components/admin-feedback";
+import {
   BackupControls,
   Disclosure,
   Field,
@@ -25,13 +31,17 @@ import {
   NewIncident,
   ResetHistory,
 } from "@/components/admin-forms";
+import { AdminNavigation } from "@/components/admin-navigation";
 import { ServicesAdmin } from "@/components/admin-services";
 import { SourcesAdmin } from "@/components/admin-sources";
+import { BackupFacts } from "@/components/backup-facts";
 import { Dot, healthText } from "@/components/health";
+import { Live } from "@/components/live";
 import { type ChartPoint, ResponseChart } from "@/components/response-chart";
 import { Loading, SectionHeading } from "@/components/shell";
 import { Time } from "@/components/time";
 import { adminSession } from "@/lib/auth";
+import { backupStateLabel } from "@/lib/backups";
 import { catalog } from "@/lib/catalog";
 import {
   orderedGroups,
@@ -42,7 +52,6 @@ import { formatDuration } from "@/lib/data";
 import { collections, statusConfig } from "@/lib/db";
 import { freshStatus, healthLabels } from "@/lib/health";
 import type { Service } from "@/lib/model";
-import { adminAction } from "./actions";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -329,9 +338,11 @@ async function Body({
           Private notes stay off the public page.
         </p>
         <NewIncident services={services} />
+        <PendingNewItem kind="incident" />
         {incidents.map((incident) => (
           <Disclosure
             key={incident._id}
+            id={incident._id}
             summary={
               <>
                 <Dot status={incident.resolvedAt ? "operational" : "down"} />
@@ -412,10 +423,12 @@ async function Body({
           summary={<span className="font-medium">Schedule a window</span>}
         >
           <MaintenanceForm services={services} />
+          <PendingNewItem kind="maintenance" />
         </Disclosure>
         {windows.map((window) => (
           <Disclosure
             key={window._id}
+            id={window._id}
             summary={<span className="truncate">{window.title}</span>}
             note={
               window.cancelledAt ? (
@@ -427,12 +440,12 @@ async function Body({
           >
             <MaintenanceForm services={services} window={window} />
             {!window.cancelledAt ? (
-              <form action={adminAction}>
+              <AdminForm targetId={window._id}>
                 <Fields operation="maintenance-cancel" id={window._id} />
-                <Button type="submit" size="sm" variant="ghost">
+                <ActionButton type="submit" size="sm" variant="ghost">
                   Cancel window
-                </Button>
-              </form>
+                </ActionButton>
+              </AdminForm>
             ) : null}
           </Disclosure>
         ))}
@@ -451,30 +464,48 @@ async function Body({
           Cloud jobs use the existing scheduler. Recovery jobs are dispatched to
           the authenticated host agent.
         </p>
-        {backups.length ? (
-          backups.map((backup) => (
-            <Disclosure
-              key={backup.id}
-              summary={<span className="truncate">{backup.name}</span>}
-              note={backup.status}
-            >
-              <p className="text-xs text-muted-foreground">
-                Last successful: <Time value={backup.lastSuccessAt} /> · Next:{" "}
-                <Time value={backup.nextRunAt} />
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {backup.verification ??
-                  "No separate verification evidence was reported."}
-              </p>
-              <Log>{backup.detail ?? "No output recorded."}</Log>
-              <BackupControls backup={backup} />
-            </Disclosure>
-          ))
-        ) : (
-          <p className="py-10 text-center text-sm text-muted-foreground">
-            No backup reports yet.
-          </p>
-        )}
+        <p className="mb-6 text-sm text-muted-foreground">
+          Backup completion, offsite publication and a proven restore are
+          separate checks. A metadata simulation needs no VPS. Full recovery
+          readiness requires a target restore, measured recovery time, and
+          successful cutover and rollback rehearsals.
+        </p>
+        <Live
+          at={new Date().toISOString()}
+          generatedAt={new Date().toISOString()}
+        >
+          {backups.length ? (
+            backups.map((backup) => (
+              <Disclosure
+                key={backup.id}
+                id={backup.id}
+                summary={<span className="truncate">{backup.name}</span>}
+                note={backupStateLabel(backup, Date.now())}
+              >
+                <p className="text-xs text-muted-foreground">
+                  Last successful: <Time value={backup.lastSuccessAt} /> · Next:{" "}
+                  <Time value={backup.nextRunAt} />
+                </p>
+                <BackupFacts backup={backup} />
+                <p className="text-sm text-muted-foreground">
+                  {backup.verification ??
+                    "No separate verification evidence was reported."}
+                </p>
+                <Log>
+                  {backup.detail
+                    ?.split("\n")
+                    .filter((line) => !line.startsWith("DR_STATUS "))
+                    .join("\n") || "No output recorded."}
+                </Log>
+                <BackupControls backup={backup} />
+              </Disclosure>
+            ))
+          ) : (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              No backup reports yet.
+            </p>
+          )}
+        </Live>
         <div className="mt-10">
           <SectionHeading title="Host commands" />
           <div className="overflow-x-auto">
@@ -520,12 +551,18 @@ async function Body({
                 </>
               }
             >
+              <BackupFacts backup={run} />
               {run.verification ? (
                 <p className="text-sm text-muted-foreground">
                   {run.verification}
                 </p>
               ) : null}
-              <Log>{run.detail ?? "No output recorded."}</Log>
+              <Log>
+                {run.detail
+                  ?.split("\n")
+                  .filter((line) => !line.startsWith("DR_STATUS "))
+                  .join("\n") || "No output recorded."}
+              </Log>
             </Disclosure>
           ))}
         </div>
@@ -721,27 +758,7 @@ async function Admin({ searchParams }: { searchParams: Promise<Query> }) {
           {session.username} · Administrator
         </span>
       </div>
-      <nav
-        aria-label="Admin navigation"
-        className="no-scrollbar -mx-1 mb-8 flex items-center gap-1 overflow-x-auto overflow-y-hidden border-b"
-      >
-        {views.map(([name, label]) => (
-          <Link
-            prefetch={false}
-            key={name}
-            href={`/admin?view=${name}`}
-            aria-current={view === name ? "page" : undefined}
-            className={cn(
-              "-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm transition-colors",
-              view === name
-                ? "border-accent-strong text-foreground font-medium"
-                : "hover:text-foreground border-transparent text-muted-foreground",
-            )}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <AdminNavigation view={view} views={views} />
       {value(query, "notice") ? (
         <p
           role="status"
@@ -750,7 +767,9 @@ async function Admin({ searchParams }: { searchParams: Promise<Query> }) {
           {value(query, "notice").slice(0, 300)}
         </p>
       ) : null}
-      <Body view={view} services={services} config={config} query={query} />
+      <AdminFeedback key={view}>
+        <Body view={view} services={services} config={config} query={query} />
+      </AdminFeedback>
     </>
   );
 }

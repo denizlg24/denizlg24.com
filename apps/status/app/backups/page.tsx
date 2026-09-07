@@ -17,9 +17,10 @@ export const metadata: Metadata = {
 };
 function stateLabel(health: Health, status: string, enabled: boolean) {
   if (health === "unknown") return enabled ? "No data" : "Paused";
+  if (health === "degraded")
+    return status === "running" ? "Running too long" : "Overdue";
   if (status === "running") return "Running now";
   if (status === "pending") return "Queued";
-  if (health === "degraded") return "Overdue";
   if (status === "completed") return "Completed";
   return healthLabels[health];
 }

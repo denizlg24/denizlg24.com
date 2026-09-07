@@ -1,12 +1,11 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/tooltip";
 import { cn } from "@repo/ui/utils";
-import { ArrowUpRight, Info } from "lucide-react";
-import Link from "next/link";
+import { Info } from "lucide-react";
 import type { PublicData } from "@/lib/data";
 import { availability, dailyHealth, healthLabels } from "@/lib/health";
 import { Dot, headlines, healthBanner, healthText } from "./health";
+import { IncidentTimeline } from "./incident";
 import { SectionHeading } from "./shell";
-import { Time } from "./time";
 import { UptimeBar } from "./uptime-bar";
 
 export { Dot } from "./health";
@@ -128,29 +127,9 @@ export function ActiveIncidents({ data }: { data: PublicData }) {
   const active = data.incidents.filter((incident) => !incident.resolvedAt);
   if (!active.length) return null;
   return (
-    <aside aria-label="Active incidents" className="mb-10 space-y-px">
+    <aside aria-label="Active incidents" className="mb-10 divide-y">
       {active.map((incident) => (
-        <Link
-          prefetch={false}
-          key={incident.id}
-          href={`/incidents#${incident.id}`}
-          className="hover:bg-surface group flex items-start gap-3 rounded-md border-l-2 border-status-critical bg-status-critical/5 px-4 py-3 transition-colors"
-        >
-          <Dot status="down" className="mt-1.5" />
-          <div className="min-w-0 flex-1">
-            <strong className="text-sm font-medium">{incident.title}</strong>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {incident.explanation}
-            </p>
-            <span className="mt-1 block text-xs text-muted-foreground">
-              Since <Time value={incident.startedAt} />
-            </span>
-          </div>
-          <ArrowUpRight
-            aria-hidden
-            className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5"
-          />
-        </Link>
+        <IncidentTimeline key={incident.id} incident={incident} compact />
       ))}
     </aside>
   );

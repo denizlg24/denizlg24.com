@@ -1,10 +1,8 @@
 import { Badge } from "@repo/ui/badge";
-import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { NativeSelect } from "@repo/ui/native-select";
 import { Textarea } from "@repo/ui/textarea";
 import { Activity, HeartPulse, RefreshCw, Trash2 } from "lucide-react";
-import { adminAction } from "@/app/admin/actions";
 import type {
   DiscoveredSource,
   SourceBinding,
@@ -12,6 +10,7 @@ import type {
 } from "@/lib/config";
 import { resolveBinding } from "@/lib/config";
 import type { Service } from "@/lib/model";
+import { ActionButton, AdminForm } from "./admin-feedback";
 import { Disclosure, Field, Fields } from "./admin-forms";
 import { SectionHeading } from "./shell";
 import { Time } from "./time";
@@ -54,13 +53,13 @@ export function SourcesAdmin({
           {bound} of {sources.length} Better Stack source
           {sources.length === 1 ? "" : "s"} in use
         </p>
-        <form action={adminAction}>
+        <AdminForm>
           <Fields operation="sources-refresh" />
-          <Button type="submit" size="sm" variant="outline">
+          <ActionButton type="submit" size="sm" variant="outline">
             <RefreshCw aria-hidden />
             Detect sources
-          </Button>
-        </form>
+          </ActionButton>
+        </AdminForm>
       </div>
       {(["monitor", "heartbeat"] as const).map((kind) => {
         const items = sources.filter((source) => source.kind === kind);
@@ -78,6 +77,7 @@ export function SourcesAdmin({
               return (
                 <Disclosure
                   key={source._id}
+                  id={source._id}
                   summary={
                     <>
                       <Icon
@@ -122,7 +122,10 @@ export function SourcesAdmin({
                       </dd>
                     </div>
                   </dl>
-                  <form action={adminAction} className="max-w-xl space-y-4">
+                  <AdminForm
+                    className="max-w-xl space-y-4"
+                    targetId={source._id}
+                  >
                     <Fields operation="config-binding" id={source._id} />
                     <Field
                       label="What this source does"
@@ -197,17 +200,17 @@ export function SourcesAdmin({
                         }
                       />
                     </Field>
-                    <Button type="submit" size="sm">
+                    <ActionButton type="submit" size="sm">
                       Save binding
-                    </Button>
-                  </form>
-                  <form action={adminAction}>
+                    </ActionButton>
+                  </AdminForm>
+                  <AdminForm targetId={source._id}>
                     <Fields operation="config-source-forget" id={source._id} />
-                    <Button type="submit" size="sm" variant="ghost">
+                    <ActionButton type="submit" size="sm" variant="ghost">
                       <Trash2 aria-hidden />
                       Forget this source
-                    </Button>
-                  </form>
+                    </ActionButton>
+                  </AdminForm>
                 </Disclosure>
               );
             })}

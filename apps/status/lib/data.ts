@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from "next/cache";
+import { backupHealth } from "./backups";
 import { catalog, drJobs } from "./catalog";
 import {
   emptyConfig,
@@ -7,13 +8,10 @@ import {
   type StatusConfig,
 } from "./config";
 import { collections } from "./db";
-import {
-  FRESHNESS_MS,
-  fallbackExplanation,
-  freshStatus,
-  overallHealth,
-} from "./health";
-import type { Backup, Health, Incident } from "./model";
+import { fallbackExplanation, freshStatus, overallHealth } from "./health";
+import type { Incident } from "./model";
+
+export { backupHealth } from "./backups";
 
 export function publicIncident(incident: Incident) {
   const updates = incident.updates
@@ -28,16 +26,6 @@ export function publicIncident(incident: Incident) {
     updates,
     explanation: updates.at(-1)?.text ?? fallbackExplanation(incident.cause),
   };
-}
-export function backupHealth(backup: Backup, now: number): Health {
-  if (now - Date.parse(backup.reportedAt) > FRESHNESS_MS) return "unknown";
-  if (backup.status === "failed") return "down";
-  if (!backup.enabled) return "unknown";
-  if (backup.status === "running" || backup.status === "pending")
-    return "maintenance";
-  if (backup.nextRunAt && now - Date.parse(backup.nextRunAt) > 20 * 60_000)
-    return "degraded";
-  return backup.status === "completed" ? "operational" : "unknown";
 }
 
 export async function publicData() {

@@ -1,8 +1,8 @@
 "use server";
 import { randomUUID } from "node:crypto";
-import { updateTag } from "next/cache";
-import { redirect } from "next/navigation";
+import { revalidatePath, updateTag } from "next/cache";
 import { z } from "zod";
+import type { AdminResult } from "@/lib/admin-feedback";
 import {
   AccessError,
   cloudRequest,
@@ -35,7 +35,7 @@ const allowedTypes = new Set([
   "backup_files",
   "backup_all",
 ]);
-export async function adminAction(form: FormData): Promise<void> {
+async function performAdminAction(form: FormData): Promise<AdminResult> {
   await requireSameOrigin();
   const actor = await requireAdmin();
   const operation = z
@@ -57,19 +57,6 @@ export async function adminAction(form: FormData): Promise<void> {
       "history-reset",
     ])
     .parse(field(form, "operation"));
-  const view = operation.startsWith("incident")
-    ? "incidents"
-    : operation.startsWith("maintenance")
-      ? "maintenance"
-      : operation === "history-reset"
-        ? "overview"
-        : operation.startsWith("config-service")
-          ? "services"
-          : operation === "config-binding" ||
-              operation === "config-source-forget" ||
-              operation === "sources-refresh"
-            ? "sources"
-            : "backups";
   const mutationId = z.uuid().parse(field(form, "mutationId"));
   const c = await collections();
   const auditId = `${actor.id}:${mutationId}`;
@@ -90,9 +77,11 @@ export async function adminAction(form: FormData): Promise<void> {
       "code" in error &&
       error.code === 11000
     )
-      redirect(
-        `/admin?view=${view}&notice=${encodeURIComponent("This request was already submitted. Check the audit log before retrying.")}`,
-      );
+      return {
+        ok: false,
+        message:
+          "This request was already submitted. Check the audit log before retrying.",
+      };
     throw error;
   }
   try {
@@ -457,6 +446,7 @@ export async function adminAction(form: FormData): Promise<void> {
       { $set: { outcome: "completed" } },
     );
     updateTag("status-public");
+    revalidatePath("/admin");
   } catch (error) {
     message =
       error instanceof AccessError
@@ -470,6 +460,21 @@ export async function adminAction(form: FormData): Promise<void> {
       { _id: auditId },
       { $set: { outcome: `failed: ${message}` } },
     );
+    return { ok: false, message };
   }
-  redirect(`/admin?view=${view}&notice=${encodeURIComponent(message)}`);
+  return { ok: true, message };
+}
+
+export async function adminAction(form: FormData): Promise<AdminResult> {
+  try {
+    return await performAdminAction(form);
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof AccessError
+          ? error.message
+          : "The operation could not be confirmed. Check your session and the audit log before retrying.",
+    };
+  }
 }

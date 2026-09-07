@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { NativeSelect } from "@repo/ui/native-select";
 import { Textarea } from "@repo/ui/textarea";
-import { cn } from "@repo/ui/utils";
-import { ChevronDown, Trash2, TriangleAlert } from "lucide-react";
-import { adminAction } from "@/app/admin/actions";
+import { Trash2, TriangleAlert } from "lucide-react";
 import { Time } from "@/components/time";
 import { RESET_PHRASE } from "@/lib/input";
 import type { Backup, Incident, Maintenance, Service } from "@/lib/model";
+import { Disclosure } from "./admin-disclosure";
+import { ActionButton, AdminForm } from "./admin-feedback";
 
 export function Fields({
   operation,
@@ -26,38 +25,8 @@ export function Fields({
     </>
   );
 }
-/** A <details> disclosure with the same hairline summary used across the admin. */
-export function Disclosure({
-  summary,
-  note,
-  children,
-  className,
-}: {
-  summary: React.ReactNode;
-  note?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <details className={cn("group border-b", className)}>
-      <summary className="hover:bg-surface/60 flex cursor-pointer list-none items-center gap-2.5 py-3 text-sm [&::-webkit-details-marker]:hidden">
-        <ChevronDown
-          aria-hidden
-          className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
-        />
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          {summary}
-        </span>
-        {note ? (
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            {note}
-          </span>
-        ) : null}
-      </summary>
-      <div className="space-y-4 pb-5 pl-6">{children}</div>
-    </details>
-  );
-}
+export { Disclosure } from "./admin-disclosure";
+
 export function Field({
   label,
   hint,
@@ -116,7 +85,7 @@ export function NewIncident({ services }: { services: Service[] }) {
     <Disclosure
       summary={<span className="font-medium">Publish an incident</span>}
     >
-      <form action={adminAction} className="max-w-xl space-y-4">
+      <AdminForm className="max-w-xl space-y-4">
         <Fields operation="incident-create" />
         <Field label="Public title">
           <Input
@@ -136,10 +105,10 @@ export function NewIncident({ services }: { services: Service[] }) {
             placeholder="What users are experiencing and what you know so far."
           />
         </Field>
-        <Button type="submit" size="sm">
+        <ActionButton type="submit" size="sm">
           Publish incident
-        </Button>
-      </form>
+        </ActionButton>
+      </AdminForm>
     </Disclosure>
   );
 }
@@ -149,23 +118,23 @@ export function IncidentControls({ incident }: { incident: Incident }) {
     <>
       <div className="flex flex-wrap gap-2">
         {!incident.acknowledgedAt && !incident.resolvedAt ? (
-          <form action={adminAction}>
+          <AdminForm targetId={incident._id}>
             <Fields operation="incident-acknowledge" id={incident._id} />
-            <Button type="submit" size="sm" variant="outline">
+            <ActionButton type="submit" size="sm" variant="outline">
               Acknowledge{upstream}
-            </Button>
-          </form>
+            </ActionButton>
+          </AdminForm>
         ) : null}
         {!incident.resolvedAt ? (
-          <form action={adminAction}>
+          <AdminForm targetId={incident._id}>
             <Fields operation="incident-resolve" id={incident._id} />
-            <Button type="submit" size="sm" variant="outline">
+            <ActionButton type="submit" size="sm" variant="outline">
               Resolve{upstream}
-            </Button>
-          </form>
+            </ActionButton>
+          </AdminForm>
         ) : null}
       </div>
-      <form action={adminAction} className="max-w-xl space-y-4">
+      <AdminForm className="max-w-xl space-y-4" targetId={incident._id}>
         <Fields operation="incident-update" id={incident._id} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Visibility">
@@ -203,10 +172,10 @@ export function IncidentControls({ incident }: { incident: Incident }) {
         >
           <Textarea name="text" required rows={3} maxLength={4000} />
         </Field>
-        <Button type="submit" size="sm" variant="outline">
+        <ActionButton type="submit" size="sm" variant="outline">
           Post update
-        </Button>
-      </form>
+        </ActionButton>
+      </AdminForm>
     </>
   );
 }
@@ -218,7 +187,7 @@ export function MaintenanceForm({
   window?: Maintenance;
 }) {
   return (
-    <form action={adminAction} className="max-w-xl space-y-4">
+    <AdminForm className="max-w-xl space-y-4" targetId={window?._id}>
       <Fields operation="maintenance-save" id={window?._id} />
       <Field label="Public title">
         <Input
@@ -256,10 +225,10 @@ export function MaintenanceForm({
         </Field>
       </div>
       <ServiceSelect services={services} selected={window?.serviceIds} />
-      <Button type="submit" size="sm">
+      <ActionButton type="submit" size="sm">
         {window ? "Save maintenance" : "Schedule maintenance"}
-      </Button>
-    </form>
+      </ActionButton>
+    </AdminForm>
   );
 }
 /**
@@ -277,7 +246,7 @@ export function ResetHistory() {
         </span>
       }
     >
-      <form action={adminAction} className="max-w-xl space-y-4">
+      <AdminForm className="max-w-xl space-y-4">
         <Fields operation="history-reset" />
         <Field
           label="What to clear"
@@ -301,11 +270,11 @@ export function ResetHistory() {
             className="font-mono"
           />
         </Field>
-        <Button type="submit" size="sm" variant="destructive">
+        <ActionButton type="submit" size="sm" variant="destructive">
           <Trash2 aria-hidden />
           Clear history permanently
-        </Button>
-      </form>
+        </ActionButton>
+      </AdminForm>
     </Disclosure>
   );
 }
@@ -320,11 +289,11 @@ export function BackupControls({ backup }: { backup: Backup }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
-        <form action={adminAction}>
+        <AdminForm targetId={backup.id}>
           <Fields operation={dr ? "dr-command" : "backup-run"} id={backup.id} />
           {identity}
           <input type="hidden" name="action" value="run" />
-          <Button
+          <ActionButton
             type="submit"
             size="sm"
             variant="outline"
@@ -333,13 +302,13 @@ export function BackupControls({ backup }: { backup: Backup }) {
             }
           >
             Run now
-          </Button>
-        </form>
+          </ActionButton>
+        </AdminForm>
         <span className="text-xs text-muted-foreground">
           Last report: <Time value={backup.reportedAt || null} />
         </span>
       </div>
-      <form action={adminAction} className="max-w-xl space-y-4">
+      <AdminForm className="max-w-xl space-y-4" targetId={backup.id}>
         <Fields
           operation={dr ? "dr-command" : "backup-schedule"}
           id={backup.id}
@@ -376,10 +345,10 @@ export function BackupControls({ backup }: { backup: Backup }) {
             </NativeSelect>
           </Field>
         </div>
-        <Button type="submit" size="sm" variant="outline">
+        <ActionButton type="submit" size="sm" variant="outline">
           Save schedule
-        </Button>
-      </form>
+        </ActionButton>
+      </AdminForm>
     </>
   );
 }
