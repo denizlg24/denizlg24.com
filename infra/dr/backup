@@ -6,6 +6,7 @@ umask 077
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${script_dir}/lib/common.sh"
+source "${script_dir}/lib/telemetry.sh"
 
 profile=""
 mode="--execute"
@@ -47,6 +48,7 @@ lock_root="${remote_root}/locks"
 password_file="${DR_RESTIC_PASSWORD_FILE:-}"
 signing_key="${DR_SIGNING_KEY:-}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+capture_started_at="$(date -u +%FT%TZ)"
 snapshot_id="${host_name}-${timestamp}"
 stage="${staging_root}/${snapshot_id}"
 lock_dir="${lock_root}/${host_name}.lock"
@@ -116,6 +118,7 @@ if [[ "$mode" == --check-only ]]; then
 fi
 
 dr_require_commands restic curl find stat git docker setfacl dig mkfifo
+dr_phase preflight
 assert_active_site
 for managed_path in \
   "$remote_root" \
@@ -142,6 +145,7 @@ install -d -m 0750 -o root -g deniz-dr "$lock_root"
 setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx "$lock_root"
 deploy_lock_wait="${DR_DEPLOY_LOCK_WAIT_SECONDS:-900}"
 [[ "$deploy_lock_wait" =~ ^[0-9]+$ && "$deploy_lock_wait" -le 3600 ]] || dr_die "DR_DEPLOY_LOCK_WAIT_SECONDS must be 0..3600"
+dr_phase waiting-for-host-lock
 dr_lock "$lock_dir" "$(( $(date +%s) + deploy_lock_wait ))"
 install -d -m 0700 "$stage/artifacts" "$stage/meta"
 restore_footprint_rows="$stage/meta/restore-footprint.ndjson"
@@ -339,10 +343,7 @@ postgres_dump() {
   local container="${DR_POSTGRES_CONTAINER:-deniz-cloud-postgres-1}" db list="$stage/meta/postgres-databases.txt"
   local rows="$stage/meta/postgres-rows.tsv"
   local forge_control_plane_rows="$stage/meta/forge-control-plane.ndjson"
-  local expected_deployments="${DR_EXPECTED_FORGE_DEPLOYMENTS:-}"
   docker inspect "$container" >/dev/null 2>&1 || dr_die "PostgreSQL container not found: ${container}"
-  [[ "$expected_deployments" =~ ^[1-9][0-9]*$ ]] \
-    || dr_die "DR_EXPECTED_FORGE_DEPLOYMENTS must be a reviewed positive count on Pi and Forge"
 
   capture_postgres_roles() {
     local output="$1" target="${2:-$container}"
@@ -537,8 +538,8 @@ SQL
   jq -s 'if length==1 then .[0].deployments else error("expected one Forge control-plane database") end |
     sort_by(.deploymentId)' "$forge_control_plane_rows" > "$stage/meta/forge-control-plane.json" \
     || dr_die "PostgreSQL snapshot did not contain exactly one Forge control-plane inventory"
-  jq -e --argjson expected "$expected_deployments" '
-    length==$expected and ([.[].deploymentId]|unique|length)==length and
+  jq -e '
+    type=="array" and ([.[].deploymentId]|unique|length)==length and
     all(.[]; . as $item |
       ($item.deploymentId|test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
       ($item.imageReference|test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
@@ -546,7 +547,7 @@ SQL
       ($item.imageReference|endswith("@" + $item.imageDigest)) and
       ($item.hostname|type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$")))
   ' "$stage/meta/forge-control-plane.json" >/dev/null \
-    || dr_die "PostgreSQL snapshot Forge control plane differs from the reviewed deployment baseline"
+    || dr_die "PostgreSQL snapshot contains an invalid Forge recovery artifact"
   capture_postgres_roles "$stage/meta/postgres-roles.after.json"
   capture_postgres_databases "$stage/meta/postgres-databases.after.json"
   docker exec "$container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --globals-only' \
@@ -691,8 +692,7 @@ namespace_dump() {
 
 forge_images() {
   local output="$stage/meta/images.json" agent_env="${DR_FORGE_AGENT_ENV:-/etc/forge/agent.env}"
-  local api_url token curl_config response expected_deployments="${DR_EXPECTED_FORGE_DEPLOYMENTS:-}"
-  [[ "$expected_deployments" =~ ^[1-9][0-9]*$ ]] || dr_die "DR_EXPECTED_FORGE_DEPLOYMENTS must be a reviewed positive count"
+  local api_url token curl_config response running_deployments
   [[ -f "$agent_env" && ! -L "$agent_env" ]] || dr_die "Forge agent environment is missing"
   api_url="$(awk -F= '$1 == "CONTROL_PLANE_URL" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
   token="$(awk -F= '$1 == "AGENT_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
@@ -704,8 +704,8 @@ forge_images() {
     "$api_url" "$token" > "$curl_config"
   response="$(curl --config "$curl_config")"
   rm -f -- "$curl_config"
-  jq -e --argjson baseline "$expected_deployments" '
-    .expected == $baseline and
+  jq -e '
+    (.expected | type=="number" and .>=0 and floor==.) and
     (.expected == (.images | length)) and
     ([.images[].deploymentId] | unique | length) == .expected and
     all(.images[];
@@ -726,6 +726,13 @@ forge_images() {
       (.domain | type=="string" and test("^[A-Za-z0-9.-]+$") and contains("."))
     )
   ' <<< "$response" >/dev/null || dr_die "one or more live Forge deployments lack an immutable recovery artifact"
+  # Compare identities with the actual host while holding its mutation lock.
+  # A fixed count cannot detect a missing app, and breaks whenever one is added.
+  running_deployments="$(docker ps --filter label=forge.kind=production --format '{{.Label "forge.deployment"}}' | jq -Rsc 'split("\n") | map(select(length>0)) | sort')"
+  jq -e --argjson running "$running_deployments" \
+    '([.images[].deploymentId] | sort) == $running' <<< "$response" >/dev/null \
+    || dr_die "Forge recovery inventory does not match the running production containers"
+  jq '{deploymentCount:.expected}' <<< "$response" | dr_metrics
   jq '[.images[] | {service,deploymentId,reference,digest,platform,domain,imageSizeBytes,environmentHmacSha256,environmentCipher}] | sort_by(.deploymentId)' \
     <<< "$response" > "$output"
   jq '[.images[] | {deploymentId,imageReference:.reference,imageDigest:.digest,hostname:.domain}] | sort_by(.deploymentId)' \
@@ -790,6 +797,7 @@ pi_images() {
   rm -f -- "$stage/meta/pi-images.ndjson" "$stage/meta/markets-images.ndjson" "$stage/meta/nutrition-images.ndjson"
 }
 
+dr_phase configuration
 archive_allowlist
 archive_recovery_host_credentials
 host_package_names=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic cloudflared tailscale)
@@ -806,11 +814,17 @@ if [[ "$profile" == pi ]]; then
   dr_require_commands mergerfs
   [[ "$(mergerfs --version | awk 'NR==1{sub(/^v/,"",$NF);print $NF}')" == "$(jq -er .mergerfs.version "$version_lock")" ]] \
     || dr_die "live mergerfs version differs from the recovery version lock"
+  dr_phase samba
   samba_principals_dump
+  dr_phase postgres-restore-verification
   postgres_dump
+  dr_phase mongodb-restore-verification
   mongodb_dump
+  dr_phase redis-restore-verification
   redis_dump
+  dr_phase namespace
   namespace_dump
+  dr_phase image-inventory
   pi_images
   database_versions="$(jq -cn \
     --arg postgres "$(docker exec "${DR_POSTGRES_CONTAINER:-deniz-cloud-postgres-1}" postgres --version | sed 's/^postgres (PostgreSQL) //')" \
@@ -820,6 +834,7 @@ if [[ "$profile" == pi ]]; then
   jq -e 'all(.[]; length > 0)' <<< "$database_versions" >/dev/null \
     || dr_die "could not record exact database versions"
 else
+  dr_phase forge-image-inventory
   forge_images
 fi
 forge_control_plane_sha256="$(dr_json_sha256 "$stage/meta/forge-control-plane.json")"
@@ -916,14 +931,18 @@ if [[ -n ${DR_SECRET_CANARY:-} ]] && grep -Fq -- "$DR_SECRET_CANARY" "$stage/sna
 fi
 
 export RESTIC_REPOSITORY="$repository" RESTIC_PASSWORD_FILE="$password_file"
+dr_phase restic-backup
 if [[ ! -f "$repository/config" ]]; then restic init >/dev/null; fi
 backup_json="$(mktemp "${staging_root}/restic-backup.XXXXXX.json")"
 (cd "$stage" && restic backup --json --host "$host_name" --tag "dr-${profile}" --tag "$generation" .) > "$backup_json"
 restic_snapshot_id="$(jq -rs '[.[] | select(.message_type=="summary")][-1].snapshot_id // empty' "$backup_json")"
+jq -rs '[.[] | select(.message_type=="summary")][-1] | {newBytes:.data_added_packed,sizeBytes:.total_bytes_processed}' "$backup_json" | dr_metrics
 rm -f -- "$backup_json"
 [[ "$restic_snapshot_id" =~ ^[0-9a-f]+$ ]] || dr_die "restic did not return a snapshot id"
 
+dr_phase retention
 restic forget --group-by host --host "$host_name" --tag "dr-${profile}" --keep-within 14d --keep-daily 90 --keep-monthly 12 --prune >/dev/null
+dr_phase repository-verification
 restic check >/dev/null
 
 objects_json="$stage/meta/repository-objects.json"
@@ -937,6 +956,7 @@ find "$repository" -type f ! -path '*/locks/*' ! -name '*.tmp' -print0 | sort -z
     done | jq -s . > "$objects_json"
 [[ "$(jq length "$objects_json")" -gt 0 ]] || dr_die "repository object inventory is empty"
 
+dr_phase signed-publication
 ready="$ready_root/${snapshot_id}.json"
 [[ ! -e "$ready" && ! -L "$ready" && ! -e "${ready}.sig" && ! -L "${ready}.sig" ]] \
   || dr_die "immutable READY manifest already exists: ${snapshot_id}"
@@ -969,6 +989,13 @@ mv -- "${ready}.tmp" "$ready"
 setfacl -m g:deniz-dr:rx,d:g:deniz-dr:rx,d:m:rx \
   "$(dirname "$repository")" "$(dirname "$ready_root")"
 setfacl -R -m g:deniz-dr:rX,m::rX "$repository" "$ready_root"
+
+jq -cn --arg snapshotId "$snapshot_id" --arg capturedAt "$capture_started_at" \
+  --argjson artifactBytes "$artifact_bytes" --argjson restoredBytes "$restored_bytes" \
+  --argjson imageBytes "$image_bytes" --slurpfile objects "$objects_json" \
+  '{phase:"completed",snapshotId:$snapshotId,capturedAt:$capturedAt,artifactBytes:$artifactBytes,
+    restoredBytes:$restoredBytes,imageBytes:$imageBytes,repositoryBytes:([$objects[0][].bytes]|add // 0),
+    verification:"repository-checked-signed"}' | dr_metrics
 
 jq -n --arg snapshotId "$snapshot_id" --arg host "$host_name" --arg generation "$generation" \
   --arg resticSnapshotId "$restic_snapshot_id" --arg ready "$ready" \

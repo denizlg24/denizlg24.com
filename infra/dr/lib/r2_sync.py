@@ -105,6 +105,10 @@ def main():
     print(json.dumps({"writes": args.execute, "synced": args.execute, "host": host,
                       "wouldCopy": pending, "snapshotsCopied": copied, "manifestsPublished": published,
                       "newestCapture": newest_capture.isoformat()}))
+    if args.execute:
+        print("DR_STATUS " + json.dumps({"phase": "completed", "capturedAt": newest_capture.isoformat(),
+              "snapshotCount": len(final), "snapshotsCopied": copied,
+              "verification": "offsite-snapshots-and-signatures"}))
 
 
 if __name__ == "__main__":

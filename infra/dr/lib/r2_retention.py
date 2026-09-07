@@ -89,6 +89,9 @@ def main():
                     run([str(ROOT / "lib/r2-object"), "delete-ready", key], env=catalog.env)
             result["verified"] = True
         print(json.dumps(result, indent=2))
+        if args.execute:
+            print("DR_STATUS " + json.dumps({"phase": "completed", "snapshotCount": len(remaining),
+                  "snapshotsRemoved": len(remove), "verification": "retention-checked"}))
 
 
 if __name__ == "__main__":

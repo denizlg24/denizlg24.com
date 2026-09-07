@@ -3,6 +3,7 @@ set -Eeuo pipefail
 umask 077
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 source "$script_dir/lib/common.sh"
+source "$script_dir/lib/telemetry.sh"
 profile=""; mode=--check-only
 while (($#)); do
   case "$1" in
@@ -29,15 +30,18 @@ age=time.time()-pathlib.Path(sys.argv[1]).stat().st_mtime
 sys.exit(0 if 0 <= age < 6*86400 else 1)
 PYCODE
   then
+    printf '%s\n' '{"phase":"skipped","reason":"weekly-retention-already-completed"}' | dr_metrics
     echo '{"writes":false,"skipped":"weekly-retention-already-completed"}'
     exit 0
   fi
   if ! mkdir "$lock_dir" 2>/dev/null; then
+    printf '%s\n' '{"phase":"skipped","reason":"host-lock-held"}' | dr_metrics
     echo '{"writes":false,"skipped":"host-lock-held"}'
     exit 0
   fi
   printf '%s\n' "$$" > "$lock_dir/pid"
   trap 'result=$?; dr_unlock "$lock_dir"; if ((result)); then touch "$failed"; heartbeat /fail; else rm -f "$failed"; heartbeat ""; fi' EXIT
 fi
+if [[ "$mode" == --execute ]]; then dr_phase offsite-retention; fi
 python3 "$script_dir/lib/r2_retention.py" --profile "$profile" "$mode"
 if [[ "$mode" == --execute ]]; then touch "$marker"; fi

@@ -43,6 +43,8 @@ for script in \
 done
 
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_backup_inventory.py'
+python3 -m unittest discover -s "$root/infra/status" -p 'test_*.py'
 bun "$dr_root/tests/validate-schemas.ts"
 node --check "$dr_root/lib/mongo-semantic.js"
 grep -Fq "redis.call('PEXPIRETIME', key)" "$dr_root/lib/redis-semantic.lua" \

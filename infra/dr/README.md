@@ -66,6 +66,70 @@ ownership, modes, timestamps, counts and full hashes.
 Failure calls the monitoring heartbeat's failure endpoint immediately rather
 than waiting for a missed schedule.
 
+Production deployment discovery is dynamic. Pi captures every ready production
+deployment in the same PostgreSQL snapshot as its data. Forge verifies every
+image digest and encrypted environment, then compares the complete deployment
+ID set with its running production containers while holding the host mutation
+lock. Adding or removing an application requires no deployment-count setting.
+`DR_EXPECTED_FORGE_DEPLOYMENTS` from older host environments is ignored. Combined
+recovery still requires the signed Pi and Forge inventories to match exactly;
+it cannot mix a new deployment snapshot with an older control-plane database.
+
+## Backup observations
+
+The admin backup view shows the current phase, elapsed or final duration,
+snapshot bytes, newly stored bytes when the installed restic reports them,
+local repository bytes, expanded restore footprint, image bytes and deployment
+count. Offsite jobs show their recovery-point timestamp and copied, retained
+or removed snapshot counts. Repository bytes describe the local quarterly
+repository, not the size of a single snapshot or the R2 bill. Container images
+remain separate registry artifacts and are not included in snapshot bytes.
+
+Jobs publish bounded `DR_STATUS` JSON records. The host status agent reads only
+those records, ordered by journal timestamp and scoped to the run. Arbitrary
+journal output and environment values are never sent to the status application.
+The measurements travel in the existing report detail field so hosts and the
+application can be upgraded independently. Completed evidence is retained
+through later failures and skipped runs. Skipping a host lock or an already
+completed retention cycle does not refresh the last-success timestamp.
+
+A fresh agent heartbeat does not prove a fresh recovery point. The UI marks
+reported recovery points older than 24 hours overdue, detects jobs running
+beyond five hours, and labels missing measurements explicitly. Full restore
+and live rehearsal evidence remain separate from a successful job report.
+
+## Validation before obtaining a VPS
+
+With the private operator configuration installed, this verifies the R2
+signatures, matched inventories, package compatibility and target capacity
+without provisioning a server or restoring bulk data:
+
+```sh
+infra/dr/recover --profile all --snapshot latest --source r2 --simulate
+```
+
+After adding an application, create a fresh snapshot on both source hosts and
+copy both to R2 before expecting combined recovery to include it. The selector
+may otherwise choose an older compatible pair; always inspect its timestamps
+and `forgeDeploymentCount`. Individual `--profile forge` and `--profile pi`
+simulations help locate a mismatch.
+
+A Forge-only local preflight is small enough to exercise actual artifact
+download, restoration and checksums without a target. It needs the private
+break-glass credentials, unlike simulation:
+
+```sh
+infra/dr/recover --profile forge --snapshot latest --source r2 --check-only --no-cutover
+```
+
+Once a clean Ubuntu 24.04 x86_64 target is available, `recover --host root@IP
+--no-cutover` supports an existing server from either Hetzner or DigitalOcean.
+Size it from the simulation's `requiredTargetDiskBytes`, not compressed backup
+size. Automated provisioning currently has a Hetzner adapter only; DigitalOcean
+uses the explicit-host path. Run the target restore and both live rehearsals
+before declaring production recovery ready. Simulation cannot establish a
+recovery-time objective, image pull availability, target networking or rollback.
+
 ## Offsite copies
 
 There are two tiers on deliberately independent providers.

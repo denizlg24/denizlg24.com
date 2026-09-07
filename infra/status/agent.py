@@ -6,6 +6,7 @@ import argparse
 import datetime as dt
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -58,6 +59,54 @@ def timestamp(value):
 def properties(unit):
     result = command(["systemctl", "show", unit, "--no-pager"])
     return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def job_evidence(unit, start, end):
+    """Read only explicitly published metrics, never forward arbitrary logs."""
+    args = ["journalctl", "-u", f"{unit}.service", "--since", start,
+            "--no-pager", "-o", "json", "--grep", "^DR_STATUS ", "-n", "200"]
+    if end:
+        # systemctl's printable timestamp has second precision. Include that
+        # entire second or fast jobs lose their final measurements.
+        until = dt.datetime.fromisoformat(end.replace("Z", "+00:00")) + dt.timedelta(seconds=1)
+        args += ["--until", until.isoformat()]
+    output = command(args, check=False).stdout
+    result = {}
+    numeric = {"sizeBytes", "newBytes", "artifactBytes", "restoredBytes", "imageBytes",
+               "repositoryBytes", "deploymentCount", "snapshotCount", "snapshotsCopied", "snapshotsRemoved"}
+    records = []
+    for entry in output.splitlines():
+        try:
+            record = json.loads(entry)
+            records.append((int(record["__REALTIME_TIMESTAMP"]), record["MESSAGE"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+    # --grep with --lines returns newest first on some systemd versions.
+    # Merge in journal timestamp order, so an early phase cannot win.
+    for _, line in sorted(records, key=lambda record: record[0]):
+        if not isinstance(line, str):
+            continue
+        if not line.startswith("DR_STATUS "):
+            continue
+        try:
+            data = json.loads(line[10:])
+        except ValueError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key, value in data.items():
+            if key in numeric and type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 2**53 - 1:
+                result[key] = value
+            elif key in ("phase", "reason", "snapshotId", "verification") and isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", value):
+                result[key] = value
+            elif key == "capturedAt" and isinstance(value, str):
+                try:
+                    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    if parsed.tzinfo:
+                        result[key] = parsed.isoformat()
+                except ValueError:
+                    pass
+    return result
 
 
 def validate_command(data, profile):
@@ -119,7 +168,14 @@ class Agent:
             return
         succeeded = not running and service.get("Result") == "success" and service.get("ExecMainStatus") == "0"
         state = load_json(self.state / f"{job}.json", {})
-        success = end if succeeded else state.get("lastSuccessAt")
+        evidence = job_evidence(unit, start, end)
+        skipped = evidence.get("phase") == "skipped"
+        success = end if succeeded and not skipped else state.get("lastSuccessAt")
+        last_verified = state.get("lastVerified")
+        if succeeded and evidence.get("verification"):
+            last_verified = {**evidence, "completedAt": end}
+        if last_verified:
+            evidence["lastVerified"] = last_verified
         override = Path(f"/etc/systemd/system/{unit}.timer.d/status.conf")
         schedule = None
         if override.exists():
@@ -128,16 +184,21 @@ class Agent:
             # TimersCalendar is systemd's normalized, currently loaded schedule.
             schedule = timer.get("TimersCalendar") or None
         data = {
-            "job": job, "runId": service.get("InvocationID") or start,
+            # InvocationID disappears once some systemd versions unload a
+            # oneshot. Start time remains the same through every state.
+            "job": job, "runId": start,
             "status": "running" if running else "completed" if succeeded else "failed",
             "startedAt": start, "completedAt": end, "lastSuccessAt": success,
             "nextRunAt": timestamp(timer.get("NextElapseUSecRealtime")),
             "durationMs": None if not end else max(0, int((dt.datetime.fromisoformat(end.replace("Z", "+00:00")) - dt.datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds() * 1000)),
-            "sizeBytes": None, "enabled": timer.get("ActiveState") == "active", "schedule": schedule,
-            "detail": f"systemd: {service.get('ActiveState')}; result: {service.get('Result')}; exit: {service.get('ExecMainStatus')}",
-            "verification": "The existing guarded DR job exited successfully. This is job-completion evidence, not a full recovery rehearsal." if succeeded else None,
+            "sizeBytes": evidence.get("sizeBytes"), "enabled": timer.get("ActiveState") == "active", "schedule": schedule,
+            "detail": f"systemd: {service.get('ActiveState')}; result: {service.get('Result')}; exit: {service.get('ExecMainStatus')}\n"
+                      + (f"Stopped during {evidence.get('phase', 'unreported phase')}. Inspect this invocation in the host journal.\n" if not running and not succeeded else "")
+                      + "DR_STATUS " + json.dumps(evidence, separators=(",", ":")),
+            "verification": ("Skipped: " + evidence.get("reason", "no work performed")) if skipped else
+                "The guarded job completed. Repository checking and signed publication are separate from a full recovery rehearsal." if succeeded else None,
         }
-        atomic_json(self.state / f"{job}.json", data)
+        atomic_json(self.state / f"{job}.json", {**data, "lastVerified": last_verified})
         self.post({"type": "report", "report": data})
 
     def execute_linux(self, data):

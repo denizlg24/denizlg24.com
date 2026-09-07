@@ -3,6 +3,7 @@ set -Eeuo pipefail
 umask 077
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 source "$script_dir/lib/common.sh"
+source "$script_dir/lib/telemetry.sh"
 profile=""; mode=--check-only
 while (($#)); do
   case "$1" in
@@ -22,10 +23,12 @@ heartbeat() {
 }
 if [[ "$mode" == --execute ]]; then
   if ! mkdir "$lock_dir" 2>/dev/null; then
+    printf '%s\n' '{"phase":"skipped","reason":"host-lock-held"}' | dr_metrics
     echo '{"writes":false,"skipped":"host-lock-held"}'
     exit 0
   fi
   printf '%s\n' "$$" > "$lock_dir/pid"
   trap 'result=$?; dr_unlock "$lock_dir"; if ((result)); then heartbeat /fail; else heartbeat ""; fi' EXIT
 fi
+if [[ "$mode" == --execute ]]; then dr_phase offsite-copy; fi
 python3 "$script_dir/lib/r2_sync.py" --profile "$profile" "$mode"
