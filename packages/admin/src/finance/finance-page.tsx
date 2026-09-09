@@ -32,6 +32,7 @@ import { describeRecurrence } from "@repo/utils";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Bell,
   ChartCandlestick,
   Check,
   CircleDollarSign,
@@ -44,6 +45,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -92,6 +94,25 @@ import {
   todayKey,
   visibleLedger,
 } from "./finance-series";
+
+const FinanceReviewsPage = dynamic(() =>
+  import("./finance-reviews-page").then((module) => module.FinanceReviewsPage),
+);
+const FinanceBudgetPage = dynamic(() =>
+  import("./finance-budget-page").then((module) => module.FinanceBudgetPage),
+);
+const FinanceAlertsPage = dynamic(() =>
+  import("./finance-alerts-page").then((module) => module.FinanceAlertsPage),
+);
+
+const FINANCE_TABS = new Set([
+  "ledger",
+  "recurring",
+  "reviews",
+  "budget",
+  "alerts",
+  "forecast",
+]);
 
 function RangeToggle({
   value,
@@ -183,9 +204,30 @@ export function FinancePage({
   }, [load]);
 
   useEffect(() => {
-    const status = new URLSearchParams(window.location.search).get("link");
+    const search = new URLSearchParams(window.location.search);
+    const requestedTab = search.get("tab");
+    if (requestedTab && FINANCE_TABS.has(requestedTab)) setTab(requestedTab);
+    const status = search.get("link");
     if (status === "connected") toast.success("Account connected");
+    if (status === "no-accounts") {
+      toast.error(
+        "No account was returned. Link it in the Enable Banking control panel first.",
+      );
+    }
     if (status === "failed" || status === "invalid") toast.error("Link failed");
+    if (status) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("link");
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, []);
+
+  const selectTab = useCallback((next: string) => {
+    setTab(next);
+    const url = new URL(window.location.href);
+    if (next === "ledger") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", next);
+    window.history.replaceState(window.history.state, "", url);
   }, []);
 
   useEffect(() => {
@@ -292,26 +334,11 @@ export function FinancePage({
             onAddAccount={() => setLinkOpen(true)}
           />
 
-          {/*
-            Budget and Review are their own routes now, but they stayed in this
-            strip rather than becoming header buttons: they are two of the five
-            things you do on this page, and the strip is where you look for
-            them. Selecting one navigates instead of swapping a panel, which is
-            why activation is manual — with the default, arrow-keying across the
-            strip would navigate away mid-traversal.
-          */}
-          <Tabs
-            value={tab}
-            onValueChange={(next) => {
-              if (next === "budget") return router.push(routes.finance.budget);
-              if (next === "reviews")
-                return router.push(routes.finance.reviews);
-              setTab(next);
-            }}
-            activationMode="manual"
-            className="space-y-5"
-          >
-            <TabsList variant="line" className="w-full justify-start">
+          <Tabs value={tab} onValueChange={selectTab} className="space-y-5">
+            <TabsList
+              variant="line"
+              className="w-full justify-start overflow-x-auto"
+            >
               <TabsTrigger value="ledger">Ledger</TabsTrigger>
               <TabsTrigger value="recurring">
                 Recurring
@@ -336,6 +363,10 @@ export function FinancePage({
                 )}
               </TabsTrigger>
               <TabsTrigger value="budget">Budget</TabsTrigger>
+              <TabsTrigger value="alerts">
+                <Bell className="size-3" />
+                Alerts
+              </TabsTrigger>
               <TabsTrigger value="forecast">Forecast</TabsTrigger>
             </TabsList>
             <TabsContent value="ledger">
@@ -359,6 +390,18 @@ export function FinancePage({
                 }
                 onReload={load}
               />
+            </TabsContent>
+            <TabsContent value="reviews">
+              <FinanceReviewsPage embedded dashboard={data} onReload={load} />
+            </TabsContent>
+            <TabsContent value="budget">
+              <FinanceBudgetPage
+                embedded
+                onOpenAlerts={() => selectTab("alerts")}
+              />
+            </TabsContent>
+            <TabsContent value="alerts">
+              <FinanceAlertsPage embedded />
             </TabsContent>
             <TabsContent value="forecast">
               <ForecastTab data={data} />

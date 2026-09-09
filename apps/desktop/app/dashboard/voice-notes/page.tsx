@@ -19,6 +19,8 @@ import { Skeleton } from "@repo/ui/skeleton";
 import {
   Loader2,
   Mic,
+  Pause,
+  Play,
   RefreshCcw,
   Search,
   Square,
@@ -169,6 +171,8 @@ export default function VoiceNotesPage() {
   );
 
   const recording = recorder.status === "recording";
+  const paused = recorder.status === "paused";
+  const recordingActive = recording || paused;
   const recorderBusy =
     recorder.status === "requesting" || recorder.status === "uploading";
 
@@ -248,26 +252,34 @@ export default function VoiceNotesPage() {
             className="h-7"
             disabled={recorderBusy}
             onClick={() =>
-              recording
+              recordingActive
                 ? recorder.stopRecording()
                 : void recorder.startRecording()
             }
           >
             {recorderBusy ? (
               <Loader2 className="size-3.5 animate-spin" />
-            ) : recording ? (
+            ) : recordingActive ? (
               <Square className="size-3.5 fill-current" />
             ) : (
               <Mic className="size-3.5" />
             )}
-            {recording ? "Save" : "Record"}
+            {recordingActive ? "Save" : "Record"}
           </Button>
         </div>
       </div>
 
-      {recording && (
-        <div className="flex items-center gap-3 border-b bg-red-500/5 px-4 py-3">
-          <span className="size-2 animate-pulse rounded-full bg-red-500" />
+      {recordingActive && (
+        <div
+          className={`flex items-center gap-3 border-b px-4 py-3 ${
+            paused ? "bg-amber-500/5" : "bg-red-500/5"
+          }`}
+        >
+          <span
+            className={`size-2 rounded-full ${
+              paused ? "bg-amber-500" : "animate-pulse bg-red-500"
+            }`}
+          />
           <span className="w-12 font-mono text-xs tabular-nums">
             {formatDuration(recorder.elapsedMs)}
           </span>
@@ -280,6 +292,22 @@ export default function VoiceNotesPage() {
               />
             ))}
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7"
+            onClick={
+              paused ? recorder.resumeRecording : recorder.pauseRecording
+            }
+          >
+            {paused ? (
+              <Play className="size-3.5 fill-current" />
+            ) : (
+              <Pause className="size-3.5 fill-current" />
+            )}
+            {paused ? "Resume" : "Pause"}
+          </Button>
           <Button
             type="button"
             variant="ghost"

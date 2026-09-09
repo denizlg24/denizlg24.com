@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { completeFinanceLink } from "@/lib/finance/connection";
+import { EnableBankingNoAccountsError } from "@/lib/finance/providers/enable-banking";
 import { getAdminSession } from "@/lib/require-admin";
 
 /**
@@ -40,7 +41,8 @@ export default async function Page({
     await completeFinanceLink(code, state);
   } catch (error) {
     console.error("[finance] Link completion failed", error);
-    status = "failed";
+    status =
+      error instanceof EnableBankingNoAccountsError ? "no-accounts" : "failed";
   }
   redirect(`/admin/dashboard/finance?link=${status}`);
 }

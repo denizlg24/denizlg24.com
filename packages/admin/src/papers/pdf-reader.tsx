@@ -561,7 +561,7 @@ export function MobilePdfReader({
   const percent = numPages ? Math.round((page / numPages) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-50 flex flex-col bg-background">
       <ReaderBar
         visible={chromeVisible}
         position="top"
@@ -938,7 +938,7 @@ export function DesktopPdfReader({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-50 flex flex-col bg-background">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <Button
           variant="ghost"

@@ -37,12 +37,12 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     accounts: `${ROOT}/finance/accounts`,
     account: (accountId) =>
       withQuery(`${ROOT}/finance/accounts`, { id: accountId }),
-    budget: `${ROOT}/finance/budget`,
+    budget: `${ROOT}/finance?tab=budget`,
     envelope: (envelopeId) =>
       withQuery(`${ROOT}/finance/envelope`, { id: envelopeId }),
     envelopeNew: `${ROOT}/finance/envelope`,
-    alerts: `${ROOT}/finance/alerts`,
-    reviews: `${ROOT}/finance/reviews`,
+    alerts: `${ROOT}/finance?tab=alerts`,
+    reviews: `${ROOT}/finance?tab=reviews`,
   },
 
   blog: {

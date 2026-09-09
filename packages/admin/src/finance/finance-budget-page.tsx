@@ -339,7 +339,13 @@ export function BudgetPageSkeleton() {
   );
 }
 
-export function FinanceBudgetPage() {
+export function FinanceBudgetPage({
+  embedded = false,
+  onOpenAlerts,
+}: {
+  embedded?: boolean;
+  onOpenAlerts?: () => void;
+}) {
   const { client, slots, routes } = useAdmin();
   const router = useRouter();
   const [data, setData] = useState<FinanceBudgetOverview | null>(null);
@@ -416,31 +422,33 @@ export function FinanceBudgetPage() {
   );
 
   if (!data) {
+    const unavailable = loading ? (
+      <BudgetPageSkeleton />
+    ) : (
+      <div className="flex flex-col items-center gap-3 py-14">
+        <p className="text-sm text-muted-foreground">
+          {loadError ?? "Budget unavailable"}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
+        >
+          <RefreshCw className="size-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+
+    if (embedded) return unavailable;
+
     return (
       <div className="flex h-full min-h-0 flex-col">
         {header}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {loading ? (
-            <BudgetPageSkeleton />
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-14">
-              <p className="text-sm text-muted-foreground">
-                {loadError ?? "Budget unavailable"}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setLoading(true);
-                  void load();
-                }}
-              >
-                <RefreshCw className="size-3.5" />
-                Retry
-              </Button>
-            </div>
-          )}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{unavailable}</div>
       </div>
     );
   }
@@ -450,10 +458,25 @@ export function FinanceBudgetPage() {
   const openAlerts = data.alerts.filter((alert) => alert.status === "open");
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {header}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className={embedded ? undefined : "flex h-full min-h-0 flex-col"}>
+      {embedded ? null : header}
+      <div className={embedded ? undefined : "min-h-0 flex-1 overflow-y-auto"}>
         <div className="mx-auto max-w-5xl space-y-9 px-4 py-5">
+          {embedded ? (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                asChild
+              >
+                <Link href={routes.finance.envelopeNew}>
+                  <Plus className="size-3.5" />
+                  Envelope
+                </Link>
+              </Button>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-5">
             <Figure
               label="Planned"
@@ -504,41 +527,64 @@ export function FinanceBudgetPage() {
             </p>
           )}
 
-          {/* Alerts get their own page — the transitions and the
-              open/acknowledged/resolved split need room this summary has not
-              got. What belongs here is the count and the worst one. */}
           <section className="space-y-1">
             <SectionHead label="Alerts">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={routes.finance.alerts}>
+              {embedded && onOpenAlerts ? (
+                <Button variant="ghost" size="sm" onClick={onOpenAlerts}>
                   {openAlerts.length > 0
                     ? `${openAlerts.length} open`
                     : "None open"}
-                </Link>
-              </Button>
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href={routes.finance.alerts}>
+                    {openAlerts.length > 0
+                      ? `${openAlerts.length} open`
+                      : "None open"}
+                  </Link>
+                </Button>
+              )}
             </SectionHead>
             {openAlerts.length === 0 ? (
               <Empty label="—" compact />
             ) : (
-              openAlerts.slice(0, 3).map((alert) => (
-                <Link
-                  key={alert.id}
-                  href={routes.finance.alerts}
-                  className="flex items-start gap-3 border-b border-border/60 py-2 last:border-b-0 hover:bg-muted/40"
-                >
-                  <StatusDot
-                    tone={SEVERITY_TONE[alert.severity]}
-                    label={alert.severity}
-                    className="mt-1.5"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    {alert.title}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {relative(alert.firstSeenAt)}
-                  </span>
-                </Link>
-              ))
+              openAlerts.slice(0, 3).map((alert) => {
+                const contents = (
+                  <>
+                    <StatusDot
+                      tone={SEVERITY_TONE[alert.severity]}
+                      label={alert.severity}
+                      className="mt-1.5"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      {alert.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {relative(alert.firstSeenAt)}
+                    </span>
+                  </>
+                );
+                const className =
+                  "flex w-full items-start gap-3 border-b border-border/60 py-2 text-left last:border-b-0 hover:bg-muted/40";
+                return embedded && onOpenAlerts ? (
+                  <button
+                    key={alert.id}
+                    type="button"
+                    onClick={onOpenAlerts}
+                    className={className}
+                  >
+                    {contents}
+                  </button>
+                ) : (
+                  <Link
+                    key={alert.id}
+                    href={routes.finance.alerts}
+                    className={className}
+                  >
+                    {contents}
+                  </Link>
+                );
+              })
             )}
           </section>
 

@@ -160,7 +160,11 @@ function AlertRow({
   );
 }
 
-export function FinanceAlertsPage() {
+export function FinanceAlertsPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const { client, routes } = useAdmin();
   const [alerts, setAlerts] = useState<FinanceBudgetAlert[] | null>(null);
   const [group, setGroup] = useState<Group>("open");
@@ -230,69 +234,82 @@ export function FinanceAlertsPage() {
     }
   };
 
+  const evaluateButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-8 gap-1.5 text-xs"
+      disabled={evaluating}
+      onClick={evaluate}
+    >
+      {evaluating ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <RefreshCw className="size-3.5" />
+      )}
+      Re-evaluate
+    </Button>
+  );
+
+  const content = (
+    <div className="space-y-5">
+      {embedded ? (
+        <div className="flex justify-end">{evaluateButton}</div>
+      ) : null}
+      <div className="flex gap-4 border-b">
+        {GROUPS.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => setGroup(tab.value)}
+            className={cn(
+              "shrink-0 border-b-2 pb-2 text-xs transition-colors",
+              group === tab.value
+                ? "border-foreground font-medium text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {tab.label}
+            <span className="ml-1.5 tabular-nums text-muted-foreground">
+              {grouped[tab.value].length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {alerts === null ? (
+        <Empty label="Loading…" />
+      ) : grouped[group].length === 0 ? (
+        <Empty label="—" />
+      ) : (
+        <div>
+          {group === "open" && <SectionHead label="Currently true" />}
+          {grouped[group].map((alert) => (
+            <AlertRow
+              key={alert.id}
+              alert={alert}
+              busy={busyId === alert.id}
+              onDecide={(action) => decide(alert, action)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return <div className="mx-auto max-w-5xl px-4 py-5">{content}</div>;
+  }
+
   return (
     <DetailPageShell
       icon={ICON}
       title="Budget alerts"
       backTo={routes.finance.budget}
       backLabel="Budget"
-      actions={
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          disabled={evaluating}
-          onClick={evaluate}
-        >
-          {evaluating ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="size-3.5" />
-          )}
-          Re-evaluate
-        </Button>
-      }
+      actions={evaluateButton}
     >
-      <div className="space-y-5">
-        <div className="flex gap-4 border-b">
-          {GROUPS.map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => setGroup(tab.value)}
-              className={cn(
-                "shrink-0 border-b-2 pb-2 text-xs transition-colors",
-                group === tab.value
-                  ? "border-foreground font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {tab.label}
-              <span className="ml-1.5 tabular-nums text-muted-foreground">
-                {grouped[tab.value].length}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {alerts === null ? (
-          <Empty label="Loading…" />
-        ) : grouped[group].length === 0 ? (
-          <Empty label="—" />
-        ) : (
-          <div>
-            {group === "open" && <SectionHead label="Currently true" />}
-            {grouped[group].map((alert) => (
-              <AlertRow
-                key={alert.id}
-                alert={alert}
-                busy={busyId === alert.id}
-                onDecide={(action) => decide(alert, action)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {content}
     </DetailPageShell>
   );
 }

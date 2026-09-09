@@ -7,7 +7,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { ChevronDown, Loader, Mic, Square, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  Loader,
+  Mic,
+  Pause,
+  Play,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { formatDuration, useVoiceRecorder } from "./voice-recorder-provider";
 
 export function BackgroundActionsMenu({
@@ -17,6 +25,8 @@ export function BackgroundActionsMenu({
 }) {
   const recorder = useVoiceRecorder();
   const recording = recorder.status === "recording";
+  const paused = recorder.status === "paused";
+  const active = recording || paused;
   const busy =
     recorder.status === "requesting" || recorder.status === "uploading";
 
@@ -29,12 +39,16 @@ export function BackgroundActionsMenu({
           aria-label="Background actions"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          {recording ? (
-            <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+          {active ? (
+            <span
+              className={`size-1.5 rounded-full ${
+                paused ? "bg-amber-500" : "animate-pulse bg-red-500"
+              }`}
+            />
           ) : (
             <Loader className="size-3" />
           )}
-          {recording && (
+          {active && (
             <span className="tabular-nums">
               {formatDuration(recorder.elapsedMs)}
             </span>
@@ -46,8 +60,19 @@ export function BackgroundActionsMenu({
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Background actions
         </DropdownMenuLabel>
-        {recording ? (
+        {active ? (
           <>
+            {paused ? (
+              <DropdownMenuItem onSelect={recorder.resumeRecording}>
+                <Play className="size-3.5 fill-current" />
+                Resume recording
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={recorder.pauseRecording}>
+                <Pause className="size-3.5 fill-current" />
+                Pause recording
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={recorder.stopRecording}>
               <Square className="size-3.5 fill-current" />
               Save recording

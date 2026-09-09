@@ -6,6 +6,7 @@ import {
   generateKeyPair,
 } from "jose";
 import {
+  EnableBankingNoAccountsError,
   EnableBankingProvider,
   getEnableBankingJwt,
   parseDecimalMinor,
@@ -181,5 +182,21 @@ describe("Enable Banking adapter", () => {
     expect(query.get("date_from")).toBeNull();
     expect(query.get("date_to")).toBeNull();
     expect(query.get("strategy")).toBe("longest");
+  });
+
+  test("rejects a completed authorisation that exposes no accounts", async () => {
+    configureCredentials();
+    const provider = new EnableBankingProvider({
+      fetch: (async () =>
+        Response.json({
+          session_id: "session-id",
+          accounts: [],
+          aspsp: { name: "Lunar", country: "DK" },
+        })) as unknown as typeof fetch,
+    });
+
+    await expect(
+      provider.completeLink("authorization-code"),
+    ).rejects.toBeInstanceOf(EnableBankingNoAccountsError);
   });
 });

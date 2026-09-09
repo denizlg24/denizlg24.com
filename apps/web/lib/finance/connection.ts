@@ -6,10 +6,13 @@ import type {
 import { connectDB } from "@/lib/mongodb";
 import { FinanceAccount, FinanceLinkState } from "@/models/Finance";
 import { financeAccountBindingKey, financeBudgetDayKey } from "./core";
+import { financeLinkRedirectUrl } from "./link-config";
 import { EnableBankingProvider } from "./providers/enable-banking";
 import { encryptFinanceSecret } from "./secrets";
 
 const LINK_STATE_TTL_MS = 15 * 60 * 1_000;
+
+export { financeLinkRedirectUrl } from "./link-config";
 
 function stateHash(state: string) {
   return createHash("sha256").update(state).digest("hex");
@@ -18,34 +21,6 @@ function stateHash(state: string) {
 export async function listFinanceInstitutions(country: string) {
   const provider = new EnableBankingProvider();
   return provider.listInstitutions(country);
-}
-
-/**
- * The OAuth callback Enable Banking sends the browser back to.
- *
- * Derived from the public site origin rather than the caller's, because the
- * desktop app's origin is not a valid callback host and the URL has to match
- * what is whitelisted with the provider.
- *
- * Anywhere but production, an unset origin is a misconfiguration rather than a
- * default worth guessing: falling back to the production host would create the
- * consent there, send the browser there, and leave the `FinanceLinkState` row
- * written here to expire unresolved — a flow that dies silently instead of
- * reporting anything. Production keeps the fallback because every other
- * consumer of this variable assumes the same one.
- */
-export function financeLinkRedirectUrl() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (!configured) {
-    const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV;
-    if (environment !== "production") {
-      throw new Error(
-        `NEXT_PUBLIC_SITE_URL must be set to link a bank account in ${environment} — it is the callback origin whitelisted with Enable Banking`,
-      );
-    }
-    return "https://denizlg24.com/api/admin/finance/callback";
-  }
-  return `${configured.replace(/\/+$/, "")}/api/admin/finance/callback`;
 }
 
 export async function beginFinanceLink(input: FinanceBeginLinkRequest) {
@@ -122,7 +97,7 @@ async function bindProviderAccount(account: FinanceProviderAccount) {
 
 export async function completeFinanceLink(code: string, state: string) {
   await connectDB();
-  const linkState = await FinanceLinkState.findOneAndDelete({
+  const linkState = await FinanceLinkState.findOne({
     stateHash: stateHash(state),
     expiresAt: { $gt: new Date() },
   });
@@ -134,5 +109,9 @@ export async function completeFinanceLink(code: string, state: string) {
   for (const account of accounts) {
     bound.push(await bindProviderAccount(account));
   }
+  // Consume the callback state only after every account has been persisted. A
+  // provider or database failure can then be retried instead of looking like an
+  // expired callback on the next attempt.
+  await FinanceLinkState.deleteOne({ _id: linkState._id });
   return bound;
 }

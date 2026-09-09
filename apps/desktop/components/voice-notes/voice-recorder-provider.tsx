@@ -32,6 +32,7 @@ type RecorderStatus =
   | "idle"
   | "requesting"
   | "recording"
+  | "paused"
   | "uploading"
   | "error";
 
@@ -42,6 +43,8 @@ interface VoiceRecorderContextValue {
   error?: string;
   lastVoiceNote?: IVoiceNote;
   startRecording: () => Promise<void>;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
   stopRecording: () => void;
   discardRecording: () => void;
 }
@@ -85,6 +88,8 @@ export function VoiceRecorderProvider({
   const levelMeterRef = useRef<LevelMeter | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef(0);
+  const activeStartedAtRef = useRef(0);
+  const accumulatedElapsedMsRef = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
   const byteLengthRef = useRef(0);
   const samplesRef = useRef<number[]>([]);
@@ -106,9 +111,49 @@ export function VoiceRecorderProvider({
     recorderRef.current = null;
   }, [clearTimers]);
 
+  const currentElapsed = useCallback(() => {
+    const activeElapsed = activeStartedAtRef.current
+      ? Date.now() - activeStartedAtRef.current
+      : 0;
+    return accumulatedElapsedMsRef.current + activeElapsed;
+  }, []);
+
+  const freezeElapsed = useCallback(() => {
+    const elapsed = currentElapsed();
+    accumulatedElapsedMsRef.current = elapsed;
+    activeStartedAtRef.current = 0;
+    setElapsedMs(elapsed);
+    return elapsed;
+  }, [currentElapsed]);
+
+  const startCaptureMeters = useCallback((stream: MediaStream) => {
+    levelMeterRef.current = startLevelMeter(
+      stream,
+      (level) => {
+        samplesRef.current.push(level);
+        setLevels((current) => appendLevel(current, level));
+      },
+      120,
+    );
+    elapsedTimerRef.current = setInterval(() => {
+      const elapsed =
+        accumulatedElapsedMsRef.current +
+        (activeStartedAtRef.current
+          ? Date.now() - activeStartedAtRef.current
+          : 0);
+      setElapsedMs(elapsed);
+      useBackgroundTasksStore.getState().update("voice-recording", {
+        statusText: `REC ${formatDuration(elapsed)}`,
+        color: "bg-red-500",
+      });
+    }, 500);
+  }, []);
+
   const finishRecording = useCallback(
     async (mimeType: string) => {
-      const durationMs = Date.now() - startedAtRef.current;
+      const durationMs = currentElapsed();
+      accumulatedElapsedMsRef.current = durationMs;
+      activeStartedAtRef.current = 0;
       const shouldSave = saveOnStopRef.current;
       const chunks = chunksRef.current;
       const waveform = downsample(samplesRef.current, WAVEFORM_SAMPLES);
@@ -185,7 +230,7 @@ export function VoiceRecorderProvider({
       window.dispatchEvent(new CustomEvent("voice-notes:changed"));
       toast.success("Voice note saved");
     },
-    [api, releaseMedia],
+    [api, currentElapsed, releaseMedia],
   );
 
   const startRecording = useCallback(async () => {
@@ -210,6 +255,8 @@ export function VoiceRecorderProvider({
       const actualMimeType = recorder.mimeType || mimeType || "audio/webm";
       const startedAt = Date.now();
       startedAtRef.current = startedAt;
+      activeStartedAtRef.current = startedAt;
+      accumulatedElapsedMsRef.current = 0;
       titleRef.current = `Voice note · ${new Date(startedAt).toLocaleString(
         undefined,
         {
@@ -227,15 +274,6 @@ export function VoiceRecorderProvider({
       streamRef.current = stream;
       recorderRef.current = recorder;
 
-      levelMeterRef.current = startLevelMeter(
-        stream,
-        (level) => {
-          samplesRef.current.push(level);
-          setLevels((current) => appendLevel(current, level));
-        },
-        120,
-      );
-
       recorder.ondataavailable = (event) => {
         if (event.data.size === 0) return;
         chunksRef.current.push(event.data);
@@ -245,6 +283,15 @@ export function VoiceRecorderProvider({
           recorder.state === "recording"
         ) {
           toast.warning("Recording limit reached; saving voice note");
+          const elapsed =
+            accumulatedElapsedMsRef.current +
+            (activeStartedAtRef.current
+              ? Date.now() - activeStartedAtRef.current
+              : 0);
+          accumulatedElapsedMsRef.current = elapsed;
+          activeStartedAtRef.current = 0;
+          clearTimers();
+          setStatus("uploading");
           recorder.stop();
         }
       };
@@ -270,13 +317,7 @@ export function VoiceRecorderProvider({
         active: true,
         href: "/dashboard/voice-notes",
       });
-      elapsedTimerRef.current = setInterval(() => {
-        const elapsed = Date.now() - startedAtRef.current;
-        setElapsedMs(elapsed);
-        useBackgroundTasksStore.getState().update("voice-recording", {
-          statusText: `REC ${formatDuration(elapsed)}`,
-        });
-      }, 500);
+      startCaptureMeters(stream);
     } catch (cause) {
       releaseMedia();
       const message =
@@ -289,16 +330,51 @@ export function VoiceRecorderProvider({
       setStatus("error");
       toast.error(message);
     }
-  }, [api, finishRecording, releaseMedia, status]);
+  }, [
+    api,
+    clearTimers,
+    finishRecording,
+    releaseMedia,
+    startCaptureMeters,
+    status,
+  ]);
+
+  const pauseRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (recorder?.state !== "recording") return;
+    recorder.pause();
+    const elapsed = freezeElapsed();
+    clearTimers();
+    setStatus("paused");
+    useBackgroundTasksStore.getState().update("voice-recording", {
+      statusText: `PAUSED ${formatDuration(elapsed)}`,
+      color: "bg-amber-500",
+    });
+  }, [clearTimers, freezeElapsed]);
+
+  const resumeRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    const stream = streamRef.current;
+    if (!recorder || !stream || recorder.state !== "paused") return;
+    recorder.resume();
+    activeStartedAtRef.current = Date.now();
+    setStatus("recording");
+    useBackgroundTasksStore.getState().update("voice-recording", {
+      statusText: `REC ${formatDuration(accumulatedElapsedMsRef.current)}`,
+      color: "bg-red-500",
+    });
+    startCaptureMeters(stream);
+  }, [startCaptureMeters]);
 
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") return;
     saveOnStopRef.current = true;
+    if (recorder.state === "recording") freezeElapsed();
     clearTimers();
     setStatus("uploading");
     recorder.stop();
-  }, [clearTimers]);
+  }, [clearTimers, freezeElapsed]);
 
   useEffect(
     () => () => {
@@ -317,9 +393,10 @@ export function VoiceRecorderProvider({
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") return;
     saveOnStopRef.current = false;
+    if (recorder.state === "recording") freezeElapsed();
     clearTimers();
     recorder.stop();
-  }, [clearTimers]);
+  }, [clearTimers, freezeElapsed]);
 
   const value = useMemo(
     () => ({
@@ -329,6 +406,8 @@ export function VoiceRecorderProvider({
       error,
       lastVoiceNote,
       startRecording,
+      pauseRecording,
+      resumeRecording,
       stopRecording,
       discardRecording,
     }),
@@ -338,6 +417,8 @@ export function VoiceRecorderProvider({
       error,
       lastVoiceNote,
       levels,
+      pauseRecording,
+      resumeRecording,
       startRecording,
       status,
       stopRecording,

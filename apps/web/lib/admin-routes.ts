@@ -35,12 +35,12 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     ruleNew: `${ROOT}/finance/rules/new`,
     accounts: `${ROOT}/finance/accounts`,
     account: (accountId) => withSegments(`${ROOT}/finance/accounts`, accountId),
-    budget: `${ROOT}/finance/budget`,
+    budget: `${ROOT}/finance?tab=budget`,
     envelope: (envelopeId) =>
       withSegments(`${ROOT}/finance/budget`, envelopeId),
     envelopeNew: `${ROOT}/finance/budget/new`,
-    alerts: `${ROOT}/finance/alerts`,
-    reviews: `${ROOT}/finance/reviews`,
+    alerts: `${ROOT}/finance?tab=alerts`,
+    reviews: `${ROOT}/finance?tab=reviews`,
   },
 
   blog: {

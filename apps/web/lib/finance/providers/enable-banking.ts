@@ -200,6 +200,15 @@ export class EnableBankingError extends Error {
   }
 }
 
+export class EnableBankingNoAccountsError extends Error {
+  constructor() {
+    super(
+      "Enable Banking returned no accounts. Restricted applications only expose accounts linked in the control panel.",
+    );
+    this.name = "EnableBankingNoAccountsError";
+  }
+}
+
 export class EnableBankingProvider implements BankProvider {
   readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
@@ -338,6 +347,13 @@ export class EnableBankingProvider implements BankProvider {
           body: JSON.stringify({ code }),
         }),
       );
+
+    // Restricted applications return [] after an otherwise successful bank
+    // authorisation when the selected account was not linked in the control
+    // panel. That is an actionable failure, not a completed connection.
+    if (response.accounts.length === 0) {
+      throw new EnableBankingNoAccountsError();
+    }
 
     return response.accounts.map((account) => ({
       accountRef: account.uid,
