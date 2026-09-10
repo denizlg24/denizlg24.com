@@ -47,12 +47,12 @@ async function Content() {
           <section className="mb-10" key={provider}>
             <SectionHeading
               title={
-                provider === "cloud" ? "Scheduled backups" : "Offsite copies"
+                provider === "cloud" ? "Scheduled backups" : "Disaster recovery"
               }
               note={
                 provider === "cloud"
                   ? "Databases & files"
-                  : "Pi · Forge · offsite"
+                  : "Local snapshots & offsite copies"
               }
             />
             {!backups.length ? (
@@ -99,17 +99,30 @@ async function Content() {
                       >
                         <Time value={backup.startedAt} />
                       </Fact>
-                      <Fact term="Duration">
+                      <Fact
+                        term={
+                          backup.status === "running"
+                            ? "Elapsed"
+                            : "Total run time"
+                        }
+                      >
                         {formatDuration(backup.durationMs)}
                       </Fact>
                       <Fact term="Next scheduled">
                         {!backup.enabled ? (
                           "Paused"
+                        ) : backup.status === "running" && !backup.nextRunAt ? (
+                          "Timer active · running now"
                         ) : (
                           <Time value={backup.nextRunAt} />
                         )}
                       </Fact>
                     </dl>
+                    {backup.runSummary ? (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        {backup.runSummary}
+                      </p>
+                    ) : null}
                   </article>
                 ))}
               </div>

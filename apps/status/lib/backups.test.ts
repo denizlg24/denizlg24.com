@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   backupEvidence,
   backupHealth,
+  backupRunSummary,
   backupStateLabel,
   formatBytes,
 } from "./backups";
@@ -30,6 +31,21 @@ const backup: Backup = {
 };
 
 describe("backup evidence", () => {
+  test("an empty R2 copy is distinguished from transferring a snapshot", () => {
+    const copy: Backup = {
+      ...backup,
+      job: "r2-sync",
+      detail: 'DR_STATUS {"phase":"completed","snapshotsCopied":0}',
+    };
+    expect(backupStateLabel(copy, now)).toBe("Up to date · no new snapshots");
+    expect(backupRunSummary(copy)).toContain(
+      "no new snapshots were transferred",
+    );
+    expect(backupRunSummary({ ...copy, detail: null })).not.toContain(
+      "no new snapshots",
+    );
+    expect(backupRunSummary(backup)).toContain("capture data");
+  });
   test("fresh polling does not make old recovery data current", () => {
     const stale = {
       ...backup,

@@ -42,7 +42,7 @@ import { Loading, SectionHeading } from "@/components/shell";
 import { Time } from "@/components/time";
 import { adminSession } from "@/lib/auth";
 import { backupStateLabel } from "@/lib/backups";
-import { catalog } from "@/lib/catalog";
+import { catalog, drJobs } from "@/lib/catalog";
 import {
   orderedGroups,
   resolveServices,
@@ -479,7 +479,12 @@ async function Body({
               <Disclosure
                 key={backup.id}
                 id={backup.id}
-                summary={<span className="truncate">{backup.name}</span>}
+                summary={
+                  <span className="truncate">
+                    {drJobs.find((job) => job.id === backup.id)?.name ??
+                      backup.name}
+                  </span>
+                }
                 note={backupStateLabel(backup, Date.now())}
               >
                 <p className="text-xs text-muted-foreground">
@@ -544,7 +549,11 @@ async function Body({
           {runs.map((run) => (
             <Disclosure
               key={run._id}
-              summary={<span className="truncate">{run.name}</span>}
+              summary={
+                <span className="truncate">
+                  {drJobs.find((job) => job.id === run.id)?.name ?? run.name}
+                </span>
+              }
               note={
                 <>
                   <Time value={run.startedAt} /> · {run.status}

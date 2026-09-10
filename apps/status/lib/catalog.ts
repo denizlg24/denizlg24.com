@@ -106,13 +106,13 @@ export const appOrigins: Record<string, string> = {
 export const drJobs = [
   {
     id: "dr:pi:backup",
-    name: "Pi · verified snapshot",
+    name: "Pi · backup & verification",
     profile: "pi",
     job: "backup",
   },
   {
     id: "dr:forge:backup",
-    name: "Forge · verified snapshot",
+    name: "Forge · backup & verification",
     profile: "forge",
     job: "backup",
   },

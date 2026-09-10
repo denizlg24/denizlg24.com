@@ -1,5 +1,5 @@
 import { cacheLife, cacheTag } from "next/cache";
-import { backupHealth } from "./backups";
+import { backupHealth, backupRunSummary } from "./backups";
 import { catalog, drJobs } from "./catalog";
 import {
   emptyConfig,
@@ -102,7 +102,7 @@ export async function publicData() {
   });
   const backups = (result?.backups ?? []).map((backup) => ({
     id: backup.id,
-    name: backup.name,
+    name: drJobs.find((job) => job.id === backup.id)?.name ?? backup.name,
     provider: backup.provider,
     status: backup.status,
     health: backupHealth(backup, now),
@@ -112,7 +112,12 @@ export async function publicData() {
     completedAt: backup.completedAt,
     lastSuccessAt: backup.lastSuccessAt,
     nextRunAt: backup.nextRunAt,
-    durationMs: backup.durationMs,
+    durationMs:
+      backup.durationMs ??
+      (backup.status === "running" && backup.startedAt
+        ? Math.max(0, now - Date.parse(backup.startedAt))
+        : null),
+    runSummary: backupRunSummary(backup),
   }));
   for (const job of drJobs)
     if (!backups.some((backup) => backup.id === job.id))
@@ -129,6 +134,7 @@ export async function publicData() {
         lastSuccessAt: null,
         nextRunAt: null,
         durationMs: null,
+        runSummary: null,
       });
   return {
     at: result?.snapshot?.at ?? null,

@@ -1,4 +1,4 @@
-import { backupEvidence, formatBytes } from "@/lib/backups";
+import { backupEvidence, backupRunSummary, formatBytes } from "@/lib/backups";
 import { formatDuration } from "@/lib/data";
 import type { Backup } from "@/lib/model";
 import { Time } from "./time";
@@ -9,7 +9,7 @@ export function BackupFacts({ backup }: { backup: Backup }) {
   const values = [
     ["Phase", evidence.phase?.replaceAll("-", " ") ?? "Not reported"],
     [
-      "Duration",
+      "Total run time",
       formatDuration(
         backup.durationMs ??
           (backup.status === "running" && backup.startedAt
@@ -47,6 +47,9 @@ export function BackupFacts({ backup }: { backup: Backup }) {
   ];
   return (
     <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {backupRunSummary(backup)}
+      </p>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
         {values.map(([label, value]) => (
           <div key={label}>

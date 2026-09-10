@@ -72,7 +72,27 @@ export function backupStateLabel(backup: Backup, now: number) {
   if (health === "degraded")
     return backup.status === "running" ? "Running too long" : "Overdue";
   if (backupEvidence(backup.detail).phase === "skipped") return "Skipped";
+  if (
+    backup.status === "completed" &&
+    backup.job === "r2-sync" &&
+    backupEvidence(backup.detail).snapshotsCopied === 0
+  )
+    return "Up to date · no new snapshots";
   return backup.status;
+}
+
+export function backupRunSummary(backup: Backup) {
+  const evidence = backupEvidence(backup.detail);
+  if (evidence.phase === "skipped")
+    return "This run was skipped; no backup data was copied.";
+  if (backup.job === "backup")
+    return "Total time to capture data, verify it, and publish the local snapshot.";
+  if (backup.job === "r2-sync") {
+    if (backup.status === "completed" && evidence.snapshotsCopied === 0)
+      return "R2 was already up to date. This run checked existing copies; no new snapshots were transferred.";
+    return "Time to copy new snapshots to R2 and confirm offsite publication.";
+  }
+  return null;
 }
 
 export function formatBytes(value: number | null | undefined) {
