@@ -65,6 +65,7 @@ private struct Options {
 private enum MenuBarError: LocalizedError {
   case usage
   case commandUnavailable
+  case responsibilityUnavailable
 
   var errorDescription: String? {
     switch self {
@@ -72,8 +73,74 @@ private enum MenuBarError: LocalizedError {
       "usage: dr-menubar --command PATH --config PATH --source ssh|r2 --interval SECONDS --schedule-enabled true|false --log-root PATH --state PATH"
     case .commandUnavailable:
       "The installed DR command is unavailable. Re-run the Mac DR installer."
+    case .responsibilityUnavailable:
+      "macOS would not let the copy run under its own privacy identity, so iCloud Drive would refuse it."
     }
   }
+}
+
+private typealias DisclaimResponsibility =
+  @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+
+private let disclaimResponsibility: DisclaimResponsibility? = {
+  // RTLD_DEFAULT from dlfcn.h, which Swift cannot import as a macro.
+  let searchEverywhere = UnsafeMutableRawPointer(bitPattern: -2)
+  guard let symbol = dlsym(searchEverywhere, "responsibility_spawnattrs_setdisclaim") else {
+    return nil
+  }
+  return unsafeBitCast(symbol, to: DisclaimResponsibility.self)
+}()
+
+/// Copies have to answer macOS privacy checks as themselves. Spawned as plain
+/// children, their iCloud Drive access is judged against this menu bar app,
+/// which holds no grant and could not keep one: every install re-signs it ad
+/// hoc. Downloads keep the app's identity, since the folder the user picked in
+/// its open panel was consented to by the app.
+private func spawn(
+  _ executable: URL, arguments: [String], output: FileHandle, disclaimingResponsibility: Bool
+) throws -> pid_t {
+  var actions: posix_spawn_file_actions_t?
+  posix_spawn_file_actions_init(&actions)
+  defer { posix_spawn_file_actions_destroy(&actions) }
+  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+  posix_spawn_file_actions_adddup2(&actions, output.fileDescriptor, STDOUT_FILENO)
+  posix_spawn_file_actions_adddup2(&actions, output.fileDescriptor, STDERR_FILENO)
+
+  var attributes: posix_spawnattr_t?
+  posix_spawnattr_init(&attributes)
+  defer { posix_spawnattr_destroy(&attributes) }
+  var defaultSignals = sigset_t()
+  sigfillset(&defaultSignals)
+  var unblockedSignals = sigset_t()
+  sigemptyset(&unblockedSignals)
+  posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
+  posix_spawnattr_setsigmask(&attributes, &unblockedSignals)
+  posix_spawnattr_setflags(
+    &attributes,
+    Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
+  if disclaimingResponsibility {
+    guard let disclaimResponsibility, disclaimResponsibility(&attributes, 1) == 0 else {
+      throw MenuBarError.responsibilityUnavailable
+    }
+  }
+
+  let argv = ([executable.path] + arguments).map { strdup($0) }
+  defer { for argument in argv { free(argument) } }
+  var pid: pid_t = 0
+  let result = posix_spawn(&pid, executable.path, &actions, &attributes, argv + [nil], environ)
+  guard result == 0 else {
+    throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO)
+  }
+  return pid
+}
+
+private func waitForExit(_ pid: pid_t) -> Int32 {
+  var status: Int32 = 0
+  while waitpid(pid, &status, 0) == -1 {
+    guard errno == EINTR else { return -1 }
+  }
+  let signal = status & 0x7f
+  return signal == 0 ? (status >> 8) & 0xff : 128 + signal
 }
 
 private final class RunningJob {
@@ -82,17 +149,13 @@ private final class RunningJob {
   let profile: Profile
   let command: String
   let startedAt = Date()
-  let process: Process
   let log: FileHandle
   let logURL: URL
 
-  init(
-    title: String, profile: Profile, command: String, process: Process, log: FileHandle, logURL: URL
-  ) {
+  init(title: String, profile: Profile, command: String, log: FileHandle, logURL: URL) {
     self.title = title
     self.profile = profile
     self.command = command
-    self.process = process
     self.log = log
     self.logURL = logURL
   }
@@ -314,28 +377,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
       FileManager.default.createFile(
         atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
       let handle = try FileHandle(forWritingTo: logURL)
-      let process = Process()
-      process.executableURL = options.command
-      process.arguments = arguments
-      process.environment = ProcessInfo.processInfo.environment
-      process.standardOutput = handle
-      process.standardError = handle
+      let pid: pid_t
+      do {
+        pid = try spawn(
+          options.command, arguments: arguments, output: handle,
+          disclaimingResponsibility: command == "cycle")
+      } catch {
+        try? handle.close()
+        throw error
+      }
       let job = RunningJob(
-        title: title,
-        profile: profile,
-        command: command,
-        process: process,
-        log: handle,
-        logURL: logURL
-      )
-      process.terminationHandler = { [weak self, weak job] process in
+        title: title, profile: profile, command: command, log: handle, logURL: logURL)
+      DispatchQueue.global(qos: .utility).async { [weak self] in
+        let status = waitForExit(pid)
         DispatchQueue.main.async {
-          guard let self, let job else { return }
-          self.finish(
-            job: job, status: process.terminationStatus, contributesReport: contributesReport)
+          self?.finish(job: job, status: status, contributesReport: contributesReport)
         }
       }
-      try process.run()
       activeJobs[job.id] = job
       if contributesReport {
         let lastSuccess = report["lastSuccessAt"] ?? NSNull()
