@@ -1,22 +1,41 @@
 import { Kbd, KbdGroup } from "@repo/ui/kbd";
 import { PageHeader } from "@repo/ui/page-header";
 import { LayoutDashboard } from "lucide-react";
-import type { Metadata } from "next";
-import { forbidden } from "next/navigation";
+import type { Metadata, Viewport } from "next";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { getAdminSession } from "@/lib/require-admin";
+import { requireAdminPage } from "@/lib/require-admin";
 import { CalendarPreloader } from "./_components/calendar-preloader";
 import { WebAgentLauncher } from "./_components/web-agent-launcher";
+import {
+  DASHBOARD_APP_NAME,
+  DASHBOARD_APP_SCOPE,
+  DASHBOARD_APP_THEME_COLOR,
+  dashboardAppIcons,
+} from "./pwa-config";
 
 export const metadata: Metadata = {
   title: "Dashboard",
-  manifest: "/admin/dashboard/manifest.webmanifest",
+  manifest: `${DASHBOARD_APP_SCOPE}/manifest.webmanifest`,
   appleWebApp: {
     capable: true,
-    title: "Deniz Dashboard",
+    title: DASHBOARD_APP_NAME,
     statusBarStyle: "default",
   },
+  icons: {
+    apple: [
+      {
+        url: dashboardAppIcons.appleTouch,
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: DASHBOARD_APP_THEME_COLOR,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({
@@ -24,11 +43,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await getAdminSession();
-
-  if (!session) {
-    forbidden();
-  }
+  await requireAdminPage(DASHBOARD_APP_SCOPE);
 
   return (
     <SidebarProvider>

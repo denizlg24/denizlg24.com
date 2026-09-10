@@ -8,15 +8,23 @@ const connectDBMock = mock(async () => {});
 const forbiddenMock = mock((): never => {
   throw new Error("FORBIDDEN");
 });
+const redirectMock = mock((url: string): never => {
+  throw new Error(`REDIRECT ${url}`);
+});
 
 mock.module("@/models/ApiKey", () => ({ default: { findOne: findOneMock } }));
 mock.module("@/lib/get-server-session", () => ({
   getServerSession: getServerSessionMock,
 }));
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
-mock.module("next/navigation", () => ({ forbidden: forbiddenMock }));
+mock.module("next/navigation", () => ({
+  forbidden: forbiddenMock,
+  redirect: redirectMock,
+}));
 
-const { requireAdmin, getAdminSession } = await import("./require-admin");
+const { requireAdmin, getAdminSession, requireAdminPage } = await import(
+  "./require-admin"
+);
 
 function buildRequest(authorization?: string): NextRequest {
   const headers = new Headers();
@@ -39,6 +47,7 @@ beforeEach(() => {
   forbiddenMock.mockImplementation((): never => {
     throw new Error("FORBIDDEN");
   });
+  redirectMock.mockClear();
 });
 
 describe("requireAdmin", () => {
@@ -118,5 +127,39 @@ describe("getAdminSession", () => {
 
     expect(result).toBeNull();
     expect(forbiddenMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("requireAdminPage", () => {
+  test("admin session is returned", async () => {
+    getServerSessionMock.mockResolvedValue({
+      user: { emailVerified: true, role: "admin" },
+    });
+
+    const session = await requireAdminPage("/admin/dashboard");
+
+    expect(session.user.role).toBe("admin");
+    expect(redirectMock).not.toHaveBeenCalled();
+    expect(forbiddenMock).not.toHaveBeenCalled();
+  });
+
+  test("signed-out load is sent to login and back", async () => {
+    getServerSessionMock.mockResolvedValue(null);
+
+    await expect(requireAdminPage("/admin/dashboard")).rejects.toThrow(
+      "REDIRECT /auth/login?callbackUrl=%2Fadmin%2Fdashboard",
+    );
+    expect(forbiddenMock).not.toHaveBeenCalled();
+  });
+
+  test("non-admin session is forbidden rather than looped through login", async () => {
+    getServerSessionMock.mockResolvedValue({
+      user: { emailVerified: true, role: "user" },
+    });
+
+    await expect(requireAdminPage("/admin/dashboard")).rejects.toThrow(
+      "FORBIDDEN",
+    );
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 });
