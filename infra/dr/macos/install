@@ -7,13 +7,19 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/common.sh
 source "${script_dir}/../lib/common.sh"
 config=""
+sync_source=ssh
 while (($#)); do
-  case "$1" in --config) config="${2:-}"; shift 2 ;; *) echo "Usage: install --config FILE" >&2; exit 2 ;; esac
+  case "$1" in
+    --config) config="${2:-}"; shift 2 ;;
+    --source) sync_source="${2:-}"; shift 2 ;;
+    *) echo "Usage: install --config FILE [--source ssh|r2]" >&2; exit 2 ;;
+  esac
 done
+[[ "$sync_source" == ssh || "$sync_source" == r2 ]] || dr_die "source must be ssh or r2"
 [[ "$(uname -s)" == Darwin ]] || { echo "STOP: macOS is required" >&2; exit 1; }
 [[ "$config" == /* && -f "$config" && ! -L "$config" ]] \
   || { echo "STOP: config must be an absolute path to a regular, non-symlink file" >&2; exit 1; }
-[[ "$config" != *[$'\r\n\\<>&']* ]] || { echo "STOP: config path is unsafe for launchd XML" >&2; exit 1; }
+[[ "$config" != *[$'\r\n\\<>&"`$']* ]] || { echo "STOP: config path is unsafe for launchd/command installation" >&2; exit 1; }
 mode="$(stat -f '%Lp' "$config")"
 [[ "$mode" == 600 || "$mode" == 400 ]] || { echo "STOP: config must be mode 0600 or 0400" >&2; exit 1; }
 # The directories these commands were actually found in become the agent's
@@ -24,7 +30,7 @@ mode="$(stat -f '%Lp' "$config")"
 # where it matters — the cycle is the only thing that copies a backup offsite,
 # so the first sign would have been the 12h iCloud heartbeat going off.
 declared_path_dirs=()
-for required_command in swiftc plutil launchctl jq ssh scp restic ssh-keygen curl find git tar zstd; do
+for required_command in python3 swiftc plutil launchctl jq ssh scp restic ssh-keygen curl find git tar zstd; do
   resolved="$(command -v "$required_command" 2>/dev/null)" \
     || { echo "STOP: required Mac recovery command is missing: ${required_command}" >&2; exit 1; }
   [[ "$resolved" == /* ]] \
@@ -50,12 +56,14 @@ log_root="${HOME}/Library/Logs/deniz-dr"
 plist="${HOME}/Library/LaunchAgents/com.denizlg24.dr-sync.plist"
 launch_agents="$(dirname "$plist")"
 for managed_root in "$install_root" "$log_root" "$launch_agents"; do
-  [[ "$managed_root" == /* && "$managed_root" != / && "$managed_root" != */ && "$managed_root" != *[$'\r\n\\<>&']* ]] \
+  [[ "$managed_root" == /* && "$managed_root" != / && "$managed_root" != */ && "$managed_root" != *[$'\r\n\\<>&"`$']* ]] \
     || dr_die "unsafe Mac installation path: ${managed_root}"
   dr_assert_managed_directory_path "$managed_root" "$managed_root"
 done
 for target in \
-  "$install_root/macos/dr-sync" "$install_root/lib/common.sh" "$install_root/macos/dr-icloud-state" "$plist"; do
+  "$install_root/macos/dr-sync" "$install_root/macos/dr-r2" \
+  "$install_root/lib/r2-object" "$install_root/lib/r2_catalog.py" "$install_root/lib/r2_bridge.py" \
+  "$install_root/lib/common.sh" "$install_root/macos/dr-icloud-state" "$plist"; do
   [[ ! -L "$target" ]] || dr_die "refusing to replace a symlinked Mac installation target: ${target}"
 done
 dr_assert_managed_directory_path "$install_root" "$install_root/macos"
@@ -71,6 +79,9 @@ dr_assert_managed_directory_path "$install_root" "$install_root/macos"
 dr_assert_managed_directory_path "$install_root" "$install_root/lib"
 dr_assert_managed_directory_path "$install_root" "$install_root/schemas"
 install -m 0700 "$script_dir/dr-sync" "$install_root/macos/dr-sync"
+install -m 0700 "$script_dir/dr-r2" "$install_root/macos/dr-r2"
+install -m 0700 "$script_dir/../lib/r2-object" "$install_root/lib/r2-object"
+install -m 0600 "$script_dir/../lib/r2_catalog.py" "$script_dir/../lib/r2_bridge.py" "$install_root/lib/"
 install -m 0600 "$script_dir/../lib/common.sh" "$install_root/lib/common.sh"
 install -m 0600 "$script_dir/../schemas/"*.json "$install_root/schemas/"
 binary_tmp="$(mktemp "$install_root/macos/dr-icloud-state.XXXXXX")"
@@ -83,12 +94,41 @@ escaped_config="${config//&/\\&}"; escaped_config="${escaped_config//|/\\|}"
 escaped_log="${log_root//&/\\&}"; escaped_log="${escaped_log//|/\\|}"
 escaped_agent_path="${agent_path//&/\\&}"; escaped_agent_path="${escaped_agent_path//|/\\|}"
 plist_tmp="$(mktemp "${launch_agents}/com.denizlg24.dr-sync.XXXXXX.plist")"
+sync_command=dr-sync
+[[ "$sync_source" != r2 ]] || sync_command=dr-r2
 sed -e "s|__INSTALL_ROOT__|$escaped_install|g" -e "s|__CONFIG_PATH__|$escaped_config|g" -e "s|__LOG_ROOT__|$escaped_log|g" \
   -e "s|__AGENT_PATH__|$escaped_agent_path|g" \
+  -e "s|__SYNC_COMMAND__|$sync_command|g" \
   "$script_dir/com.denizlg24.dr-sync.plist.in" > "$plist_tmp"
 plutil -lint "$plist_tmp" >/dev/null
+if [[ "$sync_source" == r2 && -f "$plist" ]]; then
+  # Keep the installed status wrapper when upgrading the R2 bridge runtime.
+  python3 - "$plist" "$plist_tmp" <<'PY'
+import plistlib
+import sys
+with open(sys.argv[1], "rb") as stream:
+    previous = plistlib.load(stream)
+if "--icloud-cycle" in previous.get("ProgramArguments", []):
+    with open(sys.argv[2], "rb") as stream:
+        current = plistlib.load(stream)
+    current["ProgramArguments"] = previous["ProgramArguments"]
+    with open(sys.argv[2], "wb") as stream:
+        plistlib.dump(current, stream)
+PY
+fi
 mv -f -- "$plist_tmp" "$plist"
 chmod 0600 "$plist"
 launchctl bootout "gui/$(id -u)/com.denizlg24.dr-sync" >/dev/null 2>&1 || true
+launchctl enable "gui/$(id -u)/com.denizlg24.dr-sync"
 launchctl bootstrap "gui/$(id -u)" "$plist"
+bin_root="${HOME}/.local/bin"
+dr_assert_managed_directory_path "$bin_root" "$bin_root"
+[[ ! -L "$bin_root/dr-backups" ]] || dr_die "refusing a symlinked dr-backups command"
+install -d -m 0755 "$bin_root"
+command_tmp="$(mktemp "$bin_root/.dr-backups.XXXXXX")"
+sed -e "s|__INSTALL_ROOT__|$escaped_install|g" -e "s|__CONFIG_PATH__|$escaped_config|g" \
+  "$script_dir/dr-backups.in" > "$command_tmp"
+chmod 0700 "$command_tmp"
+mv -f -- "$command_tmp" "$bin_root/dr-backups"
 printf 'Installed hourly DR sync: %s\n' "$plist"
+printf 'Installed download/status command: %s/dr-backups\n' "$bin_root"

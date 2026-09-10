@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec "__INSTALL_ROOT__/macos/dr-r2" --config "__CONFIG_PATH__" "$@"

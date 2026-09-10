@@ -284,7 +284,10 @@ class Agent:
         started = time.monotonic()
         try:
             with (self.state / "icloud.log").open("w") as log:
-                result = subprocess.run([str(executable), "--config", str(config), "cycle"], stdout=log, stderr=subprocess.STDOUT, timeout=5 * 3600)
+                timeout = int(self.config.get("icloudCycleTimeoutSeconds", 5 * 3600))
+                if not 3600 <= timeout <= 48 * 3600:
+                    raise ValueError("iCloud cycle timeout must be between one and 48 hours")
+                result = subprocess.run([str(executable), "--config", str(config), "cycle"], stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
             status = result.returncode
         except Exception:
             status = 1

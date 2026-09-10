@@ -6,7 +6,7 @@
   <string>com.denizlg24.dr-sync</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__INSTALL_ROOT__/macos/dr-sync</string>
+    <string>__INSTALL_ROOT__/macos/__SYNC_COMMAND__</string>
     <string>--config</string>
     <string>__CONFIG_PATH__</string>
     <string>cycle</string>

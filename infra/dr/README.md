@@ -31,7 +31,7 @@ a partial recovery never interrupts the surviving side.
 | `recover`, `remote/` | Preflight, target bootstrap and per-profile restore |
 | `cutover`, `rollback` | Public traffic and backup-ownership transfer, and its reverse |
 | `rehearse` | The two live rehearsal exercises and their signed evidence |
-| `macos/` | The optional Mac bridge that mirrors repositories into iCloud |
+| [`macos/`](macos/README.md) | The optional R2/SSH → iCloud bridge and on-demand encrypted download command |
 | `opentofu/` | Reviewed DNS, tailnet policy and monitoring contracts |
 | `schemas/` | JSON schemas for manifests, evidence and recovery reports |
 | `config/` | Capture allowlists and the recovery package baseline |

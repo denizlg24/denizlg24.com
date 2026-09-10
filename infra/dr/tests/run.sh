@@ -26,6 +26,7 @@ for script in \
   "$dr_root"/status \
   "$dr_root"/weekly-alert-test \
   "$dr_root"/macos/dr-sync \
+  "$dr_root"/macos/dr-r2 \
   "$dr_root"/macos/install \
   "$dr_root"/macos/uninstall \
   "$dr_root"/providers/hetzner \
@@ -43,6 +44,7 @@ for script in \
 done
 
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2_bridge.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_backup_inventory.py'
 python3 -m unittest discover -s "$root/infra/status" -p 'test_*.py'
 bun "$dr_root/tests/validate-schemas.ts"

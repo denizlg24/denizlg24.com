@@ -3,6 +3,7 @@ import Foundation
 enum Command: String {
     case waitUploaded = "wait-uploaded"
     case hydrate
+    case evict
 }
 
 func fail(_ message: String) -> Never {
@@ -12,7 +13,7 @@ func fail(_ message: String) -> Never {
 
 guard CommandLine.arguments.count >= 3,
       let command = Command(rawValue: CommandLine.arguments[1]) else {
-    fail("usage: dr-icloud-state wait-uploaded|hydrate PATH [TIMEOUT_SECONDS]")
+    fail("usage: dr-icloud-state wait-uploaded|hydrate|evict PATH [TIMEOUT_SECONDS]")
 }
 
 let path = CommandLine.arguments[2]
@@ -79,6 +80,14 @@ while Date() < deadline {
         }
 
         switch command {
+        case .evict:
+            // Evict only a confirmed remote copy. This releases local blocks;
+            // it does not delete the object from iCloud Drive.
+            if values.ubiquitousItemIsUploaded == true {
+                if values.ubiquitousItemDownloadingStatus == .notDownloaded { exit(0) }
+                try FileManager.default.evictUbiquitousItem(at: probe)
+                exit(0)
+            }
         case .waitUploaded:
             if values.ubiquitousItemIsUploaded == true { exit(0) }
         case .hydrate:

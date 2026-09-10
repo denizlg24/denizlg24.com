@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+source "$script_dir/../lib/common.sh"
+config="${DR_SYNC_CONFIG:-${HOME}/.config/deniz-dr/config.env}"
+if [[ "${1:-}" == --config ]]; then config="${2:?config path required}"; shift 2; fi
+dr_require_private_file "$config"
+set -a
+# shellcheck disable=SC1090
+source "$config"
+set +a
+exec python3 "$script_dir/../lib/r2_bridge.py" "$@"
