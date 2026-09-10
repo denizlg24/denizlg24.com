@@ -55,6 +55,29 @@ install_root="${HOME}/Library/Application Support/deniz-dr"
 log_root="${HOME}/Library/Logs/deniz-dr"
 plist="${HOME}/Library/LaunchAgents/com.denizlg24.dr-sync.plist"
 launch_agents="$(dirname "$plist")"
+# Replacing a loaded legacy job stops its process. On the menu runtime it also
+# orphans any active child copy. Refuse that upgrade window rather than turning
+# an installation into an interrupted seed or download.
+label="gui/$(id -u)/com.denizlg24.dr-sync"
+if [[ -f "$plist" && ! -L "$plist" ]] && launchctl print "$label" 2>/dev/null | grep -Eq '^[[:space:]]*pid = [0-9]+'; then
+  installed_program="$(plutil -extract ProgramArguments.0 raw -o - "$plist" 2>/dev/null || true)"
+  if [[ "$(basename "$installed_program")" != dr-menubar ]]; then
+    dr_die "an existing DR copy is running; wait for it to finish before installing the menu bar app"
+  fi
+  menu_state="$install_root/menubar-state.json"
+  if [[ -f "$menu_state" && ! -L "$menu_state" ]] && python3 - "$menu_state" <<'PY'
+import json
+import sys
+try:
+    state = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if state.get("activeJobs") else 1)
+PY
+  then
+    dr_die "a DR menu task is running; wait for it to finish before reinstalling"
+  fi
+fi
 for managed_root in "$install_root" "$log_root" "$launch_agents"; do
   [[ "$managed_root" == /* && "$managed_root" != / && "$managed_root" != */ && "$managed_root" != *[$'\r\n\\<>&"`$']* ]] \
     || dr_die "unsafe Mac installation path: ${managed_root}"
@@ -63,7 +86,8 @@ done
 for target in \
   "$install_root/macos/dr-sync" "$install_root/macos/dr-r2" \
   "$install_root/lib/r2-object" "$install_root/lib/r2_catalog.py" "$install_root/lib/r2_bridge.py" \
-  "$install_root/lib/common.sh" "$install_root/macos/dr-icloud-state" "$plist"; do
+  "$install_root/lib/common.sh" "$install_root/macos/dr-icloud-state" \
+  "$install_root/macos/dr-menubar" "$plist"; do
   [[ ! -L "$target" ]] || dr_die "refusing to replace a symlinked Mac installation target: ${target}"
 done
 dr_assert_managed_directory_path "$install_root" "$install_root/macos"
@@ -88,6 +112,10 @@ binary_tmp="$(mktemp "$install_root/macos/dr-icloud-state.XXXXXX")"
 swiftc -O "$script_dir/dr-icloud-state.swift" -o "$binary_tmp"
 mv -f -- "$binary_tmp" "$install_root/macos/dr-icloud-state"
 chmod 0700 "$install_root/macos/dr-icloud-state"
+menu_binary_tmp="$(mktemp "$install_root/macos/dr-menubar.XXXXXX")"
+swiftc -O -framework AppKit "$script_dir/dr-menubar.swift" -o "$menu_binary_tmp"
+mv -f -- "$menu_binary_tmp" "$install_root/macos/dr-menubar"
+chmod 0700 "$install_root/macos/dr-menubar"
 
 escaped_install="${install_root//&/\\&}"; escaped_install="${escaped_install//|/\\|}"
 escaped_config="${config//&/\\&}"; escaped_config="${escaped_config//|/\\|}"
@@ -99,23 +127,9 @@ sync_command=dr-sync
 sed -e "s|__INSTALL_ROOT__|$escaped_install|g" -e "s|__CONFIG_PATH__|$escaped_config|g" -e "s|__LOG_ROOT__|$escaped_log|g" \
   -e "s|__AGENT_PATH__|$escaped_agent_path|g" \
   -e "s|__SYNC_COMMAND__|$sync_command|g" \
+  -e "s|__SYNC_SOURCE__|$sync_source|g" \
   "$script_dir/com.denizlg24.dr-sync.plist.in" > "$plist_tmp"
 plutil -lint "$plist_tmp" >/dev/null
-if [[ "$sync_source" == r2 && -f "$plist" ]]; then
-  # Keep the installed status wrapper when upgrading the R2 bridge runtime.
-  python3 - "$plist" "$plist_tmp" <<'PY'
-import plistlib
-import sys
-with open(sys.argv[1], "rb") as stream:
-    previous = plistlib.load(stream)
-if "--icloud-cycle" in previous.get("ProgramArguments", []):
-    with open(sys.argv[2], "rb") as stream:
-        current = plistlib.load(stream)
-    current["ProgramArguments"] = previous["ProgramArguments"]
-    with open(sys.argv[2], "wb") as stream:
-        plistlib.dump(current, stream)
-PY
-fi
 mv -f -- "$plist_tmp" "$plist"
 chmod 0600 "$plist"
 launchctl bootout "gui/$(id -u)/com.denizlg24.dr-sync" >/dev/null 2>&1 || true
@@ -127,8 +141,20 @@ dr_assert_managed_directory_path "$bin_root" "$bin_root"
 install -d -m 0755 "$bin_root"
 command_tmp="$(mktemp "$bin_root/.dr-backups.XXXXXX")"
 sed -e "s|__INSTALL_ROOT__|$escaped_install|g" -e "s|__CONFIG_PATH__|$escaped_config|g" \
+  -e "s|__LOG_ROOT__|$escaped_log|g" \
   "$script_dir/dr-backups.in" > "$command_tmp"
 chmod 0700 "$command_tmp"
 mv -f -- "$command_tmp" "$bin_root/dr-backups"
-printf 'Installed hourly DR sync: %s\n' "$plist"
-printf 'Installed download/status command: %s/dr-backups\n' "$bin_root"
+# Status reporting is installed separately because it needs a bearer token, but
+# an existing installation can be upgraded safely without reading or rewriting
+# that token. Its config defaults to the menu state path introduced here.
+status_agent="${HOME}/Library/Application Support/deniz-status/agent.py"
+if [[ -e "$status_agent" || -L "$status_agent" ]]; then
+  [[ -f "$status_agent" && ! -L "$status_agent" ]] \
+    || dr_die "refusing to replace an unsafe installed status agent"
+  status_agent_tmp="$(mktemp "$(dirname "$status_agent")/.agent.XXXXXX.py")"
+  install -m 0700 "$script_dir/../../status/agent.py" "$status_agent_tmp"
+  mv -f -- "$status_agent_tmp" "$status_agent"
+fi
+printf 'Installed DR menu bar app with hourly copies: %s\n' "$plist"
+printf 'Installed copy/download/status command: %s/dr-backups\n' "$bin_root"

@@ -14,6 +14,25 @@ import r2_bridge as bridge
 
 
 class BridgeTests(unittest.TestCase):
+    def test_copy_locks_are_independent_by_profile_and_download_target(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work).resolve()
+            state = root / "state"
+            state.mkdir()
+            pi = bridge.operation_lock_paths(state, "cycle", ("pi",))
+            forge = bridge.operation_lock_paths(state, "cycle", ("forge",))
+            self.assertNotEqual(pi, forge)
+            with bridge.operation_locks(pi), bridge.operation_locks(forge):
+                with self.assertRaisesRegex(ValueError, "already have a copy running"):
+                    with bridge.operation_locks(pi):
+                        pass
+
+            disk_a = bridge.operation_lock_paths(state, "download", ("pi",), root / "disk-a")
+            disk_b = bridge.operation_lock_paths(state, "download", ("pi",), root / "disk-b")
+            self.assertNotEqual(disk_a, disk_b)
+            with bridge.operation_locks(disk_a), bridge.operation_locks(disk_b):
+                pass
+
     def test_transfer_verifies_bytes_before_upload_and_evicts_only_after_confirmation(self):
         payload = b"encrypted-restic-object"
         name = hashlib.sha256(payload).hexdigest()

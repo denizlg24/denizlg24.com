@@ -240,36 +240,75 @@ class Agent:
     def mac_plist(self):
         return Path.home() / "Library/LaunchAgents/com.denizlg24.dr-sync.plist"
 
+    def mac_menu_state(self):
+        return Path(self.config.get(
+            "drMenuStatePath",
+            str(Path.home() / "Library/Application Support/deniz-dr/menubar-state.json"),
+        ))
+
+    def mac_menu_state_version(self):
+        try:
+            return self.mac_menu_state().stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def mac_menu_active_jobs(self):
+        state = load_json(self.mac_menu_state(), {})
+        jobs = state.get("activeJobs") if isinstance(state, dict) else None
+        return jobs if isinstance(jobs, list) else []
+
+    def start_mac_menu(self, label):
+        # SIGUSR1 terminates the process until its handler is installed, and
+        # the menu writes its state file only once that has happened.
+        previous = self.mac_menu_state_version()
+        command(["launchctl", "kickstart", label])
+        for _ in range(50):
+            if self.mac_menu_state_version() not in (None, previous):
+                return
+            time.sleep(0.1)
+        raise RuntimeError("The DR menu bar app did not start; check its log")
+
     def execute_mac(self, data):
         path = self.mac_plist()
         if not path.exists():
-            raise RuntimeError("Install the iCloud status wrapper first")
+            raise RuntimeError("Install the DR menu bar app first")
         label = f"gui/{os.getuid()}/com.denizlg24.dr-sync"
-        info = command(["launchctl", "print", label], check=False).stdout
-        if re.search(r"^\s*pid = \d+", info, re.M):
-            raise RuntimeError("iCloud is running; wait for completion")
         with path.open("rb") as stream:
             settings = plistlib.load(stream)
-        if "--icloud-cycle" not in settings.get("ProgramArguments", []):
-            raise RuntimeError("Install the reporting wrapper before managing iCloud")
+        arguments = settings.get("ProgramArguments", [])
+        if not arguments or Path(arguments[0]).name != "dr-menubar":
+            raise RuntimeError("Reinstall the DR menu bar app before managing iCloud")
         if data["action"] == "run":
-            command(["launchctl", "kickstart", label])
-            return "iCloud cycle accepted by launchd. Check the run report for completion."
-        settings["StartInterval"] = int(data["schedule"])
-        settings["RunAtLoad"] = False
-        settings["Disabled"] = not data["enabled"]
+            info = command(["launchctl", "print", label], check=False).stdout
+            if not re.search(r"^\s*pid = \d+", info, re.M):
+                self.start_mac_menu(label)
+            command(["launchctl", "kill", "SIGUSR1", label])
+            return "iCloud copy accepted by the menu bar app. Check the run report for completion."
+        if self.mac_menu_active_jobs():
+            # Reloading the job stops the menu process, and launchd takes the
+            # copies it started down with it.
+            raise RuntimeError("A DR menu task is running; wait for it to finish before changing the schedule")
+        try:
+            interval_index = arguments.index("--interval") + 1
+            enabled_index = arguments.index("--schedule-enabled") + 1
+            arguments[interval_index] = str(int(data["schedule"]))
+            arguments[enabled_index] = "true" if data["enabled"] else "false"
+        except (ValueError, IndexError):
+            raise RuntimeError("The DR menu bar launch configuration is incomplete")
+        settings["ProgramArguments"] = arguments
+        settings["Disabled"] = False
         original = path.read_bytes()
         command(["launchctl", "bootout", label], check=False)
         try:
             with path.open("wb") as stream:
                 plistlib.dump(settings, stream)
             command(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)])
-            command(["launchctl", "enable" if data["enabled"] else "disable", label])
+            command(["launchctl", "enable", label])
         except Exception:
             path.write_bytes(original)
             command(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)], check=False)
             raise
-        return "iCloud interval updated."
+        return "iCloud automatic-copy interval updated; the menu bar app remains available."
 
     def icloud_cycle(self):
         path = self.state / "icloud.json"
@@ -308,14 +347,17 @@ class Agent:
             for job in (("icloud",) if self.profile == "mac" else JOBS):
                 try:
                     if job == "icloud":
-                        report = load_json(self.state / "icloud.json")
+                        menu_state = load_json(self.mac_menu_state(), {})
+                        report = menu_state.get("report") if isinstance(menu_state, dict) else None
+                        # Old installations wrote the wrapper report here. Keep
+                        # reporting it until the menu bar installer is applied.
+                        if not report:
+                            report = load_json(self.state / "icloud.json")
                         if report:
-                            with self.mac_plist().open("rb") as stream:
-                                settings = plistlib.load(stream)
-                            interval = int(settings.get("StartInterval", 3600))
-                            report["enabled"] = not settings.get("Disabled", False)
-                            report["schedule"] = str(interval)
-                            report["nextRunAt"] = None  # launchd does not expose an exact next-run timestamp.
+                            if menu_state:
+                                report["enabled"] = bool(menu_state.get("scheduleEnabled", True))
+                                report["schedule"] = str(menu_state.get("intervalSeconds", 3600))
+                                report["nextRunAt"] = menu_state.get("nextRunAt")
                             self.post({"type": "report", "report": report})
                     else:
                         self.report_linux(job)

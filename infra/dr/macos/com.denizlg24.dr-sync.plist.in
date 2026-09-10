@@ -6,17 +6,34 @@
   <string>com.denizlg24.dr-sync</string>
   <key>ProgramArguments</key>
   <array>
+    <string>__INSTALL_ROOT__/macos/dr-menubar</string>
+    <string>--command</string>
     <string>__INSTALL_ROOT__/macos/__SYNC_COMMAND__</string>
     <string>--config</string>
     <string>__CONFIG_PATH__</string>
-    <string>cycle</string>
+    <string>--source</string>
+    <string>__SYNC_SOURCE__</string>
+    <string>--interval</string>
+    <string>3600</string>
+    <string>--schedule-enabled</string>
+    <string>true</string>
+    <string>--log-root</string>
+    <string>__LOG_ROOT__</string>
+    <string>--state</string>
+    <string>__INSTALL_ROOT__/menubar-state.json</string>
   </array>
-  <key>StartInterval</key>
-  <integer>3600</integer>
   <key>RunAtLoad</key>
   <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <!-- Restart after a crash, while allowing Quit DR Backups to stay quit. -->
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Interactive</string>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
   <!-- launchd would otherwise start this with /usr/bin:/bin:/usr/sbin:/sbin,
        which on a Mac with Homebrew tooling has no restic, jq or zstd. The
        installer writes the directories it actually resolved each required
@@ -27,8 +44,8 @@
     <string>__AGENT_PATH__</string>
   </dict>
   <key>StandardOutPath</key>
-  <string>__LOG_ROOT__/dr-sync.log</string>
+  <string>__LOG_ROOT__/dr-menubar.log</string>
   <key>StandardErrorPath</key>
-  <string>__LOG_ROOT__/dr-sync.error.log</string>
+  <string>__LOG_ROOT__/dr-menubar.error.log</string>
 </dict>
 </plist>

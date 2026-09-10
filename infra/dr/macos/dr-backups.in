@@ -1,2 +1,30 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
+case "${1:-}" in
+  -h|--help|help)
+    cat <<'EOF'
+Usage: dr-backups COMMAND [OPTIONS]
+
+Commands:
+  status                    Show Pi and Forge copy progress
+  run|copy [--profile P]    Copy all, pi, or forge to iCloud now
+  download [OPTIONS]        Download and verify an encrypted recovery copy
+  menu                      Reopen the menu bar app after Quit
+  logs                      Open the menu bar and task log directory
+EOF
+    exit
+    ;;
+  run|copy)
+    shift
+    set -- cycle "$@"
+    ;;
+  menu)
+    launchctl kickstart "gui/$(id -u)/com.denizlg24.dr-sync"
+    exit
+    ;;
+  logs)
+    open "__LOG_ROOT__"
+    exit
+    ;;
+esac
 exec "__INSTALL_ROOT__/macos/dr-r2" --config "__CONFIG_PATH__" "$@"

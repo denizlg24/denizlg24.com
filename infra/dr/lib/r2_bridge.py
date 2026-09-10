@@ -8,6 +8,7 @@ are published only after all repository data has a confirmed File Provider uploa
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime as dt
 import fcntl
@@ -60,6 +61,48 @@ def atomic(path, payload):
 
 def json_write(path, data):
     atomic(path, json.dumps(data, sort_keys=True, indent=2).encode())
+
+
+def operation_lock_paths(state_root, command, profiles, destination=None):
+    """Return the resources this operation must own.
+
+    Per-profile locks let Pi and Forge copies run independently. Download locks
+    also include the normalized destination, so a second recovery disk can be
+    populated without allowing two writers into the same repository.
+    """
+    if command == "cycle":
+        return [safe_path(state_root / f"cycle-{profile}.lock") for profile in sorted(profiles)]
+    if destination is None:
+        raise ValueError("download lock requires a destination")
+    normalized = str(safe_path(destination).absolute())
+    destination_id = hashlib.sha256(normalized.encode()).hexdigest()[:16]
+    return [
+        safe_path(state_root / f"download-{profile}-{destination_id}.lock")
+        for profile in sorted(profiles)
+    ]
+
+
+@contextmanager
+def operation_locks(paths):
+    locks = []
+    try:
+        for path in paths:
+            lock = path.open("a")
+            locks.append(lock)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise ValueError(
+                    "this profile and destination already have a copy running; "
+                    "use dr-backups status or choose another destination"
+                ) from error
+        yield
+    finally:
+        for lock in reversed(locks):
+            try:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            finally:
+                lock.close()
 
 
 def digest(path):
@@ -281,12 +324,13 @@ def main():
             state = json.loads(path.read_text()) if path.exists() else {"phase": "not-started"}
             print(json.dumps({"host": HOSTS[profile], **{k: v for k, v in state.items() if k != "objects"}}))
         return
-    lock_path = safe_path(state_root / ("cycle.lock" if args.command == "cycle" else "download.lock"))
-    with lock_path.open("a") as lock, tempfile.TemporaryDirectory(prefix="dr-r2-bridge-") as temporary:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ValueError("another copy is already running; use dr-backups status")
+    lock_paths = operation_lock_paths(
+        state_root,
+        args.command,
+        profiles,
+        args.destination if args.command == "download" else None,
+    )
+    with operation_locks(lock_paths), tempfile.TemporaryDirectory(prefix="dr-r2-bridge-") as temporary:
         if args.command == "download":
             # Pi first is the existing signed pair-selection contract.
             ordered = ("pi", "forge") if args.profile == "all" else profiles

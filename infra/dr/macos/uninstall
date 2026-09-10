@@ -6,7 +6,7 @@ launchctl bootout "gui/$(id -u)/com.denizlg24.dr-sync" >/dev/null 2>&1 || true
 if [[ -f "$plist" ]]; then
   trash="${HOME}/.Trash/com.denizlg24.dr-sync.plist.$(date +%Y%m%dT%H%M%S)"
   mv -- "$plist" "$trash"
-  printf 'Launch agent disabled; plist moved to %s\n' "$trash"
+  printf 'DR menu bar app disabled; launch plist moved to %s\n' "$trash"
 else
-  printf 'Launch agent is not installed. Cached backups were not removed.\n'
+  printf 'DR menu bar app is not installed. Cached backups were not removed.\n'
 fi

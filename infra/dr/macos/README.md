@@ -1,16 +1,36 @@
 # Mac backup copies
 
-Install the hourly R2 → iCloud bridge and `dr-backups` command:
+Install the R2 → iCloud menu bar app and `dr-backups` command:
 
 ```sh
 infra/dr/macos/install --config /absolute/private/config.env --source r2
 dr-backups status
 ```
 
-The installer explicitly enables the launchd job, including when an earlier
-installation was disabled. It runs at login/load and hourly while the Mac is
-awake. Configuration and signing keys stay outside the repository. The agent
-uses its installed files and Homebrew PATH, so the checkout need not stay open.
+The installer explicitly enables a long-running menu bar process, including
+when an earlier installation was disabled. It appears as an iCloud-drive icon,
+starts in the logged-in Aqua session, and schedules a copy at login and hourly
+while the Mac is awake. Configuration and signing keys stay outside the
+repository. The process uses its installed files and Homebrew PATH, so the
+checkout need not stay open.
+
+The menu shows live Pi and Forge phases. It can start a combined copy, start Pi
+and Forge independently, download a verified encrypted backup to a chosen
+folder, refresh status, and open task logs. Pi and Forge use separate locks, so
+their manual copies can run at the same time. Downloads are locked by profile
+and destination: the same repository cannot have two writers, while copies to
+different recovery disks remain independent.
+
+The command exposes the same operations without the menu:
+
+```sh
+dr-backups run                       # combined iCloud copy now
+dr-backups run --profile pi          # independent Pi copy
+dr-backups run --profile forge       # independent Forge copy
+dr-backups status
+dr-backups menu                      # reopen the menu app after Quit
+dr-backups logs                      # open the log directory
+```
 
 The R2 mode needs Python 3.11+, restic, the existing R2 credentials, per-host
 restic passwords, allowed signers, the Mac completion key, and iCloud heartbeat
@@ -66,9 +86,10 @@ uploaded last. Interrupted cycles retain their checkpoint and retry hourly;
 neither source deletions nor pruning are propagated to iCloud.
 
 The first seed can take hours and needs enough iCloud quota for the complete
-retained R2 repositories. `dr-backups status` reports upload progress; logs are
-in `~/Library/Logs/deniz-dr/`. A successful Forge copy alone does not clear the
-combined iCloud heartbeat. Both profiles must finish with recent source data.
+retained R2 repositories. `dr-backups status` and the menu report upload
+progress; per-task logs are in `~/Library/Logs/deniz-dr/`. A successful Forge
+copy alone does not clear the combined iCloud heartbeat. Both profiles must
+finish with recent source data.
 
 The status-page reporting wrapper is installed separately, with
 `STATUS_AGENT_MAC_TOKEN` loaded into the installer's environment:
@@ -77,10 +98,15 @@ The status-page reporting wrapper is installed separately, with
 python3 infra/status/install-macos.py --dr-config /absolute/private/config.env
 ```
 
-It reports every minute and wraps the hourly cycle. With the wrapper installed,
-the active transfer log is `~/Library/Application Support/deniz-status/icloud.log`.
-R2-runtime upgrades preserve the wrapper. Initial seeds may run for up to 48 hours;
-the status page still warns about runs exceeding its normal five-hour threshold.
+It reports the menu process state every minute and can ask the running app to
+copy now or change its automatic interval. Initial seeds may run for up to 48
+hours; the status page still warns about runs exceeding its normal five-hour
+threshold. Later DR menu upgrades also update an already-installed status
+runtime without reading or replacing its private token.
+
+Re-running the installer restarts an idle menu process. If a legacy copy or a
+menu-started task is active, installation stops before changing files; run it
+again after that task finishes.
 
 For recovery from this independent copy, use Finder's Download Now on the
 required `R2/<host>` directory (on a Mac with sufficient space), copy the hydrated

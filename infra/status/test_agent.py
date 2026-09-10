@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import plistlib
 import tempfile
 from pathlib import Path
 import unittest
@@ -29,6 +30,98 @@ class AgentTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 instance.execute_linux({"job": "backup", "action": "run"})
             execute.assert_not_called()
+
+    def test_mac_run_signals_the_existing_menu_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plist = Path(directory) / "menu.plist"
+            with plist.open("wb") as stream:
+                plistlib.dump({"ProgramArguments": ["/installed/dr-menubar", "--interval", "3600",
+                    "--schedule-enabled", "true"]}, stream)
+            instance = agent.Agent.__new__(agent.Agent)
+            with patch.object(instance, "mac_plist", return_value=plist), \
+                 patch.object(agent, "command", side_effect=[Mock(stdout="\n\tpid = 123\n"), Mock(stdout="")]) as execute:
+                detail = instance.execute_mac({"job": "icloud", "action": "run"})
+            self.assertIn("menu bar app", detail)
+            self.assertEqual(execute.call_args_list[-1].args[0][1:3], ["kill", "SIGUSR1"])
+
+    def test_mac_run_waits_for_a_started_menu_before_signalling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plist = root / "menu.plist"
+            with plist.open("wb") as stream:
+                plistlib.dump({"ProgramArguments": ["/installed/dr-menubar"]}, stream)
+            menu_state = root / "menubar.json"
+            calls = []
+
+            def launchctl(argv, check=True):
+                calls.append(argv[1])
+                if argv[1] == "kickstart":
+                    menu_state.write_text("{}")
+                return Mock(stdout="")
+
+            instance = agent.Agent.__new__(agent.Agent)
+            instance.config = {"drMenuStatePath": str(menu_state)}
+            with patch.object(instance, "mac_plist", return_value=plist), \
+                 patch.object(agent, "command", side_effect=launchctl):
+                instance.execute_mac({"job": "icloud", "action": "run"})
+            self.assertEqual(calls, ["print", "kickstart", "kill"])
+
+    def test_mac_schedule_is_refused_while_a_menu_task_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plist = root / "menu.plist"
+            with plist.open("wb") as stream:
+                plistlib.dump({"ProgramArguments": ["/installed/dr-menubar", "--interval", "3600",
+                    "--schedule-enabled", "true"]}, stream)
+            original = plist.read_bytes()
+            menu_state = root / "menubar.json"
+            menu_state.write_text(json.dumps({"activeJobs": [{"command": "cycle", "profile": "pi"}]}))
+            instance = agent.Agent.__new__(agent.Agent)
+            instance.config = {"drMenuStatePath": str(menu_state)}
+            with patch.object(instance, "mac_plist", return_value=plist), patch.object(agent, "command") as execute:
+                with self.assertRaisesRegex(RuntimeError, "task is running"):
+                    instance.execute_mac({"job": "icloud", "action": "schedule", "schedule": "7200", "enabled": True})
+            execute.assert_not_called()
+            self.assertEqual(plist.read_bytes(), original)
+
+    def test_mac_schedule_keeps_menu_available_when_automatic_copies_are_paused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plist = Path(directory) / "menu.plist"
+            with plist.open("wb") as stream:
+                plistlib.dump({"ProgramArguments": ["/installed/dr-menubar", "--interval", "3600",
+                    "--schedule-enabled", "true"], "Disabled": False}, stream)
+            instance = agent.Agent.__new__(agent.Agent)
+            instance.config = {"drMenuStatePath": str(Path(directory) / "menubar.json")}
+            with patch.object(instance, "mac_plist", return_value=plist), patch.object(agent, "command") as execute:
+                instance.execute_mac({"job": "icloud", "action": "schedule", "schedule": "7200", "enabled": False})
+            with plist.open("rb") as stream:
+                settings = plistlib.load(stream)
+            arguments = settings["ProgramArguments"]
+            self.assertEqual(arguments[arguments.index("--interval") + 1], "7200")
+            self.assertEqual(arguments[arguments.index("--schedule-enabled") + 1], "false")
+            self.assertFalse(settings["Disabled"])
+            self.assertEqual(execute.call_args_list[-1].args[0][1], "enable")
+
+    def test_mac_tick_reports_menu_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            menu_state = root / "menubar.json"
+            report = {"job": "icloud", "runId": "2026-09-10T10:00:00Z", "status": "completed",
+                "startedAt": "2026-09-10T10:00:00Z", "completedAt": "2026-09-10T10:01:00Z",
+                "lastSuccessAt": "2026-09-10T10:01:00Z", "nextRunAt": None, "durationMs": 60000,
+                "sizeBytes": None, "enabled": True, "schedule": "3600", "detail": "done", "verification": "checked"}
+            menu_state.write_text(json.dumps({"report": report, "scheduleEnabled": False,
+                "intervalSeconds": 7200, "nextRunAt": None}))
+            instance = agent.Agent.__new__(agent.Agent)
+            instance.profile = "mac"
+            instance.state = root / "status"
+            instance.state.mkdir()
+            instance.config = {"drMenuStatePath": str(menu_state)}
+            instance.post = Mock(side_effect=[{}, {"command": None}])
+            instance.tick()
+            posted = instance.post.call_args_list[0].args[0]["report"]
+            self.assertFalse(posted["enabled"])
+            self.assertEqual(posted["schedule"], "7200")
 
     def test_never_executed_is_not_reported_as_completed(self):
         instance = agent.Agent.__new__(agent.Agent)

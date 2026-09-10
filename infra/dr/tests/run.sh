@@ -27,6 +27,7 @@ for script in \
   "$dr_root"/weekly-alert-test \
   "$dr_root"/macos/dr-sync \
   "$dr_root"/macos/dr-r2 \
+  "$dr_root"/macos/dr-backups.in \
   "$dr_root"/macos/install \
   "$dr_root"/macos/uninstall \
   "$dr_root"/providers/hetzner \
