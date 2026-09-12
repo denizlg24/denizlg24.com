@@ -1,7 +1,7 @@
 "use client";
 
+import { authLoginUrl, authLogoutUrl } from "@repo/cloud-auth-client/redirect";
 import type { SafeUser } from "@repo/schemas/cloud";
-import { useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
@@ -28,7 +28,6 @@ export function useSession(): SessionContextValue {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [user, setUser] = useState<SafeUser | null>(null);
 
   const load = useCallback(async () => {
@@ -36,27 +35,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const me = await api.me();
       if (me.role !== "superuser") {
         await authClient.signOut();
-        router.replace("/login?reason=forbidden");
+        window.location.replace(
+          authLoginUrl(window.location.origin, { reason: "forbidden" }),
+        );
         return;
       }
       setUser(me);
     } catch (error) {
-      if (isApiError(error) && error.code === "MFA_ENROLLMENT_REQUIRED") {
-        router.replace("/login?enroll=1");
-        return;
-      }
-      router.replace("/login");
+      const enroll =
+        isApiError(error) && error.code === "MFA_ENROLLMENT_REQUIRED";
+      window.location.replace(
+        authLoginUrl(window.location.href, enroll ? { enroll: "1" } : {}),
+      );
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const signOut = useCallback(async () => {
-    await authClient.signOut();
-    router.replace("/login");
-  }, [router]);
+    window.location.assign(authLogoutUrl(window.location.origin));
+  }, []);
 
   if (!user) {
     return (

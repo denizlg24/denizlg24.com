@@ -1,7 +1,6 @@
 "use client";
 
 import Image, { type ImageProps } from "next/image";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +15,6 @@ export function FadeInImage({
   ...props
 }: FadeInImageProps) {
   const [isLoaded, setIsLoaded] = useState(false);
-  const router = useRouter();
   return (
     <div className={cn("relative", wrapperClassName)}>
       <Image
@@ -24,7 +22,9 @@ export function FadeInImage({
         alt={alt}
         loading="eager"
         onClick={() => {
-          router.push("/auth/login");
+          // A full navigation: /auth/login is a route handler that redirects
+          // off-site to start sign-in, not a page the router can render.
+          window.location.assign("/auth/login");
         }}
         className={cn(
           "transition-all duration-500 ease-out",

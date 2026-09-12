@@ -1,7 +1,6 @@
-import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongodb";
+import { getAdminSession } from "@/lib/require-admin";
 import { BlogComment } from "@/models/BlogComment";
 
 function isValidObjectId(id: string): boolean {
@@ -9,15 +8,13 @@ function isValidObjectId(id: string): boolean {
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const session = await getAdminSession(request);
 
-    if (!session?.user) {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

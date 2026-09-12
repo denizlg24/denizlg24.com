@@ -1,7 +1,7 @@
 "use client";
 
+import { authLoginUrl, authLogoutUrl } from "@repo/cloud-auth-client/redirect";
 import type { SafeUser } from "@repo/schemas/cloud";
-import { useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
@@ -26,8 +26,14 @@ export function useSession() {
   return value;
 }
 
+/**
+ * Sign-in lives on the auth app. Forge still keeps its own /login, reachable
+ * only by typing it: the auth app is itself a Forge deployment, and a broken
+ * release of it must not lock the owner out of the one tool that can roll it
+ * back — nor out of the generated forge-server host a disaster recovery
+ * bootstraps from.
+ */
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [user, setUser] = useState<SafeUser | null>(null);
 
   const load = useCallback(async () => {
@@ -35,25 +41,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const current = await api.me();
       if (current.role !== "superuser") {
         await authClient.signOut();
-        router.replace("/login?reason=forbidden");
+        window.location.replace(
+          authLoginUrl(window.location.origin, { reason: "forbidden" }),
+        );
         return;
       }
       setUser(current);
     } catch (error) {
-      if (isApiError(error) && error.code === "MFA_ENROLLMENT_REQUIRED") {
-        router.replace("/login?enroll=1");
-        return;
-      }
-      router.replace("/login");
+      const enroll =
+        isApiError(error) && error.code === "MFA_ENROLLMENT_REQUIRED";
+      window.location.replace(
+        authLoginUrl(window.location.href, enroll ? { enroll: "1" } : {}),
+      );
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => void load(), [load]);
 
   const signOut = useCallback(async () => {
-    await authClient.signOut();
-    router.replace("/login");
-  }, [router]);
+    window.location.assign(authLogoutUrl(window.location.origin));
+  }, []);
 
   if (!user) {
     return (

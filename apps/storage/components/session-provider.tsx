@@ -1,19 +1,17 @@
 "use client";
 
+import { authLoginUrl, authLogoutUrl } from "@repo/cloud-auth-client/redirect";
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import type { SafeUser } from "@repo/schemas/cloud";
-import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { api, errorMessage, isApiError } from "@/lib/api";
-import { authClient } from "@/lib/auth-client";
 
 interface SessionContextValue {
   user: SafeUser;
@@ -30,18 +28,8 @@ export function useSession(): SessionContextValue {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const [user, setUser] = useState<SafeUser | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Kept in a ref so `load` does not depend on the pathname — otherwise every
-  // folder navigation would refetch the session. Written in an effect rather
-  // than during render, which React does not guarantee under concurrent
-  // rendering.
-  const pathnameRef = useRef(pathname);
-  useEffect(() => {
-    pathnameRef.current = pathname;
-  }, [pathname]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -51,7 +39,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Enrollment is mandatory for every account, so an un-enrolled session
       // is pushed through setup rather than signed out.
       if (isApiError(caught) && caught.code === "MFA_ENROLLMENT_REQUIRED") {
-        router.replace("/setup-mfa");
+        window.location.replace(
+          authLoginUrl(window.location.href, { enroll: "1" }),
+        );
         return;
       }
       // Only an actual rejection should cost the session. A flaky network or a
@@ -60,21 +50,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setError(errorMessage(caught));
         return;
       }
-      const from = pathnameRef.current;
-      const next =
-        from && from !== "/" ? `?next=${encodeURIComponent(from)}` : "";
-      router.replace(`/login${next}`);
+      window.location.replace(authLoginUrl(window.location.href));
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const signOut = useCallback(async () => {
-    await authClient.signOut();
-    router.replace("/login");
-  }, [router]);
+    window.location.assign(authLogoutUrl(window.location.origin));
+  }, []);
 
   if (!user) {
     return error ? (

@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./redirect": "./src/redirect.ts",
+    "./resource": "./src/resource.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
@@ -15,6 +18,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "better-auth": "^1.7.1"
+    "@better-auth/oauth-provider": "^1.7.4",
+    "@repo/schemas": "workspace:*",
+    "better-auth": "^1.7.4",
+    "jose": "^6.2.10"
   }
 }

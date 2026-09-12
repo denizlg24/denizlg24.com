@@ -13,7 +13,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { authClient } from "@/lib/auth-client";
+import { useIsAdmin } from "@/hooks/use-is-admin";
 import { cn } from "@/lib/utils";
 import type { ILeanBlogComment } from "@/models/BlogComment";
 import { CommentInput, getCommenterInfo } from "./comment-input";
@@ -44,8 +44,7 @@ export function CommentCard({
     comment.isDeleted ?? false,
   );
 
-  const { data: session } = authClient.useSession();
-  const isAdmin = !!session?.user;
+  const isAdmin = useIsAdmin();
 
   const maxDepth = 3;
 

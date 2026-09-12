@@ -149,7 +149,8 @@ export function matchExistingPeople(
 }
 
 async function loadOwner(): Promise<GraphOwnerInput | undefined> {
-  // Single-admin app: the better-auth user collection holds exactly the owner.
+  // The owner's identity record; see loadAgentMemoryGraph for why it outlived
+  // the Better Auth install that wrote it.
   const ownerDoc = await AgentMemory.db
     .collection("user")
     .findOne<{ _id: unknown; name?: string; email?: string }>(

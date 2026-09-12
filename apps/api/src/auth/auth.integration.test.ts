@@ -251,6 +251,8 @@ describe("Better Auth cloud flow", () => {
       );
       expect(blockedEnrollmentAdmin.status).toBe(403);
       expect(await blockedEnrollmentAdmin.json()).toEqual({
+        code: "MFA_ENROLLMENT_REQUIRED",
+        message: "Complete two-factor enrollment before continuing",
         error: {
           code: "MFA_ENROLLMENT_REQUIRED",
           message: "Complete two-factor enrollment before continuing",

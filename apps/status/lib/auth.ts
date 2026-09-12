@@ -14,6 +14,17 @@ export class AccessError extends Error {
 }
 export const apiOrigin = () =>
   process.env.STATUS_CLOUD_API_URL ?? "https://api.denizlg24.com";
+export function authLoginHref() {
+  const url = new URL(
+    "/login",
+    process.env.STATUS_AUTH_APP_URL ?? "https://auth.denizlg24.com",
+  );
+  url.searchParams.set(
+    "returnTo",
+    `${process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com"}/admin`,
+  );
+  return url.toString();
+}
 export async function sessionCookie() {
   const jar = await cookies();
   return jar

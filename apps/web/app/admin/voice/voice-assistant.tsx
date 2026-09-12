@@ -7,11 +7,7 @@ import {
 } from "@repo/admin/agent/use-model-catalog";
 import { useAdmin } from "@repo/admin/provider";
 import { getToolLabel, voiceTranscriptionResponseSchema } from "@repo/schemas";
-import { LogIn } from "lucide-react";
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { authClient } from "@/lib/auth-client";
 
 type VoiceState = "idle" | "listening" | "thinking" | "responding" | "error";
 
@@ -203,7 +199,6 @@ function VoiceOrb({
 
 export function VoiceAssistant() {
   const { client } = useAdmin();
-  const { data: session } = authClient.useSession();
   const modelCatalog = useModelCatalog();
   const { streamSegments, streamChat } = useAgentStream();
   const [state, setState] = useState<VoiceState>("idle");
@@ -464,15 +459,6 @@ export function VoiceAssistant() {
           else void startRecording();
         }}
       />
-      {!session && (
-        <Button asChild variant="ghost" className="mt-6" size="sm">
-          <Link
-            href={`/auth/login?callbackUrl=${encodeURIComponent("/admin/voice")}`}
-          >
-            <LogIn />
-          </Link>
-        </Button>
-      )}
       <p
         ref={tickerRef}
         className="mt-6 h-6 w-full max-w-xl overflow-hidden whitespace-nowrap text-sm text-muted-foreground"

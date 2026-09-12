@@ -40,7 +40,7 @@ import { Live } from "@/components/live";
 import { type ChartPoint, ResponseChart } from "@/components/response-chart";
 import { Loading, SectionHeading } from "@/components/shell";
 import { Time } from "@/components/time";
-import { adminSession } from "@/lib/auth";
+import { adminSession, authLoginHref } from "@/lib/auth";
 import { backupStateLabel } from "@/lib/backups";
 import { catalog, drJobs } from "@/lib/catalog";
 import {
@@ -701,14 +701,8 @@ async function Admin({ searchParams }: { searchParams: Promise<Query> }) {
         <h1 className="text-xl font-medium">Sign in</h1>
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <Button asChild size="sm">
-            <a href="https://cloud.denizlg24.com/login">
-              Sign in to Cloud
-              <ArrowUpRight aria-hidden />
-            </a>
-          </Button>
-          <Button asChild size="sm" variant="ghost">
-            <a href="https://forge.denizlg24.com/login">
-              Sign in to Forge
+            <a href={authLoginHref()}>
+              Sign in
               <ArrowUpRight aria-hidden />
             </a>
           </Button>

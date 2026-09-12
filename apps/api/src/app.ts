@@ -1,5 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  oauthProviderAuthServerMetadata,
+  oauthProviderOpenIdConfigMetadata,
+} from "@better-auth/oauth-provider";
+import {
   type ActivityRecorder,
   AuthenticationError,
   type AuthVariables,
@@ -40,7 +44,13 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import pkg from "../package.json";
-import { type CloudAuth, isCloudAuthTrustedOrigin } from "./auth/better-auth";
+import {
+  type CloudAuth,
+  isActiveSuperuser,
+  isCloudAuthTrustedOrigin,
+} from "./auth/better-auth";
+import { createOAuthBearerResolver } from "./auth/oauth-bearer";
+import { oauthClientRoutes } from "./auth/oauth-clients";
 import {
   completePendingSignup,
   createPendingAuthUser,
@@ -101,6 +111,15 @@ const adminUsersQuerySchema = z.object({
 export interface CloudApiOptions {
   auth: CloudAuth;
   db: Database;
+  /**
+   * Accept access tokens from this API's own authorization server, issued for
+   * `audience`, as superuser sessions. Absent in tests that exercise only
+   * cookie and API-key auth.
+   */
+  oauth?: {
+    issuer: string;
+    audience: string;
+  };
   isProduction: boolean;
   rateLimitStore: PeekableRateLimitStore;
   trustedOrigins: readonly string[];
@@ -185,6 +204,39 @@ function dualShapeError(code: string, message: string) {
   return { code, message, error: { code, message } } as const;
 }
 
+const registrationBodySchema = z
+  .object({
+    application_type: z.string().optional(),
+    redirect_uris: z.array(z.string()).min(1),
+  })
+  .loose();
+
+function isLoopbackHttp(uri: string): boolean {
+  try {
+    const url = new URL(uri);
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function nativeLoopbackRegistration(
+  body: unknown,
+): Record<string, unknown> | null {
+  const parsed = registrationBodySchema.safeParse(body);
+  if (
+    !parsed.success ||
+    parsed.data.application_type !== undefined ||
+    !parsed.data.redirect_uris.every(isLoopbackHttp)
+  ) {
+    return null;
+  }
+  return { ...parsed.data, application_type: "native" };
+}
+
 function mfaEnrollmentRequiredError() {
   return dualShapeError(
     "MFA_ENROLLMENT_REQUIRED",
@@ -194,6 +246,14 @@ function mfaEnrollmentRequiredError() {
 
 export function createCloudApiApp(options: CloudApiOptions) {
   const app = new Hono<{ Variables: AuthVariables }>();
+  const resolveOAuthBearer = options.oauth
+    ? createOAuthBearerResolver({
+        auth: options.auth,
+        db: options.db,
+        issuer: options.oauth.issuer,
+        audience: options.oauth.audience,
+      })
+    : null;
   const authenticate = unifiedAuth({
     resolveApiKey: async (key) => {
       const result = await validateApiKey(options.db, key);
@@ -209,7 +269,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     resolveSession: async (headers) => {
       const session = await options.auth.api.getSession({ headers });
       if (!session) {
-        return null;
+        return resolveOAuthBearer ? resolveOAuthBearer(headers) : null;
       }
       const legacyUser = await options.db.query.users.findFirst({
         where: eq(users.id, session.user.id),
@@ -381,6 +441,92 @@ export function createCloudApiApp(options: CloudApiOptions) {
     return next();
   });
   app.use("/api/auth/admin/*", authenticate, requireRole("superuser"));
+
+  // Left alone, the authorization server mints a code for any signed-in
+  // account, and storage has accounts that are not superusers. Issuance
+  // refuses them too; stopping them here keeps a consent row or a code from
+  // ever existing for one.
+  for (const path of [
+    "/api/auth/oauth2/authorize",
+    "/api/auth/oauth2/consent",
+    "/api/auth/oauth2/continue",
+  ]) {
+    app.use(path, async (context, next) => {
+      const session = await options.auth.api.getSession({
+        headers: context.req.raw.headers,
+      });
+      if (session && !(await isActiveSuperuser(options.db, session.user.id))) {
+        return context.json(
+          dualShapeError("FORBIDDEN", "Superuser required"),
+          403,
+        );
+      }
+      return next();
+    });
+  }
+
+  // Discovery documents are public and read by clients that live on other
+  // origins (the MCP inspector runs in a browser), and the plugin marks them
+  // server-only, so the auth handler never serves them itself.
+  const discovery = (
+    handler: (request: Request) => Promise<Response>,
+  ): ((context: { req: { raw: Request } }) => Promise<Response>) => {
+    return async (context) => {
+      const response = await handler(context.req.raw);
+      const headers = new Headers(response.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      return new Response(response.body, {
+        headers,
+        status: response.status,
+      });
+    };
+  };
+  const authServerMetadata = discovery(
+    oauthProviderAuthServerMetadata(options.auth),
+  );
+  const openIdMetadata = discovery(
+    oauthProviderOpenIdConfigMetadata(options.auth),
+  );
+  app.get(
+    "/.well-known/oauth-authorization-server/api/auth",
+    authServerMetadata,
+  );
+  app.get(
+    "/api/auth/.well-known/oauth-authorization-server",
+    authServerMetadata,
+  );
+  app.get("/.well-known/openid-configuration/api/auth", openIdMetadata);
+  app.get("/api/auth/.well-known/openid-configuration", openIdMetadata);
+
+  // Registration defaults `application_type` to "web", which refuses loopback
+  // redirects — and native MCP clients (Claude Code, desktop apps) register
+  // with http://localhost callbacks without naming a type. A registration
+  // whose every redirect is plain-http loopback is a native app by RFC 8252,
+  // so it is declared as one; anything else reaches the plugin untouched.
+  app.post("/api/auth/oauth2/register", async (context) => {
+    const raw = context.req.raw;
+    const body: unknown = await raw
+      .clone()
+      .json()
+      .catch(() => null);
+    const registration = nativeLoopbackRegistration(body);
+    if (!registration) return options.auth.handler(raw);
+    const headers = new Headers(raw.headers);
+    headers.delete("content-length");
+    return options.auth.handler(
+      new Request(raw.url, {
+        body: JSON.stringify(registration),
+        headers,
+        method: "POST",
+      }),
+    );
+  });
+
+  guardSuperuser("/api/oauth");
+  app.route(
+    "/api/oauth",
+    oauthClientRoutes({ auth: options.auth, db: options.db }),
+  );
 
   app.use(
     "/api/auth/sign-in/*",

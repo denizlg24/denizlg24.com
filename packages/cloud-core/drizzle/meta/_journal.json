@@ -302,6 +302,20 @@
       "when": 1788675090077,
       "tag": "0042_deployment_backing_up_phase",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789236499304,
+      "tag": "0043_oauth_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1789238289211,
+      "tag": "0044_auth_account_issuer_optional",
+      "breakpoints": true
     }
   ]
 }

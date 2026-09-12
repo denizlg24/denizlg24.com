@@ -417,7 +417,10 @@ async function resolveMemoryEvidenceDates(
 
 export async function loadAgentMemoryGraph() {
   await connectDB();
-  // Single-admin app: the better-auth user collection holds exactly the owner.
+  // Single-admin app: the `user` collection holds exactly the owner. It is the
+  // record web's old Better Auth install wrote; sign-in has moved to the cloud,
+  // but the document stays as the owner's identity and its _id as the owner
+  // node's id — dropping the collection removes the owner from the graph.
   const ownerDoc = await AgentMemory.db
     .collection("user")
     .findOne<{ _id: unknown; name?: string; email?: string }>(

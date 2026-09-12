@@ -10,6 +10,7 @@ export * from "./dotenv";
 export * from "./file-types";
 export * from "./forge";
 export * from "./notifications";
+export * from "./oauth";
 export * from "./operations";
 export * from "./ops";
 export * from "./projects";

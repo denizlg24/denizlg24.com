@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { forbidden } from "next/navigation";
-import { getAdminSession } from "@/lib/require-admin";
+import { requireAdminPage } from "@/lib/require-admin";
 import {
   VOICE_APP_NAME,
   VOICE_APP_SCOPE,
@@ -33,6 +32,6 @@ export default async function VoiceLayout({
 }: {
   children: React.ReactNode;
 }) {
-  if (!(await getAdminSession())) forbidden();
+  await requireAdminPage(VOICE_APP_SCOPE);
   return children;
 }

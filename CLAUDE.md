@@ -35,6 +35,12 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/forge/` — Next.js Forge host and deployment dashboard, deployed by
   Forge through its own Dockerfile.
 - `apps/storage/` — Next.js file browser (Forge).
+- `apps/auth/` — Next.js sign-in, consent and OAuth client management for every
+  app (Forge, `auth.denizlg24.com`). UI only: it talks to the API from the
+  browser and holds no secrets. See [Auth](#auth).
+- `apps/mcp/` — Hono + Bun MCP server for the whole infrastructure (Forge,
+  `mcp.denizlg24.com/mcp`), MCP TypeScript SDK v2. An OAuth resource server;
+  tools go in `src/tools/` and call upstream through `src/upstream.ts`.
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Forge). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
@@ -49,12 +55,15 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   name are both extension-specific so a second extension can sit beside it.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
-- `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two cloud apps.
+- `packages/cloud-ui/` — shared client pieces for the cloud apps.
+- `packages/cloud-auth-client/` — cloud auth clients, the post-login redirect
+  allowlist (`./redirect`) and the access-token verifier every resource server
+  uses (`./resource`).
 - `packages/typescript-config/` — shared tsconfig presets.
 - `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
 
-Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy]`; `bun run format-and-lint` at root.
+Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy|auth|mcp]`; `bun run format-and-lint` at root. `bun run dev:auth` runs api, auth (3008) and mcp (3009) together.
 
 ### Envoy CLI release ownership
 
@@ -84,6 +93,8 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | `cloud.denizlg24.com` | Forge, `apps/cloud` |
 | `forge.denizlg24.com` | Forge, `apps/forge` — it hosts itself |
 | `storage.denizlg24.com` | Forge, `apps/storage` |
+| `auth.denizlg24.com` | Forge, `apps/auth` |
+| `mcp.denizlg24.com` | Forge, `apps/mcp` |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
 
@@ -277,6 +288,79 @@ hint, not a platform ceiling.
 JSON summary line on stdout, and marker rows in `auth_verification` enforcing
 order (schema → users → s3). Full reference in `docs/internal/cutover/`.
 
+## Auth
+
+One identity for everything: the cloud's Better Auth user, TOTP mandatory. The
+API (`api.denizlg24.com`) is the only thing that holds or checks it, and it is
+also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
+`https://api.denizlg24.com/api/auth`, EdDSA JWTs, JWKS at `/api/auth/jwks`).
+`apps/auth` is its login/consent/client-management UI. Canonical identifiers
+(issuer, auth app, resources, the `superuser` scope and claim) live in
+`packages/schemas/src/cloud/oauth.ts`; each app reads an env override first.
+
+| Party | Resource (`aud`) | How it gets a token |
+|---|---|---|
+| MCP clients (Claude) | `https://mcp.denizlg24.com/mcp` | Dynamic registration + authorization code + consent on auth.denizlg24.com |
+| `apps/web` | `https://denizlg24.com` | Trusted client, authorization code, no consent step |
+| `apps/mcp` → API and web | `https://api.denizlg24.com`, `https://denizlg24.com` | `client_credentials` as a service client |
+
+- **Forge's edge strips every `deniz-cloud.*` cookie before a request reaches a
+  deployment** (`apps/deploy-agent/src/caddy.ts`), on purpose — no deployed
+  app may hold the cloud credential. So no Forge-hosted app can check the
+  cloud session server-side. cloud/forge/storage/auth only use it from the
+  browser against the API; web and mcp get server-verifiable identity from
+  access tokens. status reads the cookie server-side only because it runs on
+  Vercel.
+- **Every token is a superuser token, enforced at issuance and every refresh.**
+  `customAccessTokenClaims` in `apps/api/src/auth/better-auth.ts` throws for
+  anyone but an active, TOTP-enrolled, unbanned superuser, and a Hono gate
+  refuses non-superuser sessions at authorize/consent/continue. User tokens
+  carry `superuser: true`; machine tokens carry `scope superuser` and `owner`,
+  the superuser who created the service client. `isSuperuserToken` in
+  `@repo/cloud-auth-client/resource` is the one test resource servers apply.
+- **The API accepts its own `aud=api` tokens as a superuser session**
+  (`apps/api/src/auth/oauth-bearer.ts`, `sessionId` prefixed `oauth:`), so
+  `requireSession()` routes are open to the MCP server. It re-checks the owner
+  on every request: demoting or banning cuts a service client off before its
+  five-minute token expires. `/api/oauth/*` (client management) refuses
+  `oauth:` sessions so a leaked service secret cannot mint more clients.
+- **A token for one resource is refused by every other.** The MCP server never
+  forwards the token Claude presented; `apps/mcp/src/upstream.ts` holds its own
+  per-resource `client_credentials` tokens (`MCP_OAUTH_CLIENT_ID/SECRET`).
+- **Dynamic registration is open** (MCP clients register themselves) but can
+  only ever reach the MCP resource and the user-delegated scopes. A
+  registration whose every redirect is plain-http loopback is rewritten to
+  `application_type: "native"` before the plugin sees it — the plugin defaults
+  to `web`, which refuses the `http://localhost` callbacks Claude Code uses.
+- **web keeps its own session, `__Host-denizlg24-admin`**: a sealed access +
+  refresh token pair (15-minute access, 30-day sliding refresh). `proxy.ts`
+  refreshes before handlers run and rewrites the request cookie so the same
+  request sees it; it never clears the cookie on a refused refresh, because a
+  second container losing a concurrent-refresh race gets `invalid_grant` while
+  the winner's cookie is good. The sealing key is derived from
+  `WEB_OAUTH_CLIENT_SECRET`, so rotating that secret signs every browser out.
+  `/auth/logout` revokes the grant and ends the cloud session via the auth app.
+  Desktop's `ApiKey` bearer is untouched.
+- **Forge's own `/login` is a break-glass, not dead code.** Normal sign-in goes
+  to auth.denizlg24.com, which Forge itself deploys; a broken auth release
+  would otherwise lock the owner out of the tool that rolls it back, and a
+  disaster recovery bootstraps from the generated forge-server host.
+- **better-auth ≥1.7.3 refuses to start while `auth_account.issuer` is NOT
+  NULL** (`SCHEMA_MISMATCH` on every auth call). 1.7.0–1.7.2 required it
+  (migration 0040); 0044 relaxes it. Never roll an API past 1.7.2 onto a
+  database without 0044. `apps/macros` is pinned to better-auth 1.7.1 on
+  purpose — it has its own database and was not part of this upgrade.
+- **Keep web's Mongo `user` collection.** Sign-in no longer uses it, but agent
+  memory reads its one document as the owner's identity and its `_id` as the
+  owner node's id. `session`, `account` and `verification` are dead.
+
+Rollout order for anything touching this: apply cloud-core migrations (0043
+OAuth tables, 0044 issuer) → roll the API (manual approval) → deploy auth and
+mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
+set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
+→ deploy web. Web deployed before its client exists cannot sign in; desktop
+keeps working throughout.
+
 ## apps/desktop Architecture
 
 ### Stack
@@ -320,6 +404,9 @@ Sidebar groups defined in `components/navigation/navigation-menu.tsx`. Routes re
 Canonical API contract lives in `packages/schemas` (zod schemas; all TS types are `z.infer`): IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc. Desktop's `lib/data-types.ts` is a re-export shim (plus desktop-only UI-state types). Change schemas FIRST; `turbo typecheck` surfaces both apps' breakages. Don't reintroduce local wire types or hand-written response interfaces.
 
 ## apps/web API Endpoints (consumed by apps/desktop)
+
+### Session
+- `GET /session` → `{ admin: true, via: "api-key" | "oauth" | "session" }` or 401 — who `requireAdmin` sees; the public blog asks it before showing moderation controls
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
