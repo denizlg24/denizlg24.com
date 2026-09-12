@@ -1,4 +1,4 @@
-import type { Daily, Evidence, Health, Service } from "./model";
+import type { Daily, DayHealth, Evidence, Health, Service } from "./model";
 export const FRESHNESS_MS = 180_000;
 export const healthLabels: Record<Health, string> = {
   operational: "Operational",
@@ -92,10 +92,27 @@ export function availability(days: Daily[]): {
     measured: counts.known,
   };
 }
-export function dailyHealth(day?: Daily): Health {
+export const dayHealthLabels: Record<DayHealth, string> = {
+  operational: "Operational",
+  degraded: "Degraded",
+  partial: "Partial outage",
+  down: "Major outage",
+  unknown: "No data",
+};
+export const PARTIAL_OUTAGE_MINUTES = 15;
+export const MAJOR_OUTAGE_MINUTES = 120;
+/**
+ * A day is coloured by how much of it was lost, not by whether anything was.
+ * Nobody declares incidents here — every sample is a monitor's verdict — so a
+ * single dropped minute painting the whole day red made the bar read as a run
+ * of outages. One minute counts per service, so `down` is minutes; a blip
+ * shorter than a coffee ranks with a slowdown, and only hours earn red.
+ */
+export function dailyHealth(day?: Daily): DayHealth {
   if (!day || !(day.operational + day.degraded + day.down)) return "unknown";
-  if (day.down) return "down";
-  if (day.degraded) return "degraded";
+  if (day.down >= MAJOR_OUTAGE_MINUTES) return "down";
+  if (day.down >= PARTIAL_OUTAGE_MINUTES) return "partial";
+  if (day.down || day.degraded) return "degraded";
   return "operational";
 }
 export function fallbackExplanation(cause: string): string {

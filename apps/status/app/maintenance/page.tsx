@@ -38,7 +38,7 @@ async function Content() {
                         <span
                           className={`text-[11px] font-medium tracking-wide uppercase ${
                             running
-                              ? "text-status-serious"
+                              ? "text-status-info"
                               : "text-muted-foreground"
                           }`}
                         >

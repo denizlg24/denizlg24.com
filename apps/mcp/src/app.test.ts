@@ -58,6 +58,31 @@ function mcpRequest(token: string | null, body: unknown) {
   });
 }
 
+describe("healthz", () => {
+  test("carries the service-client verdict alongside liveness", async () => {
+    const tokens = new ServiceTokens(
+      config,
+      Object.assign(
+        async () => Response.json({ access_token: "t", expires_in: 300 }),
+        { preconnect: fetch.preconnect },
+      ),
+    );
+    const response = await createMcpApp({
+      config,
+      upstream,
+      tokens,
+      keys,
+    }).request("/healthz");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      status: "ok",
+      service: "mcp",
+      upstream: "ok",
+    });
+  });
+});
+
 describe("protected resource metadata", () => {
   test("is served at the path-inserted and root well-known URLs", async () => {
     for (const path of [

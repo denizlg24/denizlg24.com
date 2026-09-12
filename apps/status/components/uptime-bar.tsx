@@ -2,14 +2,15 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/tooltip";
 import { cn } from "@repo/ui/utils";
 import { useState } from "react";
-import { healthLabels } from "@/lib/health";
-import type { Health } from "@/lib/model";
-import { healthFill } from "./health";
+import { dayHealthLabels } from "@/lib/health";
+import type { DayHealth } from "@/lib/model";
+import { dayFill } from "./health";
 
 export type UptimeDay = {
   day: string;
-  status: Health;
+  status: DayHealth;
   measured: number;
+  down: number;
 };
 const MINUTES_PER_DAY = 1440;
 
@@ -42,7 +43,7 @@ export function UptimeBar({
               <span
                 className={cn(
                   "min-w-0 flex-1 rounded-[1px] ring-1 ring-foreground/30",
-                  healthFill[day.status],
+                  dayFill[day.status],
                 )}
               />
             </TooltipTrigger>
@@ -53,7 +54,7 @@ export function UptimeBar({
               onFocus={() => setActive(index)}
               className={cn(
                 "min-w-0 flex-1 rounded-[1px] transition-opacity hover:opacity-70",
-                healthFill[day.status],
+                dayFill[day.status],
               )}
             />
           ),
@@ -63,10 +64,14 @@ export function UptimeBar({
         <TooltipContent side="top" sideOffset={6} className="text-center">
           <span className="font-medium">{current.day} UTC</span>
           <span className="block opacity-80">
-            {healthLabels[current.status]} · {current.measured.toLocaleString()}{" "}
-            measured min
+            {dayHealthLabels[current.status]}
+            {current.down > 0
+              ? ` · ${current.down.toLocaleString()} min down`
+              : ""}
+            {" · "}
+            {current.measured.toLocaleString()} measured min
             {current.measured > 0 && current.measured < MINUTES_PER_DAY
-              ? " · partial"
+              ? " · partial day"
               : ""}
           </span>
         </TooltipContent>

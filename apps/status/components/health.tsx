@@ -8,7 +8,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { healthLabels } from "@/lib/health";
-import type { Health } from "@/lib/model";
+import type { DayHealth, Health } from "@/lib/model";
 
 export const healthIcons: Record<Health, LucideIcon> = {
   operational: CircleCheck,
@@ -21,14 +21,22 @@ export const healthText: Record<Health, string> = {
   operational: "text-status-good",
   degraded: "text-status-warning",
   down: "text-status-critical",
-  maintenance: "text-status-serious",
+  maintenance: "text-status-info",
   unknown: "text-muted-foreground/60",
 };
 export const healthFill: Record<Health, string> = {
   operational: "bg-status-good",
   degraded: "bg-status-warning",
   down: "bg-status-critical",
-  maintenance: "bg-status-serious",
+  maintenance: "bg-status-info",
+  unknown: "bg-muted-foreground/25",
+};
+/** Orange is a partial outage on the bar; maintenance is blue so a planned window never reads as one. */
+export const dayFill: Record<DayHealth, string> = {
+  operational: "bg-status-good",
+  degraded: "bg-status-warning",
+  partial: "bg-status-serious",
+  down: "bg-status-critical",
   unknown: "bg-muted-foreground/25",
 };
 /**
@@ -41,7 +49,7 @@ export const healthBanner: Record<Health, string> = {
   operational: "bg-status-good text-white dark:text-black/85",
   degraded: "bg-status-warning text-black/85",
   down: "bg-status-critical text-white dark:text-black/85",
-  maintenance: "bg-status-serious text-black/85",
+  maintenance: "bg-status-info text-white dark:text-black/85",
   unknown: "bg-muted-foreground/30 text-foreground",
 };
 export const headlines: Record<Health, string> = {

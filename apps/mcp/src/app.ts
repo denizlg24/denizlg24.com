@@ -7,19 +7,24 @@ import {
   protectedResourceMetadataUrl,
 } from "./auth";
 import type { McpConfig } from "./config";
+import { createHealthReporter } from "./health";
 import { mcpServerFactory } from "./server";
-import { createUpstream, type Upstream } from "./upstream";
+import { createUpstream, ServiceTokens, type Upstream } from "./upstream";
 
 export interface McpAppOptions {
   config: McpConfig;
   upstream?: Upstream;
+  /** The service-client tokens both the upstream and /healthz mint through. */
+  tokens?: ServiceTokens;
   /** Test seam for signing keys; production reads the issuer's JWKS. */
   keys?: JWTVerifyGetKey;
 }
 
 export function createMcpApp(options: McpAppOptions) {
   const { config } = options;
-  const upstream = options.upstream ?? createUpstream(config);
+  const tokens = options.tokens ?? new ServiceTokens(config);
+  const upstream = options.upstream ?? createUpstream(config, tokens);
+  const health = createHealthReporter(config, tokens);
   const authenticate = createRequestAuthenticator(config, options.keys);
   const resource = new URL(config.resource);
   const handler = createMcpHandler(
@@ -34,10 +39,10 @@ export function createMcpApp(options: McpAppOptions) {
 
   const app = new Hono();
 
-  app.get("/healthz", (context) =>
-    context.json({ status: "ok", service: "mcp" }, 200, {
-      "Cache-Control": "no-store",
-    }),
+  // Liveness plus whether the service client can still mint an upstream token:
+  // without that every tool call fails while a plain liveness answer says ok.
+  app.get("/healthz", async (context) =>
+    context.json(await health(), 200, { "Cache-Control": "no-store" }),
   );
 
   // Resolves to apps/mcp/public from src/ and to /app/public from the bundle.

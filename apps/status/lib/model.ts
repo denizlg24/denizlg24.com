@@ -4,6 +4,13 @@ export type Health =
   | "down"
   | "unknown"
   | "maintenance";
+/** One UTC day on the uptime bar, ranked by how much of it was lost. */
+export type DayHealth =
+  | "operational"
+  | "degraded"
+  | "partial"
+  | "down"
+  | "unknown";
 export type Evidence = {
   source: string;
   status: Health;

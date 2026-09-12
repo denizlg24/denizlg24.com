@@ -68,6 +68,7 @@ export function ServiceList({ data }: { data: PublicData }) {
                     measured: count
                       ? count.operational + count.degraded + count.down
                       : 0,
+                    down: count?.down ?? 0,
                   };
                 });
                 return (

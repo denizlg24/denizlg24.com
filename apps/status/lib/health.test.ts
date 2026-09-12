@@ -63,17 +63,26 @@ describe("health accuracy", () => {
       ]),
     ).toEqual({ percent: 90, measured: 10 });
     expect(availability([])).toEqual({ percent: null, measured: 0 });
-    expect(dailyHealth()).toBe("unknown");
-    expect(
+  });
+  test("a day is ranked by minutes lost, not by whether any were", () => {
+    const day = (down: number, degraded = 0) =>
       dailyHealth({
         serviceId: "api",
         day: "2026-09-01",
-        operational: 1439,
-        down: 1,
-        degraded: 0,
+        operational: 1440 - down - degraded,
+        down,
+        degraded,
         unknown: 0,
-      }),
-    ).toBe("down");
+      });
+    expect(dailyHealth()).toBe("unknown");
+    expect(day(0)).toBe("operational");
+    expect(day(0, 1)).toBe("degraded");
+    expect(day(1)).toBe("degraded");
+    expect(day(14)).toBe("degraded");
+    expect(day(15)).toBe("partial");
+    expect(day(119)).toBe("partial");
+    expect(day(120)).toBe("down");
+    expect(day(1440)).toBe("down");
   });
   test("public fallbacks never echo credentials or internal URLs", () => {
     const secret = "https://user:password@internal/private?token=secret";

@@ -12,6 +12,8 @@ const definitions = [
   ],
   ["macros", "Macros", "Applications", "Meals and nutrition tracking."],
   ["envoy", "Envoy", "Applications", "Encrypted environment synchronization."],
+  ["auth", "Sign-in", "Applications", "Sign-in, consent, and OAuth clients."],
+  ["mcp", "MCP", "Applications", "The MCP server and its service client."],
   [
     "api",
     "Cloud API",
@@ -102,6 +104,8 @@ export const appOrigins: Record<string, string> = {
   web: "https://denizlg24.com",
   macros: "https://macros.denizlg24.com",
   envoy: "https://envoy.denizlg24.com",
+  auth: "https://auth.denizlg24.com",
+  mcp: "https://mcp.denizlg24.com",
 };
 export const drJobs = [
   {
