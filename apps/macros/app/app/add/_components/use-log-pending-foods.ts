@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import { setTodayNutritionTotals } from "@/lib/app-cache/api";
 import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
 import { queueOfflineMutation } from "@/lib/app-cache/offline-mutation-queue";
@@ -75,6 +74,12 @@ interface UseLogPendingFoodsOptions {
   setPendingSheetOpen: Dispatch<SetStateAction<boolean>>;
   setExtraConsumed: Dispatch<SetStateAction<number>>;
   today: string;
+  /**
+   * Raised when some foods could not be logged. The hook has no surface of its
+   * own, so the page that owns one decides where the failure is shown - and it
+   * has to be shown somewhere, because those foods stay staged.
+   */
+  onFailures?: (failedCount: number, retry: () => void) => void;
 }
 
 export function useLogPendingFoods({
@@ -83,6 +88,7 @@ export function useLogPendingFoods({
   setPendingSheetOpen,
   setExtraConsumed,
   today,
+  onFailures,
 }: UseLogPendingFoodsOptions) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -226,12 +232,9 @@ export function useLogPendingFoods({
 
       if (failedFoods.length > 0) {
         saveFailedPendingFoods(failedFoods);
-        toast.error("Some foods were not logged", {
-          action: {
-            label: "Retry",
-            onClick: () => router.push("/app/add?retry=failed"),
-          },
-        });
+        onFailures?.(failedFoods.length, () =>
+          router.push("/app/add?retry=failed"),
+        );
       }
 
       if (succeededCount > 0) {
@@ -267,6 +270,7 @@ export function useLogPendingFoods({
       }
     }
   }, [
+    onFailures,
     pendingFoods,
     queryClient,
     router,

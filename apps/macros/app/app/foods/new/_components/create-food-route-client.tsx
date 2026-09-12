@@ -3,7 +3,6 @@
 import type { MacrosVisionLabelResponse } from "@repo/schemas/macros";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { CreateFoodPage } from "../../_components/create-food-page";
 import { takeCreateFoodDraft } from "../../_lib/create-food-draft";
 
@@ -37,9 +36,10 @@ export function CreateFoodRouteClient({ barcode }: { barcode: string | null }) {
       scannedLabel={draft.scannedLabel}
       scannedLabelFormat={draft.scannedLabelFormat}
       onCancel={() => router.back()}
-      onCreated={() => {
-        toast.success("Food created");
-        router.replace("/app/foods");
+      onCreated={(food) => {
+        // The library flashes the new row on arrival, which says "created" more
+        // precisely than a message would.
+        router.replace(`/app/foods?created=${food.id}`);
       }}
     />
   );

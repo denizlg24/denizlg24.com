@@ -23,7 +23,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import { z } from "zod";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useDailyCalorieSummary } from "@/lib/app-cache/api";
@@ -815,11 +814,12 @@ function ScanLogic({
     [selectedFood],
   );
 
+  // The staged-count badge in the header increments, so the haptic is the only
+  // confirmation this needs.
   const handleStage = useCallback(
     async (input: LogFoodInput, macros: OptimisticDailyMacros) => {
       await addToPending(input, macros);
       navigator.vibrate?.(10);
-      toast.success("Added to plate");
     },
     [addToPending],
   );

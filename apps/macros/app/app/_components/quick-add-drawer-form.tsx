@@ -5,7 +5,7 @@ import { Input } from "@repo/ui/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
 import { setTodayNutritionTotals } from "@/lib/app-cache/api";
 import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
 import { queryKeys } from "@/lib/app-cache/query-keys";
@@ -49,6 +49,7 @@ export function QuickAddDrawerForm({
   const [name, setName] = useState("");
   const [calories, setCalories] = useState("");
   const [macros, setMacros] = useState({ protein: "", fat: "", carbs: "" });
+  const { notice, showError, clear: clearNotice } = useNotice();
 
   const mutation = useMutation({
     mutationFn: postQuickAdd,
@@ -68,7 +69,7 @@ export function QuickAddDrawerForm({
       ]);
       onClose();
     },
-    onError: () => toast.error("Could not add entry"),
+    onError: (error) => showError(error, "Could not add entry"),
   });
 
   const parsedCalories = parseAmount(calories);
@@ -90,7 +91,7 @@ export function QuickAddDrawerForm({
 
   return (
     <div className="p-3 pb-safe-end">
-      <div className="mb-4 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+      <div className="mb-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -104,6 +105,12 @@ export function QuickAddDrawerForm({
         <p className="text-center text-lg font-bold">Quick Add</p>
         <span className="size-9" aria-hidden="true" />
       </div>
+
+      <InlineNotice
+        notice={notice}
+        onDismiss={clearNotice}
+        className="-mx-3 mb-3 border-t border-border/70"
+      />
 
       <label htmlFor="quick-add-calories" className="block space-y-1.5">
         <span className="text-xs font-bold">Calories</span>

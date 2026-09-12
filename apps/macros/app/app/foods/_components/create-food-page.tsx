@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
 import { createFoodResponseSchema } from "@/lib/foods/contracts";
 import { formatFoodQuantity } from "@/lib/foods/display";
 import type { NutrientKey } from "@/lib/foods/nutrients";
@@ -114,6 +114,7 @@ export function CreateFoodPage({
   const [unitPref, setUnitPref] = useState<UnitPref>(DEFAULT_UNIT_PREF);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const appliedScanRef = useRef<MacrosVisionLabelResponse | null>(null);
+  const { notice, show, showError, clear: clearNotice } = useNotice();
 
   const reset = useCallback(() => {
     setStep(1);
@@ -210,7 +211,7 @@ export function CreateFoodPage({
   const goNext = () => {
     if (step === 1) {
       if (!name.trim()) {
-        toast.error("Food name is required");
+        show({ tone: "error", message: "Food name is required" });
         return;
       }
       setStep(2);
@@ -218,7 +219,10 @@ export function CreateFoodPage({
     }
     if (step === 2) {
       if (validServings.length === 0) {
-        toast.error("Add at least one serving with a label and weight");
+        show({
+          tone: "error",
+          message: "One serving needs a label and a weight",
+        });
         return;
       }
       const firstValidServing = validServings.at(0);
@@ -285,22 +289,24 @@ export function CreateFoodPage({
       setBasisUid(REFERENCE_BASIS);
     }
     setViewMode(scannedLabelFormat);
-    toast.success(
-      `Prefilled ${supportedFields.length} label values — review them before saving`,
-    );
-    if (scannedLabel.warnings.length) {
-      toast.warning(scannedLabel.warnings.join(" · "));
-    }
-  }, [scannedLabel, scannedLabelFormat, servings]);
+    // The prefilled fields are visible on the very next step, so only what the
+    // scan could not resolve is worth stating.
+    show({
+      tone: scannedLabel.warnings.length ? "error" : "info",
+      message: scannedLabel.warnings.length
+        ? scannedLabel.warnings.join(" · ")
+        : `${supportedFields.length} values prefilled`,
+    });
+  }, [scannedLabel, scannedLabelFormat, servings, show]);
 
   const submit = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      toast.error("Food name is required");
+      show({ tone: "error", message: "Food name is required" });
       return;
     }
     if (validServings.length === 0) {
-      toast.error("At least one serving size is required");
+      show({ tone: "error", message: "At least one serving size is required" });
       return;
     }
 
@@ -348,9 +354,7 @@ export function CreateFoodPage({
       onCreated(body.item);
       reset();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not create this food",
-      );
+      showError(error, "Could not create this food");
     } finally {
       setIsSubmitting(false);
     }
@@ -379,10 +383,12 @@ export function CreateFoodPage({
         <h2 className="truncate text-sm font-semibold text-foreground">
           {headerTitle}
         </h2>
-        <span className="ml-auto text-xs text-muted-foreground">
-          Step {step} of 4
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+          {step}/4
         </span>
       </div>
+
+      <InlineNotice notice={notice} onDismiss={clearNotice} />
 
       <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         {step === 1 && (

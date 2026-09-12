@@ -30,6 +30,7 @@ import {
   takeFailedPendingFoods,
   useEntryDate,
 } from "@/app/app/add/_components/add-food-shared";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
 import { useFoodHistory } from "@/lib/app-cache/api";
 import {
   type FoodHistoryItem,
@@ -559,6 +560,7 @@ export function AddFoodLogic({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { notice, show, clear: clearNotice } = useNotice();
   const logic = useAddFoodLogic();
   const favoritesQuery = useQuery({
     queryKey: ["food-favorites"],
@@ -672,6 +674,12 @@ export function AddFoodLogic({
     setPendingSheetOpen,
     setExtraConsumed,
     today: calorieSummary.today,
+    onFailures: (failedCount, retry) =>
+      show({
+        tone: "error",
+        message: `${failedCount} ${failedCount === 1 ? "food" : "foods"} not logged`,
+        action: { label: "Retry", onAction: retry },
+      }),
   });
   const todayDate = useMemo(
     () => dateFromIsoDate(calorieSummary.today),
@@ -922,6 +930,7 @@ export function AddFoodLogic({
           onViewPending={() => router.push("/app/plate")}
         />
         <NavTabs />
+        <InlineNotice notice={notice} onDismiss={clearNotice} />
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain pb-24">

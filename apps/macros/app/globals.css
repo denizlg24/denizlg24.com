@@ -125,6 +125,45 @@
   }
 }
 
+/* Nothing in this app uses a floating toast: on a phone one covers the very row
+   the owner just touched. Feedback is the affected surface itself briefly
+   tinting, so "where it happened" needs no words. The two keyframe names are
+   identical on purpose - flashing the same target twice has to change
+   animation-name to replay, and an unchanged one would not. */
+[data-flash] {
+  --macros-flash-tint: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+[data-flash-tone="danger"] {
+  --macros-flash-tint: color-mix(in oklab, var(--destructive) 26%, transparent);
+}
+
+@keyframes macros-flash-a {
+  from {
+    background-color: var(--macros-flash-tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes macros-flash-b {
+  from {
+    background-color: var(--macros-flash-tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+[data-flash="a"] {
+  animation: macros-flash-a 900ms ease-out;
+}
+
+[data-flash="b"] {
+  animation: macros-flash-b 900ms ease-out;
+}
+
 @keyframes macros-loader-spin {
   0% {
     transform: rotate(0deg);
@@ -156,6 +195,12 @@
 @media (prefers-reduced-motion: reduce) {
   .macros-loader-spin {
     animation-duration: 8s;
+  }
+
+  /* A colour fade carries no motion, so it stays - only shortened. */
+  [data-flash="a"],
+  [data-flash="b"] {
+    animation-duration: 400ms;
   }
 
   .macros-caret-blink {

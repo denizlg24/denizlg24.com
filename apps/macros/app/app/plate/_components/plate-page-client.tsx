@@ -15,7 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
 import { useDailyCalorieSummary } from "@/lib/app-cache/api";
 import { queryKeys } from "@/lib/app-cache/query-keys";
 import {
@@ -78,6 +78,7 @@ function PlateLogic({
   const [recipeWeight, setRecipeWeight] = useState("");
   const [recipeServings, setRecipeServings] = useState("");
   const [isSavingRecipe, setIsSavingRecipe] = useState(false);
+  const { notice, show, showError, clear: clearNotice } = useNotice();
   const [editingFood, setEditingFood] = useState<PendingFood | null>(null);
   const {
     selectedDate,
@@ -130,6 +131,12 @@ function PlateLogic({
     setPendingSheetOpen,
     setExtraConsumed,
     today: calorieSummary.today,
+    onFailures: (failedCount, retry) =>
+      show({
+        tone: "error",
+        message: `${failedCount} ${failedCount === 1 ? "food" : "foods"} not logged`,
+        action: { label: "Retry", onAction: retry },
+      }),
   });
 
   function removePending(uid: string) {
@@ -175,24 +182,27 @@ function PlateLogic({
   async function saveRecipe() {
     const name = recipeName.trim();
     if (!name) {
-      toast.error("Recipe name is required");
+      show({ tone: "error", message: "Recipe name is required" });
       return;
     }
     const totalWeightGrams = Number.parseFloat(recipeWeight);
     if (!Number.isFinite(totalWeightGrams) || totalWeightGrams <= 0) {
-      toast.error("Total recipe weight is required");
+      show({ tone: "error", message: "Total recipe weight is required" });
       return;
     }
     const servings = recipeServings.trim()
       ? Number.parseFloat(recipeServings)
       : undefined;
     if (servings != null && (!Number.isFinite(servings) || servings <= 0)) {
-      toast.error("Servings must be a positive number");
+      show({ tone: "error", message: "Servings must be a positive number" });
       return;
     }
     if (pendingFoods.length === 0) return;
     if (pendingFoods.some((food) => !("sourceItemId" in food.input))) {
-      toast.error("Recipes can only be made from food items");
+      show({
+        tone: "error",
+        message: "Recipes can only be made from food items",
+      });
       return;
     }
     const foodIngredients = pendingFoods.filter(
@@ -229,11 +239,8 @@ function PlateLogic({
         queryKey: queryKeys.calorieSummary,
       });
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
-      toast.success("Recipe saved");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not save recipe",
-      );
+      showError(error, "Could not save recipe");
     } finally {
       setIsSavingRecipe(false);
     }
@@ -257,6 +264,7 @@ function PlateLogic({
           onViewPending={() => undefined}
         />
         <NavTabs />
+        <InlineNotice notice={notice} onDismiss={clearNotice} />
       </div>
 
       <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-3">
