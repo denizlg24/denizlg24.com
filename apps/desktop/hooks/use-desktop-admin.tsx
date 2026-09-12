@@ -10,19 +10,20 @@ import { DESKTOP_ADMIN_ROUTES } from "@/lib/admin-routes";
 import { desktopPlatform } from "@/lib/platform-bridge";
 
 /**
- * Builds the AdminProvider value for a desktop admin route: a Bearer-auth client
- * from user settings, the Tauri platform bridge, and the mobile sidebar trigger
- * slot. `loading` reflects settings still loading (render the feature skeleton).
+ * Builds the AdminProvider value for a desktop admin route: a client that
+ * bears the OAuth session's token, the Tauri platform bridge, and the mobile
+ * sidebar trigger slot. `loading` reflects settings still loading (render the
+ * feature skeleton).
  */
 export function useDesktopAdmin(): {
   value: AdminContextValue;
   loading: boolean;
 } {
-  const { settings, loading } = useUserSettings();
+  const { loading } = useUserSettings();
 
   const value = useMemo<AdminContextValue>(
     () => ({
-      client: createDesktopAdminClient(settings.apiKey),
+      client: createDesktopAdminClient(),
       platform: desktopPlatform,
       routes: DESKTOP_ADMIN_ROUTES,
       slots: {
@@ -38,7 +39,7 @@ export function useDesktopAdmin(): {
         ],
       },
     }),
-    [settings.apiKey],
+    [],
   );
 
   return { value, loading };

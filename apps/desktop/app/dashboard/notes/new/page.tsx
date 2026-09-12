@@ -30,7 +30,7 @@ export default function NewNotePage() {
 
   const api = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const [draftNote, setDraftNote] = useState<INote>(() => {

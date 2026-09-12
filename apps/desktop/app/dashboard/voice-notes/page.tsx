@@ -43,7 +43,6 @@ import {
   formatDuration,
   useVoiceRecorder,
 } from "@/components/voice-notes/voice-recorder-provider";
-import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 
 type StatusFilter = "all" | VoiceNoteTranscriptionStatus;
@@ -77,9 +76,8 @@ function VoiceNotesLoadingSkeleton() {
 
 export default function VoiceNotesPage() {
   const router = useRouter();
-  const { settings } = useUserSettings();
   const recorder = useVoiceRecorder();
-  const api = useMemo(() => new denizApi(settings.apiKey), [settings.apiKey]);
+  const api = useMemo(() => new denizApi(), []);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceNotes, setVoiceNotes] = useState<IVoiceNote[]>([]);
   const [total, setTotal] = useState(0);

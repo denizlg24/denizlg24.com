@@ -15,7 +15,7 @@ export default function JournalPage() {
 
   const API = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const [month, setMonth] = useState(() => startOfMonth(new Date()));

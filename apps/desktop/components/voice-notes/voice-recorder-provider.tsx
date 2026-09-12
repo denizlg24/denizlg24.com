@@ -11,7 +11,6 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
-import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {
   AUDIO_CONSTRAINTS,
@@ -23,6 +22,7 @@ import {
   startLevelMeter,
   supportedMimeType,
 } from "@/lib/audio-capture";
+import { useAuthStore } from "@/stores/auth";
 import { useBackgroundTasksStore } from "@/stores/background-tasks";
 
 const MAX_RECORDING_BYTES = 24 * 1024 * 1024;
@@ -68,16 +68,10 @@ export function VoiceRecorderProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { settings, loading: loadingSettings } = useUserSettings();
-  // Null until a key exists: constructing the wrapper with an empty key made
-  // every upload fail as a 401 that read like a recording fault.
-  const api = useMemo(
-    () =>
-      loadingSettings || !settings.apiKey
-        ? null
-        : new denizApi(settings.apiKey),
-    [loadingSettings, settings.apiKey],
-  );
+  const signedIn = useAuthStore((state) => state.status === "signed-in");
+  // Null while signed out: an upload refused for want of a session would
+  // otherwise read like a recording fault.
+  const api = useMemo(() => (signedIn ? new denizApi() : null), [signedIn]);
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [levels, setLevels] = useState<number[]>([]);
@@ -170,7 +164,7 @@ export function VoiceRecorderProvider({
         return;
       }
 
-      // Recording is allowed to start before the key resolves; discarding the
+      // Recording is allowed to start before the session resolves; discarding the
       // audio silently at the upload step would lose what was just said.
       if (!api) {
         chunksRef.current = [];
@@ -178,8 +172,8 @@ export function VoiceRecorderProvider({
         byteLengthRef.current = 0;
         useBackgroundTasksStore.getState().unregister("voice-recording");
         setStatus("error");
-        setError("No API key configured");
-        toast.error("No API key configured");
+        setError("Not signed in");
+        toast.error("Not signed in");
         return;
       }
 
@@ -237,8 +231,8 @@ export function VoiceRecorderProvider({
     if (status !== "idle" && status !== "error") return;
     if (!api) {
       setStatus("error");
-      setError("No API key configured");
-      toast.error("No API key configured");
+      setError("Not signed in");
+      toast.error("Not signed in");
       return;
     }
     setStatus("requesting");

@@ -3,8 +3,10 @@ import { loadKeyValueStore } from "./platform-store";
 
 const STORE_FILENAME = "settings.json";
 
+/** Held the bearer secret before sign-in moved to OAuth; scrubbed on load. */
+const LEGACY_API_KEY = "apiKey";
+
 const userSettingsSchema = z.object({
-  apiKey: z.string(),
   sidebarOpen: z.boolean(),
   chatSidebarOpen: z.boolean(),
   defaultNoteDownloadPath: z.string(),
@@ -40,12 +42,6 @@ export type SettingsFieldMeta = {
 
 export const settingsFieldMeta: Record<keyof UserSettings, SettingsFieldMeta> =
   {
-    apiKey: {
-      label: "API Key",
-      description: "Your denizlg24 API key used for authentication.",
-      type: "text",
-      sensitive: true,
-    },
     sidebarOpen: {
       label: "Sidebar Open",
       description: "Whether the sidebar starts expanded.",
@@ -98,7 +94,6 @@ export const settingsFieldMeta: Record<keyof UserSettings, SettingsFieldMeta> =
   };
 
 const defaultSettings: UserSettings = {
-  apiKey: "",
   sidebarOpen: true,
   chatSidebarOpen: false,
   defaultNoteDownloadPath: "",
@@ -106,99 +101,32 @@ const defaultSettings: UserSettings = {
   defaultPage: "/dashboard",
 };
 
-const buildDefaultSettings = (current: unknown): UserSettings => {
-  return {
-    apiKey:
-      typeof current === "object" &&
-      current !== null &&
-      "apiKey" in current &&
-      typeof current.apiKey === "string"
-        ? current.apiKey
-        : defaultSettings.apiKey,
-    sidebarOpen:
-      typeof current === "object" &&
-      current !== null &&
-      "sidebarOpen" in current &&
-      typeof current.sidebarOpen === "boolean"
-        ? current.sidebarOpen
-        : defaultSettings.sidebarOpen,
-    chatSidebarOpen:
-      typeof current === "object" &&
-      current !== null &&
-      "chatSidebarOpen" in current &&
-      typeof current.chatSidebarOpen === "boolean"
-        ? current.chatSidebarOpen
-        : defaultSettings.chatSidebarOpen,
-    defaultNoteDownloadPath:
-      typeof current === "object" &&
-      current !== null &&
-      "defaultNoteDownloadPath" in current &&
-      typeof current.defaultNoteDownloadPath === "string"
-        ? current.defaultNoteDownloadPath
-        : defaultSettings.defaultNoteDownloadPath,
-    defaultWhiteboardDownloadPath:
-      typeof current === "object" &&
-      current !== null &&
-      "defaultWhiteboardDownloadPath" in current &&
-      typeof current.defaultWhiteboardDownloadPath === "string"
-        ? current.defaultWhiteboardDownloadPath
-        : defaultSettings.defaultWhiteboardDownloadPath,
-    defaultPage:
-      typeof current === "object" &&
-      current !== null &&
-      "defaultPage" in current &&
-      typeof current.defaultPage === "string"
-        ? current.defaultPage
-        : defaultSettings.defaultPage,
-  };
-};
+const settingsKeys = Object.keys(userSettingsSchema.shape) as Array<
+  keyof UserSettings
+>;
 
 async function getStore() {
   return loadKeyValueStore(STORE_FILENAME, defaultSettings);
 }
 
+/** Every key falls back on its own, so one corrupt value does not reset the rest. */
 export async function loadSettings(): Promise<UserSettings> {
   if (typeof window === "undefined") {
     return defaultSettings;
   }
   try {
     const store = await getStore();
-    const apiKey =
-      (await store.get<string>("apiKey")) ?? defaultSettings.apiKey;
-    const sidebarOpen =
-      (await store.get<boolean>("sidebarOpen")) ?? defaultSettings.sidebarOpen;
-    const chatSidebarOpen =
-      (await store.get<boolean>("chatSidebarOpen")) ??
-      defaultSettings.chatSidebarOpen;
-    const defaultNoteDownloadPath =
-      (await store.get<string>("defaultNoteDownloadPath")) ??
-      defaultSettings.defaultNoteDownloadPath;
-    const defaultWhiteboardDownloadPath =
-      (await store.get<string>("defaultWhiteboardDownloadPath")) ??
-      defaultSettings.defaultWhiteboardDownloadPath;
-    const defaultPage =
-      (await store.get<string>("defaultPage")) ?? defaultSettings.defaultPage;
-
-    const result = userSettingsSchema.safeParse({
-      apiKey,
-      sidebarOpen,
-      chatSidebarOpen,
-      defaultNoteDownloadPath,
-      defaultWhiteboardDownloadPath,
-      defaultPage,
-    });
-
-    if (!result.success) {
-      return buildDefaultSettings({
-        apiKey,
-        sidebarOpen,
-        chatSidebarOpen,
-        defaultNoteDownloadPath,
-        defaultWhiteboardDownloadPath,
-        defaultPage,
-      });
+    const settings = { ...defaultSettings };
+    for (const key of settingsKeys) {
+      const parsed = userSettingsSchema.shape[key].safeParse(
+        await store.get(key),
+      );
+      if (parsed.success) {
+        Object.assign(settings, { [key]: parsed.data });
+      }
     }
-    return result.data;
+    store.delete(LEGACY_API_KEY).catch(() => {});
+    return settings;
   } catch (error) {
     console.error("Error loading settings:", error);
     return defaultSettings;

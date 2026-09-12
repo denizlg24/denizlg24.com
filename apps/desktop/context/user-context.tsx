@@ -9,11 +9,13 @@ import {
   useState,
 } from "react";
 import { NotFoundPage } from "@/components/not-found-page";
+import { hydrateAuth } from "@/lib/auth/session";
 import {
   loadSettings,
   type UserSettings,
   updateSettings,
 } from "@/lib/user-settings";
+import { type AuthStatus, useAuthStore } from "@/stores/auth";
 
 type UserSettingsContextType = {
   settings: UserSettings;
@@ -100,35 +102,53 @@ function isKnownRoute(pathname: string): boolean {
   return KNOWN_ROUTES.has(pathname) || isKnownDynamicRoute(pathname);
 }
 
+type Gate = "not-found" | "pending" | "to-dashboard" | "to-sign-in" | "render";
+
+/**
+ * Nothing below this renders until the route agrees with the auth state. The
+ * app always opens on `/`, so a signed-in launch used to paint the sign-in
+ * page for as long as the dashboard chunk took to load — every single time.
+ * A stored session counts as signed in without a round trip; if its refresh
+ * turns out to be dead, the session signs itself out and this sends `/`.
+ */
+function gateFor(
+  pathname: string,
+  settings: UserSettings | null,
+  status: AuthStatus,
+): Gate {
+  if (!isKnownRoute(pathname)) return "not-found";
+  if (!settings || status === "loading") return "pending";
+  if (status === "signed-in" && pathname === "/") return "to-dashboard";
+  if (status === "signed-out" && pathname.startsWith("/dashboard")) {
+    return "to-sign-in";
+  }
+  return "render";
+}
+
 export function UserSettingsProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const [settings, setSettingsState] = useState<UserSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isNotFound, setIsNotFound] = useState(false);
+  const status = useAuthStore((state) => state.status);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!isKnownRoute(pathname)) {
-      setIsNotFound(true);
-      setLoading(false);
-      return;
-    }
+    void hydrateAuth();
+    loadSettings().then(setSettingsState);
+  }, []);
 
-    setIsNotFound(false);
-    loadSettings().then((loaded) => {
-      setSettingsState(loaded);
-      setLoading(false);
-      if (loaded.apiKey && pathname === "/") {
-        router.replace(loaded.defaultPage || "/dashboard");
-      } else if (!loaded.apiKey && pathname.startsWith("/dashboard")) {
-        router.replace("/");
-      }
-    });
-  }, [router, pathname]);
+  const gate = gateFor(pathname, settings, status);
+
+  useEffect(() => {
+    if (gate === "to-dashboard") {
+      router.replace(settings?.defaultPage || "/dashboard");
+    } else if (gate === "to-sign-in") {
+      router.replace("/");
+    }
+  }, [gate, router, settings?.defaultPage]);
 
   const setSettings = useCallback((newSettings: Partial<UserSettings>) => {
     setSettingsState((prev) => {
@@ -139,16 +159,16 @@ export function UserSettingsProvider({
     });
   }, []);
 
-  if (isNotFound) {
+  if (gate === "not-found") {
     return <NotFoundPage path={pathname} />;
   }
 
-  if (!settings) {
+  if (gate !== "render" || !settings) {
     return null;
   }
 
   return (
-    <UserSettingsContext value={{ settings, setSettings, loading }}>
+    <UserSettingsContext value={{ settings, setSettings, loading: false }}>
       {children}
     </UserSettingsContext>
   );

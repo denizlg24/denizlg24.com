@@ -86,7 +86,9 @@ function ClientRow({
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
-          {client.kind !== "dynamic" && !client.disabled ? (
+          {client.kind !== "dynamic" &&
+          client.kind !== "native" &&
+          !client.disabled ? (
             <ConfirmButton
               trigger={
                 <Button size="sm" variant="ghost" disabled={busy}>

@@ -498,7 +498,7 @@ export function DashboardSummary() {
 
   const API = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const fetchStats = useCallback(() => {

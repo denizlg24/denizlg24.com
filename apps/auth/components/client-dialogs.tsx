@@ -37,7 +37,9 @@ export function CredentialsDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="text-sm">
-            Client secret — shown once
+            {credentials?.clientSecret === null
+              ? "Client id"
+              : "Client secret — shown once"}
           </DialogTitle>
         </DialogHeader>
         {credentials ? (
@@ -48,15 +50,17 @@ export function CredentialsDialog({
               </span>
               <CopyButton value={credentials.clientId} label="Copy client id" />
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 break-all font-mono">
-                {credentials.clientSecret}
-              </span>
-              <CopyButton
-                value={credentials.clientSecret}
-                label="Copy client secret"
-              />
-            </div>
+            {credentials.clientSecret !== null ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 break-all font-mono">
+                  {credentials.clientSecret}
+                </span>
+                <CopyButton
+                  value={credentials.clientSecret}
+                  label="Copy client secret"
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
         <DialogFooter>
@@ -80,7 +84,7 @@ export function CreateClientDialog({
   onOpenChange: (open: boolean) => void;
   onCreate: (input: CreateOAuthClientInput) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<"web" | "service">("service");
+  const [kind, setKind] = useState<CreateOAuthClientInput["kind"]>("service");
   const [name, setName] = useState("");
   const [redirectUris, setRedirectUris] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -102,9 +106,14 @@ export function CreateClientDialog({
     setError(null);
     try {
       await onCreate(
-        kind === "web"
-          ? { kind, name: name.trim(), redirectUris: uris, resources: selected }
-          : { kind, name: name.trim(), resources: selected },
+        kind === "service"
+          ? { kind, name: name.trim(), resources: selected }
+          : {
+              kind,
+              name: name.trim(),
+              redirectUris: uris,
+              resources: selected,
+            },
       );
       setName("");
       setRedirectUris("");
@@ -130,15 +139,19 @@ export function CreateClientDialog({
               id="client-kind"
               size="sm"
               value={kind}
-              onChange={(event) =>
-                setKind(event.target.value === "web" ? "web" : "service")
-              }
+              onChange={(event) => {
+                const next = event.target.value;
+                setKind(next === "web" || next === "native" ? next : "service");
+              }}
             >
               <NativeSelectOption value="service">
                 service — client_credentials
               </NativeSelectOption>
               <NativeSelectOption value="web">
                 web — authorization_code
+              </NativeSelectOption>
+              <NativeSelectOption value="native">
+                native — authorization_code, public (PKCE, no secret)
               </NativeSelectOption>
             </NativeSelect>
           </div>
@@ -152,7 +165,7 @@ export function CreateClientDialog({
               onChange={(event) => setName(event.target.value)}
             />
           </div>
-          {kind === "web" ? (
+          {kind !== "service" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="client-redirects" className="text-xs">
                 Redirect URIs

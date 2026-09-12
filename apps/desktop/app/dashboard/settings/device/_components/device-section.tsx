@@ -14,10 +14,11 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Switch } from "@repo/ui/switch";
-import { Check, FolderOpen, Loader2, RefreshCw } from "lucide-react";
+import { Check, FolderOpen, Loader2, LogOut, RefreshCw } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { showUpdateToast } from "@/components/window/update-notifier";
 import { useUserSettings } from "@/context/user-context";
+import { signOut } from "@/lib/auth/session";
 import { isTauri } from "@/lib/platform";
 import { pickDirectory } from "@/lib/platform-fs";
 import { checkForUpdate } from "@/lib/updater";
@@ -207,6 +208,36 @@ function UpdateGroup() {
   );
 }
 
+function SessionGroup() {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <SettingsGroup label="Session">
+      <SettingsRow label="Signed in on this device">
+        <div className="flex sm:justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 gap-1.5 text-xs"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void signOut();
+            }}
+          >
+            {busy ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <LogOut className="size-3.5" />
+            )}
+            Sign out
+          </Button>
+        </div>
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
 export function DeviceSection() {
   const { settings, setSettings } = useUserSettings();
 
@@ -232,6 +263,7 @@ export function DeviceSection() {
           ))}
         </div>
       </SettingsGroup>
+      <SessionGroup />
       <UpdateGroup />
     </>
   );

@@ -40,7 +40,17 @@ export const OAUTH_SUPERUSER_SCOPE = "superuser";
  */
 export const OAUTH_SUPERUSER_CLAIM = "superuser";
 
-export const oauthClientKindSchema = z.enum(["web", "service", "dynamic"]);
+/**
+ * `native` is a public client: no secret, PKCE mandatory, loopback or
+ * private-scheme redirects. It is what an installed app — the desktop — uses,
+ * since a secret shipped inside a release binary is not one.
+ */
+export const oauthClientKindSchema = z.enum([
+  "web",
+  "native",
+  "service",
+  "dynamic",
+]);
 export type OAuthClientKind = z.infer<typeof oauthClientKindSchema>;
 
 export const oauthClientSummarySchema = z.object({
@@ -71,11 +81,19 @@ export type OAuthClientList = z.infer<typeof oauthClientListSchema>;
 const clientNameSchema = z.string().trim().min(1).max(100);
 const resourceListSchema = z.array(z.url()).min(1).max(10);
 
+const redirectUriListSchema = z.array(z.url()).min(1).max(10);
+
 export const createOAuthClientInputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("web"),
     name: clientNameSchema,
-    redirectUris: z.array(z.url()).min(1).max(10),
+    redirectUris: redirectUriListSchema,
+    resources: resourceListSchema,
+  }),
+  z.object({
+    kind: z.literal("native"),
+    name: clientNameSchema,
+    redirectUris: redirectUriListSchema,
     resources: resourceListSchema,
   }),
   z.object({
@@ -88,13 +106,26 @@ export type CreateOAuthClientInput = z.infer<
   typeof createOAuthClientInputSchema
 >;
 
+/** `clientSecret` is null for a public client — there is nothing to show once. */
 export const oauthClientCredentialsSchema = z.object({
   clientId: z.string(),
-  clientSecret: z.string(),
+  clientSecret: z.string().nullable(),
 });
 export type OAuthClientCredentials = z.infer<
   typeof oauthClientCredentialsSchema
 >;
+
+/**
+ * What an installed app needs to sign in to the web resource, served by the
+ * site itself so the binary carries no environment-specific identifiers and
+ * cannot drift from the issuer and audience the site verifies against.
+ */
+export const desktopAuthConfigSchema = z.object({
+  issuer: z.url(),
+  clientId: z.string().min(1),
+  resource: z.url(),
+});
+export type DesktopAuthConfig = z.infer<typeof desktopAuthConfigSchema>;
 
 export const updateOAuthClientInputSchema = z.object({
   disabled: z.boolean(),

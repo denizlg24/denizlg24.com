@@ -2,20 +2,17 @@
 
 import { preloadInitialCalendarData } from "@repo/admin/calendar/calendar-data";
 import { useEffect, useMemo } from "react";
-import { useUserSettings } from "@/context/user-context";
 import { createDesktopAdminClient } from "@/lib/admin-client";
+import { useAuthStore } from "@/stores/auth";
 
 export function CalendarPreloader() {
-  const { settings, loading } = useUserSettings();
-  const client = useMemo(
-    () => (settings.apiKey ? createDesktopAdminClient(settings.apiKey) : null),
-    [settings.apiKey],
-  );
+  const signedIn = useAuthStore((state) => state.status === "signed-in");
+  const client = useMemo(() => createDesktopAdminClient(), []);
 
   useEffect(() => {
-    if (loading || !client) return;
+    if (!signedIn) return;
     void preloadInitialCalendarData(client);
-  }, [client, loading]);
+  }, [client, signedIn]);
 
   return null;
 }

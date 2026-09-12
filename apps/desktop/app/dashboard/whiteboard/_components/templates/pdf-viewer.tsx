@@ -12,7 +12,6 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@repo/ui/button";
-import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import { pickFile } from "@/lib/platform-fs";
 import type { TemplateProps } from ".";
@@ -37,7 +36,6 @@ export const PdfViewerTemplate = ({
   data,
   onDataChange,
 }: TemplateProps) => {
-  const { settings } = useUserSettings();
   const pdfUrl = data.pdfUrl as string | undefined;
   const pdfBase64 = data.pdfBase64 as string | undefined;
   const fileName = (data.fileName as string) || "Untitled.pdf";
@@ -123,7 +121,7 @@ export const PdfViewerTemplate = ({
       const formData = new FormData();
       formData.append("file", file);
 
-      const api = new denizApi(settings.apiKey);
+      const api = new denizApi();
       const result = await api.UPLOAD<{ url: string; hash: string }>({
         endpoint: "upload",
         formData,
@@ -148,7 +146,7 @@ export const PdfViewerTemplate = ({
     } finally {
       setLoading(false);
     }
-  }, [data, onDataChange, settings.apiKey]);
+  }, [data, onDataChange]);
 
   const onDocumentLoadSuccess = useCallback(
     ({ numPages: total }: { numPages: number }) => {

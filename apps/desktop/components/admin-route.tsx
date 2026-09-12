@@ -10,7 +10,7 @@ const FALLBACK = <div className="h-full animate-pulse bg-muted/20" />;
 /**
  * Mounts a shared admin feature under the desktop provider.
  *
- * `fallback` renders while user settings (and therefore the API key) load;
+ * `fallback` renders while user settings load;
  * without it the feature would mount with an unauthenticated client and fetch
  * a 401 on first paint.
  */

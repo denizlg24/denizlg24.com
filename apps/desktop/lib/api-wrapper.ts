@@ -1,10 +1,11 @@
 import type { ZodType } from "zod";
+import { getAccessToken, NotSignedInError } from "./auth/session";
 import { platformFetch } from "./platform";
 
 const BASE_URL = process.env.NEXT_PUBLIC_DESKTOP_API_BASE_URL;
 
 export interface AuthError {
-  message: "API key is invalid";
+  message: "Not signed in";
   code: 401;
 }
 
@@ -13,13 +14,22 @@ export interface ApiError {
   code: number;
 }
 
+const AUTH_ERROR: AuthError = { message: "Not signed in", code: 401 };
+
+type RequestInput = {
+  method: string;
+  headers?: Record<string, string>;
+  body?: BodyInit;
+  signal?: AbortSignal;
+};
+
+/**
+ * Bearer-authenticated client for the web app's admin API. Stateless: the
+ * token comes from the OAuth session on every request, refreshed when it is
+ * about to expire and once more if the server still refuses it — that second
+ * refusal is a dead grant, which the session reports by signing out.
+ */
 export class denizApi {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
   private async parseJson<T>(
     res: Response,
   ): Promise<{ data: T } | { error: ApiError }> {
@@ -83,73 +93,90 @@ export class denizApi {
     };
   }
 
-  public async GET<T>({
+  private async send(
+    endpoint: string,
+    input: RequestInput,
+    rejected?: string,
+  ): Promise<Response> {
+    const token = await getAccessToken({ rejected });
+    const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
+      method: input.method,
+      headers: { ...input.headers, authorization: `Bearer ${token}` },
+      body: input.body,
+      signal: input.signal,
+    });
+    if ((res.status === 401 || res.status === 403) && rejected === undefined) {
+      return this.send(endpoint, input, token);
+    }
+    return res;
+  }
+
+  /** Resolves to the response on success, or the error the caller returns as-is. */
+  private async request(
+    endpoint: string,
+    input: RequestInput,
+  ): Promise<Response | AuthError | ApiError> {
+    try {
+      const res = await this.send(endpoint, input);
+      if (res.ok) return res;
+      return res.status === 401 || res.status === 403
+        ? AUTH_ERROR
+        : this.errorFromResponse(res);
+    } catch (error) {
+      return error instanceof NotSignedInError
+        ? AUTH_ERROR
+        : this.errorFromException(error);
+    }
+  }
+
+  private async requestJson<T>(
+    endpoint: string,
+    input: RequestInput,
+    schema?: ZodType<T>,
+  ): Promise<T | AuthError | ApiError> {
+    const res = await this.request(endpoint, input);
+    if ("code" in res) return res;
+    const parsed = await this.parseJson<T>(res);
+    if ("error" in parsed) return parsed.error;
+    if (!schema) return parsed.data;
+    const result = schema.safeParse(parsed.data);
+    if (!result.success) {
+      return {
+        message: `Response validation failed: ${result.error.issues[0]?.path.join(".")}`,
+        code: 500,
+      };
+    }
+    return result.data;
+  }
+
+  private json(method: string, body: unknown, signal?: AbortSignal) {
+    return {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    };
+  }
+
+  public GET<T>({
     endpoint,
     schema,
   }: {
     endpoint: string;
     schema?: ZodType<T>;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-        },
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      if (schema) {
-        const result = schema.safeParse(parsed.data);
-        if (!result.success) {
-          return {
-            message: `Response validation failed: ${result.error.issues[0]?.path.join(".")}`,
-            code: 500,
-          };
-        }
-        return result.data;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, { method: "GET" }, schema);
   }
 
-  public async GET_RAW({
+  public GET_RAW({
     endpoint,
   }: {
     endpoint: string;
   }): Promise<Response | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-        },
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      return res;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.request(endpoint, { method: "GET" });
   }
 
-  public async POST_STREAM({
+  public POST_STREAM({
     endpoint,
     body,
     signal,
@@ -158,186 +185,54 @@ export class denizApi {
     body: unknown;
     signal?: AbortSignal;
   }): Promise<Response | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal,
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      return res;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.request(endpoint, this.json("POST", body, signal));
   }
 
-  public async POST<T>({
+  public POST<T>({
     endpoint,
     body,
   }: {
     endpoint: string;
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, this.json("POST", body));
   }
 
-  public async PUT<T>({
+  public PUT<T>({
     endpoint,
     body,
   }: {
     endpoint: string;
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "PUT",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, this.json("PUT", body));
   }
 
-  public async PATCH<T>({
+  public PATCH<T>({
     endpoint,
     body,
   }: {
     endpoint: string;
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "PATCH",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, this.json("PATCH", body));
   }
 
-  public async UPLOAD<T>({
+  public UPLOAD<T>({
     endpoint,
     formData,
   }: {
     endpoint: string;
     formData: FormData;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-        },
-        body: formData,
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, { method: "POST", body: formData });
   }
 
-  public async DELETE<T>({
+  public DELETE<T>({
     endpoint,
   }: {
     endpoint: string;
   }): Promise<T | AuthError | ApiError> {
-    try {
-      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
-        method: "DELETE",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-        },
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          return { message: "API key is invalid", code: 401 };
-        } else {
-          return this.errorFromResponse(res);
-        }
-      }
-      const parsed = await this.parseJson<T>(res);
-      if ("error" in parsed) {
-        return parsed.error;
-      }
-      return parsed.data;
-    } catch (error) {
-      return this.errorFromException(error);
-    }
+    return this.requestJson(endpoint, { method: "DELETE" });
   }
 }

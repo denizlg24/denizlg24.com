@@ -1,13 +1,14 @@
 import { isTauri } from "./platform";
 
 /**
- * Minimal key/value persistence shared by settings and the pomodoro store.
- * Tauri uses `plugin-store` (a JSON file on disk); the browser falls back to
- * `localStorage` so values like the API key still persist between reloads.
+ * Minimal key/value persistence shared by settings, the auth session and the
+ * pomodoro store. Tauri uses `plugin-store` (a JSON file on disk); the browser
+ * falls back to `localStorage` so a session still survives a reload.
  */
 export interface KeyValueStore {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 function localStorageStore(
@@ -42,6 +43,11 @@ function localStorageStore(
       data[key] = value;
       write(data);
     },
+    async delete(key: string): Promise<void> {
+      const data = read();
+      delete data[key];
+      write(data);
+    },
   };
 }
 
@@ -51,7 +57,14 @@ export async function loadKeyValueStore(
 ): Promise<KeyValueStore> {
   if (isTauri()) {
     const { load } = await import("@tauri-apps/plugin-store");
-    return load(filename, { defaults, autoSave: true });
+    const store = await load(filename, { defaults, autoSave: true });
+    return {
+      get: <T>(key: string) => store.get<T>(key),
+      set: (key, value) => store.set(key, value),
+      async delete(key) {
+        await store.delete(key);
+      },
+    };
   }
   return localStorageStore(filename, defaults);
 }

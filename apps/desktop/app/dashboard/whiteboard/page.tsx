@@ -26,7 +26,7 @@ export default function Page() {
 
   const API = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const [activeId, setActiveId] = useState<string | null>(null);

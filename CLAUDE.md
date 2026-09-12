@@ -302,6 +302,7 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 |---|---|---|
 | MCP clients (Claude) | `https://mcp.denizlg24.com/mcp` | Dynamic registration + authorization code + consent on auth.denizlg24.com |
 | `apps/web` | `https://denizlg24.com` | Trusted client, authorization code, no consent step |
+| `apps/desktop` | `https://denizlg24.com` | `native` public client: authorization code + PKCE, system browser, loopback redirect, no consent step |
 | `apps/mcp` → API and web | `https://api.denizlg24.com`, `https://denizlg24.com` | `client_credentials` as a service client |
 
 - **Forge's edge strips every `deniz-cloud.*` cookie before a request reaches a
@@ -340,7 +341,20 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   the winner's cookie is good. The sealing key is derived from
   `WEB_OAUTH_CLIENT_SECRET`, so rotating that secret signs every browser out.
   `/auth/logout` revokes the grant and ends the cloud session via the auth app.
-  Desktop's `ApiKey` bearer is untouched.
+- **Desktop is a public client and learns its config from web, not a build.**
+  `GET /api/public/desktop-auth` on web returns `{ issuer, clientId, resource }`
+  from `DESKTOP_OAUTH_CLIENT_ID` plus the same `siteResourceConfig()` web
+  verifies with, so the binary carries no environment identifiers and a client
+  rotation is a web env change, not a desktop release. The client is created
+  as kind `native` on auth.denizlg24.com/clients with redirect
+  `http://127.0.0.1/callback` (plus `http://localhost/` for the browser dev
+  fallback); the plugin strips the loopback port, so the app binds any free
+  one at runtime (`oauth_listen` in `src-tauri/src/main.rs`). Tokens live in
+  `auth.json` under plugin-store, refresh is single-flight in
+  `lib/auth/session.ts`, and only `invalid_grant`/`invalid_client` on refresh
+  signs the device out — a network failure keeps the session. `requireAdmin`
+  already accepted these tokens as `via: "oauth"`; the `ApiKey` model stays for
+  the authenticator extension.
 - **Forge's own `/login` is a break-glass, not dead code.** Normal sign-in goes
   to auth.denizlg24.com, which Forge itself deploys; a broken auth release
   would otherwise lock the owner out of the tool that rolls it back, and a
@@ -358,8 +372,10 @@ Rollout order for anything touching this: apply cloud-core migrations (0043
 OAuth tables, 0044 issuer) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
-→ deploy web. Web deployed before its client exists cannot sign in; desktop
-keeps working throughout.
+→ deploy web. Web deployed before its client exists cannot sign in. Desktop
+sign-in additionally needs the `native` client created and
+`DESKTOP_OAUTH_CLIENT_ID` set on web; until then the app's sign-in button
+reports that the server is not configured, and nothing else is affected.
 
 ## apps/desktop Architecture
 
@@ -373,12 +389,9 @@ keeps working throughout.
 
 ### Key Patterns
 
-**API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL comes from `NEXT_PUBLIC_DESKTOP_API_BASE_URL`, not a hardcoded host. Auth via Bearer token.
+**API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL comes from `NEXT_PUBLIC_DESKTOP_API_BASE_URL`, not a hardcoded host. The client is stateless: every request bears the OAuth session's access token from `lib/auth/session.ts` (`getAccessToken()`), refreshed on demand. Gate on `useAuthStore` (`status === "signed-in"`), never on a stored credential.
 ```ts
-const api = useMemo(() => {
-  if (loadingSettings) return null;
-  return new denizApi(settings.apiKey);
-}, [settings, loadingSettings]);
+const api = useMemo(() => new denizApi(), []);
 
 const result = await api.GET<T>({ endpoint: "..." });
 if (!("code" in result)) { /* success */ }

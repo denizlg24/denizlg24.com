@@ -71,7 +71,8 @@ async function pkce() {
   return { verifier, challenge: base64url(new Uint8Array(digest)) };
 }
 
-function basic(clientId: string, secret: string): string {
+function basic(clientId: string, secret: string | null): string {
+  if (secret === null) throw new Error(`${clientId} is a public client`);
   return `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`;
 }
 
@@ -446,6 +447,68 @@ describe("cloud OAuth authorization server", () => {
         rotated.refresh_token,
       );
 
+      // The desktop: a public client that gets no secret, redirects to a
+      // loopback port chosen at runtime (RFC 8252 §7.3), and authenticates the
+      // token request with PKCE alone.
+      const createdNative = await request("/api/oauth/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: owner.cookie },
+        body: JSON.stringify({
+          kind: "native",
+          name: "desktop",
+          redirectUris: ["http://127.0.0.1/callback"],
+          resources: [WEB],
+        }),
+      });
+      expect(createdNative.status).toBe(201);
+      const native = oauthClientCredentialsSchema.parse(
+        z.object({ data: z.unknown() }).parse(await createdNative.json()).data,
+      );
+      expect(native.clientSecret).toBeNull();
+      const nativeRedirect = "http://127.0.0.1:51234/callback";
+      const nativePkce = await pkce();
+      const nativeAuthorize = await request(
+        `/api/auth/oauth2/authorize?${new URLSearchParams({
+          response_type: "code",
+          client_id: native.clientId,
+          redirect_uri: nativeRedirect,
+          scope: "openid offline_access",
+          resource: WEB,
+          state: "native-state",
+          code_challenge: nativePkce.challenge,
+          code_challenge_method: "S256",
+        })}`,
+        { headers: { Cookie: owner.cookie } },
+      );
+      expect(nativeAuthorize.status).toBe(302);
+      const nativeCallback = new URL(
+        nativeAuthorize.headers.get("Location") ?? "",
+      );
+      expect(`${nativeCallback.origin}${nativeCallback.pathname}`).toBe(
+        nativeRedirect,
+      );
+      const nativeTokenResponse = await tokenRequest({
+        grant_type: "authorization_code",
+        code: nativeCallback.searchParams.get("code") ?? "",
+        code_verifier: nativePkce.verifier,
+        redirect_uri: nativeRedirect,
+        client_id: native.clientId,
+        resource: WEB,
+      });
+      expect(nativeTokenResponse.status).toBe(200);
+      const nativeTokens = tokenSchema.parse(await nativeTokenResponse.json());
+      expect(nativeTokens.refresh_token).toBeDefined();
+      expect(
+        (await verifyFor(WEB)(nativeTokens.access_token))?.claims.superuser,
+      ).toBe(true);
+      const nativeRefresh = await tokenRequest({
+        grant_type: "refresh_token",
+        refresh_token: nativeTokens.refresh_token ?? "",
+        client_id: native.clientId,
+        resource: WEB,
+      });
+      expect(nativeRefresh.status).toBe(200);
+
       // Disabling the service client stops it minting anything.
       const disabled = await request(
         `/api/oauth/clients/${encodeURIComponent(service.clientId)}`,
@@ -484,7 +547,9 @@ describe("cloud OAuth authorization server", () => {
       expect(byId.get(service.clientId)?.resources.sort()).toEqual(
         [API, WEB].sort(),
       );
+      expect(byId.get(site.clientId)?.kind).toBe("web");
       expect(byId.get(site.clientId)?.resources).toEqual([WEB]);
+      expect(byId.get(native.clientId)?.kind).toBe("native");
 
       // A signed-in account that is not a superuser never gets a code.
       const member = await seedUser("member", "user");

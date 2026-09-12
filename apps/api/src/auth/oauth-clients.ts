@@ -25,9 +25,11 @@ export interface OAuthClientRouteOptions {
 function clientKind(row: {
   userId: string | null;
   grantTypes: string[] | null;
+  tokenEndpointAuthMethod: string | null;
 }): OAuthClientKind {
   if (row.userId === null) return "dynamic";
-  return row.grantTypes?.includes("client_credentials") ? "service" : "web";
+  if (row.grantTypes?.includes("client_credentials")) return "service";
+  return row.tokenEndpointAuthMethod === "none" ? "native" : "web";
 }
 
 export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
@@ -38,6 +40,7 @@ export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
         name: authOauthClient.name,
         userId: authOauthClient.userId,
         grantTypes: authOauthClient.grantTypes,
+        tokenEndpointAuthMethod: authOauthClient.tokenEndpointAuthMethod,
         redirectUris: authOauthClient.redirectUris,
         disabled: authOauthClient.disabled,
         createdAt: authOauthClient.createdAt,
@@ -143,13 +146,17 @@ function registrationBody(input: CreateOAuthClientInput, ownerId: string) {
   const loopbackOnly = input.redirectUris.some(
     (uri) => new URL(uri).protocol === "http:",
   );
+  const native = input.kind === "native" || loopbackOnly;
   return {
     client_name: input.name,
     redirect_uris: input.redirectUris,
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code" as const],
-    token_endpoint_auth_method: "client_secret_basic",
-    application_type: loopbackOnly ? ("native" as const) : ("web" as const),
+    // A native client is public: the plugin issues no secret and requires
+    // PKCE, so the binary that ships it holds nothing worth extracting.
+    token_endpoint_auth_method:
+      input.kind === "native" ? "none" : "client_secret_basic",
+    application_type: native ? ("native" as const) : ("web" as const),
     scope: "openid profile email offline_access",
     skip_consent: true,
     require_pkce: true,
@@ -208,7 +215,7 @@ export function oauthClientRoutes(options: OAuthClientRouteOptions) {
       headers: context.req.raw.headers,
       body: registrationBody(parsed.data, context.get("user").id),
     });
-    if (!created.client_secret) {
+    if (parsed.data.kind !== "native" && !created.client_secret) {
       throw new Error("Confidential client was created without a secret");
     }
     await setClientResources(
@@ -220,7 +227,7 @@ export function oauthClientRoutes(options: OAuthClientRouteOptions) {
       {
         data: {
           clientId: created.client_id,
-          clientSecret: created.client_secret,
+          clientSecret: created.client_secret ?? null,
         },
       },
       201,

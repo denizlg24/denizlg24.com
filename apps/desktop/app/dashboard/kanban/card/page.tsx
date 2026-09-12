@@ -80,10 +80,10 @@ function CardPageInner() {
   const params = useSearchParams();
   const boardId = params.get("board");
   const cardId = params.get("card");
-  const { settings, loading: settingsLoading } = useUserSettings();
+  const { loading: settingsLoading } = useUserSettings();
   const API = useMemo(
-    () => (settingsLoading ? null : new denizApi(settings.apiKey)),
-    [settings.apiKey, settingsLoading],
+    () => (settingsLoading ? null : new denizApi()),
+    [settingsLoading],
   );
   const [board, setBoard] = useState<FullBoard | null>(null);
   const [card, setCard] = useState<IKanbanCard | null>(null);

@@ -23,7 +23,7 @@ export default function NewGroupPage() {
 
   const api = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const [name, setName] = useState("");

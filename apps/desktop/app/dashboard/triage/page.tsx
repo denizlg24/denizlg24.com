@@ -101,7 +101,7 @@ export default function TriagePage() {
   const { settings, loading: loadingSettings } = useUserSettings();
   const api = useMemo(() => {
     if (loadingSettings) return null;
-    return new denizApi(settings.apiKey);
+    return new denizApi();
   }, [settings, loadingSettings]);
 
   const [itemsByPage, setItemsByPage] = useState<
