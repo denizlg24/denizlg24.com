@@ -58,6 +58,9 @@ export interface DeploymentQueueOptions {
    * the whole queue and exhaust the port range behind it.
    */
   maxInFlight?: number;
+  /** Overrides the terminal-report retry budget. See #reportTerminal. */
+  terminalReportAttempts?: number;
+  terminalReportBaseDelayMs?: number;
 }
 
 export class QueueAtCapacityError extends Error {
@@ -91,6 +94,15 @@ const IN_FLIGHT_MULTIPLE = 4;
  * after roughly fifteen seconds of genuine unreachability.
  */
 const CLAIM_FAILURES_BEFORE_ERROR = 5;
+/**
+ * Attempts and backoff for the terminal status write. Seven attempts starting
+ * at one second and doubling to a thirty-second cap spans a little over two
+ * minutes, which covers the kind of blip that takes the control plane away
+ * while it restarts on its own deploy.
+ */
+const TERMINAL_REPORT_ATTEMPTS = 7;
+const TERMINAL_REPORT_BASE_DELAY_MS = 1_000;
+const TERMINAL_REPORT_MAX_DELAY_MS = 30_000;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -335,7 +347,10 @@ export class DeploymentQueue {
           }
         },
       });
-      await report(final);
+      // Deliberately not `report`: see #reportTerminal for why a failed write
+      // here must not reach the catch below.
+      this.#applyUpdate(entry, final);
+      await this.#reportTerminal(deploymentId, final);
     } catch (error) {
       const cancelled = entry.controller.signal.aborted;
       const update: DeploymentStatusUpdate = cancelled
@@ -368,6 +383,61 @@ export class DeploymentQueue {
       this.#remember(entry.state);
       // Do not wait out the poll interval for a slot that is free now.
       this.#wake?.();
+    }
+  }
+
+  /**
+   * The terminal status write, retried.
+   *
+   * By the time the runner returns, the container is serving and its routes
+   * are published. This write used to go through `report`, inside the catch
+   * that marks a run failed — so a control plane that blinked for two minutes
+   * marked a healthy release `failed`, and the control plane tears a failed
+   * deployment's container down. Production had already superseded its
+   * predecessor by then, which left the target with no container at all and
+   * its hostname pointing at a port nothing answered on: a 503 that no
+   * redeploy was queued to clear.
+   *
+   * Retrying rather than swallowing matters because the row has to reach a
+   * terminal status to be safe. `markInterruptedDeployments` reclaims a row
+   * left in `building` or `deploying` and releases its container, so giving up
+   * quietly only moves the teardown later. The budget stays far inside that
+   * sweep's DEPLOYMENT_HEARTBEAT_TIMEOUT_MS (15 minutes); if it is still
+   * failing after that, the control plane is down rather than blinking and the
+   * sweep is the right owner.
+   */
+  async #reportTerminal(
+    deploymentId: string,
+    update: DeploymentStatusUpdate,
+  ): Promise<void> {
+    const attempts =
+      this.#options.terminalReportAttempts ?? TERMINAL_REPORT_ATTEMPTS;
+    const baseDelayMs =
+      this.#options.terminalReportBaseDelayMs ?? TERMINAL_REPORT_BASE_DELAY_MS;
+    let delayMs = baseDelayMs;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await this.#options.report(deploymentId, update);
+        return;
+      } catch (error) {
+        if (attempt >= attempts) {
+          this.#logger.error("terminal report abandoned", {
+            deploymentId,
+            status: update.status,
+            attempts: attempt,
+            error: errorMessage(error),
+          });
+          return;
+        }
+        this.#logger.error("terminal report failed, retrying", {
+          deploymentId,
+          status: update.status,
+          attempt,
+          error: errorMessage(error),
+        });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        delayMs = Math.min(delayMs * 2, TERMINAL_REPORT_MAX_DELAY_MS);
+      }
     }
   }
 

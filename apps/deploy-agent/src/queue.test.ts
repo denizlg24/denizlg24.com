@@ -247,6 +247,58 @@ describe("DeploymentQueue.pump", () => {
     expect(queue.get(request.deploymentId)?.status).toBe("ready");
     expect(errors).toContain("progress report failed");
   });
+
+  it("retries the terminal report rather than failing a serving deployment", async () => {
+    const request = deploymentRequest();
+    let calls = 0;
+    const runner: DeploymentRunner = async () => ({ status: "ready" });
+    const { queue, errors } = harness(
+      {
+        runner,
+        report: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("control plane 502");
+        },
+        terminalReportBaseDelayMs: 0,
+      },
+      [request],
+    );
+
+    await queue.pump();
+    await settle();
+
+    expect(calls).toBe(2);
+    expect(queue.get(request.deploymentId)?.status).toBe("ready");
+    expect(errors).toContain("terminal report failed, retrying");
+    expect(errors).not.toContain("deployment failed");
+  });
+
+  it("leaves a serving deployment ready when the terminal report never lands", async () => {
+    const request = deploymentRequest();
+    const runner: DeploymentRunner = async () => ({ status: "ready" });
+    const { queue, errors } = harness(
+      {
+        runner,
+        // The container is up and its routes are published by now. Marking
+        // this failed has the control plane tear the container down, which is
+        // how a two-minute blip left a target with no container at all and its
+        // hostname pointing at a port nothing answered on.
+        report: async () => {
+          throw new Error("control plane 502");
+        },
+        terminalReportAttempts: 2,
+        terminalReportBaseDelayMs: 0,
+      },
+      [request],
+    );
+
+    await queue.pump();
+    await settle();
+
+    expect(queue.get(request.deploymentId)?.status).toBe("ready");
+    expect(errors).toContain("terminal report abandoned");
+    expect(errors).not.toContain("deployment failed");
+  });
 });
 
 describe("DeploymentQueue.cancel", () => {
