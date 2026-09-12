@@ -13,6 +13,7 @@ import {
   runGarbageCollection,
   selectDanglingToRemove,
   selectImagesToRemove,
+  selectRecoveryTagsToRemove,
 } from "./gc";
 
 const DANGLING = `sha256:${"a".repeat(64)}`;
@@ -108,6 +109,30 @@ describe("selectDanglingToRemove", () => {
         [DANGLING_IN_USE],
       ),
     ).toEqual([DANGLING]);
+  });
+});
+
+describe("selectRecoveryTagsToRemove", () => {
+  const old = `sha256:${"c".repeat(64)}`;
+  const live = `sha256:${"d".repeat(64)}`;
+  const rollback = `sha256:${"e".repeat(64)}`;
+
+  it("reaps only recovery-only images that no container pins", () => {
+    expect(
+      selectRecoveryTagsToRemove(
+        [
+          `ghcr.io/denizlg24/forge-recovery/app:old\t${old}`,
+          `ghcr.io/denizlg24/forge-recovery/app:also-old\t${old}`,
+          `ghcr.io/denizlg24/forge-recovery/app:live\t${live}`,
+          `ghcr.io/denizlg24/forge-recovery/app:rollback\t${rollback}`,
+          `forge/app:rollback\t${rollback}`,
+        ],
+        [live],
+      ),
+    ).toEqual([
+      "ghcr.io/denizlg24/forge-recovery/app:old",
+      "ghcr.io/denizlg24/forge-recovery/app:also-old",
+    ]);
   });
 });
 

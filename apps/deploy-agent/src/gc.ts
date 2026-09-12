@@ -31,6 +31,7 @@ export interface GcOptions {
 const DEFAULT_BUILD_MAX_AGE_MS = 2 * 60 * 60 * 1_000;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const IMAGE_REFERENCE = "forge/*";
+const RECOVERY_IMAGE_PREFIX = "ghcr.io/denizlg24/forge-recovery/";
 
 type Failures = AgentGcReport["failures"];
 
@@ -88,6 +89,43 @@ export function selectDanglingToRemove(
 ): string[] {
   const kept = new Set(keep);
   return present.filter((id) => id.length > 0 && !kept.has(id));
+}
+
+/**
+ * Recovery publication adds a second, immutable registry tag to each built
+ * image. Removing an expired `forge/*` rollback tag therefore did not release
+ * its layers: the local recovery tag kept the image alive even though the
+ * verified copy already existed in GHCR. Over time those aliases filled the
+ * runtime disk while the regular GC continued to report success.
+ *
+ * The input is one `docker image ls` row per tag. An image qualifies only when
+ * every remaining local tag is a recovery tag and no container pins its id.
+ * That keeps live images, `:latest`, and control-plane rollback candidates even
+ * if they also carry a recovery alias. Returning tags instead of forcing an id
+ * removal preserves Docker's final in-use check if a container appears after
+ * the listing.
+ */
+export function selectRecoveryTagsToRemove(
+  present: readonly string[],
+  keepIds: Iterable<string>,
+): string[] {
+  const kept = new Set(keepIds);
+  const references = new Map<string, Set<string>>();
+  for (const line of present) {
+    const [reference = "", id = ""] = line.trim().split("\t");
+    if (!reference || !id.startsWith("sha256:")) continue;
+    const tags = references.get(id);
+    if (tags) tags.add(reference);
+    else references.set(id, new Set([reference]));
+  }
+  return [...references.entries()].flatMap(([id, tags]) => {
+    if (kept.has(id)) return [];
+    const values = [...tags];
+    return values.length > 0 &&
+      values.every((tag) => tag.startsWith(RECOVERY_IMAGE_PREFIX))
+      ? values
+      : [];
+  });
 }
 
 /**
@@ -435,6 +473,59 @@ export async function runGarbageCollection(
     failures.push({
       step: "dangling-images",
       subject: id.slice(0, 19),
+      error: stderr || `exit ${removed.exitCode}`,
+    });
+  }
+
+  // Recovery tags are not dangling and do not match `forge/*`, so neither
+  // image pass above can see them. List the whole tag-to-id relationship after
+  // the regular Forge tags have been reconciled: an expired rollback image now
+  // has only recovery aliases, while anything retained still has a Forge tag.
+  const recoveryImages = await exec({
+    command: [
+      "docker",
+      "image",
+      "ls",
+      "--all",
+      "--no-trunc",
+      "--format",
+      "{{.Repository}}:{{.Tag}}\t{{.ID}}",
+    ],
+    signal,
+    timeoutMs: 60_000,
+  });
+  if (recoveryImages.exitCode !== 0) {
+    failures.push({
+      step: "recovery-images",
+      subject: "docker image ls",
+      error: recoveryImages.stderr.trim() || `exit ${recoveryImages.exitCode}`,
+    });
+  }
+  for (const tag of selectRecoveryTagsToRemove(
+    recoveryImages.stdout.split("\n"),
+    pinned,
+  )) {
+    if (request.dryRun) {
+      report.imagesRemoved.push(tag);
+      continue;
+    }
+    const removed = await exec({
+      command: ["docker", "rmi", tag],
+      signal,
+      timeoutMs: 180_000,
+    });
+    if (removed.exitCode === 0) {
+      report.imagesRemoved.push(tag);
+      continue;
+    }
+    const stderr = removed.stderr.trim();
+    if (isImageInUseConflict(stderr)) {
+      report.imagesSkipped.push(tag);
+      continue;
+    }
+    failures.push({
+      step: "recovery-images",
+      subject: tag,
       error: stderr || `exit ${removed.exitCode}`,
     });
   }
