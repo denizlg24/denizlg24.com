@@ -95,7 +95,7 @@ async function latestRecipeSnapshot(recipeId: string) {
 function toSummary(
   recipe: Pick<
     typeof recipes.$inferSelect,
-    "id" | "name" | "servings" | "servingLabel" | "createdAt"
+    "id" | "name" | "iconKey" | "servings" | "servingLabel" | "createdAt"
   >,
   snapshot: Pick<
     typeof recipeNutritionSnapshots.$inferSelect,
@@ -110,6 +110,7 @@ function toSummary(
   return {
     id: recipe.id,
     name: recipe.name,
+    iconKey: recipe.iconKey,
     servingLabel: recipe.servingLabel,
     servings: Number(recipe.servings),
     totalWeightGrams: Number(snapshot.totalWeightGrams ?? 0),
@@ -156,6 +157,7 @@ export async function createRecipeFromFoods(
       .values({
         userId,
         name: input.name.trim(),
+        iconKey: input.iconKey ?? null,
         servings: toNumericString(servings),
         servingLabel: "serving",
         status: "active",
@@ -277,6 +279,7 @@ export async function updateRecipe(
       .update(recipes)
       .set({
         name: input.name.trim(),
+        ...(input.iconKey === undefined ? {} : { iconKey: input.iconKey }),
         servings: toNumericString(input.servings),
         updatedAt: new Date(),
       })

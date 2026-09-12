@@ -80,7 +80,9 @@ export function FoodIcon({
   entryType?: "food" | "recipe" | "quick_add";
   className?: string;
 }) {
-  if (entryType === "food" && iconKey) {
+  // A quick add has no catalogue row to carry an icon, so it keeps its glyph.
+  // Foods and recipes both do.
+  if (entryType !== "quick_add" && iconKey) {
     const assetKey = iconKey === "other-001" ? "other-006" : iconKey;
     return (
       <img

@@ -10,6 +10,7 @@ export const createRecipeBodySchema = z.object({
   name: z.string().trim().min(1).max(160),
   totalWeightGrams: z.number().positive().max(999_999),
   servings: z.number().positive().max(9999).optional(),
+  iconKey: z.string().trim().min(1).max(128).optional(),
   ingredients: z.array(recipeIngredientInputSchema).min(1).max(100),
 });
 
@@ -17,6 +18,8 @@ export const updateRecipeBodySchema = z.object({
   name: z.string().trim().min(1).max(160),
   totalWeightGrams: z.number().positive().max(999_999),
   servings: z.number().positive().max(9999),
+  // Null clears the icon back to the generic recipe glyph.
+  iconKey: z.string().trim().min(1).max(128).nullable().optional(),
 });
 
 export const logRecipeBodySchema = z.object({
@@ -32,6 +35,7 @@ export const logRecipeBodySchema = z.object({
 export const recipeSummarySchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  iconKey: z.string().nullable(),
   servingLabel: z.string(),
   servings: z.number(),
   totalWeightGrams: z.number(),

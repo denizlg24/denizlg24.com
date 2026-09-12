@@ -657,6 +657,9 @@ export async function updateCustomFood(
             .set({
               name: input.name,
               brand: input.brand,
+              ...(input.iconKey === undefined
+                ? {}
+                : { iconKey: input.iconKey }),
               updatedAt: now,
             })
             .where(eq(foods.id, foodId))
@@ -676,7 +679,7 @@ export async function updateCustomFood(
               barcode: customFood.food.barcode,
               name: input.name,
               brand: input.brand,
-              iconKey: customFood.food.iconKey,
+              iconKey: input.iconKey ?? customFood.food.iconKey,
             })
             .returning({
               id: foods.id,

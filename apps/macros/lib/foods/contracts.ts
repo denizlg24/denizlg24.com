@@ -171,11 +171,16 @@ export const createFoodBodySchema = z.object({
     }),
 });
 
-export const updateFoodBodySchema = createFoodBodySchema.omit({
-  clientMutationId: true,
-  barcode: true,
-  iconKey: true,
-});
+// The barcode is what the food was matched on, so it is not editable. The icon
+// is, but it carries no default here: create falls back to a placeholder,
+// whereas an update that omits it must leave the chosen icon alone.
+export const updateFoodBodySchema = createFoodBodySchema
+  .omit({
+    clientMutationId: true,
+    barcode: true,
+    iconKey: true,
+  })
+  .extend({ iconKey: z.string().trim().min(1).max(128).optional() });
 
 export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
 

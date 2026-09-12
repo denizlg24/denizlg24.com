@@ -6,6 +6,7 @@ import type {
   MacrosMoveEntriesBody,
   MacrosUpdateLogEntryBody,
 } from "@repo/schemas/macros";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -42,6 +43,28 @@ function todayInTimezone(timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
     new Date(),
   );
+}
+
+/**
+ * Rebuilds an instant from a log date plus an hour in the owner's timezone.
+ * The minute is carried over from whatever the entry already held so retiming
+ * by hour does not silently round every entry to :00.
+ */
+function retimedEatenAt(
+  logDate: string,
+  hour: number,
+  minute: number,
+  timezone: string,
+) {
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  return fromZonedTime(`${logDate}T${hh}:${mm}:00`, timezone);
+}
+
+function zonedHourAndMinute(eatenAt: Date | null, timezone: string) {
+  if (!eatenAt) return { hour: 12, minute: 0 };
+  const zoned = toZonedTime(eatenAt, timezone);
+  return { hour: zoned.getHours(), minute: zoned.getMinutes() };
 }
 
 function inferMealType(timezone: string) {
@@ -162,27 +185,39 @@ export async function updateLogEntryServing(
   const previous = Number(source.servingsConsumed);
   if (!Number.isFinite(previous) || previous <= 0)
     throw new Error("Invalid existing serving");
+  const servings = input.servingsConsumed;
   return db.transaction(async (tx) => {
     await tx
       .update(foodLogEntries)
       .set({
-        servingsConsumed: input.servingsConsumed.toFixed(4),
-        enteredQuantity: input.enteredQuantity?.toFixed(4) ?? null,
-        enteredUnit: input.enteredUnit ?? null,
+        // The entered measure is the serving's own presentation, so it travels
+        // with it and is only cleared when the serving itself is rewritten.
+        ...(servings === undefined
+          ? {}
+          : {
+              servingsConsumed: servings.toFixed(4),
+              enteredQuantity: input.enteredQuantity?.toFixed(4) ?? null,
+              enteredUnit: input.enteredUnit ?? null,
+            }),
         ...(input.notes === undefined ? {} : { notes: input.notes || null }),
+        ...(input.eatenAt === undefined
+          ? {}
+          : { eatenAt: new Date(input.eatenAt) }),
         updatedAt: new Date(),
       })
       .where(
         and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
       );
-    await tx
-      .update(foodLogEntryNutrients)
-      .set({
-        amount: sql`${foodLogEntryNutrients.amount} * ${input.servingsConsumed / previous}`,
-      })
-      .where(eq(foodLogEntryNutrients.entryId, entryId));
-    await refreshDailyNutritionSummary(tx, userId, source.logDate);
-    return { id: entryId, servingsConsumed: input.servingsConsumed };
+    if (servings !== undefined && servings !== previous) {
+      await tx
+        .update(foodLogEntryNutrients)
+        .set({
+          amount: sql`${foodLogEntryNutrients.amount} * ${servings / previous}`,
+        })
+        .where(eq(foodLogEntryNutrients.entryId, entryId));
+      await refreshDailyNutritionSummary(tx, userId, source.logDate);
+    }
+    return { id: entryId, servingsConsumed: servings ?? previous };
   });
 }
 
@@ -201,20 +236,47 @@ export async function moveLogEntries(
   if (entries.some((entry) => entry.entryType === "quick_add")) {
     throw new Error("Quick-add entries cannot be saved in a meal template");
   }
+  // eatenAt is the field the timeline orders and buckets by, so a move that
+  // only rewrote logDate would land the entry on the new day still carrying the
+  // old day's instant - it would sort against entries it no longer sits with.
+  const timezone =
+    input.logDate || input.hour !== undefined
+      ? await timezoneForUser(userId)
+      : null;
+  const now = new Date();
+
   return db.transaction(async (tx) => {
-    await tx
-      .update(foodLogEntries)
-      .set({
-        ...(input.logDate ? { logDate: input.logDate } : {}),
-        ...(input.mealType ? { mealType: input.mealType } : {}),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(foodLogEntries.userId, userId),
-          inArray(foodLogEntries.id, input.entryIds),
-        ),
-      );
+    if (timezone) {
+      for (const entry of entries) {
+        const logDate = input.logDate ?? entry.logDate;
+        const current = zonedHourAndMinute(entry.eatenAt, timezone);
+        const hour = input.hour ?? current.hour;
+        await tx
+          .update(foodLogEntries)
+          .set({
+            logDate,
+            ...(input.mealType ? { mealType: input.mealType } : {}),
+            eatenAt: retimedEatenAt(logDate, hour, current.minute, timezone),
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(foodLogEntries.id, entry.id),
+              eq(foodLogEntries.userId, userId),
+            ),
+          );
+      }
+    } else if (input.mealType) {
+      await tx
+        .update(foodLogEntries)
+        .set({ mealType: input.mealType, updatedAt: now })
+        .where(
+          and(
+            eq(foodLogEntries.userId, userId),
+            inArray(foodLogEntries.id, input.entryIds),
+          ),
+        );
+    }
     const dates = new Set(entries.map((entry) => entry.logDate));
     if (input.logDate) dates.add(input.logDate);
     for (const date of dates)

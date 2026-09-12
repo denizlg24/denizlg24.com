@@ -113,6 +113,13 @@
       "when": 1788090772701,
       "tag": "0015_perpetual_ender_wiggin",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789194039654,
+      "tag": "0016_shopping_list_and_recipe_icons",
+      "breakpoints": true
     }
   ]
 }

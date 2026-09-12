@@ -27,6 +27,10 @@ export const macrosMoveEntriesBodySchema = z.object({
   entryIds: z.array(z.uuid()).min(1).max(100),
   logDate: macrosIsoDateSchema.optional(),
   mealType: macrosMealTypeSchema.optional(),
+  // The food log is ordered by eatenAt, so retiming is how an entry is moved
+  // within a day. Absent keeps each entry's own time of day, which is what
+  // makes a pure date move leave the ordering alone.
+  hour: z.number().int().min(0).max(23).optional(),
 });
 export const macrosBulkDeleteEntriesBodySchema = z.object({
   entryIds: z.array(z.uuid()).min(1).max(100),
@@ -42,11 +46,18 @@ export const macrosEnteredMeasureSchema = z.object({
 
 export const macrosUpdateLogEntryBodySchema = z
   .object({
-    servingsConsumed: z.number().positive().max(9999),
+    // Absent leaves the serving alone, and with it the nutrients derived from
+    // it - which is what lets a pure retime avoid rescaling anything.
+    servingsConsumed: z.number().positive().max(9999).optional(),
     // Absent leaves the stored note alone; an empty string clears it.
     notes: z.string().trim().max(500).optional(),
+    // Absent leaves the entry where it sits in the day's order.
+    eatenAt: z.iso.datetime({ offset: true }).optional(),
   })
-  .extend(macrosEnteredMeasureSchema.shape);
+  .extend(macrosEnteredMeasureSchema.shape)
+  .refine((body) => Object.values(body).some((value) => value !== undefined), {
+    message: "Nothing to update",
+  });
 
 export type MacrosEnteredUnit = z.infer<typeof macrosEnteredUnitSchema>;
 export type MacrosEnteredMeasure = z.infer<typeof macrosEnteredMeasureSchema>;

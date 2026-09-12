@@ -436,6 +436,7 @@ export const recipes = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    iconKey: text("iconKey"),
     servings: numeric("servings", { precision: 12, scale: 4 })
       .notNull()
       .default("1"),
@@ -1128,6 +1129,55 @@ export const healthImportTokens = pgTable(
   (table) => [index("health_import_tokens_user_idx").on(table.userId)],
 );
 
+/**
+ * One flat, always-on shopping list rather than one per day: the owner shops
+ * from a running list, so "daily" is how often it is read, not how it is keyed.
+ * A row either names a catalogue food (foodId set, so it keeps that food's
+ * icon) or is whatever was typed.
+ */
+export const shoppingListItems = pgTable(
+  "shopping_list_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    label: text("label").notNull(),
+    note: text("note"),
+    // A deleted food leaves its line on the list; only the link goes.
+    foodId: uuid("foodId").references(() => foods.id, { onDelete: "set null" }),
+    iconKey: text("iconKey"),
+    checked: boolean("checked").notNull().default(false),
+    checkedAt: timestamp("checkedAt", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index("shopping_list_items_user_position_idx").on(
+      table.userId,
+      table.position,
+    ),
+    check(
+      "shopping_list_items_label_present_check",
+      sql`length(btrim(${table.label})) > 0`,
+    ),
+  ],
+);
+
+export const shoppingListItemRelations = relations(
+  shoppingListItems,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [shoppingListItems.userId],
+      references: [user.id],
+    }),
+    food: one(foods, {
+      fields: [shoppingListItems.foodId],
+      references: [foods.id],
+    }),
+  }),
+);
+
 export const energyExpenditureEstimates = pgTable(
   "energy_expenditure_estimates",
   {
@@ -1535,6 +1585,7 @@ export const schema = {
   habitDefinitions,
   habitCompletions,
   healthImportTokens,
+  shoppingListItems,
   userRelations,
   sessionRelations,
   accountRelations,
@@ -1559,4 +1610,5 @@ export const schema = {
   weightTrendPointRelations,
   weighInPhotoRelations,
   energyExpenditureEstimateRelations,
+  shoppingListItemRelations,
 };

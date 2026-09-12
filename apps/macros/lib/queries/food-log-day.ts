@@ -11,6 +11,7 @@ import {
   foodLogEntryNutrients,
   foods,
   nutritionPlans,
+  recipes,
   userProfiles,
 } from "@/db/schema";
 
@@ -94,6 +95,7 @@ export async function getFoodLogDay(
         foodName: foodLogEntries.foodName,
         brand: foodLogEntries.brand,
         iconKey: foods.iconKey,
+        recipeIconKey: recipes.iconKey,
         servingLabel: foodLogEntries.servingLabel,
         servingQuantity: foodLogEntries.servingQuantity,
         servingUnit: foodLogEntries.servingUnit,
@@ -104,6 +106,7 @@ export async function getFoodLogDay(
       })
       .from(foodLogEntries)
       .leftJoin(foods, eq(foods.id, foodLogEntries.foodId))
+      .leftJoin(recipes, eq(recipes.id, foodLogEntries.recipeId))
       .where(
         and(
           eq(foodLogEntries.userId, userId),
@@ -175,7 +178,7 @@ export async function getFoodLogDay(
       recipeId: row.recipeId,
       foodName: row.foodName,
       brand: row.brand,
-      iconKey: row.iconKey,
+      iconKey: row.iconKey ?? row.recipeIconKey,
       servingLabel: row.servingLabel,
       servingQuantity: Number(row.servingQuantity),
       servingUnit: row.servingUnit,
