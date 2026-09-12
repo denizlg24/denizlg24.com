@@ -16,6 +16,7 @@ ENV NODE_ENV=production
 ENV PORT=3009
 
 COPY --from=build --chown=bun:bun /workspace/apps/mcp/dist ./dist
+COPY --from=build --chown=bun:bun /workspace/apps/mcp/public/favicon.ico /workspace/apps/mcp/public/icon.png ./public/
 
 USER bun
 EXPOSE 3009

@@ -73,6 +73,41 @@ describe("protected resource metadata", () => {
   });
 });
 
+describe("icons", () => {
+  test("serves the favicon and app icon from public/", async () => {
+    const files: [string, string][] = [
+      ["/favicon.ico", "image/x-icon"],
+      ["/icon.png", "image/png"],
+    ];
+    for (const [path, type] of files) {
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain(type);
+      expect(response.headers.get("cache-control")).toBe(
+        "public, max-age=86400",
+      );
+    }
+  });
+
+  test("advertises the app icon on initialize", async () => {
+    const token = await sign({ sub: "u1", azp: "claude", superuser: true });
+    const response = await mcpRequest(token, {
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test", version: "0" },
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(
+      '"src":"https://mcp.denizlg24.com/icon.png"',
+    );
+  });
+});
+
 describe("/mcp", () => {
   test("challenges an anonymous request toward the metadata", async () => {
     const response = await mcpRequest(null, {});

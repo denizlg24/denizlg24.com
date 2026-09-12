@@ -21,10 +21,14 @@ export function createMcpApp(options: McpAppOptions) {
   const { config } = options;
   const upstream = options.upstream ?? createUpstream(config);
   const authenticate = createRequestAuthenticator(config, options.keys);
-  const handler = createMcpHandler(mcpServerFactory(upstream), {
-    onerror: (error) => console.error("MCP request failed", error),
-  });
-  const endpoint = new URL(config.resource).pathname;
+  const resource = new URL(config.resource);
+  const handler = createMcpHandler(
+    mcpServerFactory(upstream, resource.origin),
+    {
+      onerror: (error) => console.error("MCP request failed", error),
+    },
+  );
+  const endpoint = resource.pathname;
   const metadataPath = new URL(protectedResourceMetadataUrl(config.resource))
     .pathname;
 
@@ -35,6 +39,18 @@ export function createMcpApp(options: McpAppOptions) {
       "Cache-Control": "no-store",
     }),
   );
+
+  // Resolves to apps/mcp/public from src/ and to /app/public from the bundle.
+  const publicDir = new URL("../public/", import.meta.url);
+  for (const name of ["favicon.ico", "icon.png"]) {
+    app.get(`/${name}`, async (context) => {
+      const file = Bun.file(new URL(name, publicDir));
+      if (!(await file.exists())) return context.notFound();
+      return new Response(file, {
+        headers: { "Cache-Control": "public, max-age=86400" },
+      });
+    });
+  }
 
   // Both the path-inserted form RFC 9728 defines and the bare root, which
   // older clients probe first.
