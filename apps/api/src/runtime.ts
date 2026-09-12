@@ -44,23 +44,17 @@ import {
   type GithubAppConfig,
   githubAppConfigFromEnv,
 } from "@repo/cloud-core/deploy";
-import {
-  AUTH_APP_URL,
-  DEV_AUTH_APP_URL,
-  DEV_OAUTH_RESOURCES,
-  type DiskKind,
-  OAUTH_RESOURCES,
-} from "@repo/schemas/cloud";
+import type { DiskKind } from "@repo/schemas/cloud";
 import { eq, sql } from "drizzle-orm";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
 import { createCloudApiApp } from "./app";
 import {
   CLOUD_AUTH_TRUSTED_ORIGINS,
-  type CloudOAuthConfig,
   cloudAuthIssuer,
   createCloudAuth,
 } from "./auth/better-auth";
+import { oauthConfigFromEnv } from "./auth/oauth-config";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
 import { GithubSurfaces } from "./deploy/github-surfaces";
@@ -106,26 +100,6 @@ function authSecret(): string {
     throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
   }
   return secret;
-}
-
-/**
- * Every identifier here is also compiled into, or configured on, the party at
- * the other end — the auth app, web and the MCP server — so an override on one
- * side alone produces tokens nobody accepts.
- */
-function oauthConfigFromEnv(): CloudOAuthConfig {
-  const production = process.env.NODE_ENV === "production";
-  const resources = production ? OAUTH_RESOURCES : DEV_OAUTH_RESOURCES;
-  return {
-    authAppUrl:
-      process.env.AUTH_APP_URL ??
-      (production ? AUTH_APP_URL : DEV_AUTH_APP_URL),
-    resources: {
-      api: process.env.OAUTH_RESOURCE_API ?? resources.api,
-      web: process.env.OAUTH_RESOURCE_WEB ?? resources.web,
-      mcp: process.env.OAUTH_RESOURCE_MCP ?? resources.mcp,
-    },
-  };
 }
 
 function numberEnv(
@@ -191,7 +165,7 @@ export async function createRuntimeApp() {
 
     const baseURL = cloudEnv("BETTER_AUTH_URL");
     const sharedAuthSecret = authSecret();
-    const oauthConfig = oauthConfigFromEnv();
+    const oauthConfig = oauthConfigFromEnv(baseURL);
     const auth = createCloudAuth({
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
