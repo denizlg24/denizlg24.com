@@ -32,7 +32,8 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   type ChangeEvent,
   useCallback,
@@ -41,8 +42,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import { z } from "zod";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
+import { type FlashProps, useFlash } from "@/hooks/use-flash";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useDailyCalorieSummary } from "@/lib/app-cache/api";
 import {
@@ -52,7 +54,7 @@ import {
   type LogFoodInput,
   userCustomFoodsResponseSchema,
 } from "@/lib/foods/contracts";
-import { formatCalories, formatServingAmount } from "@/lib/foods/display";
+import { formatCalories } from "@/lib/foods/display";
 import { FoodIcon } from "@/lib/foods/food-icon";
 import type { NutrientKey } from "@/lib/foods/nutrients";
 import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
@@ -61,6 +63,7 @@ import {
   subscribeToPendingFoods,
   writePendingFoods,
 } from "@/lib/foods/pending-foods";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
@@ -94,6 +97,22 @@ const foodDetailResponseSchema = z.object({
   }),
   nutrition: externalFoodNutritionSchema,
 });
+
+const DEFAULT_ICON_KEY = "other-001";
+
+const FoodIconPicker = dynamic(
+  () =>
+    import("../../scan/_components/food-icon-picker").then(
+      (module) => module.FoodIconPicker,
+    ),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
+        <LoaderCircle className="size-5 animate-spin" />
+      </div>
+    ),
+  },
+);
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
@@ -167,6 +186,7 @@ function FoodRow({
   onEdit,
   onDelete,
   deleting,
+  flashProps,
 }: {
   item: FoodSearchItem;
   onSelect: (item: FoodSearchItem) => void;
@@ -174,60 +194,66 @@ function FoodRow({
   onEdit: (item: FoodSearchItem) => void;
   onDelete: (item: FoodSearchItem) => void;
   deleting: boolean;
+  flashProps: (key: string) => FlashProps;
 }) {
   const servingsConsumed = 1;
-  const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
 
   return (
-    <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
-      <span className="flex size-9 shrink-0 items-center justify-center">
-        <FoodIcon
-          name={item.name}
-          iconKey={item.iconKey}
-          className="size-7 object-contain"
-        />
-      </span>
+    <div
+      {...flashProps(item.id)}
+      className="flex w-full items-center gap-3 border-b border-border/40 px-4 py-2.5"
+    >
+      <FoodIcon
+        name={item.name}
+        iconKey={item.iconKey}
+        className="size-7 shrink-0 object-contain text-muted-foreground"
+      />
       <button
         type="button"
         onClick={() => onSelect(item)}
         className="min-w-0 flex-1 text-left"
       >
-        <div className="truncate text-[12px] font-semibold leading-tight text-foreground">
-          {displayName}
-        </div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 tabular-nums">
+        <span className="block truncate text-[15px] leading-tight font-medium">
+          {item.name}
+        </span>
+        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight tabular-nums text-muted-foreground">
+          <span className="inline-flex items-center gap-0.5">
             {formatCalories((item.caloriesPerServing ?? 0) * servingsConsumed)}
-            <Flame className="size-3" />
+            <Flame className="size-2.5" />
           </span>
-          <span className="tabular-nums">
-            {fmtMacro((item.proteinPerServing ?? 0) * servingsConsumed)}P
+          <span>
+            {fmtMacro((item.proteinPerServing ?? 0) * servingsConsumed)}
+            <span style={{ color: MACRO_COLORS.protein }}>P</span>
           </span>
-          <span className="tabular-nums">
-            {fmtMacro((item.fatPerServing ?? 0) * servingsConsumed)}F
+          <span>
+            {fmtMacro((item.fatPerServing ?? 0) * servingsConsumed)}
+            <span style={{ color: MACRO_COLORS.fat }}>F</span>
           </span>
-          <span className="tabular-nums">
-            {fmtMacro((item.carbsPerServing ?? 0) * servingsConsumed)}C
+          <span>
+            {fmtMacro((item.carbsPerServing ?? 0) * servingsConsumed)}
+            <span style={{ color: MACRO_COLORS.carbs }}>C</span>
           </span>
-          <span>-</span>
-          <span className="truncate">
-            {formatServingAmount(item.servingLabel, servingsConsumed)}
-          </span>
-        </div>
+          {item.brand ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="truncate">{item.brand}</span>
+            </>
+          ) : null}
+        </span>
       </button>
       <button
         type="button"
         onClick={() => onQuickAdd(item, servingsConsumed)}
-        aria-label={`Add ${displayName} to plate`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        aria-label={`Add ${item.name} to plate`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground active:scale-95"
       >
         <Plus className="size-4" />
       </button>
       <button
         type="button"
         onClick={() => onEdit(item)}
-        aria-label={`Edit ${displayName}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
+        aria-label={`Edit ${item.name}`}
+        className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
       >
         <Edit3 className="size-4" />
       </button>
@@ -235,8 +261,8 @@ function FoodRow({
         type="button"
         onClick={() => onDelete(item)}
         disabled={deleting}
-        aria-label={`Delete ${displayName}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-destructive disabled:opacity-50"
+        aria-label={`Delete ${item.name}`}
+        className="flex size-8 shrink-0 items-center justify-center text-muted-foreground active:text-destructive disabled:opacity-50"
       >
         {deleting ? (
           <LoaderCircle className="size-4 animate-spin" />
@@ -276,20 +302,25 @@ function EditFoodDrawer({
 }) {
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
+  const [iconKey, setIconKey] = useState(DEFAULT_ICON_KEY);
   const [servingLabel, setServingLabel] = useState("1 serving");
   const [servingGrams, setServingGrams] = useState("100");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [pickingIcon, setPickingIcon] = useState(false);
+  const { notice, showError, show, clear } = useNotice();
 
   useEffect(() => {
     if (!food) return;
     let cancelled = false;
     setName(food.name);
     setBrand(food.brand ?? "");
+    setIconKey(food.iconKey);
     setServingLabel(food.servingLabel ?? "1 serving");
     setServingGrams("100");
     setDrafts({});
+    setPickingIcon(false);
     setIsLoading(true);
 
     fetch(`/api/foods/${food.id}`, { cache: "no-store" })
@@ -300,14 +331,13 @@ function EditFoodDrawer({
         const grams = parsed.nutrition.servingQuantity;
         setName(parsed.item.name);
         setBrand(parsed.item.brand ?? "");
+        setIconKey(parsed.item.iconKey);
         setServingLabel(parsed.nutrition.servingLabel);
         setServingGrams(fmtServingInput(grams));
         setDrafts(getPer100gDrafts(parsed.nutrition.nutrients, grams));
       })
-      .catch((error) => {
-        toast.error(
-          error instanceof Error ? error.message : "Could not load food",
-        );
+      .catch((error: unknown) => {
+        if (!cancelled) showError(error, "Could not load food");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -316,7 +346,7 @@ function EditFoodDrawer({
     return () => {
       cancelled = true;
     };
-  }, [food]);
+  }, [food, showError]);
 
   const setDraft = (key: NutrientKey, value: string) => {
     const normalized = value.replace(/,/g, ".");
@@ -335,7 +365,10 @@ function EditFoodDrawer({
       !Number.isFinite(grams) ||
       grams <= 0
     ) {
-      toast.error("Name, serving label, and serving grams are required");
+      show({
+        tone: "error",
+        message: "Name, serving label and grams are required",
+      });
       return;
     }
 
@@ -357,6 +390,7 @@ function EditFoodDrawer({
         body: JSON.stringify({
           name: trimmedName,
           brand,
+          iconKey,
           servingSizes: [
             { label: "100g", quantity: 100, unit: "g" },
             { label: trimmedServing, quantity: grams, unit: "g" },
@@ -371,9 +405,7 @@ function EditFoodDrawer({
       onSaved(food.id, body.item, body.fetchedAt);
       onClose();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not save food",
-      );
+      showError(error, "Could not save food");
     } finally {
       setIsSaving(false);
     }
@@ -389,110 +421,147 @@ function EditFoodDrawer({
         <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-3">
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Close editor"
+            onClick={() => (pickingIcon ? setPickingIcon(false) : onClose())}
+            aria-label={pickingIcon ? "Back to details" : "Close editor"}
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
           </button>
           <h2 className="truncate text-sm font-semibold text-foreground">
-            Edit Food
+            {pickingIcon ? "Choose icon" : "Edit food"}
           </h2>
           {isLoading ? (
             <LoaderCircle className="ml-auto size-4 animate-spin text-muted-foreground" />
           ) : null}
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4">
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-food-name">Food name</Label>
-              <Input
-                id="edit-food-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                autoComplete="off"
+        <InlineNotice notice={notice} onDismiss={clear} />
+
+        {pickingIcon ? (
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+            <FoodIconPicker value={iconKey} onValueChange={setIconKey} />
+          </div>
+        ) : (
+          <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
+            <button
+              type="button"
+              onClick={() => setPickingIcon(true)}
+              className="flex w-full items-center gap-3 border-b border-border/50 pb-3 text-left"
+            >
+              <FoodIcon
+                name={name}
+                iconKey={iconKey}
+                className="size-9 shrink-0 object-contain"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-food-brand">Brand</Label>
-              <Input
-                id="edit-food-brand"
-                value={brand}
-                onChange={(event) => setBrand(event.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="grid grid-cols-[1fr_7rem] gap-2">
+              <span className="flex-1 text-sm font-medium">Icon</span>
+              <span className="text-[12px] text-muted-foreground">Change</span>
+            </button>
+
+            <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-serving-label">Serving label</Label>
+                <Label htmlFor="edit-food-name">Food name</Label>
                 <Input
-                  id="edit-serving-label"
-                  value={servingLabel}
-                  onChange={(event) => setServingLabel(event.target.value)}
+                  id="edit-food-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
                   autoComplete="off"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="edit-serving-grams">Grams</Label>
+                <Label htmlFor="edit-food-brand">Brand</Label>
                 <Input
-                  id="edit-serving-grams"
-                  value={servingGrams}
-                  onChange={(event) => {
-                    const normalized = event.target.value.replace(/,/g, ".");
-                    if (normalized !== "" && !/^\d*\.?\d*$/.test(normalized)) {
-                      return;
-                    }
-                    setServingGrams(normalized);
-                  }}
-                  inputMode="decimal"
+                  id="edit-food-brand"
+                  value={brand}
+                  onChange={(event) => setBrand(event.target.value)}
+                  autoComplete="off"
                 />
               </div>
-            </div>
-          </div>
-
-          <section>
-            <p className="mb-2 text-xs font-semibold text-foreground">
-              Nutrients per 100g
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {nutrientDefinitionsInput.map((def) => (
-                <div key={def.key} className="space-y-1">
-                  <Label
-                    htmlFor={`nutrient-${def.key}`}
-                    className="text-[11px] text-muted-foreground"
-                  >
-                    {def.label} ({def.unit})
-                  </Label>
+              <div className="grid grid-cols-[1fr_7rem] gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-serving-label">Serving label</Label>
                   <Input
-                    id={`nutrient-${def.key}`}
-                    value={drafts[def.key] ?? ""}
-                    onChange={(event) => setDraft(def.key, event.target.value)}
-                    inputMode="decimal"
-                    className="h-9 text-sm"
+                    id="edit-serving-label"
+                    value={servingLabel}
+                    onChange={(event) => setServingLabel(event.target.value)}
+                    autoComplete="off"
                   />
                 </div>
-              ))}
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-serving-grams">Grams</Label>
+                  <Input
+                    id="edit-serving-grams"
+                    value={servingGrams}
+                    onChange={(event) => {
+                      const normalized = event.target.value.replace(/,/g, ".");
+                      if (
+                        normalized !== "" &&
+                        !/^\d*\.?\d*$/.test(normalized)
+                      ) {
+                        return;
+                      }
+                      setServingGrams(normalized);
+                    }}
+                    inputMode="decimal"
+                  />
+                </div>
+              </div>
             </div>
-          </section>
-        </div>
+
+            <section>
+              <p className="mb-2 text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+                Nutrients per 100g
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {nutrientDefinitionsInput.map((def) => (
+                  <div key={def.key} className="space-y-1">
+                    <Label
+                      htmlFor={`nutrient-${def.key}`}
+                      className="text-[11px] text-muted-foreground"
+                    >
+                      {def.label} ({def.unit})
+                    </Label>
+                    <Input
+                      id={`nutrient-${def.key}`}
+                      value={drafts[def.key] ?? ""}
+                      onChange={(event) =>
+                        setDraft(def.key, event.target.value)
+                      }
+                      inputMode="decimal"
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
 
         <div className="flex flex-none gap-2 border-t border-border bg-background px-3 pt-3 pb-safe-end">
-          <Button
-            type="button"
-            onClick={save}
-            disabled={isSaving || isLoading}
-            className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
-          >
-            {isSaving ? (
-              <>
-                <LoaderCircle className="size-4 animate-spin" />
-                Saving
-              </>
-            ) : (
-              "Save Food"
-            )}
-          </Button>
+          {pickingIcon ? (
+            <Button
+              type="button"
+              onClick={() => setPickingIcon(false)}
+              className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
+            >
+              Done
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={save}
+              disabled={isSaving || isLoading}
+              className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
+            >
+              {isSaving ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Saving
+                </>
+              ) : (
+                "Save food"
+              )}
+            </Button>
+          )}
         </div>
       </DrawerContent>
     </Drawer>
@@ -506,6 +575,10 @@ function FoodsLogic({
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const { flash, flashProps } = useFlash();
+  const { notice, show, showError, clear: clearNotice } = useNotice();
+  const searchParams = useSearchParams();
+  const createdFoodId = searchParams.get("created");
   const [foods, setFoods] = useState<FoodSearchItem[]>([]);
   const [query, setQuery] = useState("");
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
@@ -605,6 +678,15 @@ function FoodsLogic({
     void loadFoods();
   }, [loadFoods]);
 
+  // A food just created elsewhere arrives with its id in the URL so the row it
+  // became can announce itself, rather than a message saying it exists.
+  useEffect(() => {
+    if (!createdFoodId) return;
+    if (!foods.some((food) => food.id === createdFoodId)) return;
+    flash(createdFoodId);
+    router.replace("/app/foods");
+  }, [createdFoodId, flash, foods, router]);
+
   const pendingCalories = useMemo(
     () =>
       pendingFoods
@@ -687,24 +769,24 @@ function FoodsLogic({
     });
   }, []);
 
-  const deleteFood = useCallback(async (item: FoodSearchItem) => {
-    setDeletingId(item.id);
-    try {
-      const response = await fetch(`/api/foods/${item.id}`, {
-        method: "DELETE",
-      });
-      await readJsonResponse(response);
-      setFoods((current) => current.filter((food) => food.id !== item.id));
-      setFoodPendingDelete(null);
-      toast.success("Food deleted");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not delete food",
-      );
-    } finally {
-      setDeletingId(null);
-    }
-  }, []);
+  const deleteFood = useCallback(
+    async (item: FoodSearchItem) => {
+      setDeletingId(item.id);
+      try {
+        const response = await fetch(`/api/foods/${item.id}`, {
+          method: "DELETE",
+        });
+        await readJsonResponse(response);
+        setFoods((current) => current.filter((food) => food.id !== item.id));
+        setFoodPendingDelete(null);
+      } catch (error) {
+        showError(error, "Could not delete food");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [showError],
+  );
 
   const { isCommitting, logAllPending } = useLogPendingFoods({
     pendingFoods,
@@ -712,6 +794,12 @@ function FoodsLogic({
     setPendingSheetOpen,
     setExtraConsumed,
     today: calorieSummary.today,
+    onFailures: (failedCount, retry) =>
+      show({
+        tone: "error",
+        message: `${failedCount} ${failedCount === 1 ? "food" : "foods"} not logged`,
+        action: { label: "Retry", onAction: retry },
+      }),
   });
 
   return (
@@ -735,6 +823,7 @@ function FoodsLogic({
           onViewPending={() => router.push("/app/plate")}
         />
         <NavTabs />
+        <InlineNotice notice={notice} onDismiss={clearNotice} />
       </div>
 
       <div className="flex-none border-b border-border px-4 py-3">
@@ -765,12 +854,13 @@ function FoodsLogic({
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain pb-24">
-        <div className="flex items-baseline justify-between px-4 pt-4 pb-1">
-          <h1 className="text-base font-semibold text-foreground">
-            Your Foods
+        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+          <h1 className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+            Your foods
           </h1>
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {filteredFoods.length} of {foods.length}
+          <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {filteredFoods.length} / {foods.length}
           </span>
         </div>
 
@@ -808,21 +898,15 @@ function FoodsLogic({
               onEdit={setEditingFood}
               onDelete={setFoodPendingDelete}
               deleting={deletingId === item.id}
+              flashProps={flashProps}
             />
           ))
         )}
 
         {!isLoadingFoods && !foodError && filteredFoods.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <p className="text-sm font-medium text-foreground">
-              {foods.length === 0 ? "No custom foods yet" : "No foods found"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {foods.length === 0
-                ? "Create a food here or from barcode scanning."
-                : `Nothing matches "${query.trim()}".`}
-            </p>
-          </div>
+          <p className="px-4 py-10 text-3xl leading-none font-light text-muted-foreground">
+            —
+          </p>
         ) : null}
       </div>
 
@@ -861,6 +945,7 @@ function FoodsLogic({
           setFoods((current) =>
             current.map((food) => (food.id === previousId ? item : food)),
           );
+          flash(item.id);
         }}
       />
 

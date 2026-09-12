@@ -20,6 +20,11 @@ type Props = {
   onDateChange: (iso: string) => void;
   data: FoodLogDayPayload | null;
   weekTotals: WeekTotalsPayload | null;
+  /**
+   * Rendered inside the sticky header so a notice cannot be scrolled out of
+   * sight - the reason nothing here needs a floating toast.
+   */
+  children?: React.ReactNode;
 };
 
 export function FoodLogHeader({
@@ -27,6 +32,7 @@ export function FoodLogHeader({
   onDateChange,
   data,
   weekTotals,
+  children,
 }: Props) {
   const week = weekDaysFor(selectedDate);
   const today = todayIso();
@@ -102,6 +108,7 @@ export function FoodLogHeader({
       </div>
 
       <MacroSummaryBar data={data} />
+      {children}
     </header>
   );
 }

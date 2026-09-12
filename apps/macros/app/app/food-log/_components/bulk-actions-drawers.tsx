@@ -12,7 +12,10 @@ import {
 import { cn } from "@repo/ui/utils";
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { DrumColumn } from "@/app/app/add/_components/add-food-shared";
+import {
+  DrumColumn,
+  formatHourLabel,
+} from "@/app/app/add/_components/add-food-shared";
 import { dateToIso, relativeDayLabel, shiftIso } from "../_lib/date-utils";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
@@ -27,6 +30,8 @@ const MEAL_LABELS: Record<MealType, string> = {
 };
 
 const DAY_WINDOW = 14;
+/** Index 0 keeps each entry's own time; the rest are the hours of the day. */
+const KEEP_TIME_INDEX = 0;
 
 export function MoveEntriesDrawer({
   open,
@@ -41,13 +46,17 @@ export function MoveEntriesDrawer({
   selectedDate: string;
   isSaving: boolean;
   onClose: () => void;
-  onMove: (mealType: MealType, logDate: string) => void;
+  onMove: (mealType: MealType, logDate: string, hour: number | null) => void;
 }) {
   const [mealType, setMealType] = useState<MealType>("lunch");
   const [targetDate, setTargetDate] = useState(selectedDate);
+  const [hourIndex, setHourIndex] = useState(KEEP_TIME_INDEX);
 
   useEffect(() => {
-    if (open) setTargetDate(selectedDate);
+    if (open) {
+      setTargetDate(selectedDate);
+      setHourIndex(KEEP_TIME_INDEX);
+    }
   }, [open, selectedDate]);
 
   // The window ends on whichever is later, so a day being viewed in the past
@@ -70,7 +79,7 @@ export function MoveEntriesDrawer({
         <VisuallyHidden>
           <DrawerTitle>Move entries</DrawerTitle>
           <DrawerDescription>
-            Choose a meal and date for the selected entries.
+            Choose a meal, date and time for the selected entries.
           </DrawerDescription>
         </VisuallyHidden>
         <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-3 pt-3 pb-2">
@@ -108,7 +117,7 @@ export function MoveEntriesDrawer({
           ))}
         </div>
 
-        <div className="px-4 pb-2">
+        <div className="flex gap-3 px-4 pb-2">
           <DrumColumn
             count={dates.length}
             selectedIndex={selectedIndex}
@@ -118,13 +127,29 @@ export function MoveEntriesDrawer({
               return iso ? relativeDayLabel(iso) : "";
             }}
           />
+          <DrumColumn
+            count={25}
+            selectedIndex={hourIndex}
+            onSelect={setHourIndex}
+            getLabel={(index) =>
+              index === KEEP_TIME_INDEX
+                ? "Keep time"
+                : formatHourLabel(index - 1)
+            }
+          />
         </div>
 
         <div className="px-3 pt-1">
           <Button
             type="button"
             disabled={isSaving}
-            onClick={() => onMove(mealType, targetDate)}
+            onClick={() =>
+              onMove(
+                mealType,
+                targetDate,
+                hourIndex === KEEP_TIME_INDEX ? null : hourIndex - 1,
+              )
+            }
             className="h-11 w-full rounded-full"
           >
             {isSaving ? "Moving..." : "Move"}

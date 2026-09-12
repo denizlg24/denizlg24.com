@@ -24,6 +24,7 @@ import {
   Scale,
   Search,
   Shapes,
+  ShoppingBasket,
   X,
   Zap,
 } from "lucide-react";
@@ -252,6 +253,11 @@ export function DashboardHeader() {
                     href="/app/recipes"
                     icon={BookOpen}
                     label="Recipes"
+                  />
+                  <ShortcutRow
+                    href="/app/shopping-list"
+                    icon={ShoppingBasket}
+                    label="Shopping list"
                   />
                 </div>
               </>

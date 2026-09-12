@@ -15,6 +15,7 @@ import {
   ChefHat,
   Flame,
   Search,
+  ShoppingBasket,
   Trash2,
   Utensils,
   X,
@@ -263,6 +264,7 @@ const NAV_TABS = [
   { href: "/app/add", label: "Search", Icon: Search },
   { href: "/app/recipes", label: "Recipes", Icon: ChefHat },
   { href: "/app/foods", label: "Library", Icon: BookOpen },
+  { href: "/app/shopping-list", label: "Shop", Icon: ShoppingBasket },
 ] as const;
 
 function CaloriePill({
@@ -586,7 +588,9 @@ export function NavTabs() {
             key={href}
             href={href}
             className={cn(
-              "relative flex flex-1 items-center justify-center gap-1.5 py-3 text-sm",
+              // Five tabs have to fit a 360px phone without the row overflowing,
+              // so the label steps down rather than wrapping or clipping.
+              "relative flex flex-1 items-center justify-center gap-1 py-3 text-xs",
               isActive ? "text-foreground" : "text-muted-foreground",
             )}
           >

@@ -23,7 +23,7 @@ function fmt(n: number): string {
 
 export function MacroSummaryBar({ data }: { data: FoodLogDayPayload | null }) {
   return (
-    <div className="px-4 pb-4">
+    <div className="px-4 pb-3">
       <div className="flex items-stretch gap-3">
         {MACROS.map((m) => {
           const consumed = data?.totals[m.key] ?? 0;
@@ -36,16 +36,25 @@ export function MacroSummaryBar({ data }: { data: FoodLogDayPayload | null }) {
             <div key={m.key} className="flex min-w-0 flex-1 flex-col gap-1.5">
               <div className="flex items-center gap-1.5 text-[13px] tabular-nums">
                 {m.key === "calories" ? (
-                  <Flame className="size-4 shrink-0 text-foreground" />
+                  <Flame className="size-3.5 shrink-0 text-foreground" />
                 ) : (
-                  <span className="shrink-0 text-xs font-bold">{m.letter}</span>
+                  <span
+                    className="shrink-0 text-xs font-bold"
+                    style={{ color: m.color }}
+                  >
+                    {m.letter}
+                  </span>
                 )}
                 <span className="truncate">
                   {fmt(consumed)}
-                  {target != null ? ` / ${fmt(target)}` : ""}
+                  {target != null ? (
+                    <span className="text-muted-foreground">
+                      {` / ${fmt(target)}`}
+                    </span>
+                  ) : null}
                 </span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-1 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full"
                   style={{ width: `${pct}%`, backgroundColor: m.color }}

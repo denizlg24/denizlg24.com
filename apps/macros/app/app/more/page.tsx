@@ -3,7 +3,7 @@ import {
   BarChart3,
   ChevronRight,
   ListChecks,
-  SlidersHorizontal,
+  ShoppingBasket,
 } from "lucide-react";
 import Link from "next/link";
 import { pageMetadata } from "@/app/metadata";
@@ -51,17 +51,14 @@ export default function Page() {
             </span>
             <ChevronRight className="size-4 text-muted-foreground" />
           </Link>
-          <button
-            type="button"
-            disabled
-            className="flex min-h-18 w-full items-center gap-4 px-5 py-4 text-left disabled:opacity-60"
+          <Link
+            href="/app/shopping-list"
+            className="flex min-h-18 items-center gap-4 px-5 py-4"
           >
-            <SlidersHorizontal className="size-5" />
-            <span className="flex-1 text-base font-medium">
-              Customize Food Log
-            </span>
+            <ShoppingBasket className="size-5" />
+            <span className="flex-1 text-base font-medium">Shopping list</span>
             <ChevronRight className="size-4 text-muted-foreground" />
-          </button>
+          </Link>
         </div>
       </div>
     </div>

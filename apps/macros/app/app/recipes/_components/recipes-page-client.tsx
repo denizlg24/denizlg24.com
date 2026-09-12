@@ -24,7 +24,6 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  ChefHat,
   Edit3,
   Flame,
   LoaderCircle,
@@ -32,15 +31,19 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { InlineNotice, useNotice } from "@/components/inline-notice";
+import { type FlashProps, useFlash } from "@/hooks/use-flash";
 import { useDailyCalorieSummary } from "@/lib/app-cache/api";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
   writePendingFoods,
 } from "@/lib/foods/pending-foods";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import {
   type RecipeSummary,
   recipeDetailResponseSchema,
@@ -63,6 +66,22 @@ import {
   MicronutrientPanel,
   StatRow,
 } from "./recipe-drawer-pieces";
+
+const DEFAULT_RECIPE_ICON_KEY = "other-001";
+
+const FoodIconPicker = dynamic(
+  () =>
+    import("../../scan/_components/food-icon-picker").then(
+      (module) => module.FoodIconPicker,
+    ),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
+        <LoaderCircle className="size-5 animate-spin" />
+      </div>
+    ),
+  },
+);
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
@@ -104,6 +123,8 @@ export function RecipesPageClient() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const { flash, flashProps } = useFlash();
+  const { notice, showError, clear: clearNotice } = useNotice();
   const { data: calorieSummary } = useDailyCalorieSummary();
   const [query, setQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -224,11 +245,8 @@ export function RecipesPageClient() {
       }
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
       setPendingDeleteRecipe(null);
-      toast.success("Recipe deleted");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not delete recipe",
-      );
+      showError(error, "Could not delete recipe");
     } finally {
       setDeletingRecipeId(null);
     }
@@ -256,6 +274,7 @@ export function RecipesPageClient() {
           onViewPending={() => router.push("/app/plate")}
         />
         <NavTabs />
+        <InlineNotice notice={notice} onDismiss={clearNotice} />
       </div>
 
       <div className="flex-none border-b border-border px-4 py-3">
@@ -274,25 +293,22 @@ export function RecipesPageClient() {
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain pb-24">
-        <div className="flex items-baseline justify-between px-4 pt-4 pb-1">
-          <h1 className="text-base font-semibold text-foreground">Recipes</h1>
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {filteredRecipes.length} of {recipes.length}
+        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+          <h1 className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+            Recipes
+          </h1>
+          <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {filteredRecipes.length} / {recipes.length}
           </span>
         </div>
 
         {recipesQuery.isLoading ? (
           <RecipeRowsLoading />
         ) : filteredRecipes.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <ChefHat className="mx-auto mb-3 size-8 text-muted-foreground" />
-            <p className="text-sm font-medium text-foreground">
-              {recipes.length === 0 ? "No recipes yet" : "No recipes found"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Build a plate, then save it as a recipe.
-            </p>
-          </div>
+          <p className="px-4 py-10 text-3xl leading-none font-light text-muted-foreground">
+            —
+          </p>
         ) : (
           filteredRecipes.map((recipe) => (
             <RecipeRow
@@ -301,6 +317,7 @@ export function RecipesPageClient() {
               onAdd={() => setSelectedRecipe(recipe)}
               onEdit={() => setEditingRecipe(recipe)}
               onDelete={() => setPendingDeleteRecipe(recipe)}
+              flashProps={flashProps}
             />
           ))
         )}
@@ -317,6 +334,7 @@ export function RecipesPageClient() {
         onClose={() => setEditingRecipe(null)}
         onSaved={(recipe) => {
           setEditingRecipe(null);
+          flash(recipe.id);
           queryClient.setQueryData<Awaited<ReturnType<typeof fetchRecipes>>>(
             ["recipes"],
             (current) =>
@@ -375,44 +393,55 @@ function RecipeRow({
   onAdd,
   onEdit,
   onDelete,
+  flashProps,
 }: {
   recipe: RecipeSummary;
   onAdd: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  flashProps: (key: string) => FlashProps;
 }) {
   return (
-    <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        <ChefHat className="size-4" />
-      </div>
+    <div
+      {...flashProps(recipe.id)}
+      className="flex w-full items-center gap-3 border-b border-border/40 px-4 py-2.5"
+    >
+      <FoodIcon
+        name={recipe.name}
+        iconKey={recipe.iconKey}
+        entryType="recipe"
+        className="size-7 shrink-0 object-contain text-muted-foreground"
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-semibold leading-tight text-foreground">
+        <p className="truncate text-[15px] leading-tight font-medium">
           {recipe.name}
         </p>
-        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 tabular-nums">
+        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight tabular-nums text-muted-foreground">
+          <span className="inline-flex items-center gap-0.5">
             {Math.round(recipe.caloriesPerServing)}
-            <Flame className="size-3" />
+            <Flame className="size-2.5" />
           </span>
-          <span className="tabular-nums">
-            {Math.round(recipe.proteinPerServing)}P
+          <span>
+            {Math.round(recipe.proteinPerServing)}
+            <span style={{ color: MACRO_COLORS.protein }}>P</span>
           </span>
-          <span className="tabular-nums">
-            {Math.round(recipe.fatPerServing)}F
+          <span>
+            {Math.round(recipe.fatPerServing)}
+            <span style={{ color: MACRO_COLORS.fat }}>F</span>
           </span>
-          <span className="tabular-nums">
-            {Math.round(recipe.carbsPerServing)}C
+          <span>
+            {Math.round(recipe.carbsPerServing)}
+            <span style={{ color: MACRO_COLORS.carbs }}>C</span>
           </span>
-          <span>-</span>
+          <span aria-hidden="true">·</span>
           <span>{recipe.ingredientCount} items</span>
-        </div>
+        </p>
       </div>
       <button
         type="button"
         onClick={onAdd}
         aria-label={`Add ${recipe.name}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground disabled:opacity-50"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground active:scale-95"
       >
         <Plus className="size-4" />
       </button>
@@ -420,7 +449,7 @@ function RecipeRow({
         type="button"
         onClick={onEdit}
         aria-label={`Edit ${recipe.name}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
       >
         <Edit3 className="size-4" />
       </button>
@@ -428,7 +457,7 @@ function RecipeRow({
         type="button"
         onClick={onDelete}
         aria-label={`Delete ${recipe.name}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive"
+        className="flex size-8 shrink-0 items-center justify-center text-muted-foreground active:text-destructive"
       >
         <Trash2 className="size-4" />
       </button>
@@ -448,7 +477,10 @@ function EditRecipeDrawer({
   const [name, setName] = useState("");
   const [weight, setWeight] = useState("");
   const [servings, setServings] = useState("");
+  const [iconKey, setIconKey] = useState(DEFAULT_RECIPE_ICON_KEY);
   const [isSaving, setIsSaving] = useState(false);
+  const [pickingIcon, setPickingIcon] = useState(false);
+  const { notice, show, showError, clear } = useNotice();
 
   const detailQuery = useQuery({
     queryKey: ["recipe", recipe?.id],
@@ -462,6 +494,8 @@ function EditRecipeDrawer({
     setName(recipe.name);
     setWeight(Number(recipe.totalWeightGrams.toFixed(2)).toString());
     setServings(Number(recipe.servings.toFixed(2)).toString());
+    setIconKey(recipe.iconKey ?? DEFAULT_RECIPE_ICON_KEY);
+    setPickingIcon(false);
   }, [recipe]);
 
   const detail = detailQuery.data ?? null;
@@ -502,15 +536,15 @@ function EditRecipeDrawer({
   async function save() {
     if (!recipe) return;
     if (!name.trim()) {
-      toast.error("Recipe name is required");
+      show({ tone: "error", message: "Recipe name is required" });
       return;
     }
     if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
-      toast.error("Total recipe weight is required");
+      show({ tone: "error", message: "Total recipe weight is required" });
       return;
     }
     if (!Number.isFinite(parsedServings) || parsedServings <= 0) {
-      toast.error("Servings are required");
+      show({ tone: "error", message: "Servings are required" });
       return;
     }
 
@@ -523,17 +557,15 @@ function EditRecipeDrawer({
           name: name.trim(),
           totalWeightGrams: parsedWeight,
           servings: parsedServings,
+          iconKey,
         }),
       });
       const body = updateRecipeResponseSchema.parse(
         await readJsonResponse(response),
       );
-      toast.success("Recipe updated");
       onSaved(body.recipe);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not update recipe",
-      );
+      showError(error, "Could not update recipe");
     } finally {
       setIsSaving(false);
     }
@@ -552,105 +584,136 @@ function EditRecipeDrawer({
         <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-3">
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Close recipe editor"
+            onClick={() => (pickingIcon ? setPickingIcon(false) : onClose())}
+            aria-label={pickingIcon ? "Back to details" : "Close recipe editor"}
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
           </button>
           <h2 className="truncate text-sm font-semibold text-foreground">
-            Edit Recipe
+            {pickingIcon ? "Choose icon" : "Edit recipe"}
           </h2>
           {isSaving ? (
             <LoaderCircle className="ml-auto size-4 animate-spin text-muted-foreground" />
           ) : null}
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4">
-          <div className="space-y-3 rounded-xl border border-border/60 bg-background p-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="recipe-edit-name">Name</Label>
-              <Input
-                id="recipe-edit-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                autoComplete="off"
+
+        <InlineNotice notice={notice} onDismiss={clear} />
+
+        {pickingIcon ? (
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+            <FoodIconPicker value={iconKey} onValueChange={setIconKey} />
+          </div>
+        ) : (
+          <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
+            <button
+              type="button"
+              onClick={() => setPickingIcon(true)}
+              className="flex w-full items-center gap-3 border-b border-border/50 pb-3 text-left"
+            >
+              <FoodIcon
+                name={name}
+                iconKey={iconKey}
+                entryType="recipe"
+                className="size-9 shrink-0 object-contain"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+              <span className="flex-1 text-sm font-medium">Icon</span>
+              <span className="text-[12px] text-muted-foreground">Change</span>
+            </button>
+
+            <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="recipe-edit-weight">Total weight (g)</Label>
+                <Label htmlFor="recipe-edit-name">Name</Label>
                 <Input
-                  id="recipe-edit-weight"
-                  value={weight}
-                  onChange={(event) => setWeight(event.target.value)}
-                  inputMode="decimal"
+                  id="recipe-edit-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  autoComplete="off"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="recipe-edit-servings">Servings</Label>
-                <Input
-                  id="recipe-edit-servings"
-                  value={servings}
-                  onChange={(event) => setServings(event.target.value)}
-                  inputMode="decimal"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="recipe-edit-weight">Total weight (g)</Label>
+                  <Input
+                    id="recipe-edit-weight"
+                    value={weight}
+                    onChange={(event) => setWeight(event.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="recipe-edit-servings">Servings</Label>
+                  <Input
+                    id="recipe-edit-servings"
+                    value={servings}
+                    onChange={(event) => setServings(event.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="space-y-1 pt-1">
               <StatRow
                 label="Per serving"
                 value={
                   gramsPerServing > 0
-                    ? `${formatGrams(gramsPerServing)} - ${Math.round(
+                    ? `${formatGrams(gramsPerServing)} · ${Math.round(
                         previewMacros.calories,
                       )} kcal`
                     : `${Math.round(previewMacros.calories)} kcal`
                 }
               />
             </div>
-          </div>
 
-          <div>
-            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Per-serving preview
-            </p>
-            <MacroQuad
-              calories={previewMacros.calories}
-              protein={previewMacros.protein}
-              carbs={previewMacros.carbs}
-              fat={previewMacros.fat}
-            />
-          </div>
+            <div>
+              <p className="mb-2 text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+                Per serving
+              </p>
+              <MacroQuad
+                calories={previewMacros.calories}
+                protein={previewMacros.protein}
+                carbs={previewMacros.carbs}
+                fat={previewMacros.fat}
+              />
+            </div>
 
-          {detailQuery.isLoading ? (
-            <p className="px-1 text-xs text-muted-foreground">
-              Loading ingredients...
-            </p>
-          ) : detail ? (
-            <>
-              <IngredientListPanel ingredients={detail.ingredients} />
-              {previewNutrients ? (
-                <MicronutrientPanel
-                  nutrientsPerServing={previewNutrients}
-                  scale={1}
-                />
-              ) : null}
-            </>
-          ) : detailQuery.isError ? (
-            <p className="px-1 text-xs text-destructive">
-              Could not load recipe detail.
-            </p>
-          ) : null}
-        </div>
+            {detailQuery.isLoading ? (
+              <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+            ) : detail ? (
+              <>
+                <IngredientListPanel ingredients={detail.ingredients} />
+                {previewNutrients ? (
+                  <MicronutrientPanel
+                    nutrientsPerServing={previewNutrients}
+                    scale={1}
+                  />
+                ) : null}
+              </>
+            ) : detailQuery.isError ? (
+              <p className="text-xs text-destructive">
+                Could not load recipe detail.
+              </p>
+            ) : null}
+          </div>
+        )}
+
         <div className="border-t border-border bg-background px-3 pt-3 pb-safe-end">
-          <Button
-            type="button"
-            onClick={save}
-            disabled={isSaving}
-            className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
-          >
-            {isSaving ? "Saving..." : "Save Recipe"}
-          </Button>
+          {pickingIcon ? (
+            <Button
+              type="button"
+              onClick={() => setPickingIcon(false)}
+              className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
+            >
+              Done
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={save}
+              disabled={isSaving}
+              className="h-11 w-full rounded-full bg-foreground text-background hover:bg-foreground/90"
+            >
+              {isSaving ? "Saving..." : "Save recipe"}
+            </Button>
+          )}
         </div>
       </DrawerContent>
     </Drawer>

@@ -1,5 +1,4 @@
 import { KeyboardInsetProvider } from "@repo/ui/keyboard-inset-provider";
-import { Toaster } from "@repo/ui/sonner";
 import { cn } from "@repo/ui/utils";
 import type { Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
@@ -46,7 +45,6 @@ export default function RootLayout({
           <KeyboardInsetProvider />
           <div className="macros-app-shell">{children}</div>
           <AddToHomeScreenPrompt />
-          <Toaster />
         </ThemeProvider>
       </body>
     </html>

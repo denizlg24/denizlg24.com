@@ -1,6 +1,7 @@
 "use client";
 
 import { Textarea } from "@repo/ui/textarea";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { Copy, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -34,6 +35,16 @@ function toCalorieSummary(day: FoodLogDayPayload): DailyCalorieSummary {
   };
 }
 
+function pad(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function timeValueFor(entry: FoodLogEntry, timezone: string) {
+  if (!entry.eatenAt) return "12:00";
+  const zoned = toZonedTime(new Date(entry.eatenAt), timezone);
+  return `${pad(zoned.getHours())}:${pad(zoned.getMinutes())}`;
+}
+
 export function EntryEditDrawer({
   entry,
   day,
@@ -52,6 +63,7 @@ export function EntryEditDrawer({
     servings: number,
     measure: EnteredMeasure,
     notes: string,
+    eatenAt: string | null,
   ) => void;
   onDuplicate: (entryId: string) => void;
   onDelete: (entryId: string) => void;
@@ -60,10 +72,18 @@ export function EntryEditDrawer({
   if (entry !== null) lastEntry.current = entry;
   const displayEntry = lastEntry.current;
   const [notes, setNotes] = useState(displayEntry?.notes ?? "");
+  const [time, setTime] = useState(() =>
+    displayEntry ? timeValueFor(displayEntry, day.timezone) : "12:00",
+  );
+  const initialTime = useRef(time);
 
   useEffect(() => {
-    if (entry) setNotes(entry.notes ?? "");
-  }, [entry]);
+    if (!entry) return;
+    setNotes(entry.notes ?? "");
+    const next = timeValueFor(entry, day.timezone);
+    setTime(next);
+    initialTime.current = next;
+  }, [day.timezone, entry]);
 
   const perServingNutrients = useMemo(() => {
     if (!displayEntry) return null;
@@ -140,16 +160,32 @@ export function EntryEditDrawer({
       availableUnits={isQuickAdd ? ["serving"] : undefined}
       actionLabel="Save"
       extraContent={
-        <section className="px-4 pt-4">
-          <h3 className="mb-1 text-xs font-semibold">Note</h3>
-          <Textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={2}
-            maxLength={500}
-            autoComplete="off"
-            className="rounded-xl"
-          />
+        <section className="space-y-3 px-4 pt-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
+            <span className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+              Time
+            </span>
+            <input
+              type="time"
+              value={time}
+              onChange={(event) => setTime(event.target.value)}
+              aria-label="Time eaten"
+              className="rounded-lg bg-muted px-2.5 py-1.5 text-sm tabular-nums outline-none"
+            />
+          </div>
+          <div>
+            <h3 className="mb-1.5 text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+              Note
+            </h3>
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={2}
+              maxLength={500}
+              autoComplete="off"
+              className="rounded-xl"
+            />
+          </div>
         </section>
       }
       headerActions={
@@ -181,7 +217,16 @@ export function EntryEditDrawer({
       onClose={onClose}
       onAdd={(scale, _nutrients, measure) => {
         if (scale > 0) {
-          onSave(displayEntry.id, scale, measure, notes.trim());
+          // Only a changed time is sent: an untouched entry must keep the exact
+          // instant it was logged at, seconds included.
+          const changedTime =
+            time && time !== initialTime.current
+              ? fromZonedTime(
+                  `${day.date}T${time}:00`,
+                  day.timezone,
+                ).toISOString()
+              : null;
+          onSave(displayEntry.id, scale, measure, notes.trim(), changedTime);
         }
         onClose();
       }}
