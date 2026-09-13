@@ -410,6 +410,12 @@ catalogue with every tool → route mapping is
   one — spread `.shape` for objects, nest unions under a named field. Zod v4
   keeps `.shape` on refined objects, and the refinement is dropped by the
   spread: upstream re-validates, so that is fine.
+- **List tools return summaries; get tools return whole rows.** A list of
+  full rows overflows a tool result: `forge_targets_list` was 117 KB for 18
+  targets, 65 KB of it commit bodies. `forge/summaries.ts` builds each summary
+  schema from the canonical `@repo/schemas` shapes, so parsing strips the rest;
+  a payload that stops matching falls back to cutting commit messages and logs
+  a warning instead of failing the call.
 - **Logs are bounded reads of live streams.** Build and runtime logs are SSE
   that never ends while a build runs or a container lives; `collectStream`
   reads for `maxMs` (default 4 s) or 512 KB and reports `complete`.

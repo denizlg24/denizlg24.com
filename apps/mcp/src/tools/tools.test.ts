@@ -402,40 +402,205 @@ describe("web content", () => {
   });
 });
 
-describe("forge commit messages", () => {
+describe("forge list summaries", () => {
   const message = "feat(mcp): add tools\r\n\nA long body\nover lines.";
+  const deployment = {
+    id: "7f1a0c52-0000-4000-8000-00000000000d",
+    targetId: "7f1a0c52-0000-4000-8000-00000000000a",
+    kind: "production",
+    environmentId: null,
+    environmentName: null,
+    status: "ready",
+    phase: null,
+    gitRef: "main",
+    gitSha: "eadbee7977aa9d63ed3f0dc9e0903c066712d187",
+    gitMessage: message,
+    hostname: "mcp-main-x.denizlg24.com",
+    url: "https://mcp.denizlg24.com",
+    port: 25853,
+    imageTag: "ghcr.io/denizlg24/forge-recovery/mcp@sha256:cd0f",
+    imageDigest: "sha256:cd0f",
+    resolvedBuilder: "dockerfile",
+    containerId: "e9cd4687",
+    imageSizeBytes: 44373219,
+    buildDurationMs: 10810,
+    error: null,
+    triggeredBy: "git",
+    createdAt: "2026-09-13T07:18:34.233Z",
+    startedAt: "2026-09-13T07:18:36.440Z",
+    readyAt: "2026-09-13T07:19:26.008Z",
+    stoppedAt: null,
+  };
+  const summary = {
+    id: deployment.id,
+    kind: "production",
+    environmentName: null,
+    status: "ready",
+    phase: null,
+    gitRef: "main",
+    gitSha: deployment.gitSha,
+    gitMessage: "feat(mcp): add tools",
+    url: "https://mcp.denizlg24.com",
+    error: null,
+    createdAt: deployment.createdAt,
+    readyAt: deployment.readyAt,
+  };
   const target = {
-    id: "t1",
-    latestDeployment: { id: "d1", gitMessage: message },
-    latestProduction: { id: "d0", gitMessage: null },
+    id: "7f1a0c52-0000-4000-8000-00000000000a",
+    projectId: "7f1a0c52-0000-4000-8000-00000000000b",
+    projectSlug: "denizlg24-mcp",
+    name: "denizlg24-mcp",
+    repoOwner: "denizlg24",
+    repoName: "denizlg24.com",
+    productionBranch: "main",
+    rootDirectory: "apps/mcp",
+    framework: null,
+    buildCommand: "bun run build",
+    autoDeploy: true,
+    pausedAt: null,
+    primaryHostname: "mcp.denizlg24.com",
   };
 
-  test("list tools cut every commit message to its subject line", async () => {
+  test("targets list returns identity plus deployment summaries", async () => {
+    const preview = {
+      ...deployment,
+      id: "7f1a0c52-0000-4000-8000-00000000000e",
+      kind: "preview",
+    };
     const { upstream } = recordingUpstream(() =>
-      Response.json({ data: [target] }),
+      Response.json({
+        data: [
+          {
+            ...target,
+            latestDeployment: deployment,
+            latestProduction: deployment,
+          },
+          {
+            ...target,
+            latestDeployment: preview,
+            latestProduction: deployment,
+          },
+        ],
+      }),
+    );
+    const result = await createClient(upstream).call("forge_targets_list");
+    const identity = {
+      id: target.id,
+      projectSlug: target.projectSlug,
+      name: target.name,
+      repoOwner: target.repoOwner,
+      repoName: target.repoName,
+      rootDirectory: target.rootDirectory,
+      productionBranch: target.productionBranch,
+      framework: null,
+      autoDeploy: true,
+      pausedAt: null,
+      primaryHostname: target.primaryHostname,
+    };
+    expect(result.structuredContent?.data).toEqual([
+      {
+        ...identity,
+        latestDeployment: summary,
+        latestProduction: { id: deployment.id, sameAsLatestDeployment: true },
+      },
+      {
+        ...identity,
+        latestDeployment: { ...summary, id: preview.id, kind: "preview" },
+        latestProduction: summary,
+      },
+    ]);
+    expect(result.content[0]?.text).not.toContain("buildCommand");
+    expect(result.content[0]?.text).not.toContain("A long body");
+  });
+
+  test("deployment list and search keep only summary fields", async () => {
+    const { upstream } = recordingUpstream((call) =>
+      call.path.startsWith("/api/forge/deployments")
+        ? Response.json({
+            data: {
+              deployments: [
+                {
+                  ...deployment,
+                  targetName: "mcp",
+                  projectId: target.projectId,
+                  projectSlug: "denizlg24-mcp",
+                },
+              ],
+              total: 1,
+              projects: ["denizlg24-mcp"],
+              branches: ["main"],
+              repos: ["denizlg24/denizlg24.com"],
+            },
+          })
+        : Response.json({
+            data: [deployment],
+            pagination: { page: 1, limit: 1, total: 7, totalPages: 7 },
+          }),
+    );
+    const client = createClient(upstream);
+    const listed = await client.call("forge_deployments_list", {
+      targetId: target.id,
+      limit: 1,
+    });
+    expect(listed.structuredContent?.data).toEqual([summary]);
+    expect(listed.structuredContent?.pagination).toEqual({
+      page: 1,
+      limit: 1,
+      total: 7,
+      totalPages: 7,
+    });
+
+    const searched = await client.call("forge_deployments_search", {});
+    expect(searched.structuredContent?.data).toEqual({
+      deployments: [
+        {
+          id: deployment.id,
+          targetName: "mcp",
+          projectSlug: "denizlg24-mcp",
+          kind: "production",
+          status: "ready",
+          phase: null,
+          gitRef: "main",
+          gitSha: deployment.gitSha,
+          gitMessage: "feat(mcp): add tools",
+          hostname: deployment.hostname,
+          error: null,
+          createdAt: deployment.createdAt,
+          readyAt: deployment.readyAt,
+        },
+      ],
+      total: 1,
+      projects: ["denizlg24-mcp"],
+      branches: ["main"],
+      repos: ["denizlg24/denizlg24.com"],
+    });
+  });
+
+  test("a payload that drifted from the schema still has its messages cut", async () => {
+    const { upstream } = recordingUpstream(() =>
+      Response.json({
+        data: [
+          { id: "t1", latestDeployment: { id: "d1", gitMessage: message } },
+        ],
+      }),
     );
     const result = await createClient(upstream).call("forge_targets_list");
     expect(result.structuredContent?.data).toEqual([
       {
         id: "t1",
         latestDeployment: { id: "d1", gitMessage: "feat(mcp): add tools" },
-        latestProduction: { id: "d0", gitMessage: null },
       },
     ]);
-    expect(result.content[0]?.text).not.toContain("A long body");
   });
 
-  test("the single-deployment read keeps the full message", async () => {
+  test("the single-deployment read keeps every field", async () => {
     const { upstream } = recordingUpstream(() =>
-      Response.json({ data: { id: "d1", gitMessage: message } }),
+      Response.json({ data: deployment }),
     );
     const result = await createClient(upstream).call("forge_deployment_get", {
-      deploymentId: "7f1a0c52-0000-4000-8000-000000000002",
+      deploymentId: deployment.id,
     });
-    expect(result.structuredContent?.data).toEqual({
-      id: "d1",
-      gitMessage: message,
-    });
+    expect(result.structuredContent?.data).toEqual(deployment);
   });
 
   test("an upstream error passes through untouched", async () => {

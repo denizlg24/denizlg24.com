@@ -20,7 +20,11 @@ import {
   page,
   uuid,
 } from "../define";
-import { withCommitSubjects } from "./commits";
+import {
+  summarizeBranches,
+  summarizeDeployments,
+  summarizeSearch,
+} from "./summaries";
 
 const targetId = uuid.describe("Deploy target id");
 const deploymentId = uuid.describe("Deployment id");
@@ -42,11 +46,11 @@ export function registerForgeDeployments(server: McpServer, api: Api) {
     name: "forge_deployments_list",
     title: "Forge: deployments of a target",
     description:
-      "Deployments of one target, newest first. Commit messages are subject lines.",
+      "Deployment summaries of one target, newest first. forge_deployment_get has every field.",
     input: z.object({ targetId, page, limit }),
     annotations: { readOnlyHint: true },
     run: async ({ targetId, page, limit }) =>
-      withCommitSubjects(
+      summarizeDeployments(
         await api.cloud.get(p`/api/deploy/targets/${targetId}/deployments`, {
           page,
           limit,
@@ -58,22 +62,22 @@ export function registerForgeDeployments(server: McpServer, api: Api) {
     name: "forge_deployments_search",
     title: "Forge: search deployments",
     description:
-      "Cross-target deployment feed with status, kind, branch, repo, project, text and time filters. Commit messages are subject lines.",
+      "Cross-target deployment summaries with status, kind, branch, repo, project, text and time filters. forge_deployment_summary has every field.",
     input: z.object(forgeDeploymentQuerySchema.shape),
     annotations: { readOnlyHint: true },
     run: async (query) =>
-      withCommitSubjects(await api.cloud.get("/api/forge/deployments", query)),
+      summarizeSearch(await api.cloud.get("/api/forge/deployments", query)),
   });
 
   defineTool(server, {
     name: "forge_target_branches",
     title: "Forge: branches with deployments",
     description:
-      "Branches a target currently has deployments for, latest each. Commit messages are subject lines.",
+      "Branches a target currently has deployments for, with a summary of the latest each.",
     input: z.object({ targetId, limit }),
     annotations: { readOnlyHint: true },
     run: async ({ targetId, limit }) =>
-      withCommitSubjects(
+      summarizeBranches(
         await api.cloud.get(p`/api/deploy/targets/${targetId}/branches`, {
           limit,
         }),
