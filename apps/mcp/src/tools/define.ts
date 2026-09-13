@@ -91,8 +91,22 @@ async function readBody(response: Response): Promise<unknown> {
   return { contentType, bytes: bytes.byteLength };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Rewrites a successful result's payload; errors pass through untouched. */
+export function mapResult(
+  result: ToolResult,
+  transform: (value: unknown) => unknown,
+): ToolResult {
+  if (result.isError || !result.structuredContent) return result;
+  const structured = transform(result.structuredContent);
+  if (!isRecord(structured)) return result;
+  return {
+    content: [{ type: "text", text: JSON.stringify(structured) }],
+    structuredContent: structured,
+  };
 }
 
 export function ok(

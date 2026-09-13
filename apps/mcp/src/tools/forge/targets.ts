@@ -19,6 +19,7 @@ import {
   type ToolResult,
   uuid,
 } from "../define";
+import { withCommitSubjects } from "./commits";
 
 const targetId = uuid.describe("Deploy target id");
 
@@ -26,10 +27,12 @@ export function registerForgeTargets(server: McpServer, api: Api) {
   defineTool(server, {
     name: "forge_targets_list",
     title: "Forge: targets",
-    description: "Every deploy target with its latest production deployment.",
+    description:
+      "Every deploy target with its latest and latest production deployment. Commit messages are subject lines.",
     input: z.object({}),
     annotations: { readOnlyHint: true },
-    run: () => api.cloud.get("/api/deploy/targets"),
+    run: async () =>
+      withCommitSubjects(await api.cloud.get("/api/deploy/targets")),
   });
 
   defineTool(server, {

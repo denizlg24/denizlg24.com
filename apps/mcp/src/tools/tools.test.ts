@@ -401,3 +401,55 @@ describe("web content", () => {
     expect(calls).toHaveLength(4);
   });
 });
+
+describe("forge commit messages", () => {
+  const message = "feat(mcp): add tools\r\n\nA long body\nover lines.";
+  const target = {
+    id: "t1",
+    latestDeployment: { id: "d1", gitMessage: message },
+    latestProduction: { id: "d0", gitMessage: null },
+  };
+
+  test("list tools cut every commit message to its subject line", async () => {
+    const { upstream } = recordingUpstream(() =>
+      Response.json({ data: [target] }),
+    );
+    const result = await createClient(upstream).call("forge_targets_list");
+    expect(result.structuredContent?.data).toEqual([
+      {
+        id: "t1",
+        latestDeployment: { id: "d1", gitMessage: "feat(mcp): add tools" },
+        latestProduction: { id: "d0", gitMessage: null },
+      },
+    ]);
+    expect(result.content[0]?.text).not.toContain("A long body");
+  });
+
+  test("the single-deployment read keeps the full message", async () => {
+    const { upstream } = recordingUpstream(() =>
+      Response.json({ data: { id: "d1", gitMessage: message } }),
+    );
+    const result = await createClient(upstream).call("forge_deployment_get", {
+      deploymentId: "7f1a0c52-0000-4000-8000-000000000002",
+    });
+    expect(result.structuredContent?.data).toEqual({
+      id: "d1",
+      gitMessage: message,
+    });
+  });
+
+  test("an upstream error passes through untouched", async () => {
+    const { upstream } = recordingUpstream(() =>
+      Response.json({ error: { code: "BOOM" } }, { status: 502 }),
+    );
+    const result = await createClient(upstream).call(
+      "forge_deployments_search",
+      {},
+    );
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      status: 502,
+      error: { error: { code: "BOOM" } },
+    });
+  });
+});

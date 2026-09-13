@@ -20,6 +20,7 @@ import {
   page,
   uuid,
 } from "../define";
+import { withCommitSubjects } from "./commits";
 
 const targetId = uuid.describe("Deploy target id");
 const deploymentId = uuid.describe("Deployment id");
@@ -40,35 +41,43 @@ export function registerForgeDeployments(server: McpServer, api: Api) {
   defineTool(server, {
     name: "forge_deployments_list",
     title: "Forge: deployments of a target",
-    description: "Deployments of one target, newest first.",
+    description:
+      "Deployments of one target, newest first. Commit messages are subject lines.",
     input: z.object({ targetId, page, limit }),
     annotations: { readOnlyHint: true },
-    run: ({ targetId, page, limit }) =>
-      api.cloud.get(p`/api/deploy/targets/${targetId}/deployments`, {
-        page,
-        limit,
-      }),
+    run: async ({ targetId, page, limit }) =>
+      withCommitSubjects(
+        await api.cloud.get(p`/api/deploy/targets/${targetId}/deployments`, {
+          page,
+          limit,
+        }),
+      ),
   });
 
   defineTool(server, {
     name: "forge_deployments_search",
     title: "Forge: search deployments",
     description:
-      "Cross-target deployment feed with status, kind, branch, repo, project, text and time filters.",
+      "Cross-target deployment feed with status, kind, branch, repo, project, text and time filters. Commit messages are subject lines.",
     input: z.object(forgeDeploymentQuerySchema.shape),
     annotations: { readOnlyHint: true },
-    run: (query) => api.cloud.get("/api/forge/deployments", query),
+    run: async (query) =>
+      withCommitSubjects(await api.cloud.get("/api/forge/deployments", query)),
   });
 
   defineTool(server, {
     name: "forge_target_branches",
     title: "Forge: branches with deployments",
     description:
-      "Branches a target currently has deployments for, latest each.",
+      "Branches a target currently has deployments for, latest each. Commit messages are subject lines.",
     input: z.object({ targetId, limit }),
     annotations: { readOnlyHint: true },
-    run: ({ targetId, limit }) =>
-      api.cloud.get(p`/api/deploy/targets/${targetId}/branches`, { limit }),
+    run: async ({ targetId, limit }) =>
+      withCommitSubjects(
+        await api.cloud.get(p`/api/deploy/targets/${targetId}/branches`, {
+          limit,
+        }),
+      ),
   });
 
   defineTool(server, {
