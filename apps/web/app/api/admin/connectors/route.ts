@@ -1,6 +1,7 @@
 import { createConnectorInputSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectorErrorResponse } from "@/lib/connectors/http";
+import { connectorOAuthRedirectUrl } from "@/lib/connectors/oauth-provider";
 import {
   createConnector,
   listConnectors,
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
     const connectors = await listConnectors();
     return NextResponse.json({
       connectors: connectors.map(serializeConnector),
+      oauthRedirectUrl: connectorOAuthRedirectUrl(),
     });
   } catch (error) {
     return connectorErrorResponse(error);

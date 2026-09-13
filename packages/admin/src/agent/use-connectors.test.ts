@@ -17,6 +17,7 @@ function connector(overrides: Partial<Connector> = {}): Connector {
     toolCount: 2,
     builtIn: false,
     hasSecret: false,
+    oauthClient: null,
     lastCheckedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

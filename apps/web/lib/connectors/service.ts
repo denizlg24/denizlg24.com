@@ -2,6 +2,7 @@ import { auth, createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import {
   type ConnectorAuthorizeResponse,
   type Connector as ConnectorDto,
+  type ConnectorOAuthClientInput,
   type ConnectorTool,
   type CreateConnectorInput,
   MCP_ACTIONS_META_KEY,
@@ -13,7 +14,11 @@ import type { JSONSchema7 } from "ai";
 import { z } from "zod";
 import { decryptSecret, encryptSecret } from "@/lib/encrypted-secret";
 import { connectDB } from "@/lib/mongodb";
-import { Connector, type IConnector } from "@/models/Connector";
+import {
+  Connector,
+  type IConnector,
+  type IConnectorOAuthClient,
+} from "@/models/Connector";
 import { ConnectorOAuthProvider, hashOAuthState } from "./oauth-provider";
 import {
   PrimaryConnectorUnavailableError,
@@ -106,6 +111,13 @@ export function serializeConnector(connector: IConnector): ConnectorDto {
     toolCount: connector.toolCache?.definitions.length ?? 0,
     builtIn: connector.builtIn,
     hasSecret: Boolean(connector.secret ?? connector.oauth?.tokens),
+    oauthClient: connector.oauthClient
+      ? {
+          clientId: connector.oauthClient.clientId,
+          scope: connector.oauthClient.scope ?? null,
+          hasSecret: Boolean(connector.oauthClient.clientSecret),
+        }
+      : null,
     lastCheckedAt: connector.lastCheckedAt?.toISOString() ?? null,
     createdAt: connector.createdAt.toISOString(),
     updatedAt: connector.updatedAt.toISOString(),
@@ -202,6 +214,34 @@ export async function getConnector(id: string): Promise<IConnector> {
   return connector;
 }
 
+function storedOAuthClient(
+  input: ConnectorOAuthClientInput,
+  current: IConnectorOAuthClient | undefined,
+): IConnectorOAuthClient {
+  const clientSecret = input.clientSecret
+    ? encryptSecret(input.clientSecret)
+    : input.clientId === current?.clientId
+      ? current.clientSecret
+      : undefined;
+  return {
+    clientId: input.clientId,
+    ...(clientSecret ? { clientSecret } : {}),
+    ...(input.scope ? { scope: input.scope } : {}),
+  };
+}
+
+function oauthClientChanged(
+  current: IConnectorOAuthClient | undefined,
+  input: ConnectorOAuthClientInput | null,
+): boolean {
+  if (!input) return current !== undefined;
+  return (
+    input.clientSecret !== undefined ||
+    input.clientId !== current?.clientId ||
+    input.scope !== current?.scope
+  );
+}
+
 export async function createConnector(
   input: CreateConnectorInput,
 ): Promise<IConnector> {
@@ -223,6 +263,9 @@ export async function createConnector(
     builtIn: false,
     ...(input.auth === "bearer" ? { secret: encryptSecret(input.token) } : {}),
     ...(input.auth === "oauth" ? { oauth: {} } : {}),
+    ...(input.auth === "oauth" && input.oauthClient
+      ? { oauthClient: storedOAuthClient(input.oauthClient, undefined) }
+      : {}),
     status: input.auth === "oauth" ? "needs-auth" : "error",
     statusDetail: input.auth === "oauth" ? "Not authorized" : "Not checked yet",
   });
@@ -244,6 +287,9 @@ export async function updateConnector(
   if (input.token !== undefined && connector.auth !== "bearer") {
     throw new ConnectorError("Only a bearer connector takes a token", 400);
   }
+  if (input.oauthClient !== undefined && connector.auth !== "oauth") {
+    throw new ConnectorError("Only an OAuth connector takes a client", 400);
+  }
   if (input.name !== undefined) connector.name = input.name;
   if (input.approval !== undefined) connector.approval = input.approval;
   if (input.enabled !== undefined) connector.enabled = input.enabled;
@@ -258,6 +304,17 @@ export async function updateConnector(
     connector.oauth = {};
     connector.status = "needs-auth";
     connector.statusDetail = "The URL changed; authorize again";
+  }
+  if (
+    input.oauthClient !== undefined &&
+    oauthClientChanged(connector.oauthClient, input.oauthClient)
+  ) {
+    connector.oauthClient = input.oauthClient
+      ? storedOAuthClient(input.oauthClient, connector.oauthClient)
+      : undefined;
+    connector.oauth = {};
+    connector.status = "needs-auth";
+    connector.statusDetail = "The OAuth client changed; authorize again";
   }
   await connector.save();
   if (
@@ -305,10 +362,7 @@ function connectorTransport(connector: IConnector): ConnectorTransport {
       return {
         type: "http",
         url: connector.url,
-        authProvider: new ConnectorOAuthProvider(
-          connector._id.toString(),
-          connector.oauth ?? {},
-        ),
+        authProvider: new ConnectorOAuthProvider(connector),
       };
   }
 }
@@ -346,6 +400,17 @@ function errorStatus(error: unknown): {
     return { status: "needs-auth", detail: message.slice(0, 500) };
   }
   return { status: "error", detail: message.slice(0, 500) };
+}
+
+/**
+ * The SDK's own message ("does not support dynamic client registration", a
+ * token endpoint's error) is the only useful diagnosis, and anything but a
+ * ConnectorError reaches the owner as a bare 500.
+ */
+function authorizationError(error: unknown): ConnectorError {
+  if (error instanceof ConnectorError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new ConnectorError(message.slice(0, 300), 502);
 }
 
 /**
@@ -395,11 +460,13 @@ export async function startConnectorAuthorization(
   if (connector.auth !== "oauth") {
     throw new ConnectorError("This connector does not use OAuth", 400);
   }
-  const provider = new ConnectorOAuthProvider(
-    connector._id.toString(),
-    connector.oauth ?? {},
-  );
-  const result = await auth(provider, { serverUrl: connector.url });
+  const provider = new ConnectorOAuthProvider(connector);
+  const result = await auth(provider, {
+    serverUrl: connector.url,
+    scope: provider.scope,
+  }).catch((error: unknown) => {
+    throw authorizationError(error);
+  });
   if (result === "AUTHORIZED") {
     await refreshConnectorTools(await getConnector(id));
     return { status: "authorized" };
@@ -431,18 +498,17 @@ export async function completeConnectorAuthorization(params: {
   if (!connector) {
     throw new ConnectorError("This authorization link has expired", 400);
   }
-  const provider = new ConnectorOAuthProvider(
-    connector._id.toString(),
-    connector.oauth ?? {},
-    params.state,
-  );
+  const provider = new ConnectorOAuthProvider(connector, params.state);
   try {
     await auth(provider, {
       serverUrl: connector.url,
       authorizationCode: params.code,
       callbackState: params.state,
+      scope: provider.scope,
       ...(params.issuer ? { callbackIssuer: params.issuer } : {}),
     });
+  } catch (error) {
+    throw authorizationError(error);
   } finally {
     await Connector.updateOne(
       { _id: connector._id },

@@ -8,7 +8,12 @@ import type {
 } from "@ai-sdk/mcp";
 import { siteResourceConfig } from "@/lib/cloud-oauth";
 import { decryptSecret, encryptSecret } from "@/lib/encrypted-secret";
-import { Connector, type IConnectorOAuth } from "@/models/Connector";
+import {
+  Connector,
+  type IConnector,
+  type IConnectorOAuth,
+  type IConnectorOAuthClient,
+} from "@/models/Connector";
 
 const STATE_TTL_MS = 10 * 60_000;
 
@@ -40,12 +45,23 @@ function openJson<T>(sealed: IConnectorOAuth["tokens"]): T | undefined {
  */
 export class ConnectorOAuthProvider implements OAuthClientProvider {
   authorizationUrl: URL | null = null;
+  private readonly connectorId: string;
+  private oauth: IConnectorOAuth;
+  private readonly registeredClient?: IConnectorOAuthClient;
 
   constructor(
-    private readonly connectorId: string,
-    private oauth: IConnectorOAuth,
+    connector: Pick<IConnector, "_id" | "oauth" | "oauthClient">,
     private readonly verifiedState?: string,
-  ) {}
+  ) {
+    this.connectorId = connector._id.toString();
+    this.oauth = connector.oauth ?? {};
+    this.registeredClient = connector.oauthClient;
+  }
+
+  /** The scope to request, when the owner narrowed it on the client. */
+  get scope(): string | undefined {
+    return this.registeredClient?.scope;
+  }
 
   get redirectUrl(): string {
     return connectorOAuthRedirectUrl();
@@ -104,7 +120,15 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
     return decryptSecret(this.oauth.codeVerifier);
   }
 
+  /** A hand-registered client wins, which is what skips dynamic registration. */
   clientInformation(): OAuthClientInformation | undefined {
+    if (this.registeredClient) {
+      const { clientId, clientSecret } = this.registeredClient;
+      return {
+        client_id: clientId,
+        ...(clientSecret ? { client_secret: decryptSecret(clientSecret) } : {}),
+      };
+    }
     return openJson<OAuthClientInformation>(this.oauth.clientInformation);
   }
 

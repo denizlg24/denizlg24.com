@@ -41,6 +41,7 @@ export function useConnectors({
 } = {}) {
   const { client } = useAdmin();
   const [connectors, setConnectors] = useState<Connector[] | null>(null);
+  const [oauthRedirectUrl, setOAuthRedirectUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,7 @@ export function useConnectors({
     try {
       const result = await client.get<ConnectorList>("connectors");
       setConnectors(sortConnectors(result.connectors));
+      setOAuthRedirectUrl(result.oauthRedirectUrl);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Failed to load connectors",
@@ -94,5 +96,13 @@ export function useConnectors({
     );
   }, []);
 
-  return { connectors, loading, error, refresh, replace, drop };
+  return {
+    connectors,
+    oauthRedirectUrl,
+    loading,
+    error,
+    refresh,
+    replace,
+    drop,
+  };
 }

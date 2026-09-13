@@ -6,11 +6,20 @@ import {
   type ConnectorAuth,
   type ConnectorAuthorizeResponse,
   type ConnectorDetail,
+  type ConnectorOAuthClientInput,
   type ConnectorTool,
   connectorApprovalSchema,
   connectorSlugSchema,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { CopyButton } from "@repo/ui/copy-button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@repo/ui/dropdown-menu";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { RadioGroup, RadioGroupItem } from "@repo/ui/radio-group";
@@ -26,13 +35,18 @@ import { Spinner } from "@repo/ui/spinner";
 import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
 import { cn } from "@repo/ui/utils";
-import { ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConnectors } from "../../agent/use-connectors";
 import { AdminApiError } from "../../client";
 import { useAdmin } from "../../provider";
 import { SettingsGroup } from "../settings-shell";
+import {
+  CONNECTOR_PRESETS,
+  type ConnectorPreset,
+  connectorIcon,
+} from "./connector-presets";
 
 const APPROVAL_LABEL: Record<ConnectorApproval, string> = {
   "reads-auto": "Reads run, writes ask",
@@ -186,18 +200,201 @@ function ConnectorTools({
   );
 }
 
+interface OAuthClientDraft {
+  clientId: string;
+  clientSecret: string;
+  scope: string;
+}
+
+const EMPTY_CLIENT: OAuthClientDraft = {
+  clientId: "",
+  clientSecret: "",
+  scope: "",
+};
+
+function clientInput(
+  draft: OAuthClientDraft,
+): ConnectorOAuthClientInput | null {
+  const clientId = draft.clientId.trim();
+  if (!clientId) return null;
+  const clientSecret = draft.clientSecret.trim();
+  const scope = draft.scope.trim();
+  return {
+    clientId,
+    ...(clientSecret ? { clientSecret } : {}),
+    ...(scope ? { scope } : {}),
+  };
+}
+
+/** Grid cells for a two-column parent. */
+function OAuthClientFields({
+  idPrefix,
+  draft,
+  onChange,
+  redirectUrl,
+  secretStored = false,
+}: {
+  idPrefix: string;
+  draft: OAuthClientDraft;
+  onChange: (draft: OAuthClientDraft) => void;
+  redirectUrl: string | null;
+  secretStored?: boolean;
+}) {
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-client-id`} className="text-xs">
+          Client ID
+        </Label>
+        <Input
+          id={`${idPrefix}-client-id`}
+          value={draft.clientId}
+          onChange={(event) =>
+            onChange({ ...draft, clientId: event.target.value })
+          }
+          className="h-8 font-mono text-xs"
+          autoComplete="off"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-client-secret`} className="text-xs">
+          Client secret
+        </Label>
+        <Input
+          id={`${idPrefix}-client-secret`}
+          type="password"
+          value={draft.clientSecret}
+          onChange={(event) =>
+            onChange({ ...draft, clientSecret: event.target.value })
+          }
+          placeholder={secretStored ? "••••••••" : undefined}
+          className="h-8 font-mono text-xs"
+          autoComplete="off"
+        />
+      </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-client-scope`} className="text-xs">
+          Scope
+        </Label>
+        <Input
+          id={`${idPrefix}-client-scope`}
+          value={draft.scope}
+          onChange={(event) =>
+            onChange({ ...draft, scope: event.target.value })
+          }
+          className="h-8 font-mono text-xs"
+          autoComplete="off"
+        />
+      </div>
+      {redirectUrl ? (
+        <div className="space-y-1 sm:col-span-2">
+          <span className="text-xs font-medium">Redirect URL</span>
+          <div className="flex min-w-0 items-center gap-1">
+            <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+              {redirectUrl}
+            </code>
+            <CopyButton value={redirectUrl} label="Copy redirect URL" />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function OAuthClientEditor({
+  connector,
+  redirectUrl,
+  onChange,
+}: {
+  connector: Connector;
+  redirectUrl: string | null;
+  onChange: (connector: Connector) => void;
+}) {
+  const { client } = useAdmin();
+  const [draft, setDraft] = useState<OAuthClientDraft>({
+    clientId: connector.oauthClient?.clientId ?? "",
+    clientSecret: "",
+    scope: connector.oauthClient?.scope ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const input = clientInput(draft);
+
+  const save = async (oauthClient: ConnectorOAuthClientInput | null) => {
+    setSaving(true);
+    try {
+      const detail = await client.patch<ConnectorDetail>(
+        `connectors/${connector.id}`,
+        { oauthClient },
+      );
+      onChange(detail.connector);
+      setDraft((current) =>
+        oauthClient ? { ...current, clientSecret: "" } : EMPTY_CLIENT,
+      );
+    } catch (cause) {
+      toast.error(errorText(cause, "Failed to update client"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (input) void save(input);
+      }}
+      className="grid gap-3 py-2 sm:grid-cols-2"
+      aria-label={`${connector.name} OAuth client`}
+    >
+      <OAuthClientFields
+        idPrefix={`connector-${connector.id}`}
+        draft={draft}
+        onChange={setDraft}
+        redirectUrl={redirectUrl}
+        secretStored={connector.oauthClient?.hasSecret ?? false}
+      />
+      <div className="flex items-center justify-end gap-1 sm:col-span-2">
+        {connector.oauthClient ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+            disabled={saving}
+            onClick={() => void save(null)}
+          >
+            Remove
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          className="h-7 px-2.5 text-xs"
+          disabled={!input || saving}
+        >
+          {saving ? <Spinner className="size-3" /> : null}
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function ConnectorRow({
   connector,
+  oauthRedirectUrl,
   onChange,
   onRemove,
 }: {
   connector: Connector;
+  oauthRedirectUrl: string | null;
   onChange: (connector: Connector) => void;
   onRemove: (id: string) => void;
 }) {
   const { client, platform } = useAdmin();
   const [busy, setBusy] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<"tools" | "client" | null>(null);
+  const Icon = connectorIcon(connector.url);
+  const toggle = (panel: "tools" | "client") =>
+    setExpanded((current) => (current === panel ? null : panel));
 
   const run = async (label: string, action: () => Promise<void>) => {
     setBusy(label);
@@ -270,6 +467,9 @@ function ConnectorRow({
         />
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-w-0 items-baseline gap-2">
+            {Icon ? (
+              <Icon className="size-3.5 shrink-0 self-center" aria-hidden />
+            ) : null}
             <span className="truncate text-sm font-medium">
               {connector.name}
             </span>
@@ -371,24 +571,50 @@ function ConnectorRow({
             Delete
           </Button>
         )}
-        <Button
-          variant="ghost"
-          className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
-        >
-          Tools
-          <ChevronRight
-            className={cn(
-              "size-3 transition-transform",
-              expanded && "rotate-90",
-            )}
-          />
-        </Button>
+        <div className="ml-auto flex items-center">
+          {connector.auth === "oauth" ? (
+            <Button
+              variant="ghost"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+              aria-expanded={expanded === "client"}
+              onClick={() => toggle("client")}
+            >
+              Client
+              <ChevronRight
+                className={cn(
+                  "size-3 transition-transform",
+                  expanded === "client" && "rotate-90",
+                )}
+              />
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+            aria-expanded={expanded === "tools"}
+            onClick={() => toggle("tools")}
+          >
+            Tools
+            <ChevronRight
+              className={cn(
+                "size-3 transition-transform",
+                expanded === "tools" && "rotate-90",
+              )}
+            />
+          </Button>
+        </div>
       </div>
-      {expanded ? (
+      {expanded === "tools" ? (
         <div className="ml-5 border-l pl-3">
           <ConnectorTools connector={connector} onChange={onChange} />
+        </div>
+      ) : expanded === "client" ? (
+        <div className="ml-5 border-l pl-3">
+          <OAuthClientEditor
+            connector={connector}
+            redirectUrl={oauthRedirectUrl}
+            onChange={onChange}
+          />
         </div>
       ) : null}
     </li>
@@ -405,39 +631,52 @@ const AUTH_OPTIONS: Array<{
 ];
 
 function AddConnectorForm({
+  preset,
+  oauthRedirectUrl,
   onCreated,
   onCancel,
 }: {
+  preset: ConnectorPreset | null;
+  oauthRedirectUrl: string | null;
   onCreated: (connector: Connector) => void;
   onCancel: () => void;
 }) {
   const { client } = useAdmin();
-  const [slug, setSlug] = useState("");
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [auth, setAuth] = useState<Exclude<ConnectorAuth, "service">>("none");
+  const [slug, setSlug] = useState(preset?.slug ?? "");
+  const [name, setName] = useState(preset?.name ?? "");
+  const [url, setUrl] = useState(preset?.url ?? "");
+  const [auth, setAuth] = useState<Exclude<ConnectorAuth, "service">>(
+    preset?.auth ?? "none",
+  );
   const [token, setToken] = useState("");
+  const [oauthClient, setOAuthClient] = useState(EMPTY_CLIENT);
+  const [clientOpen, setClientOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const clientRequired = auth === "oauth" && preset?.clientRequired === true;
   const slugValid = connectorSlugSchema.safeParse(slug).success;
   const urlValid = URL.canParse(url);
   const ready =
     slugValid &&
     name.trim().length > 0 &&
     urlValid &&
-    (auth !== "bearer" || token.trim().length > 0);
+    (auth !== "bearer" || token.trim().length > 0) &&
+    (!clientRequired || clientInput(oauthClient) !== null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
     setSaving(true);
     const base = { slug, name: name.trim(), url: url.trim() };
+    const registered = clientInput(oauthClient);
     try {
       const { connector } = await client.post<{ connector: Connector }>(
         "connectors",
         auth === "bearer"
           ? { ...base, auth, token: token.trim() }
-          : { ...base, auth },
+          : auth === "oauth" && registered
+            ? { ...base, auth, oauthClient: registered }
+            : { ...base, auth },
       );
       onCreated(connector);
     } catch (cause) {
@@ -494,29 +733,58 @@ function AddConnectorForm({
       </div>
       <div className="space-y-1.5 sm:col-span-2">
         <span className="text-xs font-medium">Auth</span>
-        <RadioGroup
-          value={auth}
-          onValueChange={(value) => {
-            const option = AUTH_OPTIONS.find((entry) => entry.value === value);
-            if (option) setAuth(option.value);
-          }}
-          className="flex flex-wrap gap-4"
-        >
-          {AUTH_OPTIONS.map((option) => (
-            <Label
-              key={option.value}
-              className="gap-1.5 text-xs font-normal"
-              htmlFor={`connector-auth-${option.value}`}
+        <div className="flex flex-wrap items-center gap-4">
+          <RadioGroup
+            value={auth}
+            onValueChange={(value) => {
+              const option = AUTH_OPTIONS.find(
+                (entry) => entry.value === value,
+              );
+              if (option) setAuth(option.value);
+            }}
+            className="flex flex-wrap gap-4"
+          >
+            {AUTH_OPTIONS.map((option) => (
+              <Label
+                key={option.value}
+                className="gap-1.5 text-xs font-normal"
+                htmlFor={`connector-auth-${option.value}`}
+              >
+                <RadioGroupItem
+                  id={`connector-auth-${option.value}`}
+                  value={option.value}
+                />
+                {option.label}
+              </Label>
+            ))}
+          </RadioGroup>
+          {auth === "oauth" && !clientRequired ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground"
+              aria-expanded={clientOpen}
+              onClick={() => setClientOpen((current) => !current)}
             >
-              <RadioGroupItem
-                id={`connector-auth-${option.value}`}
-                value={option.value}
+              Client
+              <ChevronRight
+                className={cn(
+                  "size-3 transition-transform",
+                  clientOpen && "rotate-90",
+                )}
               />
-              {option.label}
-            </Label>
-          ))}
-        </RadioGroup>
+            </Button>
+          ) : null}
+        </div>
       </div>
+      {auth === "oauth" && (clientOpen || clientRequired) ? (
+        <OAuthClientFields
+          idPrefix="connector-new"
+          draft={oauthClient}
+          onChange={setOAuthClient}
+          redirectUrl={oauthRedirectUrl}
+        />
+      ) : null}
       {auth === "bearer" ? (
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="connector-token" className="text-xs">
@@ -575,11 +843,64 @@ function useOAuthReturnNotice() {
   }, []);
 }
 
+function AddConnectorMenu({
+  connectors,
+  onPick,
+}: {
+  connectors: Connector[];
+  onPick: (preset: ConnectorPreset | null) => void;
+}) {
+  const taken = new Set(
+    connectors.flatMap((connector) => [connector.slug, connector.url]),
+  );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-7 gap-1 px-2.5 text-xs shadow-none"
+        >
+          Add
+          <ChevronDown className="size-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem className="text-xs" onSelect={() => onPick(null)}>
+          Custom
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {CONNECTOR_PRESETS.map((preset) => {
+          const PresetIcon = preset.icon;
+          return (
+            <DropdownMenuItem
+              key={preset.slug}
+              className="text-xs"
+              disabled={taken.has(preset.slug) || taken.has(preset.url)}
+              onSelect={() => onPick(preset)}
+            >
+              <PresetIcon className="size-3.5" aria-hidden />
+              {preset.name}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ConnectorsSection() {
-  const { connectors, loading, error, refresh, replace, drop } = useConnectors({
-    refreshOnFocus: true,
-  });
-  const [adding, setAdding] = useState(false);
+  const {
+    connectors,
+    oauthRedirectUrl,
+    loading,
+    error,
+    refresh,
+    replace,
+    drop,
+  } = useConnectors({ refreshOnFocus: true });
+  const [adding, setAdding] = useState<{
+    preset: ConnectorPreset | null;
+  } | null>(null);
   useOAuthReturnNotice();
 
   return (
@@ -587,22 +908,21 @@ export function ConnectorsSection() {
       label="Connectors"
       actions={
         adding ? null : (
-          <Button
-            variant="outline"
-            className="h-7 px-2.5 text-xs shadow-none"
-            onClick={() => setAdding(true)}
-          >
-            Add
-          </Button>
+          <AddConnectorMenu
+            connectors={connectors ?? []}
+            onPick={(preset) => setAdding({ preset })}
+          />
         )
       }
     >
       {adding ? (
         <AddConnectorForm
-          onCancel={() => setAdding(false)}
+          preset={adding.preset}
+          oauthRedirectUrl={oauthRedirectUrl}
+          onCancel={() => setAdding(null)}
           onCreated={(connector) => {
             replace(connector);
-            setAdding(false);
+            setAdding(null);
           }}
         />
       ) : null}
@@ -635,6 +955,7 @@ export function ConnectorsSection() {
             <ConnectorRow
               key={connector.id}
               connector={connector}
+              oauthRedirectUrl={oauthRedirectUrl}
               onChange={replace}
               onRemove={drop}
             />

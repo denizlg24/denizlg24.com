@@ -27,6 +27,17 @@ export interface IConnectorOAuth {
 }
 
 /**
+ * A client registered by hand with an authorization server that has no
+ * dynamic registration. Kept apart from `oauth`, which disconnecting or
+ * changing the URL resets, because the registration outlives both.
+ */
+export interface IConnectorOAuthClient {
+  clientId: string;
+  clientSecret?: EncryptedSecret;
+  scope?: string;
+}
+
+/**
  * The last `tools/list` answer, kept so a turn does not pay a round trip per
  * connector before the model call. `definitions` is the raw MCP payload.
  */
@@ -47,6 +58,7 @@ export interface IConnector extends Document {
   builtIn: boolean;
   secret?: EncryptedSecret;
   oauth?: IConnectorOAuth;
+  oauthClient?: IConnectorOAuthClient;
   toolCache?: IConnectorToolCache;
   status: ConnectorStatus;
   statusDetail?: string;
@@ -102,6 +114,17 @@ const ConnectorSchema = new Schema<IConnector>(
               { _id: false },
             ),
           },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
+    oauthClient: {
+      type: new Schema<IConnectorOAuthClient>(
+        {
+          clientId: { type: String, required: true, maxlength: 512 },
+          clientSecret: { type: EncryptedSecretSchema },
+          scope: { type: String, maxlength: 2_000 },
         },
         { _id: false },
       ),

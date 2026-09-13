@@ -31,7 +31,8 @@ export const connectorSlugSchema = z
  *   client_credentials grant — never configurable, never exposed.
  * - `none`: an open server.
  * - `bearer`: a static token sent as `Authorization: Bearer`.
- * - `oauth`: MCP authorization (discovery, dynamic registration, PKCE).
+ * - `oauth`: MCP authorization (discovery, PKCE, and dynamic registration
+ *   unless the connector carries a client registered by hand).
  */
 export const connectorAuthSchema = z.enum([
   "service",
@@ -72,6 +73,14 @@ export const connectorToolSchema = z.object({
 });
 export type ConnectorTool = z.infer<typeof connectorToolSchema>;
 
+/** The client as the UI sees it; the secret never leaves the server. */
+export const connectorOAuthClientSchema = z.object({
+  clientId: z.string(),
+  scope: z.string().nullable(),
+  hasSecret: z.boolean(),
+});
+export type ConnectorOAuthClient = z.infer<typeof connectorOAuthClientSchema>;
+
 export const connectorSchema = z.object({
   id: z.string(),
   slug: connectorSlugSchema,
@@ -87,6 +96,8 @@ export const connectorSchema = z.object({
   /** True for the seeded primary connector: no delete, no auth change. */
   builtIn: z.boolean(),
   hasSecret: z.boolean(),
+  /** A client registered by hand, used instead of dynamic registration. */
+  oauthClient: connectorOAuthClientSchema.nullable(),
   lastCheckedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -95,6 +106,8 @@ export type Connector = z.infer<typeof connectorSchema>;
 
 export const connectorListSchema = z.object({
   connectors: z.array(connectorSchema),
+  /** The redirect URI a hand-registered OAuth client must allow. */
+  oauthRedirectUrl: z.url(),
 });
 export type ConnectorList = z.infer<typeof connectorListSchema>;
 
@@ -105,6 +118,20 @@ export const connectorDetailSchema = z.object({
 export type ConnectorDetail = z.infer<typeof connectorDetailSchema>;
 
 const connectorNameSchema = z.string().trim().min(1).max(60);
+
+/**
+ * For authorization servers without dynamic client registration (GitHub,
+ * Slack). Without `scope` the SDK requests every scope the server advertises.
+ */
+export const connectorOAuthClientInputSchema = z.object({
+  clientId: z.string().trim().min(1).max(512),
+  /** Omitted on update keeps the stored secret while `clientId` is unchanged. */
+  clientSecret: z.string().trim().min(1).max(4_096).optional(),
+  scope: z.string().trim().min(1).max(2_000).optional(),
+});
+export type ConnectorOAuthClientInput = z.infer<
+  typeof connectorOAuthClientInputSchema
+>;
 
 export const createConnectorInputSchema = z.discriminatedUnion("auth", [
   z.object({
@@ -128,6 +155,7 @@ export const createConnectorInputSchema = z.discriminatedUnion("auth", [
     name: connectorNameSchema,
     url: z.url(),
     approval: connectorApprovalSchema.default("reads-auto"),
+    oauthClient: connectorOAuthClientInputSchema.optional(),
   }),
 ]);
 export type CreateConnectorInput = z.infer<typeof createConnectorInputSchema>;
@@ -141,6 +169,12 @@ export const updateConnectorInputSchema = z
     disabledTools: z.array(z.string().max(200)).max(1_000),
     /** Replaces the bearer token; only valid on a `bearer` connector. */
     token: z.string().min(1).max(4_096),
+    /**
+     * Replaces the hand-registered client on an `oauth` connector; `null`
+     * returns it to dynamic registration. Any change needs a new
+     * authorization.
+     */
+    oauthClient: connectorOAuthClientInputSchema.nullable(),
   })
   .partial();
 export type UpdateConnectorInput = z.infer<typeof updateConnectorInputSchema>;
