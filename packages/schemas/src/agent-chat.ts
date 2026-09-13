@@ -36,8 +36,6 @@ export const agentMessageMetadataSchema = z.object({
   retrievalTraceId: z.string().optional(),
   memoryInjected: z.boolean().optional(),
   finishReason: z.string().optional(),
-  /** The loop stopped on its round limit, not because the model was done. */
-  stoppedAtMaxRounds: z.boolean().optional(),
   /** The page Deniz was on when he sent the message. */
   page: z
     .object({ pathname: z.string(), title: z.string().optional() })

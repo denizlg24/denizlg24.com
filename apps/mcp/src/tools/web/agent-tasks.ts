@@ -9,6 +9,7 @@ import { z } from "zod";
 import { type Api, action, defineActions, p } from "../define";
 
 const taskId = z.string().min(1).describe("Task id");
+const runId = z.string().min(1).describe("Run id");
 const byId = z.object({ taskId });
 
 // A task queued through this server was queued by an agent, and `origin` is
@@ -25,7 +26,8 @@ export function registerWebAgentTasks(server: McpServer, api: Api) {
     description: "Scheduled and one-off agent tasks and their runs.",
     actions: {
       list: action({
-        description: "Tasks with recent runs",
+        description:
+          "Tasks with recent runs as summaries; run_get for a transcript",
         readOnly: true,
         run: () => api.web.get("/api/admin/agent-tasks"),
       }),
@@ -54,6 +56,14 @@ export function registerWebAgentTasks(server: McpServer, api: Api) {
         run: ({ taskId }) =>
           api.web.post(p`/api/admin/agent-tasks/${taskId}/run`),
       }),
+      run_get: action({
+        description:
+          "One run with its whole transcript; a running one answers with what it has so far",
+        input: z.object({ runId }),
+        readOnly: true,
+        run: ({ runId }) =>
+          api.web.get(p`/api/admin/agent-tasks/runs/${runId}`),
+      }),
       cron_preview: action({
         description: "Next occurrences of a cron expression",
         input: z.object({
@@ -66,10 +76,7 @@ export function registerWebAgentTasks(server: McpServer, api: Api) {
       }),
       run_feedback: action({
         description: "Records a verdict on a run (text required)",
-        input: z.object({
-          runId: z.string().min(1),
-          ...createAgentTaskFeedbackSchema.shape,
-        }),
+        input: z.object({ runId, ...createAgentTaskFeedbackSchema.shape }),
         run: ({ runId, ...body }) =>
           api.web.post(p`/api/admin/agent-tasks/runs/${runId}/feedback`, body),
       }),

@@ -11,7 +11,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 
 import {
@@ -45,8 +44,6 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   /** Seconds. Computed from the streaming window when omitted. */
   duration?: number;
 };
-
-const AUTO_CLOSE_DELAY_MS = 1000;
 
 /** Seconds spent streaming, measured on the client unless `duration` is given. */
 export const useThinkingDuration = (
@@ -90,35 +87,16 @@ export const Reasoning = memo(
       prop: open,
     });
     const duration = useThinkingDuration(isStreaming, durationProp);
-    const hasEverStreamedRef = useRef(isStreaming);
-    const [hasAutoClosed, setHasAutoClosed] = useState(false);
 
+    // Opens itself once when streaming starts and then leaves the toggle to
+    // the reader: it never closes on its own, and a manual close mid-stream
+    // is not undone.
+    const wasStreamingRef = useRef(isStreaming);
     useEffect(() => {
-      if (isStreaming) {
-        hasEverStreamedRef.current = true;
-      }
-    }, [isStreaming]);
-
-    useEffect(() => {
-      if (isStreaming && !isOpen && !isExplicitlyClosed) {
-        setIsOpen(true);
-      }
-    }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed]);
-
-    useEffect(() => {
-      if (
-        hasEverStreamedRef.current &&
-        !isStreaming &&
-        isOpen &&
-        !hasAutoClosed
-      ) {
-        const timer = setTimeout(() => {
-          setIsOpen(false);
-          setHasAutoClosed(true);
-        }, AUTO_CLOSE_DELAY_MS);
-        return () => clearTimeout(timer);
-      }
-    }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
+      const started = isStreaming && !wasStreamingRef.current;
+      wasStreamingRef.current = isStreaming;
+      if (started && !isExplicitlyClosed) setIsOpen(true);
+    }, [isStreaming, setIsOpen, isExplicitlyClosed]);
 
     const handleOpenChange = useCallback(
       (next: boolean) => setIsOpen(next),

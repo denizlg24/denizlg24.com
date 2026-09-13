@@ -52,7 +52,6 @@ import {
   AttachmentTrigger,
 } from "@repo/ui/attachment";
 import { Bubble, BubbleContent } from "@repo/ui/bubble";
-import { Button } from "@repo/ui/button";
 import { Marker, MarkerContent, MarkerIcon } from "@repo/ui/marker";
 import { Message, MessageContent, MessageFooter } from "@repo/ui/message";
 import {
@@ -96,7 +95,6 @@ import {
 export interface AgentMessageHandlers {
   onApproval: (approvalId: string, approved: boolean) => void;
   onRegenerate?: (messageId: string) => void;
-  onContinue?: () => void;
   /** Replaces the default row for a tool part; return undefined to keep it. */
   renderTool?: (part: AgentToolPart) => ReactNode | undefined;
 }
@@ -158,6 +156,19 @@ function ToolResult({ part }: { part: AgentToolPart }) {
   );
 }
 
+/**
+ * A call still being written, still executing, or waiting on an answer is
+ * what the reader wants to see; a polled transcript usually meets a call in
+ * the second of those states, never having seen the first.
+ */
+function opensOnItsOwn(state: AgentToolPart["state"]): boolean {
+  return (
+    state === "input-streaming" ||
+    state === "input-available" ||
+    state === "approval-requested"
+  );
+}
+
 function AgentToolRow({
   part,
   onApproval,
@@ -165,9 +176,11 @@ function AgentToolRow({
   part: AgentToolPart;
   onApproval: AgentMessageHandlers["onApproval"];
 }) {
-  const [open, setOpen] = useState(part.state === "approval-requested");
+  // Opens itself and stays open afterwards; a row that mounts already
+  // finished stays closed.
+  const [open, setOpen] = useState(opensOnItsOwn(part.state));
   useEffect(() => {
-    if (part.state === "approval-requested") setOpen(true);
+    if (opensOnItsOwn(part.state)) setOpen(true);
   }, [part.state]);
 
   return (
@@ -451,22 +464,6 @@ function AssistantMessage({
             />
           ))
         )}
-        {metadata?.stoppedAtMaxRounds && isLast && !isStreaming ? (
-          <Marker variant="separator" className="text-xs">
-            <MarkerContent className="flex items-center gap-2">
-              <span>Stopped at the round limit</span>
-              {handlers.onContinue ? (
-                <Button
-                  variant="outline"
-                  className="h-6 rounded-full px-2.5 text-[11px] shadow-none"
-                  onClick={handlers.onContinue}
-                >
-                  Continue
-                </Button>
-              ) : null}
-            </MarkerContent>
-          </Marker>
-        ) : null}
         {showFooter ? (
           <MessageFooter
             className={cn(

@@ -230,7 +230,6 @@ export function VoiceAssistant() {
       conversationId: conversationIdRef.current,
       model,
       executionMode: "yolo",
-      maxRounds: 15,
       responseStyle: "voice",
     }),
   });

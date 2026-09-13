@@ -32,7 +32,6 @@ export interface IAgentTask extends Document {
   llmModel: string;
   memoryMode: AgentMemoryMode;
   status: "active" | "paused" | "archived";
-  maxRounds: number;
   nextRunAt?: Date;
   lastRunAt?: Date;
   createdAt: Date;
@@ -94,7 +93,6 @@ const AgentTaskSchema = new Schema<IAgentTask>(
       enum: ["active", "paused", "archived"],
       default: "active",
     },
-    maxRounds: { type: Number, default: 40, min: 1, max: 200 },
     nextRunAt: { type: Date },
     lastRunAt: { type: Date },
   },

@@ -594,6 +594,12 @@ describe("web_agent_tasks", () => {
     );
     await expectCall(
       "web_agent_tasks",
+      { action: "run_get", runId: "r1" },
+      "GET",
+      "/api/admin/agent-tasks/runs/r1",
+    );
+    await expectCall(
+      "web_agent_tasks",
       { action: "cron_preview", cron: "0 9 * * *", timeZone: "UTC" },
       "GET",
       "/api/admin/agent-tasks/cron-preview?cron=0+9+*+*+*&timeZone=UTC",

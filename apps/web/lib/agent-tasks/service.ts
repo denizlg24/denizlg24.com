@@ -7,7 +7,11 @@ import { getAppTimeZone } from "@/lib/timezone";
 import { AgentTask, type IAgentTask } from "@/models/AgentTask";
 import { AgentTaskRun } from "@/models/AgentTaskRun";
 import { nextCronOccurrence } from "./cron";
-import { serializeAgentTask, serializeAgentTaskRun } from "./serialize";
+import {
+  serializeAgentTask,
+  serializeAgentTaskRun,
+  serializeAgentTaskRunSummary,
+} from "./serialize";
 
 export async function loadAgentTaskOverview() {
   await connectDB();
@@ -16,7 +20,14 @@ export async function loadAgentTaskOverview() {
       AgentTask.find({ status: { $ne: "archived" } })
         .sort({ status: 1, updatedAt: -1 })
         .limit(100),
-      AgentTaskRun.find().sort({ createdAt: -1 }).limit(100),
+      // The list never shows a transcript; a hundred of them would be the
+      // bulk of the response by a wide margin. Legacy `toolCalls` stay: only
+      // rows from before transcripts carry them, and their count is the
+      // summary's fallback.
+      AgentTaskRun.find()
+        .select("-messages")
+        .sort({ createdAt: -1 })
+        .limit(100),
       AgentTask.countDocuments({ status: "active" }),
       AgentTask.countDocuments({
         status: "active",
@@ -28,7 +39,7 @@ export async function loadAgentTaskOverview() {
     ]);
   return {
     tasks: tasks.map(serializeAgentTask),
-    runs: runs.map(serializeAgentTaskRun),
+    runs: runs.map(serializeAgentTaskRunSummary),
     stats: {
       activeTasks,
       scheduledTasks,
@@ -40,6 +51,14 @@ export async function loadAgentTaskOverview() {
       learnedProcedures: learnedProcedureIds.length,
     },
   };
+}
+
+export async function loadAgentTaskRun(runId: string) {
+  if (!Types.ObjectId.isValid(runId)) throw new Error("Run not found");
+  await connectDB();
+  const run = await AgentTaskRun.findById(runId);
+  if (!run) throw new Error("Run not found");
+  return serializeAgentTaskRun(run);
 }
 
 function assertSafePrompt(prompt: string) {

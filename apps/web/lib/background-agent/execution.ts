@@ -13,13 +13,13 @@ import {
   completeMemoryJob,
   failMemoryJob,
   leaseNextMemoryJob,
+  withMemoryJobHeartbeat,
 } from "@/lib/agent-memory/jobs";
 import {
   createConversation,
   getConversation,
   saveConversationMessages,
 } from "@/lib/conversations";
-import { clampMaxRounds } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import {
@@ -104,7 +104,6 @@ export async function enqueueBackgroundAgentRun(
             llmModel: input.model,
             pageContext: input.pageContext,
             attachments: input.attachments,
-            maxRounds: clampMaxRounds(input.maxRounds),
             status: "queued",
           },
         ],
@@ -215,71 +214,85 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
     return { failed: true, runId, error: run.error };
   }
 
+  const started = run;
+  const heartbeat = {
+    jobId: job._id.toString(),
+    workerId: job.leaseOwner,
+    onBeat: async (leaseExpiresAt: Date) => {
+      await BackgroundAgentRun.updateOne(
+        { _id: started._id, status: "running" },
+        { $set: { executionLeaseExpiresAt: leaseExpiresAt } },
+      );
+    },
+  };
+
   let finalMessages: AgentUIMessage[] = [];
   let tokenUsage: IBackgroundAgentRun["tokenUsage"];
-  try {
-    const conversationId = run.conversationId.toString();
-    const conversation = await getConversation(conversationId);
-    if (!conversation) throw new Error("Conversation not found");
+  return withMemoryJobHeartbeat(heartbeat, async () => {
+    try {
+      const conversationId = run.conversationId.toString();
+      const conversation = await getConversation(conversationId);
+      if (!conversation) throw new Error("Conversation not found");
 
-    const user = runUserMessage(run);
-    const history = [...conversation.messages, user];
-    const memory = await recallForTurn({
-      conversationId,
-      memoryMode: conversation.memoryMode,
-      latestText:
-        run.prompt ||
-        run.attachments.map((attachment) => attachment.name).join(" "),
-      rollingSummary: conversation.retrievalSummary?.text ?? null,
-      history,
-    });
+      const user = runUserMessage(run);
+      const history = [...conversation.messages, user];
+      const memory = await recallForTurn({
+        conversationId,
+        memoryMode: conversation.memoryMode,
+        latestText:
+          run.prompt ||
+          run.attachments.map((attachment) => attachment.name).join(" "),
+        rollingSummary: conversation.retrievalSummary?.text ?? null,
+        history,
+      });
 
-    const stream = await startAgentTurn({
-      purpose: "chat",
-      source: `background-chat:${run._id.toString()}`,
-      model: run.llmModel,
-      surface: "background-agent",
-      unattended: true,
-      executionMode: "yolo",
-      memoryMode: conversation.memoryMode,
-      conversationId,
-      messages: history,
-      toolToggles: { webSearch: false, webFetch: false, thinkLonger: false },
-      maxRounds: run.maxRounds,
-      pageContext: run.pageContext,
-      pageTools: false,
-      memory,
-      onFinish: async ({ messages, responseMessage }) => {
-        finalMessages = messages;
-        tokenUsage = responseMessage.metadata?.usage;
-        await saveConversationMessages(conversationId, messages);
-      },
-    });
-    await consumeUIMessageStream(stream);
-    run.status = "completed";
-    run.output =
-      lastAssistantText(finalMessages) || "Completed without a text response.";
-    run.tokenUsage = tokenUsage;
-    run.completedAt = new Date();
-    run.executionLeaseOwner = undefined;
-    run.executionLeaseExpiresAt = undefined;
-    await run.save();
-    return { runId, status: run.status };
-  } catch (error) {
-    run.status = "failed";
-    const partialOutput = lastAssistantText(finalMessages);
-    if (partialOutput) run.output = partialOutput;
-    run.tokenUsage = tokenUsage;
-    run.error =
-      error instanceof Error
-        ? error.message.slice(0, 4_096)
-        : "Background agent run failed";
-    run.completedAt = new Date();
-    run.executionLeaseOwner = undefined;
-    run.executionLeaseExpiresAt = undefined;
-    await run.save();
-    return { runId, failed: true, error: run.error };
-  }
+      const stream = await startAgentTurn({
+        purpose: "chat",
+        source: `background-chat:${run._id.toString()}`,
+        model: run.llmModel,
+        surface: "background-agent",
+        unattended: true,
+        executionMode: "yolo",
+        memoryMode: conversation.memoryMode,
+        conversationId,
+        messages: history,
+        toolToggles: { webSearch: false, webFetch: false, thinkLonger: false },
+        pageContext: run.pageContext,
+        pageTools: false,
+        memory,
+        onFinish: async ({ messages, responseMessage }) => {
+          finalMessages = messages;
+          tokenUsage = responseMessage.metadata?.usage;
+          await saveConversationMessages(conversationId, messages);
+        },
+      });
+      await consumeUIMessageStream(stream);
+      run.status = "completed";
+      run.output =
+        lastAssistantText(finalMessages) ||
+        "Completed without a text response.";
+      run.tokenUsage = tokenUsage;
+      run.completedAt = new Date();
+      run.executionLeaseOwner = undefined;
+      run.executionLeaseExpiresAt = undefined;
+      await run.save();
+      return { runId, status: run.status };
+    } catch (error) {
+      run.status = "failed";
+      const partialOutput = lastAssistantText(finalMessages);
+      if (partialOutput) run.output = partialOutput;
+      run.tokenUsage = tokenUsage;
+      run.error =
+        error instanceof Error
+          ? error.message.slice(0, 4_096)
+          : "Background agent run failed";
+      run.completedAt = new Date();
+      run.executionLeaseOwner = undefined;
+      run.executionLeaseExpiresAt = undefined;
+      await run.save();
+      return { runId, failed: true, error: run.error };
+    }
+  });
 }
 
 export async function drainOneBackgroundAgentJob(backgroundRunId?: string) {

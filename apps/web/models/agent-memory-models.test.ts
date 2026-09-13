@@ -118,7 +118,6 @@ describe("agent memory models", () => {
           name: "photo.jpg",
         },
       ],
-      maxRounds: 10,
       status: "queued",
     });
     await expect(run.validate()).resolves.toBeUndefined();

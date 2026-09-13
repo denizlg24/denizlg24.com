@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { MCPClient } from "@ai-sdk/mcp";
+import type { ListToolsResult, MCPClient } from "@ai-sdk/mcp";
 import type { ConnectorApproval, McpActionsMeta } from "@repo/schemas";
 import { dynamicTool, type JSONSchema7, jsonSchema, type ToolSet } from "ai";
 import type { IConnector } from "@/models/Connector";
@@ -206,6 +206,26 @@ function bindingFor(
 }
 
 /**
+ * A tool whose schema marks a property `x-mcp-header` expects that argument
+ * mirrored as an `Mcp-Param-<name>` request header (GitHub's servers do this
+ * for `owner`, `repo`, …), and the client adds those headers only for
+ * definitions it has itself listed. Ours come from the connector's cache, so
+ * the freshly opened client is told about them before its first call — the
+ * alternative, `tools/list` on every turn, is what the cache exists to avoid.
+ */
+export function primeToolHeaderBindings(
+  client: { toolsFromDefinitions(definitions: ListToolsResult): unknown },
+  definitions: readonly McpToolDefinition[],
+): void {
+  client.toolsFromDefinitions({
+    tools: definitions.map((definition) => ({
+      name: definition.name,
+      inputSchema: { ...definition.inputSchema },
+    })),
+  });
+}
+
+/**
  * The connector tools for one turn. Definitions come from each connector's
  * cache; a client is opened only when the model first calls one of its tools,
  * so a turn that never touches a connector never connects to it.
@@ -236,11 +256,17 @@ export async function openConnectorToolset(options: {
   const unavailable: UnavailableConnector[] = [];
   const clients = new Map<string, Promise<MCPClient>>();
 
-  const clientFor = (connector: IConnector) => {
+  const clientFor = (
+    connector: IConnector,
+    definitions: readonly McpToolDefinition[],
+  ) => {
     const key = connector._id.toString();
     let client = clients.get(key);
     if (!client) {
-      client = openConnectorClient(connector);
+      client = openConnectorClient(connector).then((opened) => {
+        primeToolHeaderBindings(opened, definitions);
+        return opened;
+      });
       clients.set(key, client);
     }
     return client;
@@ -263,7 +289,8 @@ export async function openConnectorToolset(options: {
       });
     }
     const disabled = new Set(connector.disabledTools);
-    for (const definition of cachedToolDefinitions(connector)) {
+    const definitions = cachedToolDefinitions(connector);
+    for (const definition of definitions) {
       if (disabled.has(definition.name)) continue;
       const name = exposedToolName(connector.slug, definition.name);
       const binding = bindingFor(connector, definition);
@@ -287,7 +314,7 @@ export async function openConnectorToolset(options: {
           ),
         ),
         execute: async (input, { abortSignal }) => {
-          const client = await clientFor(connector);
+          const client = await clientFor(connector, definitions);
           const result = await client.callTool({
             name: definition.name,
             arguments: isRecord(input) ? input : {},

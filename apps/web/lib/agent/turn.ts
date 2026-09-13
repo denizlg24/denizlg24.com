@@ -60,7 +60,6 @@ export interface AgentTurnInput {
   messages: AgentUIMessage[];
   toolToggles: AgentToolToggles;
   connectors?: readonly string[];
-  maxRounds: number;
   pageContext?: BackgroundAgentPageContext;
   responseStyle?: "voice";
   /** A client is attached and can run the desktop page tools. */
@@ -84,18 +83,14 @@ function lastUserText(messages: readonly AgentUIMessage[]): string {
   return "";
 }
 
-function withStopMarker(
+function withFinishReason(
   message: AgentUIMessage,
   end: AgentTurnEnd | null,
 ): AgentUIMessage {
   if (!end) return message;
   return {
     ...message,
-    metadata: {
-      ...message.metadata,
-      finishReason: end.finishReason,
-      ...(end.stoppedAtMaxRounds ? { stoppedAtMaxRounds: true } : {}),
-    },
+    metadata: { ...message.metadata, finishReason: end.finishReason },
   };
 }
 
@@ -198,7 +193,6 @@ export async function startAgentTurn(
       messages: modelMessages,
       tools,
       toolApproval: approval,
-      maxRounds: input.maxRounds,
       webSearch: input.toolToggles.webSearch,
       webFetch: input.toolToggles.webFetch,
       thinkLonger: input.toolToggles.thinkLonger,
@@ -251,7 +245,7 @@ export async function startAgentTurn(
               setTimeout(() => resolve(null), TURN_END_GRACE_MS),
             ),
           ]);
-          const response = withStopMarker(responseMessage, end);
+          const response = withFinishReason(responseMessage, end);
           await input.onFinish({
             messages: messages.map((message) =>
               message.id === response.id ? response : message,

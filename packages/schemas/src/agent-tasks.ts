@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentUIMessageSchema } from "./agent-chat";
 import { agentMemoryModeSchema } from "./agent-memory";
 
 const isoDateSchema = z.iso.datetime({ offset: true });
@@ -84,7 +85,6 @@ export const agentTaskSchema = z.object({
   model: z.string().trim().min(1).max(200),
   memoryMode: agentMemoryModeSchema,
   status: agentTaskStatusSchema,
-  maxRounds: z.number().int().positive().max(200),
   nextRunAt: isoDateSchema.optional(),
   lastRunAt: isoDateSchema.optional(),
   createdAt: isoDateSchema,
@@ -100,7 +100,6 @@ const agentTaskFieldsSchema = agentTaskSchema
     runAt: isoDateSchema.nullish(),
     model: z.string().trim().min(1).max(200).optional(),
     memoryMode: agentMemoryModeSchema,
-    maxRounds: z.number().int().positive().max(200).optional(),
   });
 
 /**
@@ -141,16 +140,6 @@ export const updateAgentTaskSchema = agentTaskFieldsSchema
   .superRefine(rejectDoubleSchedule);
 export type UpdateAgentTask = z.infer<typeof updateAgentTaskSchema>;
 
-export const agentTaskToolCallSchema = z.object({
-  toolUseId: z.string(),
-  name: z.string(),
-  isWrite: z.boolean(),
-  input: z.record(z.string(), z.unknown()),
-  result: z.string().optional(),
-  isError: z.boolean(),
-});
-export type AgentTaskToolCall = z.infer<typeof agentTaskToolCallSchema>;
-
 export const agentTaskFeedbackSchema = z.object({
   feedbackId: z.uuid(),
   verdict: z.enum(["useful", "correction"]),
@@ -172,7 +161,18 @@ export const agentTaskRunStatusSchema = z.enum([
 ]);
 export type AgentTaskRunStatus = z.infer<typeof agentTaskRunStatusSchema>;
 
-export const agentTaskRunSchema = z.object({
+const agentTaskRunUsageSchema = z.object({
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  costUsd: z.number().nonnegative(),
+});
+
+/**
+ * What the overview list carries per run. The transcript is not here: fifty
+ * runs' worth of tool output would be several megabytes for a list that only
+ * needs a status, a line of output and a count.
+ */
+export const agentTaskRunSummarySchema = z.object({
   id: z.string(),
   taskId: z.string(),
   taskName: z.string(),
@@ -181,25 +181,33 @@ export const agentTaskRunSchema = z.object({
   scheduledFor: isoDateSchema,
   startedAt: isoDateSchema.optional(),
   completedAt: isoDateSchema.optional(),
-  output: z.string().max(64_000).optional(),
-  toolCalls: z.array(agentTaskToolCallSchema),
-  tokenUsage: z
-    .object({
-      inputTokens: z.number().nonnegative(),
-      outputTokens: z.number().nonnegative(),
-      costUsd: z.number().nonnegative(),
-    })
-    .optional(),
+  /** First line or so of the closing text; the run itself holds it whole. */
+  outputPreview: z.string().max(400).optional(),
+  toolCalls: z.number().int().nonnegative(),
+  tokenUsage: agentTaskRunUsageSchema.optional(),
   feedback: agentTaskFeedbackSchema.optional(),
   error: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
+export type AgentTaskRunSummary = z.infer<typeof agentTaskRunSummarySchema>;
+
+/**
+ * A run is the same transcript shape as a conversation: the task's request as
+ * the user message, then whatever the agent did. While the run is `running`
+ * the transcript is the part persisted so far and grows on each read.
+ */
+export const agentTaskRunSchema = agentTaskRunSummarySchema
+  .omit({ outputPreview: true, toolCalls: true })
+  .extend({
+    output: z.string().max(64_000).optional(),
+    messages: z.array(agentUIMessageSchema),
+  });
 export type AgentTaskRun = z.infer<typeof agentTaskRunSchema>;
 
 export const agentTaskOverviewSchema = z.object({
   tasks: z.array(agentTaskSchema),
-  runs: z.array(agentTaskRunSchema),
+  runs: z.array(agentTaskRunSummarySchema),
   stats: z.object({
     activeTasks: z.number().int().nonnegative(),
     scheduledTasks: z.number().int().nonnegative(),

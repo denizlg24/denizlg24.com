@@ -18,7 +18,6 @@ import {
   LlmConfigurationError,
   LlmModelError,
 } from "@/lib/llm-errors";
-import { DEFAULT_MAX_ROUNDS } from "@/lib/llm-service";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -122,7 +121,6 @@ export const POST = async (req: NextRequest) => {
       messages: history,
       toolToggles: request.tools,
       connectors: request.connectors,
-      maxRounds: DEFAULT_MAX_ROUNDS,
       pageContext: request.pageContext,
       responseStyle: request.responseStyle,
       pageTools: true,

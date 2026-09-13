@@ -1,6 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
-  isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
   streamText as streamTextTurn,
@@ -121,8 +120,6 @@ const ADAPTIVE_THINKING_MODELS = new Set([
 ]);
 
 const DEFAULT_CONTEXT_WINDOW = 200_000;
-export const DEFAULT_MAX_ROUNDS = 15;
-const MAX_ROUNDS_CEILING = 100;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 
 export {
@@ -753,8 +750,6 @@ export interface RunToolLoopRequest extends LlmRequestContext {
   outputTool: Anthropic.Tool;
   maxTokens: number;
   temperature?: number;
-  /** Model turns allowed before the terminal tool is forced. */
-  maxRounds?: number;
   logSystemPrompt?: string;
   logUserPrompt?: string;
 }
@@ -804,9 +799,6 @@ export interface ToolLoopOutcome {
   rounds: number;
 }
 
-const DEFAULT_TOOL_LOOP_ROUNDS = 6;
-const MAX_TOOL_LOOP_ROUNDS = 10;
-
 function firstToolUse(
   content: Anthropic.ContentBlock[],
   accept: (name: string) => boolean,
@@ -829,10 +821,10 @@ function firstToolUse(
 }
 
 /**
- * Single-shot forced-tool calls (`generateToolResult`) with a bounded read loop
- * in front: the model may call the provided server tools to gather context, each
- * result is fed back, and the terminal tool is forced on the final round so a
- * structured result always comes back. The existing agent loop is untouched.
+ * Single-shot forced-tool calls (`generateToolResult`) with a read loop in
+ * front: the model may call the provided server tools to gather context for as
+ * long as it keeps asking, each result is fed back, and the terminal tool is
+ * forced once it stops so a structured result always comes back.
  */
 export async function runToolLoop({
   purpose,
@@ -846,7 +838,6 @@ export async function runToolLoop({
   outputTool,
   maxTokens,
   temperature,
-  maxRounds,
   logSystemPrompt,
   logUserPrompt,
 }: RunToolLoopRequest): Promise<ToolLoopOutcome> {
@@ -859,10 +850,6 @@ export async function runToolLoop({
   const outputLimit = Math.min(
     maxTokens,
     getModelLimits(resolved.catalogModel).maxOutput,
-  );
-  const readRounds = Math.min(
-    Math.max(maxRounds ?? DEFAULT_TOOL_LOOP_ROUNDS, 1),
-    MAX_TOOL_LOOP_ROUNDS,
   );
   const serverByName = new Map(
     serverTools.map((entry) => [entry.tool.name, entry]),
@@ -926,7 +913,7 @@ export async function runToolLoop({
     return response;
   };
 
-  for (let round = 0; round < readRounds && !toolInput; round += 1) {
+  while (!toolInput) {
     const response = await call(false);
     const output = firstToolUse(
       response.content,
@@ -1225,8 +1212,6 @@ export interface AgentTurnUsage {
 export interface AgentTurnEnd {
   usage: AgentTurnUsage;
   finishReason: string;
-  /** The loop stopped on its round limit with tool calls still coming. */
-  stoppedAtMaxRounds: boolean;
 }
 
 export type AgentToolApprovalPolicy = (call: {
@@ -1242,8 +1227,6 @@ export interface AgentTurnRequest extends LlmRequestContext {
   messages: ModelMessage[];
   tools: ToolSet;
   toolApproval?: AgentToolApprovalPolicy;
-  /** Model steps allowed before the loop stops. Clamped to [1, 100]. */
-  maxRounds: number;
   webSearch?: boolean;
   webFetch?: boolean;
   thinkLonger?: boolean;
@@ -1274,15 +1257,12 @@ function modelMessagesContainImages(messages: ModelMessage[]): boolean {
   );
 }
 
-export function clampMaxRounds(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) return DEFAULT_MAX_ROUNDS;
-  return Math.min(MAX_ROUNDS_CEILING, Math.max(1, Math.trunc(value)));
-}
-
 /**
  * The agent loop for chat, background runs, scheduled tasks and the LaTeX
- * agent. Capability validation happens before any stream opens, so an
- * incompatible model is a plain error to the caller, never a broken stream.
+ * agent. It has no step ceiling: the turn ends when the model stops calling
+ * tools, or when the caller aborts. Capability validation happens before any
+ * stream opens, so an incompatible model is a plain error to the caller, never
+ * a broken stream.
  */
 export async function streamAgentTurn({
   purpose,
@@ -1293,7 +1273,6 @@ export async function streamAgentTurn({
   messages,
   tools,
   toolApproval,
-  maxRounds,
   webSearch = false,
   webFetch = false,
   thinkLonger = false,
@@ -1310,7 +1289,6 @@ export async function streamAgentTurn({
   ];
   const resolved = await resolveModel({ model, purpose, requiredTags });
   const limits = getModelLimits(resolved.catalogModel);
-  const rounds = clampMaxRounds(maxRounds);
   const adaptive = ADAPTIVE_THINKING_MODELS.has(resolved.id);
   const allTools: ToolSet = {
     ...tools,
@@ -1362,7 +1340,8 @@ export async function streamAgentTurn({
             }),
         }
       : {}),
-    stopWhen: isStepCount(rounds),
+    // The SDK default is one step; the loop runs until the model stops itself.
+    stopWhen: () => false,
     maxOutputTokens: limits.maxOutput,
     ...(thinkLonger && !adaptive ? { reasoning: "xhigh" as const } : {}),
     providerOptions: {
@@ -1378,7 +1357,7 @@ export async function streamAgentTurn({
     },
     maxRetries: 4,
     abortSignal,
-    onEnd: async ({ totalUsage, finishReason, steps }) => {
+    onEnd: async ({ totalUsage, finishReason }) => {
       const usage = describeUsage(totalUsage);
       await logLlmUsage({
         llmModel: resolved.id,
@@ -1389,12 +1368,7 @@ export async function streamAgentTurn({
         userPrompt: logPrompt ?? "",
         source,
       });
-      await onTurnEnd?.({
-        usage,
-        finishReason,
-        stoppedAtMaxRounds:
-          finishReason === "tool-calls" && steps.length >= rounds,
-      });
+      await onTurnEnd?.({ usage, finishReason });
     },
   });
 

@@ -4,10 +4,13 @@ import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { getAgentMemorySettings } from "./settings";
 
 const MAX_ATTEMPTS = 5;
-// Agent chat and task turns may use the full five-minute route allowance. The
-// lease must outlive that window or a cron drain can start the same run while
-// the immediate worker is still executing tools.
+// A lease is how long a job may go quiet before another worker may take it.
+// Agent turns have no step ceiling, so a worker running one keeps its lease
+// alive with `withMemoryJobHeartbeat` rather than the lease being sized to the
+// longest run imaginable.
 export const AGENT_MEMORY_JOB_LEASE_MS = 6 * 60 * 1_000;
+/** A third of the lease: two missed beats still leave it held. */
+export const AGENT_MEMORY_JOB_HEARTBEAT_MS = 2 * 60 * 1_000;
 
 export function retryDelayMs(attempt: number): number {
   return Math.min(60 * 60 * 1_000, 5_000 * 2 ** Math.max(0, attempt - 1));
@@ -81,6 +84,54 @@ export async function sweepOrphanedLeases(now = new Date()): Promise<number> {
     },
   );
   return result.modifiedCount;
+}
+
+export async function extendMemoryJobLease(options: {
+  jobId: string;
+  workerId: string;
+  now?: Date;
+}): Promise<Date> {
+  await connectDB();
+  const now = options.now ?? new Date();
+  const leaseExpiresAt = new Date(now.getTime() + AGENT_MEMORY_JOB_LEASE_MS);
+  await AgentMemoryJob.updateOne(
+    { _id: options.jobId, status: "leased", leaseOwner: options.workerId },
+    { $set: { leaseExpiresAt } },
+  );
+  return leaseExpiresAt;
+}
+
+/**
+ * Runs `work` while re-extending the job's lease on an interval, handing each
+ * new expiry to `onBeat` so the row being executed can carry the same
+ * deadline. Without this a turn longer than one lease is re-leased by the
+ * next drain and declared dead under a worker that is still running it.
+ */
+export async function withMemoryJobHeartbeat<T>(
+  options: {
+    jobId: string;
+    workerId: string;
+    onBeat: (leaseExpiresAt: Date) => Promise<void>;
+  },
+  work: () => Promise<T>,
+): Promise<T> {
+  const beat = async () => {
+    try {
+      const leaseExpiresAt = await extendMemoryJobLease(options);
+      await options.onBeat(leaseExpiresAt);
+    } catch (error) {
+      console.warn("[Agent Memory] Job heartbeat failed", {
+        jobId: options.jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const timer = setInterval(() => void beat(), AGENT_MEMORY_JOB_HEARTBEAT_MS);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
 }
 
 export async function completeMemoryJob(

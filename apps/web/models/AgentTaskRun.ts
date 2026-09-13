@@ -1,7 +1,12 @@
 import mongoose, { type Document, Schema } from "mongoose";
 import { existingModel } from "./AgentMemoryCommon";
 
-export interface IAgentTaskToolCall {
+/**
+ * The flattened audit shape runs were stored in before the transcript itself
+ * was kept. Never written any more; `serializeAgentTaskRun` turns it back into
+ * tool parts so an old run renders down the same path as a new one.
+ */
+export interface IAgentTaskLegacyToolCall {
   toolUseId: string;
   name: string;
   isWrite: boolean;
@@ -25,9 +30,20 @@ export interface IAgentTaskRun extends Document {
   status: "queued" | "running" | "completed" | "failed";
   scheduledFor: Date;
   startedAt?: Date;
+  /**
+   * Held by the worker executing the run and pushed forward on every job
+   * heartbeat. A `running` row whose lease has lapsed is a dead worker; one
+   * that is merely old is not.
+   */
+  executionLeaseExpiresAt?: Date;
   completedAt?: Date;
   output?: string;
-  toolCalls: IAgentTaskToolCall[];
+  /** `AgentUIMessage[]`; persisted as the run progresses, not only at the end. */
+  messages: unknown[];
+  /** Kept on the row so the list can say it without loading the transcript. */
+  toolCallCount: number;
+  /** Only on rows written before `messages` existed. */
+  toolCalls?: IAgentTaskLegacyToolCall[];
   tokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number };
   feedback?: IAgentTaskFeedback;
   error?: string;
@@ -35,7 +51,7 @@ export interface IAgentTaskRun extends Document {
   updatedAt: Date;
 }
 
-const AgentTaskToolCallSchema = new Schema<IAgentTaskToolCall>(
+const AgentTaskLegacyToolCallSchema = new Schema<IAgentTaskLegacyToolCall>(
   {
     toolUseId: { type: String, required: true },
     name: { type: String, required: true },
@@ -82,9 +98,12 @@ const AgentTaskRunSchema = new Schema<IAgentTaskRun>(
     },
     scheduledFor: { type: Date, required: true },
     startedAt: { type: Date },
+    executionLeaseExpiresAt: { type: Date },
     completedAt: { type: Date },
     output: { type: String, maxlength: 64_000 },
-    toolCalls: { type: [AgentTaskToolCallSchema], default: [] },
+    messages: { type: [Schema.Types.Mixed], default: [] },
+    toolCallCount: { type: Number, min: 0, default: 0 },
+    toolCalls: { type: [AgentTaskLegacyToolCallSchema], default: undefined },
     tokenUsage: { type: AgentTaskTokenUsageSchema, default: undefined },
     feedback: { type: AgentTaskFeedbackSchema },
     error: { type: String, maxlength: 4_096 },

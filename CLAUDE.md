@@ -709,10 +709,16 @@ Things worth knowing before touching this:
   same field — when it next fires. A spent one-off archives itself; the run stays
   in the run history.
 - **Agent-scheduled tasks are ungated by decision.** Task runs execute write
-  tools unattended (`lib/agent-tasks/execution.ts` records `isWrite` but does not
-  gate on it), so a task can schedule tasks with nobody in the loop. `origin`
-  records who queued each one and the UI separates them; that visibility is the
-  control, not a cap.
+  tools unattended with no approval step, so a task can schedule tasks with
+  nobody in the loop. `origin` records who queued each one and the UI
+  separates them; that visibility is the control, not a cap.
+- **A task run is a transcript, persisted while it runs.** `AgentTaskRun.messages`
+  is `AgentUIMessage[]` in the same shape as a conversation, written every ~2 s
+  from `readUIMessageStream` snapshots and once more at the end, which is what
+  lets the tasks page watch a run live by polling `GET /agent-tasks/runs/:id`.
+  The overview list carries summaries only (`outputPreview`, `toolCallCount`);
+  rows from before this carry the flat `toolCalls` audit instead, and
+  `serializeAgentTaskRun` rebuilds those as tool parts so there is one renderer.
 - **Nothing in this repo drives the task cron.** As with markets, the scheduler
   is external. If it is not running, no scheduled task ever fires.
 
@@ -725,6 +731,15 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
 (`lib/agent/builtin-tools.ts`). Wire contract:
 `docs/internal/plans/agent-connectors-refurbish.md`, "Client contract".
 
+- **There is no step ceiling anywhere.** `streamAgentTurn` runs
+  `stopWhen: () => false`, and `runToolLoop` (the single-shot Anthropic
+  transport behind triage, formation and lessons) reads for as long as the
+  model keeps asking; nothing carries a `maxRounds`. What that costs is
+  lease-keeping: a job lease is six minutes, so `processAgentTaskJob` and
+  `processBackgroundAgentJob` run inside `withMemoryJobHeartbeat`, which
+  extends the job lease and the run's `executionLeaseExpiresAt` every two
+  minutes. A `running` row is dead when its lease has lapsed, never because it
+  is old — anything new that judges a run by `startedAt` will kill long runs.
 - **The server owns the thread.** The client sends only the last message.
   A user message keeps only text and file parts; an assistant message is a
   continuation from which `lib/agent/merge.ts` copies approval decisions for
@@ -770,6 +785,11 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
   opened only when the model first calls one of its tools. Tool names are
   `<slug>__<tool>` (hashed past 64 characters). A connector result is cut at
   48 000 characters with a note telling the model to narrow the request.
+  The client sends a schema's `x-mcp-header` arguments as `Mcp-Param-*`
+  headers only for definitions it has itself listed, so the per-turn client is
+  primed from the cache (`primeToolHeaderBindings`) before its first call —
+  GitHub's servers refuse `owner`/`repo` calls without them, and a
+  `callTool` on an unprimed client fails with "missing Mcp-Param-… header".
 - **Web search and fetch are provider tools.** Anthropic models get
   Anthropic's `web_search` / `web_fetch`; anything else searches through the
   Gateway's Perplexity tool and has no fetch. "Think longer" is `effort: max`

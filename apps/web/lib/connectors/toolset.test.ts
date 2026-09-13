@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import type { ListToolsResult } from "@ai-sdk/mcp";
 import {
   boundConnectorResult,
   connectorInputSchemaForModel,
   exposedToolName,
+  primeToolHeaderBindings,
 } from "./toolset";
 
 describe("exposedToolName", () => {
@@ -94,5 +96,33 @@ describe("connectorInputSchemaForModel", () => {
     expect(
       connectorInputSchemaForModel(schema, "anthropic/claude-opus-4.7"),
     ).toBe(schema);
+  });
+});
+
+describe("primeToolHeaderBindings", () => {
+  test("hands cached definitions to the client with their header annotations intact", () => {
+    const toolsFromDefinitions = mock((_definitions: ListToolsResult) => ({}));
+    primeToolHeaderBindings({ toolsFromDefinitions }, [
+      {
+        name: "list_branches",
+        description: "Branches of a repository",
+        inputSchema: {
+          type: "object",
+          properties: {
+            owner: { type: "string", "x-mcp-header": "owner" },
+            repo: { type: "string", "x-mcp-header": "repo" },
+            page: { type: "integer" },
+          },
+          required: ["owner", "repo"],
+        },
+      },
+    ]);
+    expect(toolsFromDefinitions).toHaveBeenCalledTimes(1);
+    const [listed] = toolsFromDefinitions.mock.calls[0] ?? [];
+    expect(listed?.tools.map((tool) => tool.name)).toEqual(["list_branches"]);
+    expect(listed?.tools[0]?.inputSchema.properties).toMatchObject({
+      owner: { "x-mcp-header": "owner" },
+      repo: { "x-mcp-header": "repo" },
+    });
   });
 });

@@ -13,7 +13,6 @@ export interface IBackgroundAgentRun extends Document {
   llmModel: string;
   pageContext?: BackgroundAgentPageContext;
   attachments: IChatMessageAttachment[];
-  maxRounds: number;
   status: BackgroundAgentRunStatus;
   output?: string;
   tokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number };
@@ -55,7 +54,6 @@ const BackgroundAgentRunSchema = new Schema<IBackgroundAgentRun>(
     llmModel: { type: String, required: true, maxlength: 200 },
     pageContext: { type: Schema.Types.Mixed, default: undefined },
     attachments: { type: [BackgroundAttachmentSchema], default: [] },
-    maxRounds: { type: Number, required: true, min: 1, max: 100 },
     status: {
       type: String,
       enum: backgroundAgentRunStatusSchema.options,

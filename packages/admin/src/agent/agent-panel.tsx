@@ -369,9 +369,8 @@ function PanelSurface({
       onApproval: (id: string, approved: boolean) =>
         void chat.addToolApprovalResponse({ id, approved }),
       onRegenerate: (messageId: string) => void chat.regenerate({ messageId }),
-      onContinue: () => void session.send("Continue."),
     }),
-    [chat, session.send],
+    [chat],
   );
 
   if (page && empty && !session.loadingConversation) {

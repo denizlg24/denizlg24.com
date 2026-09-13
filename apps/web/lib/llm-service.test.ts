@@ -542,7 +542,6 @@ describe("streamAgentTurn", () => {
         tools: {
           probe: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
         },
-        maxRounds: 3,
       }),
     ).rejects.toBeInstanceOf(LlmModelError);
     expect(recordedRequests).toHaveLength(0);
@@ -557,7 +556,6 @@ describe("streamAgentTurn", () => {
         instructions: "sys",
         messages: [{ role: "user", content: "hi" }],
         tools: {},
-        maxRounds: 3,
         webSearch: true,
       }),
     ).rejects.toBeInstanceOf(LlmModelError);

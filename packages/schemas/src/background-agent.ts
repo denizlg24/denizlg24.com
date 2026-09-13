@@ -20,7 +20,6 @@ export const createBackgroundAgentRunSchema = z
     conversationId: z.string().trim().min(1).optional(),
     pageContext: backgroundAgentPageContextSchema.optional(),
     attachments: z.array(chatMessageAttachmentSchema).max(5).default([]),
-    maxRounds: z.number().int().min(1).max(100).optional(),
   })
   .refine((value) => value.prompt.length > 0 || value.attachments.length > 0, {
     message: "A prompt or attachment is required",

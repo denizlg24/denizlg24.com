@@ -48,18 +48,11 @@ describe("background agent contracts", () => {
     ).toBe("run-1");
   });
 
-  test("rejects non-dashboard-sized or empty work requests", () => {
+  test("rejects empty work requests", () => {
     expect(
       createBackgroundAgentRunSchema.safeParse({
         prompt: "",
         model: "anthropic/claude-sonnet-4.6",
-      }).success,
-    ).toBe(false);
-    expect(
-      createBackgroundAgentRunSchema.safeParse({
-        prompt: "work",
-        model: "anthropic/claude-sonnet-4.6",
-        maxRounds: 101,
       }).success,
     ).toBe(false);
   });
