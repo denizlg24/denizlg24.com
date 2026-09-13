@@ -9,7 +9,7 @@
   "bundle": {
     "active": true,
     "category": "DeveloperTool",
-    "copyright": "Copyright \u00a9 2026 denizlg24. All rights reserved.",
+    "copyright": "Copyright © 2026 denizlg24. All rights reserved.",
     "targets": "all",
     "createUpdaterArtifacts": true,
     "externalBin": [],
@@ -48,7 +48,7 @@
   },
   "productName": "denizlg24 - Life Dashboard",
   "mainBinaryName": "denizlg24-app",
-  "version": "1.13.0",
+  "version": "2.0.0",
   "identifier": "app.denizlg24.com",
   "plugins": {
     "updater": {
