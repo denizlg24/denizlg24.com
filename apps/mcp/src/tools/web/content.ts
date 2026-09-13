@@ -1,5 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { blogUpdateSchema } from "@repo/schemas";
+import {
+  blogUpdateSchema,
+  contactReplySchema,
+  githubRepositoryContextRequestSchema,
+  projectDraftInputSchema,
+} from "@repo/schemas";
 import { z } from "zod";
 import { type Api, action, defineActions, p, partial } from "../define";
 
@@ -31,6 +36,15 @@ export function registerWebContent(server: McpServer, api: Api) {
         input: byId,
         readOnly: true,
         run: ({ id }) => api.web.get(p`/api/admin/blogs/${id}`),
+      }),
+      search: action({
+        description: "Published posts matching q and/or every tag",
+        input: z.object({
+          q: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+        readOnly: true,
+        run: (query) => api.web.get("/api/admin/blogs/search", query),
       }),
       create: action({
         description:
@@ -146,6 +160,13 @@ export function registerWebContent(server: McpServer, api: Api) {
         run: ({ ticketId }) =>
           api.web.delete(p`/api/admin/contacts/${ticketId}`),
       }),
+      reply: action({
+        description:
+          "Emails a plain-text reply to the sender and marks the ticket responded",
+        input: z.object({ ticketId, ...contactReplySchema.shape }),
+        run: ({ ticketId, message }) =>
+          api.web.post(p`/api/admin/contacts/${ticketId}/reply`, { message }),
+      }),
       purge_archived: action({
         description: "Deletes every archived ticket",
         destructive: true,
@@ -229,6 +250,21 @@ export function registerWebContent(server: McpServer, api: Api) {
         input: z.object({ items: reorderItems }),
         idempotent: true,
         run: (body) => api.web.patch("/api/admin/projects/reorder", body),
+      }),
+      github_context: action({
+        description:
+          "Repository metadata, docs and selected files to draft from",
+        input: githubRepositoryContextRequestSchema,
+        readOnly: true,
+        run: (query) =>
+          api.web.get("/api/admin/projects/github-context", query),
+      }),
+      save_draft: action({
+        description:
+          "Creates or updates the hidden draft for a repository (inactive, unfeatured)",
+        input: projectDraftInputSchema,
+        idempotent: true,
+        run: (body) => api.web.post("/api/admin/projects/drafts", body),
       }),
     },
   });

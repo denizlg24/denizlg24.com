@@ -6,11 +6,11 @@
   "exports": {
     "./*": "./src/*.tsx",
     "./agent/agent-page-context": "./src/agent/agent-page-context.ts",
-    "./agent/agent-types": "./src/agent/agent-types.ts",
+    "./agent/agent-parts": "./src/agent/agent-parts.ts",
     "./agent/audio-capture": "./src/agent/audio-capture.ts",
-    "./agent/chat-segments": "./src/agent/chat-segments.ts",
     "./agent/launcher-prefs": "./src/agent/launcher-prefs.ts",
-    "./agent/use-agent-stream": "./src/agent/use-agent-stream.ts",
+    "./agent/use-agent-chat": "./src/agent/use-agent-chat.ts",
+    "./agent/use-connectors": "./src/agent/use-connectors.ts",
     "./agent/use-dictation": "./src/agent/use-dictation.ts",
     "./agent/use-model-catalog": "./src/agent/use-model-catalog.ts",
     "./client": "./src/client.ts",
@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/react": "^4.0.102",
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.43.9",
@@ -36,6 +37,7 @@
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
+    "ai": "^7.0.99",
     "date-fns": "^4.4.0",
     "harper.js": "^2.7.0",
     "html5-qrcode": "^2.3.8",

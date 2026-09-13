@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { latexProjectSchema } from "./settings";
+import { latexProjectPathSchema, latexProjectSchema } from "./settings";
 
 export const latexCompileStatusSchema = z.enum([
   "never",
@@ -181,3 +181,9 @@ export const latexMemoryContextResponseSchema = z.object({
 export type LatexMemoryContextResponse = z.infer<
   typeof latexMemoryContextResponseSchema
 >;
+
+export const latexFileWriteSchema = z.object({
+  path: latexProjectPathSchema,
+  content: z.string(),
+});
+export type LatexFileWrite = z.infer<typeof latexFileWriteSchema>;

@@ -1,0 +1,30 @@
+/**
+ * Sent at initialize, so every client — the in-app agent, Claude Code — gets
+ * the same working knowledge about this infrastructure. Tool and action
+ * names here must match what is registered; `instructions.test.ts` pins that.
+ */
+export const SERVER_INSTRUCTIONS = `This server is Deniz's whole infrastructure: his personal site and life dashboard (web_*), the self-hosted cloud (cloud_*), the Forge deployment host (forge_*) and file storage (storage_*). Everything belongs to one person.
+
+Calling conventions
+- Most web_* tools take an \`action\` field selecting the operation (list, get, create, update, delete, …); each field's description names the actions that use it. Read before you write: fetch current state with get/list before update or replace, so you edit what is there rather than overwrite it from memory.
+- replace actions overwrite the whole field you send; prefer the granular actions a tool offers (whiteboard elements_*, component_items, LaTeX file_write) and, when replace is the only way, get the record first and send back everything you want to keep.
+- A non-2xx upstream answer comes back as an error result carrying the status and body. Report it plainly and adjust; don't retry blindly.
+- List actions can be large; prefer filters, pagination and get on one record when you know what you need.
+
+Domains and workflows
+- Calendar: web_calendar_events list takes one date or a start..end range. Manual events sync outbound to Google.
+- Kanban: web_kanban_boards, web_kanban_columns, web_kanban_cards. A card is done when it sits in its board's done column — don't use a "done" label. web_kanban_cards link attaches a calendar event, note, person or course.
+- Notes: web_notes (plus web_note_groups, web_note_edges). After creating a note or materially changing its title, content, url, description, groups, tags or class, run web_notes categorize on it so tags and groups are recomputed. Don't invent groups or tags unless Deniz named them.
+- Papers: use web_papers for academic work, not notes. Resolve a DOI, arXiv id, ISBN or title with web_papers resolve before create. A paper without a PDF is valid; never invent a PDF URL. Every paper has a linked note; use its noteId only for note operations.
+- Courses: web_courses overview answers semester-wide questions (standing, projections, deadline radar, the week's classes) in one call. When Deniz names a class, web_courses resolve finds its id; grade_projection answers "what do I need on the final". web_courses get loads one course with its assignments and linked records, link / unlink attach existing records to it; web_course_assignments holds dated work, exams and grades; web_course_emails is the mail triage matched to a course. Private identifiers such as student numbers or lab groups belong in the course's triage context fields, not free-form notes.
+- People: web_people list first to resolve names to ids. Relations are symmetric and replace-only — get the person before changing relations. A birthday maintains its calendar events automatically.
+- Email: web_emails query searches live mailboxes, including mail never synced; recent and list read stored mail. send goes out through the account's SMTP immediately — compose the full message (recipients, subject, body) in one call so it can be reviewed as a whole; never send a partial or placeholder message.
+- Triage: web_triage lists LLM-triaged mail; suggestion_update accepts or dismisses the task/event suggestions it made.
+- Finance: web_finance overview is the ledger, forecast and recurring commitments. Amounts are minor units in their own currency — never add amounts across currencies. Budget envelopes live in web_finance_envelopes and web_finance_budget.
+- Markets: data is behind a metered provider budget. Batch tickers into one web_markets_symbols quotes call, check web_markets_symbols budget before a wide sweep, and treat stale: true as a cached price. Orders are simulated and fill on the markets cron.
+- Portfolio site: web_projects, web_timeline, web_blogs, web_now_page. Image fields take URLs already in storage — upload remote images first with web_upload. Imported project drafts stay inactive and unfeatured until Deniz publishes them.
+- LaTeX: web_latex_projects get returns the file list and revision; file_read returns one file with line numbers — never copy those prefixes into file_write, which writes one file at the current revision. Compile with the current tree and baseRevision, then fix errors from the log instead of reporting the failure as the answer. The CV is web_cv.
+- Whiteboards: web_whiteboards get for current element ids and layout, then elements_add / element_update / elements_delete to change it and render to see the result; the today_* actions do the same for the daily Today board, which is archived to the journal and cleared nightly. A checklist is one todo-list element edited with component_items, never a column of shapes. Keep elements spatially organised (roughly 1400×900 visible).
+- Agent memory: web_agent_memory explore searches memories; goals and procedures (web_agent_memory_goals, web_agent_memory_procedures) record explicit, stable owner intent only — never permissions or approval bypasses.
+- Agent tasks: web_agent_tasks create queues work that runs later with nobody present. Set origin: "agent" when you are the one scheduling it. The run starts with no memory of the current conversation, so its prompt must name the records, dates and thresholds itself. List existing tasks first to extend rather than duplicate. schedule and runAt are mutually exclusive.
+- Infrastructure: forge_* manages deployments, domains, environment variables and resources on Forge; forge_env_set/unset take effect only after forge_env_apply. cloud_* is the Pi (projects, databases, scheduled tasks, alerts); storage_* is the file store. These operate on production — read state first and prefer the narrowest action.`;

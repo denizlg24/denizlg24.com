@@ -94,3 +94,28 @@ export async function sendContactConfirmation({
     return { success: false, error };
   }
 }
+
+/** Plain-text reply to a contact-form ticket, sent from the owner's address. */
+export async function sendContactReply({
+  to,
+  ticketId,
+  message,
+}: {
+  to: string;
+  ticketId: string;
+  message: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await resend.emails.send({
+    to,
+    from: "Deniz Günes <denizgunes@oceaninformatix.com>",
+    subject: `Re: Deniz Günes Portfolio Contact - Ticket #${ticketId}`,
+    text: message,
+  });
+  if (response.error) {
+    return {
+      ok: false,
+      error: response.error.message || "the mail provider gave no reason",
+    };
+  }
+  return { ok: true };
+}

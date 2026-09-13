@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { agentMemoryModeSchema, chatMessageSchema } from "@repo/schemas";
+import { agentMemoryModeSchema } from "@repo/schemas";
 import { z } from "zod";
 import { type Api, action, defineActions, limit, p } from "../define";
 
@@ -39,11 +39,12 @@ export function registerWebConversations(server: McpServer, api: Api) {
         run: (body) => api.web.post("/api/admin/conversations", body),
       }),
       update: action({
-        description: "Sets memoryMode or replaces messages, not both",
+        description:
+          "Renames a thread or sets its memoryMode; messages are written only by the agent",
         input: z.object({
           conversationId,
+          title: z.string().trim().min(1).max(200).optional(),
           memoryMode: agentMemoryModeSchema.optional(),
-          messages: z.array(chatMessageSchema).optional(),
         }),
         idempotent: true,
         run: ({ conversationId, ...body }) =>

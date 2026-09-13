@@ -164,3 +164,64 @@ export async function GET(
     );
   }
 }
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; emailId: string }> },
+) {
+  const session = await getAdminSession(request);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { emailId } = await params;
+  const body = await request.json();
+  if (body.seen !== true) {
+    return NextResponse.json(
+      { error: "Only { seen: true } is supported" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await connectDB();
+    const email = await EmailModel.findById(emailId).lean();
+    if (!email) {
+      return NextResponse.json({ error: "Email not found" }, { status: 404 });
+    }
+    if (!email.seen) await markEmailsSeen([email._id]);
+    const updated = await EmailModel.findById(emailId).lean();
+    return NextResponse.json({ email: updated ?? email });
+  } catch (error) {
+    console.error("Error marking email seen:", error);
+    return NextResponse.json(
+      { error: "Failed to mark email seen" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; emailId: string }> },
+) {
+  const session = await getAdminSession(request);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { emailId } = await params;
+
+  try {
+    await connectDB();
+    const deleted = await EmailModel.findByIdAndDelete(emailId).lean();
+    if (!deleted) {
+      return NextResponse.json({ error: "Email not found" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting email:", error);
+    return NextResponse.json(
+      { error: "Failed to delete email" },
+      { status: 500 },
+    );
+  }
+}

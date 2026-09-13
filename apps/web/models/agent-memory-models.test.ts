@@ -31,43 +31,29 @@ function indexIsUnique(
 }
 
 describe("agent memory models", () => {
-  test("defaults new conversations to memory enabled with immutable event ids", () => {
+  test("defaults new conversations to memory enabled and stores UI messages as-is", async () => {
     const conversation = new Conversation({
       title: "Memory test",
       llmModel: "anthropic/claude-haiku-4.5",
+      format: "ui",
       messages: [
         {
-          role: "user",
-          content: "Remember this.",
-          createdAt: new Date("2026-07-13T10:00:00.000Z"),
-        },
-      ],
-    });
-    expect(conversation.memoryMode).toBe("enabled");
-    expect(conversation.messages[0]?.eventId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f-]{27}$/,
-    );
-  });
-
-  test("persists memory disclosure metadata on assistant messages", async () => {
-    const traceId = "9fa3e791-b155-4719-bda8-f6542ea421f3";
-    const conversation = new Conversation({
-      title: "Memory trace test",
-      llmModel: "anthropic/claude-haiku-4.5",
-      messages: [
-        {
+          id: "msg_1",
           role: "assistant",
-          content: "A memory-grounded response.",
-          retrievalTraceId: traceId,
-          memoryInjected: true,
-          createdAt: new Date("2026-07-13T10:00:00.000Z"),
+          parts: [{ type: "text", text: "A memory-grounded response." }],
+          metadata: {
+            retrievalTraceId: "9fa3e791-b155-4719-bda8-f6542ea421f3",
+            memoryInjected: true,
+          },
         },
       ],
     });
-
     await conversation.validate();
-    expect(conversation.messages[0]?.retrievalTraceId).toBe(traceId);
-    expect(conversation.messages[0]?.memoryInjected).toBe(true);
+    expect(conversation.memoryMode).toBe("enabled");
+    expect(conversation.messages[0]).toMatchObject({
+      id: "msg_1",
+      metadata: { memoryInjected: true },
+    });
   });
 
   test("declare unique idempotency and revision indexes", () => {

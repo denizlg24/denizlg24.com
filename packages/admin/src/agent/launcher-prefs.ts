@@ -58,3 +58,80 @@ export function clampLauncherPosition(
     ),
   };
 }
+
+export const AGENT_DOCK_STORAGE_KEY = "denizlg24:agent-dock";
+
+export const AGENT_DOCK_MIN_WIDTH = 360;
+export const AGENT_DOCK_DEFAULT_WIDTH = 440;
+
+export interface AgentDockPrefs {
+  open: boolean;
+  width: number;
+}
+
+export const DEFAULT_AGENT_DOCK_PREFS: AgentDockPrefs = {
+  open: false,
+  width: AGENT_DOCK_DEFAULT_WIDTH,
+};
+
+function readStored(key: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    return typeof parsed === "object" && parsed !== null
+      ? Object.fromEntries(Object.entries(parsed))
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+export function loadAgentDockPrefs(): AgentDockPrefs {
+  if (typeof window === "undefined") return DEFAULT_AGENT_DOCK_PREFS;
+  const stored = readStored(AGENT_DOCK_STORAGE_KEY);
+  return {
+    open: stored.open === true,
+    width:
+      typeof stored.width === "number" && Number.isFinite(stored.width)
+        ? Math.max(AGENT_DOCK_MIN_WIDTH, Math.round(stored.width))
+        : AGENT_DOCK_DEFAULT_WIDTH,
+  };
+}
+
+export function saveAgentDockPrefs(prefs: AgentDockPrefs): void {
+  localStorage.setItem(AGENT_DOCK_STORAGE_KEY, JSON.stringify(prefs));
+}
+
+export const AGENT_COMPOSER_STORAGE_KEY = "denizlg24:agent-composer";
+
+/** Composer toggles a new conversation starts from: the last ones used. */
+export interface AgentComposerPrefs {
+  model: string | null;
+  webSearch: boolean;
+  webFetch: boolean;
+  thinkLonger: boolean;
+  executionMode: "interactive" | "yolo";
+}
+
+export const DEFAULT_AGENT_COMPOSER_PREFS: AgentComposerPrefs = {
+  model: null,
+  webSearch: false,
+  webFetch: false,
+  thinkLonger: false,
+  executionMode: "interactive",
+};
+
+export function loadAgentComposerPrefs(): AgentComposerPrefs {
+  if (typeof window === "undefined") return DEFAULT_AGENT_COMPOSER_PREFS;
+  const stored = readStored(AGENT_COMPOSER_STORAGE_KEY);
+  return {
+    model: typeof stored.model === "string" ? stored.model : null,
+    webSearch: stored.webSearch === true,
+    webFetch: stored.webFetch === true,
+    thinkLonger: stored.thinkLonger === true,
+    executionMode: stored.executionMode === "yolo" ? "yolo" : "interactive",
+  };
+}
+
+export function saveAgentComposerPrefs(prefs: AgentComposerPrefs): void {
+  localStorage.setItem(AGENT_COMPOSER_STORAGE_KEY, JSON.stringify(prefs));
+}

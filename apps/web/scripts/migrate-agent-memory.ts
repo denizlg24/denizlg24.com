@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentSourceRef, AgentSourceType } from "@repo/schemas";
 import mongoose, { type Types } from "mongoose";
+import { agentEvidenceUnits } from "@/lib/agent/evidence-units";
 import {
   processBackfillJob,
   scheduleAgentMemoryBackfill,
@@ -20,6 +21,7 @@ import {
   scheduleNextReflectionJob,
 } from "@/lib/agent-memory/reflection";
 import { getAgentMemorySettings } from "@/lib/agent-memory/settings";
+import { storedMessagesToUI } from "@/lib/conversations";
 import { connectDB } from "@/lib/mongodb";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
@@ -190,6 +192,10 @@ async function databaseSummary() {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 async function ingestHistoricalConversations() {
   const totals = {
     conversations: 0,
@@ -211,27 +217,25 @@ async function ingestHistoricalConversations() {
         totals.skipped += conversation.messages.length;
         continue;
       }
-      let assigned = 0;
-      for (const message of conversation.messages) {
-        const eventIdWasDefaulted =
-          (
-            message as typeof message & {
-              $isDefault?: (path: string) => boolean;
-            }
-          ).$isDefault?.("eventId") === true;
-        if (message.eventId && !eventIdWasDefaulted) continue;
-        message.eventId ||= randomUUID();
-        assigned += 1;
-      }
-      if (assigned > 0) {
-        conversation.markModified("messages");
-        await conversation.save();
-        totals.assignedEventIds += assigned;
+      // Legacy rows may lack event ids; UI rows carry message ids already.
+      if (conversation.format !== "ui") {
+        let assigned = 0;
+        for (const message of conversation.messages) {
+          if (!isRecord(message)) continue;
+          if (typeof message.eventId === "string" && message.eventId) continue;
+          message.eventId = randomUUID();
+          assigned += 1;
+        }
+        if (assigned > 0) {
+          conversation.markModified("messages");
+          await conversation.save();
+          totals.assignedEventIds += assigned;
+        }
       }
       const observed = await observeConversationMessages({
         conversationId: conversation._id.toString(),
         memoryMode: conversation.memoryMode ?? "enabled",
-        messages: conversation.messages,
+        messages: agentEvidenceUnits(storedMessagesToUI(conversation)),
       });
       totals.created += observed.created;
       totals.duplicate += observed.duplicate;

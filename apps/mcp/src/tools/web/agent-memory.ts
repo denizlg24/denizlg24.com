@@ -76,6 +76,12 @@ export function registerWebAgentMemory(server: McpServer, api: Api) {
         description: "Schedules the evidence backfill (needs Gate A)",
         run: () => api.web.post(`${base}/backfill`),
       }),
+      user_model: action({
+        description:
+          "Current evidence-backed profile projection (needs Gate E)",
+        readOnly: true,
+        run: () => api.web.get(`${base}/user-model`),
+      }),
       user_model_rollback: action({
         description: "Rolls the user model back to targetRevision",
         input: z.object(rollbackAgentUserModelSchema.shape),

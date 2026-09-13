@@ -1,80 +1,45 @@
-import { randomUUID } from "node:crypto";
-import type { AgentMemoryMode } from "@repo/schemas";
+import type {
+  AgentMemoryMode,
+  AgentUIMessage,
+  UpdateConversationInput,
+} from "@repo/schemas";
 import { type ClientSession, Types } from "mongoose";
 import {
   Conversation,
   type IConversationMessage,
-  type ILeanConversation,
-  type StoredContentBlock,
+  type IConversationRetrievalSummary,
 } from "@/models/Conversation";
+import {
+  agentEvidenceUnits,
+  sanitizeMessagesForStorage,
+} from "./agent/evidence-units";
+import { isLegacyConversation, legacyToUIMessages } from "./agent/legacy";
+import { isAgentUIMessage, normalizeAgentMessage } from "./agent/messages";
 import { observeConversationMessages } from "./agent-memory/evidence";
 import { redactAgentMemorySource } from "./agent-memory/source-deletion";
 import { connectDB } from "./mongodb";
-import { isClientTool, isWriteTool } from "./tools/registry";
 
-function isToolResultBlock(
-  block: StoredContentBlock,
-): block is StoredContentBlock & { tool_use_id: string } {
-  return block.type === "tool_result" && typeof block.tool_use_id === "string";
-}
-
-function isToolUseBlock(
-  block: StoredContentBlock,
-): block is StoredContentBlock & {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-} {
+function isLegacyMessage(value: unknown): value is IConversationMessage {
   return (
-    block.type === "tool_use" &&
-    typeof block.id === "string" &&
-    typeof block.name === "string"
+    typeof value === "object" &&
+    value !== null &&
+    "eventId" in value &&
+    typeof value.eventId === "string" &&
+    "role" in value &&
+    (value.role === "user" || value.role === "assistant") &&
+    "content" in value
   );
 }
 
-function withPendingActions(
-  messages: ILeanConversation["messages"],
-): ILeanConversation["messages"] {
-  const resolvedToolUseIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role !== "user" || !Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (isToolResultBlock(block)) resolvedToolUseIds.add(block.tool_use_id);
-    }
+/** Stored messages as UI messages, whichever loop wrote them. */
+export function storedMessagesToUI(stored: {
+  format?: string;
+  messages: readonly unknown[];
+}): AgentUIMessage[] {
+  if (isLegacyConversation(stored.format)) {
+    return legacyToUIMessages(stored.messages.filter(isLegacyMessage));
   }
-
-  return messages.map((message) => {
-    if (message.role !== "assistant" || !Array.isArray(message.content)) {
-      return message;
-    }
-
-    const pendingActions: NonNullable<IConversationMessage["pendingActions"]> =
-      [];
-    for (const block of message.content) {
-      if (
-        !isToolUseBlock(block) ||
-        resolvedToolUseIds.has(block.id) ||
-        isClientTool(block.name) ||
-        !isWriteTool(block.name)
-      ) {
-        continue;
-      }
-
-      pendingActions.push({
-        toolId: block.id,
-        toolName: block.name,
-        input:
-          typeof block.input === "object" &&
-          block.input !== null &&
-          !Array.isArray(block.input)
-            ? block.input
-            : {},
-        status: "pending",
-      });
-    }
-
-    return pendingActions.length > 0 ? { ...message, pendingActions } : message;
-  });
+  return stored.messages.filter(isAgentUIMessage).map(normalizeAgentMessage);
 }
 
 interface ConversationListOptions {
@@ -173,9 +138,22 @@ export async function getAllConversations(options: ConversationListOptions) {
   };
 }
 
-export async function getConversation(id: string) {
-  await connectDB();
+export interface StoredConversation {
+  _id: string;
+  title: string;
+  llmModel: string;
+  memoryMode: AgentMemoryMode;
+  messages: AgentUIMessage[];
+  retrievalSummary?: IConversationRetrievalSummary;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
+export async function getConversation(
+  id: string,
+): Promise<StoredConversation | null> {
+  await connectDB();
+  if (!Types.ObjectId.isValid(id)) return null;
   const conversation = await Conversation.findById(id).lean();
   if (!conversation) return null;
 
@@ -184,7 +162,7 @@ export async function getConversation(id: string) {
     title: conversation.title,
     llmModel: conversation.llmModel,
     memoryMode: conversation.memoryMode ?? "enabled",
-    messages: withPendingActions(conversation.messages),
+    messages: storedMessagesToUI(conversation),
     retrievalSummary: conversation.retrievalSummary,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
@@ -205,6 +183,7 @@ export async function createConversation(
     title: data.title,
     llmModel: data.llmModel,
     memoryMode: data.memoryMode ?? "enabled",
+    format: "ui",
     messages: [],
   });
   await conversation.save({ session: options?.session });
@@ -212,57 +191,58 @@ export async function createConversation(
   return { ...conversation, _id: conversation._id.toString() };
 }
 
-export async function updateConversationMessages(
+/**
+ * Replaces a thread's messages and observes, as memory evidence, only the
+ * parts this save added — a resumed turn re-saves the whole assistant message
+ * with one more tool result, and only that result is new.
+ */
+export async function saveConversationMessages(
   id: string,
-  messages: ILeanConversation["messages"],
-) {
+  messages: readonly AgentUIMessage[],
+  options?: { llmModel?: string },
+): Promise<boolean> {
   await connectDB();
   const session = await Conversation.startSession();
   try {
-    const conversation = await session.withTransaction(
-      async (): Promise<ILeanConversation | null> => {
-        const existing = await Conversation.findById(id)
-          .select("messages.eventId messages.createdAt memoryMode")
-          .session(session)
-          .lean<Pick<ILeanConversation, "messages" | "memoryMode">>();
-        if (!existing) return null;
+    return await session.withTransaction(async () => {
+      const existing = await Conversation.findById(id)
+        .select("messages format memoryMode")
+        .session(session)
+        .lean();
+      if (!existing) return false;
 
-        const normalizedMessages = messages.map((message, index) => ({
-          ...message,
-          eventId:
-            existing.messages[index]?.eventId ??
-            message.eventId ??
-            randomUUID(),
-          createdAt: existing.messages[index]?.createdAt ?? message.createdAt,
-        }));
-        const updated = await Conversation.findByIdAndUpdate(
-          id,
-          { messages: normalizedMessages, updatedAt: new Date() },
-          { returnDocument: "after", session },
-        ).lean<ILeanConversation>();
-        if (!updated) return null;
+      const seen = new Set(
+        agentEvidenceUnits(storedMessagesToUI(existing)).map(
+          (unit) => unit.eventId,
+        ),
+      );
+      const stored = sanitizeMessagesForStorage(messages);
+      await Conversation.updateOne(
+        { _id: id },
+        {
+          $set: {
+            messages: stored,
+            format: "ui",
+            updatedAt: new Date(),
+            ...(options?.llmModel ? { llmModel: options.llmModel } : {}),
+          },
+        },
+        { session },
+      );
 
-        const existingEventIds = new Set(
-          existing.messages.map((message) => message.eventId).filter(Boolean),
-        );
-        const newMessages = updated.messages.filter(
-          (message) =>
-            !!message.eventId && !existingEventIds.has(message.eventId),
-        );
-        if (newMessages.length > 0) {
-          await observeConversationMessages({
-            conversationId: id,
-            memoryMode: existing.memoryMode ?? "enabled",
-            messages: newMessages,
-            session,
-          });
-        }
-        return updated;
-      },
-    );
-    return conversation
-      ? { ...conversation, _id: conversation._id.toString() }
-      : null;
+      const added = agentEvidenceUnits(stored).filter(
+        (unit) => !seen.has(unit.eventId),
+      );
+      if (added.length > 0) {
+        await observeConversationMessages({
+          conversationId: id,
+          memoryMode: existing.memoryMode ?? "enabled",
+          messages: added,
+          session,
+        });
+      }
+      return true;
+    });
   } finally {
     await session.endSession();
   }
@@ -275,19 +255,25 @@ export class IncognitoConversationConflictError extends Error {
   }
 }
 
-export async function updateConversationMemoryMode(
+export async function updateConversation(
   id: string,
-  memoryMode: AgentMemoryMode,
+  input: UpdateConversationInput,
 ) {
   await connectDB();
   const conversation = await Conversation.findById(id);
   if (!conversation) return null;
-  if (memoryMode === "incognito" && conversation.messages.length > 0) {
+  if (
+    input.memoryMode === "incognito" &&
+    conversation.memoryMode !== "incognito" &&
+    conversation.messages.length > 0
+  ) {
     throw new IncognitoConversationConflictError();
   }
-  conversation.memoryMode = memoryMode;
+  if (input.memoryMode !== undefined)
+    conversation.memoryMode = input.memoryMode;
+  if (input.title !== undefined) conversation.title = input.title;
   await conversation.save();
-  return { ...conversation.toObject(), _id: conversation._id.toString() };
+  return getConversation(id);
 }
 
 export async function deleteConversation(id: string): Promise<boolean> {

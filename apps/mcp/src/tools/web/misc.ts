@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { modelSettingSchema } from "@repo/schemas";
+import { modelSettingSchema, uploadFromUrlSchema } from "@repo/schemas";
 import { z } from "zod";
 import {
   type Api,
@@ -114,6 +114,12 @@ export function registerWebMisc(server: McpServer, api: Api) {
         description: "Uploads to the file bucket",
         input: uploadInput,
         run: (input) => upload(api, "/api/admin/upload/file", input),
+      }),
+      from_url: action({
+        description:
+          "Downloads a public http(s) URL (≤ 25 MB) into the image or file bucket",
+        input: uploadFromUrlSchema,
+        run: (body) => api.web.post("/api/admin/upload/from-url", body),
       }),
     },
   });

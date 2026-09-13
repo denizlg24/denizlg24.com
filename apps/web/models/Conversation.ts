@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { AgentMemoryMode } from "@repo/schemas";
 import mongoose from "mongoose";
 
@@ -41,11 +40,19 @@ export interface IConversationRetrievalSummary {
   updatedAt: Date;
 }
 
+/**
+ * `ui` rows store AI SDK UI messages. A row without it predates the AI SDK
+ * loop and stores Anthropic-shaped `IConversationMessage`s; those are
+ * converted on read and rewritten as `ui` on the next save.
+ */
+export type ConversationFormat = "ui";
+
 export interface IConversation extends mongoose.Document {
   title: string;
   llmModel: string;
   memoryMode: AgentMemoryMode;
-  messages: IConversationMessage[];
+  format?: ConversationFormat;
+  messages: unknown[];
   /** Rolling topic summary maintained by the query-summary model; used only
    *  as memory-retrieval query context, never shown to the chat model. */
   retrievalSummary?: IConversationRetrievalSummary;
@@ -58,7 +65,8 @@ export interface ILeanConversation {
   title: string;
   llmModel: string;
   memoryMode: AgentMemoryMode;
-  messages: IConversationMessage[];
+  format?: ConversationFormat;
+  messages: unknown[];
   retrievalSummary?: IConversationRetrievalSummary;
   createdAt: Date;
   updatedAt: Date;
@@ -68,28 +76,8 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
   {
     title: { type: String, required: true },
     llmModel: { type: String, required: true },
-    messages: {
-      type: [
-        {
-          role: {
-            type: String,
-            enum: ["user", "assistant"],
-            required: true,
-          },
-          eventId: { type: String, default: randomUUID, required: true },
-          content: { type: mongoose.Schema.Types.Mixed, required: true },
-          tokenUsage: {
-            inputTokens: Number,
-            outputTokens: Number,
-            costUsd: Number,
-          },
-          retrievalTraceId: { type: String },
-          memoryInjected: { type: Boolean },
-          createdAt: { type: Date, default: Date.now },
-        },
-      ],
-      default: [],
-    },
+    format: { type: String, enum: ["ui"] },
+    messages: { type: [mongoose.Schema.Types.Mixed], default: [] },
     memoryMode: {
       type: String,
       enum: ["enabled", "retrieval-off", "incognito"],

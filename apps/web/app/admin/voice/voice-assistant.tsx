@@ -1,6 +1,11 @@
 "use client";
 
-import { useAgentStream } from "@repo/admin/agent/use-agent-stream";
+import {
+  isAgentToolPart,
+  messageText,
+  toolPartName,
+} from "@repo/admin/agent/agent-parts";
+import { useAgentChat } from "@repo/admin/agent/use-agent-chat";
 import {
   pickDefaultModel,
   useModelCatalog,
@@ -200,7 +205,6 @@ function VoiceOrb({
 export function VoiceAssistant() {
   const { client } = useAdmin();
   const modelCatalog = useModelCatalog();
-  const { streamSegments, streamChat } = useAgentStream();
   const [state, setState] = useState<VoiceState>("idle");
   const [level, setLevel] = useState(0);
   const [pulse, setPulse] = useState(0);
@@ -219,27 +223,41 @@ export function VoiceAssistant() {
     ? pickDefaultModel(modelCatalog.models, ["tool-use"])
     : null;
 
+  const chat = useAgentChat({
+    endpoint: "chat",
+    chatKey: "voice",
+    body: () => ({
+      conversationId: conversationIdRef.current,
+      model,
+      executionMode: "yolo",
+      maxRounds: 15,
+      responseStyle: "voice",
+    }),
+  });
+
+  const lastMessage = chat.messages.at(-1);
+  const replying = lastMessage?.role === "assistant" ? lastMessage : null;
+
   useEffect(() => {
-    const text = streamSegments
-      .filter((segment) => segment.type === "text")
-      .map((segment) => segment.text)
-      .join("");
-    const tool = [...streamSegments]
+    if (!replying) return;
+    const runningTool = replying.parts
+      .filter(isAgentToolPart)
       .reverse()
-      .find((segment) => segment.type === "tool_group");
-    if (
-      tool?.type === "tool_group" &&
-      tool.calls.at(-1)?.status === "calling"
-    ) {
-      setTickerTarget(getToolLabel(tool.calls.at(-1)?.toolName ?? ""));
+      .find(
+        (part) =>
+          part.state === "input-streaming" || part.state === "input-available",
+      );
+    if (runningTool) {
+      setTickerTarget(getToolLabel(toolPartName(runningTool)));
       return;
     }
+    const text = messageText(replying);
     if (text) {
       setState("responding");
       setPulse((current) => current + 1);
       setTickerTarget(latestTickerText(text));
     }
-  }, [streamSegments]);
+  }, [replying]);
 
   useEffect(() => {
     if (!tickerTarget) {
@@ -309,17 +327,12 @@ export function VoiceAssistant() {
           conversationIdRef.current = created.conversation._id;
         }
 
-        const result = await streamChat({
-          conversationId: conversationIdRef.current,
-          message: text,
-          model,
-          toolsEnabled: true,
-          executionMode: "yolo",
-          maxRounds: 15,
-          responseStyle: "voice",
-        });
-        if (result && "error" in result) throw new Error(result.error);
-        if (result) setTickerTarget(latestTickerText(result.content));
+        await chat.sendMessage({ text });
+        if (chat.chat.error) throw chat.chat.error;
+        const reply = chat.chat.lastMessage;
+        if (reply?.role === "assistant") {
+          setTickerTarget(latestTickerText(messageText(reply)));
+        }
         setState("responding");
       } catch (cause) {
         setState("error");
@@ -327,7 +340,7 @@ export function VoiceAssistant() {
         setTimeout(() => setState("idle"), 1_200);
       }
     },
-    [client, model, streamChat],
+    [chat, client, model],
   );
 
   const stopRecording = useCallback((send: boolean) => {

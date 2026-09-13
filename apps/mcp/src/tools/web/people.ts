@@ -65,6 +65,13 @@ export function registerWebPeople(server: McpServer, api: Api) {
         run: ({ id, ...body }) =>
           api.web.patch(p`/api/admin/people/${id}`, body),
       }),
+      relations_set: action({
+        description: "Replaces every relation; an empty array removes all",
+        input: z.object({ id, relations: z.array(relation) }),
+        idempotent: true,
+        run: ({ id, relations }) =>
+          api.web.put(p`/api/admin/people/${id}/relations`, { relations }),
+      }),
       delete: action({
         description: "Deletes a person and its edges",
         input: byId,

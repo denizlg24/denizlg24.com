@@ -465,3 +465,36 @@ export const semesterOverviewSchema = z.object({
   week: z.array(semesterScheduleDaySchema),
 });
 export type ISemesterOverview = z.infer<typeof semesterOverviewSchema>;
+
+export const courseLinkFieldSchema = z.enum([
+  "timetableEntryIds",
+  "calendarEventIds",
+  "kanbanBoardIds",
+  "noteIds",
+  "personIds",
+  "resourceIds",
+]);
+export type CourseLinkField = z.infer<typeof courseLinkFieldSchema>;
+
+/** Attaches or detaches one existing record to a course's link arrays. */
+export const courseLinkMutationSchema = z.object({
+  field: courseLinkFieldSchema,
+  entityId: z.string().min(1),
+});
+export type CourseLinkMutation = z.infer<typeof courseLinkMutationSchema>;
+
+export const courseDeadlineInputSchema = z.object({
+  title: z.string().trim().min(1),
+  dueAt: z.string().min(1).describe("ISO datetime"),
+  notes: z.string().optional(),
+  url: z.string().optional(),
+});
+export type CourseDeadlineInput = z.infer<typeof courseDeadlineInputSchema>;
+
+export const courseDeadlinePatchSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  dueAt: z.string().min(1).optional().describe("ISO datetime"),
+  notes: z.string().optional(),
+  completed: z.boolean().optional(),
+});
+export type CourseDeadlinePatch = z.infer<typeof courseDeadlinePatchSchema>;

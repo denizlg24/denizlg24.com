@@ -16,12 +16,15 @@ import {
   financeExpectedEntryInputSchema,
   financeFxSnapshotSchema,
   financeLedgerEntryUpdateSchema,
+  financeLedgerQuerySchema,
   financeManualEntryInputSchema,
   financeManualLinkInputSchema,
   financeMatchDecisionSchema,
+  financeMatchReviewStatusSchema,
   financeNaturalEntryInputSchema,
   financeRecurringRuleInputSchema,
   financeSettingsInputSchema,
+  financeSpendSummaryQuerySchema,
 } from "@repo/schemas";
 import { z } from "zod";
 import { type Api, action, defineActions, p } from "../define";
@@ -40,6 +43,13 @@ export function registerWebFinance(server: McpServer, api: Api) {
         description: "Accounts, ledger, forecast and recurring commitments",
         readOnly: true,
         run: () => api.web.get(base),
+      }),
+      spend_summary: action({
+        description:
+          "Spend and income per category and currency over from..to; never converted",
+        input: financeSpendSummaryQuerySchema,
+        readOnly: true,
+        run: (query) => api.web.get(`${base}/summary`, query),
       }),
       settings_get: action({
         description: "Base currency and FX source",
@@ -90,6 +100,11 @@ export function registerWebFinance(server: McpServer, api: Api) {
     title: "Web: finance accounts",
     description: "Linked bank accounts.",
     actions: {
+      list: action({
+        description: "Every linked account with balances and fetch budget",
+        readOnly: true,
+        run: () => api.web.get(`${base}/accounts`),
+      }),
       update: action({
         description: "Changes display name or fetch budget",
         input: z.object({ id, ...financeAccountSettingsInputSchema.shape }),
@@ -153,6 +168,25 @@ export function registerWebFinance(server: McpServer, api: Api) {
     title: "Web: finance entries",
     description: "Manual and expected ledger entries and bank-row matching.",
     actions: {
+      list: action({
+        description:
+          "Ledger rows newest first, filtered and paged (limit ≤ 100)",
+        input: financeLedgerQuerySchema,
+        readOnly: true,
+        run: (query) => api.web.get(`${base}/entries`, query),
+      }),
+      get: action({
+        description: "One ledger row",
+        input: byId,
+        readOnly: true,
+        run: ({ id }) => api.web.get(p`/api/admin/finance/entries/${id}`),
+      }),
+      match_reviews: action({
+        description: "Reconciliation candidates by status (default pending)",
+        input: z.object({ status: financeMatchReviewStatusSchema.optional() }),
+        readOnly: true,
+        run: (query) => api.web.get(`${base}/matches`, query),
+      }),
       create: action({
         description: "Adds a manual entry",
         input: z.object(financeManualEntryInputSchema.shape),
@@ -215,6 +249,11 @@ export function registerWebFinance(server: McpServer, api: Api) {
     title: "Web: recurring rules",
     description: "Recurring income and expense rules.",
     actions: {
+      list: action({
+        description: "Every rule",
+        readOnly: true,
+        run: () => api.web.get(`${base}/rules`),
+      }),
       create: action({
         description: "Creates a rule",
         input: z.object(financeRecurringRuleInputSchema.shape),

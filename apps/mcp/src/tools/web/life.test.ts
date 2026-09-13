@@ -961,3 +961,194 @@ describe("web_planning", () => {
     });
   });
 });
+
+describe("parity actions", () => {
+  test("web_people relations_set replaces relations", async () => {
+    const { client, last } = setup();
+    await client.call("web_people", {
+      action: "relations_set",
+      id: "p1",
+      relations: [{ personId: "p2", reason: "sister" }],
+    });
+    expect(last()).toEqual({
+      method: "PUT",
+      path: "/api/admin/people/p1/relations",
+      body: { relations: [{ personId: "p2", reason: "sister" }] },
+    });
+  });
+
+  test("web_resource_capabilities list", async () => {
+    const { client, last } = setup();
+    await client.call("web_resource_capabilities", {
+      action: "list",
+      id: "r1",
+    });
+    expect(last()).toMatchObject({
+      method: "GET",
+      path: "/api/admin/resources/r1/capabilities",
+    });
+  });
+
+  test("web_notes search and web_note_edges list pass query", async () => {
+    const { client, last } = setup();
+    await client.call("web_notes", { action: "search", q: "rust", limit: 5 });
+    expect(last()).toMatchObject({
+      method: "GET",
+      path: "/api/admin/notes/search?q=rust&limit=5",
+    });
+    await client.call("web_note_edges", {
+      action: "list",
+      noteId: "n1",
+      source: "manual",
+    });
+    expect(last()).toMatchObject({
+      method: "GET",
+      path: "/api/admin/notes/edges?noteId=n1&source=manual",
+    });
+  });
+
+  test("web_whiteboards element actions", async () => {
+    const { client, last } = setup();
+    const element = {
+      type: "component",
+      componentType: "todo-list",
+      x: 10,
+      y: 20,
+      data: { items: [{ text: "a", completed: false }] },
+    };
+    await client.call("web_whiteboards", {
+      action: "elements_add",
+      id: "w1",
+      elements: [element],
+    });
+    expect(last()).toEqual({
+      method: "POST",
+      path: "/api/admin/whiteboard/w1/elements",
+      body: { elements: [element] },
+    });
+    await client.call("web_whiteboards", {
+      action: "element_update",
+      id: "w1",
+      elementId: "e1",
+      x: 5,
+      data: { text: "hi" },
+    });
+    expect(last()).toEqual({
+      method: "PATCH",
+      path: "/api/admin/whiteboard/w1/elements/e1",
+      body: { x: 5, data: { text: "hi" } },
+    });
+    await client.call("web_whiteboards", {
+      action: "component_items",
+      id: "w1",
+      elementId: "e1",
+      add: [{ text: "b" }],
+      insertAt: 0,
+      remove: ["i1"],
+    });
+    expect(last()).toEqual({
+      method: "PATCH",
+      path: "/api/admin/whiteboard/w1/elements/e1/items",
+      body: { add: [{ text: "b" }], insertAt: 0, remove: ["i1"] },
+    });
+    await client.call("web_whiteboards", {
+      action: "elements_delete",
+      id: "w1",
+      elementIds: ["e1"],
+    });
+    expect(last()).toEqual({
+      method: "DELETE",
+      path: "/api/admin/whiteboard/w1/elements",
+      body: { elementIds: ["e1"] },
+    });
+  });
+
+  test("web_whiteboards today element actions", async () => {
+    const { client, last } = setup();
+    await client.call("web_whiteboards", {
+      action: "today_elements_add",
+      elements: [{ type: "drawing", x: 0, y: 0, data: { text: "t" } }],
+    });
+    expect(last()).toMatchObject({
+      method: "POST",
+      path: "/api/admin/whiteboard/today/elements",
+    });
+    await client.call("web_whiteboards", {
+      action: "today_element_update",
+      elementId: "e1",
+      zIndex: 3,
+    });
+    expect(last()).toEqual({
+      method: "PATCH",
+      path: "/api/admin/whiteboard/today/elements/e1",
+      body: { zIndex: 3 },
+    });
+    await client.call("web_whiteboards", {
+      action: "today_component_items",
+      elementId: "e1",
+      update: [{ id: "i1", completed: true }],
+    });
+    expect(last()).toEqual({
+      method: "PATCH",
+      path: "/api/admin/whiteboard/today/elements/e1/items",
+      body: { update: [{ id: "i1", completed: true }] },
+    });
+    await client.call("web_whiteboards", {
+      action: "today_elements_delete",
+      elementIds: ["e1", "e2"],
+    });
+    expect(last()).toEqual({
+      method: "DELETE",
+      path: "/api/admin/whiteboard/today/elements",
+      body: { elementIds: ["e1", "e2"] },
+    });
+  });
+
+  test("web_whiteboards render returns an image block", async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const { upstream, calls } = recordingUpstream(
+      () =>
+        new Response(new Uint8Array(png), {
+          headers: {
+            "content-type": "image/png",
+            "x-whiteboard-name": "Kitchen%20plan",
+            "x-image-width": "800",
+            "x-image-height": "600",
+          },
+        }),
+    );
+    const client = createClient(upstream, register);
+    const result = await client.call("web_whiteboards", {
+      action: "render",
+      id: "w1",
+    });
+    expect(calls.at(-1)?.path).toBe("/api/admin/whiteboard/w1/render");
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0]).toMatchObject({
+      type: "image",
+      mimeType: "image/png",
+      data: png.toString("base64"),
+    });
+    expect(result.structuredContent).toMatchObject({
+      name: "Kitchen plan",
+      width: 800,
+      height: 600,
+      bytes: 4,
+    });
+
+    await client.call("web_whiteboards", { action: "today_render" });
+    expect(calls.at(-1)?.path).toBe("/api/admin/whiteboard/today/render");
+  });
+
+  test("web_whiteboards render passes a JSON empty-board answer through", async () => {
+    const { upstream } = recordingUpstream(() =>
+      Response.json({ empty: true, name: "Today" }),
+    );
+    const client = createClient(upstream, register);
+    const result = await client.call("web_whiteboards", {
+      action: "today_render",
+    });
+    expect(result.content[0]?.type).toBe("text");
+    expect(result.structuredContent).toMatchObject({ empty: true });
+  });
+});

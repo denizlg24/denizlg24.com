@@ -11,6 +11,31 @@ import {
   SEMANTIC_DEFAULT_PARAMETERS,
 } from "@/models/KnowledgeSemanticRun";
 
+export async function GET(request: NextRequest) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+
+  const limit = Math.min(
+    50,
+    Math.max(1, Number(request.nextUrl.searchParams.get("limit") ?? 10) || 10),
+  );
+  try {
+    await connectDB();
+    const runs = await KnowledgeSemanticRun.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean<ILeanKnowledgeSemanticRun[]>()
+      .exec();
+    return NextResponse.json({ runs: runs.map(serializeSemanticRun) });
+  } catch (error) {
+    console.error("Error listing semantic runs:", error);
+    return NextResponse.json(
+      { error: "Failed to list semantic runs" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;

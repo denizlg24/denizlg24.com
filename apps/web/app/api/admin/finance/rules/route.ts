@@ -2,8 +2,28 @@ import { financeRecurringRuleInputSchema } from "@repo/schemas";
 import { after, type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
-import { createFinanceRecurringRule } from "@/lib/finance/rules";
+import {
+  createFinanceRecurringRule,
+  listFinanceRecurringRules,
+} from "@/lib/finance/rules";
 import { requireAdmin } from "@/lib/require-admin";
+
+export async function GET(request: NextRequest) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+  try {
+    const rules = await listFinanceRecurringRules();
+    return NextResponse.json({
+      rules: rules.map(serializeFinanceRecurringRule),
+    });
+  } catch (error) {
+    console.error("[finance] Rule list failed", error);
+    return NextResponse.json(
+      { error: "Failed to list recurring rules" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);

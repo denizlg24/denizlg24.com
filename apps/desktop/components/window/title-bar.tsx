@@ -42,6 +42,7 @@ const PATHNAME_TITLE_MAP = {
   "/dashboard/settings/models": "settings · models",
   "/dashboard/settings/triage": "settings · triage",
   "/dashboard/settings/agent-memory": "settings · agent memory",
+  "/dashboard/settings/connectors": "settings · connectors",
   "/dashboard/settings/finance": "settings · finance",
   "/dashboard/settings/tokens": "settings · tokens",
   "/dashboard/settings/device": "settings · device",

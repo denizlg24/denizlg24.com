@@ -5,7 +5,6 @@ import { TitleBar } from "@/components/window/title-bar";
 import { UpdateNotifier } from "@/components/window/update-notifier";
 import { UserSettingsProvider } from "@/context/user-context";
 import "./globals.css";
-import { AgentSheet } from "@/components/agent/agent-sheet";
 import { VoiceRecorderProvider } from "@/components/voice-notes/voice-recorder-provider";
 import { BackgroundTasksInitializer } from "@/components/window/background-tasks-initializer";
 import { DisableContextMenu } from "@/components/window/disable-context-menu";
@@ -38,7 +37,6 @@ export default function RootLayout({
             <VoiceRecorderProvider>
               <TitleBar />
               {children}
-              <AgentSheet />
             </VoiceRecorderProvider>
           </UserSettingsProvider>
           <Toaster />

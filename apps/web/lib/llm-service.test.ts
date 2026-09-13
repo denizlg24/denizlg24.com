@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { tool } from "ai";
+import { z } from "zod";
 
 // Service facade behavior: legacy alias resolution, capability validation
 // before generation, configurable defaults, lazy credential checks, usage
@@ -55,6 +57,14 @@ const catalogModels = [
     owned_by: "mistral",
     type: "language",
     tags: [],
+    pricing: {},
+  },
+  {
+    id: "anthropic/claude-3-haiku",
+    name: "Claude 3 Haiku",
+    owned_by: "anthropic",
+    type: "language",
+    tags: ["tool-use"],
     pricing: {},
   },
   {
@@ -166,7 +176,7 @@ const {
   resolveLegacyAlias,
   resolveEmbeddingModel,
   resolveModel,
-  streamAgent,
+  streamAgentTurn,
 } = await import("./llm-service");
 const { LlmConfigurationError, LlmModelError, LlmTransportError } =
   await import("./llm-errors");
@@ -520,30 +530,35 @@ describe("countTokens", () => {
   });
 });
 
-describe("streamAgent", () => {
+describe("streamAgentTurn", () => {
   test("rejects an incompatible model before opening a stream", async () => {
     expect(
-      streamAgent({
+      streamAgentTurn({
         purpose: "chat",
         source: "dashboard-chat",
         model: "mistral/plain-model",
-        system: "sys",
+        instructions: "sys",
         messages: [{ role: "user", content: "hi" }],
-        requireTools: true,
+        tools: {
+          probe: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
+        },
+        maxRounds: 3,
       }),
     ).rejects.toBeInstanceOf(LlmModelError);
     expect(recordedRequests).toHaveLength(0);
   });
 
-  test("rejects web search on a model without the web-search tag", async () => {
+  test("rejects native web search on a model without the web-search tag", async () => {
     expect(
-      streamAgent({
+      streamAgentTurn({
         purpose: "chat",
         source: "dashboard-chat",
-        model: "deepseek/deepseek-v3.2",
-        system: "sys",
+        model: "anthropic/claude-3-haiku",
+        instructions: "sys",
         messages: [{ role: "user", content: "hi" }],
-        requireWebSearch: true,
+        tools: {},
+        maxRounds: 3,
+        webSearch: true,
       }),
     ).rejects.toBeInstanceOf(LlmModelError);
   });

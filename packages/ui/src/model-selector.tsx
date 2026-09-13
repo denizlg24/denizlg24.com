@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChevronDown,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -193,6 +194,7 @@ export const ModelSelector = ({
   onRetry,
   requiredCapabilities = [],
   className,
+  variant = "default",
 }: {
   /** Currently selected fully qualified Gateway model id (or null). */
   model: string | null;
@@ -204,6 +206,8 @@ export const ModelSelector = ({
   onRetry?: () => void;
   requiredCapabilities?: string[];
   className?: string;
+  /** Compact, borderless trigger for dense composer toolbars. */
+  variant?: "default" | "compact";
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -298,6 +302,7 @@ export const ModelSelector = ({
   const incompatible =
     selected !== null &&
     !hasRequiredCapabilities(selected, requiredCapabilities);
+  const compact = variant === "compact";
   const statusText = loading
     ? "Loading models…"
     : selected
@@ -314,7 +319,7 @@ export const ModelSelector = ({
     });
   };
 
-  if (error && !models) {
+  if (error && !models && !compact) {
     return (
       <div className={cn("w-full flex flex-col gap-2", className)}>
         <p className="truncate text-xs text-muted-foreground">
@@ -333,33 +338,53 @@ export const ModelSelector = ({
   }
 
   return (
-    <div className={cn("w-full flex flex-col gap-2", className)}>
+    <div
+      className={cn(
+        compact ? "min-w-0" : "flex w-full flex-col gap-2",
+        className,
+      )}
+    >
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button
             type="button"
-            variant="outline"
-            className="h-auto w-full justify-between gap-3 px-3 py-2 text-left"
+            variant={compact ? "ghost" : "outline"}
+            size={compact ? "sm" : undefined}
+            className={cn(
+              compact
+                ? "h-8 w-full min-w-0 justify-start gap-1 px-2 font-normal text-muted-foreground shadow-none hover:text-foreground"
+                : "h-auto w-full justify-between gap-3 px-3 py-2 text-left",
+              compact && incompatible && "text-destructive",
+            )}
             disabled={loading && !models}
           >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-sm">{statusText}</span>
-              <span className="truncate text-[10px] font-normal text-muted-foreground">
-                {selected
-                  ? [
-                      formatCreator(selected.creator),
-                      formatContext(selected.contextWindow),
-                      ...selected.tags
-                        .filter((tag) => CAPABILITY_BADGES[tag])
-                        .slice(0, 3)
-                        .map((tag) => CAPABILITY_BADGES[tag]),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : "Open model catalog"}
-              </span>
-            </span>
-            <SlidersHorizontal className="size-4 text-muted-foreground" />
+            {compact ? (
+              <>
+                <span className="min-w-0 truncate text-xs">{statusText}</span>
+                <ChevronDown className="size-3 shrink-0 opacity-55" />
+              </>
+            ) : (
+              <>
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate text-sm">{statusText}</span>
+                  <span className="truncate text-[10px] font-normal text-muted-foreground">
+                    {selected
+                      ? [
+                          formatCreator(selected.creator),
+                          formatContext(selected.contextWindow),
+                          ...selected.tags
+                            .filter((tag) => CAPABILITY_BADGES[tag])
+                            .slice(0, 3)
+                            .map((tag) => CAPABILITY_BADGES[tag]),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      : "Open model catalog"}
+                  </span>
+                </span>
+                <SlidersHorizontal className="size-4 text-muted-foreground" />
+              </>
+            )}
           </Button>
         </DialogTrigger>
         <DialogContent className="flex max-h-[85vh] flex-col gap-4 overflow-hidden p-0 sm:max-w-3xl">
@@ -482,14 +507,14 @@ export const ModelSelector = ({
         </DialogContent>
       </Dialog>
 
-      {incompatible && (
+      {!compact && incompatible && (
         <p className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-500">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" />
           This model doesn't support the enabled features. Pick a compatible
           model or change the toggles.
         </p>
       )}
-      {!incompatible && error && models && (
+      {!compact && !incompatible && error && models && (
         <p className="text-xs text-muted-foreground">
           Model list may be outdated.{" "}
           {onRetry && (
@@ -503,7 +528,7 @@ export const ModelSelector = ({
           )}
         </p>
       )}
-      {!incompatible && !error && stale && (
+      {!compact && !incompatible && !error && stale && (
         <p className="text-xs text-muted-foreground">
           Model list may be outdated.
         </p>

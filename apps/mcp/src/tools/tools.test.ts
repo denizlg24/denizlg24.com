@@ -402,6 +402,56 @@ describe("web content", () => {
   });
 });
 
+describe("web content parity actions", () => {
+  test("blog search, contact reply, project drafts", async () => {
+    const { upstream, calls } = recordingUpstream();
+    const client = createClient(upstream);
+    const last = () => calls.at(-1);
+
+    await client.call("web_blogs", {
+      action: "search",
+      q: "rust",
+      tags: ["systems", "perf"],
+    });
+    expect(last()?.method).toBe("GET");
+    expect(last()?.path).toBe(
+      "/api/admin/blogs/search?q=rust&tags=systems&tags=perf",
+    );
+
+    await client.call("web_contacts", {
+      action: "reply",
+      ticketId: "T1",
+      message: "Thanks!",
+    });
+    expect(last()?.method).toBe("POST");
+    expect(last()?.path).toBe("/api/admin/contacts/T1/reply");
+    expect(JSON.parse(last()?.body ?? "{}")).toEqual({ message: "Thanks!" });
+
+    await client.call("web_projects", {
+      action: "github_context",
+      repository: "denizlg24/envoy",
+      includePaths: ["README.md"],
+      maxFiles: 4,
+    });
+    expect(last()?.method).toBe("GET");
+    expect(last()?.path).toBe(
+      "/api/admin/projects/github-context?repository=denizlg24%2Fenvoy&includePaths=README.md&maxFiles=4",
+    );
+
+    const draft = {
+      sourceRepositoryUrl: "https://github.com/denizlg24/envoy",
+      title: "Envoy",
+      subtitle: "Env sync",
+      markdown: "# Envoy",
+      tags: ["rust"],
+    };
+    await client.call("web_projects", { action: "save_draft", ...draft });
+    expect(last()?.method).toBe("POST");
+    expect(last()?.path).toBe("/api/admin/projects/drafts");
+    expect(JSON.parse(last()?.body ?? "{}")).toEqual(draft);
+  });
+});
+
 describe("forge list summaries", () => {
   const message = "feat(mcp): add tools\r\n\nA long body\nover lines.";
   const deployment = {

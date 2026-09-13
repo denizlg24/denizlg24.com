@@ -57,4 +57,5 @@ export interface HostedModelSelectorProps {
   onRetry?: () => void;
   requiredCapabilities?: string[];
   className?: string;
+  variant?: "default" | "compact";
 }

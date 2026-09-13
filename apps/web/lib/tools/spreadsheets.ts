@@ -3,14 +3,10 @@ import { connectDB } from "@/lib/mongodb";
 import { readSandboxFileBytes } from "@/lib/sandbox";
 import {
   computeStats,
-  deleteStoredBook,
-  fetchBookFromStorage,
-  getAllSpreadsheets,
-  getSpreadsheetById,
   uploadBookToStorage,
   xlsxBufferToBook,
 } from "@/lib/spreadsheets";
-import { type ILeanSpreadsheet, Spreadsheet } from "@/models/Spreadsheet";
+import { Spreadsheet } from "@/models/Spreadsheet";
 import { requireConversation } from "./require-conversation";
 import type { ToolDefinition } from "./types";
 
@@ -18,30 +14,6 @@ const MAX_CELLS = 2_000;
 const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 export const spreadsheetTools: ToolDefinition[] = [
-  {
-    schema: {
-      name: "list_spreadsheets",
-      description:
-        "List stored spreadsheets with their title, tags, size, and sheet/row/column counts.",
-      input_schema: { type: "object", properties: {} },
-    },
-    isWrite: false,
-    category: "spreadsheets",
-    execute: async () => {
-      const sheets = await getAllSpreadsheets();
-      return sheets.map((sheet) => ({
-        _id: String(sheet._id),
-        title: sheet.title,
-        description: sheet.description,
-        tags: sheet.tags,
-        sizeBytes: sheet.sizeBytes,
-        sheetCount: sheet.sheetCount,
-        rowCount: sheet.rowCount,
-        colCount: sheet.colCount,
-        updatedAt: sheet.updatedAt,
-      }));
-    },
-  },
   {
     schema: {
       name: "import_sandbox_spreadsheet",
@@ -130,111 +102,6 @@ export const spreadsheetTools: ToolDefinition[] = [
           ...stats,
         },
       };
-    },
-  },
-  {
-    schema: {
-      name: "read_spreadsheet",
-      description:
-        "Read a spreadsheet's cell data. Returns sheet names and their populated cells, truncated for large books — use the sandbox for heavy analysis.",
-      input_schema: {
-        type: "object",
-        properties: {
-          id: { type: "string", description: "Spreadsheet ID" },
-          sheetName: {
-            type: "string",
-            description: "Read only this sheet. Defaults to every sheet.",
-          },
-        },
-        required: ["id"],
-      },
-    },
-    isWrite: false,
-    category: "spreadsheets",
-    execute: async (input) => {
-      const record = await getSpreadsheetById(String(input.id));
-      if (!record) throw new Error("Spreadsheet not found");
-      const book = await fetchBookFromStorage(record.pinataHash);
-      const wanted =
-        typeof input.sheetName === "string" ? input.sheetName : null;
-      let budget = MAX_CELLS;
-      const sheets = book
-        .filter((sheet) => !wanted || sheet.name === wanted)
-        .map((sheet) => {
-          const cells = sheet.celldata ?? [];
-          const taken = cells.slice(0, Math.max(budget, 0));
-          budget -= taken.length;
-          return {
-            name: sheet.name,
-            rows: sheet.row,
-            columns: sheet.column,
-            cellCount: cells.length,
-            truncated: taken.length < cells.length,
-            // FortuneSheet stores cells as {r, c, v}; flatten to "R,C": value
-            // so the model reads a grid rather than nested wrappers.
-            cells: Object.fromEntries(
-              taken.map((cell) => [
-                `${cell.r},${cell.c}`,
-                cell.v?.v ?? cell.v?.m ?? null,
-              ]),
-            ),
-          };
-        });
-      if (wanted && sheets.length === 0) {
-        throw new Error(`No sheet named "${wanted}"`);
-      }
-      return { title: record.title, sheets };
-    },
-  },
-  {
-    schema: {
-      name: "rename_spreadsheet",
-      description: "Rename a spreadsheet. Does not touch its contents.",
-      input_schema: {
-        type: "object",
-        properties: {
-          id: { type: "string", description: "Spreadsheet ID." },
-          title: { type: "string", description: "New title." },
-        },
-        required: ["id", "title"],
-      },
-    },
-    isWrite: true,
-    category: "spreadsheets",
-    execute: async (input) => {
-      const title = String(input.title ?? "").trim();
-      if (!title) throw new Error("Title is required");
-      await connectDB();
-      const doc = await Spreadsheet.findByIdAndUpdate(
-        String(input.id ?? ""),
-        { $set: { title } },
-        { returnDocument: "after", runValidators: true },
-      ).lean<ILeanSpreadsheet>();
-      if (!doc) throw new Error("Spreadsheet not found");
-      return { _id: String(doc._id), title: doc.title };
-    },
-  },
-  {
-    schema: {
-      name: "delete_spreadsheet",
-      description:
-        "Delete a spreadsheet and the stored workbook behind it. Not reversible.",
-      input_schema: {
-        type: "object",
-        properties: {
-          id: { type: "string", description: "Spreadsheet ID." },
-        },
-        required: ["id"],
-      },
-    },
-    isWrite: true,
-    category: "spreadsheets",
-    execute: async (input) => {
-      await connectDB();
-      const doc = await Spreadsheet.findByIdAndDelete(String(input.id ?? ""));
-      if (!doc) throw new Error("Spreadsheet not found");
-      await deleteStoredBook(doc.pinataFileId, doc.pinataHash);
-      return { success: true };
     },
   },
 ];

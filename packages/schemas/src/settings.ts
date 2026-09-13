@@ -128,3 +128,14 @@ export const cvResponseSchema = z.object({
   project: latexProjectSchema.nullable(),
 });
 export type CvResponse = z.infer<typeof cvResponseSchema>;
+
+export const uploadBucketSchema = z.enum(["image", "file"]);
+export type UploadBucket = z.infer<typeof uploadBucketSchema>;
+
+/** Pulls a public URL into storage; the server refuses private addresses. */
+export const uploadFromUrlSchema = z.object({
+  url: z.string().url(),
+  bucket: uploadBucketSchema.default("image"),
+  filename: z.string().trim().min(1).optional(),
+});
+export type UploadFromUrlInput = z.infer<typeof uploadFromUrlSchema>;

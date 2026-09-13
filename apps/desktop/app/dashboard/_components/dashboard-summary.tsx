@@ -3,6 +3,7 @@
 import { Skeleton } from "@repo/ui/skeleton";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Brain, MapPin } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { useUserSettings } from "@/context/user-context";
@@ -43,6 +44,40 @@ function formatDeadlineDue(deadline: ISemesterDeadline) {
   if (days <= 0) return "today";
   if (days === 1) return "tomorrow";
   return `in ${days}d`;
+}
+
+/** Every tab shows at most this many rows and reserves the same height, so switching never moves the composer. */
+const TAB_ROWS = 5;
+const TAB_PANEL_CLASS = "flex min-h-[11.5rem] flex-col";
+
+function MoreLink({ count, href }: { count: number; href: string }) {
+  if (count <= 0) return null;
+  return (
+    <Link
+      href={href}
+      className="mt-1 self-start text-[10px] text-muted-foreground transition-colors hover:text-accent-strong"
+    >
+      +{count} more
+    </Link>
+  );
+}
+
+interface FlatUpcomingCard extends UpcomingCard {
+  boardTitle: string;
+  boardColor?: string;
+}
+
+/** Board grouping reads well on a board page; here the question is what is due next. */
+function flattenUpcoming(upcoming: UpcomingKanbanResult): FlatUpcomingCard[] {
+  return upcoming.boards
+    .flatMap((board) =>
+      board.cards.map((card) => ({
+        ...card,
+        boardTitle: board.boardTitle,
+        ...(board.boardColor ? { boardColor: board.boardColor } : {}),
+      })),
+    )
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 }
 
 const SUMMARY_SKELETON_ITEMS = [
@@ -152,6 +187,10 @@ function ScheduleTasksSwitcher({
 }) {
   const hasSchedule = agendaItems.length > 0;
   const hasTasks = upcoming !== null && upcoming.stats.total > 0;
+  const upcomingCards = useMemo(
+    () => (upcoming ? flattenUpcoming(upcoming) : []),
+    [upcoming],
+  );
   const hasSemester = semester !== null && semester.stats.activeCourses > 0;
   const hasAlerts = alerts.length > 0;
   const critical = alerts.filter(
@@ -278,8 +317,8 @@ function ScheduleTasksSwitcher({
       </div>
 
       {tab === "schedule" && hasSchedule && (
-        <div className="flex flex-col">
-          {agendaItems.slice(0, 4).map((item) => (
+        <div className={TAB_PANEL_CLASS}>
+          {agendaItems.slice(0, TAB_ROWS).map((item) => (
             <AgendaItem
               key={`${item.time}-${item.title}`}
               time={item.time}
@@ -288,17 +327,16 @@ function ScheduleTasksSwitcher({
               color={item.color}
             />
           ))}
-          {agendaItems.length > 4 && (
-            <p className="text-[10px] text-muted-foreground mt-1 ml-13">
-              +{agendaItems.length - 4} more
-            </p>
-          )}
+          <MoreLink
+            count={agendaItems.length - TAB_ROWS}
+            href="/dashboard/calendar"
+          />
         </div>
       )}
 
       {tab === "tasks" && hasTasks && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div className={TAB_PANEL_CLASS}>
+          <div className="mb-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
             {upcoming.stats.overdue > 0 && (
               <span className="text-destructive">
                 {upcoming.stats.overdue} overdue
@@ -309,63 +347,40 @@ function ScheduleTasksSwitcher({
             )}
             <span>{upcoming.stats.dueThisWeek} this week</span>
           </div>
-
-          {upcoming.boards.slice(0, 3).map((board) => (
-            <div key={board.boardId} className="flex flex-col">
-              <div className="mb-1 flex items-center gap-1.5">
+          {upcomingCards.slice(0, TAB_ROWS).map((card) => (
+            <div key={card._id} className="flex items-baseline gap-3 py-1">
+              <span
+                className={`w-16 shrink-0 font-mono text-xs tabular-nums ${
+                  card.overdue ? "text-destructive" : "text-muted-foreground"
+                }`}
+              >
+                {formatDueLabel(card)}
+              </span>
+              <span className="flex-1 truncate text-sm text-accent-strong">
+                {card.title}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
                 <span
-                  className="size-1.5 shrink-0 rounded-full"
+                  className="size-1.5 rounded-full"
                   style={{
                     backgroundColor:
-                      board.boardColor ?? "var(--muted-foreground)",
+                      card.boardColor ?? "var(--muted-foreground)",
                   }}
                 />
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {board.boardTitle}
-                </span>
-              </div>
-              <div className="ml-[2.5px] flex flex-col border-l border-foreground/10 pl-3">
-                {board.cards.slice(0, 3).map((card) => (
-                  <div
-                    key={card._id}
-                    className="flex items-baseline gap-3 py-1"
-                  >
-                    <span
-                      className={`w-16 shrink-0 font-mono text-xs tabular-nums ${
-                        card.overdue
-                          ? "text-destructive"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {formatDueLabel(card)}
-                    </span>
-                    <span className="flex-1 truncate text-sm text-accent-strong">
-                      {card.title}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {card.columnTitle}
-                    </span>
-                  </div>
-                ))}
-                {board.cards.length > 3 && (
-                  <p className="py-0.5 text-[10px] text-muted-foreground">
-                    +{board.cards.length - 3} more
-                  </p>
-                )}
-              </div>
+                {card.boardTitle}
+              </span>
             </div>
           ))}
-          {upcoming.boards.length > 3 && (
-            <p className="text-center text-[10px] text-muted-foreground">
-              +{upcoming.boards.length - 3} more boards
-            </p>
-          )}
+          <MoreLink
+            count={upcomingCards.length - TAB_ROWS}
+            href="/dashboard/kanban"
+          />
         </div>
       )}
 
       {tab === "semester" && hasSemester && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div className={TAB_PANEL_CLASS}>
+          <div className="mb-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
             {semester.stats.overdue > 0 && (
               <span className="text-destructive">
                 {semester.stats.overdue} overdue
@@ -383,7 +398,7 @@ function ScheduleTasksSwitcher({
             </p>
           ) : (
             <div className="flex flex-col">
-              {semester.deadlines.slice(0, 5).map((deadline) => (
+              {semester.deadlines.slice(0, TAB_ROWS).map((deadline) => (
                 <div
                   key={deadline._id}
                   className="flex items-baseline gap-3 py-1"
@@ -405,19 +420,18 @@ function ScheduleTasksSwitcher({
                   </span>
                 </div>
               ))}
-              {semester.deadlines.length > 5 && (
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  +{semester.deadlines.length - 5} more
-                </p>
-              )}
+              <MoreLink
+                count={semester.deadlines.length - TAB_ROWS}
+                href="/dashboard/courses"
+              />
             </div>
           )}
         </div>
       )}
 
       {tab === "alerts" && hasAlerts && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div className={TAB_PANEL_CLASS}>
+          <div className="mb-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
             {critical > 0 && (
               <span className="text-destructive">{critical} critical</span>
             )}
@@ -425,7 +439,7 @@ function ScheduleTasksSwitcher({
           </div>
 
           <div className="flex flex-col">
-            {alerts.slice(0, 5).map((alert) => (
+            {alerts.slice(0, TAB_ROWS).map((alert) => (
               <div key={alert.id} className="flex items-start gap-3 py-1">
                 <span
                   className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
@@ -445,11 +459,10 @@ function ScheduleTasksSwitcher({
                 </span>
               </div>
             ))}
-            {alerts.length > 5 && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                +{alerts.length - 5} more
-              </p>
-            )}
+            <MoreLink
+              count={alerts.length - TAB_ROWS}
+              href="/dashboard/finance/alerts"
+            />
           </div>
         </div>
       )}

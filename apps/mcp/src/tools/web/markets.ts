@@ -162,6 +162,14 @@ export function registerWebMarkets(server: McpServer, api: Api) {
         run: ({ ticker }) =>
           api.web.get(p`/api/admin/markets/symbols/${ticker}`),
       }),
+      technicals: action({
+        description:
+          "RSI, MACD, SMA/EMA, Bollinger, ATR and trailing returns from cached daily bars",
+        input: byTicker,
+        readOnly: true,
+        run: ({ ticker }) =>
+          api.web.get(p`/api/admin/markets/symbols/${ticker}/technicals`),
+      }),
       actions: action({
         description: "Corporate actions",
         input: byTicker,

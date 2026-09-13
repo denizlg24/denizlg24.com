@@ -764,3 +764,71 @@ describe("web_authenticator", () => {
     });
   });
 });
+
+describe("parity actions", () => {
+  test("web_agent_memory user_model", async () => {
+    await client.call("web_agent_memory", { action: "user_model" });
+    expect(last().method).toBe("GET");
+    expect(last().path).toBe("/api/admin/agent-memory/user-model");
+  });
+
+  test("web_markets_symbols technicals", async () => {
+    await client.call("web_markets_symbols", {
+      action: "technicals",
+      ticker: "AAPL",
+    });
+    expect(last().method).toBe("GET");
+    expect(last().path).toBe("/api/admin/markets/symbols/AAPL/technicals");
+  });
+
+  test("web_finance read actions", async () => {
+    await client.call("web_finance", {
+      action: "spend_summary",
+      from: "2026-08-01",
+      to: "2026-08-31",
+    });
+    expect(last().path).toBe(
+      "/api/admin/finance/summary?from=2026-08-01&to=2026-08-31",
+    );
+    await client.call("web_finance_accounts", { action: "list" });
+    expect(last().path).toBe("/api/admin/finance/accounts");
+    await client.call("web_finance_rules", { action: "list" });
+    expect(last().path).toBe("/api/admin/finance/rules");
+    await client.call("web_finance_entries", {
+      action: "list",
+      origin: "bank",
+      uncategorized: true,
+      limit: 50,
+    });
+    expect(last().method).toBe("GET");
+    expect(last().path).toBe(
+      "/api/admin/finance/entries?origin=bank&uncategorized=true&limit=50",
+    );
+    await client.call("web_finance_entries", { action: "get", id: "l1" });
+    expect(last().path).toBe("/api/admin/finance/entries/l1");
+    await client.call("web_finance_entries", {
+      action: "match_reviews",
+      status: "rejected",
+    });
+    expect(last().path).toBe("/api/admin/finance/matches?status=rejected");
+  });
+
+  test("web_semantic runs", async () => {
+    await client.call("web_semantic", { action: "runs", limit: 5 });
+    expect(last().method).toBe("GET");
+    expect(last().path).toBe("/api/admin/semantic/runs?limit=5");
+  });
+
+  test("web_upload from_url defaults to the image bucket", async () => {
+    await client.call("web_upload", {
+      action: "from_url",
+      url: "https://example.com/a.png",
+    });
+    expect(last().method).toBe("POST");
+    expect(last().path).toBe("/api/admin/upload/from-url");
+    expect(json(last())).toEqual({
+      url: "https://example.com/a.png",
+      bucket: "image",
+    });
+  });
+});

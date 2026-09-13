@@ -855,7 +855,7 @@ describe("web_latex_agent", () => {
       "web_latex_agent",
       { action: "send", projectId: "l1", ...send },
       "POST",
-      "/api/admin/latex/projects/l1/agent",
+      "/api/admin/latex/projects/l1/agent/send",
       send,
     );
     const append = { ...send, response: "done" };
@@ -864,7 +864,7 @@ describe("web_latex_agent", () => {
       { action: "append", projectId: "l1", ...append },
       "PUT",
       "/api/admin/latex/projects/l1/agent",
-      append,
+      { ...append, editProposals: [] },
     );
     await expectCall(
       "web_latex_agent",
@@ -943,6 +943,182 @@ describe("web_llm", () => {
       },
       "GET",
       "/api/admin/llm/usage?section=recent&offset=20&limit=10&lastId=x",
+    );
+  });
+});
+
+describe("parity actions", () => {
+  test("web_courses resolve, grade_projection, links, deadlines", async () => {
+    await expectCall(
+      "web_courses",
+      { action: "resolve", q: "CS 101" },
+      "GET",
+      "/api/admin/courses/resolve?q=CS+101",
+    );
+    await expectCall(
+      "web_courses",
+      { action: "grade_projection", id: "c1", targetAverage: 85 },
+      "GET",
+      "/api/admin/courses/c1/grade-projection?targetAverage=85",
+    );
+    await expectCall(
+      "web_courses",
+      { action: "grade_projection", id: "c1" },
+      "GET",
+      "/api/admin/courses/c1/grade-projection",
+    );
+    await expectCall(
+      "web_courses",
+      { action: "link", id: "c1", field: "noteIds", entityId: "n1" },
+      "POST",
+      "/api/admin/courses/c1/links",
+      { field: "noteIds", entityId: "n1" },
+    );
+    await expectCall(
+      "web_courses",
+      { action: "unlink", id: "c1", field: "personIds", entityId: "p1" },
+      "DELETE",
+      "/api/admin/courses/c1/links?field=personIds&entityId=p1",
+    );
+    await expectCall(
+      "web_courses",
+      {
+        action: "deadline_add",
+        id: "c1",
+        title: "HW1",
+        dueAt: "2026-10-01T12:00:00Z",
+      },
+      "POST",
+      "/api/admin/courses/c1/deadlines",
+      { title: "HW1", dueAt: "2026-10-01T12:00:00Z" },
+    );
+    await expectCall(
+      "web_courses",
+      {
+        action: "deadline_update",
+        id: "c1",
+        deadlineId: "d1",
+        completed: true,
+      },
+      "PATCH",
+      "/api/admin/courses/c1/deadlines/d1",
+      { completed: true },
+    );
+    await expectCall(
+      "web_courses",
+      { action: "deadline_delete", id: "c1", deadlineId: "d1" },
+      "DELETE",
+      "/api/admin/courses/c1/deadlines/d1",
+    );
+  });
+
+  test("web_courses link refuses an unknown field", async () => {
+    const before = calls.length;
+    const result = await client.call("web_courses", {
+      action: "link",
+      id: "c1",
+      field: "papers",
+      entityId: "x",
+    });
+    expect(result.isError).toBe(true);
+    expect(calls.length).toBe(before);
+  });
+
+  test("web_papers highlight_add and note_link", async () => {
+    await expectCall(
+      "web_papers",
+      {
+        action: "highlight_add",
+        paperId: "p1",
+        page: 3,
+        text: "quote",
+        color: "green",
+      },
+      "POST",
+      "/api/admin/papers/p1/highlights",
+      { page: 3, text: "quote", color: "green" },
+    );
+    await expectCall(
+      "web_papers",
+      { action: "note_link", paperId: "p1", noteId: "n1" },
+      "POST",
+      "/api/admin/papers/p1/notes",
+      { noteId: "n1" },
+    );
+  });
+
+  test("web_emails query, recent, mark_seen, delete", async () => {
+    await expectCall(
+      "web_emails",
+      { action: "query", account: "me@x.com", from: "bank", limit: 5 },
+      "POST",
+      "/api/admin/email-accounts/query",
+      {
+        account: "me@x.com",
+        from: "bank",
+        limit: 5,
+        unreadOnly: false,
+        scope: "all",
+        includeBody: false,
+        offset: 0,
+      },
+    );
+    await expectCall(
+      "web_emails",
+      { action: "recent", limit: 10, unreadOnly: true },
+      "GET",
+      "/api/admin/emails?limit=10&unreadOnly=true",
+    );
+    await expectCall(
+      "web_emails",
+      { action: "mark_seen", id: "a1", emailId: "e1" },
+      "PATCH",
+      "/api/admin/email-accounts/a1/emails/e1",
+      { seen: true },
+    );
+    await expectCall(
+      "web_emails",
+      { action: "delete", id: "a1", emailId: "e1" },
+      "DELETE",
+      "/api/admin/email-accounts/a1/emails/e1",
+    );
+  });
+
+  test("web_emails query refuses an inverted date range", async () => {
+    const before = calls.length;
+    const result = await client.call("web_emails", {
+      action: "query",
+      startDate: "2026-08-01",
+      endDate: "2026-07-01",
+    });
+    expect(result.isError).toBe(true);
+    expect(calls.length).toBe(before);
+  });
+
+  test("web_latex_projects file_read, file_write, file_delete", async () => {
+    await expectCall(
+      "web_latex_projects",
+      { action: "file_read", projectId: "x1", path: "sections/intro.tex" },
+      "GET",
+      "/api/admin/latex/projects/x1/files?path=sections%2Fintro.tex",
+    );
+    await expectCall(
+      "web_latex_projects",
+      {
+        action: "file_write",
+        projectId: "x1",
+        path: "main.tex",
+        content: "\\begin{document}",
+      },
+      "PUT",
+      "/api/admin/latex/projects/x1/files",
+      { path: "main.tex", content: "\\begin{document}" },
+    );
+    await expectCall(
+      "web_latex_projects",
+      { action: "file_delete", projectId: "x1", path: "old.tex" },
+      "DELETE",
+      "/api/admin/latex/projects/x1/files?path=old.tex",
     );
   });
 });

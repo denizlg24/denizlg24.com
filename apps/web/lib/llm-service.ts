@@ -1,5 +1,12 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ClientToolResultInput } from "@/lib/llm-chat";
+import {
+  isStepCount,
+  type LanguageModelUsage,
+  type ModelMessage,
+  streamText as streamTextTurn,
+  type ToolApprovalStatus,
+  type ToolSet,
+} from "ai";
 import { CatalogUnavailableError, LlmModelError } from "@/lib/llm-errors";
 import {
   findModel,
@@ -8,6 +15,11 @@ import {
   type ModelFilter,
 } from "@/lib/llm-model-catalog";
 import { getSemanticModel } from "@/lib/llm-model-settings";
+import {
+  gatewayLanguageModel,
+  isAnthropicModel,
+  providerTools,
+} from "@/lib/llm-transports/ai-gateway";
 import { getGatewayAnthropicClient } from "@/lib/llm-transports/anthropic-gateway";
 import { requestChatCompletion } from "@/lib/llm-transports/chat-completions";
 import {
@@ -109,6 +121,8 @@ const ADAPTIVE_THINKING_MODELS = new Set([
 ]);
 
 const DEFAULT_CONTEXT_WINDOW = 200_000;
+export const DEFAULT_MAX_ROUNDS = 15;
+const MAX_ROUNDS_CEILING = 100;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 
 export {
@@ -1198,105 +1212,198 @@ export async function streamText({
   });
 }
 
-export interface AgentStreamRequest extends LlmRequestContext {
-  model: string;
-  system: string;
-  /** Redacted replacement for usage logs when the system prompt has private context. */
-  logSystemPrompt?: string;
-  messages: Anthropic.MessageParam[];
-  tools?: Anthropic.ToolUnion[];
-  toolApprovals?: Record<string, boolean>;
-  clientToolResults?: ClientToolResultInput[];
-  /**
-   * YOLO executes every registered write without an approval round-trip. It is
-   * used by unattended training runs and by the owner's explicit chat toggle.
-   */
-  executionMode?: "interactive" | "yolo";
-  /** Model turns allowed before the loop stops. Clamped to [1, 100]. */
-  maxIterations?: number;
-  /** Per-turn state handed to every server tool execution. */
-  toolContext?: ToolExecutionContext;
-  onPersist?: (
-    messages: Anthropic.MessageParam[],
-    tokenUsage?: TokenUsage,
-  ) => Promise<void>;
-  /** Capability requirements derived from enabled features. */
-  requireTools?: boolean;
-  requireWebSearch?: boolean;
+export interface AgentTurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  contextWindow: number;
 }
 
-function messagesContainImages(messages: Anthropic.MessageParam[]): boolean {
+export interface AgentTurnEnd {
+  usage: AgentTurnUsage;
+  finishReason: string;
+  /** The loop stopped on its round limit with tool calls still coming. */
+  stoppedAtMaxRounds: boolean;
+}
+
+export type AgentToolApprovalPolicy = (call: {
+  toolName: string;
+  input: unknown;
+}) => ToolApprovalStatus | undefined;
+
+export interface AgentTurnRequest extends LlmRequestContext {
+  model: string;
+  instructions: string;
+  /** Redacted replacement for usage logs when the instructions carry private context. */
+  logInstructions?: string;
+  messages: ModelMessage[];
+  tools: ToolSet;
+  toolApproval?: AgentToolApprovalPolicy;
+  /** Model steps allowed before the loop stops. Clamped to [1, 100]. */
+  maxRounds: number;
+  webSearch?: boolean;
+  webFetch?: boolean;
+  thinkLonger?: boolean;
+  abortSignal?: AbortSignal;
+  /** Text of the turn's request, for the usage log. */
+  logPrompt?: string;
+  onTurnEnd?: (end: AgentTurnEnd) => void | Promise<void>;
+}
+
+export interface AgentTurn {
+  result: ReturnType<typeof streamTextTurn<ToolSet>>;
+  modelId: string;
+  contextWindow: number;
+  /** Usage and cost for a finished stream's total, in the shape the UI shows. */
+  describeUsage: (usage: LanguageModelUsage) => AgentTurnUsage;
+}
+
+function modelMessagesContainImages(messages: ModelMessage[]): boolean {
   return messages.some(
     (message) =>
       Array.isArray(message.content) &&
       message.content.some(
-        (block) =>
-          block.type === "image" ||
-          (block.type === "tool_result" &&
-            Array.isArray(block.content) &&
-            block.content.some((nested) => nested.type === "image")),
+        (part) =>
+          part.type === "file" &&
+          typeof part.mediaType === "string" &&
+          part.mediaType.startsWith("image"),
       ),
   );
 }
 
+export function clampMaxRounds(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_MAX_ROUNDS;
+  return Math.min(MAX_ROUNDS_CEILING, Math.max(1, Math.trunc(value)));
+}
+
 /**
- * The dashboard agent loop. Capability validation happens here, before any
- * upstream stream opens; the loop itself (SSE events, tool ordering,
- * approvals, client tools, persistence) is unchanged.
+ * The agent loop for chat, background runs, scheduled tasks and the LaTeX
+ * agent. Capability validation happens before any stream opens, so an
+ * incompatible model is a plain error to the caller, never a broken stream.
  */
-export async function streamAgent({
+export async function streamAgentTurn({
   purpose,
   source,
   model,
-  system,
-  logSystemPrompt,
+  instructions,
+  logInstructions,
   messages,
   tools,
-  toolApprovals,
-  clientToolResults,
-  executionMode = "interactive",
-  maxIterations,
-  toolContext,
-  onPersist,
-  requireTools = false,
-  requireWebSearch = false,
-}: AgentStreamRequest): Promise<ReadableStream> {
+  toolApproval,
+  maxRounds,
+  webSearch = false,
+  webFetch = false,
+  thinkLonger = false,
+  abortSignal,
+  logPrompt,
+  onTurnEnd,
+}: AgentTurnRequest): Promise<AgentTurn> {
+  const requestedModel = resolveLegacyAlias(model);
+  const nativeSearch = isAnthropicModel(requestedModel);
   const requiredTags = [
-    ...(requireTools ? ["tool-use"] : []),
-    ...(requireWebSearch ? ["web-search"] : []),
-    ...(messagesContainImages(messages) ? ["vision"] : []),
+    ...(Object.keys(tools).length > 0 ? ["tool-use"] : []),
+    ...(webSearch && nativeSearch ? ["web-search"] : []),
+    ...(modelMessagesContainImages(messages) ? ["vision"] : []),
   ];
   const resolved = await resolveModel({ model, purpose, requiredTags });
-  const client = getGatewayAnthropicClient();
   const limits = getModelLimits(resolved.catalogModel);
-  const catalogModel = resolved.catalogModel;
+  const rounds = clampMaxRounds(maxRounds);
+  const adaptive = ADAPTIVE_THINKING_MODELS.has(resolved.id);
+  const allTools: ToolSet = {
+    ...tools,
+    ...providerTools(resolved.id, { webSearch, webFetch }),
+  };
 
-  // Loaded lazily: the agent loop drags in the full tools registry, which
-  // unattended service consumers (triage, classification jobs) never need.
-  const { createAgenticSSEStream } = await import("@/lib/llm-chat");
+  const describeUsage = (usage: LanguageModelUsage): AgentTurnUsage => {
+    const cacheReadTokens = usage.inputTokenDetails.cacheReadTokens ?? 0;
+    const cacheWriteTokens = usage.inputTokenDetails.cacheWriteTokens ?? 0;
+    const inputTokens = usage.inputTokens ?? 0;
+    const outputTokens = usage.outputTokens ?? 0;
+    const uncachedInput =
+      usage.inputTokenDetails.noCacheTokens ??
+      Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      reasoningTokens: usage.outputTokenDetails.reasoningTokens ?? 0,
+      costUsd: estimateCost({
+        catalogModel: resolved.catalogModel,
+        inputTokens: uncachedInput,
+        outputTokens,
+        cacheUsage: {
+          cacheCreationInputTokens: cacheWriteTokens,
+          cacheReadInputTokens: cacheReadTokens,
+        },
+      }),
+      contextWindow: limits.contextWindow,
+    };
+  };
 
-  return createAgenticSSEStream({
-    system,
-    logSystemPrompt,
+  const result = streamTextTurn<ToolSet>({
+    model: gatewayLanguageModel(resolved.id),
+    instructions,
     messages,
-    model: resolved.id,
-    tools,
-    source,
-    toolApprovals,
-    clientToolResults,
-    executionMode,
-    maxIterations,
-    toolContext,
-    onPersist,
-    transport: {
-      streamMessages: (params) => client.messages.stream(params),
+    tools: allTools,
+    ...(toolApproval
+      ? {
+          toolApproval: ({
+            toolCall,
+          }: {
+            toolCall: { toolName: string; input: unknown };
+          }) =>
+            toolApproval({
+              toolName: toolCall.toolName,
+              input: toolCall.input,
+            }),
+        }
+      : {}),
+    stopWhen: isStepCount(rounds),
+    maxOutputTokens: limits.maxOutput,
+    ...(thinkLonger && !adaptive ? { reasoning: "xhigh" as const } : {}),
+    providerOptions: {
+      anthropic: {
+        cacheControl: { type: "ephemeral" },
+        ...(adaptive
+          ? {
+              thinking: { type: "adaptive" },
+              ...(thinkLonger ? { effort: "max" } : {}),
+            }
+          : {}),
+      },
     },
-    maxTokens: limits.maxOutput,
-    useAdaptiveThinking: ADAPTIVE_THINKING_MODELS.has(resolved.id),
-    computeCost: (_model, inputTokens, outputTokens, cacheUsage) =>
-      estimateCost({ catalogModel, inputTokens, outputTokens, cacheUsage }),
-    logUsage: logLlmUsage,
+    maxRetries: 4,
+    abortSignal,
+    onEnd: async ({ totalUsage, finishReason, steps }) => {
+      const usage = describeUsage(totalUsage);
+      await logLlmUsage({
+        llmModel: resolved.id,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        costUsd: usage.costUsd,
+        systemPrompt: logInstructions ?? instructions,
+        userPrompt: logPrompt ?? "",
+        source,
+      });
+      await onTurnEnd?.({
+        usage,
+        finishReason,
+        stoppedAtMaxRounds:
+          finishReason === "tool-calls" && steps.length >= rounds,
+      });
+    },
   });
+
+  return {
+    result,
+    modelId: resolved.id,
+    contextWindow: limits.contextWindow,
+    describeUsage,
+  };
 }
 
 // Catalog listing is re-exported so API routes depend only on the service.

@@ -1826,6 +1826,85 @@ export async function getCourseGradeProjection(courseId: string): Promise<{
   };
 }
 
+export async function projectCourseGrade(
+  courseId: string,
+  targetAverage?: number,
+) {
+  const result = await getCourseGradeProjection(courseId);
+  if (!result) return null;
+  if (targetAverage === undefined) return result;
+
+  const requiredAverage = requiredAverageForTarget(
+    result.projection,
+    targetAverage,
+  );
+  let note: string | undefined;
+  if (requiredAverage === null) {
+    note =
+      result.projection.remainingWeight === 0
+        ? "All grade weight is already graded — the final grade is settled."
+        : "No weighted grades recorded yet; add grade weights to assignments to enable target projections.";
+  }
+  return {
+    ...result,
+    target: targetAverage,
+    requiredAverage,
+    alreadySecured: requiredAverage !== null && requiredAverage <= 0,
+    achievable: requiredAverage !== null && requiredAverage <= 100,
+    note,
+  };
+}
+
+export interface CourseMatch {
+  _id: string;
+  name: string;
+  code?: string;
+  semester?: string;
+  status: CourseWire["status"];
+  confidence: number;
+}
+
+/** Best matches for a partial name or code, exact code first. */
+export async function resolveCourses(
+  rawQuery: string,
+  limit = 5,
+): Promise<CourseMatch[]> {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return [];
+  const courses = await getCourses();
+  return courses
+    .map(({ course }) => {
+      const name = course.name.toLowerCase();
+      const code = (course.code ?? "").toLowerCase();
+      let score = 0;
+      if (code && code === query) score = 100;
+      else if (name === query) score = 90;
+      else if (code && (code.includes(query) || query.includes(code)))
+        score = 70;
+      else if (name.includes(query)) score = 60;
+      else {
+        const tokens = query.split(/\s+/).filter(Boolean);
+        const hits = tokens.filter(
+          (token) => name.includes(token) || code.includes(token),
+        ).length;
+        if (tokens.length > 0 && hits > 0)
+          score = Math.round((hits / tokens.length) * 50);
+      }
+      return { course, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ course, score }) => ({
+      _id: course._id,
+      name: course.name,
+      code: course.code,
+      semester: course.semester,
+      status: course.status,
+      confidence: score,
+    }));
+}
+
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export async function getSemesterOverview(): Promise<ISemesterOverview> {

@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Cpu,
   KeyRound,
+  Plug,
   SlidersHorizontal,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { slug: "models", label: "Models", icon: Cpu },
   { slug: "triage", label: "Triage", icon: Brain },
   { slug: "agent-memory", label: "Agent memory", icon: BrainCircuit },
+  { slug: "connectors", label: "Connectors", icon: Plug },
   { slug: "finance", label: "Finance", icon: CircleDollarSign },
   { slug: "tokens", label: "Tokens", icon: KeyRound },
 ];

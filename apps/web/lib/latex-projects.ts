@@ -232,6 +232,31 @@ export async function updateLatexProject(
   throw new LatexProjectRevisionConflictError(serializeLatexProject(latest));
 }
 
+/**
+ * Links the agent's conversation without a revision bump. The link is not
+ * project content, and a bump would make the editor's next save and the next
+ * agent turn — both sent at the revision they last saw — conflict. Returns
+ * whichever conversation holds the link, so a racing first turn joins it.
+ */
+export async function attachLatexProjectConversation(
+  id: string,
+  conversationId: string,
+): Promise<string> {
+  await connectDB();
+  const _id = new mongoose.Types.ObjectId(id);
+  await LatexProject.collection.updateOne(
+    {
+      _id,
+      $or: [{ conversationId: null }, { conversationId: { $exists: false } }],
+    },
+    { $set: { conversationId: new mongoose.Types.ObjectId(conversationId) } },
+  );
+  const current = await currentOrThrow(id);
+  return current.conversationId
+    ? String(current.conversationId)
+    : conversationId;
+}
+
 export async function duplicateLatexProject(
   id: string,
 ): Promise<ILatexProjectRecord> {

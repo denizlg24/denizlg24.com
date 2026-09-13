@@ -1,8 +1,8 @@
 "use client";
 
+import { AgentPanel } from "@repo/admin/agent/agent-panel";
 import { AdminProvider } from "@repo/admin/provider";
 import { useDesktopAdmin } from "@/hooks/use-desktop-admin";
-import { ChatView } from "./_components/chat-view";
 import { DashboardSummary } from "./_components/dashboard-summary";
 
 export default function Home() {
@@ -10,7 +10,11 @@ export default function Home() {
   if (loading) return null;
   return (
     <AdminProvider value={value}>
-      <ChatView summary={<DashboardSummary />} />
+      <AgentPanel
+        variant="page"
+        allowBackground
+        summary={<DashboardSummary />}
+      />
     </AdminProvider>
   );
 }

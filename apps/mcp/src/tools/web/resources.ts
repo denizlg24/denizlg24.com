@@ -127,6 +127,13 @@ export function registerWebResources(server: McpServer, api: Api) {
     title: "Web: resource capabilities",
     description: "Capabilities attached to a resource (e.g. picron).",
     actions: {
+      list: action({
+        description: "Capabilities of a resource (credentials omitted)",
+        input: byId,
+        readOnly: true,
+        run: ({ id }) =>
+          api.web.get(p`/api/admin/resources/${id}/capabilities`),
+      }),
       create: action({
         description:
           "Adds a capability; picron needs username and password, others take config",

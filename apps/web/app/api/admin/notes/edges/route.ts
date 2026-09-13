@@ -6,6 +6,50 @@ import { requireAdmin } from "@/lib/require-admin";
 import { Note } from "@/models/Note";
 import { type ILeanNoteEdge, NoteEdge } from "@/models/NoteEdge";
 
+const EDGE_SOURCES = ["manual", "semantic"] as const;
+
+/** Edges by strength, optionally one note's links or one source. */
+export async function GET(request: NextRequest) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+
+  const search = request.nextUrl.searchParams;
+  const noteId = search.get("noteId");
+  const source = search.get("source");
+  if (noteId !== null && !mongoose.Types.ObjectId.isValid(noteId)) {
+    return NextResponse.json({ error: "Invalid note id" }, { status: 400 });
+  }
+  if (
+    source !== null &&
+    !EDGE_SOURCES.some((candidate) => candidate === source)
+  ) {
+    return NextResponse.json({ error: "Invalid source" }, { status: 400 });
+  }
+  const limit = Math.min(
+    200,
+    Math.max(1, Number(search.get("limit") ?? 100) || 100),
+  );
+
+  try {
+    await connectDB();
+    const filter: Record<string, unknown> = {};
+    if (noteId !== null) filter.$or = [{ from: noteId }, { to: noteId }];
+    if (source !== null) filter.source = source;
+    const edges = await NoteEdge.find(filter)
+      .sort({ strength: -1 })
+      .limit(limit)
+      .lean<ILeanNoteEdge[]>()
+      .exec();
+    return NextResponse.json({ edges: edges.map(serializeEdge) });
+  } catch (error) {
+    console.error("Error listing note edges:", error);
+    return NextResponse.json(
+      { error: "Failed to list note edges" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;

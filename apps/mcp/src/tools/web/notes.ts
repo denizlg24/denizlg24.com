@@ -128,6 +128,15 @@ export function registerWebNotes(server: McpServer, api: Api) {
         readOnly: true,
         run: () => api.web.get("/api/admin/notes/tags"),
       }),
+      search: action({
+        description: "Text search over title and content, best first",
+        input: z.object({
+          q: z.string().min(1),
+          limit: z.number().int().min(1).max(50).optional(),
+        }),
+        readOnly: true,
+        run: (query) => api.web.get("/api/admin/notes/search", query),
+      }),
     },
   });
 
@@ -136,6 +145,16 @@ export function registerWebNotes(server: McpServer, api: Api) {
     title: "Web: note edges",
     description: "Links between two notes.",
     actions: {
+      list: action({
+        description: "Edges by strength, optionally one note's or one source",
+        input: z.object({
+          noteId: noteId.optional(),
+          source: z.enum(["manual", "semantic"]).optional(),
+          limit: z.number().int().min(1).max(200).optional(),
+        }),
+        readOnly: true,
+        run: (query) => api.web.get("/api/admin/notes/edges", query),
+      }),
       create: action({
         description: "Links two notes",
         input: z.object({

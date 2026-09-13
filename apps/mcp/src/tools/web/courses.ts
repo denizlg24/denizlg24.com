@@ -6,7 +6,10 @@ import {
   courseAssignmentStatusSchema,
   courseAssignmentTypeSchema,
   courseCustomFieldSchema,
+  courseDeadlineInputSchema,
+  courseDeadlinePatchSchema,
   courseEmailRelinkSchema,
+  courseLinkMutationSchema,
   courseLinkSchema,
   courseManualDeadlineSchema,
   courseStatusSchema,
@@ -18,6 +21,7 @@ import { type Api, action, defineActions, p, partial } from "../define";
 const id = z.string().min(1).describe("Course id");
 const byId = z.object({ id });
 const assignmentId = z.string().min(1).describe("Assignment id");
+const deadlineId = z.string().min(1).describe("Manual deadline id");
 
 // Sub-document ids are minted server-side, so the wire shape drops them.
 const courseFields = {
@@ -106,6 +110,66 @@ export function registerWebCourses(server: McpServer, api: Api) {
         input: byId,
         destructive: true,
         run: ({ id }) => api.web.delete(p`/api/admin/courses/${id}`),
+      }),
+      resolve: action({
+        description: "Best matches for a partial name or code",
+        input: z.object({ q: z.string().min(1) }),
+        readOnly: true,
+        run: ({ q }) => api.web.get("/api/admin/courses/resolve", { q }),
+      }),
+      grade_projection: action({
+        description:
+          "Weighted average, best/worst case and the average needed for targetAverage",
+        input: z.object({
+          id,
+          targetAverage: z.number().min(0).max(100).optional(),
+        }),
+        readOnly: true,
+        run: ({ id, targetAverage }) =>
+          api.web.get(p`/api/admin/courses/${id}/grade-projection`, {
+            targetAverage,
+          }),
+      }),
+      link: action({
+        description: "Attaches an existing record to one of the link fields",
+        input: z.object({ id, ...courseLinkMutationSchema.shape }),
+        idempotent: true,
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/courses/${id}/links`, body),
+      }),
+      unlink: action({
+        description: "Detaches a record from a link field",
+        input: z.object({ id, ...courseLinkMutationSchema.shape }),
+        idempotent: true,
+        run: ({ id, field, entityId }) =>
+          api.web.delete(p`/api/admin/courses/${id}/links`, {
+            field,
+            entityId,
+          }),
+      }),
+      deadline_add: action({
+        description: "Adds a manual deadline",
+        input: z.object({ id, ...courseDeadlineInputSchema.shape }),
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/courses/${id}/deadlines`, body),
+      }),
+      deadline_update: action({
+        description:
+          "Changes title, dueAt, notes or completed of a manual deadline",
+        input: z.object({ id, deadlineId, ...courseDeadlinePatchSchema.shape }),
+        idempotent: true,
+        run: ({ id, deadlineId, ...body }) =>
+          api.web.patch(
+            p`/api/admin/courses/${id}/deadlines/${deadlineId}`,
+            body,
+          ),
+      }),
+      deadline_delete: action({
+        description: "Deletes a manual deadline",
+        input: z.object({ id, deadlineId }),
+        destructive: true,
+        run: ({ id, deadlineId }) =>
+          api.web.delete(p`/api/admin/courses/${id}/deadlines/${deadlineId}`),
       }),
     },
   });

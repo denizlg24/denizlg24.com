@@ -6,6 +6,8 @@ import {
   createLatexProjectSchema,
   importOverleafTemplateRequestSchema,
   latexDataPointSearchSchema,
+  latexFileWriteSchema,
+  latexProjectPathSchema,
   latexReferenceSearchSchema,
   restoreLatexProjectHistorySchema,
   sendLatexAgentMessageSchema,
@@ -70,6 +72,32 @@ export function registerWebLatex(server: McpServer, api: Api) {
         destructive: true,
         run: ({ projectId }) =>
           api.web.delete(p`/api/admin/latex/projects/${projectId}`),
+      }),
+      file_read: action({
+        description: "One UTF-8 file with 1-based line-number prefixes",
+        input: z.object({ projectId, path: latexProjectPathSchema }),
+        readOnly: true,
+        run: ({ projectId, path }) =>
+          api.web.get(p`/api/admin/latex/projects/${projectId}/files`, {
+            path,
+          }),
+      }),
+      file_write: action({
+        description:
+          "Creates or replaces a UTF-8 file at the current revision; no line prefixes",
+        input: z.object({ projectId, ...latexFileWriteSchema.shape }),
+        idempotent: true,
+        run: ({ projectId, ...body }) =>
+          api.web.put(p`/api/admin/latex/projects/${projectId}/files`, body),
+      }),
+      file_delete: action({
+        description: "Deletes a file or folder entry (never the main file)",
+        input: z.object({ projectId, path: latexProjectPathSchema }),
+        destructive: true,
+        run: ({ projectId, path }) =>
+          api.web.delete(p`/api/admin/latex/projects/${projectId}/files`, {
+            path,
+          }),
       }),
       duplicate: action({
         description: "Copies a project",
@@ -170,7 +198,10 @@ export function registerWebLatex(server: McpServer, api: Api) {
         description: "Sends a message and returns the agent's reply",
         input: z.object({ projectId, ...sendLatexAgentMessageSchema.shape }),
         run: ({ projectId, ...body }) =>
-          api.web.post(p`/api/admin/latex/projects/${projectId}/agent`, body),
+          api.web.post(
+            p`/api/admin/latex/projects/${projectId}/agent/send`,
+            body,
+          ),
       }),
       append: action({
         description: "Appends a message/response pair produced elsewhere",

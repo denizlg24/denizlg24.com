@@ -1,7 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import {
   createPaperSchema,
+  paperHighlightInputSchema,
   paperMutationSchema,
+  paperNoteLinkSchema,
   paperProgressMetadataSchema,
   paperProgressUpdateSchema,
   resolvePaperMetadataSchema,
@@ -101,6 +103,19 @@ export function registerWebPapers(server: McpServer, api: Api) {
         idempotent: true,
         run: ({ paperId, ...body }) =>
           api.web.patch(p`/api/admin/papers/${paperId}/progress`, body),
+      }),
+      highlight_add: action({
+        description: "Adds a page-aware quote or highlight",
+        input: z.object({ paperId, ...paperHighlightInputSchema.shape }),
+        run: ({ paperId, ...body }) =>
+          api.web.post(p`/api/admin/papers/${paperId}/highlights`, body),
+      }),
+      note_link: action({
+        description: "Links an existing note as supporting material",
+        input: z.object({ paperId, ...paperNoteLinkSchema.shape }),
+        idempotent: true,
+        run: ({ paperId, ...body }) =>
+          api.web.post(p`/api/admin/papers/${paperId}/notes`, body),
       }),
       unlink_course: action({
         description: "Removes one course link",

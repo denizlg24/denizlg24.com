@@ -158,6 +158,7 @@ export function createClient(upstream: Upstream, register?: ToolRegistrar) {
           required?: string[];
         };
         annotations?: Record<string, boolean>;
+        _meta?: Record<string, unknown>;
       }>;
     },
     async call(name: string, args: Record<string, unknown> = {}) {

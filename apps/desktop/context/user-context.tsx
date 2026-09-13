@@ -67,6 +67,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/settings/models",
   "/dashboard/settings/triage",
   "/dashboard/settings/agent-memory",
+  "/dashboard/settings/connectors",
   "/dashboard/settings/finance",
   "/dashboard/settings/tokens",
   "/dashboard/settings/device",

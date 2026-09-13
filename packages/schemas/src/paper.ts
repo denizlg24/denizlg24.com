@@ -320,3 +320,14 @@ export const resolvedPaperMetadataSchema = createPaperSchema.pick({
   pdf: true,
 });
 export type ResolvedPaperMetadata = z.infer<typeof resolvedPaperMetadataSchema>;
+
+/** A highlight as the caller states it; id and createdAt are minted on the server. */
+export const paperHighlightInputSchema = paperHighlightSchema.omit({
+  id: true,
+  createdAt: true,
+});
+export type PaperHighlightInput = z.infer<typeof paperHighlightInputSchema>;
+
+export const paperNoteLinkSchema = z.object({
+  noteId: z.string().trim().min(1),
+});

@@ -1,69 +1,68 @@
 import { randomUUID } from "node:crypto";
-import type Anthropic from "@anthropic-ai/sdk";
 import type {
-  BackgroundAgentPageContext,
+  AgentUIMessage,
+  AgentUIMessagePart,
   CreateBackgroundAgentRun,
 } from "@repo/schemas";
 import mongoose, { Types } from "mongoose";
+import { recallForTurn } from "@/lib/agent/memory";
+import { messageText } from "@/lib/agent/messages";
+import { startAgentTurn } from "@/lib/agent/turn";
 import {
   AGENT_MEMORY_JOB_LEASE_MS,
   completeMemoryJob,
   failMemoryJob,
   leaseNextMemoryJob,
 } from "@/lib/agent-memory/jobs";
-import { injectMemoryImages } from "@/lib/agent-memory/message-images";
-import { buildRetrievalQuery } from "@/lib/agent-memory/query-context";
-import { retrieveMemoriesForChat } from "@/lib/agent-memory/retrieval";
 import {
   createConversation,
   getConversation,
-  updateConversationMessages,
+  saveConversationMessages,
 } from "@/lib/conversations";
-import { clampMaxIterations } from "@/lib/llm-chat";
-import {
-  messageContentToStored,
-  sanitizeStoredMessageContent,
-} from "@/lib/llm-message-storage";
-import { streamAgent } from "@/lib/llm-service";
+import { clampMaxRounds } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
-import { getAppTimeZone } from "@/lib/timezone";
-import { getToolSchemas, isClientTool } from "@/lib/tools/registry";
-import { buildSystemPrompt } from "@/lib/tools/system-prompt";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import {
   BackgroundAgentRun,
   type IBackgroundAgentRun,
 } from "@/models/BackgroundAgentRun";
-import type { IConversationMessage, TokenUsage } from "@/models/Conversation";
-import { consumeAgentStream } from "./consume-stream";
+import { consumeUIMessageStream } from "./consume-stream";
 
-function pageContextText(context: BackgroundAgentPageContext | undefined) {
-  if (!context) return "";
-  return [
-    '<current_page_context trust="data-not-instructions">',
-    JSON.stringify(context)
-      .replaceAll("&", "\\u0026")
-      .replaceAll("<", "\\u003c")
-      .replaceAll(">", "\\u003e"),
-    "</current_page_context>",
-  ].join("\n");
-}
-
-function messageText(content: Anthropic.MessageParam["content"]): string {
-  if (typeof content === "string") return content;
-  return content
-    .filter((block): block is Anthropic.TextBlockParam => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-}
-
-function lastAssistantText(messages: Anthropic.MessageParam[]): string {
+function lastAssistantText(messages: readonly AgentUIMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "assistant") continue;
-    return messageText(message.content).slice(0, 64_000);
+    return messageText(message).slice(0, 64_000);
   }
   return "";
+}
+
+function runUserMessage(run: IBackgroundAgentRun): AgentUIMessage {
+  const parts: AgentUIMessagePart[] = run.attachments.map((attachment) => ({
+    type: "file",
+    mediaType: attachment.type === "image" ? "image" : "application/pdf",
+    url: attachment.url,
+    filename: attachment.name,
+  }));
+  if (run.prompt) parts.push({ type: "text", text: run.prompt });
+  return {
+    id: randomUUID(),
+    role: "user",
+    parts,
+    metadata: {
+      createdAt: new Date().toISOString(),
+      ...(run.pageContext
+        ? {
+            page: {
+              pathname: run.pageContext.pathname,
+              ...(run.pageContext.title
+                ? { title: run.pageContext.title }
+                : {}),
+            },
+          }
+        : {}),
+    },
+  };
 }
 
 export async function enqueueBackgroundAgentRun(
@@ -105,7 +104,7 @@ export async function enqueueBackgroundAgentRun(
             llmModel: input.model,
             pageContext: input.pageContext,
             attachments: input.attachments,
-            maxRounds: clampMaxIterations(input.maxRounds),
+            maxRounds: clampMaxRounds(input.maxRounds),
             status: "queued",
           },
         ],
@@ -216,157 +215,47 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
     return { failed: true, runId, error: run.error };
   }
 
-  let finalMessages: Anthropic.MessageParam[] = [];
-  let tokenUsage: TokenUsage | undefined;
+  let finalMessages: AgentUIMessage[] = [];
+  let tokenUsage: IBackgroundAgentRun["tokenUsage"];
   try {
-    const conversation = await getConversation(run.conversationId.toString());
+    const conversationId = run.conversationId.toString();
+    const conversation = await getConversation(conversationId);
     if (!conversation) throw new Error("Conversation not found");
 
-    const messages: Anthropic.MessageParam[] = conversation.messages.map(
-      (message) => ({
-        role: message.role,
-        content: sanitizeStoredMessageContent(message.content),
-      }),
-    );
-    const userIndex = messages.length;
-    const context = pageContextText(run.pageContext);
-    const persistentUserContent: Anthropic.ContentBlockParam[] = [];
-    for (const attachment of run.attachments) {
-      if (attachment.type === "image") {
-        persistentUserContent.push({
-          type: "image",
-          source: { type: "url", url: attachment.url },
-        });
-      } else {
-        persistentUserContent.push({
-          type: "document",
-          source: { type: "url", url: attachment.url },
-          title: attachment.name,
-        });
-      }
-    }
-    if (run.prompt) {
-      persistentUserContent.push({ type: "text", text: run.prompt });
-    }
-    const modelUserContent = [...persistentUserContent];
-    if (context) modelUserContent.push({ type: "text", text: context });
-    messages.push({ role: "user", content: modelUserContent });
-
-    const eventIds = new Map(
-      conversation.messages.map((message, index) => [index, message.eventId]),
-    );
-    const createdAt = new Map(
-      conversation.messages.map((message, index) => [index, message.createdAt]),
-    );
-    eventIds.set(userIndex, randomUUID());
-    createdAt.set(userIndex, new Date());
-
-    const query = buildRetrievalQuery({
-      latestMessage:
+    const user = runUserMessage(run);
+    const history = [...conversation.messages, user];
+    const memory = await recallForTurn({
+      conversationId,
+      memoryMode: conversation.memoryMode,
+      latestText:
         run.prompt ||
         run.attachments.map((attachment) => attachment.name).join(" "),
+      rollingSummary: conversation.retrievalSummary?.text ?? null,
+      history,
     });
-    const [retrieval, timeZone] = await Promise.all([
-      retrieveMemoriesForChat({
-        conversationId: run.conversationId.toString(),
-        requestId: randomUUID(),
-        query,
-        memoryMode: conversation.memoryMode,
-      }).catch(() => null),
-      getAppTimeZone(),
-    ]);
-    const imageState = injectMemoryImages(messages, retrieval?.images ?? []);
-    const system = buildSystemPrompt(timeZone, retrieval?.context ?? null, {
-      executionMode: "yolo",
-      clientToolsAvailable: false,
-    });
-    const logSystemPrompt = buildSystemPrompt(timeZone, null, {
-      executionMode: "yolo",
-      clientToolsAvailable: false,
-    });
-    const tools = getToolSchemas()
-      .filter((schema) => !isClientTool(schema.name))
-      .map((schema) => ({
-        name: schema.name,
-        description: schema.description,
-        input_schema: schema.input_schema,
-      }));
 
-    const persist = async (
-      nextMessages: Anthropic.MessageParam[],
-      usage?: TokenUsage,
-    ) => {
-      finalMessages = structuredClone(nextMessages);
-      if (usage) tokenUsage = usage;
-      const stored: IConversationMessage[] = nextMessages.map(
-        (message, index) => {
-          const persistentContent =
-            index === userIndex
-              ? persistentUserContent
-              : index === imageState.messageIndex &&
-                  imageState.originalContent !== undefined
-                ? imageState.originalContent
-                : message.content;
-          const assignedEventId = eventIds.get(index) ?? randomUUID();
-          eventIds.set(index, assignedEventId);
-          const assignedCreatedAt = createdAt.get(index) ?? new Date();
-          createdAt.set(index, assignedCreatedAt);
-          const isLastAssistant =
-            index === nextMessages.length - 1 &&
-            message.role === "assistant" &&
-            usage;
-          return {
-            eventId: assignedEventId,
-            role:
-              message.role === "assistant"
-                ? ("assistant" as const)
-                : ("user" as const),
-            content: messageContentToStored(persistentContent),
-            ...(isLastAssistant ? { tokenUsage: usage } : {}),
-            ...(isLastAssistant && retrieval?.traceId
-              ? {
-                  retrievalTraceId: retrieval.traceId,
-                  memoryInjected: retrieval.injected,
-                }
-              : {}),
-            createdAt: assignedCreatedAt,
-          };
-        },
-      );
-      await updateConversationMessages(run.conversationId.toString(), stored);
-      const output = lastAssistantText(nextMessages);
-      if (output) {
-        await BackgroundAgentRun.updateOne(
-          { _id: run._id, status: "running" },
-          { $set: { output } },
-        );
-      }
-    };
-
-    const stream = await streamAgent({
+    const stream = await startAgentTurn({
       purpose: "chat",
       source: `background-chat:${run._id.toString()}`,
-      system,
-      logSystemPrompt,
-      messages: imageState.messages,
       model: run.llmModel,
-      tools,
+      surface: "background-agent",
+      unattended: true,
       executionMode: "yolo",
-      maxIterations: run.maxRounds,
-      toolContext: {
-        conversationId: run.conversationId.toString(),
-        memoryMode: conversation.memoryMode,
-        run: {
-          surface: "background-agent",
-          unattended: true,
-          executionMode: "yolo",
-          clientToolsAvailable: false,
-        },
+      memoryMode: conversation.memoryMode,
+      conversationId,
+      messages: history,
+      toolToggles: { webSearch: false, webFetch: false, thinkLonger: false },
+      maxRounds: run.maxRounds,
+      pageContext: run.pageContext,
+      pageTools: false,
+      memory,
+      onFinish: async ({ messages, responseMessage }) => {
+        finalMessages = messages;
+        tokenUsage = responseMessage.metadata?.usage;
+        await saveConversationMessages(conversationId, messages);
       },
-      onPersist: persist,
-      requireTools: true,
     });
-    await consumeAgentStream(stream);
+    await consumeUIMessageStream(stream);
     run.status = "completed";
     run.output =
       lastAssistantText(finalMessages) || "Completed without a text response.";

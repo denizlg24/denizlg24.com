@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MCP_ACTIONS_META_KEY } from "@repo/schemas";
 import { z } from "zod";
 import type { ToolRegistrar } from "../server";
 import { action, createApi, defineActions } from "./define";
@@ -33,6 +34,11 @@ const register: ToolRegistrar = (server, upstream) => {
         }),
         idempotent: true,
         run: ({ id, ...body }) => api.web.patch(`/probe/${id}`, body),
+      }),
+      peek: action({
+        description: "peek",
+        readOnly: true,
+        run: () => api.web.get("/probe"),
       }),
     },
   });
@@ -75,6 +81,17 @@ describe("defineActions", () => {
     expect(properties.kind?.description).toBe("[create, update]");
     expect(properties.decision?.anyOf).toHaveLength(2);
     expect(properties.id?.description).toBe("[update]");
+  });
+
+  test("publishes each action's flags so a client can gate by action", async () => {
+    const { upstream } = recordingUpstream();
+    const [tool] = await createClient(upstream, register).listTools();
+    expect(tool?.annotations?.readOnlyHint).toBe(false);
+    expect(tool?._meta?.[MCP_ACTIONS_META_KEY]).toEqual({
+      create: { readOnly: false, destructive: false },
+      update: { readOnly: false, destructive: false },
+      peek: { readOnly: true, destructive: false },
+    });
   });
 
   test("refuses a non-object argument set before any action runs", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
+import { DesktopAgentDock } from "@/components/agent/agent-dock";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CalendarPreloader } from "./calendar-preloader";
 import { CommandPalette } from "./command-palette";
@@ -12,6 +13,7 @@ import { NavigationMenu } from "./navigation-menu";
 // page header. It is gated on useIsMobile() because the stock shadcn Sidebar
 // renders its desktop rail at md+ (hidden md:block) — which the maintainer
 // does not want — so at md+ nothing mounts and the layout stays as before.
+// Pages share the row with the agent dock (⌘J).
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
 
@@ -20,7 +22,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <CalendarPreloader />
       <MemoryGraphPreloader />
       {isMobile ? <NavigationMenu /> : null}
-      <div className="min-h-0 w-full flex-1 overflow-hidden">{children}</div>
+      <DesktopAgentDock>{children}</DesktopAgentDock>
       <CommandPalette />
     </SidebarProvider>
   );

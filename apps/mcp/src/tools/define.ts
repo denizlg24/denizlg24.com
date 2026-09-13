@@ -2,6 +2,7 @@ import type {
   McpServer,
   StandardSchemaWithJSON,
 } from "@modelcontextprotocol/server";
+import { MCP_ACTIONS_META_KEY, type McpActionsMeta } from "@repo/schemas";
 import { z } from "zod";
 import type { Upstream } from "../upstream";
 
@@ -27,8 +28,12 @@ export interface CallInit {
 }
 
 /** Assignable to the SDK's CallToolResult; kept narrow so results are inspectable. */
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: ToolContent[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
@@ -135,6 +140,35 @@ export async function fromResponse(response: Response): Promise<ToolResult> {
   if (!response.ok) return fail(response.status, body);
   // Keyed so an upstream body's own `status` field survives.
   return ok(body, { httpStatus: response.status });
+}
+
+/**
+ * An image response becomes an image block the model can see, plus a text
+ * block with its metadata; anything else (a JSON error, an empty-board note)
+ * goes through `fromResponse`.
+ */
+export async function fromImageResponse(
+  response: Response,
+  metadata: (headers: Headers) => Record<string, unknown> = () => ({}),
+): Promise<ToolResult> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!response.ok || !contentType.startsWith("image/")) {
+    return fromResponse(response);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const mimeType = contentType.split(";")[0]?.trim() || contentType;
+  const summary = {
+    mimeType,
+    bytes: bytes.byteLength,
+    ...metadata(response.headers),
+  };
+  return {
+    content: [
+      { type: "image", data: bytes.toString("base64"), mimeType },
+      { type: "text", text: JSON.stringify(summary) },
+    ],
+    structuredContent: { ...summary, httpStatus: response.status },
+  };
 }
 
 export interface SideApi {
@@ -373,12 +407,22 @@ export function defineActions(server: McpServer, spec: ActionsSpec): void {
       );
   }
   const all = Object.values(spec.actions);
+  const flags: McpActionsMeta = Object.fromEntries(
+    Object.entries(spec.actions).map(([name, entry]) => [
+      name,
+      {
+        readOnly: entry.readOnly === true,
+        destructive: entry.destructive === true,
+      },
+    ]),
+  );
   server.registerTool(
     spec.name,
     {
       title: spec.title,
       description: spec.description,
       inputSchema: advertisedOnly(z.object(shape)),
+      _meta: { [MCP_ACTIONS_META_KEY]: flags },
       annotations: {
         openWorldHint: false,
         readOnlyHint: all.every((entry) => entry.readOnly === true),

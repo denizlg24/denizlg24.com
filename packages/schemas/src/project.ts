@@ -77,3 +77,25 @@ export const nowPageSchema = z.object({
   createdAt: z.string(),
 });
 export type INowPage = z.infer<typeof nowPageSchema>;
+
+export const githubRepositoryContextRequestSchema = z.object({
+  repository: z.string().min(1).describe("owner/name or a github.com URL"),
+  branch: z.string().min(1).optional(),
+  includePaths: z.array(z.string().min(1)).optional(),
+  maxFiles: z.number().int().min(1).max(12).optional(),
+});
+export type GithubRepositoryContextRequest = z.infer<
+  typeof githubRepositoryContextRequestSchema
+>;
+
+/** A hidden project draft sourced from a repository; stays inactive and unfeatured. */
+export const projectDraftInputSchema = z.object({
+  sourceRepositoryUrl: z.string().min(1),
+  sourceBranch: z.string().min(1).optional(),
+  title: z.string().min(1),
+  subtitle: z.string().min(1),
+  markdown: z.string().min(1),
+  tags: z.array(z.string()),
+  demoUrl: z.string().optional(),
+});
+export type ProjectDraftInput = z.infer<typeof projectDraftInputSchema>;

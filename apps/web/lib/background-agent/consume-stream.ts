@@ -1,35 +1,25 @@
-export async function consumeAgentStream(stream: ReadableStream<Uint8Array>) {
+import type { UIMessageChunk } from "ai";
+
+/**
+ * Drains an unattended turn's stream so its `onEnd` runs, surfacing a stream
+ * error as a thrown one. An approval request means the policy asked a
+ * question nobody can answer; that is a bug in the caller's setup, not a
+ * pause to wait on.
+ */
+export async function consumeUIMessageStream(
+  stream: ReadableStream<UIMessageChunk>,
+) {
   const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame
-        .split("\n")
-        .find((candidate) => candidate.startsWith("data: "));
-      if (!line) continue;
-      let event: { type?: string; error?: string };
-      try {
-        event = JSON.parse(line.slice(6)) as typeof event;
-      } catch (error) {
-        await reader.cancel(error).catch(() => {});
-        throw error;
-      }
-      if (event.type === "error") {
-        const error = new Error(event.error ?? "Background agent run failed");
-        await reader.cancel(error).catch(() => {});
-        throw error;
-      }
-      if (event.type === "paused") {
-        const error = new Error("Background agent run paused unexpectedly");
-        await reader.cancel(error).catch(() => {});
-        throw error;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      if (value.type === "error") throw new Error(value.errorText);
+      if (value.type === "tool-approval-request" && !value.isAutomatic) {
+        throw new Error("Unattended run asked for approval");
       }
     }
+  } finally {
+    reader.releaseLock();
   }
 }

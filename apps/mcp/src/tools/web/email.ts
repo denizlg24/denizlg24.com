@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
+import { emailQuerySchema } from "@repo/schemas";
 import { z } from "zod";
 import { type Api, action, defineActions, limit, p, page } from "../define";
 
@@ -109,6 +110,38 @@ export function registerWebEmail(server: McpServer, api: Api) {
           api.web.get(
             p`/api/admin/email-accounts/${id}/emails/${emailId}/attachments`,
           ),
+      }),
+      query: action({
+        description:
+          "Live IMAP search across one or every account, including unsynced mail",
+        input: emailQuerySchema,
+        readOnly: true,
+        run: (body) => api.web.post("/api/admin/email-accounts/query", body),
+      }),
+      recent: action({
+        description: "Newest stored mail across every account",
+        input: z.object({
+          limit: z.number().int().min(1).max(100).optional(),
+          unreadOnly: z.boolean().optional(),
+        }),
+        readOnly: true,
+        run: (query) => api.web.get("/api/admin/emails", query),
+      }),
+      mark_seen: action({
+        description: "Marks a message seen here and on the IMAP server",
+        input: z.object({ id, emailId }),
+        idempotent: true,
+        run: ({ id, emailId }) =>
+          api.web.patch(p`/api/admin/email-accounts/${id}/emails/${emailId}`, {
+            seen: true,
+          }),
+      }),
+      delete: action({
+        description: "Deletes the stored copy of a message",
+        input: z.object({ id, emailId }),
+        destructive: true,
+        run: ({ id, emailId }) =>
+          api.web.delete(p`/api/admin/email-accounts/${id}/emails/${emailId}`),
       }),
       send: action({
         description: "Sends mail through the account's SMTP",

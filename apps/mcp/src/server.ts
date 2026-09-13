@@ -1,5 +1,6 @@
 import { McpServer, type McpServerFactory } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
+import { SERVER_INSTRUCTIONS } from "./instructions";
 import { registerTools } from "./tools";
 import type { Upstream } from "./upstream";
 
@@ -15,17 +16,20 @@ export function mcpServerFactory(
   register: ToolRegistrar = registerTools,
 ): McpServerFactory {
   return () => {
-    const server = new McpServer({
-      name: "denizlg24",
-      version: process.env.APP_VERSION ?? pkg.version,
-      icons: [
-        {
-          src: `${origin}/icon.png`,
-          mimeType: "image/png",
-          sizes: ["512x512"],
-        },
-      ],
-    });
+    const server = new McpServer(
+      {
+        name: "denizlg24",
+        version: process.env.APP_VERSION ?? pkg.version,
+        icons: [
+          {
+            src: `${origin}/icon.png`,
+            mimeType: "image/png",
+            sizes: ["512x512"],
+          },
+        ],
+      },
+      { instructions: SERVER_INSTRUCTIONS },
+    );
     register(server, upstream);
     return server;
   };

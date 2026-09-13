@@ -208,3 +208,64 @@ export const whiteboardMetaSchema = z.object({
   updatedAt: z.string(),
 });
 export type IWhiteboardMeta = z.infer<typeof whiteboardMetaSchema>;
+
+/** A new element as the agent describes it: id and zIndex are assigned on the server. */
+export const whiteboardNewElementSchema = z.object({
+  type: z.enum(["drawing", "component"]),
+  componentType: componentTypeSchema.optional(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().positive().optional(),
+  height: z.number().positive().optional(),
+  rotation: z.number().optional(),
+  data: z.record(z.string(), z.unknown()),
+});
+export type WhiteboardNewElement = z.infer<typeof whiteboardNewElementSchema>;
+
+export const whiteboardAddElementsSchema = z.object({
+  elements: z.array(whiteboardNewElementSchema).min(1),
+});
+
+export const whiteboardElementPatchSchema = z.object({
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().positive().optional(),
+  height: z.number().positive().optional(),
+  rotation: z.number().optional(),
+  zIndex: z.number().optional(),
+  data: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("Shallow-merged into the element's data"),
+});
+export type WhiteboardElementPatch = z.infer<
+  typeof whiteboardElementPatchSchema
+>;
+
+export const whiteboardDeleteElementsSchema = z.object({
+  elementIds: z.array(z.string().min(1)).min(1),
+});
+
+/** Row edits for a todo-list (data.items) or quick-links (data.links) component. */
+export const whiteboardComponentItemOpsSchema = z.object({
+  add: z
+    .array(z.record(z.string(), z.unknown()))
+    .optional()
+    .describe(
+      "Rows to add: {text, completed?} for todo-list, {label, url} for quick-links",
+    ),
+  insertAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe("Index for added rows; appends when omitted"),
+  update: z
+    .array(z.record(z.string(), z.unknown()))
+    .optional()
+    .describe("Row patches, each {id, ...fields}"),
+  remove: z.array(z.string()).optional().describe("Row ids to delete"),
+});
+export type WhiteboardComponentItemOps = z.infer<
+  typeof whiteboardComponentItemOpsSchema
+>;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   appendLatexAgentMessagesSchema,
-  latexAgentMessageSchema,
+  latexAgentProposalOutputSchema,
   updateLatexAgentChangeSchema,
 } from "./latex-agent";
 
@@ -40,23 +40,14 @@ describe("LaTeX agent change contracts", () => {
     expect(parsed.editProposals).toHaveLength(2);
   });
 
-  it("stores compact project-change activity on assistant messages", () => {
-    const message = latexAgentMessageSchema.parse({
-      role: "assistant",
-      content: "Prepared the requested revisions.",
-      createdAt: "2026-07-22T13:00:00.000Z",
-      changes: [
-        {
-          id: proposal.id,
-          kind: proposal.kind,
-          filePath: proposal.filePath,
-          explanation: proposal.explanation,
-          status: "applied",
-        },
-      ],
+  it("stores a proposal with its review status on the tool part", () => {
+    const output = latexAgentProposalOutputSchema.parse({
+      proposal: { ...proposal, id: "call_01HZY" },
+      status: "applied",
     });
 
-    expect(message.changes?.[0]?.status).toBe("applied");
+    expect(output.status).toBe("applied");
+    expect(output.proposal.id).toBe("call_01HZY");
   });
 
   it("only accepts terminal user decisions for a change log update", () => {

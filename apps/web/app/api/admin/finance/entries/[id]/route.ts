@@ -8,10 +8,30 @@ import {
   updateFinanceLedgerEntry,
 } from "@/lib/finance/ledger";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
+import { getFinanceLedgerEntry } from "@/lib/finance/queries";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 
 type Context = { params: Promise<{ id: string }> };
+
+export async function GET(request: NextRequest, context: Context) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+  const { id } = await context.params;
+  try {
+    const entry = await getFinanceLedgerEntry(id);
+    if (!entry) {
+      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+    }
+    return NextResponse.json({ entry: serializeFinanceLedgerEntry(entry) });
+  } catch (error) {
+    console.error("[finance] Entry load failed", error);
+    return NextResponse.json(
+      { error: "Failed to load entry" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function PATCH(request: NextRequest, context: Context) {
   const authError = await requireAdmin(request);

@@ -923,3 +923,45 @@ export const financeEnvelopeDraftSchema = z.object({
   periodsObserved: z.number().int().nonnegative(),
 });
 export type FinanceEnvelopeDraft = z.infer<typeof financeEnvelopeDraftSchema>;
+
+export const financeLedgerQuerySchema = z.object({
+  accountId: z.string().optional(),
+  origin: z.enum(["bank", "manual", "projected"]).optional(),
+  state: z
+    .enum([
+      "pending",
+      "booked",
+      "active",
+      "linked",
+      "expected",
+      "missed",
+      "void",
+    ])
+    .optional(),
+  direction: z.enum(["expense", "income"]).optional(),
+  category: z.string().optional(),
+  uncategorized: z.boolean().optional(),
+  from: z.string().optional().describe("ISO date, inclusive"),
+  to: z.string().optional().describe("ISO date, inclusive"),
+  search: z.string().optional(),
+  minAmountMinor: z.number().int().optional(),
+  maxAmountMinor: z.number().int().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+export type FinanceLedgerQueryInput = z.infer<typeof financeLedgerQuerySchema>;
+
+export const financeSpendSummaryQuerySchema = z.object({
+  from: z.string().min(1).describe("ISO date, inclusive"),
+  to: z.string().min(1).describe("ISO date, inclusive"),
+  accountId: z.string().optional(),
+});
+export type FinanceSpendSummaryQuery = z.infer<
+  typeof financeSpendSummaryQuerySchema
+>;
+
+export const financeMatchReviewStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "rejected",
+]);

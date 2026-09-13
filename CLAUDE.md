@@ -375,7 +375,11 @@ set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop
 sign-in additionally needs the `native` client created and
 `DESKTOP_OAUTH_CLIENT_ID` set on web; until then the app's sign-in button
-reports that the server is not configured, and nothing else is affected.
+reports that the server is not configured, and nothing else is affected. The
+in-app agent's denizlg24 connector likewise needs a `service` client holding
+only the MCP resource, set as `WEB_MCP_OAUTH_CLIENT_ID/SECRET` on web; until
+then the connector reports unconfigured and chat runs on its built-ins. Deploy
+mcp before web whenever web starts relying on a new MCP action.
 
 ## apps/mcp tools
 
@@ -436,6 +440,16 @@ catalogue with every tool → route mapping is
   `createClient(upstream, register?)` takes a registrar so a domain's test
   registers only its own tools. `tools/list` in the registry test is what
   proves every schema converts to JSON Schema.
+- **`readOnly: true` on an action is an approval decision, not a label.**
+  `defineActions` publishes each action's flags as
+  `_meta["com.denizlg24/actions"]`, and the in-app agent runs a call without
+  asking only when the chosen action is read-only. A read action left unmarked
+  asks for approval every time; a write marked read-only never does. The
+  tool-level `readOnlyHint` stays false for any tool that mixes the two.
+- **`src/instructions.ts` is sent at initialize** and is the one place the
+  domain workflows (read-before-replace, notes `categorize`, papers
+  `resolve`, markets budget, …) are written down for every client.
+  `instructions.test.ts` fails when it names a tool that does not exist.
 
 ## apps/desktop Architecture
 
@@ -702,6 +716,69 @@ Things worth knowing before touching this:
 - **Nothing in this repo drives the task cron.** As with markets, the scheduler
   is external. If it is not running, no scheduled task ever fires.
 
+### The in-app agent: AI SDK loop and connectors
+
+Chat, background runs, scheduled tasks and the LaTeX agent all run through
+`startAgentTurn` (`lib/agent/turn.ts`) → `streamAgentTurn` in `llm-service.ts`
+(AI SDK v7 `streamText` over the Gateway) → a UI message stream. Its tools are
+connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
+(`lib/agent/builtin-tools.ts`). Wire contract:
+`docs/internal/plans/agent-connectors-refurbish.md`, "Client contract".
+
+- **The server owns the thread.** The client sends only the last message.
+  A user message keeps only text and file parts; an assistant message is a
+  continuation from which `lib/agent/merge.ts` copies approval decisions for
+  approval ids the stored message is actually waiting on, and outputs for the
+  three page tools — nothing else. That is what makes a forged approval or a
+  rewritten tool input impossible without `experimental_toolApprovalSecret`.
+- **Conversations store `UIMessage[]` (`format: "ui"`).** A row without
+  `format` predates the loop and is Anthropic-shaped; `storedMessagesToUI`
+  converts it on read, the next save rewrites it, and
+  `bun run conversations:migrate` (dry-run unless `--apply`) settles the rest.
+  Page context and recalled memory images are appended to the model messages
+  only (`lib/agent/model-messages.ts`) and never stored.
+- **Evidence is derived per part, with ids stable across saves.** One UI
+  message spans every step of a turn and is re-saved as it grows, so
+  `agentEvidenceUnits` maps it onto the old one-row-per-turn shape
+  (`<id>:text:<index>`, `<id>:tool:<callId>`) and `saveConversationMessages`
+  observes only units the previous save did not have. User message ids are the
+  client's; converted legacy messages keep their event ids.
+- **Approval is `lib/agent/approval.ts`, per call.** A connector call runs
+  unasked only when the chosen action (or the tool) is read-only and the
+  connector's policy is `reads-auto`; `always-ask` / `never-ask` override; YOLO
+  runs everything. Built-in writes (`save_memory`) ask in interactive mode. An
+  incognito turn denies every write to `web_agent_memory*` on the primary
+  connector — the MCP server cannot see the turn's memory mode, so the policy
+  is the only thing holding that line.
+- **The primary connector is a seeded row, `slug: "denizlg24"`, `auth:
+  "service"`.** Its URL and credentials come from the environment on every
+  call (`WEB_MCP_OAUTH_CLIENT_ID/SECRET`, a `service` client with only the MCP
+  resource; `MCP_CONNECTOR_URL`, which also sets the resource, and
+  `MCP_CONNECTOR_ISSUER` point a dev web at the production server). Never put
+  a production `OAUTH_RESOURCE_MCP` in the root `.env` for this: the local API
+  and MCP read that one. Unset leaves it `unconfigured` and chat runs on the
+  built-ins. Only its approval, enabled flag and disabled tools are editable.
+- **Third-party connectors are `none`, `bearer` or `oauth`.** OAuth is the MCP
+  flow through `@ai-sdk/mcp` `auth()` with `ConnectorOAuthProvider`: tokens,
+  registered client and PKCE verifier are sealed with `IMAP_ENCRYPTION_KEY`;
+  the pending `state` is stored only as a hash, and the public callback
+  `/api/connectors/oauth/callback` finds the row by that hash while it is
+  unexpired. Redirects stay at the SDK's `'error'` default so a server cannot
+  bounce a bearer token to another host. A third party's `instructions` go
+  into the prompt marked `data-not-instructions`; ours do not.
+- **`tools/list` is cached on the connector for 30 minutes**, and a client is
+  opened only when the model first calls one of its tools. Tool names are
+  `<slug>__<tool>` (hashed past 64 characters). A connector result is cut at
+  48 000 characters with a note telling the model to narrow the request.
+- **Web search and fetch are provider tools.** Anthropic models get
+  Anthropic's `web_search` / `web_fetch`; anything else searches through the
+  Gateway's Perplexity tool and has no fetch. "Think longer" is `effort: max`
+  on adaptive-thinking models and `reasoning: "xhigh"` elsewhere.
+- **The LaTeX agent proposes edits as tool calls.** `propose_change` validates
+  one change against the loaded project and returns `{ proposal, status }`;
+  the proposal id is the tool call id, and `PATCH …/agent` records the user's
+  decision on that output. Nothing the agent does writes a file.
+
 ### Authenticator
 - `GET /authenticator` → `{ accounts: IAuthenticatorAccount[] }` (no secrets)
 - `GET /authenticator/codes` → `{ codes: IAuthenticatorCode[] }` — server-computed, used by the admin and desktop UIs
@@ -725,7 +802,7 @@ Things worth knowing before touching this:
 ### LLM Usage
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
 - `GET /llm/models` → `{ models: LlmCatalogModel[], stale, fetchedAt }` — Vercel AI Gateway language-model catalog (fully qualified ids like `anthropic/claude-haiku-4.5`, capability tags, context/output limits); filters: `?creator=` and repeatable `?requiredCapability=`; 503 when the catalog is cold
-- All server LLM traffic goes through `apps/web/lib/llm-service.ts` (Vercel AI Gateway; `AI_GATEWAY_API_KEY`). Never import a provider SDK or build provider URLs in app code — add operations to the service instead. Model ids are fully qualified Gateway ids; legacy dashed ids resolve via the service's alias map.
+- All server LLM traffic goes through `apps/web/lib/llm-service.ts` (Vercel AI Gateway; `AI_GATEWAY_API_KEY`). Never import a provider SDK or build provider URLs in app code — add operations to the service instead. Model ids are fully qualified Gateway ids; legacy dashed ids resolve via the service's alias map. The agent loop's AI SDK models and provider tools come from `lib/llm-transports/ai-gateway.ts`; single-shot operations (triage, formation, classification) still use the Anthropic-compatible transport.
 - **Two documented exceptions**, both shaped the same way: the provider call
   lives in a single `lib/llm-transports/*` module, app code still only calls
   `llm-service`, and because neither model is in the Gateway catalog its pricing

@@ -1,58 +1,65 @@
-import { randomUUID } from "node:crypto";
-import type Anthropic from "@anthropic-ai/sdk";
-import {
-  type AgentMemoryMode,
-  backgroundAgentPageContextSchema,
-} from "@repo/schemas";
+import { type AgentUIMessage, agentChatRequestSchema } from "@repo/schemas";
+import { createUIMessageStreamResponse } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
-import { injectMemoryImages } from "@/lib/agent-memory/message-images";
+import { recallForTurn } from "@/lib/agent/memory";
 import {
-  buildRetrievalQuery,
-  updateConversationRetrievalSummary,
-} from "@/lib/agent-memory/query-context";
-import {
-  type ChatMemoryRetrievalResult,
-  loadInjectedMemoryContext,
-  loadInjectedMemoryImages,
-  retrieveMemoriesForChat,
-} from "@/lib/agent-memory/retrieval";
-import {
-  getConversation,
-  updateConversationMessages,
-} from "@/lib/conversations";
-import { clampMaxIterations, hasPendingToolContinuation } from "@/lib/llm-chat";
+  AgentMergeError,
+  applyClientDecisions,
+  hasPendingWork,
+  sanitizeUserMessage,
+  truncateForRegenerate,
+} from "@/lib/agent/merge";
+import { messageText } from "@/lib/agent/messages";
+import { startAgentTurn } from "@/lib/agent/turn";
+import { updateConversationRetrievalSummary } from "@/lib/agent-memory/query-context";
+import { getConversation, saveConversationMessages } from "@/lib/conversations";
 import {
   CatalogUnavailableError,
   LlmConfigurationError,
   LlmModelError,
 } from "@/lib/llm-errors";
-import {
-  messageContentToStored,
-  sanitizeStoredMessageContent,
-} from "@/lib/llm-message-storage";
-import { streamAgent } from "@/lib/llm-service";
+import { DEFAULT_MAX_ROUNDS } from "@/lib/llm-service";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
-import { getAppTimeZone } from "@/lib/timezone";
-import { getToolSchemas } from "@/lib/tools/registry";
-import { buildSystemPrompt } from "@/lib/tools/system-prompt";
-import type { IConversationMessage, TokenUsage } from "@/models/Conversation";
 
 export const maxDuration = 300;
 
-function messageTextForRetrieval(message: unknown): string {
-  if (typeof message === "string") return message;
-  if (!Array.isArray(message)) return "";
-  return message
-    .filter(
-      (block): block is { type: "text"; text: string } =>
-        !!block &&
-        typeof block === "object" &&
-        (block as { type?: unknown }).type === "text" &&
-        typeof (block as { text?: unknown }).text === "string",
-    )
-    .map((block) => block.text)
-    .join("\n");
+function resolveHistory(
+  stored: AgentUIMessage[],
+  request: {
+    trigger: "submit-message" | "regenerate-message";
+    message?: AgentUIMessage;
+    messageId?: string;
+  },
+): { history: AgentUIMessage[]; newUserText: string | null } {
+  if (request.trigger === "regenerate-message") {
+    if (!request.messageId) {
+      throw new AgentMergeError("messageId is required to regenerate", 400);
+    }
+    const history = truncateForRegenerate(stored, request.messageId);
+    const last = history.at(-1);
+    return {
+      history,
+      newUserText: last?.role === "user" ? messageText(last) : null,
+    };
+  }
+  if (!request.message) {
+    throw new AgentMergeError("message is required", 400);
+  }
+  if (request.message.role === "assistant") {
+    return {
+      history: applyClientDecisions(stored, request.message),
+      newUserText: null,
+    };
+  }
+  if (hasPendingWork(stored)) {
+    throw new AgentMergeError(
+      "Resolve the pending tool call before sending a new message",
+      409,
+    );
+  }
+  const user = sanitizeUserMessage(request.message);
+  return { history: [...stored, user], newUserText: messageText(user) };
 }
 
 export const POST = async (req: NextRequest) => {
@@ -61,309 +68,79 @@ export const POST = async (req: NextRequest) => {
 
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const { allowed, remaining, resetMs } = await checkRateLimit(`chat:${ip}`, {
+  const { allowed, resetMs } = await checkRateLimit(`chat:${ip}`, {
     maxRequests: 10,
   });
-
   if (!allowed) {
     return NextResponse.json(
       { error: "Rate limit exceeded" },
       {
         status: 429,
-        headers: {
-          "Retry-After": String(Math.ceil(resetMs / 1000)),
-          "X-RateLimit-Remaining": "0",
-        },
+        headers: { "Retry-After": String(Math.ceil(resetMs / 1000)) },
       },
     );
   }
 
+  const parsed = agentChatRequestSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid request", issues: parsed.error.issues.slice(0, 5) },
+      { status: 400 },
+    );
+  }
+  const request = parsed.data;
+
   try {
-    const {
-      conversationId,
-      message,
-      model = "anthropic/claude-sonnet-4.6",
-      toolsEnabled = true,
-      webSearchEnabled = false,
-      toolApprovals,
-      clientToolResults,
-      executionMode: requestedExecutionMode,
-      maxRounds,
-      pageContext,
-      responseStyle: requestedResponseStyle,
-    } = await req.json();
-
-    const executionMode =
-      requestedExecutionMode === "yolo" ? "yolo" : "interactive";
-    const responseStyle =
-      requestedResponseStyle === "voice" ? "voice" : undefined;
-    const parsedPageContext =
-      pageContext !== undefined
-        ? backgroundAgentPageContextSchema.safeParse(pageContext)
-        : null;
-    if (parsedPageContext && !parsedPageContext.success) {
+    const conversation = await getConversation(request.conversationId);
+    if (!conversation) {
       return NextResponse.json(
-        { error: "Invalid pageContext" },
-        { status: 400 },
+        { error: "Conversation not found" },
+        { status: 404 },
       );
     }
-    const maxIterations = clampMaxIterations(
-      typeof maxRounds === "number" ? maxRounds : undefined,
+    const { history, newUserText } = resolveHistory(
+      conversation.messages,
+      request,
     );
-
-    const hasMessage = !!message;
-    const hasContinuation = !!toolApprovals || !!clientToolResults;
-
-    if (hasMessage && hasContinuation) {
-      return NextResponse.json(
-        {
-          error:
-            "message cannot be combined with toolApprovals or clientToolResults",
-        },
-        { status: 400 },
-      );
-    }
-    if (!hasMessage && !hasContinuation) {
-      return NextResponse.json(
-        {
-          error:
-            "Either message, toolApprovals, or clientToolResults is required",
-        },
-        { status: 400 },
-      );
-    }
-    if (hasContinuation && !conversationId) {
-      return NextResponse.json(
-        { error: "conversationId is required for continuations" },
-        { status: 400 },
-      );
-    }
-
-    const messages: Anthropic.MessageParam[] = [];
-    const existingTokenUsage = new Map<number, TokenUsage>();
-    const existingEventIds = new Map<number, string>();
-    const existingCreatedAt = new Map<number, Date>();
-    const existingRetrievalTraceIds = new Map<number, string>();
-    const existingMemoryInjected = new Map<number, boolean>();
-    let memoryMode: AgentMemoryMode = "enabled";
-    let inheritedRetrievalTraceId: string | undefined;
-    let inheritedMemoryInjected = false;
-    let rollingRetrievalSummary: string | null = null;
-
-    if (conversationId) {
-      const conversation = await getConversation(conversationId);
-      if (conversation) {
-        memoryMode = conversation.memoryMode;
-        rollingRetrievalSummary = conversation.retrievalSummary?.text ?? null;
-        for (const msg of conversation.messages) {
-          const index = messages.length;
-          messages.push({
-            role: msg.role,
-            content: sanitizeStoredMessageContent(msg.content),
-          });
-          if (msg.tokenUsage) {
-            existingTokenUsage.set(index, msg.tokenUsage);
-          }
-          if (msg.eventId) existingEventIds.set(index, msg.eventId);
-          if (msg.retrievalTraceId) {
-            existingRetrievalTraceIds.set(index, msg.retrievalTraceId);
-            inheritedRetrievalTraceId = msg.retrievalTraceId;
-          }
-          if (msg.memoryInjected !== undefined) {
-            existingMemoryInjected.set(index, msg.memoryInjected);
-            if (msg.retrievalTraceId) {
-              inheritedMemoryInjected = msg.memoryInjected;
-            }
-          }
-          existingCreatedAt.set(index, msg.createdAt);
-        }
-      }
-    }
-
-    if (message) {
-      if (hasPendingToolContinuation(messages)) {
-        return NextResponse.json(
-          {
-            error: "Resolve the pending tool call before sending a new message",
-          },
-          { status: 409 },
-        );
-      }
-      const userContent: string | Anthropic.ContentBlockParam[] =
-        typeof message === "string" ? message : message;
-      messages.push({ role: "user", content: userContent });
-    }
-
-    const tools: Anthropic.ToolUnion[] = [];
-    if (toolsEnabled) {
-      const schemas = getToolSchemas();
-      for (const schema of schemas) {
-        tools.push({
-          name: schema.name,
-          description: schema.description,
-          input_schema: schema.input_schema,
-        });
-      }
-    }
-
-    if (webSearchEnabled) {
-      const webSearchTool: Anthropic.WebSearchTool20250305 = {
-        type: "web_search_20250305",
-        name: "web_search",
-        max_uses: 5,
-      };
-      tools.push(webSearchTool);
-    }
-
-    let memoryRetrieval: ChatMemoryRetrievalResult | null = null;
-    if (message) {
-      try {
-        memoryRetrieval = await retrieveMemoriesForChat({
-          conversationId,
-          requestId: randomUUID(),
-          query: buildRetrievalQuery({
-            latestMessage: messageTextForRetrieval(message),
-            rollingSummary: rollingRetrievalSummary,
-          }),
-          memoryMode,
-        });
-      } catch (error) {
-        console.error("Agent memory retrieval failed", {
-          error: error instanceof Error ? error.message : "unknown error",
-        });
-      }
-    }
-    let personalMemoryContext = memoryRetrieval?.context ?? null;
-    let recalledMemoryImages = memoryRetrieval?.images ?? [];
-    if (!message && inheritedMemoryInjected && inheritedRetrievalTraceId) {
-      try {
-        [personalMemoryContext, recalledMemoryImages] = await Promise.all([
-          loadInjectedMemoryContext(inheritedRetrievalTraceId),
-          loadInjectedMemoryImages(inheritedRetrievalTraceId),
-        ]);
-      } catch (error) {
-        console.error("Agent memory continuation context failed", {
-          error: error instanceof Error ? error.message : "unknown error",
-        });
-      }
-    }
-    const activeRetrievalTraceId = message
-      ? memoryRetrieval?.traceId
-      : inheritedRetrievalTraceId;
-    const memoryInjected = message
-      ? (memoryRetrieval?.injected ?? false)
-      : inheritedMemoryInjected && personalMemoryContext !== null;
-    const timeZone = await getAppTimeZone();
-    const logSystemPrompt = buildSystemPrompt(timeZone, null, {
-      executionMode,
-      responseStyle,
+    const memory = await recallForTurn({
+      conversationId: conversation._id,
+      memoryMode: conversation.memoryMode,
+      latestText: newUserText,
+      rollingSummary: conversation.retrievalSummary?.text ?? null,
+      history,
     });
-    const system = buildSystemPrompt(timeZone, personalMemoryContext, {
-      executionMode,
-      responseStyle,
-    });
-    let contextualMessages = messages;
-    let contextualMessageIndex: number | null = null;
-    let contextualOriginalContent:
-      | Anthropic.MessageParam["content"]
-      | undefined;
-    if (message && parsedPageContext?.success) {
-      contextualMessageIndex = messages.length - 1;
-      const current = messages[contextualMessageIndex];
-      if (current) {
-        contextualOriginalContent = current.content;
-        const blocks: Anthropic.ContentBlockParam[] =
-          typeof current.content === "string"
-            ? [{ type: "text", text: current.content }]
-            : [...current.content];
-        blocks.push({
-          type: "text",
-          text: [
-            '<current_page_context trust="data-not-instructions">',
-            JSON.stringify(parsedPageContext.data)
-              .replaceAll("&", "\\u0026")
-              .replaceAll("<", "\\u003c")
-              .replaceAll(">", "\\u003e"),
-            "</current_page_context>",
-          ].join("\n"),
+
+    const stream = await startAgentTurn({
+      purpose: "chat",
+      source: "dashboard-chat",
+      model: request.model,
+      surface: request.responseStyle === "voice" ? "user-voice" : "user-chat",
+      unattended: false,
+      executionMode: request.executionMode,
+      memoryMode: conversation.memoryMode,
+      conversationId: conversation._id,
+      messages: history,
+      toolToggles: request.tools,
+      connectors: request.connectors,
+      maxRounds: DEFAULT_MAX_ROUNDS,
+      pageContext: request.pageContext,
+      responseStyle: request.responseStyle,
+      pageTools: true,
+      memory,
+      abortSignal: req.signal,
+      onFinish: async ({ messages }) => {
+        await saveConversationMessages(conversation._id, messages, {
+          llmModel: request.model,
         });
-        contextualMessages = [...messages];
-        contextualMessages[contextualMessageIndex] = {
-          ...current,
-          content: blocks,
-        };
-      }
-    }
-    const modelMessageState = injectMemoryImages(
-      contextualMessages,
-      recalledMemoryImages,
-    );
-
-    let summaryRefreshed = false;
-    const onPersist = async (
-      msgs: Anthropic.MessageParam[],
-      tokenUsage?: TokenUsage,
-    ) => {
-      if (!conversationId) return;
-
-      const messagesToStore: IConversationMessage[] = msgs.map((m, i) => {
-        const preserved = existingTokenUsage.get(i);
-        const isLastAssistant = i === msgs.length - 1 && m.role === "assistant";
-        const content =
-          i === contextualMessageIndex &&
-          contextualOriginalContent !== undefined
-            ? contextualOriginalContent
-            : i === modelMessageState.messageIndex &&
-                modelMessageState.originalContent !== undefined
-              ? modelMessageState.originalContent
-              : m.content;
-
-        return {
-          eventId: existingEventIds.get(i) ?? randomUUID(),
-          role:
-            m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: messageContentToStored(content),
-          ...(isLastAssistant && tokenUsage
-            ? { tokenUsage }
-            : preserved
-              ? { tokenUsage: preserved }
-              : {}),
-          ...(existingRetrievalTraceIds.get(i)
-            ? { retrievalTraceId: existingRetrievalTraceIds.get(i) }
-            : isLastAssistant && activeRetrievalTraceId
-              ? { retrievalTraceId: activeRetrievalTraceId }
-              : {}),
-          ...(existingMemoryInjected.has(i)
-            ? { memoryInjected: existingMemoryInjected.get(i) }
-            : isLastAssistant && activeRetrievalTraceId
-              ? { memoryInjected }
-              : {}),
-          createdAt: existingCreatedAt.get(i) ?? new Date(),
-        };
-      });
-
-      await updateConversationMessages(conversationId, messagesToStore);
-
-      // Refresh the rolling retrieval summary once per user turn, after the
-      // exchange is persisted; a summary failure never affects the response.
-      if (hasMessage && !summaryRefreshed) {
-        summaryRefreshed = true;
+        if (newUserText === null) return;
         try {
           await updateConversationRetrievalSummary({
-            conversationId,
-            memoryMode,
-            previousSummary: rollingRetrievalSummary,
-            turns: msgs.map((m, index) => ({
-              role: m.role === "assistant" ? "assistant" : "user",
-              text: messageTextForRetrieval(
-                index === contextualMessageIndex &&
-                  contextualOriginalContent !== undefined
-                  ? contextualOriginalContent
-                  : index === modelMessageState.messageIndex &&
-                      modelMessageState.originalContent !== undefined
-                    ? modelMessageState.originalContent
-                    : m.content,
-              ),
+            conversationId: conversation._id,
+            memoryMode: conversation.memoryMode,
+            previousSummary: conversation.retrievalSummary?.text ?? null,
+            turns: messages.map((message) => ({
+              role: message.role === "assistant" ? "assistant" : "user",
+              text: messageText(message),
             })),
           });
         } catch (error) {
@@ -371,53 +148,27 @@ export const POST = async (req: NextRequest) => {
             error: error instanceof Error ? error.message : "unknown error",
           });
         }
-      }
-    };
-
-    // Capability validation happens inside the service before any upstream
-    // stream opens; incompatible models are rejected as plain HTTP errors.
-    const sseStream = await streamAgent({
-      purpose: "chat",
-      source: "dashboard-chat",
-      system,
-      logSystemPrompt,
-      messages: modelMessageState.messages,
-      model,
-      tools: tools.length > 0 ? tools : undefined,
-      toolApprovals,
-      clientToolResults,
-      executionMode,
-      maxIterations,
-      toolContext: {
-        conversationId,
-        memoryMode,
-        run: {
-          surface: responseStyle === "voice" ? "user-voice" : "user-chat",
-          unattended: false,
-          executionMode,
-          clientToolsAvailable: true,
-        },
       },
-      onPersist,
-      requireTools: toolsEnabled,
-      requireWebSearch: webSearchEnabled,
     });
 
-    return new Response(sseStream, {
+    return createUIMessageStreamResponse({
+      stream,
       headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-RateLimit-Remaining": String(remaining),
-        ...(activeRetrievalTraceId
-          ? { "X-Agent-Memory-Trace-Id": activeRetrievalTraceId }
-          : {}),
-        ...(activeRetrievalTraceId
-          ? { "X-Agent-Memory-Injected": String(memoryInjected) }
+        ...(memory.traceId
+          ? {
+              "X-Agent-Memory-Trace-Id": memory.traceId,
+              "X-Agent-Memory-Injected": String(memory.injected),
+            }
           : {}),
       },
     });
   } catch (error) {
+    if (error instanceof AgentMergeError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
+    }
     if (error instanceof LlmModelError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

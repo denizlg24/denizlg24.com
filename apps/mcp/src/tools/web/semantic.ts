@@ -47,6 +47,12 @@ export function registerWebSemantic(server: McpServer, api: Api) {
         run: ({ noteId }) =>
           api.web.post(p`/api/admin/semantic/notes/${noteId}/classify`),
       }),
+      runs: action({
+        description: "Recent runs, newest first",
+        input: z.object({ limit: z.number().int().min(1).max(50).optional() }),
+        readOnly: true,
+        run: (query) => api.web.get(`${base}/runs`, query),
+      }),
       run_create: action({
         description: "Opens a run (status running)",
         input: z.object({
