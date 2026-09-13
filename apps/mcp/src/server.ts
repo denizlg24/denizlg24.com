@@ -1,7 +1,9 @@
 import { McpServer, type McpServerFactory } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
-import { registerWhoami } from "./tools/whoami";
+import { registerTools } from "./tools";
 import type { Upstream } from "./upstream";
+
+export type ToolRegistrar = (server: McpServer, upstream: Upstream) => void;
 
 /**
  * One fresh server per request: serving is stateless, so every tool reads its
@@ -10,6 +12,7 @@ import type { Upstream } from "./upstream";
 export function mcpServerFactory(
   upstream: Upstream,
   origin: string,
+  register: ToolRegistrar = registerTools,
 ): McpServerFactory {
   return () => {
     const server = new McpServer({
@@ -23,7 +26,7 @@ export function mcpServerFactory(
         },
       ],
     });
-    registerWhoami(server, upstream);
+    register(server, upstream);
     return server;
   };
 }

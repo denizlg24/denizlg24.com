@@ -8,7 +8,7 @@ import {
 } from "./auth";
 import type { McpConfig } from "./config";
 import { createHealthReporter } from "./health";
-import { mcpServerFactory } from "./server";
+import { mcpServerFactory, type ToolRegistrar } from "./server";
 import { createUpstream, ServiceTokens, type Upstream } from "./upstream";
 
 export interface McpAppOptions {
@@ -18,6 +18,8 @@ export interface McpAppOptions {
   tokens?: ServiceTokens;
   /** Test seam for signing keys; production reads the issuer's JWKS. */
   keys?: JWTVerifyGetKey;
+  /** Test seam: register a subset of tools instead of the whole catalogue. */
+  register?: ToolRegistrar;
 }
 
 export function createMcpApp(options: McpAppOptions) {
@@ -28,7 +30,7 @@ export function createMcpApp(options: McpAppOptions) {
   const authenticate = createRequestAuthenticator(config, options.keys);
   const resource = new URL(config.resource);
   const handler = createMcpHandler(
-    mcpServerFactory(upstream, resource.origin),
+    mcpServerFactory(upstream, resource.origin, options.register),
     {
       onerror: (error) => console.error("MCP request failed", error),
     },
