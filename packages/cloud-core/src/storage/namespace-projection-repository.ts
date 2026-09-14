@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, max, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, max, ne, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -10,6 +10,7 @@ import {
   namespaceScans,
 } from "../db/schema";
 import type { NamespaceEntry } from "./metadata-service";
+import type { IdentityClaim } from "./namespace-applier";
 import type { ProjectionRepository, ScanRecord } from "./namespace-projector";
 import type {
   ProjectedRow,
@@ -80,6 +81,34 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
             .where(inArray(namespaceReapCandidates.entryId, reapedIds));
         }
       });
+    },
+
+    async recentRowAtPath(
+      relativePath: string,
+      sinceMs: number,
+    ): Promise<IdentityClaim | null> {
+      const path = absolutePath(relativePath);
+      const since = new Date(Date.now() - sinceMs);
+      const [folder] = await db
+        .select({
+          createdAt: folders.createdAt,
+          id: folders.id,
+          ownerId: folders.ownerId,
+        })
+        .from(folders)
+        .where(and(eq(folders.path, path), gte(folders.createdAt, since)))
+        .limit(1);
+      if (folder) return { ...folder, kind: "folder" };
+      const [file] = await db
+        .select({
+          createdAt: files.createdAt,
+          id: files.id,
+          ownerId: files.ownerId,
+        })
+        .from(files)
+        .where(and(eq(files.path, path), gte(files.createdAt, since)))
+        .limit(1);
+      return file ? { ...file, kind: "file" } : null;
     },
 
     async lastCompleteGeneration(): Promise<number | null> {

@@ -1,6 +1,10 @@
 import type { NamespaceEntry, NamespaceListing } from "./metadata-service";
 import { isAdoptable } from "./namespace-adoption";
-import type { AdoptionOutcome } from "./namespace-applier";
+import {
+  type AdoptionOutcome,
+  adoptWithProjectionClaim,
+  type IdentityClaim,
+} from "./namespace-applier";
 import {
   type ProjectedRow,
   planReconciliation,
@@ -13,7 +17,7 @@ import {
 export interface NamespaceSource {
   list(relativePath: string): Promise<NamespaceListing>;
   branchMarkers(): Promise<Record<string, string>>;
-  adopt(relativePath: string): Promise<AdoptionOutcome>;
+  adopt(relativePath: string, claim?: IdentityClaim): Promise<AdoptionOutcome>;
 }
 
 export interface ProjectionRepository {
@@ -25,6 +29,14 @@ export interface ProjectionRepository {
    * make the repository's non-cascading deletion guard refuse the folder.
    */
   findSubtreeByPath(relativePath: string): Promise<ProjectedRow[]>;
+  /**
+   * The row at exactly this path if one was inserted within `sinceMs`, for
+   * adoption to reuse its id rather than mint one over it.
+   */
+  recentRowAtPath(
+    relativePath: string,
+    sinceMs: number,
+  ): Promise<IdentityClaim | null>;
   nextGeneration(): Promise<number>;
   lastCompleteGeneration(): Promise<number | null>;
   projectedRows(): Promise<ProjectedRow[]>;
@@ -116,9 +128,11 @@ export class NamespaceProjector {
           // that can be given identity is projected in the same generation
           // rather than counted against a scan it no longer belongs to.
           if (isAdoptable(problem.code)) {
-            const adopted = await this.source
-              .adopt(problem.relativePath)
-              .catch(() => null);
+            const adopted = await adoptWithProjectionClaim(
+              this.source,
+              this.repository,
+              problem.relativePath,
+            );
             if (adopted) {
               adoptedSeen += 1;
               observedIds.add(adopted.entry.metadata.id);

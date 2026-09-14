@@ -234,6 +234,28 @@ try {
     JSON.stringify(ancestors).slice(0, 200),
   );
 
+  // 3b. the id a create returns survives the projector ----------------------
+  // Only the broker-mounted namespace has a watcher that can re-mint an
+  // unstamped directory; in legacy mode Postgres is authoritative and there is
+  // nothing to race. The wait covers STORAGE_WATCH_QUIET_MS (400 by default)
+  // plus the apply, with margin.
+  if (process.env.STORAGE_NAMESPACE_MODE === "broker-mounted") {
+    await Bun.sleep(
+      Number(process.env.STORAGE_E2E_PROJECTION_WAIT_MS ?? 3_000),
+    );
+    const settled = await call(`/api/storage/folders/${childId}/contents`);
+    const settledBody = settled.body as { data?: { folder?: { id: string } } };
+    check(
+      "created folder id still resolves after the watcher has run",
+      settled.status === 200 && settledBody.data?.folder?.id === childId,
+      `${settled.status} ${JSON.stringify(settled.body).slice(0, 160)}`,
+    );
+  } else {
+    console.log(
+      "skip created-folder identity check: STORAGE_NAMESPACE_MODE is not broker-mounted",
+    );
+  }
+
   // 4. resumable upload -----------------------------------------------------
   // Driven over raw fetch rather than tus-js-client: this is the exact wire
   // exchange the browser performs, and it makes "interrupt then resume" a

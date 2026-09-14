@@ -78,6 +78,7 @@ export {
   type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
+  type SmbSessionsPayload,
   type TierMoveOutcome,
   type TierMovePayload,
   type TierPlacementPayload,
@@ -113,7 +114,10 @@ export {
   type AdoptionOutcome,
   type ApplierSource,
   type ApplyOutcome,
+  adoptWithProjectionClaim,
   applyWatchedPaths,
+  IDENTITY_CLAIM_WINDOW_MS,
+  type IdentityClaim,
 } from "./namespace-applier";
 export {
   type ChecksumBackfillCandidate,
@@ -219,8 +223,14 @@ export {
   verifyShareToken,
 } from "./share";
 export {
+  type OpenSmbSession,
   type ParsedAuditEvent,
+  type ParsedConnectEvent,
   parseSmbAuditLine,
+  parseSmbConnectLine,
+  parseSmbstatusBrief,
+  type RecentConnection,
+  RecentConnectionIndex,
   type RecentWriter,
   RecentWriterIndex,
 } from "./smb-audit";
@@ -232,6 +242,7 @@ export {
   type SafeSmbCredential,
   SMB_MAX_CREDENTIALS_PER_USER,
   type SmbProvisioner,
+  type SmbSessionsReader,
 } from "./smb-credential-service";
 export {
   type AccountState,

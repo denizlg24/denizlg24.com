@@ -1,9 +1,16 @@
 import { join } from "node:path";
 
 import type { NamespaceMetadataClient } from "./metadata-client";
-import type { MetadataEntryPayload } from "./metadata-protocol";
+import {
+  MetadataClientError,
+  type MetadataEntryPayload,
+} from "./metadata-protocol";
 import type { NamespaceEntry, NamespaceListing } from "./metadata-service";
-import type { AdoptionOutcome, ApplierSource } from "./namespace-applier";
+import type {
+  AdoptionOutcome,
+  ApplierSource,
+  IdentityClaim,
+} from "./namespace-applier";
 import type { NamespaceSource } from "./namespace-projector";
 
 /**
@@ -48,7 +55,41 @@ export function createNamespaceSource(
     async stat(relativePath: string): Promise<NamespaceEntry> {
       return toEntry(await client.stat(relativePath));
     },
-    async adopt(relativePath: string): Promise<AdoptionOutcome> {
+    async adopt(
+      relativePath: string,
+      claim?: IdentityClaim,
+    ): Promise<AdoptionOutcome> {
+      if (claim) {
+        // The projection already names this entry, so stamping is saying
+        // rather than guessing — `assign` is the same call the API's own
+        // writers make. Losing the race to another stamp is not a failure:
+        // the entry has identity now, and a plain stat reads it.
+        try {
+          await client.assign(relativePath, {
+            createdAt: claim.createdAt.toISOString(),
+            id: claim.id,
+            ownerId: claim.ownerId,
+            ...(claim.ownerId ? {} : { scope: "shared" as const }),
+          });
+        } catch (error) {
+          if (
+            !(
+              error instanceof MetadataClientError &&
+              error.code === "IDENTITY_CONFLICT"
+            )
+          ) {
+            throw error;
+          }
+        }
+        return {
+          attribution: {
+            fromRelativePath: null,
+            ownerId: claim.ownerId,
+            via: "projection",
+          },
+          entry: toEntry(await client.stat(relativePath)),
+        };
+      }
       // A miss here is "unknown", never "nobody": the audit stream is a log with
       // a retention window, so anything older than it falls through to the tree.
       let ownerId: string | undefined;

@@ -8,15 +8,54 @@ export interface AdoptionOutcome {
   attribution: {
     fromRelativePath: string | null;
     ownerId: string | null;
-    via: "audit" | "ancestor";
+    via: "audit" | "ancestor" | "projection";
   };
   entry: NamespaceEntry;
 }
 
+/**
+ * A projected row that already names the identity an unstamped entry should
+ * carry: the API inserted it moments ago and has not stamped it yet, or could
+ * not. Adopting under a fresh id instead displaces that row, and the id the
+ * API just returned to its client stops resolving.
+ */
+export interface IdentityClaim {
+  createdAt: Date;
+  id: string;
+  kind: "file" | "folder";
+  ownerId: string | null;
+}
+
+/** How recently a row must have been inserted to be trusted as a claim. */
+export const IDENTITY_CLAIM_WINDOW_MS = 60_000;
+
 export interface ApplierSource {
   branchMarkers(): Promise<Record<string, string>>;
   stat(relativePath: string): Promise<NamespaceEntry>;
-  adopt(relativePath: string): Promise<AdoptionOutcome>;
+  adopt(relativePath: string, claim?: IdentityClaim): Promise<AdoptionOutcome>;
+}
+
+/**
+ * Adopts an unstamped entry, preferring an identity the projection already
+ * holds for its path over minting one.
+ *
+ * `createFolder` stamps on create now, but the projection is eventually
+ * consistent by design and at least one writer still inserts before it stamps
+ * (project-root provisioning, stamped on the next resolution), so a row can
+ * legitimately exist for a path that carries no identity yet. Only a row
+ * younger than the claim window is trusted: an older one at an unstamped path
+ * is a projected entry whose xattrs were lost, and inventing continuity there
+ * would hide the loss. A claim lookup that fails is treated as no claim.
+ */
+export async function adoptWithProjectionClaim(
+  source: Pick<ApplierSource, "adopt">,
+  repository: Pick<ProjectionRepository, "recentRowAtPath">,
+  relativePath: string,
+): Promise<AdoptionOutcome | null> {
+  const claim = await repository
+    .recentRowAtPath(relativePath, IDENTITY_CLAIM_WINDOW_MS)
+    .catch(() => null);
+  return source.adopt(relativePath, claim ?? undefined).catch(() => null);
 }
 
 export interface ApplyOutcome {
@@ -80,7 +119,7 @@ export async function applyWatchedPaths(
         // is unprojectable and waits for a scan that cannot fix it either.
         const adopted =
           error instanceof MetadataClientError && isAdoptable(error.code)
-            ? await source.adopt(relativePath).catch(() => null)
+            ? await adoptWithProjectionClaim(source, repository, relativePath)
             : null;
         if (!adopted) {
           outcome.problems += 1;

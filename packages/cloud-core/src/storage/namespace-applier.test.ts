@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import { MetadataClientError } from "./metadata-protocol";
 import type { NamespaceEntry } from "./metadata-service";
-import { type ApplierSource, applyWatchedPaths } from "./namespace-applier";
+import {
+  type ApplierSource,
+  applyWatchedPaths,
+  type IdentityClaim,
+} from "./namespace-applier";
 import type { ProjectionRepository } from "./namespace-projector";
 import type { ProjectedRow, ReconcilePlan } from "./namespace-reconcile";
 
@@ -25,12 +29,14 @@ function entry(relativePath: string, kind: "file" | "folder"): NamespaceEntry {
 
 function harness(options: {
   adoptions?: Record<string, NamespaceEntry>;
+  claims?: Record<string, IdentityClaim>;
   entries?: Record<string, NamespaceEntry>;
   failures?: Record<string, MetadataClientError>;
   markers?: Record<string, string>;
   rows?: ProjectedRow[];
 }) {
   const upserts: string[] = [];
+  const adoptCalls: { claim: IdentityClaim | undefined; path: string }[] = [];
   let reaped: ReconcilePlan | null = null;
 
   const source: ApplierSource = {
@@ -44,7 +50,20 @@ function harness(options: {
       if (!found) throw new MetadataClientError("gone", "NOT_FOUND");
       return found;
     },
-    async adopt(relativePath) {
+    async adopt(relativePath, claim) {
+      adoptCalls.push({ claim, path: relativePath });
+      if (claim) {
+        const claimed = entry(relativePath, claim.kind);
+        claimed.metadata.id = claim.id;
+        return {
+          attribution: {
+            fromRelativePath: null,
+            ownerId: claim.ownerId,
+            via: "projection" as const,
+          },
+          entry: claimed,
+        };
+      }
       const adopted = options.adoptions?.[relativePath];
       if (!adopted) throw new MetadataClientError("no ancestor", "NO_IDENTITY");
       return {
@@ -70,6 +89,9 @@ function harness(options: {
           row.relativePath.startsWith(prefix),
       );
     },
+    async recentRowAtPath(relativePath: string) {
+      return options.claims?.[relativePath] ?? null;
+    },
     async upsertFile(value: NamespaceEntry) {
       upserts.push(`file:${value.relativePath}`);
     },
@@ -79,6 +101,7 @@ function harness(options: {
   } as unknown as ProjectionRepository;
 
   return {
+    adoptCalls,
     repository,
     source,
     upserts,
@@ -208,5 +231,68 @@ describe("applying watched paths", () => {
       upserted: 0,
       withheld: 0,
     });
+  });
+
+  it("adopts an unstamped entry under a fresh id when nothing claims it", async () => {
+    const context = harness({
+      adoptions: { "a/dropped.txt": entry("a/dropped.txt", "file") },
+      failures: {
+        "a/dropped.txt": new MetadataClientError("unstamped", "NO_IDENTITY"),
+      },
+    });
+    const outcome = await applyWatchedPaths(
+      context.source,
+      context.repository,
+      ["a/dropped.txt"],
+    );
+    expect(outcome.adopted).toBe(1);
+    expect(context.adoptCalls).toEqual([
+      { claim: undefined, path: "a/dropped.txt" },
+    ]);
+    expect(context.upserts).toEqual(["file:a/dropped.txt"]);
+  });
+
+  it("adopts under the id a just-inserted row already holds for the path", async () => {
+    // The row the API returned to its client seconds ago. Minting over it
+    // would displace that row and the client's id would stop resolving.
+    const claim: IdentityClaim = {
+      createdAt: new Date(),
+      id: "row-the-api-returned",
+      kind: "folder",
+      ownerId: "owner",
+    };
+    const context = harness({
+      claims: { "a/new-folder": claim },
+      failures: {
+        "a/new-folder": new MetadataClientError("unstamped", "NO_IDENTITY"),
+      },
+    });
+    const outcome = await applyWatchedPaths(
+      context.source,
+      context.repository,
+      ["a/new-folder"],
+    );
+    expect(outcome.adopted).toBe(1);
+    expect(context.adoptCalls).toEqual([{ claim, path: "a/new-folder" }]);
+    expect(context.upserts).toEqual(["folder:a/new-folder"]);
+  });
+
+  it("falls back to a fresh id when the claim lookup itself fails", async () => {
+    const context = harness({
+      adoptions: { "a/dropped.txt": entry("a/dropped.txt", "file") },
+      failures: {
+        "a/dropped.txt": new MetadataClientError("unstamped", "NO_IDENTITY"),
+      },
+    });
+    context.repository.recentRowAtPath = async () => {
+      throw new Error("database away");
+    };
+    const outcome = await applyWatchedPaths(
+      context.source,
+      context.repository,
+      ["a/dropped.txt"],
+    );
+    expect(outcome.adopted).toBe(1);
+    expect(context.adoptCalls[0]?.claim).toBeUndefined();
   });
 });

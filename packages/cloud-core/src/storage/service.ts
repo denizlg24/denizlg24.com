@@ -513,8 +513,9 @@ export class StorageService {
     }
     const diskPath = this.#namespace.resolveFolderPath(path);
     const createdDir = await ensureDir(diskPath);
+    let created: Folder;
     try {
-      const [created] = await this.db
+      const [inserted] = await this.db
         .insert(folders)
         .values({
           ownerId: principal.user.id,
@@ -523,12 +524,8 @@ export class StorageService {
           name,
         })
         .returning();
-      if (!created) throw new Error("Failed to create folder");
-      const document = buildFolderDocument(created);
-      if (document) {
-        void indexStorageDocuments(this.meili, [document]).catch(console.error);
-      }
-      return created;
+      if (!inserted) throw new Error("Failed to create folder");
+      created = inserted;
     } catch (error) {
       // Only unwind the directory this call brought into existence, and never
       // when another request won the race for the same path — the winner owns
@@ -545,6 +542,34 @@ export class StorageService {
       }
       throw error;
     }
+    // A directory that reaches the watcher unstamped is adopted under a fresh
+    // id within seconds, and `upsertFolder` then displaces this row — so the id
+    // just returned to the client answers FOLDER_NOT_FOUND until a refresh
+    // picks up the re-minted one. Same failure `#stampIdentity` describes for
+    // files; a folder just had nothing stamping it.
+    try {
+      await this.#stampIdentity("folder", path, {
+        createdAt: created.createdAt.toISOString(),
+        id: created.id,
+        ownerId: created.ownerId,
+      });
+    } catch (error) {
+      const lostRace =
+        error instanceof StorageServiceError && error.code === "FOLDER_EXISTS";
+      await this.db
+        .delete(folders)
+        .where(eq(folders.id, created.id))
+        .catch(console.error);
+      if (!lostRace && createdDir) {
+        await deletePath(diskPath, true).catch(console.error);
+      }
+      throw error;
+    }
+    const document = buildFolderDocument(created);
+    if (document) {
+      void indexStorageDocuments(this.meili, [document]).catch(console.error);
+    }
+    return created;
   }
 
   async getFolder(principal: StoragePrincipal, id: string): Promise<Folder> {
@@ -2018,31 +2043,36 @@ export class StorageService {
   }
 
   /**
-   * Stamps identity onto bytes this service just published.
+   * Stamps identity onto an entry this service just published.
    *
    * Without this the entry reaches the projector unstamped, and the projector
-   * cannot tell it from a file dropped in over SMB: it adopts it under a
-   * freshly minted ID and `upsertFile` deletes the row holding that path under
-   * any other one. So the ID the upload returned — the ID the client is holding,
-   * and the ID a share link would be minted from — was replaced by the next
-   * scan. Projection is scan-driven rather than watcher-driven, so the window
-   * is the scan interval, five minutes on the Pi, and for all of it
-   * `assertNamespaceIdentity` refused to serve the file at all: an unstamped
-   * entry cannot be verified against anything.
+   * cannot tell it from one dropped in over SMB: it adopts it under a freshly
+   * minted ID and the upsert deletes (or, for a folder, displaces) the row
+   * holding that path under any other one. So the ID the request returned —
+   * the ID the client is holding, and the ID a share link would be minted
+   * from — is replaced by the next watcher batch or scan. For a file, all of
+   * that window `assertNamespaceIdentity` refused to serve it at all: an
+   * unstamped entry cannot be verified against anything.
    *
    * Adoption is for entries this service did not write. It has to guess an
    * owner from an ancestor and invent an ID; here both are already known, so
    * guessing is strictly worse than saying. `assign` is idempotent for the same
    * ID, so a retried finalize converges.
    *
-   * A failure removes the bytes and fails the upload. The alternative is to log
-   * and continue, as a root does — but a root is re-stamped every time its
-   * owner opens storage, and nothing re-stamps a file. Continuing would hand
-   * back an ID that is already scheduled to be discarded, which is worse than
-   * an error the client can retry.
+   * A failure is raised, not logged, and the caller unwinds what it created.
+   * The alternative is to log and continue, as a root does — but a root is
+   * re-stamped every time its owner opens storage, and nothing re-stamps a
+   * file or a folder. Continuing would hand back an ID that is already
+   * scheduled to be discarded, which is worse than an error the client can
+   * retry.
+   *
+   * An entry already carrying another ID is the lost half of a race for one
+   * deterministic logical path — the same case the insert's unique violation
+   * catches — and is reported as the matching 409. Those bytes are the
+   * winner's, which is why this never deletes anything itself.
    */
-  async #stampUploadIdentity(
-    diskPath: string,
+  async #stampIdentity(
+    kind: "file" | "folder",
     targetPath: string,
     metadata: ProtectedMetadata,
   ): Promise<void> {
@@ -2050,28 +2080,49 @@ export class StorageService {
     try {
       await this.#metadata.assign(targetPath, metadata);
     } catch (error) {
-      // An entry already carrying another ID is the lost half of a race for
-      // one deterministic logical path, which is the same case the insert's
-      // unique violation catches below. Those bytes are the winner's; deleting
-      // them is how a loser takes a successful upload down with it.
       if (
         error instanceof MetadataClientError &&
         error.code === "IDENTITY_CONFLICT"
       ) {
-        throw new StorageServiceError(
-          409,
-          "FILE_EXISTS",
-          "A file already exists at the target path",
-        );
+        throw kind === "file"
+          ? new StorageServiceError(
+              409,
+              "FILE_EXISTS",
+              "A file already exists at the target path",
+            )
+          : new StorageServiceError(
+              409,
+              "FOLDER_EXISTS",
+              "A folder already exists at this path",
+            );
       }
-      await deletePath(diskPath).catch(console.error);
       if (error instanceof MetadataClientError) {
         throw new StorageServiceError(
           503,
           "STORAGE_METADATA_UNAVAILABLE",
-          "Uploaded bytes could not be given a verifiable identity",
+          kind === "file"
+            ? "Uploaded bytes could not be given a verifiable identity"
+            : "The folder could not be given a verifiable identity",
         );
       }
+      throw error;
+    }
+  }
+
+  /** `#stampIdentity` for a finalized upload: a loss unwinds the bytes. */
+  async #stampUploadIdentity(
+    diskPath: string,
+    targetPath: string,
+    metadata: ProtectedMetadata,
+  ): Promise<void> {
+    try {
+      await this.#stampIdentity("file", targetPath, metadata);
+    } catch (error) {
+      // Deleting on a conflict is how a loser takes a successful upload down
+      // with it: those bytes belong to the winner.
+      const lostRace =
+        error instanceof StorageServiceError && error.code === "FILE_EXISTS";
+      if (!lostRace) await deletePath(diskPath).catch(console.error);
       throw error;
     }
   }

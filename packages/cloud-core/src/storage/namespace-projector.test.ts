@@ -106,6 +106,9 @@ function repository(
           row.relativePath.startsWith(prefix),
       );
     },
+    async recentRowAtPath() {
+      return null;
+    },
     async lastCompleteGeneration() {
       return overrides.lastComplete ?? null;
     },
