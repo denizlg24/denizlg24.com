@@ -14,6 +14,7 @@ import { Thumbnail } from "@/components/thumbnail";
 import { type Density, Tile, useCountdown } from "@/components/tile";
 import { api } from "@/lib/api";
 import { fileIcon, fileKind, kindColorClass } from "@/lib/file-kind";
+import { keepClaimedFocus } from "@/lib/focus-claim";
 import { InlineName } from "./inline-name";
 import { ContextActions, ItemMenuButton, useItemActions } from "./item-actions";
 import type { BrowserRow } from "./rows";
@@ -172,7 +173,7 @@ export function ItemTile({
           }
         />
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className="w-56" onCloseAutoFocus={keepClaimedFocus}>
         <ContextActions actions={actions} />
       </ContextMenuContent>
       {dialog}
@@ -310,7 +311,7 @@ export function ItemRow({
           </td>
         </tr>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className="w-56" onCloseAutoFocus={keepClaimedFocus}>
         <ContextActions actions={actions} />
       </ContextMenuContent>
       {dialog}

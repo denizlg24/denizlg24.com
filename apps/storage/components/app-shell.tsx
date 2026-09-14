@@ -16,6 +16,7 @@ import { cn } from "@repo/ui/utils";
 import {
   Camera,
   ChevronDown,
+  ChevronRight,
   Clock,
   FolderPlus,
   FolderUp,
@@ -35,6 +36,7 @@ import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useState } from "react";
 import { type BrowserCommand, browserCommands } from "@/lib/browser-commands";
+import { keepClaimedFocus } from "@/lib/focus-claim";
 import { useRoots, userRootId } from "@/lib/queries";
 import { FolderTree } from "./folder-tree";
 import { SearchPalette, useSearchHotkey } from "./search-palette";
@@ -85,7 +87,11 @@ function UploadMenu({ inFolder }: { inFolder: boolean }) {
           <ChevronDown className="size-3.5 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent
+        align="end"
+        className="w-48"
+        onCloseAutoFocus={keepClaimedFocus}
+      >
         <DropdownMenuItem onSelect={() => emit("upload-files")}>
           <Upload className="size-4" />
           Files
@@ -183,7 +189,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto border-t">
             <FolderTree currentFolderId={currentFolderId} />
           </div>
-          <div className="flex items-center gap-1 border-t px-2 py-2">
+          <nav
+            className="flex flex-col gap-0.5 border-t px-2 pt-2"
+            aria-label="Account"
+          >
             <NavLink
               href="/devices"
               icon={MonitorSmartphone}
@@ -196,43 +205,44 @@ export function AppShell({ children }: { children: ReactNode }) {
               label="Settings"
               active={pathname === "/settings"}
             />
-            <div className="ml-auto flex items-center">
-              <ThemeToggle className="size-8 shrink-0" />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0 rounded-full"
-                    aria-label="Account"
-                  >
-                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[11px] font-semibold uppercase text-primary-foreground">
-                      {user.username.slice(0, 1)}
+          </nav>
+          <div className="flex items-center gap-1 px-2 pb-2 pt-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 text-left text-sm transition-colors hover:bg-muted/60"
+                  aria-label="Account"
+                >
+                  <Avatar username={user.username} />
+                  <span className="truncate">{user.username}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <span className="block truncate text-sm">
+                    {user.username}
+                  </span>
+                  {user.email && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {user.email}
                     </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuLabel className="font-normal">
-                    <span className="block truncate text-sm">
-                      {user.username}
-                    </span>
-                    {user.email && (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {user.email}
-                      </span>
-                    )}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/settings">Settings</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void signOut()}>
-                    <LogOut className="size-4" />
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                  )}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/settings">
+                    <Settings className="size-4" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void signOut()}>
+                  <LogOut className="size-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <ThemeToggle className="size-8 shrink-0" />
           </div>
         </aside>
 
@@ -324,47 +334,76 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          showCloseButton={false}
+          className="gap-0 rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         >
-          <SheetTitle className="text-base">{user.username}</SheetTitle>
-          <nav className="mt-2 flex flex-col" aria-label="More">
+          <div
+            aria-hidden="true"
+            className="mx-auto mb-2 h-1 w-9 rounded-full bg-muted-foreground/30"
+          />
+          <SheetTitle className="sr-only">More</SheetTitle>
+          <div className="flex items-center gap-3 px-3 py-2">
+            <Avatar username={user.username} className="size-9 text-sm" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{user.username}</p>
+              {user.email && (
+                <p className="truncate text-xs text-muted-foreground">
+                  {user.email}
+                </p>
+              )}
+            </div>
+            <ThemeToggle className="ml-auto size-9 shrink-0" />
+          </div>
+          <nav className="mt-1 flex flex-col" aria-label="More">
             <SheetLink
               href="/shares"
               icon={Link2}
               label="Shared links"
+              active={pathname === "/shares"}
               onNavigate={() => setMoreOpen(false)}
             />
             <SheetLink
               href="/devices"
               icon={MonitorSmartphone}
               label="Devices"
+              active={pathname === "/devices"}
               onNavigate={() => setMoreOpen(false)}
             />
             <SheetLink
               href="/settings"
               icon={Settings}
               label="Settings"
+              active={pathname === "/settings"}
               onNavigate={() => setMoreOpen(false)}
             />
-            <button
-              type="button"
-              className="flex h-12 items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-muted/60"
-              onClick={() => void signOut()}
-            >
-              <LogOut className="size-5 text-muted-foreground" />
-              Sign out
-            </button>
           </nav>
+          <div className="mx-3 my-1 border-t" />
+          <button
+            type="button"
+            className="flex h-11 items-center gap-3 rounded-lg px-3 text-left text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            onClick={() => void signOut()}
+          >
+            <LogOut className="size-4" />
+            Sign out
+          </button>
         </SheetContent>
       </Sheet>
 
       <Sheet open={addOpen} onOpenChange={setAddOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          showCloseButton={false}
+          onCloseAutoFocus={keepClaimedFocus}
+          className="gap-0 rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         >
-          <SheetTitle className="text-base">Add to this folder</SheetTitle>
-          <div className="mt-2 flex flex-col">
+          <div
+            aria-hidden="true"
+            className="mx-auto mb-2 h-1 w-9 rounded-full bg-muted-foreground/30"
+          />
+          <SheetTitle className="px-3 py-2 text-sm font-medium">
+            Add to this folder
+          </SheetTitle>
+          <div className="flex flex-col">
             <SheetAction
               icon={Camera}
               label="Take photo"
@@ -434,21 +473,28 @@ function SheetLink({
   href,
   icon: Icon,
   label,
+  active,
   onNavigate,
 }: {
   href: string;
   icon: typeof HardDrive;
   label: string;
+  active: boolean;
   onNavigate: () => void;
 }) {
   return (
     <Link
       href={href}
       onClick={onNavigate}
-      className="flex h-12 items-center gap-3 rounded-md px-2 text-sm hover:bg-muted/60"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-11 items-center gap-3 rounded-lg px-3 text-sm",
+        active ? "bg-muted font-medium" : "hover:bg-muted/60",
+      )}
     >
-      <Icon className="size-5 text-muted-foreground" />
-      {label}
+      <Icon className="size-4 text-muted-foreground" />
+      <span className="flex-1">{label}</span>
+      <ChevronRight className="size-4 text-muted-foreground/60" />
     </Link>
   );
 }
@@ -466,10 +512,30 @@ function SheetAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-muted/60"
+      className="flex h-11 items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-muted/60"
     >
-      <Icon className="size-5 text-muted-foreground" />
+      <Icon className="size-4 text-muted-foreground" />
       {label}
     </button>
+  );
+}
+
+function Avatar({
+  username,
+  className,
+}: {
+  username: string;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold uppercase text-primary-foreground",
+        className,
+      )}
+    >
+      {username.slice(0, 1)}
+    </span>
   );
 }

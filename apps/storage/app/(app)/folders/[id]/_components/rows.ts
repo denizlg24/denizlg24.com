@@ -24,17 +24,36 @@ export interface BrowserRow {
   path: string;
 }
 
-export type SortKey = "name" | "size" | "updated" | "kind";
+export type SortKey = "name" | "size" | "updated" | "created" | "kind";
 export type SortDirection = "asc" | "desc";
 
-export const SORT_KEYS = ["name", "updated", "size", "kind"] as const;
+export const SORT_KEYS = [
+  "name",
+  "updated",
+  "created",
+  "size",
+  "kind",
+] as const;
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 
 export const SORT_LABELS: Record<SortKey, string> = {
+  created: "Date added",
   kind: "Kind",
   name: "Name",
   size: "Size",
-  updated: "Date",
+  updated: "Date modified",
+};
+
+/** What each direction means for a key, so "ascending" never has to be decoded. */
+export const SORT_DIRECTION_LABELS: Record<
+  SortKey,
+  Record<SortDirection, string>
+> = {
+  created: { asc: "Oldest first", desc: "Newest first" },
+  kind: { asc: "A to Z", desc: "Z to A" },
+  name: { asc: "A to Z", desc: "Z to A" },
+  size: { asc: "Smallest first", desc: "Largest first" },
+  updated: { asc: "Oldest first", desc: "Newest first" },
 };
 
 export function toRows(
@@ -94,10 +113,10 @@ export function sortRows(
     if (key === "size") {
       return sign * ((a.sizeBytes ?? 0) - (b.sizeBytes ?? 0));
     }
-    if (key === "updated") {
+    if (key === "updated" || key === "created") {
+      const field = key === "updated" ? "updatedAt" : "createdAt";
       return (
-        sign *
-        (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
+        sign * (new Date(a[field]).getTime() - new Date(b[field]).getTime())
       );
     }
     if (key === "kind") {

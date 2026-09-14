@@ -22,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Fragment, useState } from "react";
+import { keepClaimedFocus } from "@/lib/focus-claim";
 import { MovePicker } from "./move-picker";
 import type { BrowserRow } from "./rows";
 import { ShareSheet } from "./share-sheet";
@@ -203,6 +204,7 @@ export function ItemMenuButton({
         align="end"
         className="w-56"
         onClick={(event) => event.stopPropagation()}
+        onCloseAutoFocus={keepClaimedFocus}
       >
         <DropdownActions actions={actions} />
       </DropdownMenuContent>

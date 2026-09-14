@@ -20,6 +20,7 @@ import {
 import { Lightbox } from "@/components/lightbox";
 import { GhostTile } from "@/components/tile";
 import { useBrowserCommands } from "@/lib/browser-commands";
+import { keepClaimedFocus } from "@/lib/focus-claim";
 import { type FolderErrorKind, useRoots } from "@/lib/queries";
 import { uploads, useUploads } from "@/lib/uploads";
 import { FolderHeader } from "./folder-header";
@@ -189,7 +190,10 @@ export function Browser({ folderId }: { folderId: string }) {
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
+        <ContextMenuContent
+          className="w-56"
+          onCloseAutoFocus={keepClaimedFocus}
+        >
           <ContextMenuItem onSelect={browser.startCreateFolder}>
             <FolderPlus className="size-4" />
             New folder

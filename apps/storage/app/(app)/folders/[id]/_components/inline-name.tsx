@@ -2,6 +2,7 @@
 
 import { cn } from "@repo/ui/utils";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { claimFocus } from "@/lib/focus-claim";
 import { normalizeFileNamePreview, normalizeNamePreview } from "@/lib/format";
 
 /**
@@ -31,6 +32,7 @@ export function InlineName({
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
+    claimFocus();
     input.focus();
     const dot = kind === "file" ? initial.lastIndexOf(".") : -1;
     input.setSelectionRange(0, dot > 0 ? dot : initial.length);
