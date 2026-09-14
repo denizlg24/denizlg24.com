@@ -156,6 +156,26 @@ export async function seedDefaultOpsTasks(
       createdBy: creator.id,
     });
   }
+  // Thumbnails are derived data on every host. The backfill draws what the
+  // request path has not yet been asked for; GC drops what no row names.
+  if (!existingTypes.has("thumbnail_backfill")) {
+    await createTask(db, {
+      name: "Thumbnail backfill",
+      type: "thumbnail_backfill",
+      cronExpression: "30 4 * * *",
+      config: validatedTaskConfig("thumbnail_backfill", {}),
+      createdBy: creator.id,
+    });
+  }
+  if (!existingTypes.has("thumbnail_gc")) {
+    await createTask(db, {
+      name: "Thumbnail garbage collection",
+      type: "thumbnail_gc",
+      cronExpression: "0 5 * * 0",
+      config: validatedTaskConfig("thumbnail_gc", {}),
+      createdBy: creator.id,
+    });
+  }
   // The deploy platform's two passes. Neither exists on a host with no agent to
   // reach: they would fail on every tick with an error nobody can act on, which
   // is the same reasoning as seeding only one of the two tiering tasks.

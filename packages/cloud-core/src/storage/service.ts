@@ -6,6 +6,8 @@ import {
   downloadArchiveInputSchema,
   mimeTypeForFilename,
   shareExpiresInSchema,
+  type ThumbnailWidth,
+  thumbnailKindFor,
   updateFileInputSchema,
 } from "@repo/schemas/cloud";
 import {
@@ -73,6 +75,7 @@ import {
   validatePath,
 } from "./path";
 import { generateShareToken, verifyShareToken } from "./share";
+import { ThumbnailBusyError, type ThumbnailService } from "./thumbnails";
 import type { PromotionQueue } from "./tiering";
 
 const TUS_VERSION = "1.0.0";
@@ -417,18 +420,33 @@ function safeJsonBody(value: unknown): Record<string, unknown> {
   return value;
 }
 
+export interface StorageServiceExtras {
+  /** Absent means every thumbnail request answers THUMBNAIL_UNAVAILABLE. */
+  thumbnails?: ThumbnailService;
+  /**
+   * Called with a file id when this service publishes bytes, so a thumbnail
+   * can be warmed before anyone opens the folder. Best-effort by contract.
+   */
+  onFileWritten?: (fileId: string) => void;
+}
+
 export class StorageService {
   readonly #uploadLocks = new Map<string, Promise<void>>();
   readonly #archives: ArchiveJobStore;
   readonly #namespace: StorageNamespace;
   readonly #metadata: NamespaceMetadataClient | null;
+  readonly #thumbnails: ThumbnailService | null;
+  readonly #onFileWritten: ((fileId: string) => void) | null;
 
   constructor(
     private readonly db: Database,
     private readonly meili: MeiliSearch,
     private readonly config: StorageConfig,
     private readonly promotions: PromotionQueue,
+    extras: StorageServiceExtras = {},
   ) {
+    this.#thumbnails = extras.thumbnails ?? null;
+    this.#onFileWritten = extras.onFileWritten ?? null;
     this.#namespace = createStorageNamespace(config);
     this.#metadata =
       config.namespace.mode === "broker-mounted" && config.namespace.metadata
@@ -763,7 +781,11 @@ export class StorageService {
           ...subfolder,
           childCount: childCounts.get(subfolder.id) ?? { files: 0, folders: 0 },
         })),
-        files: fileList,
+        files: fileList.map((file) => ({
+          ...file,
+          thumbnail:
+            this.#thumbnails !== null && thumbnailKindFor(file) !== null,
+        })),
       },
       pagination: foldersOnly
         ? { page: 1, limit: 0, total, totalPages: 0 }
@@ -1106,7 +1128,10 @@ export class StorageService {
     ]);
     const total = countResult[0]?.count ?? 0;
     return {
-      data: items,
+      data: items.map((file) => ({
+        ...file,
+        thumbnail: this.#thumbnails !== null && thumbnailKindFor(file) !== null,
+      })),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -1136,6 +1161,118 @@ export class StorageService {
     this.recordAccess(file);
     await this.assertNamespaceIdentity(file);
     return this.fileResponse(file, request);
+  }
+
+  /** Same authorization and identity checks as `download`; answers a WebP. */
+  async thumbnail(
+    principal: StoragePrincipal,
+    id: string,
+    width: ThumbnailWidth,
+  ): Promise<Response> {
+    const file = await this.getFile(principal, id);
+    await this.assertNamespaceIdentity(file);
+    return this.thumbnailResponse(file, width, "private");
+  }
+
+  async sharedThumbnail(
+    token: string,
+    width: ThumbnailWidth,
+  ): Promise<Response> {
+    const file = await this.sharedFile(token);
+    await this.assertNamespaceIdentity(file);
+    return this.thumbnailResponse(file, width, "public");
+  }
+
+  /** Renders (or reads back) a thumbnail for a file row, for the warm queue and the backfill. */
+  async warmThumbnail(
+    file: StorageFile,
+    width: ThumbnailWidth = 256,
+  ): Promise<"generated" | "cached" | "unsupported" | "failed"> {
+    const kind = thumbnailKindFor(file);
+    if (!this.#thumbnails || !kind) return "unsupported";
+    const source = {
+      diskPath: this.#namespace.resolveFilePath(file),
+      id: file.id,
+      kind,
+      mtimeMs: file.updatedAt.getTime(),
+      sizeBytes: file.sizeBytes,
+    };
+    if (await this.#thumbnails.exists(source, width)) return "cached";
+    const path = await this.#thumbnails.get(source, width);
+    return path ? "generated" : "failed";
+  }
+
+  /** Whether a 256 px thumbnail is already on disk for this row. */
+  async hasThumbnail(file: StorageFile): Promise<boolean> {
+    const kind = thumbnailKindFor(file);
+    if (!this.#thumbnails || !kind) return true;
+    return this.#thumbnails.exists(
+      {
+        diskPath: this.#namespace.resolveFilePath(file),
+        id: file.id,
+        kind,
+        mtimeMs: file.updatedAt.getTime(),
+        sizeBytes: file.sizeBytes,
+      },
+      256,
+    );
+  }
+
+  get thumbnails(): ThumbnailService | null {
+    return this.#thumbnails;
+  }
+
+  private async thumbnailResponse(
+    file: StorageFile,
+    width: ThumbnailWidth,
+    visibility: "private" | "public",
+  ): Promise<Response> {
+    const kind = thumbnailKindFor(file);
+    if (!this.#thumbnails || !kind) {
+      throw new StorageServiceError(
+        404,
+        "THUMBNAIL_UNAVAILABLE",
+        "No thumbnail for this file",
+      );
+    }
+    let path: string | null;
+    try {
+      path = await this.#thumbnails.get(
+        {
+          diskPath: this.#namespace.resolveFilePath(file),
+          id: file.id,
+          kind,
+          mtimeMs: file.updatedAt.getTime(),
+          sizeBytes: file.sizeBytes,
+        },
+        width,
+      );
+    } catch (error) {
+      if (error instanceof ThumbnailBusyError) {
+        throw new StorageServiceError(
+          503,
+          "THUMBNAIL_BUSY",
+          "Thumbnails are being generated; try again shortly",
+        );
+      }
+      throw error;
+    }
+    if (!path) {
+      throw new StorageServiceError(
+        404,
+        "THUMBNAIL_UNAVAILABLE",
+        "No thumbnail for this file",
+      );
+    }
+    // The URL carries the file's version, so the cached bytes never go stale
+    // under a browser: a modified file is a different URL.
+    return new Response(Bun.file(path), {
+      headers: {
+        "Cache-Control": `${visibility}, max-age=31536000, immutable`,
+        "Content-Type": "image/webp",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   }
 
   async updateFile(
@@ -1965,6 +2102,7 @@ export class StorageService {
         checksum,
         mimeType: normalizeMimeType(request.headers.get("Content-Type")),
       });
+      this.#onFileWritten?.(file.id);
       return { file, created: !existing };
     });
   }
@@ -2035,6 +2173,7 @@ export class StorageService {
       checksum: file.checksum,
       mimeType: file.mimeType,
     });
+    this.#onFileWritten?.(copied.id);
     return { file: copied, created: !existing };
   }
 
@@ -2520,6 +2659,7 @@ export class StorageService {
         updatedAt: now,
       }),
     ]).catch(console.error);
+    this.#onFileWritten?.(fileId);
   }
 
   private async withUploadLock<T>(

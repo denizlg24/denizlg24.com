@@ -5,11 +5,13 @@ import {
 } from "@repo/cloud-core";
 import type { ArchiveJob } from "@repo/cloud-core/storage";
 import {
+  isThumbnailWidth,
   type StoragePrincipal,
   type StorageService,
   StorageServiceError,
   TUS_VERSION,
 } from "@repo/cloud-core/storage";
+import { type ThumbnailWidth, thumbnailKindFor } from "@repo/schemas/cloud";
 import type { Context } from "hono";
 import { Hono } from "hono";
 
@@ -27,12 +29,20 @@ function principal(context: StorageContext): StoragePrincipal {
 
 function serviceError(context: StorageContext, error: unknown): Response {
   if (error instanceof StorageServiceError) {
+    // A saturated generator is a "come back", so say when.
+    if (error.code === "THUMBNAIL_BUSY") context.header("Retry-After", "2");
     return context.json(
       { error: { code: error.code, message: error.message } },
       error.status,
     );
   }
   throw error;
+}
+
+/** `?w=` picks one of the fixed widths; anything else is the smallest. */
+function thumbnailWidth(context: StorageContext): ThumbnailWidth {
+  const requested = Number(new URL(context.req.url).searchParams.get("w"));
+  return isThumbnailWidth(requested) ? requested : 256;
 }
 
 async function jsonBody(context: StorageContext): Promise<unknown> {
@@ -64,6 +74,7 @@ export function storageRoutes(service: StorageService) {
   router.get("/files", requireScope("storage:read"));
   router.get("/files/:id", requireScope("storage:read"));
   router.get("/files/:id/download", requireScope("storage:read"));
+  router.get("/files/:id/thumbnail", requireScope("storage:read"));
   router.patch("/files/:id", requireScope("storage:write"));
   router.delete("/files/:id", requireScope("storage:delete"));
   router.post("/files/:id/share", requireScope("storage:read"));
@@ -200,6 +211,9 @@ export function storageRoutes(service: StorageService) {
           tier: file.tier,
           lastAccessedAt: file.lastAccessedAt,
           accessCount: file.accessCount,
+          ownerId: file.ownerId,
+          thumbnail:
+            service.thumbnails !== null && thumbnailKindFor(file) !== null,
           createdAt: file.createdAt,
           updatedAt: file.updatedAt,
         },
@@ -214,6 +228,17 @@ export function storageRoutes(service: StorageService) {
         principal(context),
         context.req.param("id"),
         context.req.raw,
+      );
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/files/:id/thumbnail", async (context) => {
+    try {
+      return await service.thumbnail(
+        principal(context),
+        context.req.param("id"),
+        thumbnailWidth(context),
       );
     } catch (error) {
       return serviceError(context, error);
@@ -258,6 +283,16 @@ export function storageRoutes(service: StorageService) {
       return context.json({
         data: await service.sharedMeta(context.req.param("token")),
       });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/thumbnail", async (context) => {
+    try {
+      return await service.sharedThumbnail(
+        context.req.param("token"),
+        thumbnailWidth(context),
+      );
     } catch (error) {
       return serviceError(context, error);
     }

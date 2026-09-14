@@ -86,6 +86,24 @@ const TEMPLATES = [
       config: { dryRun: false },
     },
   },
+  {
+    label: "thumbnail_backfill",
+    value: {
+      name: "",
+      type: "thumbnail_backfill",
+      cronExpression: "30 4 * * *",
+      config: {},
+    },
+  },
+  {
+    label: "thumbnail_gc",
+    value: {
+      name: "",
+      type: "thumbnail_gc",
+      cronExpression: "0 5 * * 0",
+      config: {},
+    },
+  },
 ] as const;
 
 function cronPreview(expression: unknown): string[] | null {

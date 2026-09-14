@@ -58,6 +58,8 @@ describe("cloud database schema", () => {
       "namespace_checksum",
       "forge_gc",
       "domain_verification",
+      "thumbnail_backfill",
+      "thumbnail_gc",
     ]);
     expect(taskRunStatusEnum.enumValues).toEqual([
       "pending",

@@ -15,6 +15,11 @@ RUN bun run --cwd apps/api build
 FROM oven/bun:1.3.3-alpine AS runtime
 WORKDIR /app
 
+# Thumbnails are subprocesses, never a native module: `vipsthumbnail` for
+# images and PDFs (`vips-heif` decodes iPhone HEIC, `vips-poppler` rasterizes
+# a first page), `ffmpeg` for a video poster frame. About 90 MB on arm64.
+RUN apk add --no-cache vips-tools vips-heif vips-poppler ffmpeg
+
 ENV NODE_ENV=production
 ENV PORT=3001
 

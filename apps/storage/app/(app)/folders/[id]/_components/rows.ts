@@ -13,6 +13,8 @@ export interface BrowserRow {
   updatedAt: string;
   tier: StorageTier | null;
   mimeType: string | null;
+  /** Set when the server can draw the file as itself. */
+  thumbnail: boolean;
 }
 
 export type SortKey = "name" | "size" | "updated";
@@ -37,6 +39,7 @@ export function toRows(
       mimeType: null,
       name: folder.name,
       sizeBytes: null,
+      thumbnail: false,
       tier: null,
       type: "folder",
       updatedAt: folder.createdAt,
@@ -46,6 +49,7 @@ export function toRows(
       mimeType: file.mimeType,
       name: file.filename,
       sizeBytes: file.sizeBytes,
+      thumbnail: file.thumbnail === true,
       tier: file.tier,
       type: "file",
       updatedAt: file.updatedAt,

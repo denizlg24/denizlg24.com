@@ -41,6 +41,8 @@ export interface StorageConfig {
   archiveMaxBytes: number;
   archivePath: string;
   archiveTtlMs: number;
+  /** Derived data: never backed up, safe to `rm -rf`. */
+  thumbnailPath: string;
   s3: {
     rootPath: string;
     tempPath: string;
@@ -229,6 +231,8 @@ export function storageConfigFromEnv(): StorageConfig {
     process.env.TEMP_UPLOAD_PATH ?? join(ssdStoragePath, ".tus-partial");
   const archivePath =
     process.env.STORAGE_ARCHIVE_PATH ?? join(ssdStoragePath, ".archives");
+  const thumbnailPath =
+    process.env.STORAGE_THUMBNAIL_PATH ?? join(ssdStoragePath, ".thumbs");
   const s3RootPath = process.env.S3_ROOT_PATH ?? join(ssdStoragePath, ".s3-v2");
   const s3TempPath =
     process.env.S3_TEMP_PATH ?? join(ssdStoragePath, ".s3-v2-temp");
@@ -237,6 +241,7 @@ export function storageConfigFromEnv(): StorageConfig {
     HDD_STORAGE_PATH: hddStoragePath,
     TEMP_UPLOAD_PATH: tempUploadPath,
     STORAGE_ARCHIVE_PATH: archivePath,
+    STORAGE_THUMBNAIL_PATH: thumbnailPath,
     S3_ROOT_PATH: s3RootPath,
     S3_TEMP_PATH: s3TempPath,
   });
@@ -256,6 +261,7 @@ export function storageConfigFromEnv(): StorageConfig {
       4 * GIBIBYTE - MEBIBYTE,
     ),
     archivePath,
+    thumbnailPath,
     archiveTtlMs:
       boundedInteger("STORAGE_ARCHIVE_TTL_MINUTES", 30, 1, 1_440) * 60 * 1_000,
     s3: {

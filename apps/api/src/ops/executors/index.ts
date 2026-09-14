@@ -27,7 +27,9 @@ import {
   runNamespaceTieringPass,
   runTieringPass,
   type StorageConfig,
+  type StorageService,
 } from "@repo/cloud-core";
+import { files } from "@repo/cloud-core/db/schema";
 import {
   ACTIVITY_ACTIONS,
   type ActivitySeverity,
@@ -53,8 +55,12 @@ import {
   runCommandTaskConfigSchema,
   type TaskConfig,
   type TaskType,
+  thumbnailBackfillTaskConfigSchema,
+  thumbnailGcTaskConfigSchema,
+  thumbnailKindFor,
   tieringPassTaskConfigSchema,
 } from "@repo/schemas/cloud";
+import { desc, inArray } from "drizzle-orm";
 
 import type { ForgeOps } from "../../deploy/ops";
 import type { OpsHealthService } from "../health";
@@ -83,6 +89,8 @@ export interface ExecutorContext extends BackupExecutorOptions {
   rebootSentinelPath: string;
   sampler: MetricsSampler;
   storageConfig: StorageConfig;
+  /** Null in tests that exercise executors without a storage service. */
+  storageService: StorageService | null;
   activityRetentionDays: number;
   /**
    * Last observed Docker restart count per container id. Crash-loop detection
@@ -1030,12 +1038,108 @@ export function getExecutor(
           },
         };
       };
+    case "thumbnail_backfill":
+      return async (rawConfig) => {
+        const config = thumbnailBackfillTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const report = await backfillThumbnails(context, {
+          deadline: startedAt + config.timeBudgetMinutes * 60 * 1_000,
+          maxFiles: config.maxFiles,
+        });
+        return {
+          output: `Thumbnail backfill: ${report.generated} generated, ${report.failed} failed, ${report.skipped} skipped of ${report.scanned} scanned${report.timeBudgetExhausted ? " (time budget exhausted)" : ""}`,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            thumbnailBackfill: report,
+          },
+        };
+      };
+    case "thumbnail_gc":
+      return async (rawConfig) => {
+        thumbnailGcTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const thumbnails = context.storageService?.thumbnails;
+        if (!thumbnails) throw new Error("Thumbnails are not enabled");
+        const report = await thumbnails.gc(async (ids) => {
+          const rows = await context.db
+            .select({ id: files.id })
+            .from(files)
+            .where(inArray(files.id, ids));
+          return new Set(rows.map((row) => row.id));
+        });
+        return {
+          output: `Thumbnail GC: removed ${report.removed} of ${report.scanned} cached thumbnails`,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            thumbnailGc: report,
+          },
+        };
+      };
     case "alert_evaluation":
       return async (config, taskId) =>
         executeAlertEvaluation(config, taskId, context);
     case "run_command":
       return async (config) => executeRunCommand(config, context);
   }
+}
+
+/**
+ * Walks files newest-first and renders a 256 px thumbnail for any that lacks
+ * one. Newest first because those are the ones about to be looked at; the
+ * caps keep one night's run from reading the whole namespace on the Pi.
+ */
+async function backfillThumbnails(
+  context: ExecutorContext,
+  limits: { maxFiles: number; deadline: number },
+): Promise<{
+  scanned: number;
+  generated: number;
+  failed: number;
+  skipped: number;
+  timeBudgetExhausted: boolean;
+}> {
+  const storage = context.storageService;
+  if (!storage?.thumbnails) throw new Error("Thumbnails are not enabled");
+  const report = {
+    failed: 0,
+    generated: 0,
+    scanned: 0,
+    skipped: 0,
+    timeBudgetExhausted: false,
+  };
+  const batch = 500;
+  let offset = 0;
+  while (report.generated + report.failed < limits.maxFiles) {
+    if (Date.now() > limits.deadline) {
+      report.timeBudgetExhausted = true;
+      break;
+    }
+    const rows = await context.db
+      .select()
+      .from(files)
+      .orderBy(desc(files.createdAt))
+      .limit(batch)
+      .offset(offset);
+    if (rows.length === 0) break;
+    offset += rows.length;
+    for (const row of rows) {
+      if (report.generated + report.failed >= limits.maxFiles) break;
+      if (Date.now() > limits.deadline) {
+        report.timeBudgetExhausted = true;
+        break;
+      }
+      report.scanned += 1;
+      if (thumbnailKindFor(row) === null) {
+        report.skipped += 1;
+        continue;
+      }
+      const outcome = await storage.warmThumbnail(row, 256);
+      if (outcome === "generated") report.generated += 1;
+      else if (outcome === "failed") report.failed += 1;
+      else report.skipped += 1;
+    }
+  }
+  return report;
 }
 
 export function validatedTaskConfig(

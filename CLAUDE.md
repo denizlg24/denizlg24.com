@@ -304,6 +304,27 @@ hint, not a platform ceiling.
   *resolved* type, so a derived `image/svg+xml` is still forced to download.
   An unknown extension is not refused: the preview reads a bounded head and
   decides text or binary from the bytes.
+- **Thumbnails are subprocesses, and the cache is derived data.**
+  `packages/cloud-core/src/storage/thumbnails.ts` spawns `vipsthumbnail`
+  (images, PDFs; `vips-heif` for iPhone HEIC) and `ffmpeg` (a video poster
+  frame) with `nice -n 10`, two at a time, 20 s each, into
+  `STORAGE_THUMBNAIL_PATH` (default `<SSD>/.thumbs`), keyed
+  `<w>/<id[0..2]>/<id>-<size>-<mtime>.webp`. Never a native module: `sharp`'s
+  libvips cannot decode HEVC HEIC and its heap never shrinks. The API image
+  installs `vips-tools vips-heif vips-poppler ffmpeg`; without them every
+  thumbnail is a logged failure and the tile shows the glyph. `thumbnail_backfill`
+  (nightly, 2 000/run) and `thumbnail_gc` (weekly) are seeded at boot — their
+  enum values are migration **0046**, applied by hand before the API rolls.
+  Upload finalize and the projector push ids onto `storage:thumbnails:warm` in
+  Redis; one worker drains it. `rm -rf` of the cache is always safe.
+- **A folder created through the API is stamped on create**, and adoption
+  consults the projection before minting: a row at the path inserted in the
+  last 60 s lends its id (`adoptWithProjectionClaim`). Before this, the watcher
+  re-minted every new folder and the id the client held answered 404 until a
+  refresh. `smb-sessions` on the host socket is the only writer of
+  `smb_credentials.last_authenticated_at`; the API asks for it on every device
+  list and persists anything newer, so the column fills only once the
+  hand-deployed host binary carries the op.
 
 ### Migration and cutover scripts
 

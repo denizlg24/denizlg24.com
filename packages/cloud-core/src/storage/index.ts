@@ -212,10 +212,13 @@ export {
 } from "./path";
 export * from "./s3";
 export {
+  type FolderContentsListing,
+  type FolderContentsResult,
   type NamingPolicy,
   type StorageEntry,
   StorageService,
   StorageServiceError,
+  type StorageServiceExtras,
   TUS_VERSION,
 } from "./service";
 export {
@@ -257,6 +260,15 @@ export {
   smbAuthThrottled,
   type ThrottleInput,
 } from "./smb-credentials";
+export {
+  isThumbnailWidth,
+  posterSeekSeconds,
+  type SpawnResult,
+  ThumbnailBusyError,
+  ThumbnailService,
+  type ThumbnailServiceOptions,
+  type ThumbnailSource,
+} from "./thumbnails";
 export {
   assertLegacyTieringAllowed,
   createTieringRepository,

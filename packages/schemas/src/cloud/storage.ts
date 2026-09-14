@@ -19,6 +19,8 @@ export const storageFileSchema = z.object({
   tier: storageTierSchema,
   /** Who added it. Optional until every producer carries it; listings do. */
   ownerId: z.uuid().optional(),
+  /** The kind can be drawn as itself, so a tile may ask for a thumbnail. */
+  thumbnail: z.boolean().optional(),
   createdAt: cloudDateTimeSchema,
   updatedAt: cloudDateTimeSchema,
 });

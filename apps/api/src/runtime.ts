@@ -28,6 +28,7 @@ import {
   seedDefaultAlertRules,
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
+  ThumbnailService,
 } from "@repo/cloud-core";
 import {
   files,
@@ -83,6 +84,7 @@ import {
   filesystemSyntheticProbe,
 } from "./ops/synthetic";
 import { projectRoutes } from "./projects/routes";
+import { ThumbnailWarmer } from "./storage/thumbnail-warmer";
 import { TerminalGateway } from "./terminal/gateway";
 import { TerminalWebSocketProxy } from "./terminal/proxy";
 
@@ -213,12 +215,23 @@ export async function createRuntimeApp() {
       },
       storageConfig.namespace.mode === "legacy-dual-path",
     );
+    const thumbnails = new ThumbnailService({
+      cacheRoot: storageConfig.thumbnailPath,
+    });
+    // Declared before the service so the finalize hook can reach it; started
+    // after the service is initialized, since warming reads through it.
+    let thumbnailWarmer: ThumbnailWarmer | null = null;
     const storageService = new StorageService(
       db,
       meili,
       storageConfig,
       promotions,
+      {
+        onFileWritten: (fileId) => thumbnailWarmer?.enqueue(fileId),
+        thumbnails,
+      },
     );
+    thumbnailWarmer = new ThumbnailWarmer(redis, db, storageService);
     const s3CredentialResolver = new S3CredentialResolver(
       db,
       storageConfig.s3.credentialEncryptionKey,
@@ -232,9 +245,12 @@ export async function createRuntimeApp() {
     };
     await Promise.all([
       storageService.initialize(),
+      thumbnails.initialize(),
       ensureStorageSearchIndex(meili),
       initializeS3(s3Config),
     ]);
+    thumbnailWarmer.start();
+    cleanupActions.push(async () => thumbnailWarmer?.stop());
     const cleanupTimer = setInterval(
       () => {
         void storageService.cleanupExpiredUploads().catch((error) => {
@@ -714,6 +730,7 @@ export async function createRuntimeApp() {
         notifications,
         sampler,
         storageConfig,
+        storageService,
         metadataClient,
         forge,
         backupDirectory: process.env.BACKUP_DIR ?? "/backups",
@@ -743,11 +760,20 @@ export async function createRuntimeApp() {
       storageConfig.namespace.mode === "broker-mounted" &&
       process.env.STORAGE_NAMESPACE_WATCH !== "off"
     ) {
-      const projectionRepository = indexingProjectionRepository(
+      const indexing = indexingProjectionRepository(
         createProjectionRepository(db),
         db,
         meili,
       );
+      // A file the watcher projects was written over SMB, so nothing else
+      // will ask for its thumbnail before a person opens the folder.
+      const projectionRepository = {
+        ...indexing,
+        async upsertFile(entry) {
+          await indexing.upsertFile(entry);
+          thumbnailWarmer?.enqueue(entry.metadata.id);
+        },
+      } satisfies typeof indexing;
       const namespaceSource = createNamespaceSource(
         metadataClient,
         storageConfig.namespace.rootPath,

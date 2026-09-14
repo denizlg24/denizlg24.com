@@ -342,6 +342,21 @@ export const api = {
   url: {
     file: (id: string): string =>
       buildUrl(`/api/storage/files/${id}/download`).toString(),
+    /** `v` is the file's version (updatedAt) so a modified file is a new URL. */
+    thumbnail: (id: string, width: 256 | 512 | 1024, version: string): string =>
+      buildUrl(`/api/storage/files/${id}/thumbnail`, {
+        w: width,
+        v: new Date(version).getTime(),
+      }).toString(),
+    sharedThumbnail: (
+      token: string,
+      width: 256 | 512 | 1024,
+      version: string,
+    ): string =>
+      buildUrl(`/api/storage/share/${encodeURIComponent(token)}/thumbnail`, {
+        w: width,
+        v: new Date(version).getTime(),
+      }).toString(),
     fileDownload: (id: string): string =>
       buildUrl(`/api/storage/files/${id}/download`, {
         download: "1",

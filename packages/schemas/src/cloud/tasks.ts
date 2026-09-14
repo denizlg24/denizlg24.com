@@ -24,6 +24,8 @@ export const TASK_TYPES = [
   "namespace_checksum",
   "forge_gc",
   "domain_verification",
+  "thumbnail_backfill",
+  "thumbnail_gc",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -206,6 +208,38 @@ export type DomainVerificationTaskConfig = z.infer<
   typeof domainVerificationTaskConfigSchema
 >;
 
+/**
+ * Nightly thumbnail pre-generation for files that have none at 256 px. Bounded
+ * per run because every miss is a subprocess reading a whole file on the Pi.
+ */
+export const thumbnailBackfillTaskConfigSchema = z.object({
+  maxFiles: z.number().int().min(1).max(50_000).default(2_000),
+  timeBudgetMinutes: z.number().int().min(1).max(1_440).default(60),
+});
+export type ThumbnailBackfillTaskConfig = z.infer<
+  typeof thumbnailBackfillTaskConfigSchema
+>;
+
+export const thumbnailGcTaskConfigSchema = z.object({});
+export type ThumbnailGcTaskConfig = z.infer<typeof thumbnailGcTaskConfigSchema>;
+
+export const thumbnailBackfillReportSchema = z.object({
+  scanned: z.number().int().nonnegative(),
+  generated: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  timeBudgetExhausted: z.boolean(),
+});
+export type ThumbnailBackfillReport = z.infer<
+  typeof thumbnailBackfillReportSchema
+>;
+
+export const thumbnailGcReportSchema = z.object({
+  scanned: z.number().int().nonnegative(),
+  removed: z.number().int().nonnegative(),
+});
+export type ThumbnailGcReport = z.infer<typeof thumbnailGcReportSchema>;
+
 const forgeStepFailureSchema = z.object({
   step: z.string(),
   subject: z.string(),
@@ -361,6 +395,8 @@ export const TASK_CONFIG_SCHEMAS = {
   namespace_checksum: namespaceChecksumTaskConfigSchema,
   forge_gc: forgeGcTaskConfigSchema,
   domain_verification: domainVerificationTaskConfigSchema,
+  thumbnail_backfill: thumbnailBackfillTaskConfigSchema,
+  thumbnail_gc: thumbnailGcTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -384,6 +420,8 @@ export const taskRunMetadataSchema = z.object({
   namespaceChecksum: checksumBackfillReportSchema.optional(),
   forgeGc: forgeGcReportSchema.optional(),
   domainVerification: domainVerificationReportSchema.optional(),
+  thumbnailBackfill: thumbnailBackfillReportSchema.optional(),
+  thumbnailGc: thumbnailGcReportSchema.optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

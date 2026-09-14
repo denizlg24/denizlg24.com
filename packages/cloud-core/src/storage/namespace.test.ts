@@ -37,6 +37,7 @@ function config(
     shareLinkSecret: "secret",
     archiveMaxBytes: 1024 * 1024,
     archivePath: `${root}/internal/archives`,
+    thumbnailPath: `${root}/internal/thumbs`,
     archiveTtlMs: 60_000,
     s3: {
       rootPath: `${root}/internal/s3`,

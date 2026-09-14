@@ -167,6 +167,41 @@ export function mimeTypeForFilename(filename: string): string | null {
   return TEXT_BY_NAME.has(name) ? "text/plain" : null;
 }
 
+export type ThumbnailKind = "image" | "video" | "pdf";
+
+export const THUMBNAIL_WIDTHS = [256, 512, 1024] as const;
+export type ThumbnailWidth = (typeof THUMBNAIL_WIDTHS)[number];
+
+/** Generation reads the whole source; past these a thumbnail costs more than it saves. */
+export const THUMBNAIL_MAX_IMAGE_BYTES = 60 * 1024 * 1024;
+export const THUMBNAIL_MAX_PDF_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Whether a file can be shown as itself rather than as an icon, judged the
+ * same way on both sides: the extension first, the stored MIME second, since
+ * `files.mime_type` is null for most of the namespace. Null means "glyph".
+ */
+export function thumbnailKindFor(file: {
+  filename: string;
+  mimeType?: string | null;
+  sizeBytes?: number;
+}): ThumbnailKind | null {
+  const stored = file.mimeType?.trim().toLowerCase();
+  const type =
+    mimeTypeForFilename(file.filename) ??
+    (stored && stored !== "application/octet-stream" ? stored : null);
+  if (!type) return null;
+  const size = file.sizeBytes ?? 0;
+  if (type === "application/pdf") {
+    return size <= THUMBNAIL_MAX_PDF_BYTES ? "pdf" : null;
+  }
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("image/")) {
+    return size <= THUMBNAIL_MAX_IMAGE_BYTES ? "image" : null;
+  }
+  return null;
+}
+
 /**
  * Splits RFC 4180-ish delimited text. Quotes only open a field at its start,
  * `""` inside a quoted field is one quote, and a newline inside quotes belongs

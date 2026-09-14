@@ -17,6 +17,8 @@ import { Popover, PopoverAnchor, PopoverContent } from "@repo/ui/popover";
 import { cn } from "@repo/ui/utils";
 import { Folder, MoreHorizontal } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
+import { Thumbnail } from "@/components/thumbnail";
+import { api } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
 import { InlineName } from "./inline-name";
 import { ContextActions, DropdownActions, itemActions } from "./item-menu";
@@ -383,12 +385,19 @@ export function ItemTile({
               setPanel={setPanel}
             />
           </div>
-          <Icon
+          <Thumbnail
+            src={
+              row.thumbnail
+                ? api.url.thumbnail(row.id, 256, row.updatedAt)
+                : null
+            }
+            alt=""
+            fallback={Icon}
             className={cn(
-              "shrink-0 text-muted-foreground",
-              density === "compact" ? "mt-3 size-7" : "mt-4 size-9",
+              "mt-3 w-full",
+              density === "compact" ? "aspect-square" : "aspect-[4/3]",
             )}
-            strokeWidth={1.25}
+            iconClassName={density === "compact" ? "size-7" : "size-10"}
           />
           {renaming ? (
             <InlineName
