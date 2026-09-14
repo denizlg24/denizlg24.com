@@ -23,12 +23,13 @@ RUN tectonic="$(find /workspace -path '*/@node-latex-compiler/bin-linux-x64/bin/
   && test -n "$tectonic" \
   && cp "$tectonic" /workspace/tectonic
 
-FROM node:24-bookworm-slim AS runtime
+# trixie, not bookworm: the Tectonic binary wants glibc 2.39 and bookworm ships
+# 2.36. ca-certificates is for the TeX bundle it fetches over HTTPS on first use.
+FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 
-# ca-certificates is for the TeX bundle Tectonic fetches over HTTPS on first use.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libssl3 libgraphite2-3 ca-certificates \
+  && apt-get install -y --no-install-recommends libssl3t64 libgraphite2-3 ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 ENV HOSTNAME=0.0.0.0
