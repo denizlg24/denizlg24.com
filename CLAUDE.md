@@ -112,6 +112,20 @@ hint, not a platform ceiling.
 
 ### Things that will bite you
 
+- **A Dockerfile in an app directory does nothing until the target says so.**
+  `deploy_targets.framework` is a forced preset at enqueue: a target left on
+  `nextjs` keeps building with nixpacks however many Dockerfiles land beside
+  it. Flip `framework` to `dockerfile` (and clear `startCommand` /
+  `buildCommand`, which the Dockerfile path refuses or, worse, honours — a
+  leftover `bun run start` override runs `bun` inside a `node` image) *before*
+  pushing; a deploy in between fails harmlessly, the live container stays.
+- **`apps/web` builds and runs on glibc; the other Next images are alpine.**
+  The Tectonic binary `node-latex-compiler` ships is dynamically linked
+  against glibc, libssl 3 and graphite2, and bun installs the sharp/resvg
+  platform packages for the libc it runs on, so an alpine install stage hands
+  a Debian runtime the musl builds. Switching either stage "for consistency"
+  breaks CV compile, `next/image` or whiteboard rendering at runtime, not at
+  build. `LATEX_TECTONIC_PATH` names the copied binary; nothing traces it.
 - **A Forge build runs `next build` under Bun; CI runs it under Node.** `bun run`
   hands a `#!/usr/bin/env node` bin to node when node is on PATH, and the runner
   has one — the `oven/bun:*-alpine` build stages do not, and the nixpacks targets
