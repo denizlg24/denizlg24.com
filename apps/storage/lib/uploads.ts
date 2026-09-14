@@ -5,7 +5,7 @@ import * as tus from "tus-js-client";
 import { api, errorMessage, isApiError } from "./api";
 import { API_BASE_URL } from "./env";
 import { normalizeFileNamePreview, normalizeNamePreview } from "./format";
-import { store } from "./store";
+import { storage } from "./queries";
 
 export type UploadStatus =
   | "queued"
@@ -178,7 +178,7 @@ class UploadQueue {
 
     const resolution = (async () => {
       try {
-        const folder = await store.createFolder(parentId, rawSegment);
+        const folder = await storage.createFolder(parentId, rawSegment);
         return { id: folder.id, path: folder.path };
       } catch (error) {
         if (!isApiError(error) || error.code !== "FOLDER_EXISTS") throw error;
@@ -249,7 +249,7 @@ class UploadQueue {
           status: "done",
           uploaded: job.item.size,
         });
-        store.uploaded(target.id);
+        storage.uploaded(target.id);
         this.pump();
       },
       // Retries the transport; a 4xx from the API is surfaced instead.

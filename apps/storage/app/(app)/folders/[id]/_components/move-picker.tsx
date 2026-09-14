@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { useState } from "react";
-import { type SelectedEntry, useFolder, useRoots } from "@/lib/store";
+import { type DeletableEntry, useChildren, useRoots } from "@/lib/queries";
 
 function rootChoices(roots: ReturnType<typeof useRoots>) {
   if (!roots) return [];
@@ -21,58 +21,59 @@ function rootChoices(roots: ReturnType<typeof useRoots>) {
   }
   return [
     { icon: HardDrive, id: roots.userRoot.id, label: "My files" },
-    { icon: Users, id: roots.sharedRoot.id, label: "Shared" },
+    { icon: Users, id: roots.sharedRoot.id, label: "Family" },
   ];
 }
 
-/** Browsable destination picker — no typing, no separate confirm dialog. */
+/**
+ * Browsable destination picker — no typing, no separate confirm dialog.
+ *
+ * Keeps its own trail of the folders descended into, so stepping back needs
+ * no listing of the parent: the subfolder query carries names only.
+ */
 export function MovePicker({
   entries,
   sourceFolderId,
   onMove,
   busy,
 }: {
-  entries: SelectedEntry[];
+  entries: DeletableEntry[];
   sourceFolderId: string;
   onMove: (targetFolderId: string) => void;
   busy: boolean;
 }) {
   const roots = useRoots();
   const choices = rootChoices(roots);
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const state = useFolder(folderId);
+  const [trail, setTrail] = useState<{ id: string; label: string }[]>([]);
+  const current = trail[trail.length - 1] ?? null;
+  const { children, loading } = useChildren(current?.id ?? null);
   const movingIds = new Set(entries.map((entry) => entry.id));
-
-  const label =
-    folderId === null
-      ? null
-      : (choices.find((choice) => choice.id === folderId)?.label ??
-        state.folder?.name ??
-        "…");
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Move {pluralize(entries.length, "item")} to…
       </p>
 
-      {folderId === null ? (
+      {current === null ? (
         <ul className="flex flex-col">
           {choices.map((choice) => (
             <li key={choice.id}>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted/60"
-                onClick={() => setFolderId(choice.id)}
+                className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted/60"
+                onClick={() =>
+                  setTrail([{ id: choice.id, label: choice.label }])
+                }
               >
-                <choice.icon className="size-3.5 shrink-0 text-muted-foreground" />
+                <choice.icon className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </button>
             </li>
           ))}
           {choices.length === 0 && (
-            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            <li className="px-2 py-2 text-sm text-muted-foreground">
               Loading folders…
             </li>
           )}
@@ -81,53 +82,52 @@ export function MovePicker({
         <>
           <button
             type="button"
-            className="flex items-center gap-1 self-start rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            onClick={() =>
-              setFolderId(
-                choices.some((choice) => choice.id === folderId)
-                  ? null
-                  : (state.folder?.parentId ?? null),
-              )
-            }
+            className="flex items-center gap-1 self-start rounded px-1.5 py-1 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            onClick={() => setTrail((stack) => stack.slice(0, -1))}
           >
-            <ChevronLeft className="size-3" />
+            <ChevronLeft className="size-3.5" />
             Back
           </button>
-          <p className="truncate px-1.5 text-sm font-medium">{label}</p>
-          <ul className="scrollbar-thin flex max-h-48 flex-col overflow-y-auto">
-            {state.loading && state.subfolders.length === 0 && (
-              <li className="px-2 py-1.5 text-sm text-muted-foreground">
+          <p className="truncate px-1.5 text-sm font-medium">{current.label}</p>
+          <ul className="scrollbar-thin flex max-h-56 flex-col overflow-y-auto">
+            {loading && children.length === 0 && (
+              <li className="px-2 py-2 text-sm text-muted-foreground">
                 Loading…
               </li>
             )}
-            {!state.loading && state.subfolders.length === 0 && (
-              <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            {!loading && children.length === 0 && (
+              <li className="px-2 py-2 text-sm text-muted-foreground">
                 No folders inside.
               </li>
             )}
-            {state.subfolders.map((folder) => (
+            {children.map((folder) => (
               <li key={folder.id}>
                 <button
                   type="button"
                   disabled={movingIds.has(folder.id)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted/60 disabled:opacity-40"
-                  onClick={() => setFolderId(folder.id)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted/60 disabled:opacity-40"
+                  onClick={() =>
+                    setTrail((stack) => [
+                      ...stack,
+                      { id: folder.id, label: folder.name },
+                    ])
+                  }
                 >
-                  <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                  <Folder className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </button>
               </li>
             ))}
           </ul>
           <Button
             size="sm"
-            disabled={busy || folderId === sourceFolderId}
-            onClick={() => onMove(folderId)}
+            disabled={busy || current.id === sourceFolderId}
+            onClick={() => onMove(current.id)}
           >
-            {folderId === sourceFolderId
+            {current.id === sourceFolderId
               ? "Already here"
-              : `Move here${label ? ` — ${label}` : ""}`}
+              : `Move here — ${current.label}`}
           </Button>
         </>
       )}

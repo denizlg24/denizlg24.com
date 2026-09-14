@@ -3,6 +3,7 @@ import { themeScript } from "@repo/cloud-ui/theme-script";
 import { Toaster } from "@repo/ui/sonner";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { StorageQueryProvider } from "@/components/query-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,7 +37,9 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <StorageQueryProvider>{children}</StorageQueryProvider>
+        </ThemeProvider>
         <Toaster position="bottom-center" />
       </body>
     </html>

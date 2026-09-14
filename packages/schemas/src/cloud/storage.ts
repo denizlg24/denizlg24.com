@@ -17,6 +17,8 @@ export const storageFileSchema = z.object({
   mimeType: z.string().nullable(),
   sizeBytes: z.number(),
   tier: storageTierSchema,
+  /** Who added it. Optional until every producer carries it; listings do. */
+  ownerId: z.uuid().optional(),
   createdAt: cloudDateTimeSchema,
   updatedAt: cloudDateTimeSchema,
 });
@@ -29,12 +31,20 @@ export const storageFileDetailSchema = storageFileSchema.extend({
 });
 export type StorageFileDetail = z.infer<typeof storageFileDetailSchema>;
 
+export const folderChildCountSchema = z.object({
+  folders: z.number().int(),
+  files: z.number().int(),
+});
+export type FolderChildCount = z.infer<typeof folderChildCountSchema>;
+
 export const storageFolderSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   path: z.string(),
   parentId: z.uuid().nullable(),
   createdAt: cloudDateTimeSchema,
+  /** Direct children only. Present on listings; a detail row may omit it. */
+  childCount: folderChildCountSchema.optional(),
 });
 export type StorageFolder = z.infer<typeof storageFolderSchema>;
 

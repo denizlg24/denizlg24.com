@@ -122,8 +122,15 @@ export function storageRoutes(service: StorageService) {
         principal(context),
         context.req.param("id"),
         new URL(context.req.url).searchParams,
+        context.req.header("if-none-match"),
       );
-      return context.json(result);
+      // Private: the listing is per-account, and a shared cache must never
+      // hand one family member's folder to another. `no-cache` still lets
+      // the browser revalidate with the validator instead of refetching.
+      context.header("ETag", result.etag);
+      context.header("Cache-Control", "private, no-cache");
+      if (result.notModified) return context.body(null, 304);
+      return context.json({ data: result.data, pagination: result.pagination });
     } catch (error) {
       return serviceError(context, error);
     }

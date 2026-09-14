@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { activeDrag, endDrag, readDrop } from "@/lib/drag";
-import { store, useFolder, useRoots } from "@/lib/store";
+import { storage, useChildren, useRoots } from "@/lib/queries";
 
 interface NodeProps {
   id: string;
@@ -48,7 +48,7 @@ function useDropTarget(folderId: string) {
         if (!payload || payload.sourceFolderId === folderId) return;
         event.preventDefault();
         event.stopPropagation();
-        const result = await store.move(
+        const result = await storage.move(
           payload.entries,
           payload.sourceFolderId,
           folderId,
@@ -139,9 +139,9 @@ function TreeChildren({
   toggle,
   onNavigate,
 }: Omit<NodeProps, "name">) {
-  const state = useFolder(id);
+  const { children, loading } = useChildren(id);
 
-  if (state.loading && state.subfolders.length === 0) {
+  if (loading && children.length === 0) {
     return (
       <p
         className="py-1 text-xs text-muted-foreground"
@@ -151,7 +151,7 @@ function TreeChildren({
       </p>
     );
   }
-  if (state.subfolders.length === 0) {
+  if (children.length === 0) {
     return (
       <p
         className="py-1 text-xs text-muted-foreground"
@@ -163,7 +163,7 @@ function TreeChildren({
   }
   return (
     <>
-      {state.subfolders.map((folder) => (
+      {children.map((folder) => (
         <TreeNode
           key={folder.id}
           id={folder.id}

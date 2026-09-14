@@ -65,12 +65,12 @@ import {
 } from "@/lib/drag";
 import {
   type FolderErrorKind,
-  type SelectedEntry,
-  store,
+  type DeletableEntry as SelectedEntry,
+  storage,
   UNDO_WINDOW_MS,
   useFolder,
   useRoots,
-} from "@/lib/store";
+} from "@/lib/queries";
 import { readDataTransfer, readFileList, uploads } from "@/lib/uploads";
 import { usePreference } from "@/lib/use-preference";
 import { useWindowedRows } from "@/lib/use-windowed-rows";
@@ -156,7 +156,14 @@ export function Browser({ folderId }: { folderId: string }) {
 
   const rows = useMemo(
     () =>
-      sortRows(toRows(state.subfolders, state.files), sortKey, sortDirection),
+      sortRows(
+        toRows(
+          state.subfolders.filter((folder) => folder.deleteAt === null),
+          state.files.filter((file) => file.deleteAt === null),
+        ),
+        sortKey,
+        sortDirection,
+      ),
     [state.subfolders, state.files, sortKey, sortDirection],
   );
   const rowsById = useMemo(
@@ -193,21 +200,11 @@ export function Browser({ folderId }: { folderId: string }) {
     anchorIndex.current = null;
   }, [folderId]);
 
-  // A pending delete lives in a timer, so leaving the page would discard the
-  // request and the row would silently reappear on the next load. Commit
-  // anything still inside its undo window before the page goes away.
+  // A folder this client just created can answer 404 while the projection
+  // catches up; the data layer re-resolves it by name and says where it went.
   useEffect(() => {
-    const flush = () => store.flushPendingDeletes();
-    const onHidden = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", onHidden);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", onHidden);
-    };
-  }, []);
+    if (state.relocatedTo) router.replace(`/folders/${state.relocatedTo}`);
+  }, [state.relocatedTo, router]);
 
   // Deep links from search land straight on a file.
   useEffect(() => {
@@ -361,9 +358,9 @@ export function Browser({ folderId }: { folderId: string }) {
       setRenamingId(null);
       try {
         if (row.type === "folder") {
-          await store.renameFolder(row.id, folderId, name);
+          await storage.renameFolder(row.id, folderId, name);
         } else {
-          await store.renameFile(row.id, folderId, name);
+          await storage.renameFile(row.id, folderId, name);
         }
       } catch (error) {
         toast.error("Couldn't rename that", {
@@ -382,7 +379,7 @@ export function Browser({ folderId }: { folderId: string }) {
         targets.length === 1
           ? (targets[0]?.name ?? "item")
           : pluralize(targets.length, "item");
-      const { undo } = store.scheduleDelete(entries, folderId, (failures) => {
+      const { undo } = storage.scheduleDelete(entries, folderId, (failures) => {
         if (failures.length === 0) return;
         toast.error(`Couldn't delete ${pluralize(failures.length, "item")}`, {
           description: failures[0]?.message,
@@ -433,7 +430,7 @@ export function Browser({ folderId }: { folderId: string }) {
     async (targets: BrowserRow[], targetFolderId: string) => {
       if (targets.length === 0 || targetFolderId === folderId) return;
       setMoving(true);
-      const result = await store.move(
+      const result = await storage.move(
         toEntries(targets),
         folderId,
         targetFolderId,
@@ -666,7 +663,7 @@ export function Browser({ folderId }: { folderId: string }) {
   const createFolder = async (name: string) => {
     setCreating(false);
     try {
-      await store.createFolder(folderId, name);
+      await storage.createFolder(folderId, name);
     } catch (error) {
       toast.error("Couldn't create that folder", {
         description: errorMessage(error),
@@ -885,7 +882,7 @@ export function Browser({ folderId }: { folderId: string }) {
               <FolderError
                 kind={state.errorKind ?? "other"}
                 message={state.error}
-                onRetry={() => void store.reload(folderId)}
+                onRetry={state.retry}
                 onHome={() => {
                   const home =
                     roots && "userRoot" in roots
@@ -1037,21 +1034,20 @@ export function Browser({ folderId }: { folderId: string }) {
                 </ul>
               ))}
 
-            {state.pagination &&
-              state.pagination.page < state.pagination.totalPages && (
-                <div className="flex justify-center p-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={state.loadingMore}
-                    onClick={() => void store.loadMore(folderId)}
-                  >
-                    {state.loadingMore
-                      ? "Loading…"
-                      : `Show more (${state.pagination.total - state.files.length} left)`}
-                  </Button>
-                </div>
-              )}
+            {state.hasMore && state.pagination && (
+              <div className="flex justify-center p-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={state.loadingMore}
+                  onClick={state.loadMore}
+                >
+                  {state.loadingMore
+                    ? "Loading…"
+                    : `Show more (${state.pagination.total - state.files.length} left)`}
+                </Button>
+              </div>
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-52">

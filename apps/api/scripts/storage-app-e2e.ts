@@ -234,6 +234,35 @@ try {
     JSON.stringify(ancestors).slice(0, 200),
   );
 
+  // 3a. the listing is revalidatable ---------------------------------------
+  const etag = contents.response.headers.get("etag") ?? "";
+  const revalidated = await call(`/api/storage/folders/${childId}/contents`, {
+    headers: { "If-None-Match": etag },
+  });
+  check(
+    "unchanged folder listing answers 304 to its own ETag",
+    etag.startsWith('W/"') && revalidated.status === 304,
+    `etag=${etag} status=${revalidated.status}`,
+  );
+  const foldersOnly = await call(
+    `/api/storage/folders/${parentId}/contents?include=folders`,
+  );
+  const foldersOnlyBody = foldersOnly.body as {
+    data?: {
+      subfolders?: { id: string; childCount?: unknown }[];
+      files?: unknown[];
+    };
+  };
+  check(
+    "include=folders lists subfolders with child counts and no files",
+    foldersOnly.status === 200 &&
+      foldersOnlyBody.data?.files?.length === 0 &&
+      foldersOnlyBody.data?.subfolders?.some(
+        (folder) => folder.id === childId && folder.childCount !== undefined,
+      ) === true,
+    JSON.stringify(foldersOnlyBody).slice(0, 200),
+  );
+
   // 3b. the id a create returns survives the projector ----------------------
   // Only the broker-mounted namespace has a watcher that can re-mint an
   // unstamped directory; in legacy mode Postgres is authoritative and there is

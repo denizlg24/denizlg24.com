@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { activeDrag, endDrag, readDrop } from "@/lib/drag";
-import { store } from "@/lib/store";
+import { storage } from "@/lib/queries";
 
 /** Root folders are named after an owner id, which means nothing to a person. */
 function crumbLabel(crumb: { name: string; path: string }): string {
@@ -59,7 +59,7 @@ function Crumb({
       if (!payload || payload.sourceFolderId === id) return;
       event.preventDefault();
       event.stopPropagation();
-      const result = await store.move(
+      const result = await storage.move(
         payload.entries,
         payload.sourceFolderId,
         id,

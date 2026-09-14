@@ -1,6 +1,6 @@
 "use client";
 
-import type { SelectedEntry } from "./store";
+import type { DeletableEntry as SelectedEntry } from "./pending-deletes";
 
 export const DRAG_MIME = "application/x-deniz-storage";
 

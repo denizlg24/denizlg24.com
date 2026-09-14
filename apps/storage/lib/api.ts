@@ -25,6 +25,7 @@ import {
   type ShareLinkToken,
   type SmbCredential,
   type StorageFileDetail,
+  type StorageFolder,
   type StorageFolderDetail,
   safeUserSchema,
   searchResultsSchema,
@@ -126,6 +127,55 @@ async function rawRequest(
   return (await rawFetch(path, options)).json();
 }
 
+/**
+ * The last validated body per URL, for conditional GETs.
+ *
+ * A folder on screen is re-read every fifteen seconds. Sending the ETag the
+ * server last gave for that exact URL lets an unchanged folder answer 304 with
+ * no body, and the body it validated is replayed from here. Bounded because
+ * every folder ever opened would otherwise stay in memory for the session.
+ */
+const validated = new Map<string, { etag: string; body: unknown }>();
+const VALIDATED_MAX = 200;
+
+async function rawConditionalRequest(
+  path: string,
+  options: RequestOptions = {},
+): Promise<unknown> {
+  const url = buildUrl(path, options.query);
+  const key = url.toString();
+  const known = validated.get(key);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      signal: timeoutSignal(
+        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        options.signal,
+      ),
+      headers: known ? { "If-None-Match": known.etag } : undefined,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw toTransportError(error);
+  }
+  if (response.status === 304 && known) return known.body;
+  if (!response.ok) throw await toApiError(response);
+  const body: unknown = await response.json();
+  const etag = response.headers.get("ETag");
+  if (etag) {
+    validated.delete(key);
+    validated.set(key, { body, etag });
+    if (validated.size > VALIDATED_MAX) {
+      const oldest = validated.keys().next().value;
+      if (oldest !== undefined) validated.delete(oldest);
+    }
+  }
+  return body;
+}
+
 const envelopeSchema = z.object({ data: z.unknown() });
 
 async function requestData<T extends z.ZodType>(
@@ -145,9 +195,11 @@ export interface Paged<T> {
 async function requestPaged<T extends z.ZodType>(
   schema: T,
   path: string,
-  options: RequestOptions = {},
+  options: RequestOptions & { conditional?: boolean } = {},
 ): Promise<Paged<z.output<T>>> {
-  const payload = await rawRequest(path, options);
+  const payload = options.conditional
+    ? await rawConditionalRequest(path, options)
+    : await rawRequest(path, options);
   const parsed = z
     .object({ data: z.unknown(), pagination: paginationSchema })
     .parse(payload);
@@ -172,10 +224,24 @@ export const api = {
   folderContents: (
     id: string,
     query?: { page?: number; limit?: number },
+    options?: { signal?: AbortSignal },
   ): Promise<Paged<FolderContents>> =>
     requestPaged(folderContentsSchema, `/api/storage/folders/${id}/contents`, {
+      conditional: true,
       query,
+      signal: options?.signal,
     }),
+
+  /** Subfolders only, for the tree and the move picker. No file page is read. */
+  folderChildren: (
+    id: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<StorageFolder[]> =>
+    requestPaged(folderContentsSchema, `/api/storage/folders/${id}/contents`, {
+      conditional: true,
+      query: { include: "folders" },
+      signal: options?.signal,
+    }).then((result) => result.data.subfolders),
 
   createFolder: (input: CreateFolderInput): Promise<RenamedFolder> =>
     requestData(renamedFolderSchema, "/api/storage/folders", {

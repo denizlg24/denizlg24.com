@@ -349,6 +349,63 @@ async function resolveStorageRoot(
   return concurrent;
 }
 
+export interface FolderContentsListing {
+  folder: { id: string; path: string; name: string; parentId: string | null };
+  ancestors: { id: string; path: string; name: string }[];
+  subfolders: {
+    id: string;
+    name: string;
+    path: string;
+    parentId: string | null;
+    createdAt: Date;
+    childCount: { files: number; folders: number };
+  }[];
+  files: {
+    id: string;
+    filename: string;
+    path: string;
+    mimeType: string | null;
+    sizeBytes: number;
+    tier: StorageTier;
+    ownerId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }[];
+}
+
+export type FolderContentsResult =
+  | { notModified: true; etag: string }
+  | {
+      notModified: false;
+      etag: string;
+      data: FolderContentsListing;
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    };
+
+/** A weak validator over the listed parts; the body is not byte-compared. */
+function weakEtag(
+  parts: readonly (string | number | null | undefined)[],
+): string {
+  const digest = createHash("sha1")
+    .update(parts.map((part) => String(part ?? "")).join("\u0000"))
+    .digest("base64url");
+  return `W/"${digest}"`;
+}
+
+/** `If-None-Match` may list several validators; weak comparison ignores `W/`. */
+function etagMatches(header: string, etag: string): boolean {
+  const strip = (value: string) => value.trim().replace(/^W\//, "");
+  if (header.trim() === "*") return true;
+  return header
+    .split(",")
+    .some((candidate) => strip(candidate) === strip(etag));
+}
+
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -596,15 +653,66 @@ export class StorageService {
       .filter((row): row is NonNullable<typeof row> => row !== undefined);
   }
 
+  /**
+   * A folder's direct children.
+   *
+   * `?include=folders` answers with the subfolders only and no file page — the
+   * tree and the move picker never need files, and a folder of ten thousand
+   * photos should not cost a file query to expand.
+   *
+   * The response carries a weak ETag over what the listing depends on: the
+   * folder's own row, the count and newest timestamps of its direct children,
+   * and the page asked for. A client polling with `If-None-Match` gets a 304
+   * with no body from two indexed aggregates, which is what makes polling an
+   * unchanged folder every fifteen seconds affordable on the Pi.
+   */
   async folderContents(
     principal: StoragePrincipal,
     id: string,
     query: URLSearchParams,
-  ) {
+    ifNoneMatch?: string | null,
+  ): Promise<FolderContentsResult> {
     const folder = await this.findFolder(id);
     deny(principal, folder.path, "storage:read", folder.ownerId, "read");
+    const foldersOnly = query.get("include") === "folders";
     const { page, limit, offset } = pagination(query, 100);
-    const [ancestors, subfolders, fileList, countResult] = await Promise.all([
+    const [fileStats, folderStats] = await Promise.all([
+      this.db
+        .select({
+          count: count(),
+          newestCreated: sql<string | null>`max(${files.createdAt})`,
+          newestUpdated: sql<string | null>`max(${files.updatedAt})`,
+        })
+        .from(files)
+        .where(eq(files.folderId, id)),
+      this.db
+        .select({
+          count: count(),
+          newestCreated: sql<string | null>`max(${folders.createdAt})`,
+          newestUpdated: sql<string | null>`max(${folders.updatedAt})`,
+        })
+        .from(folders)
+        .where(eq(folders.parentId, id)),
+    ]);
+    const total = fileStats[0]?.count ?? 0;
+    const etag = weakEtag([
+      folder.id,
+      folder.name,
+      folder.path,
+      folder.updatedAt.toISOString(),
+      foldersOnly ? "folders" : `${page}:${limit}`,
+      total,
+      fileStats[0]?.newestCreated,
+      fileStats[0]?.newestUpdated,
+      folderStats[0]?.count,
+      folderStats[0]?.newestCreated,
+      folderStats[0]?.newestUpdated,
+    ]);
+    if (ifNoneMatch && etagMatches(ifNoneMatch, etag)) {
+      return { notModified: true, etag };
+    }
+
+    const [ancestors, subfolders, fileList] = await Promise.all([
       this.ancestorsOf(folder),
       this.db
         .select({
@@ -617,29 +725,32 @@ export class StorageService {
         .from(folders)
         .where(eq(folders.parentId, id))
         .orderBy(folders.name),
-      this.db
-        .select({
-          id: files.id,
-          filename: files.filename,
-          path: files.path,
-          mimeType: files.mimeType,
-          sizeBytes: files.sizeBytes,
-          tier: files.tier,
-          createdAt: files.createdAt,
-          updatedAt: files.updatedAt,
-        })
-        .from(files)
-        .where(eq(files.folderId, id))
-        .orderBy(desc(files.createdAt))
-        .limit(limit)
-        .offset(offset),
-      this.db
-        .select({ count: count() })
-        .from(files)
-        .where(eq(files.folderId, id)),
+      foldersOnly
+        ? Promise.resolve([])
+        : this.db
+            .select({
+              id: files.id,
+              filename: files.filename,
+              path: files.path,
+              mimeType: files.mimeType,
+              sizeBytes: files.sizeBytes,
+              tier: files.tier,
+              ownerId: files.ownerId,
+              createdAt: files.createdAt,
+              updatedAt: files.updatedAt,
+            })
+            .from(files)
+            .where(eq(files.folderId, id))
+            .orderBy(desc(files.createdAt))
+            .limit(limit)
+            .offset(offset),
     ]);
-    const total = countResult[0]?.count ?? 0;
+    const childCounts = await this.childCountsOf(
+      subfolders.map((subfolder) => subfolder.id),
+    );
     return {
+      notModified: false,
+      etag,
       data: {
         folder: {
           id: folder.id,
@@ -648,11 +759,49 @@ export class StorageService {
           parentId: folder.parentId,
         },
         ancestors,
-        subfolders,
+        subfolders: subfolders.map((subfolder) => ({
+          ...subfolder,
+          childCount: childCounts.get(subfolder.id) ?? { files: 0, folders: 0 },
+        })),
         files: fileList,
       },
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      pagination: foldersOnly
+        ? { page: 1, limit: 0, total, totalPages: 0 }
+        : { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Direct-child counts for a set of folders, one grouped query per table.
+   * What a tile shows as "12 items"; not recursive on purpose, since a
+   * recursive count is a subtree walk per folder on every listing.
+   */
+  private async childCountsOf(
+    folderIds: string[],
+  ): Promise<Map<string, { files: number; folders: number }>> {
+    const counts = new Map<string, { files: number; folders: number }>();
+    if (folderIds.length === 0) return counts;
+    const [fileRows, folderRows] = await Promise.all([
+      this.db
+        .select({ folderId: files.folderId, count: count() })
+        .from(files)
+        .where(inArray(files.folderId, folderIds))
+        .groupBy(files.folderId),
+      this.db
+        .select({ parentId: folders.parentId, count: count() })
+        .from(folders)
+        .where(inArray(folders.parentId, folderIds))
+        .groupBy(folders.parentId),
+    ]);
+    for (const row of fileRows) {
+      counts.set(row.folderId, { files: row.count, folders: 0 });
+    }
+    for (const row of folderRows) {
+      if (!row.parentId) continue;
+      const existing = counts.get(row.parentId) ?? { files: 0, folders: 0 };
+      counts.set(row.parentId, { ...existing, folders: row.count });
+    }
+    return counts;
   }
 
   async updateFolder(

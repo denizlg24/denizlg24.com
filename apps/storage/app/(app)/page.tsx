@@ -3,7 +3,7 @@
 import { Button } from "@repo/ui/button";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useRootsState, userRootId } from "@/lib/store";
+import { useRootsState, userRootId } from "@/lib/queries";
 
 /** The browser always lives under a folder id; "/" resolves the user's root. */
 export default function HomePage() {
