@@ -29,8 +29,12 @@
             // tag:forge is listed explicitly because tagging the node takes it
             // out of autogroup:self. Without this line, tagging forge is the
             // moment admin SSH to it stops working.
+            // tcp:443 is the Pi's `tailscale serve` of /healthz, which the
+            // storage app's device wizard probes to tell a family machine it
+            // is on the network. Family devices sign in as this identity, so
+            // this one line covers them too.
             "dst": ["autogroup:self", "tag:pi", "tag:forge", "tag:dr"],
-            "ip":  ["tcp:22", "tcp:445"],
+            "ip":  ["tcp:22", "tcp:443", "tcp:445"],
         },
         {
             "src": ["tag:dr"],
