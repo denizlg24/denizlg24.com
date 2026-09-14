@@ -25,8 +25,14 @@ export const OAUTH_FLOW_COOKIE = secure
   ? "__Host-denizlg24-oauth"
   : "denizlg24-oauth";
 
-/** Matches the authorization server's refresh-token lifetime, which slides on every refresh. */
-export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * The longest a browser will keep a cookie, re-set on every refresh. A
+ * remember-me grant (see apps/api/src/auth/remember-me.ts) never expires on
+ * the server, so the cookie must not be what ends it; an ordinary grant dies
+ * on the server after 30 days and the outlived cookie then costs one refused
+ * refresh before the next page load signs in again.
+ */
+export const SESSION_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 const FLOW_MAX_AGE_SECONDS = 10 * 60;
 
 export function cookieOptions(maxAge: number) {

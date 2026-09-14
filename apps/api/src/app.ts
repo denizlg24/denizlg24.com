@@ -51,6 +51,7 @@ import {
 } from "./auth/better-auth";
 import { createOAuthBearerResolver } from "./auth/oauth-bearer";
 import { oauthClientRoutes } from "./auth/oauth-clients";
+import { withOAuthRequestState } from "./auth/remember-me";
 import {
   completePendingSignup,
   createPendingAuthUser,
@@ -949,7 +950,9 @@ export function createCloudApiApp(options: CloudApiOptions) {
   }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>
-    options.auth.handler(context.req.raw),
+    withOAuthRequestState(context.req.raw, () =>
+      options.auth.handler(context.req.raw),
+    ),
   );
 
   app.onError((error, context) => {

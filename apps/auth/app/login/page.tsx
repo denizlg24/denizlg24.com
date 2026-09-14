@@ -53,6 +53,7 @@ function LoginForm() {
     tokenParam ? "signup" : authorizing || reason ? "credentials" : "checking",
   );
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,8 +111,10 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     setPassword(values.password);
-    const { data, error: signInError } =
-      await authClient.signIn.username(values);
+    const { data, error: signInError } = await authClient.signIn.username({
+      ...values,
+      rememberMe,
+    });
     if (signInError) {
       setBusy(false);
       setError(signInError.message ?? "Sign in failed");
@@ -194,6 +197,7 @@ function LoginForm() {
         <CredentialsForm
           defaultUsername={searchParams.get("username") ?? ""}
           busy={busy}
+          rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
           onSubmit={submitCredentials}
           onSignupRequested={
             authorizing

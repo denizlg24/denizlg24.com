@@ -49,6 +49,10 @@ export const authSession = pgTable(
       .notNull()
       .references(() => authUser.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
+    // Sign-in with "remember me". First-party OAuth grants issued from such a
+    // session get a stable, non-expiring refresh handle instead of a rotating
+    // token — see apps/api/src/auth/remember-me.ts.
+    rememberMe: boolean("remember_me").notNull().default(false),
   },
   (table) => [index("authSession_userId_idx").on(table.userId)],
 );

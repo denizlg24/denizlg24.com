@@ -10,10 +10,12 @@ import {
   type OAuthResourceKey,
 } from "@repo/schemas/cloud";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+import { expireCookie } from "better-auth/cookies";
 import { admin, jwt, twoFactor, username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { rememberMeGrants } from "./remember-me";
 
 const SESSION_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
@@ -137,6 +139,10 @@ export function cloudAuthIssuer(baseURL: string): string {
 export function createCloudAuth(options: CloudAuthOptions) {
   const oauth = options.oauth ?? DEFAULT_CLOUD_OAUTH_CONFIG;
   const authAppUrl = oauth.authAppUrl.replace(/\/$/, "");
+  const rememberMe = rememberMeGrants({
+    db: options.db,
+    secret: options.secret,
+  });
   return betterAuth({
     appName: "Deniz Cloud",
     baseURL: options.baseURL,
@@ -169,7 +175,36 @@ export function createCloudAuth(options: CloudAuthOptions) {
         verification: schema.authVerification,
       },
     }),
+    hooks: {
+      // Better Auth records `rememberMe: false` as a `dont_remember` cookie
+      // that the TOTP step reads back, but never clears it on a later sign-in
+      // that does want remembering. Without this, one unchecked sign-in makes
+      // every following one in that browser unchecked too.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/sign-in/username") return;
+        if (ctx.body?.rememberMe === false) return;
+        expireCookie(ctx, ctx.context.authCookies.dontRememberToken);
+      }),
+    },
     databaseHooks: {
+      session: {
+        create: {
+          // Mirrors how Better Auth itself decides: a sign-in answers from its
+          // body, while the TOTP step — which creates the session that
+          // survives — only knows the answer through the `dont_remember`
+          // cookie the sign-in left behind.
+          before: async (session, context) => {
+            if (!context) return;
+            const rememberMe = context.path.startsWith("/sign-in/")
+              ? context.body?.rememberMe !== false
+              : !(await context.getSignedCookie(
+                  context.context.authCookies.dontRememberToken.name,
+                  context.context.secret,
+                ));
+            return { data: { ...session, rememberMe } };
+          },
+        },
+      },
       user: {
         update: {
           after: async (authUser) => {
@@ -277,6 +312,12 @@ export function createCloudAuth(options: CloudAuthOptions) {
         clientRegistrationDefaultResources: [oauth.resources.mcp],
         m2mAccessTokenExpiresIn: MACHINE_ACCESS_TOKEN_SECONDS,
         refreshTokenReuseInterval: REFRESH_REUSE_GRACE_SECONDS,
+        // Three hooks, one feature: remember-me sessions get a stable,
+        // non-expiring refresh handle. The request must run inside
+        // `withOAuthRequestState` for them to see each other.
+        storeTokens: rememberMe.storeTokens,
+        customTokenResponseFields: rememberMe.customTokenResponseFields,
+        formatRefreshToken: rememberMe.formatRefreshToken,
         clientPrivileges: async ({ user }) =>
           user ? isActiveSuperuser(options.db, user.id) : false,
         customAccessTokenClaims: async ({ user, scopes, metadata }) => {
@@ -311,6 +352,14 @@ export function createCloudAuth(options: CloudAuthOptions) {
       }),
     ] as const,
     session: {
+      additionalFields: {
+        rememberMe: {
+          defaultValue: false,
+          input: false,
+          required: false,
+          type: "boolean",
+        },
+      },
       expiresIn: SESSION_EXPIRES_IN_SECONDS,
       modelName: "authSession",
       updateAge: SESSION_UPDATE_AGE_SECONDS,

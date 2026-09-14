@@ -367,9 +367,26 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 - **Keep web's Mongo `user` collection.** Sign-in no longer uses it, but agent
   memory reads its one document as the owner's identity and its `_id` as the
   owner node's id. `session`, `account` and `verification` are dead.
+- **"Remember me" is a refresh-token handle, not a longer session.** The
+  login checkbox (default on) flags the cloud session (`auth_session.remember_me`,
+  0045), and a first-party client (`skipConsent`: web, desktop) authorizing from
+  such a session receives `rm_<family>.<hmac>` in place of a refresh token — a
+  stable name for the grant's `authorizationCodeId` family. The provider still
+  rotates rows underneath; `apps/api/src/auth/remember-me.ts` resolves the handle
+  to the family's live row and stamps it non-expiring, so a phone that lost a
+  token response is still signed in and nothing runs out until the handle is
+  revoked (sign-out, MFA reset, account gone). MCP clients are excluded and keep
+  30-day rotating tokens. The cloud session's own 24 h is untouched. Two plugin
+  facts the module is built around: refresh tokens are SHA-256 hashed at rest
+  (`storeTokens` is now ours so the hash is pinned), and
+  `formatRefreshToken.encrypt` is called **synchronously** — its result is
+  concatenated, not awaited — so the awaited hooks resolve everything into
+  `AsyncLocalStorage` state first, which is why `app.ts` wraps the auth handler
+  in `withOAuthRequestState`. Unchecked is Better Auth's real `rememberMe:
+  false`: a browser-session cookie, rotating tokens as before.
 
 Rollout order for anything touching this: apply cloud-core migrations (0043
-OAuth tables, 0044 issuer) → roll the API (manual approval) → deploy auth and
+OAuth tables, 0044 issuer, 0045 remember-me) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop

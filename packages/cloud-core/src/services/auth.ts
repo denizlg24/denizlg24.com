@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { type ApiKeyScope, apiKeyScopeSchema } from "@repo/schemas/cloud";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
   apiKeys,
+  authOauthRefreshToken,
   authSession,
   authTwoFactor,
   authUser,
@@ -116,6 +117,18 @@ export async function resetUserMfa(
     await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
     await tx.delete(authTwoFactor).where(eq(authTwoFactor.userId, userId));
     await tx.delete(authSession).where(eq(authSession.userId, userId));
+    // Grants only fail the superuser check until TOTP is re-enrolled, and a
+    // remember-me grant never expires, so it would come back to life with
+    // the re-enrollment.
+    await tx
+      .update(authOauthRefreshToken)
+      .set({ revoked: new Date() })
+      .where(
+        and(
+          eq(authOauthRefreshToken.userId, userId),
+          isNull(authOauthRefreshToken.revoked),
+        ),
+      );
     await tx
       .update(authUser)
       .set({

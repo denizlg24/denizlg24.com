@@ -12,7 +12,9 @@ import {
 import {
   authJwks,
   authOauthClient,
+  authOauthRefreshToken,
   authOauthResource,
+  authSession,
   authVerification,
 } from "@repo/cloud-core/db/schema";
 import { oauthClientCredentialsSchema } from "@repo/schemas/cloud";
@@ -22,6 +24,7 @@ import { z } from "zod";
 
 import { createCloudApiApp } from "../app";
 import { createCloudAuth } from "./better-auth";
+import { isRememberMeHandle } from "./remember-me";
 
 const integrationUrl = process.env.CLOUD_AUTH_FLOW_TEST_DATABASE_URL;
 const integrationTest = integrationUrl ? it : it.skip;
@@ -50,9 +53,11 @@ const tokenSchema = z.object({
 });
 const redirectSchema = z.object({ redirect: z.literal(true), url: z.string() });
 
+/** What a browser would send back: expired entries are dropped, not sent empty. */
 function cookieHeader(headers: Headers): string {
   return headers
     .getSetCookie()
+    .filter((cookie) => !/;\s*max-age=0(;|$)/i.test(cookie))
     .map((cookie) => cookie.split(";", 1)[0])
     .filter((cookie) => cookie !== undefined)
     .join("; ");
@@ -116,10 +121,13 @@ describe("cloud OAuth authorization server", () => {
         trustedOrigins: [AUTH_APP],
       });
 
+      // Two sessions per user, both opened before TOTP is switched on so the
+      // sign-in itself creates them: `cookie` is the default remember-me
+      // sign-in, `plainCookie` the unchecked one.
       const seedUser = async (
         username: string,
         role: "superuser" | "user",
-      ): Promise<{ id: string; cookie: string }> => {
+      ): Promise<{ id: string; cookie: string; plainCookie: string }> => {
         const id = crypto.randomUUID();
         const password = `${username}-password-123`;
         const hash = await Bun.password.hash(password, {
@@ -162,18 +170,38 @@ describe("cloud OAuth authorization server", () => {
           updatedAt: now,
           username,
         });
+        const plainSignIn = await auth.api.signInUsername({
+          body: { password, username, rememberMe: false },
+          returnHeaders: true,
+        });
+        // Sent with the `dont_remember` cookie the unchecked sign-in left
+        // behind, which Better Auth would otherwise carry into this session.
         const signIn = await auth.api.signInUsername({
           body: { password, username },
+          headers: { cookie: cookieHeader(plainSignIn.headers) },
           returnHeaders: true,
         });
         await db
           .update(authUser)
           .set({ twoFactorEnabled: true })
           .where(eq(authUser.id, id));
-        return { id, cookie: cookieHeader(signIn.headers) };
+        return {
+          id,
+          cookie: cookieHeader(signIn.headers),
+          plainCookie: cookieHeader(plainSignIn.headers),
+        };
       };
 
       const owner = await seedUser("owner", "superuser");
+      const ownerSessions = await db.query.authSession.findMany({
+        columns: { rememberMe: true },
+        where: eq(authSession.userId, owner.id),
+        orderBy: (session, { asc }) => asc(session.createdAt),
+      });
+      expect(ownerSessions.map((session) => session.rememberMe)).toEqual([
+        false,
+        true,
+      ]);
       const request = (path: string, init: RequestInit = {}) =>
         app.request(`${API}${path}`, init);
       const tokenRequest = (
@@ -275,6 +303,9 @@ describe("cloud OAuth authorization server", () => {
         ).json(),
       );
       expect(mcpTokens.refresh_token).toBeDefined();
+      // A remember-me session does not extend to a self-registered client: it
+      // keeps the ordinary rotating, expiring refresh token.
+      expect(isRememberMeHandle(mcpTokens.refresh_token ?? "")).toBe(false);
 
       const jwks = z
         .object({ keys: z.array(z.record(z.string(), z.unknown())) })
@@ -388,64 +419,121 @@ describe("cloud OAuth authorization server", () => {
       const site = oauthClientCredentialsSchema.parse(
         z.object({ data: z.unknown() }).parse(await createdWeb.json()).data,
       );
-      const sitePkce = await pkce();
-      const siteAuthorize = await request(
-        `/api/auth/oauth2/authorize?${new URLSearchParams({
-          response_type: "code",
-          client_id: site.clientId,
-          redirect_uri: `${WEB}/auth/callback`,
-          scope: "openid offline_access",
-          resource: WEB,
-          state: "site-state",
-          code_challenge: sitePkce.challenge,
-          code_challenge_method: "S256",
-        })}`,
-        { headers: { Cookie: owner.cookie } },
-      );
-      expect(siteAuthorize.status).toBe(302);
-      const siteCallback = new URL(siteAuthorize.headers.get("Location") ?? "");
-      expect(`${siteCallback.origin}${siteCallback.pathname}`).toBe(
-        `${WEB}/auth/callback`,
-      );
-      const siteTokens = tokenSchema.parse(
-        await (
-          await tokenRequest(
-            {
-              grant_type: "authorization_code",
-              code: siteCallback.searchParams.get("code") ?? "",
-              code_verifier: sitePkce.verifier,
-              redirect_uri: `${WEB}/auth/callback`,
-              resource: WEB,
-            },
-            basic(site.clientId, site.clientSecret),
-          )
-        ).json(),
-      );
-      expect(
-        (await verifyFor(WEB)(siteTokens.access_token))?.claims.superuser,
-      ).toBe(true);
-
-      // A request that still carries the pre-rotation cookie replays the old
-      // refresh token; inside the grace window that answers with the same
-      // tokens instead of revoking the grant as a stolen-token replay.
-      const refresh = () =>
+      const siteGrant = async (cookie: string) => {
+        const sitePkce = await pkce();
+        const siteAuthorize = await request(
+          `/api/auth/oauth2/authorize?${new URLSearchParams({
+            response_type: "code",
+            client_id: site.clientId,
+            redirect_uri: `${WEB}/auth/callback`,
+            scope: "openid offline_access",
+            resource: WEB,
+            state: "site-state",
+            code_challenge: sitePkce.challenge,
+            code_challenge_method: "S256",
+          })}`,
+          { headers: { Cookie: cookie } },
+        );
+        expect(siteAuthorize.status).toBe(302);
+        const siteCallback = new URL(
+          siteAuthorize.headers.get("Location") ?? "",
+        );
+        expect(`${siteCallback.origin}${siteCallback.pathname}`).toBe(
+          `${WEB}/auth/callback`,
+        );
+        return tokenSchema.parse(
+          await (
+            await tokenRequest(
+              {
+                grant_type: "authorization_code",
+                code: siteCallback.searchParams.get("code") ?? "",
+                code_verifier: sitePkce.verifier,
+                redirect_uri: `${WEB}/auth/callback`,
+                resource: WEB,
+              },
+              basic(site.clientId, site.clientSecret),
+            )
+          ).json(),
+        );
+      };
+      const siteRefresh = (refreshToken: string) =>
         tokenRequest(
           {
             grant_type: "refresh_token",
-            refresh_token: siteTokens.refresh_token ?? "",
+            refresh_token: refreshToken,
             resource: WEB,
           },
           basic(site.clientId, site.clientSecret),
         );
-      const first = await refresh();
+
+      const siteTokens = await siteGrant(owner.plainCookie);
+      expect(
+        (await verifyFor(WEB)(siteTokens.access_token))?.claims.superuser,
+      ).toBe(true);
+      expect(isRememberMeHandle(siteTokens.refresh_token ?? "")).toBe(false);
+
+      // A request that still carries the pre-rotation cookie replays the old
+      // refresh token; inside the grace window that answers with the same
+      // tokens instead of revoking the grant as a stolen-token replay.
+      const first = await siteRefresh(siteTokens.refresh_token ?? "");
       expect(first.status).toBe(200);
       const rotated = tokenSchema.parse(await first.json());
       expect(rotated.refresh_token).not.toBe(siteTokens.refresh_token);
-      const replay = await refresh();
+      const replay = await siteRefresh(siteTokens.refresh_token ?? "");
       expect(replay.status).toBe(200);
       expect(tokenSchema.parse(await replay.json()).refresh_token).toBe(
         rotated.refresh_token,
       );
+
+      // A remember-me session hands this first-party client a handle that
+      // survives every rotation, so a client that missed a token response is
+      // still holding a live credential.
+      const remembered = await siteGrant(owner.cookie);
+      const handle = remembered.refresh_token ?? "";
+      expect(isRememberMeHandle(handle)).toBe(true);
+      expect(
+        (await verifyFor(WEB)(remembered.access_token))?.claims.superuser,
+      ).toBe(true);
+      for (let i = 0; i < 2; i++) {
+        const refreshed = await siteRefresh(handle);
+        expect(refreshed.status).toBe(200);
+        expect(tokenSchema.parse(await refreshed.json()).refresh_token).toBe(
+          handle,
+        );
+      }
+      // The handle names the family: every rotation of the grant, all sharing
+      // the authorization code they descend from.
+      const familyId = handle.slice("rm_".length).split(".")[0] ?? "";
+      const family = await db.query.authOauthRefreshToken.findMany({
+        columns: { revoked: true, expiresAt: true },
+        where: eq(authOauthRefreshToken.authorizationCodeId, familyId),
+      });
+      expect(family).toHaveLength(3);
+      expect(family.filter((row) => row.revoked === null)).toHaveLength(1);
+      // A row is stamped non-expiring when the handle is resolved to it, ahead
+      // of the plugin's expiry check — so the two rotated-away rows carry the
+      // stamp and the live one gets it on its first use.
+      expect(
+        family
+          .filter((row) => row.revoked !== null)
+          .map((row) => row.expiresAt?.getUTCFullYear()),
+      ).toEqual([9999, 9999]);
+      // A forged handle for the same family is refused without the MAC.
+      expect((await siteRefresh(`rm_${familyId}.forged`)).status).toBe(400);
+
+      const revokeHandle = await request("/api/auth/oauth2/revoke", {
+        method: "POST",
+        headers: {
+          Authorization: basic(site.clientId, site.clientSecret),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          token: handle,
+          token_type_hint: "refresh_token",
+        }),
+      });
+      expect(revokeHandle.status).toBe(200);
+      expect((await siteRefresh(handle)).status).toBe(400);
 
       // The desktop: a public client that gets no secret, redirects to a
       // loopback port chosen at runtime (RFC 8252 §7.3), and authenticates the

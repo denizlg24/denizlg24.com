@@ -2,6 +2,7 @@
 
 import { MIN_PASSWORD_LENGTH } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import { Checkbox } from "@repo/ui/checkbox";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -27,11 +28,14 @@ function LinkButton({
 export function CredentialsForm({
   defaultUsername = "",
   busy,
+  rememberMe,
   onSubmit,
   onSignupRequested,
 }: {
   defaultUsername?: string;
   busy: boolean;
+  /** Renders the checkbox; omit it and `rememberMe` is not reported. */
+  rememberMe?: { checked: boolean; onChange: (checked: boolean) => void };
   onSubmit: (values: {
     username: string;
     password: string;
@@ -72,6 +76,18 @@ export function CredentialsForm({
           onChange={(event) => setPassword(event.target.value)}
         />
       </div>
+      {rememberMe && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="remember-me"
+            checked={rememberMe.checked}
+            onCheckedChange={(checked) => rememberMe.onChange(checked === true)}
+          />
+          <Label htmlFor="remember-me" className="text-xs font-normal">
+            Remember me
+          </Label>
+        </div>
+      )}
       <Button type="submit" disabled={busy || !username || !password}>
         Sign in
       </Button>
