@@ -141,6 +141,7 @@ export const storage: StorageMutations = {
     getStorageSession().mutations.renameFolder(...args),
   scheduleDelete: (...args) =>
     getStorageSession().mutations.scheduleDelete(...args),
+  undoDelete: (...args) => getStorageSession().mutations.undoDelete(...args),
   uploaded: (...args) => getStorageSession().mutations.uploaded(...args),
 };
 
@@ -172,6 +173,8 @@ export interface StorageMutations {
     folderId: string,
     onSettled?: (failures: DeleteFailure[]) => void,
   ): { undo: () => void };
+  /** Cancels the pending delete an id is part of; false when it already went. */
+  undoDelete(id: string): boolean;
   /** The upload queue finalized a file in a folder. */
   uploaded(folderId: string): void;
 }
@@ -355,6 +358,10 @@ export function createStorageMutations(
 
     scheduleDelete(entries, folderId, onSettled) {
       return deletes.schedule(entries, folderId, onSettled);
+    },
+
+    undoDelete(id) {
+      return deletes.undoFor(id);
     },
 
     uploaded(folderId) {

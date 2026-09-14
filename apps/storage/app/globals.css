@@ -8,6 +8,36 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-kind-folder: var(--kind-folder);
+  --color-kind-image: var(--kind-image);
+  --color-kind-video: var(--kind-video);
+  --color-kind-audio: var(--kind-audio);
+  --color-kind-document: var(--kind-document);
+  --color-kind-sheet: var(--kind-sheet);
+  --color-kind-archive: var(--kind-archive);
+}
+
+/* File-kind colours, used only on glyphs and kind badges. Everything else in
+   the app stays monochrome; these exist so a folder of mixed files reads at a
+   glance without a thumbnail. */
+:root {
+  --kind-folder: #c9a86a;
+  --kind-image: #4a8f6a;
+  --kind-video: #7c5cc4;
+  --kind-audio: #c76a9a;
+  --kind-document: #4a7ab0;
+  --kind-sheet: #3f9a7a;
+  --kind-archive: #8b7f6d;
+}
+
+.dark {
+  --kind-folder: #e0c283;
+  --kind-image: #7fc9a0;
+  --kind-video: #b39ce8;
+  --kind-audio: #e89bc2;
+  --kind-document: #8fb4e0;
+  --kind-sheet: #7fd0b0;
+  --kind-archive: #b8ab98;
 }
 
 body {
@@ -24,4 +54,12 @@ body {
 @utility scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+}
+
+/* The lightbox's shared-element open. Browsers without View Transitions fall
+   back to the fade the overlay carries itself. */
+::view-transition-old(lightbox-media),
+::view-transition-new(lightbox-media) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
 }

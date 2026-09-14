@@ -207,3 +207,52 @@ export function fileIcon(filename: string, mimeType: string | null) {
   if (kind === "code" && extensionOf(filename) === "json") return Braces;
   return KIND_ICONS[kind];
 }
+
+/** Colour class for a kind's glyph and badge; monochrome for the rest. */
+export function kindColorClass(kind: FileKind | "folder"): string {
+  switch (kind) {
+    case "folder":
+      return "text-kind-folder";
+    case "image":
+      return "text-kind-image";
+    case "video":
+      return "text-kind-video";
+    case "audio":
+      return "text-kind-audio";
+    case "pdf":
+    case "markdown":
+    case "text":
+    case "code":
+      return "text-kind-document";
+    case "delimited":
+    case "sheet":
+      return "text-kind-sheet";
+    case "archive":
+      return "text-kind-archive";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+const KIND_LABELS: Record<FileKind, string> = {
+  archive: "Archive",
+  audio: "Audio",
+  code: "Code",
+  delimited: "Spreadsheet",
+  font: "Font",
+  image: "Photo",
+  markdown: "Document",
+  other: "File",
+  pdf: "PDF",
+  sheet: "Spreadsheet",
+  text: "Text",
+  video: "Video",
+};
+
+/** What a person would call it: "Photo", not "image/heic". */
+export function kindLabel(filename: string, mimeType: string | null): string {
+  const kind = fileKind(filename, mimeType);
+  const extension = extensionOf(filename);
+  if (kind === "other" && extension) return `${extension.toUpperCase()} file`;
+  return KIND_LABELS[kind];
+}

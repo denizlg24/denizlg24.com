@@ -1,7 +1,5 @@
 "use client";
 
-import { pluralize } from "@repo/cloud-ui/format";
-import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
   ContextMenu,
@@ -10,872 +8,140 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@repo/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@repo/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
-import {
-  ArrowDownUp,
-  Download,
-  FolderInput,
-  FolderPlus,
-  FolderUp,
-  LayoutGrid,
-  List,
-  Rows3,
-  SquareCheck,
-  Trash2,
-  Upload,
-  UploadCloud,
-  X,
-} from "lucide-react";
+import { FolderPlus, SquareCheck, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 import {
-  type DragEvent,
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { toast } from "sonner";
-import { ArchiveToast } from "@/components/archive-toast";
-import { api, errorMessage } from "@/lib/api";
-import {
-  type ArchiveProgress,
-  downloadArchive,
-  triggerDownload,
-} from "@/lib/download";
-import {
-  activeDrag,
-  beginDrag,
-  endDrag,
-  isFileDrag,
-  readDrop,
-} from "@/lib/drag";
-import {
-  type FolderErrorKind,
-  type DeletableEntry as SelectedEntry,
-  storage,
-  UNDO_WINDOW_MS,
-  useFolder,
-  useRoots,
-} from "@/lib/queries";
-import { readDataTransfer, readFileList, uploads } from "@/lib/uploads";
-import { usePreference } from "@/lib/use-preference";
-import { useWindowedRows } from "@/lib/use-windowed-rows";
-import { Breadcrumbs } from "./breadcrumbs";
+  EmptyFolderIllustration,
+  UnreachableIllustration,
+} from "@/components/illustrations";
+import { Lightbox } from "@/components/lightbox";
+import { GhostTile } from "@/components/tile";
+import { useBrowserCommands } from "@/lib/browser-commands";
+import { type FolderErrorKind, useRoots } from "@/lib/queries";
+import { uploads, useUploads } from "@/lib/uploads";
+import { FolderHeader } from "./folder-header";
 import { InlineName } from "./inline-name";
+import { ItemRow, ItemTile } from "./item-view";
+import { SelectionBar } from "./selection-bar";
 import {
-  type BrowserController,
-  type Density,
-  ItemRow,
-  ItemTile,
-} from "./item-view";
-import { MovePicker } from "./move-picker";
-import { PreviewOverlay } from "./preview-overlay";
-import {
-  type BrowserRow,
-  SORT_DIRECTIONS,
-  SORT_KEYS,
-  SORT_LABELS,
-  type SortDirection,
-  type SortKey,
-  sortRows,
-  toRows,
-} from "./rows";
-
-const VIEWS = ["grid", "list"] as const;
-const DENSITIES = ["comfortable", "compact"] as const;
-
-/**
- * Rows are draggable, and a drag the browser starts between two fast clicks
- * suppresses the native `dblclick` entirely — the item just ends up selected.
- * Counting the clicks ourselves keeps opening independent of that. Matches the
- * Windows double-click default.
- */
-const DOUBLE_CLICK_MS = 500;
-
-function toEntries(rows: BrowserRow[]): SelectedEntry[] {
-  return rows.map((row) => ({ id: row.id, name: row.name, type: row.type }));
-}
+  type BrowserState,
+  useBrowserController,
+  useReadFileInput,
+} from "./use-browser-controller";
 
 export function Browser({ folderId }: { folderId: string }) {
+  const browser = useBrowserController(folderId);
   const router = useRouter();
-  const state = useFolder(folderId);
   const roots = useRoots();
+  const {
+    controller,
+    creating,
+    density,
+    dropActive,
+    rows,
+    rowWindow,
+    state,
+    view,
+  } = browser;
 
-  const [view, setView] = usePreference<(typeof VIEWS)[number]>(
-    "view",
-    "grid",
-    VIEWS,
+  const filesInput = useReadFileInput(
+    browser.filesInputRef,
+    browser.startUpload,
   );
-  const [density, setDensity] = usePreference<Density>(
-    "density",
-    "comfortable",
-    DENSITIES,
+  const folderInput = useReadFileInput(
+    browser.folderInputRef,
+    browser.startUpload,
   );
-  const [sortKey, setSortKey] = usePreference<SortKey>(
-    "sort",
-    "name",
-    SORT_KEYS,
+  const photosInput = useReadFileInput(
+    browser.photosInputRef,
+    browser.startUpload,
   );
-  const [sortDirection, setSortDirection] = usePreference<SortDirection>(
-    "sort-direction",
-    "asc",
-    SORT_DIRECTIONS,
-  );
-
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [deepLinkFile, setDeepLinkFile] = useState<StorageFile | null>(null);
-  const [dropActive, setDropActive] = useState(false);
-  const [moving, setMoving] = useState(false);
-  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
-
-  const paneRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const filesInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const anchorIndex = useRef<number | null>(null);
-  const dragDepth = useRef(0);
-  const lastClick = useRef<{ id: string; at: number } | null>(null);
-
-  const rows = useMemo(
-    () =>
-      sortRows(
-        toRows(
-          state.subfolders.filter((folder) => folder.deleteAt === null),
-          state.files.filter((file) => file.deleteAt === null),
-        ),
-        sortKey,
-        sortDirection,
-      ),
-    [state.subfolders, state.files, sortKey, sortDirection],
-  );
-  const rowsById = useMemo(
-    () => new Map(rows.map((row) => [row.id, row])),
-    [rows],
+  const cameraInput = useReadFileInput(
+    browser.cameraInputRef,
+    browser.startUpload,
   );
 
-  // Geometry mirrors the row/tile classes below; it only has to be close
-  // enough to keep the scrollbar honest and the overscan covering the gap.
-  const rowWindow = useWindowedRows({
-    count: rows.length,
-    scrollRef,
-    estimateLineHeight:
-      view === "list"
-        ? density === "compact"
-          ? 33
-          : 41
-        : density === "compact"
-          ? 116
-          : 140,
-    minTileWidth:
-      view === "grid" ? (density === "compact" ? 112 : 144) : undefined,
-    // Mirrors the grid's `gap-1 p-3` below.
-    tileGap: 4,
-    gridPaddingX: 24,
-  });
-
-  // A folder switch must not carry selection or an open preview across.
-  useEffect(() => {
-    setSelection(new Set());
-    setFocusedId(null);
-    setRenamingId(null);
-    setCreating(false);
-    anchorIndex.current = null;
-  }, [folderId]);
-
-  // A folder this client just created can answer 404 while the projection
-  // catches up; the data layer re-resolves it by name and says where it went.
-  useEffect(() => {
-    if (state.relocatedTo) router.replace(`/folders/${state.relocatedTo}`);
-  }, [state.relocatedTo, router]);
-
-  // Deep links from search land straight on a file.
-  useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get(
-      "preview",
-    );
-    if (requested) setPreviewId(requested);
-  }, [folderId]);
-
-  const syncPreviewUrl = useCallback((id: string | null) => {
-    const url = new URL(window.location.href);
-    if (id) url.searchParams.set("preview", id);
-    else url.searchParams.delete("preview");
-    window.history.replaceState(null, "", url);
-  }, []);
-
-  const openPreview = useCallback(
-    (id: string | null) => {
-      setPreviewId(id);
-      if (id === null) setDeepLinkFile(null);
-      syncPreviewUrl(id);
-    },
-    [syncPreviewUrl],
-  );
-
-  const previewInPage =
-    previewId !== null && state.files.some((file) => file.id === previewId);
-
-  // Only the pages loaded so far live in `state.files`, but a search result can
-  // point at a file well past the first page. Rather than paging until it turns
-  // up, fetch that one file and preview it on its own.
-  useEffect(() => {
-    if (!previewId || previewInPage || state.loading) return;
-    if (deepLinkFile?.id === previewId) return;
-    let active = true;
-    api
-      .file(previewId)
-      .then((file) => {
-        if (active) setDeepLinkFile(file);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        toast.error("Couldn't open that file", {
-          description: errorMessage(error),
-        });
-        openPreview(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [previewId, previewInPage, state.loading, deepLinkFile, openPreview]);
-
-  const previewFiles = previewInPage
-    ? state.files
-    : deepLinkFile
-      ? [deepLinkFile]
-      : [];
-
-  const clearSelection = useCallback(() => {
-    setSelection(new Set());
-    anchorIndex.current = null;
-  }, []);
-
-  const scopeOf = useCallback(
-    (row: BrowserRow): BrowserRow[] => {
-      if (!selection.has(row.id) || selection.size <= 1) return [row];
-      return rows.filter((candidate) => selection.has(candidate.id));
-    },
-    [rows, selection],
-  );
-
-  const selectedRows = useMemo(
-    () => rows.filter((row) => selection.has(row.id)),
-    [rows, selection],
-  );
-
-  const onPointerSelect = useCallback(
-    (row: BrowserRow, event: React.MouseEvent) => {
-      const index = rows.findIndex((candidate) => candidate.id === row.id);
-      setFocusedId(row.id);
-      if (event.shiftKey && anchorIndex.current !== null) {
-        const [from, to] = [anchorIndex.current, index].sort((a, b) => a - b);
-        setSelection(
-          new Set(rows.slice(from, to + 1).map((candidate) => candidate.id)),
-        );
-        return;
-      }
-      if (event.metaKey || event.ctrlKey) {
-        setSelection((current) => {
-          const next = new Set(current);
-          if (next.has(row.id)) next.delete(row.id);
-          else next.add(row.id);
-          return next;
-        });
-        anchorIndex.current = index;
-        return;
-      }
-      anchorIndex.current = index;
-      setSelection(new Set([row.id]));
-    },
-    [rows],
-  );
-
-  const onToggleSelect = useCallback(
-    (row: BrowserRow) => {
-      anchorIndex.current = rows.findIndex(
-        (candidate) => candidate.id === row.id,
-      );
-      setSelection((current) => {
-        const next = new Set(current);
-        if (next.has(row.id)) next.delete(row.id);
-        else next.add(row.id);
-        return next;
-      });
-    },
-    [rows],
-  );
-
-  const onOpen = useCallback(
-    (row: BrowserRow) => {
-      if (row.type === "folder") {
-        router.push(`/folders/${row.id}`);
-        return;
-      }
-      openPreview(row.id);
-    },
-    [openPreview, router],
-  );
-
-  const onRowClick = useCallback(
-    (row: BrowserRow, event: React.MouseEvent) => {
-      const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey;
-      const previous = lastClick.current;
-      if (
-        plain &&
-        previous?.id === row.id &&
-        event.timeStamp - previous.at <= DOUBLE_CLICK_MS
-      ) {
-        lastClick.current = null;
-        onOpen(row);
-        return;
-      }
-      lastClick.current = plain ? { id: row.id, at: event.timeStamp } : null;
-      onPointerSelect(row, event);
-    },
-    [onOpen, onPointerSelect],
-  );
-
-  const onCommitRename = useCallback(
-    async (row: BrowserRow, name: string) => {
-      setRenamingId(null);
-      try {
-        if (row.type === "folder") {
-          await storage.renameFolder(row.id, folderId, name);
-        } else {
-          await storage.renameFile(row.id, folderId, name);
+  // The shell's Upload button and the phone's `+` act on whichever folder is
+  // open; this is the page answering.
+  useBrowserCommands(
+    useCallback(
+      (command) => {
+        switch (command) {
+          case "new-folder":
+            browser.startCreateFolder();
+            break;
+          case "upload-files":
+            browser.filesInputRef.current?.click();
+            break;
+          case "upload-folder":
+            browser.folderInputRef.current?.click();
+            break;
+          case "upload-photos":
+            browser.photosInputRef.current?.click();
+            break;
+          case "take-photo":
+            browser.cameraInputRef.current?.click();
+            break;
         }
-      } catch (error) {
-        toast.error("Couldn't rename that", {
-          description: errorMessage(error),
-        });
-      }
-    },
-    [folderId],
+      },
+      [browser],
+    ),
   );
 
-  const onDelete = useCallback(
-    (targets: BrowserRow[]) => {
-      if (targets.length === 0) return;
-      const entries = toEntries(targets);
-      const subject =
-        targets.length === 1
-          ? (targets[0]?.name ?? "item")
-          : pluralize(targets.length, "item");
-      const { undo } = storage.scheduleDelete(entries, folderId, (failures) => {
-        if (failures.length === 0) return;
-        toast.error(`Couldn't delete ${pluralize(failures.length, "item")}`, {
-          description: failures[0]?.message,
-        });
-      });
-      clearSelection();
-      setFocusedId(null);
-
-      // The delete is still only local until the window closes, so the toast
-      // counts down rather than claiming it is already gone. Undo has to stop
-      // the countdown as well: re-rendering a dismissed toast by id revives it,
-      // so a surviving interval puts the toast back a second after Undo.
-      let countdown: ReturnType<typeof setInterval> | undefined;
-      let toastId: string | number | undefined;
-      const stopCountdown = () => {
-        if (countdown) clearInterval(countdown);
-        countdown = undefined;
-      };
-      const cancel = () => {
-        stopCountdown();
-        toast.dismiss(toastId);
-        undo();
-      };
-      toastId = toast(`Deleting ${subject}`, {
-        description: `${Math.round(UNDO_WINDOW_MS / 1000)}s to undo`,
-        action: { label: "Undo", onClick: cancel },
-        duration: UNDO_WINDOW_MS,
-      });
-      const deadline = Date.now() + UNDO_WINDOW_MS;
-      countdown = setInterval(() => {
-        const remaining = Math.ceil((deadline - Date.now()) / 1000);
-        if (remaining <= 0) {
-          stopCountdown();
-          return;
-        }
-        toast(`Deleting ${subject}`, {
-          id: toastId,
-          description: `${remaining}s to undo`,
-          action: { label: "Undo", onClick: cancel },
-          duration: remaining * 1000,
-        });
-      }, 1000);
-    },
-    [clearSelection, folderId],
-  );
-
-  const runMove = useCallback(
-    async (targets: BrowserRow[], targetFolderId: string) => {
-      if (targets.length === 0 || targetFolderId === folderId) return;
-      setMoving(true);
-      const result = await storage.move(
-        toEntries(targets),
-        folderId,
-        targetFolderId,
-      );
-      setMoving(false);
-      clearSelection();
-      if (result.failures.length > 0) {
-        toast.error(
-          `Couldn't move ${pluralize(result.failures.length, "item")}`,
-          {
-            description: result.failures[0]?.message,
-          },
-        );
-      } else if (result.moved > 0) {
-        toast.success(`Moved ${pluralize(result.moved, "item")}`);
-      }
-    },
-    [clearSelection, folderId],
-  );
-
-  const onDownload = useCallback(async (targets: BrowserRow[]) => {
-    if (targets.length === 0) return;
-    const single = targets[0];
-    if (targets.length === 1 && single?.type === "file") {
-      triggerDownload(api.url.fileDownload(single.id), single.name);
-      return;
-    }
-    const label =
-      targets.length === 1 && single
-        ? single.name
-        : pluralize(targets.length, "item");
-    const card = (progress: ArchiveProgress) => (
-      <ArchiveToast label={`Zipping ${label}`} progress={progress} />
-    );
-    const toastId = toast.custom(
-      () => card({ writtenBytes: 0, totalBytes: 0, percent: 0 }),
-      { duration: Number.POSITIVE_INFINITY },
-    );
-    try {
-      await downloadArchive(
-        {
-          fileIds: targets
-            .filter((row) => row.type === "file")
-            .map((row) => row.id),
-          folderIds: targets
-            .filter((row) => row.type === "folder")
-            .map((row) => row.id),
-        },
-        (progress) =>
-          toast.custom(() => card(progress), {
-            id: toastId,
-            duration: Number.POSITIVE_INFINITY,
-          }),
-      );
-      // Dismissing first: sonner keeps the custom node when a toast is updated
-      // in place, so the success message would never replace the card.
-      toast.dismiss(toastId);
-      toast.success("Your ZIP is ready");
-    } catch (error) {
-      toast.dismiss(toastId);
-      toast.error("Couldn't build that ZIP", {
-        description: errorMessage(error),
-      });
-    }
-  }, []);
-
-  const controller: BrowserController = {
-    // A folder cannot swallow itself or anything currently being dragged —
-    // the server rejects it as CIRCULAR_MOVE, so refusing the drop outright
-    // beats letting it land and reporting a failure.
-    canDropInto: (targetId) => {
-      if (targetId === folderId || selection.has(targetId)) return false;
-      const drag = activeDrag();
-      return !drag?.entries.some((entry) => entry.id === targetId);
-    },
-    focusedId,
-    folderId,
-    moving,
-    onCancelRename: () => setRenamingId(null),
-    onCommitRename: (row, name) => void onCommitRename(row, name),
-    onDelete,
-    onDownload: (targets) => void onDownload(targets),
-    onDragEnd: endDrag,
-    onDragStart: (row, event) => {
-      const scope = scopeOf(row);
-      beginDrag(event.dataTransfer, {
-        entries: toEntries(scope),
-        sourceFolderId: folderId,
-      });
-    },
-    onDropInto: (targetFolderId, event) => {
-      const payload = readDrop(event.dataTransfer);
-      endDrag();
-      if (!payload) return;
-      const targets = payload.entries
-        .map((entry) => rowsById.get(entry.id))
-        .filter((row): row is BrowserRow => row !== undefined);
-      void runMove(targets, targetFolderId);
-    },
-    onMove: (targets, targetFolderId) => void runMove(targets, targetFolderId),
-    onOpen,
-    onRowClick,
-    onStartRename: setRenamingId,
-    onToggleSelect,
-    renamingId,
-    scopeOf,
-    selection,
+  const goHome = () => {
+    const home =
+      roots && "userRoot" in roots ? roots.userRoot : roots?.projectRoot;
+    if (home) router.push(`/folders/${home.id}`);
   };
 
-  const startUpload = useCallback(
-    (files: { file: File; relativeDir: string }[]) => {
-      if (files.length === 0 || !state.folder) return;
-      uploads.add(files, folderId, state.folder.path);
-    },
-    [folderId, state.folder],
-  );
-
-  const onPaneDrop = async (event: DragEvent) => {
-    dragDepth.current = 0;
-    setDropActive(false);
-    if (!isFileDrag(event.dataTransfer)) return;
-    event.preventDefault();
-    startUpload(await readDataTransfer(event.dataTransfer));
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (renamingId || creating || previewId) return;
-    const target = event.target as HTMLElement | null;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement
-    ) {
-      return;
-    }
-    const index = focusedId
-      ? rows.findIndex((row) => row.id === focusedId)
-      : -1;
-    const focusRow = (nextIndex: number) => {
-      const row = rows[Math.max(0, Math.min(rows.length - 1, nextIndex))];
-      if (!row) return;
-      const rowIndex = rows.indexOf(row);
-      setFocusedId(row.id);
-      anchorIndex.current = rowIndex;
-      if (!event.shiftKey) setSelection(new Set([row.id]));
-      else setSelection((current) => new Set([...current, row.id]));
-      // A windowed row is not in the DOM yet, so scrollIntoView would silently
-      // do nothing; the computed offset works either way.
-      rowWindow.scrollToIndex(rowIndex);
-      paneRef.current
-        ?.querySelector(`[data-row-id="${row.id}"]`)
-        ?.scrollIntoView({ block: "nearest" });
-    };
-
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      event.preventDefault();
-      focusRow(index + 1);
-      return;
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      focusRow(index < 0 ? 0 : index - 1);
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      focusRow(0);
-      return;
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      focusRow(rows.length - 1);
-      return;
-    }
-    if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      setSelection(new Set(rows.map((row) => row.id)));
-      return;
-    }
-    if (event.key === "Escape") {
-      clearSelection();
-      setFocusedId(null);
-      return;
-    }
-    if (event.key === "Enter") {
-      const row = index >= 0 ? rows[index] : undefined;
-      if (row) {
-        event.preventDefault();
-        onOpen(row);
-      }
-      return;
-    }
-    if (event.key === " ") {
-      const row = index >= 0 ? rows[index] : undefined;
-      if (row) {
-        event.preventDefault();
-        onToggleSelect(row);
-      }
-      return;
-    }
-    if (event.key === "F2") {
-      const row = index >= 0 ? rows[index] : undefined;
-      if (row) {
-        event.preventDefault();
-        setRenamingId(row.id);
-      }
-      return;
-    }
-    if (event.key === "Backspace" && state.folder?.parentId) {
-      event.preventDefault();
-      router.push(`/folders/${state.folder.parentId}`);
-      return;
-    }
-    if (event.key === "Delete") {
-      event.preventDefault();
-      onDelete(
-        selectedRows.length > 0
-          ? selectedRows
-          : rows.filter((row) => row.id === focusedId),
-      );
-    }
-  };
-
-  // The draft row renders at the top of the list, so it is off-screen when the
-  // request came from a right-click halfway down the folder.
-  const startCreateFolder = useCallback(() => {
-    setCreating(true);
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, []);
-
-  const createFolder = async (name: string) => {
-    setCreating(false);
-    try {
-      await storage.createFolder(folderId, name);
-    } catch (error) {
-      toast.error("Couldn't create that folder", {
-        description: errorMessage(error),
-      });
-    }
-  };
+  const empty =
+    !state.error && !state.loading && rows.length === 0 && !creating;
 
   return (
     <div
-      ref={paneRef}
+      ref={browser.paneRef}
       tabIndex={-1}
-      onKeyDown={onKeyDown}
-      onDragEnter={(event) => {
-        if (!isFileDrag(event.dataTransfer)) return;
-        dragDepth.current += 1;
-        setDropActive(true);
-      }}
-      onDragOver={(event) => {
-        if (!isFileDrag(event.dataTransfer)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-      }}
-      onDragLeave={() => {
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (dragDepth.current === 0) setDropActive(false);
-      }}
-      onDrop={(event) => void onPaneDrop(event)}
+      onKeyDown={browser.onKeyDown}
+      {...browser.paneHandlers}
       className="relative flex min-h-0 flex-1 flex-col outline-none"
     >
+      <input type="file" multiple className="sr-only" {...filesInput} />
       <input
-        ref={filesInputRef}
-        type="file"
-        multiple
-        className="sr-only"
-        onChange={(event) => {
-          if (event.target.files) startUpload(readFileList(event.target.files));
-          event.target.value = "";
-        }}
-      />
-      <input
-        ref={folderInputRef}
         type="file"
         multiple
         // Directory pickers are still vendor-prefixed everywhere.
         {...{ webkitdirectory: "" }}
         className="sr-only"
-        onChange={(event) => {
-          if (event.target.files) startUpload(readFileList(event.target.files));
-          event.target.value = "";
-        }}
+        {...folderInput}
+      />
+      <input
+        type="file"
+        multiple
+        accept="image/*,video/*"
+        className="sr-only"
+        {...photosInput}
+      />
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        {...cameraInput}
       />
 
-      {selection.size > 0 ? (
-        <div className="sticky top-12 z-20 flex h-12 shrink-0 items-center gap-1 border-b bg-background px-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="Clear selection"
-            onClick={clearSelection}
-          >
-            <X className="size-4" />
-          </Button>
-          <span className="mr-2 text-sm font-medium">
-            {pluralize(selection.size, "item")} selected
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8"
-            onClick={() => void onDownload(selectedRows)}
-          >
-            <Download className="size-3.5" />
-            <span className="hidden sm:inline">Download</span>
-          </Button>
-          <Popover open={bulkMoveOpen} onOpenChange={setBulkMoveOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8">
-                <FolderInput className="size-3.5" />
-                <span className="hidden sm:inline">Move</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-72">
-              <MovePicker
-                entries={toEntries(selectedRows)}
-                sourceFolderId={folderId}
-                busy={moving}
-                onMove={(targetFolderId) => {
-                  setBulkMoveOpen(false);
-                  void runMove(selectedRows, targetFolderId);
-                }}
-              />
-            </PopoverContent>
-          </Popover>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-destructive hover:text-destructive"
-            onClick={() => onDelete(selectedRows)}
-          >
-            <Trash2 className="size-3.5" />
-            <span className="hidden sm:inline">Delete</span>
-          </Button>
-        </div>
+      {browser.selection.size > 0 ? (
+        <SelectionBar browser={browser} />
       ) : (
-        <div className="sticky top-12 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
-          <div className="min-w-0 flex-1 overflow-hidden">
-            {state.folder && (
-              <Breadcrumbs folder={state.folder} ancestors={state.ancestors} />
-            )}
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                aria-label="Sort and view options"
-              >
-                <ArrowDownUp className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={sortKey}
-                onValueChange={(value) => setSortKey(value as SortKey)}
-              >
-                {SORT_KEYS.map((key) => (
-                  <DropdownMenuRadioItem key={key} value={key}>
-                    {SORT_LABELS[key]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={sortDirection}
-                onValueChange={(value) =>
-                  setSortDirection(value as SortDirection)
-                }
-              >
-                <DropdownMenuRadioItem value="asc">
-                  Ascending
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="desc">
-                  Descending
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() =>
-                  setDensity(density === "compact" ? "comfortable" : "compact")
-                }
-              >
-                <Rows3 className="size-3.5" />
-                {density === "compact" ? "Comfortable rows" : "Compact rows"}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={
-              view === "grid" ? "Switch to list view" : "Switch to grid view"
-            }
-            onClick={() => setView(view === "grid" ? "list" : "grid")}
-          >
-            {view === "grid" ? (
-              <List className="size-3.5" />
-            ) : (
-              <LayoutGrid className="size-3.5" />
-            )}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8"
-            onClick={startCreateFolder}
-          >
-            <FolderPlus className="size-3.5" />
-            <span className="hidden sm:inline">New folder</span>
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-8">
-                <Upload className="size-3.5" />
-                <span className="hidden sm:inline">Upload</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => filesInputRef.current?.click()}>
-                Upload files
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => folderInputRef.current?.click()}
-              >
-                Upload a folder
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <FolderHeader browser={browser} />
       )}
 
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            ref={scrollRef}
+            ref={browser.scrollRef}
             className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
           >
             {state.error && (
@@ -883,13 +149,7 @@ export function Browser({ folderId }: { folderId: string }) {
                 kind={state.errorKind ?? "other"}
                 message={state.error}
                 onRetry={state.retry}
-                onHome={() => {
-                  const home =
-                    roots && "userRoot" in roots
-                      ? roots.userRoot
-                      : roots?.projectRoot;
-                  if (home) router.push(`/folders/${home.id}`);
-                }}
+                onHome={goHome}
               />
             )}
 
@@ -897,141 +157,20 @@ export function Browser({ folderId }: { folderId: string }) {
               <LoadingState view={view} />
             )}
 
-            {!state.error &&
-              !state.loading &&
-              rows.length === 0 &&
-              !creating && (
-                <div className="flex flex-col items-center gap-3 px-4 py-20 text-center">
-                  <UploadCloud
-                    className="size-8 text-muted-foreground"
-                    strokeWidth={1.25}
-                  />
-                  <p className="text-sm text-muted-foreground">Empty</p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => filesInputRef.current?.click()}
-                    >
-                      Upload files
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={startCreateFolder}
-                    >
-                      New folder
-                    </Button>
-                  </div>
-                </div>
-              )}
+            {empty && (
+              <EmptyState
+                onUpload={() => browser.filesInputRef.current?.click()}
+                onNewFolder={browser.startCreateFolder}
+              />
+            )}
 
-            {(rows.length > 0 || creating) &&
+            {(rows.length > 0 || creating || !empty) &&
+              !state.error &&
+              !state.loading &&
               (view === "list" ? (
-                // Auto layout, not table-fixed: the metadata columns drop out at
-                // narrow widths and a fixed layout would keep reserving their
-                // width. The name cell claims the slack via w-full/max-w-0.
-                <table className="w-full">
-                  <thead className="sr-only">
-                    <tr>
-                      <th>Select</th>
-                      <th>Name</th>
-                      <th>Size</th>
-                      <th>Last modified</th>
-                      <th>Storage tier</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {creating && (
-                      <tr className="border-b">
-                        <td className="w-px pl-3 pr-2" />
-                        <td className="w-full max-w-0 py-2 pr-3">
-                          <InlineName
-                            initial=""
-                            kind="folder"
-                            placeholder="New folder"
-                            onCommit={(name) => void createFolder(name)}
-                            onCancel={() => setCreating(false)}
-                          />
-                        </td>
-                        <td colSpan={4} />
-                      </tr>
-                    )}
-                    {rowWindow.padTopPx > 0 && (
-                      <tr aria-hidden>
-                        <td
-                          colSpan={6}
-                          style={{ height: rowWindow.padTopPx }}
-                        />
-                      </tr>
-                    )}
-                    {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
-                      <ItemRow
-                        key={row.id}
-                        row={row}
-                        controller={controller}
-                        density={density}
-                      />
-                    ))}
-                    {rowWindow.padBottomPx > 0 && (
-                      <tr aria-hidden>
-                        <td
-                          colSpan={6}
-                          style={{ height: rowWindow.padBottomPx }}
-                        />
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <ListView browser={browser} />
               ) : (
-                <ul
-                  className={cn(
-                    "grid gap-1 p-3",
-                    density === "compact"
-                      ? "grid-cols-[repeat(auto-fill,minmax(7rem,1fr))]"
-                      : "grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]",
-                  )}
-                >
-                  {creating && (
-                    <li className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-3">
-                      <FolderPlus
-                        className="mt-4 size-9 text-muted-foreground"
-                        strokeWidth={1.25}
-                      />
-                      <InlineName
-                        className="w-full"
-                        initial=""
-                        kind="folder"
-                        placeholder="New folder"
-                        onCommit={(name) => void createFolder(name)}
-                        onCancel={() => setCreating(false)}
-                      />
-                    </li>
-                  )}
-                  {rowWindow.padTopPx > 0 && (
-                    <li
-                      aria-hidden
-                      className="col-span-full"
-                      style={{ height: rowWindow.padTopPx }}
-                    />
-                  )}
-                  {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
-                    <ItemTile
-                      key={row.id}
-                      row={row}
-                      controller={controller}
-                      density={density}
-                    />
-                  ))}
-                  {rowWindow.padBottomPx > 0 && (
-                    <li
-                      aria-hidden
-                      className="col-span-full"
-                      style={{ height: rowWindow.padBottomPx }}
-                    />
-                  )}
-                </ul>
+                <GridView browser={browser} />
               ))}
 
             {state.hasMore && state.pagination && (
@@ -1050,17 +189,21 @@ export function Browser({ folderId }: { folderId: string }) {
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52">
-          <ContextMenuItem onSelect={startCreateFolder}>
-            <FolderPlus className="size-3.5" />
+        <ContextMenuContent className="w-56">
+          <ContextMenuItem onSelect={browser.startCreateFolder}>
+            <FolderPlus className="size-4" />
             New folder
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => filesInputRef.current?.click()}>
-            <Upload className="size-3.5" />
+          <ContextMenuItem
+            onSelect={() => browser.filesInputRef.current?.click()}
+          >
+            <Upload className="size-4" />
             Upload files
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => folderInputRef.current?.click()}>
-            <FolderUp className="size-3.5" />
+          <ContextMenuItem
+            onSelect={() => browser.folderInputRef.current?.click()}
+          >
+            <FolderPlus className="size-4" />
             Upload a folder
           </ContextMenuItem>
           {rows.length > 0 && (
@@ -1068,10 +211,10 @@ export function Browser({ folderId }: { folderId: string }) {
               <ContextMenuSeparator />
               <ContextMenuItem
                 onSelect={() =>
-                  setSelection(new Set(rows.map((row) => row.id)))
+                  browser.setSelection(new Set(rows.map((row) => row.id)))
                 }
               >
-                <SquareCheck className="size-3.5" />
+                <SquareCheck className="size-4" />
                 Select all
               </ContextMenuItem>
             </>
@@ -1080,21 +223,260 @@ export function Browser({ folderId }: { folderId: string }) {
       </ContextMenu>
 
       {dropActive && (
-        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-foreground/40 bg-background/80 backdrop-blur-[1px]">
-          <p className="text-sm font-medium">
-            Drop to upload to {state.folder?.name ?? "this folder"}
-          </p>
+        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-background/85 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Upload className="size-8 text-primary" strokeWidth={1.5} />
+            <p className="text-base font-medium">
+              Drop to upload to{" "}
+              {state.folder ? folderTitle(state.folder) : "this folder"}
+            </p>
+          </div>
         </div>
       )}
 
-      {previewId && previewFiles.length > 0 && (
-        <PreviewOverlay
-          files={previewFiles}
-          fileId={previewId}
-          onSelect={openPreview}
-          onClose={() => openPreview(null)}
+      {browser.previewId && browser.previewFiles.length > 0 && (
+        <Lightbox
+          files={browser.previewFiles}
+          fileId={browser.previewId}
+          folderId={folderId}
+          ancestors={state.ancestors}
+          folder={state.folder}
+          onSelect={browser.openPreview}
+          onClose={() => browser.openPreview(null)}
+          onDelete={(file) => {
+            const row = rows.find((candidate) => candidate.id === file.id);
+            if (row) browser.onDelete([row]);
+          }}
+          onRename={(file) => {
+            browser.openPreview(null);
+            controller.onStartRename(file.id);
+          }}
+          onMove={(file, targetFolderId) => {
+            const row = rows.find((candidate) => candidate.id === file.id);
+            if (row) void browser.runMove([row], targetFolderId);
+          }}
         />
       )}
+    </div>
+  );
+}
+
+function folderTitle(folder: { name: string; path: string }): string {
+  if (folder.path === "/shared") return "Family";
+  return folder.path.split("/").filter(Boolean).length === 1
+    ? "My files"
+    : folder.name;
+}
+
+/**
+ * Uploads targeting this folder render as ghost tiles at the top of the grid,
+ * so fifty dropped photos never read as an empty folder. When one finalizes
+ * the server row takes its place by name and the ghost goes.
+ */
+function useGhosts(browser: BrowserState) {
+  const items = useUploads();
+  const names = new Set(browser.rows.map((row) => row.name));
+  return items.filter(
+    (item) =>
+      item.targetFolderId === browser.folderId &&
+      item.status !== "canceled" &&
+      !(item.status === "done" && names.has(item.name)) &&
+      item.status !== "done",
+  );
+}
+
+function CreateDraft({
+  browser,
+  asRow,
+}: {
+  browser: BrowserState;
+  asRow?: boolean;
+}) {
+  const field = (
+    <InlineName
+      className="w-full"
+      initial=""
+      kind="folder"
+      placeholder="New folder"
+      onCommit={(name) => void browser.createFolder(name)}
+      onCancel={() => browser.setCreating(false)}
+    />
+  );
+  const error = browser.createError && (
+    <p className="mt-1 text-xs text-destructive" role="alert">
+      {browser.createError}
+    </p>
+  );
+  if (asRow) {
+    return (
+      <tr className="border-b">
+        <td className="w-px pl-3 pr-2" />
+        <td className="w-full max-w-0 py-2 pr-3">
+          {field}
+          {error}
+        </td>
+        <td colSpan={3} />
+      </tr>
+    );
+  }
+  return (
+    <li className="flex flex-col gap-1.5 rounded-xl border border-dashed p-2">
+      <div
+        className={cn(
+          "flex w-full items-center justify-center rounded-lg bg-muted/30",
+          browser.density === "compact" ? "aspect-square" : "aspect-[4/3]",
+        )}
+      >
+        <FolderPlus className="size-10 text-kind-folder" strokeWidth={1.5} />
+      </div>
+      <div className="px-0.5">
+        {field}
+        {error}
+      </div>
+    </li>
+  );
+}
+
+function GridView({ browser }: { browser: BrowserState }) {
+  const { rows, rowWindow, density, controller } = browser;
+  const ghosts = useGhosts(browser);
+  return (
+    <ul
+      className={cn(
+        "grid gap-2 p-3",
+        density === "compact"
+          ? "grid-cols-[repeat(auto-fill,minmax(128px,1fr))]"
+          : "grid-cols-[repeat(auto-fill,minmax(168px,1fr))]",
+      )}
+      aria-label="Files and folders"
+    >
+      {browser.creating && <CreateDraft browser={browser} />}
+      {ghosts.map((item) => (
+        <GhostTile
+          key={item.id}
+          name={item.name}
+          density={density}
+          status={
+            item.status === "done" || item.status === "canceled"
+              ? "uploading"
+              : item.status
+          }
+          percent={item.size === 0 ? 0 : (item.uploaded / item.size) * 100}
+          onPause={() => uploads.pause(item.id)}
+          onResume={() => uploads.resume(item.id)}
+          onCancel={() => uploads.cancel(item.id)}
+        />
+      ))}
+      {rowWindow.padTopPx > 0 && (
+        <li
+          aria-hidden
+          className="col-span-full"
+          style={{ height: rowWindow.padTopPx }}
+        />
+      )}
+      {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
+        <ItemTile
+          key={row.id}
+          row={row}
+          controller={controller}
+          density={density}
+          longPressHandlers={browser.longPressHandlers}
+        />
+      ))}
+      {rowWindow.padBottomPx > 0 && (
+        <li
+          aria-hidden
+          className="col-span-full"
+          style={{ height: rowWindow.padBottomPx }}
+        />
+      )}
+    </ul>
+  );
+}
+
+function ListView({ browser }: { browser: BrowserState }) {
+  const { rows, rowWindow, density, controller } = browser;
+  const ghosts = useGhosts(browser);
+  return (
+    // Auto layout, not table-fixed: the metadata columns drop out at narrow
+    // widths and a fixed layout would keep reserving their width. The name
+    // cell claims the slack via w-full/max-w-0.
+    <table className="w-full">
+      <thead className="sr-only">
+        <tr>
+          <th>Select</th>
+          <th>Name</th>
+          <th>Size</th>
+          <th>Modified</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {browser.creating && <CreateDraft browser={browser} asRow />}
+        {ghosts.map((item) => (
+          <tr key={item.id} className="border-b opacity-70">
+            <td className="w-px pl-3 pr-2" />
+            <td className="w-full max-w-0 py-2 pr-3">
+              <p className="truncate text-sm">{item.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {item.status === "error"
+                  ? "Upload failed"
+                  : `Uploading · ${item.size === 0 ? 0 : Math.round((item.uploaded / item.size) * 100)}%`}
+              </p>
+            </td>
+            <td colSpan={3} />
+          </tr>
+        ))}
+        {rowWindow.padTopPx > 0 && (
+          <tr aria-hidden>
+            <td colSpan={5} style={{ height: rowWindow.padTopPx }} />
+          </tr>
+        )}
+        {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
+          <ItemRow
+            key={row.id}
+            row={row}
+            controller={controller}
+            density={density}
+            longPressHandlers={browser.longPressHandlers}
+          />
+        ))}
+        {rowWindow.padBottomPx > 0 && (
+          <tr aria-hidden>
+            <td colSpan={5} style={{ height: rowWindow.padBottomPx }} />
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function EmptyState({
+  onUpload,
+  onNewFolder,
+}: {
+  onUpload: () => void;
+  onNewFolder: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-4 px-4 py-20 text-center">
+      <EmptyFolderIllustration className="text-muted-foreground/70" />
+      <div>
+        <p className="text-base font-medium">Nothing here yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Drop files here or use Upload to add some.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={onUpload}>
+          <Upload className="size-4" />
+          Upload files
+        </Button>
+        <Button variant="outline" size="sm" onClick={onNewFolder}>
+          <FolderPlus className="size-4" />
+          New folder
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1133,20 +515,25 @@ function FolderError({
   };
   const { title, detail } = copy[kind];
   return (
-    <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="max-w-sm text-sm text-muted-foreground">{detail}</p>
-      <div className="flex gap-2">
-        {kind === "not-found" || kind === "forbidden" ? (
-          <Button variant="outline" size="sm" onClick={onHome}>
-            Go to My files
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        )}
+    <div className="flex flex-col items-center gap-4 px-4 py-20 text-center">
+      {kind === "unreachable" ? (
+        <UnreachableIllustration className="text-muted-foreground/70" />
+      ) : (
+        <EmptyFolderIllustration className="text-muted-foreground/70" />
+      )}
+      <div>
+        <p className="text-base font-medium">{title}</p>
+        <p className="mt-1 max-w-sm text-sm text-muted-foreground">{detail}</p>
       </div>
+      {kind === "not-found" || kind === "forbidden" ? (
+        <Button variant="outline" size="sm" onClick={onHome}>
+          Go to My files
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      )}
     </div>
   );
 }
@@ -1158,7 +545,7 @@ function LoadingState({ view }: { view: "grid" | "list" }) {
       <div className="divide-y">
         {placeholders.map((index) => (
           <div key={index} className="flex items-center gap-3 px-3 py-2.5">
-            <Skeleton className="size-4" />
+            <Skeleton className="size-7 rounded-md" />
             <Skeleton
               className="h-3.5 flex-1"
               style={{ maxWidth: `${40 + ((index * 13) % 40)}%` }}
@@ -1170,14 +557,17 @@ function LoadingState({ view }: { view: "grid" | "list" }) {
     );
   }
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-1 p-3">
+    <ul className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-2 p-3">
       {placeholders.map((index) => (
-        <div key={index} className="flex flex-col items-center gap-2 p-3">
-          <Skeleton className="mt-4 size-9" />
-          <Skeleton className="h-3 w-4/5" />
-          <Skeleton className="h-2.5 w-10" />
-        </div>
+        <li key={index} className="flex flex-col gap-2 p-2">
+          <Skeleton className="aspect-[4/3] w-full rounded-lg" />
+          <Skeleton
+            className="h-3.5"
+            style={{ width: `${50 + ((index * 17) % 40)}%` }}
+          />
+          <Skeleton className="h-3 w-1/3" />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

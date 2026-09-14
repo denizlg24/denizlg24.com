@@ -1952,8 +1952,10 @@ export class StorageService {
         "Search query must be at least 2 characters",
       );
     }
-    const scope = query.get("scope") === "shared" ? "shared" : "user";
-    if (principal.project && scope === "shared") {
+    const requested = query.get("scope");
+    const scope =
+      requested === "shared" || requested === "all" ? requested : "user";
+    if (principal.project && scope !== "user") {
       throw new StorageServiceError(
         403,
         "ACCESS_DENIED",
@@ -1963,7 +1965,7 @@ export class StorageService {
     const { page, limit } = pagination(query, 50);
     const result = await searchStorageIndex(this.meili, text, {
       scope,
-      ownerId: scope === "user" ? principal.user.id : undefined,
+      ownerId: scope === "shared" ? undefined : principal.user.id,
       rootPath: principal.project ? `/${principal.project.slug}` : undefined,
       page,
       hitsPerPage: limit,

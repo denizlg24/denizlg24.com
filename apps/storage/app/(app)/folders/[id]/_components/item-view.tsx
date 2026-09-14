@@ -1,101 +1,29 @@
 "use client";
 
-import { formatBytes, formatRelative } from "@repo/cloud-ui/format";
-import { Button } from "@repo/ui/button";
+import { formatBytes, formatRelative, pluralize } from "@repo/cloud-ui/format";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@repo/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@repo/ui/dropdown-menu";
-import { Popover, PopoverAnchor, PopoverContent } from "@repo/ui/popover";
 import { cn } from "@repo/ui/utils";
-import { Folder, MoreHorizontal } from "lucide-react";
-import { type ReactNode, useRef, useState } from "react";
+import { Folder } from "lucide-react";
+import { useState } from "react";
 import { Thumbnail } from "@/components/thumbnail";
+import { type Density, Tile, useCountdown } from "@/components/tile";
 import { api } from "@/lib/api";
-import { fileIcon } from "@/lib/file-kind";
+import { fileIcon, fileKind, kindColorClass } from "@/lib/file-kind";
 import { InlineName } from "./inline-name";
-import { ContextActions, DropdownActions, itemActions } from "./item-menu";
-import { MovePicker } from "./move-picker";
+import { ContextActions, ItemMenuButton, useItemActions } from "./item-actions";
 import type { BrowserRow } from "./rows";
-import { SharePanel } from "./share-panel";
+import type { BrowserController } from "./use-browser-controller";
 
-export type Density = "comfortable" | "compact";
+export type { Density };
 
-export interface BrowserController {
-  folderId: string;
-  selection: Set<string>;
-  focusedId: string | null;
-  renamingId: string | null;
-  moving: boolean;
-  /** Selects, and opens when it is the second click on the same row. */
-  onRowClick: (row: BrowserRow, event: React.MouseEvent) => void;
-  onToggleSelect: (row: BrowserRow) => void;
-  onOpen: (row: BrowserRow) => void;
-  onStartRename: (id: string) => void;
-  onCommitRename: (row: BrowserRow, name: string) => void;
-  onCancelRename: () => void;
-  onDelete: (rows: BrowserRow[]) => void;
-  onMove: (rows: BrowserRow[], targetFolderId: string) => void;
-  onDownload: (rows: BrowserRow[]) => void;
-  onDragStart: (row: BrowserRow, event: React.DragEvent) => void;
-  onDragEnd: () => void;
-  onDropInto: (folderId: string, event: React.DragEvent) => void;
-  canDropInto: (folderId: string) => boolean;
-  /** The row plus the rest of the selection when the row is part of it. */
-  scopeOf: (row: BrowserRow) => BrowserRow[];
-}
-
-type Panel = "share" | "move" | null;
-
-function useItem(row: BrowserRow, controller: BrowserController) {
-  const [panel, setPanel] = useState<Panel>(null);
+function useDropTarget(row: BrowserRow, controller: BrowserController) {
   const [dropOver, setDropOver] = useState(false);
-  const pendingPanel = useRef<Exclude<Panel, null> | null>(null);
-  const scope = controller.scopeOf(row);
-
-  /**
-   * Share and move open a popover anchored inside the menu that triggered them.
-   * As that menu closes Radix puts focus back on its trigger, which sits
-   * outside the popover and reads as a dismiss — the panel appeared and
-   * vanished in the same frame. Waiting a frame only narrowed the race; the
-   * menu's own close-autofocus event is the exact moment it is gone, and
-   * preventing that event suppresses the focus restoration that caused the
-   * dismiss. The preview pane has no menu, which is why sharing worked there.
-   */
-  const openPanel = (next: Exclude<Panel, null>) => {
-    pendingPanel.current = next;
-  };
-
-  const onMenuCloseAutoFocus = (event: Event) => {
-    const next = pendingPanel.current;
-    // Every other action still wants the trigger focused again.
-    if (!next) return;
-    pendingPanel.current = null;
-    event.preventDefault();
-    setPanel(next);
-  };
-
-  const actions = itemActions(
-    row,
-    {
-      onDelete: () => controller.onDelete(scope),
-      onDownload: () => controller.onDownload(scope),
-      onMove: () => openPanel("move"),
-      onOpen: () => controller.onOpen(row),
-      onRename: () => controller.onStartRename(row.id),
-      onShare: () => openPanel("share"),
-    },
-    scope.length,
-  );
-
-  const dropHandlers =
+  const handlers =
     row.type === "folder"
       ? {
           onDragLeave: () => setDropOver(false),
@@ -114,203 +42,65 @@ function useItem(row: BrowserRow, controller: BrowserController) {
           },
         }
       : {};
+  return { dropOver, handlers };
+}
 
-  const panelContent =
-    panel === "share" ? (
-      <SharePanel fileId={row.id} filename={row.name} />
-    ) : panel === "move" ? (
-      <MovePicker
-        entries={scope.map((entry) => ({
-          id: entry.id,
-          name: entry.name,
-          type: entry.type,
-        }))}
-        sourceFolderId={controller.folderId}
-        busy={controller.moving}
-        onMove={(targetFolderId) => {
-          setPanel(null);
-          controller.onMove(scope, targetFolderId);
-        }}
-      />
-    ) : null;
+export function rowMeta(row: BrowserRow): string {
+  if (row.type === "folder") {
+    const count = row.childCount
+      ? row.childCount.files + row.childCount.folders
+      : null;
+    return count === null
+      ? "Folder"
+      : count === 0
+        ? "Empty"
+        : pluralize(count, "item");
+  }
+  return `${formatBytes(row.sizeBytes ?? 0)} · ${formatRelative(row.updatedAt)}`;
+}
 
+export function rowIcon(row: Pick<BrowserRow, "type" | "name" | "mimeType">) {
+  if (row.type === "folder") {
+    return { Icon: Folder, color: kindColorClass("folder") };
+  }
   return {
-    actions,
-    dropHandlers,
-    dropOver,
-    onMenuCloseAutoFocus,
-    panel,
-    panelContent,
-    setPanel,
+    Icon: fileIcon(row.name, row.mimeType),
+    color: kindColorClass(fileKind(row.name, row.mimeType)),
   };
 }
 
-function Menu({
-  row,
-  actions,
-  onCloseAutoFocus,
-  panel,
-  panelContent,
-  setPanel,
-  className,
-}: {
-  row: BrowserRow;
-  actions: ReturnType<typeof itemActions>;
-  onCloseAutoFocus: (event: Event) => void;
-  panel: Panel;
-  panelContent: ReactNode;
-  setPanel: (panel: Panel) => void;
-  className?: string;
-}) {
-  return (
-    <Popover
-      open={panel !== null}
-      onOpenChange={(open) => !open && setPanel(null)}
-    >
-      <PopoverAnchor className={cn("flex items-center", className)}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={`Actions for ${row.name}`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <MoreHorizontal className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-56"
-            onCloseAutoFocus={onCloseAutoFocus}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <DropdownActions actions={actions} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </PopoverAnchor>
-      <PopoverContent
-        align="end"
-        className={panel === "share" ? "w-80" : "w-72"}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {panelContent}
-      </PopoverContent>
-    </Popover>
-  );
+export function rowBadge(
+  row: Pick<BrowserRow, "type" | "name" | "mimeType">,
+): string | null {
+  if (row.type === "folder") return null;
+  const kind = fileKind(row.name, row.mimeType);
+  if (kind === "video") return "Video";
+  if (kind === "audio") return "Audio";
+  if (kind === "pdf") return "PDF";
+  return null;
 }
 
-export function ItemRow({
-  row,
-  controller,
-  density,
+function UndoInline({
+  seconds,
+  onUndo,
 }: {
-  row: BrowserRow;
-  controller: BrowserController;
-  density: Density;
+  seconds: number;
+  onUndo: () => void;
 }) {
-  const {
-    actions,
-    dropHandlers,
-    dropOver,
-    onMenuCloseAutoFocus,
-    panel,
-    panelContent,
-    setPanel,
-  } = useItem(row, controller);
-  const selected = controller.selection.has(row.id);
-  const focused = controller.focusedId === row.id;
-  const renaming = controller.renamingId === row.id;
-  const Icon =
-    row.type === "folder" ? Folder : fileIcon(row.name, row.mimeType);
-
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <tr
-          data-row-id={row.id}
-          draggable={!renaming}
-          onDragStart={(event) => controller.onDragStart(row, event)}
-          onDragEnd={controller.onDragEnd}
-          onClick={(event) => controller.onRowClick(row, event)}
-          // Radix does not stop the event, so without this the pane's own
-          // context menu opens behind this one.
-          onContextMenu={(event) => event.stopPropagation()}
-          className={cn(
-            "select-none-drag cursor-default border-b transition-colors last:border-b-0",
-            selected ? "bg-muted/70" : "hover:bg-muted/40",
-            focused && "ring-1 ring-inset ring-ring/60",
-            dropOver && "ring-1 ring-inset ring-foreground/50",
-          )}
-          {...dropHandlers}
-        >
-          <td
-            className={cn(
-              "w-px pl-3 pr-2",
-              density === "compact" ? "py-1" : "py-2",
-            )}
-          >
-            <Checkbox
-              checked={selected}
-              aria-label={`Select ${row.name}`}
-              onClick={(event) => event.stopPropagation()}
-              onCheckedChange={() => controller.onToggleSelect(row)}
-            />
-          </td>
-          {/* w-full plus max-w-0 hands this cell every spare pixel while still
-              giving `truncate` a width to work against. */}
-          <td
-            className={cn(
-              "w-full max-w-0 pr-3",
-              density === "compact" ? "py-1" : "py-2",
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <Icon className="size-4 shrink-0 text-muted-foreground" />
-              {renaming ? (
-                <InlineName
-                  initial={row.name}
-                  kind={row.type === "folder" ? "folder" : "file"}
-                  onCommit={(value) => controller.onCommitRename(row, value)}
-                  onCancel={controller.onCancelRename}
-                />
-              ) : (
-                <span className="truncate text-sm" title={row.name}>
-                  {row.name}
-                </span>
-              )}
-            </div>
-          </td>
-          <td className="hidden whitespace-nowrap px-3 text-right text-xs tabular-nums text-muted-foreground sm:table-cell">
-            {row.sizeBytes === null ? "—" : formatBytes(row.sizeBytes)}
-          </td>
-          <td className="hidden whitespace-nowrap px-3 text-right text-xs text-muted-foreground md:table-cell">
-            {formatRelative(row.updatedAt)}
-          </td>
-          <td className="hidden whitespace-nowrap px-3 text-right text-[10px] uppercase tracking-wide text-muted-foreground lg:table-cell">
-            {row.tier ?? ""}
-          </td>
-          <td className="w-px pr-2 text-right">
-            <Menu
-              row={row}
-              actions={actions}
-              onCloseAutoFocus={onMenuCloseAutoFocus}
-              panel={panel}
-              panelContent={panelContent}
-              setPanel={setPanel}
-              className="justify-end"
-            />
-          </td>
-        </tr>
-      </ContextMenuTrigger>
-      <ContextMenuContent
-        className="w-56"
-        onCloseAutoFocus={onMenuCloseAutoFocus}
+    <span>
+      Deleting in {seconds}s ·{" "}
+      <button
+        type="button"
+        className="font-medium text-foreground underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          onUndo();
+        }}
       >
-        <ContextActions actions={actions} />
-      </ContextMenuContent>
-    </ContextMenu>
+        Undo
+      </button>
+    </span>
   );
 }
 
@@ -318,114 +108,212 @@ export function ItemTile({
   row,
   controller,
   density,
+  longPressHandlers,
 }: {
   row: BrowserRow;
   controller: BrowserController;
   density: Density;
+  longPressHandlers: (row: BrowserRow) => Record<string, unknown>;
 }) {
-  const {
-    actions,
-    dropHandlers,
-    dropOver,
-    onMenuCloseAutoFocus,
-    panel,
-    panelContent,
-    setPanel,
-  } = useItem(row, controller);
+  const { actions, dialog } = useItemActions(row, controller);
+  const { dropOver, handlers } = useDropTarget(row, controller);
   const selected = controller.selection.has(row.id);
-  const focused = controller.focusedId === row.id;
   const renaming = controller.renamingId === row.id;
-  const Icon =
-    row.type === "folder" ? Folder : fileIcon(row.name, row.mimeType);
+  const { Icon, color } = rowIcon(row);
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <li
+        <Tile
           data-row-id={row.id}
-          draggable={!renaming}
+          draggable={!renaming && row.deleteAt === null}
+          onDragStart={(event) => controller.onDragStart(row, event)}
+          onDragEnd={controller.onDragEnd}
+          onClick={(event) => controller.onRowClick(row, event)}
+          // Radix does not stop the event, so without this the pane's own
+          // context menu opens behind this one.
+          onContextMenu={(event) => event.stopPropagation()}
+          {...longPressHandlers(row)}
+          {...handlers}
+          name={row.name}
+          meta={rowMeta(row)}
+          icon={Icon}
+          iconClassName={cn(color, row.type === "folder" && "fill-current")}
+          thumbnailSrc={
+            row.thumbnail && row.deleteAt === null
+              ? api.url.thumbnail(row.id, 256, row.updatedAt)
+              : null
+          }
+          badge={rowBadge(row)}
+          density={density}
+          selected={selected}
+          focused={controller.focusedId === row.id}
+          selectionMode={controller.selectionMode}
+          pending={row.pending}
+          deleteAt={row.deleteAt}
+          onUndoDelete={() => controller.onUndoDelete(row.id)}
+          onToggleSelect={() => controller.onToggleSelect(row)}
+          className={cn(dropOver && "bg-muted/60 ring-2 ring-primary/60")}
+          nameSlot={
+            renaming ? (
+              <InlineName
+                className="w-full"
+                initial={row.name}
+                kind={row.type === "folder" ? "folder" : "file"}
+                onCommit={(value) => controller.onCommitRename(row, value)}
+                onCancel={controller.onCancelRename}
+              />
+            ) : undefined
+          }
+          menu={
+            row.deleteAt === null ? (
+              <ItemMenuButton row={row} actions={actions} />
+            ) : undefined
+          }
+        />
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextActions actions={actions} />
+      </ContextMenuContent>
+      {dialog}
+    </ContextMenu>
+  );
+}
+
+export function ItemRow({
+  row,
+  controller,
+  density,
+  longPressHandlers,
+}: {
+  row: BrowserRow;
+  controller: BrowserController;
+  density: Density;
+  longPressHandlers: (row: BrowserRow) => Record<string, unknown>;
+}) {
+  const { actions, dialog } = useItemActions(row, controller);
+  const { dropOver, handlers } = useDropTarget(row, controller);
+  const selected = controller.selection.has(row.id);
+  const focused = controller.focusedId === row.id;
+  const renaming = controller.renamingId === row.id;
+  const deleting = row.deleteAt !== null;
+  const seconds = useCountdown(row.deleteAt);
+  const { Icon, color } = rowIcon(row);
+  const compact = density === "compact";
+  const undo = () => controller.onUndoDelete(row.id);
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <tr
+          data-row-id={row.id}
+          draggable={!renaming && !deleting}
           onDragStart={(event) => controller.onDragStart(row, event)}
           onDragEnd={controller.onDragEnd}
           onClick={(event) => controller.onRowClick(row, event)}
           onContextMenu={(event) => event.stopPropagation()}
+          data-selected={selected}
+          {...longPressHandlers(row)}
+          {...handlers}
           className={cn(
-            "select-none-drag group relative flex cursor-default flex-col items-center gap-2 rounded-lg border p-3 transition-colors",
-            density === "compact" ? "p-2" : "p-3",
-            selected
-              ? "border-foreground/30 bg-muted/70"
-              : "border-transparent hover:bg-muted/40",
-            focused && "ring-1 ring-ring/60",
-            dropOver && "ring-1 ring-foreground/50",
+            "select-none-drag group cursor-default border-b transition-colors duration-150 last:border-b-0",
+            compact ? "h-9" : "h-11",
+            selected ? "bg-muted/70" : "hover:bg-muted/40",
+            focused && !selected && "ring-1 ring-inset ring-ring/50",
+            dropOver && "ring-2 ring-inset ring-primary/60",
+            (deleting || row.pending) && "opacity-50",
           )}
-          {...dropHandlers}
         >
-          <div
-            className="absolute left-1.5 top-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 data-[selected=true]:opacity-100"
-            data-selected={selected}
-          >
+          <td className="w-px pl-3 pr-2">
             <Checkbox
               checked={selected}
               aria-label={`Select ${row.name}`}
+              className={cn(
+                "transition-opacity",
+                !selected &&
+                  !controller.selectionMode &&
+                  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+              )}
               onClick={(event) => event.stopPropagation()}
               onCheckedChange={() => controller.onToggleSelect(row)}
             />
-          </div>
-          {/* The panel is portalled out, so without data-open its anchor fades
-              away the moment the pointer leaves the tile. */}
-          <div
-            data-open={panel !== null}
-            className="absolute right-0.5 top-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 data-[open=true]:opacity-100"
-          >
-            <Menu
-              row={row}
-              actions={actions}
-              onCloseAutoFocus={onMenuCloseAutoFocus}
-              panel={panel}
-              panelContent={panelContent}
-              setPanel={setPanel}
-            />
-          </div>
-          <Thumbnail
-            src={
-              row.thumbnail
-                ? api.url.thumbnail(row.id, 256, row.updatedAt)
-                : null
-            }
-            alt=""
-            fallback={Icon}
-            className={cn(
-              "mt-3 w-full",
-              density === "compact" ? "aspect-square" : "aspect-[4/3]",
+          </td>
+          {/* w-full plus max-w-0 hands this cell every spare pixel while still
+              giving `truncate` a width to work against. */}
+          <td className="w-full max-w-0 pr-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Thumbnail
+                src={
+                  row.thumbnail && !deleting
+                    ? api.url.thumbnail(row.id, 256, row.updatedAt)
+                    : null
+                }
+                alt=""
+                fallback={Icon}
+                className={cn(
+                  "shrink-0 rounded-md",
+                  compact ? "size-6" : "size-7",
+                )}
+                iconClassName={cn(
+                  compact ? "size-4" : "size-5",
+                  color,
+                  row.type === "folder" && "fill-current",
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                {renaming ? (
+                  <InlineName
+                    initial={row.name}
+                    kind={row.type === "folder" ? "folder" : "file"}
+                    onCommit={(value) => controller.onCommitRename(row, value)}
+                    onCancel={controller.onCancelRename}
+                  />
+                ) : (
+                  <p className="truncate text-sm" title={row.name}>
+                    {row.name}
+                  </p>
+                )}
+                {!compact && !renaming && (
+                  <p className="truncate text-xs text-muted-foreground lg:hidden">
+                    {deleting ? (
+                      <UndoInline seconds={seconds} onUndo={undo} />
+                    ) : row.pending ? (
+                      "Saving…"
+                    ) : (
+                      rowMeta(row)
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+          </td>
+          <td className="hidden whitespace-nowrap px-3 text-right text-sm tabular-nums text-muted-foreground lg:table-cell">
+            {deleting ? (
+              <UndoInline seconds={seconds} onUndo={undo} />
+            ) : row.sizeBytes === null ? (
+              rowMeta(row)
+            ) : (
+              formatBytes(row.sizeBytes)
             )}
-            iconClassName={density === "compact" ? "size-7" : "size-10"}
-          />
-          {renaming ? (
-            <InlineName
-              className="w-full"
-              initial={row.name}
-              kind={row.type === "folder" ? "folder" : "file"}
-              onCommit={(value) => controller.onCommitRename(row, value)}
-              onCancel={controller.onCancelRename}
-            />
-          ) : (
-            <span
-              className="line-clamp-2 w-full break-all text-center text-xs"
-              title={row.name}
-            >
-              {row.name}
-            </span>
-          )}
-          <span className="text-[10px] tabular-nums text-muted-foreground">
-            {row.sizeBytes === null ? "Folder" : formatBytes(row.sizeBytes)}
-          </span>
-        </li>
+          </td>
+          <td className="hidden whitespace-nowrap px-3 text-right text-sm text-muted-foreground lg:table-cell">
+            {formatRelative(row.updatedAt)}
+          </td>
+          <td className="w-px pr-2 text-right">
+            {!deleting && (
+              <ItemMenuButton
+                row={row}
+                actions={actions}
+                className="bg-transparent shadow-none"
+              />
+            )}
+          </td>
+        </tr>
       </ContextMenuTrigger>
-      <ContextMenuContent
-        className="w-56"
-        onCloseAutoFocus={onMenuCloseAutoFocus}
-      >
+      <ContextMenuContent className="w-56">
         <ContextActions actions={actions} />
       </ContextMenuContent>
+      {dialog}
     </ContextMenu>
   );
 }

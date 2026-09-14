@@ -18,8 +18,8 @@ import { activeDrag, endDrag, readDrop } from "@/lib/drag";
 import { storage } from "@/lib/queries";
 
 /** Root folders are named after an owner id, which means nothing to a person. */
-function crumbLabel(crumb: { name: string; path: string }): string {
-  if (crumb.path === "/shared") return "Shared";
+export function crumbLabel(crumb: { name: string; path: string }): string {
+  if (crumb.path === "/shared") return "Family";
   return crumb.path.split("/").filter(Boolean).length === 1
     ? "My files"
     : crumb.name;
@@ -78,9 +78,9 @@ function Crumb({
   };
 
   const className = cn(
-    "max-w-[12rem] truncate rounded px-1.5 py-0.5 transition-colors",
-    current ? "font-medium text-foreground" : "hover:bg-muted",
-    over && "ring-1 ring-inset ring-foreground/40",
+    "max-w-[12rem] truncate rounded-md px-1.5 py-0.5 transition-colors",
+    current ? "text-foreground" : "hover:bg-muted hover:text-foreground",
+    over && "ring-2 ring-inset ring-primary/60",
   );
 
   if (current || !href) {
@@ -100,9 +100,12 @@ function Crumb({
 export function Breadcrumbs({
   folder,
   ancestors,
+  showCurrent = true,
 }: {
   folder: FolderContents["folder"];
   ancestors: FolderCrumb[];
+  /** The header prints the current folder as its title, so the trail may stop short. */
+  showCurrent?: boolean;
 }) {
   const router = useRouter();
   // Deep trees would push the toolbar actions off a phone screen, so only the
@@ -125,7 +128,11 @@ export function Breadcrumbs({
             label={crumbLabel(crumb)}
             href={`/folders/${crumb.id}`}
           />
-          <ChevronRight className="size-3 shrink-0" />
+          {(showCurrent ||
+            index < inline.length - 1 ||
+            collapsed.length > 0) && (
+            <ChevronRight className="size-3.5 shrink-0" />
+          )}
           {index === 0 && collapsed.length > 0 && (
             <>
               <DropdownMenu>
@@ -146,12 +153,16 @@ export function Breadcrumbs({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <ChevronRight className="size-3 shrink-0" />
+              {(showCurrent || index < inline.length - 1) && (
+                <ChevronRight className="size-3.5 shrink-0" />
+              )}
             </>
           )}
         </div>
       ))}
-      <Crumb id={folder.id} label={crumbLabel(folder)} current />
+      {showCurrent && (
+        <Crumb id={folder.id} label={crumbLabel(folder)} current />
+      )}
     </nav>
   );
 }

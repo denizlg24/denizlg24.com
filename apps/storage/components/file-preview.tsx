@@ -71,8 +71,60 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
         Math.min(8, Math.max(0.1, value * (event.deltaY < 0 ? 1.15 : 0.87))),
       );
     };
+    // Pinch zooms; a second tap within 300 ms toggles between fit and 2×.
+    // Both are native listeners for the same reason as wheel: React's are
+    // passive, and the browser would page-zoom instead.
+    let pinchStart: number | null = null;
+    let pinchZoom = 1;
+    let lastTap = 0;
+    const distance = (touches: TouchList) => {
+      const [a, b] = [touches[0], touches[1]];
+      if (!a || !b) return 0;
+      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    };
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        pinchStart = distance(event.touches);
+        setZoom((value) => {
+          pinchZoom = value;
+          return value;
+        });
+        return;
+      }
+      if (event.touches.length === 1) {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          event.preventDefault();
+          setFit((value) => {
+            setZoom(value ? 2 : 1);
+            return !value;
+          });
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
+      }
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || pinchStart === null) return;
+      event.preventDefault();
+      const ratio = distance(event.touches) / pinchStart;
+      setFit(false);
+      setZoom(Math.min(8, Math.max(0.1, pinchZoom * ratio)));
+    };
+    const onTouchEnd = () => {
+      pinchStart = null;
+    };
     stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
+    stage.addEventListener("touchstart", onTouchStart, { passive: false });
+    stage.addEventListener("touchmove", onTouchMove, { passive: false });
+    stage.addEventListener("touchend", onTouchEnd);
+    return () => {
+      stage.removeEventListener("wheel", onWheel);
+      stage.removeEventListener("touchstart", onTouchStart);
+      stage.removeEventListener("touchmove", onTouchMove);
+      stage.removeEventListener("touchend", onTouchEnd);
+    };
   }, []);
 
   return (
@@ -600,12 +652,15 @@ export function FilePreview({
   filename,
   mimeType,
   sizeBytes,
+  poster,
 }: {
   url: string;
   downloadUrl: string;
   filename: string;
   mimeType: string | null;
   sizeBytes: number;
+  /** A frame to show before a video plays; the thumbnail, when there is one. */
+  poster?: string | null;
 }) {
   const kind = fileKind(filename, mimeType);
 
@@ -620,7 +675,9 @@ export function FilePreview({
             caption track available. */}
         <video
           src={url}
+          poster={poster ?? undefined}
           controls
+          playsInline
           className="max-h-full min-h-0 w-auto max-w-full object-contain"
         />
       </div>

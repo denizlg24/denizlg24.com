@@ -24,6 +24,8 @@ export interface UploadItem {
   uploaded: number;
   status: UploadStatus;
   error: string | null;
+  /** The API's code behind `error`, when it gave one. */
+  errorCode: string | null;
   targetFolderId: string;
   /** Bytes/second over the life of the transfer, once it has started. */
   rate: number;
@@ -47,22 +49,42 @@ interface Job {
   rootFolderPath: string;
 }
 
-function tusErrorMessage(error: Error): string {
+function tusError(error: Error): { code: string | null; message: string } {
   const response =
     error instanceof tus.DetailedError ? error.originalResponse : null;
-  if (!response) return "Connection lost";
+  if (!response) return { code: "NETWORK", message: "Connection lost" };
   try {
     const parsed = JSON.parse(response.getBody()) as {
       error?: { code?: string; message?: string };
     };
     if (parsed.error?.code === "FILE_EXISTS") {
-      return "A file with that name is already here";
+      return {
+        code: "FILE_EXISTS",
+        message: "A file with that name is already here",
+      };
     }
-    if (parsed.error?.message) return parsed.error.message;
+    if (parsed.error?.message) {
+      return { code: parsed.error.code ?? null, message: parsed.error.message };
+    }
   } catch {
     // Fall through to the status line below.
   }
-  return `Upload failed (${response.getStatus()})`;
+  return {
+    code: null,
+    message: `Upload failed (${response.getStatus()})`,
+  };
+}
+
+/** `photo.jpg` → `photo (2).jpg`, counting up past any earlier suffix. */
+export function keepBothName(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  const extension = dot > 0 ? filename.slice(dot) : "";
+  const numbered = /^(.*) \((\d+)\)$/.exec(stem);
+  if (numbered?.[1] !== undefined && numbered[2] !== undefined) {
+    return `${numbered[1]} (${Number(numbered[2]) + 1})${extension}`;
+  }
+  return `${stem} (2)${extension}`;
 }
 
 class UploadQueue {
@@ -109,6 +131,7 @@ class UploadQueue {
         upload: null,
         item: {
           error: null,
+          errorCode: null,
           id,
           name: file.name,
           rate: 0,
@@ -230,9 +253,11 @@ class UploadQueue {
         xhr.withCredentials = true;
       },
       onError: (error) => {
+        const failure = tusError(error);
         this.patch(job.item.id, {
           status: "error",
-          error: tusErrorMessage(error),
+          error: failure.message,
+          errorCode: failure.code,
         });
         this.pump();
       },
@@ -272,11 +297,11 @@ class UploadQueue {
     if (!job) return;
     if (job.item.status !== "paused" && job.item.status !== "error") return;
     if (!job.upload) {
-      this.patch(id, { status: "queued", error: null });
+      this.patch(id, { status: "queued", error: null, errorCode: null });
       this.pump();
       return;
     }
-    this.patch(id, { status: "uploading", error: null });
+    this.patch(id, { status: "uploading", error: null, errorCode: null });
     // Backdate the clock by however long the bytes already sent would have
     // taken, so the rate readout resumes instead of spiking. rate is bytes per
     // second and startedAt is milliseconds.
@@ -308,6 +333,54 @@ class UploadQueue {
     for (const [id, job] of this.jobs) {
       if (job.item.status === "error") this.resume(id);
     }
+  }
+
+  pauseAll(): void {
+    for (const [id, job] of this.jobs) {
+      if (job.item.status === "uploading") this.pause(id);
+      else if (job.item.status === "queued")
+        this.patch(id, { status: "paused" });
+    }
+  }
+
+  resumeAll(): void {
+    for (const [id, job] of this.jobs) {
+      if (job.item.status === "paused") this.resume(id);
+    }
+  }
+
+  /**
+   * Re-queues a failed upload under a ` (2)` name. The finalize step refused
+   * the original because a file with that name is already there; the new
+   * name is decided here, before any byte is re-sent.
+   */
+  keepBoth(id: string): void {
+    const job = this.jobs.get(id);
+    if (job?.item.status !== "error") return;
+    const renamed = new File([job.file], keepBothName(job.item.name), {
+      lastModified: job.file.lastModified,
+      type: job.file.type,
+    });
+    this.cancel(id);
+    this.add(
+      [{ file: renamed, relativeDir: job.item.relativeDir }],
+      job.rootFolderId,
+      job.rootFolderPath,
+    );
+  }
+
+  /** Seconds left at the current aggregate rate, or null before any bytes moved. */
+  etaSeconds(): number | null {
+    let rate = 0;
+    let remaining = 0;
+    for (const job of this.jobs.values()) {
+      if (job.item.status === "uploading") rate += job.item.rate;
+      if (job.item.status === "uploading" || job.item.status === "queued") {
+        remaining += Math.max(0, job.item.size - job.item.uploaded);
+      }
+    }
+    if (rate <= 0 || remaining <= 0) return null;
+    return remaining / rate;
   }
 }
 

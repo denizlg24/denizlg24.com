@@ -136,7 +136,8 @@ export async function searchStorageIndex(
   meili: Meilisearch,
   query: string,
   options: {
-    scope: "user" | "shared";
+    /** `all` is the caller's own files plus everything in the family root. */
+    scope: "user" | "shared" | "all";
     ownerId?: string;
     rootPath?: string;
     type?: "file" | "folder";
@@ -144,9 +145,18 @@ export async function searchStorageIndex(
     hitsPerPage?: number;
   },
 ): Promise<StorageSearchResult> {
-  const filterParts = [`scope = "${options.scope}"`];
-  if (options.scope === "user" && options.ownerId) {
-    filterParts.push(`ownerId = "${options.ownerId}"`);
+  const filterParts: string[] = [];
+  if (options.scope === "all") {
+    filterParts.push(
+      options.ownerId
+        ? `(scope = "shared" OR (scope = "user" AND ownerId = "${options.ownerId}"))`
+        : `scope = "shared"`,
+    );
+  } else {
+    filterParts.push(`scope = "${options.scope}"`);
+    if (options.scope === "user" && options.ownerId) {
+      filterParts.push(`ownerId = "${options.ownerId}"`);
+    }
   }
   if (options.rootPath) {
     filterParts.push(`rootPath = "${options.rootPath}"`);

@@ -17,6 +17,8 @@ export interface RowWindow {
   padTopPx: number;
   padBottomPx: number;
   windowed: boolean;
+  /** Tracks the grid packs at the current width; 1 for a list. */
+  columns: number;
   /** Puts a row on screen even when it is not currently mounted. */
   scrollToIndex: (index: number) => void;
 }
@@ -31,9 +33,12 @@ export function useWindowedRows({
 }: {
   count: number;
   scrollRef: RefObject<HTMLElement | null>;
-  /** Height of one line: a table row, or a tile row in grid view. */
-  estimateLineHeight: number;
-  /** Grid views wrap; omit for a single-column list. */
+  /**
+   * Height of one line: a table row, or a tile row in grid view. A tile's
+   * height follows its width, so the grid passes a function of the track.
+   */
+  estimateLineHeight: number | ((tileWidth: number) => number);
+  /** Grid views wrap; omit (or 0) for a single-column list. */
   minTileWidth?: number;
   /** Column gap in px. Must match the grid's `gap-*` or columns overcount. */
   tileGap?: number;
@@ -45,10 +50,12 @@ export function useWindowedRows({
 }): RowWindow {
   const [metrics, setMetrics] = useState({ scrollTop: 0, height: 0, width: 0 });
   const windowed = count > WINDOW_THRESHOLD;
+  // The column count is wanted even below the threshold, for arrow keys.
+  const measureColumns = Boolean(minTileWidth);
 
   useEffect(() => {
     const element = scrollRef.current;
-    if (!element || !windowed) return;
+    if (!element || (!windowed && !measureColumns)) return;
 
     const read = () =>
       setMetrics({
@@ -65,35 +72,45 @@ export function useWindowedRows({
       element.removeEventListener("scroll", read);
       observer.disconnect();
     };
-  }, [scrollRef, windowed]);
+  }, [scrollRef, windowed, measureColumns]);
 
   // auto-fill packs n tracks where n*minTileWidth + (n-1)*tileGap fits the
   // content box, which rearranges to floor((content + gap) / (min + gap)).
   // Dividing raw width by minTileWidth alone overcounts, and a column count
   // one too high shifts the window offset onto the wrong item range.
+  const content = Math.max(0, metrics.width - gridPaddingX);
   const columns = (() => {
-    if (!minTileWidth || metrics.width <= 0) return 1;
-    const content = metrics.width - gridPaddingX;
-    if (content <= 0) return 1;
+    if (!minTileWidth || content <= 0) return 1;
     return Math.max(
       1,
       Math.floor((content + tileGap) / (minTileWidth + tileGap)),
     );
   })();
+  const tileWidth =
+    columns > 0
+      ? Math.max(0, (content - tileGap * (columns - 1)) / columns)
+      : 0;
+  const lineHeight =
+    typeof estimateLineHeight === "function"
+      ? Math.max(
+          1,
+          estimateLineHeight(tileWidth || minTileWidth || 0) + tileGap,
+        )
+      : estimateLineHeight;
 
   const scrollToIndex = useCallback(
     (index: number) => {
       const element = scrollRef.current;
       if (!element || !windowed) return;
       const line = Math.floor(index / columns);
-      const top = line * estimateLineHeight;
-      const bottom = top + estimateLineHeight;
+      const top = line * lineHeight;
+      const bottom = top + lineHeight;
       if (top < element.scrollTop) element.scrollTop = top;
       else if (bottom > element.scrollTop + element.clientHeight) {
         element.scrollTop = bottom - element.clientHeight;
       }
     },
-    [scrollRef, windowed, columns, estimateLineHeight],
+    [scrollRef, windowed, columns, lineHeight],
   );
 
   if (!windowed) {
@@ -103,17 +120,18 @@ export function useWindowedRows({
       padTopPx: 0,
       padBottomPx: 0,
       windowed: false,
+      columns,
       scrollToIndex,
     };
   }
 
   const totalLines = Math.ceil(count / columns);
   const visibleLines = Math.ceil(
-    Math.max(metrics.height, estimateLineHeight) / estimateLineHeight,
+    Math.max(metrics.height, lineHeight) / lineHeight,
   );
   const firstLine = Math.max(
     0,
-    Math.floor(metrics.scrollTop / estimateLineHeight) - OVERSCAN_LINES,
+    Math.floor(metrics.scrollTop / lineHeight) - OVERSCAN_LINES,
   );
   const lastLine = Math.min(
     totalLines,
@@ -123,9 +141,10 @@ export function useWindowedRows({
   return {
     start: firstLine * columns,
     end: Math.min(count, lastLine * columns),
-    padTopPx: firstLine * estimateLineHeight,
-    padBottomPx: Math.max(0, (totalLines - lastLine) * estimateLineHeight),
+    padTopPx: firstLine * lineHeight,
+    padBottomPx: Math.max(0, (totalLines - lastLine) * lineHeight),
     windowed: true,
+    columns,
     scrollToIndex,
   };
 }

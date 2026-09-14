@@ -15,8 +15,10 @@ import {
   issuedSmbCredentialSchema,
   type Pagination,
   paginationSchema,
+  type RecentFile,
   type RenamedFolder,
   type RootFolders,
+  recentFileSchema,
   renamedFolderSchema,
   rootFoldersSchema,
   type SafeUser,
@@ -27,6 +29,8 @@ import {
   type StorageFileDetail,
   type StorageFolder,
   type StorageFolderDetail,
+  type StoragePerson,
+  type StorageUsage,
   safeUserSchema,
   searchResultsSchema,
   sharedFileMetaSchema,
@@ -34,6 +38,8 @@ import {
   smbCredentialSchema,
   storageFileDetailSchema,
   storageFolderDetailSchema,
+  storagePersonSchema,
+  storageUsageSchema,
   type UpdatedFile,
   type UpdateFileInput,
   type UpdateFolderInput,
@@ -218,6 +224,17 @@ export const api = {
   roots: (): Promise<RootFolders> =>
     requestData(rootFoldersSchema, "/api/storage/folders/roots"),
 
+  recent: (limit = 100): Promise<RecentFile[]> =>
+    requestData(z.array(recentFileSchema), "/api/storage/recent", {
+      query: { limit },
+    }),
+
+  people: (): Promise<StoragePerson[]> =>
+    requestData(z.array(storagePersonSchema), "/api/storage/people"),
+
+  usage: (): Promise<StorageUsage> =>
+    requestData(storageUsageSchema, "/api/storage/usage"),
+
   folder: (id: string): Promise<StorageFolderDetail> =>
     requestData(storageFolderDetailSchema, `/api/storage/folders/${id}`),
 
@@ -316,7 +333,7 @@ export const api = {
 
   search: (query: {
     q: string;
-    scope?: "user" | "shared";
+    scope?: "user" | "shared" | "all";
     page?: number;
     limit?: number;
   }): Promise<Paged<SearchResults>> =>

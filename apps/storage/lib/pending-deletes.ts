@@ -111,6 +111,20 @@ export class PendingDeletes {
     };
   }
 
+  /** Undoes the whole batch an id belongs to, as the toast's Undo does. */
+  undoFor(id: string): boolean {
+    for (const batch of this.#batches) {
+      if (batch.committing || !batch.entries.some((e) => e.id === id)) {
+        continue;
+      }
+      clearTimeout(batch.timer);
+      this.#batches.delete(batch);
+      this.#publish();
+      return true;
+    }
+    return false;
+  }
+
   /** Sends every delete still inside its undo window. For pagehide. */
   flush(): void {
     for (const batch of [...this.#batches]) void this.commit(batch, true);

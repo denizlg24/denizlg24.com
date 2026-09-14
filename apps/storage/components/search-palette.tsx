@@ -14,7 +14,11 @@ import { Dialog, DialogContent, DialogTitle } from "@repo/ui/dialog";
 import { Folder, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ScopeToggle, type SearchScope } from "@/components/scope-toggle";
+import {
+  ScopeToggle,
+  type SearchScope,
+  scopeLabel,
+} from "@/components/scope-toggle";
 import { api, errorMessage } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
 
@@ -24,9 +28,12 @@ const DEBOUNCE_MS = 220;
 export function SearchPalette({
   open,
   onOpenChange,
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Enter with no highlighted hit: go to the results page. */
+  onSubmit?: (query: string, scope: SearchScope) => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -100,6 +107,18 @@ export function SearchPalette({
             placeholder="Search files and folders…"
             value={query}
             onValueChange={setQuery}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                hits.length === 0 &&
+                query.trim().length >= MIN_QUERY &&
+                onSubmit
+              ) {
+                event.preventDefault();
+                onSubmit(query.trim(), scope);
+                setQuery("");
+              }
+            }}
           />
           <div className="flex items-center gap-1 border-b px-3 py-1.5">
             <ScopeToggle scope={scope} onChange={setScope} />
@@ -122,8 +141,7 @@ export function SearchPalette({
             )}
             {!error && query.trim().length >= MIN_QUERY && !loading && (
               <CommandEmpty>
-                Nothing matched “{query.trim()}” in{" "}
-                {scope === "user" ? "your files" : "shared files"}.
+                Nothing matched “{query.trim()}” in {scopeLabel(scope)}.
               </CommandEmpty>
             )}
             {hits.length > 0 && (

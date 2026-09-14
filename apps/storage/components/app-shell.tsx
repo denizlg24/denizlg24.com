@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeToggle } from "@repo/cloud-ui/theme";
+import { BottomTabBar } from "@repo/ui/bottom-tab-bar";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -10,113 +11,465 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@repo/ui/sheet";
-import { PanelLeft, Search, UserRound } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle } from "@repo/ui/sheet";
+import { cn } from "@repo/ui/utils";
+import {
+  Camera,
+  ChevronDown,
+  Clock,
+  FolderPlus,
+  FolderUp,
+  HardDrive,
+  Images,
+  Link2,
+  LogOut,
+  MonitorSmartphone,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Settings,
+  Upload,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useState } from "react";
+import { type BrowserCommand, browserCommands } from "@/lib/browser-commands";
+import { useRoots, userRootId } from "@/lib/queries";
 import { FolderTree } from "./folder-tree";
 import { SearchPalette, useSearchHotkey } from "./search-palette";
 import { useSession } from "./session-provider";
-import { UploadDock } from "./upload-dock";
+import { UploadPanel } from "./upload-panel";
+
+function NavLink({
+  href,
+  icon: Icon,
+  label,
+  active,
+  onNavigate,
+}: {
+  href: string;
+  icon: typeof HardDrive;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors",
+        active ? "bg-muted font-medium" : "hover:bg-muted/60",
+      )}
+    >
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{label}</span>
+    </Link>
+  );
+}
+
+/**
+ * The Upload menu is the one primary action in the app. It acts on the
+ * folder that is open; anywhere else it says so rather than doing nothing.
+ */
+function UploadMenu({ inFolder }: { inFolder: boolean }) {
+  const emit = (command: BrowserCommand) => browserCommands.emit(command);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" className="h-9 gap-1.5" disabled={!inFolder}>
+          <Upload className="size-4" />
+          Upload
+          <ChevronDown className="size-3.5 opacity-70" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem onSelect={() => emit("upload-files")}>
+          <Upload className="size-4" />
+          Files
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => emit("upload-folder")}>
+          <FolderUp className="size-4" />
+          Folder
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => emit("new-folder")}>
+          <FolderPlus className="size-4" />
+          New folder
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useSession();
   const params = useParams<{ id?: string }>();
+  const pathname = usePathname();
+  const router = useRouter();
+  const roots = useRoots();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const currentFolderId = params?.id ?? null;
+  const inFolder = pathname.startsWith("/folders/");
 
   const openSearch = useCallback(() => setSearchOpen(true), []);
   useSearchHotkey(openSearch);
 
+  const myFilesId = userRootId(roots);
+  const familyId = roots && "sharedRoot" in roots ? roots.sharedRoot.id : null;
+  const isMyFiles = currentFolderId !== null && currentFolderId === myFilesId;
+  const isFamily = currentFolderId !== null && currentFolderId === familyId;
+  // A subfolder still belongs to one of the two roots; the tree marks the
+  // exact folder, the top links mark the drive.
+  const currentDrive: "mine" | "family" | null = isMyFiles
+    ? "mine"
+    : isFamily
+      ? "family"
+      : null;
+
+  const emitAdd = (command: BrowserCommand) => {
+    setAddOpen(false);
+    browserCommands.emit(command);
+  };
+
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-        <div className="flex h-12 items-center gap-2 px-3 md:px-4">
-          <Sheet open={navOpen} onOpenChange={setNavOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 md:hidden"
-                aria-label="Open folders"
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0">
-              <SheetTitle className="border-b px-4 py-3 text-sm">
-                Folders
-              </SheetTitle>
-              <div className="scrollbar-thin overflow-y-auto">
-                <FolderTree
-                  currentFolderId={currentFolderId}
-                  onNavigate={() => setNavOpen(false)}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          <Link href="/" className="text-sm font-semibold tracking-tight">
-            deniz<span className="text-muted-foreground">cloud</span>
-          </Link>
-
-          <button
-            type="button"
-            onClick={openSearch}
-            className="ml-auto flex h-8 max-w-xs flex-1 items-center gap-2 rounded-md border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 md:ml-6 md:mr-auto"
-          >
-            <Search className="size-3.5 shrink-0" />
-            <span className="truncate">Search files</span>
-            <kbd className="ml-auto hidden shrink-0 rounded border px-1 font-mono text-[10px] sm:block">
-              ⌘K
-            </kbd>
-          </button>
-
-          <ThemeToggle className="size-8 shrink-0" />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label="Account"
-              >
-                <UserRound className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="font-normal">
-                <span className="block truncate text-sm">{user.username}</span>
-                {user.email && (
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {user.email}
-                  </span>
-                )}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/account">Account settings</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void signOut()}>
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
-
+    <div className="flex h-dvh flex-col">
       <div className="flex min-h-0 flex-1">
-        <aside className="scrollbar-thin hidden w-60 shrink-0 overflow-y-auto border-r md:block">
-          <FolderTree currentFolderId={currentFolderId} />
+        <aside className="hidden w-64 shrink-0 flex-col border-r md:flex">
+          <div className="flex h-14 items-center justify-between gap-2 px-4">
+            <Link
+              href="/"
+              className="truncate text-base font-semibold tracking-tight"
+            >
+              Deniz Cloud
+            </Link>
+            <UploadMenu inFolder={inFolder} />
+          </div>
+          <nav
+            className="flex flex-col gap-0.5 px-2 pb-2"
+            aria-label="Sections"
+          >
+            <NavLink
+              href={myFilesId ? `/folders/${myFilesId}` : "/"}
+              icon={HardDrive}
+              label="My files"
+              active={currentDrive === "mine"}
+            />
+            {familyId && (
+              <NavLink
+                href={`/folders/${familyId}`}
+                icon={Users}
+                label="Family"
+                active={currentDrive === "family"}
+              />
+            )}
+            <NavLink
+              href="/recent"
+              icon={Clock}
+              label="Recent"
+              active={pathname === "/recent"}
+            />
+            <NavLink
+              href="/shares"
+              icon={Link2}
+              label="Shared links"
+              active={pathname === "/shares"}
+            />
+          </nav>
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto border-t">
+            <FolderTree currentFolderId={currentFolderId} />
+          </div>
+          <div className="flex items-center gap-1 border-t px-2 py-2">
+            <NavLink
+              href="/devices"
+              icon={MonitorSmartphone}
+              label="Devices"
+              active={pathname === "/devices"}
+            />
+            <NavLink
+              href="/settings"
+              icon={Settings}
+              label="Settings"
+              active={pathname === "/settings"}
+            />
+            <div className="ml-auto flex items-center">
+              <ThemeToggle className="size-8 shrink-0" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 rounded-full"
+                    aria-label="Account"
+                  >
+                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[11px] font-semibold uppercase text-primary-foreground">
+                      {user.username.slice(0, 1)}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel className="font-normal">
+                    <span className="block truncate text-sm">
+                      {user.username}
+                    </span>
+                    {user.email && (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {user.email}
+                      </span>
+                    )}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings">Settings</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void signOut()}>
+                    <LogOut className="size-4" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </aside>
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur md:px-6">
+            <Link
+              href="/"
+              className="truncate text-base font-semibold tracking-tight md:hidden"
+            >
+              Deniz Cloud
+            </Link>
+            <button
+              type="button"
+              onClick={openSearch}
+              className="ml-auto flex h-9 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 md:mx-auto"
+            >
+              <Search className="size-4 shrink-0" />
+              <span className="truncate">Search your files</span>
+              <kbd className="ml-auto hidden shrink-0 rounded border px-1.5 font-mono text-[11px] sm:block">
+                ⌘K
+              </kbd>
+            </button>
+          </header>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col pb-16 md:pb-0">
+            {children}
+          </main>
+        </div>
       </div>
 
-      <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
-      <UploadDock />
+      <BottomTabBar className="md:hidden">
+        <ul className="grid h-16 grid-cols-5">
+          <TabItem
+            href={myFilesId ? `/folders/${myFilesId}` : "/"}
+            icon={HardDrive}
+            label="My files"
+            active={currentDrive === "mine"}
+          />
+          <TabItem
+            href={familyId ? `/folders/${familyId}` : "/"}
+            icon={Users}
+            label="Family"
+            active={currentDrive === "family"}
+          />
+          <TabItem
+            href="/recent"
+            icon={Clock}
+            label="Recent"
+            active={pathname === "/recent"}
+          />
+          <li>
+            <button
+              type="button"
+              onClick={openSearch}
+              className="flex h-full w-full flex-col items-center justify-center gap-1 text-[11px] text-muted-foreground"
+            >
+              <Search className="size-5" />
+              Search
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              className={cn(
+                "flex h-full w-full flex-col items-center justify-center gap-1 text-[11px]",
+                ["/shares", "/devices", "/settings"].includes(pathname)
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              <MoreHorizontal className="size-5" />
+              More
+            </button>
+          </li>
+        </ul>
+      </BottomTabBar>
+
+      {inFolder && (
+        <Button
+          size="icon"
+          aria-label="Add"
+          className="fixed bottom-20 right-4 z-40 size-14 rounded-full shadow-lg md:hidden"
+          onClick={() => setAddOpen(true)}
+        >
+          <Plus className="size-6" />
+        </Button>
+      )}
+
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetTitle className="text-base">{user.username}</SheetTitle>
+          <nav className="mt-2 flex flex-col" aria-label="More">
+            <SheetLink
+              href="/shares"
+              icon={Link2}
+              label="Shared links"
+              onNavigate={() => setMoreOpen(false)}
+            />
+            <SheetLink
+              href="/devices"
+              icon={MonitorSmartphone}
+              label="Devices"
+              onNavigate={() => setMoreOpen(false)}
+            />
+            <SheetLink
+              href="/settings"
+              icon={Settings}
+              label="Settings"
+              onNavigate={() => setMoreOpen(false)}
+            />
+            <button
+              type="button"
+              className="flex h-12 items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-muted/60"
+              onClick={() => void signOut()}
+            >
+              <LogOut className="size-5 text-muted-foreground" />
+              Sign out
+            </button>
+          </nav>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={addOpen} onOpenChange={setAddOpen}>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetTitle className="text-base">Add to this folder</SheetTitle>
+          <div className="mt-2 flex flex-col">
+            <SheetAction
+              icon={Camera}
+              label="Take photo"
+              onClick={() => emitAdd("take-photo")}
+            />
+            <SheetAction
+              icon={Images}
+              label="Choose photos"
+              onClick={() => emitAdd("upload-photos")}
+            />
+            <SheetAction
+              icon={Upload}
+              label="Choose files"
+              onClick={() => emitAdd("upload-files")}
+            />
+            <SheetAction
+              icon={FolderPlus}
+              label="New folder"
+              onClick={() => emitAdd("new-folder")}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <SearchPalette
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onSubmit={(q, scope) => {
+          setSearchOpen(false);
+          router.push(`/search?q=${encodeURIComponent(q)}&scope=${scope}`);
+        }}
+      />
+      <UploadPanel />
     </div>
+  );
+}
+
+function TabItem({
+  href,
+  icon: Icon,
+  label,
+  active,
+}: {
+  href: string;
+  icon: typeof HardDrive;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex h-full w-full flex-col items-center justify-center gap-1 text-[11px]",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />
+        {label}
+      </Link>
+    </li>
+  );
+}
+
+function SheetLink({
+  href,
+  icon: Icon,
+  label,
+  onNavigate,
+}: {
+  href: string;
+  icon: typeof HardDrive;
+  label: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className="flex h-12 items-center gap-3 rounded-md px-2 text-sm hover:bg-muted/60"
+    >
+      <Icon className="size-5 text-muted-foreground" />
+      {label}
+    </Link>
+  );
+}
+
+function SheetAction({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof HardDrive;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-12 items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-muted/60"
+    >
+      <Icon className="size-5 text-muted-foreground" />
+      {label}
+    </button>
   );
 }

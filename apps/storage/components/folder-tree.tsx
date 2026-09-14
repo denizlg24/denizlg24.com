@@ -262,7 +262,7 @@ function rootRows(roots: RootFolders) {
   }
   return [
     { icon: HardDrive, id: roots.userRoot.id, label: "My files" },
-    { icon: Users, id: roots.sharedRoot.id, label: "Shared" },
+    { icon: Users, id: roots.sharedRoot.id, label: "Family" },
   ];
 }
 
