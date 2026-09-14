@@ -9,7 +9,7 @@ import type {
   StorageFolder,
 } from "@repo/schemas/cloud";
 import { useEffect, useSyncExternalStore } from "react";
-import { api, errorMessage } from "./api";
+import { api, errorMessage, isApiError, isUnreachable } from "./api";
 
 export interface FolderState {
   folder: FolderContents["folder"] | null;
@@ -20,6 +20,23 @@ export interface FolderState {
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
+  /** Why the load failed, so the page can say what to do rather than what broke. */
+  errorKind: FolderErrorKind | null;
+}
+
+export type FolderErrorKind =
+  | "not-found"
+  | "forbidden"
+  | "unreachable"
+  | "other";
+
+function classifyError(error: unknown): FolderErrorKind {
+  if (isUnreachable(error)) return "unreachable";
+  if (isApiError(error)) {
+    if (error.status === 404) return "not-found";
+    if (error.status === 403) return "forbidden";
+  }
+  return "other";
 }
 
 const EMPTY: FolderState = {
@@ -31,6 +48,7 @@ const EMPTY: FolderState = {
   loading: true,
   loadingMore: false,
   error: null,
+  errorKind: null,
 };
 
 export interface SelectedEntry {
@@ -135,7 +153,7 @@ class StorageStore {
 
   /** Fetches pages 1..`pages` and replaces the entry with the result. */
   private async load(id: string, pages: number, quiet: boolean): Promise<void> {
-    if (!quiet) this.set(id, { loading: true, error: null });
+    if (!quiet) this.set(id, { loading: true, error: null, errorKind: null });
     try {
       const first = await api.folderContents(id, {
         page: 1,
@@ -160,12 +178,14 @@ class StorageStore {
         loading: false,
         loadingMore: false,
         error: null,
+        errorKind: null,
       });
     } catch (error) {
       this.set(id, {
         loading: false,
         loadingMore: false,
         error: errorMessage(error),
+        errorKind: classifyError(error),
       });
     }
   }

@@ -64,10 +64,12 @@ import {
   readDrop,
 } from "@/lib/drag";
 import {
+  type FolderErrorKind,
   type SelectedEntry,
   store,
   UNDO_WINDOW_MS,
   useFolder,
+  useRoots,
 } from "@/lib/store";
 import { readDataTransfer, readFileList, uploads } from "@/lib/uploads";
 import { usePreference } from "@/lib/use-preference";
@@ -111,6 +113,7 @@ function toEntries(rows: BrowserRow[]): SelectedEntry[] {
 export function Browser({ folderId }: { folderId: string }) {
   const router = useRouter();
   const state = useFolder(folderId);
+  const roots = useRoots();
 
   const [view, setView] = usePreference<(typeof VIEWS)[number]>(
     "view",
@@ -879,16 +882,18 @@ export function Browser({ folderId }: { folderId: string }) {
             className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
           >
             {state.error && (
-              <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-                <p className="text-sm text-muted-foreground">{state.error}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void store.reload(folderId)}
-                >
-                  Try again
-                </Button>
-              </div>
+              <FolderError
+                kind={state.errorKind ?? "other"}
+                message={state.error}
+                onRetry={() => void store.reload(folderId)}
+                onHome={() => {
+                  const home =
+                    roots && "userRoot" in roots
+                      ? roots.userRoot
+                      : roots?.projectRoot;
+                  if (home) router.push(`/folders/${home.id}`);
+                }}
+              />
             )}
 
             {!state.error && state.loading && rows.length === 0 && (
@@ -1094,6 +1099,58 @@ export function Browser({ folderId }: { folderId: string }) {
           onClose={() => openPreview(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Each branch is keyed on the API's status, not its message: a folder deleted
+ * on another device, one the account cannot read, and a Pi that is rebooting
+ * all need a different next step, and "Try again" is only right for the last.
+ */
+function FolderError({
+  kind,
+  message,
+  onHome,
+  onRetry,
+}: {
+  kind: FolderErrorKind;
+  message: string;
+  onHome: () => void;
+  onRetry: () => void;
+}) {
+  const copy: Record<FolderErrorKind, { title: string; detail: string }> = {
+    forbidden: {
+      detail:
+        "It belongs to someone else, or it was moved somewhere you can't see.",
+      title: "You don't have access to this folder",
+    },
+    "not-found": {
+      detail: "It may have been deleted or moved from another device.",
+      title: "This folder was deleted or moved",
+    },
+    other: { detail: message, title: "Couldn't open this folder" },
+    unreachable: {
+      detail: "Check your connection, then try again in a moment.",
+      title: "Can't reach the cloud right now",
+    },
+  };
+  const { title, detail } = copy[kind];
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="max-w-sm text-sm text-muted-foreground">{detail}</p>
+      <div className="flex gap-2">
+        {kind === "not-found" || kind === "forbidden" ? (
+          <Button variant="outline" size="sm" onClick={onHome}>
+            Go to My files
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
