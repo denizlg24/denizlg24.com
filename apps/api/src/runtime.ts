@@ -215,9 +215,24 @@ export async function createRuntimeApp() {
       },
       storageConfig.namespace.mode === "legacy-dual-path",
     );
-    const thumbnails = new ThumbnailService({
+    // The cache is derived data, and a cache that cannot be written is a
+    // reason to show glyphs instead of thumbnails — not to refuse every
+    // request. It took the API down once: the default path sat inside the
+    // namespace mount, which is read-only in the container.
+    const thumbnails = await new ThumbnailService({
       cacheRoot: storageConfig.thumbnailPath,
-    });
+    })
+      .initialize()
+      .then(
+        (service) => service,
+        (error: unknown) => {
+          console.error(
+            `Thumbnails disabled: cache at ${storageConfig.thumbnailPath} is not writable`,
+            error,
+          );
+          return null;
+        },
+      );
     // Declared before the service so the finalize hook can reach it; started
     // after the service is initialized, since warming reads through it.
     let thumbnailWarmer: ThumbnailWarmer | null = null;
@@ -228,10 +243,12 @@ export async function createRuntimeApp() {
       promotions,
       {
         onFileWritten: (fileId) => thumbnailWarmer?.enqueue(fileId),
-        thumbnails,
+        thumbnails: thumbnails ?? undefined,
       },
     );
-    thumbnailWarmer = new ThumbnailWarmer(redis, db, storageService);
+    if (thumbnails) {
+      thumbnailWarmer = new ThumbnailWarmer(redis, db, storageService);
+    }
     const s3CredentialResolver = new S3CredentialResolver(
       db,
       storageConfig.s3.credentialEncryptionKey,
@@ -245,11 +262,10 @@ export async function createRuntimeApp() {
     };
     await Promise.all([
       storageService.initialize(),
-      thumbnails.initialize(),
       ensureStorageSearchIndex(meili),
       initializeS3(s3Config),
     ]);
-    thumbnailWarmer.start();
+    thumbnailWarmer?.start();
     cleanupActions.push(async () => thumbnailWarmer?.stop());
     const cleanupTimer = setInterval(
       () => {

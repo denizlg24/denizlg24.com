@@ -14,6 +14,10 @@ services:
       S3_TEMP_PATH: /data/internal/.s3-v2-temp
       SSD_STORAGE_PATH: /data/capacity/ssd
       STORAGE_ARCHIVE_PATH: /data/internal/.archives
+      # Derived data, so it lives beside the archives on the writable internal
+      # mount. The default (`<SSD>/.thumbs`) is inside the capacity mount,
+      # which is read-only here; on 2026-09-14 that EROFS killed the runtime.
+      STORAGE_THUMBNAIL_PATH: /data/internal/.thumbs
       STORAGE_NAMESPACE_MODE: broker-mounted
       STORAGE_NAMESPACE_PATH: /data/storage
       STORAGE_NAMESPACE_WITNESS_PATH: /data/storage/.denizcloud-mount-witness

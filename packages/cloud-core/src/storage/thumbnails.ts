@@ -115,8 +115,10 @@ export class ThumbnailService {
     return this.#root;
   }
 
-  async initialize(): Promise<void> {
+  /** Creates the cache root; resolves to the service so callers can chain. */
+  async initialize(): Promise<this> {
     await mkdir(this.#root, { recursive: true });
+    return this;
   }
 
   cachePath(source: ThumbnailSource, width: ThumbnailWidth): string {
