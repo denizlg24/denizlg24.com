@@ -23,6 +23,16 @@ Consequences of being single-user — these are hard rules for UI work:
   account" language. Auth is a single admin gate; module-level caches keyed per
   session (not per user) are fine.
 
+**`apps/storage` is the one exception.** It serves Deniz's family — regular
+cloud accounts on Macs, Windows laptops and iPhones — so the three rules above
+invert there: explanatory copy, step-by-step guidance, friendly empty states
+and plain-language labels are required, the default density is comfortable,
+and owner-only detail (tier, checksum, ids) is hidden behind a superuser-only
+pane rather than shown. The design is `docs/internal/plans/021-storage-app-overhaul.md`.
+Family devices join the tailnet under the owner's own Tailscale identity, so
+the network step of any device-setup flow is something the owner does, not
+something a family member can be told to do.
+
 ## Structure
 
 Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at root).
