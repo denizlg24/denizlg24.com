@@ -66,6 +66,9 @@ export function storageRoutes(service: StorageService) {
   const router = new Hono<{ Variables: AuthVariables }>();
 
   router.get("/folders/roots", requireScope("storage:read"));
+  router.get("/recent", requireScope("storage:read"));
+  router.get("/people", requireScope("storage:read"));
+  router.get("/usage", requireScope("storage:read"));
   router.post("/folders", requireScope("storage:write"));
   router.get("/folders/:id", requireScope("storage:read"));
   router.get("/folders/:id/contents", requireScope("storage:read"));
@@ -90,6 +93,34 @@ export function storageRoutes(service: StorageService) {
   router.get("/folders/roots", async (context) => {
     try {
       return context.json({ data: await service.roots(principal(context)) });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/recent", async (context) => {
+    try {
+      const limit = Number(new URL(context.req.url).searchParams.get("limit"));
+      return context.json({
+        data: await service.recentFiles(
+          principal(context),
+          Number.isFinite(limit) && limit > 0 ? limit : 100,
+        ),
+      });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/people", async (context) => {
+    try {
+      context.header("Cache-Control", "private, max-age=300");
+      return context.json({ data: await service.people() });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/usage", async (context) => {
+    try {
+      return context.json({ data: await service.usage(principal(context)) });
     } catch (error) {
       return serviceError(context, error);
     }

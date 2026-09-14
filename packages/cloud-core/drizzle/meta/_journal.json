@@ -330,6 +330,13 @@
       "when": 1789383898463,
       "tag": "0046_thumbnail_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789384111382,
+      "tag": "0047_files_recent_index",
+      "breakpoints": true
     }
   ]
 }

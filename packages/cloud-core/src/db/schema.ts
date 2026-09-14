@@ -736,6 +736,9 @@ export const files = pgTable(
     index("files_folder_id_idx").on(table.folderId),
     index("files_tier_idx").on(table.tier),
     index("files_last_accessed_at_idx").on(table.lastAccessedAt),
+    index("files_recent_idx").on(
+      sql`greatest(${table.createdAt}, ${table.updatedAt}) DESC`,
+    ),
   ],
 );
 

@@ -31,6 +31,7 @@ import {
   type StorageFile,
   type StorageTier,
   tusUploads,
+  users,
 } from "../db/schema";
 import {
   buildFileDocument,
@@ -389,6 +390,11 @@ export type FolderContentsResult =
         totalPages: number;
       };
     };
+
+/** `_` and `%` are legal in names and must not act as wildcards in a prefix match. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
 
 /** A weak validator over the listed parts; the body is not byte-compared. */
 function weakEtag(
@@ -824,6 +830,87 @@ export class StorageService {
       counts.set(row.parentId, { ...existing, folders: row.count });
     }
     return counts;
+  }
+
+  /**
+   * The files most recently added or changed across the caller's own root and
+   * the family root, newest first, with the folder each sits in. A project
+   * principal sees only its project root.
+   */
+  async recentFiles(principal: StoragePrincipal, limit = 100) {
+    const scopes = principal.project
+      ? [buildProjectRootPath(principal.project.slug)]
+      : [buildUserRootPath(principal.user.id), SHARED_ROOT_PATH];
+    const inScope = or(
+      ...scopes.map((root) => like(files.path, `${escapeLike(root)}/%`)),
+    );
+    const rows = await this.db
+      .select({
+        id: files.id,
+        filename: files.filename,
+        path: files.path,
+        mimeType: files.mimeType,
+        sizeBytes: files.sizeBytes,
+        tier: files.tier,
+        ownerId: files.ownerId,
+        createdAt: files.createdAt,
+        updatedAt: files.updatedAt,
+        folderId: files.folderId,
+        folderName: folders.name,
+      })
+      .from(files)
+      .innerJoin(folders, eq(folders.id, files.folderId))
+      .where(inScope)
+      .orderBy(desc(sql`greatest(${files.createdAt}, ${files.updatedAt})`))
+      .limit(Math.min(Math.max(limit, 1), 500));
+    return rows.map(({ folderId, folderName, ...file }) => ({
+      ...file,
+      folder: { id: folderId, name: folderName },
+      thumbnail: this.#thumbnails !== null && thumbnailKindFor(file) !== null,
+    }));
+  }
+
+  /**
+   * Who a file can have been added by: every active account, id and username
+   * only. The family is a handful of rows, so the client caches it for good.
+   */
+  async people(): Promise<{ id: string; username: string }[]> {
+    return this.db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(eq(users.status, "active"))
+      .orderBy(users.username);
+  }
+
+  /** Bytes the caller owns, split by the root they live under. */
+  async usage(principal: StoragePrincipal) {
+    const ownerId = principal.user.id;
+    const [personal, family, total] = await Promise.all([
+      this.#bytesOwnedUnder(ownerId, buildUserRootPath(ownerId)),
+      this.#bytesOwnedUnder(ownerId, SHARED_ROOT_PATH),
+      this.db
+        .select({ bytes: sql<string | null>`sum(${files.sizeBytes})` })
+        .from(files)
+        .where(eq(files.ownerId, ownerId)),
+    ]);
+    return {
+      personalBytes: personal,
+      familyBytes: family,
+      totalBytes: Number(total[0]?.bytes ?? 0),
+    };
+  }
+
+  async #bytesOwnedUnder(ownerId: string, root: string): Promise<number> {
+    const [row] = await this.db
+      .select({ bytes: sql<string | null>`sum(${files.sizeBytes})` })
+      .from(files)
+      .where(
+        and(
+          eq(files.ownerId, ownerId),
+          like(files.path, `${escapeLike(root)}/%`),
+        ),
+      );
+    return Number(row?.bytes ?? 0);
   }
 
   async updateFolder(

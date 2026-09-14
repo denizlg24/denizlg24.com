@@ -74,6 +74,27 @@ export const rootFoldersSchema = z.union([
 export type RootFolders = z.infer<typeof rootFoldersSchema>;
 export const rootFoldersResponseSchema = apiResponseSchema(rootFoldersSchema);
 
+export const recentFileSchema = storageFileSchema.extend({
+  folder: z.object({ id: z.uuid(), name: z.string() }),
+});
+export type RecentFile = z.infer<typeof recentFileSchema>;
+export const recentFilesResponseSchema = apiResponseSchema(
+  z.array(recentFileSchema),
+);
+
+export const storagePersonSchema = z.object({
+  id: z.uuid(),
+  username: z.string(),
+});
+export type StoragePerson = z.infer<typeof storagePersonSchema>;
+
+export const storageUsageSchema = z.object({
+  personalBytes: z.number().nonnegative(),
+  familyBytes: z.number().nonnegative(),
+  totalBytes: z.number().nonnegative(),
+});
+export type StorageUsage = z.infer<typeof storageUsageSchema>;
+
 export const folderCrumbSchema = z.object({
   id: z.uuid(),
   path: z.string(),
