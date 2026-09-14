@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   crossOrigin: "anonymous",
   transpilePackages: ["@repo/ui", "@repo/cloud-ui"],
   // Deployables live in Forge now. Anything still pointing at a project route
