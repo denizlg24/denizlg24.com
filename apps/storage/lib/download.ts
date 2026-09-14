@@ -73,19 +73,26 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Where a ZIP is built: the signed-in routes, or a share link's own. */
+export interface ArchiveTransport {
+  start: (signal?: AbortSignal) => Promise<ArchiveJob>;
+  status: (jobId: string, signal?: AbortSignal) => Promise<ArchiveJob>;
+  downloadUrl: (jobId: string) => string;
+}
+
 /**
  * Asks the API to build the ZIP on disk, follows the build, then hands the
  * finished file to the browser's own downloader. Nothing is buffered in the
  * tab — a multi-gigabyte archive costs this page no memory at all.
  */
-export async function downloadArchive(
-  selection: DownloadArchiveInput,
+export async function downloadArchiveVia(
+  transport: ArchiveTransport,
   onProgress: (progress: ArchiveProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   let job: ArchiveJob;
   try {
-    job = await api.archive(selection, signal);
+    job = await transport.start(signal);
   } catch (error) {
     throw startError(error);
   }
@@ -93,11 +100,44 @@ export async function downloadArchive(
 
   while (job.state === "building") {
     await sleep(POLL_INTERVAL_MS, signal);
-    job = await api.archiveStatus(job.id, signal);
+    job = await transport.status(job.id, signal);
     onProgress(progressOf(job));
   }
   if (job.state === "failed") {
     throw new Error(job.error ?? "The archive could not be built");
   }
-  triggerDownload(api.url.archiveDownload(job.id), job.filename);
+  triggerDownload(transport.downloadUrl(job.id), job.filename);
+}
+
+export function downloadArchive(
+  selection: DownloadArchiveInput,
+  onProgress: (progress: ArchiveProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return downloadArchiveVia(
+    {
+      downloadUrl: api.url.archiveDownload,
+      start: (abort) => api.archive(selection, abort),
+      status: api.archiveStatus,
+    },
+    onProgress,
+    signal,
+  );
+}
+
+/** Everything under a folder share, zipped under the link's own authority. */
+export function downloadSharedArchive(
+  token: string,
+  onProgress: (progress: ArchiveProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return downloadArchiveVia(
+    {
+      downloadUrl: (jobId) => api.url.sharedArchiveDownload(token, jobId),
+      start: (abort) => api.shared.archive(token, abort),
+      status: (jobId, abort) => api.shared.archiveStatus(token, jobId, abort),
+    },
+    onProgress,
+    signal,
+  );
 }

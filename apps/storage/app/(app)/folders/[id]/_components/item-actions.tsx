@@ -70,7 +70,7 @@ export function itemActions(
       onSelect: handlers.onDownload,
     },
   ];
-  if (row.type === "file" && !many) {
+  if (!many) {
     actions.push({
       icon: Link2,
       key: "share",
@@ -140,7 +140,7 @@ export function useItemActions(row: BrowserRow, controller: BrowserController) {
         className="max-w-md"
       >
         {panel === "share" && (
-          <ShareSheet fileId={row.id} filename={row.name} />
+          <ShareSheet target={{ id: row.id, kind: row.type, name: row.name }} />
         )}
       </ResponsiveDialog>
       <ResponsiveDialog

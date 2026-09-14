@@ -250,20 +250,106 @@ export const searchResultsResponseSchema = z.object({
 export const shareExpiresInSchema = z.enum(["30m", "1d", "7d", "30d", "never"]);
 export type ShareExpiresIn = z.infer<typeof shareExpiresInSchema>;
 
+export const sharePasswordSchema = z.string().min(4).max(128);
+
 export const createShareLinkInputSchema = z.object({
   expiresIn: shareExpiresInSchema,
+  /** Locks the link; recipients type it once and get a cookie for the share. */
+  password: sharePasswordSchema.nullish(),
+  /** False makes the link view-only: inline previews, no download links. A courtesy, not DRM. */
+  allowDownload: z.boolean().optional(),
 });
 export type CreateShareLinkInput = z.infer<typeof createShareLinkInputSchema>;
 
+export const updateShareInputSchema = z.object({
+  expiresIn: shareExpiresInSchema.optional(),
+  /** A string sets a new password, null removes it, absent leaves it. */
+  password: sharePasswordSchema.nullish(),
+  allowDownload: z.boolean().optional(),
+  /** True stops sharing; the link answers "no longer works" from then on. */
+  revoke: z.boolean().optional(),
+  /**
+   * True mints a new token for the same share and answers it; the old link
+   * stops working. Only the hash is ever stored, so this is the one way to
+   * get a link back for a share whose token this browser never saw.
+   */
+  rotate: z.boolean().optional(),
+});
+export type UpdateShareInput = z.infer<typeof updateShareInputSchema>;
+
+export const shareKindSchema = z.enum(["file", "folder"]);
+export const shareStatusSchema = z.enum(["active", "expired", "revoked"]);
+
+export const storageShareSchema = z.object({
+  id: z.uuid(),
+  kind: shareKindSchema,
+  targetId: z.uuid(),
+  /** The target's current name, or the name it had when it was deleted. */
+  name: z.string(),
+  ownerId: z.uuid(),
+  ownerUsername: z.string().optional(),
+  expiresAt: cloudDateTimeSchema.nullable(),
+  hasPassword: z.boolean(),
+  allowDownload: z.boolean(),
+  status: shareStatusSchema,
+  createdAt: cloudDateTimeSchema,
+  revokedAt: cloudDateTimeSchema.nullable(),
+  lastAccessedAt: cloudDateTimeSchema.nullable(),
+  accessCount: z.number().int().nonnegative(),
+  /** The target no longer exists; the link answers "no longer works". */
+  targetMissing: z.boolean(),
+});
+export type StorageShare = z.infer<typeof storageShareSchema>;
+export const storageSharesResponseSchema = apiResponseSchema(
+  z.array(storageShareSchema),
+);
+export const storageShareResponseSchema = apiResponseSchema(storageShareSchema);
+
+export const updatedShareSchema = z.object({
+  share: storageShareSchema,
+  /** Present when the update rotated the token. */
+  token: z.string().optional(),
+});
+export type UpdatedShare = z.infer<typeof updatedShareSchema>;
+
 export const shareLinkTokenSchema = z.object({
   token: z.string(),
+  /** Present for stateful links; a legacy HMAC token carries no row. */
+  share: storageShareSchema.optional(),
 });
 export type ShareLinkToken = z.infer<typeof shareLinkTokenSchema>;
 export const shareLinkResponseSchema = apiResponseSchema(shareLinkTokenSchema);
 
-// Deliberately narrower than storageFileSchema: an unauthenticated share page
-// gets what it needs to render a preview and nothing that describes the owner,
-// the folder it lives in, or where else it is reachable.
+/**
+ * What a recipient learns before anything else. Deliberately narrower than
+ * the owner's view: the sharer's username and the item's name are the whole
+ * of it until a password share is unlocked, and never the path, the owner
+ * id or where else the item is reachable.
+ */
+export const sharedMetaSchema = z.object({
+  kind: shareKindSchema,
+  name: z.string(),
+  sharer: z.object({ username: z.string() }),
+  requiresPassword: z.boolean(),
+  /** False while a password share is still locked for this browser. */
+  unlocked: z.boolean(),
+  expiresAt: cloudDateTimeSchema.nullable(),
+  allowDownload: z.boolean(),
+  /** File shares only. */
+  fileId: z.uuid().optional(),
+  mimeType: z.string().nullable().optional(),
+  sizeBytes: z.number().optional(),
+  updatedAt: cloudDateTimeSchema.optional(),
+  thumbnail: z.boolean().optional(),
+  /** Folder shares only. */
+  folderId: z.uuid().optional(),
+  itemCount: z.number().int().nonnegative().optional(),
+  totalBytes: z.number().nonnegative().optional(),
+});
+export type SharedMeta = z.infer<typeof sharedMetaSchema>;
+export const sharedMetaResponseSchema = apiResponseSchema(sharedMetaSchema);
+
+/** The legacy shape, kept for clients built against it. */
 export const sharedFileMetaSchema = z.object({
   filename: z.string(),
   mimeType: z.string().nullable(),
@@ -272,6 +358,41 @@ export const sharedFileMetaSchema = z.object({
 export type SharedFileMeta = z.infer<typeof sharedFileMetaSchema>;
 export const sharedFileMetaResponseSchema =
   apiResponseSchema(sharedFileMetaSchema);
+
+export const unlockShareInputSchema = z.object({
+  password: z.string().min(1).max(128),
+});
+export type UnlockShareInput = z.infer<typeof unlockShareInputSchema>;
+
+/** A file as a share recipient sees it: no path, no owner. */
+export const sharedFileSchema = z.object({
+  id: z.uuid(),
+  filename: z.string(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number(),
+  updatedAt: cloudDateTimeSchema,
+  thumbnail: z.boolean(),
+});
+export type SharedFile = z.infer<typeof sharedFileSchema>;
+
+export const sharedFolderSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  childCount: folderChildCountSchema,
+});
+
+export const sharedContentsSchema = z.object({
+  folder: z.object({ id: z.uuid(), name: z.string() }),
+  /** Root-first, starting at the shared folder and excluding the current one. */
+  ancestors: z.array(z.object({ id: z.uuid(), name: z.string() })),
+  subfolders: z.array(sharedFolderSchema),
+  files: z.array(sharedFileSchema),
+});
+export type SharedContents = z.infer<typeof sharedContentsSchema>;
+export const sharedContentsResponseSchema = z.object({
+  data: sharedContentsSchema,
+  pagination: paginationSchema,
+});
 
 export const downloadArchiveInputSchema = z
   .object({

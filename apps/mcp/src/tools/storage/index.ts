@@ -5,6 +5,7 @@ import {
   downloadArchiveInputSchema,
   updateFileInputSchema,
   updateFolderInputSchema,
+  updateShareInputSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import {
@@ -221,10 +222,51 @@ export function registerStorage(server: McpServer, api: Api) {
     name: "storage_file_share",
     title: "Storage: share file",
     description:
-      "Mints a public download link with an expiry (30m, 1d, 7d, 30d, never).",
+      "Creates a public link to a file with an expiry (30m, 1d, 7d, 30d, never), an optional password, and allowDownload=false for a view-only link. Returns the token (the URL is https://storage.denizlg24.com/s/<token>) and the share row, which storage_share_update can change or revoke.",
     input: z.object({ fileId, ...createShareLinkInputSchema.shape }),
     run: ({ fileId, ...body }) =>
       api.cloud.post(p`/api/storage/files/${fileId}/share`, body),
+  });
+
+  defineTool(server, {
+    name: "storage_folder_share",
+    title: "Storage: share folder",
+    description:
+      "Creates a public link to a folder (not a root) with the same options as storage_file_share. Recipients browse the subtree and can download it as a ZIP unless the link is view-only.",
+    input: z.object({ folderId, ...createShareLinkInputSchema.shape }),
+    run: ({ folderId, ...body }) =>
+      api.cloud.post(p`/api/storage/folders/${folderId}/share`, body),
+  });
+
+  defineTool(server, {
+    name: "storage_shares_list",
+    title: "Storage: list share links",
+    description:
+      "Every stateful share link the caller created (owner=all for everyone's, superuser only), with status, expiry, password flag and open counts. Legacy HMAC links were never stored and do not appear.",
+    input: z.object({
+      owner: z
+        .enum(["mine", "all"])
+        .optional()
+        .describe("all lists every account's links; superuser only"),
+    }),
+    annotations: { readOnlyHint: true },
+    run: ({ owner }) =>
+      api.cloud.get(
+        owner === "all"
+          ? "/api/storage/shares?owner=all"
+          : "/api/storage/shares",
+      ),
+  });
+
+  defineTool(server, {
+    name: "storage_share_update",
+    title: "Storage: update or revoke share link",
+    description:
+      "Changes a link's expiry, password (null removes it) or allowDownload, or revokes it with revoke=true. A revoked link answers 'no longer works' from then on.",
+    input: z.object({ shareId: uuid, ...updateShareInputSchema.shape }),
+    annotations: { idempotentHint: true },
+    run: ({ shareId, ...body }) =>
+      api.cloud.patch(p`/api/storage/shares/${shareId}`, body),
   });
 
   defineTool(server, {

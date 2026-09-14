@@ -215,6 +215,7 @@ export {
   type FolderContentsListing,
   type FolderContentsResult,
   type NamingPolicy,
+  type ShareView,
   type StorageEntry,
   StorageService,
   StorageServiceError,
@@ -225,6 +226,20 @@ export {
   generateShareToken,
   verifyShareToken,
 } from "./share";
+export {
+  generateShareSecret,
+  hashShareToken,
+  isLegacyShareToken,
+  readCookie,
+  SHARE_UNLOCK_MAX_MS,
+  type ShareStatus,
+  shareCookieName,
+  shareCookieValue,
+  shareExpiresAt,
+  shareStatus,
+  unlockCookieMaxAgeSeconds,
+  verifyShareCookie,
+} from "./shares";
 export {
   type OpenSmbSession,
   type ParsedAuditEvent,

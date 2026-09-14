@@ -919,7 +919,13 @@ export function createCloudApiApp(options: CloudApiOptions) {
             );
       },
     );
-    app.route("/api/storage", storageRoutes(options.storage.service));
+    app.route(
+      "/api/storage",
+      storageRoutes(options.storage.service, {
+        isProduction: options.isProduction,
+        rateLimitStore: options.rateLimitStore,
+      }),
+    );
     app.route("/api/search", storageSearchRoutes(options.storage.service));
     app.route("/v2", s3Routes(options.storage.s3));
   }

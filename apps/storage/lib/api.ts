@@ -5,6 +5,7 @@ import {
   type CompleteSignupInput,
   type CompleteSignupResult,
   type CreateFolderInput,
+  type CreateShareLinkInput,
   completeSignupResultSchema,
   type DeletedFolder,
   type DownloadArchiveInput,
@@ -23,27 +24,34 @@ import {
   rootFoldersSchema,
   type SafeUser,
   type SearchResults,
-  type SharedFileMeta,
+  type SharedContents,
+  type SharedMeta,
   type ShareLinkToken,
   type SmbCredential,
   type StorageFileDetail,
   type StorageFolder,
   type StorageFolderDetail,
   type StoragePerson,
+  type StorageShare,
   type StorageUsage,
   safeUserSchema,
   searchResultsSchema,
-  sharedFileMetaSchema,
+  sharedContentsSchema,
+  sharedMetaSchema,
   shareLinkTokenSchema,
   smbCredentialSchema,
   storageFileDetailSchema,
   storageFolderDetailSchema,
   storagePersonSchema,
+  storageShareSchema,
   storageUsageSchema,
   type UpdatedFile,
+  type UpdatedShare,
   type UpdateFileInput,
   type UpdateFolderInput,
+  type UpdateShareInput,
   updatedFileSchema,
+  updatedShareSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
@@ -77,6 +85,10 @@ interface RequestOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 // Starting an archive walks every selected file's row before it answers.
 const ARCHIVE_TIMEOUT_MS = 60_000;
+
+function sharePath(token: string): string {
+  return `/api/storage/share/${encodeURIComponent(token)}`;
+}
 
 function buildUrl(path: string, query?: Query): URL {
   const url = new URL(path, API_BASE_URL);
@@ -303,11 +315,32 @@ export const api = {
       keepalive,
     }),
 
-  createShare: (id: string, expiresIn: string): Promise<ShareLinkToken> =>
-    requestData(shareLinkTokenSchema, `/api/storage/files/${id}/share`, {
-      method: "POST",
-      body: { expiresIn },
-    }),
+  /** The signed-in side of sharing: links this account has made. */
+  shares: {
+    create: (
+      target: { kind: "file" | "folder"; id: string },
+      input: CreateShareLinkInput,
+    ): Promise<ShareLinkToken> =>
+      requestData(
+        shareLinkTokenSchema,
+        `/api/storage/${target.kind === "file" ? "files" : "folders"}/${target.id}/share`,
+        { method: "POST", body: input },
+      ),
+    /** `owner: "all"` is superuser-only and lists every account's links. */
+    list: (owner?: "all"): Promise<StorageShare[]> =>
+      requestData(z.array(storageShareSchema), "/api/storage/shares", {
+        query: { owner },
+      }),
+    update: (id: string, input: UpdateShareInput): Promise<UpdatedShare> =>
+      requestData(updatedShareSchema, `/api/storage/shares/${id}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    remove: (id: string): Promise<{ id: string }> =>
+      requestData(z.object({ id: z.string() }), `/api/storage/shares/${id}`, {
+        method: "DELETE",
+      }),
+  },
 
   smbCredentials: {
     list: (): Promise<SmbCredential[]> =>
@@ -325,11 +358,43 @@ export const api = {
       ),
   },
 
-  sharedMeta: (token: string): Promise<SharedFileMeta> =>
-    requestData(
-      sharedFileMetaSchema,
-      `/api/storage/share/${encodeURIComponent(token)}/meta`,
-    ),
+  /**
+   * The recipient's side: no session, the token is the whole credential. A
+   * password share hands back a cookie on unlock, which the browser then
+   * sends with every other call here on its own.
+   */
+  shared: {
+    meta: (token: string): Promise<SharedMeta> =>
+      requestData(sharedMetaSchema, `${sharePath(token)}/meta`),
+    unlock: (token: string, password: string): Promise<void> =>
+      rawRequest(`${sharePath(token)}/unlock`, {
+        method: "POST",
+        body: { password },
+      }).then(() => undefined),
+    contents: (
+      token: string,
+      query?: { folderId?: string; page?: number; limit?: number },
+      options?: { signal?: AbortSignal },
+    ): Promise<Paged<SharedContents>> =>
+      requestPaged(sharedContentsSchema, `${sharePath(token)}/contents`, {
+        query,
+        signal: options?.signal,
+      }),
+    archive: (token: string, signal?: AbortSignal): Promise<ArchiveJob> =>
+      requestData(archiveJobSchema, `${sharePath(token)}/archive`, {
+        method: "POST",
+        timeoutMs: ARCHIVE_TIMEOUT_MS,
+        signal,
+      }),
+    archiveStatus: (
+      token: string,
+      jobId: string,
+      signal?: AbortSignal,
+    ): Promise<ArchiveJob> =>
+      requestData(archiveJobSchema, `${sharePath(token)}/archive/${jobId}`, {
+        signal,
+      }),
+  },
 
   search: (query: {
     q: string;
@@ -365,27 +430,45 @@ export const api = {
         w: width,
         v: new Date(version).getTime(),
       }).toString(),
+    fileDownload: (id: string): string =>
+      buildUrl(`/api/storage/files/${id}/download`, {
+        download: "1",
+      }).toString(),
+    archiveDownload: (id: string): string =>
+      buildUrl(`/api/storage/download-archive/${id}/download`).toString(),
+
+    /** A file share's own bytes. */
+    shared: (token: string): string => buildUrl(sharePath(token)).toString(),
+    sharedDownload: (token: string): string =>
+      buildUrl(sharePath(token), { download: "1" }).toString(),
     sharedThumbnail: (
       token: string,
       width: 256 | 512 | 1024,
       version: string,
     ): string =>
-      buildUrl(`/api/storage/share/${encodeURIComponent(token)}/thumbnail`, {
+      buildUrl(`${sharePath(token)}/thumbnail`, {
         w: width,
         v: new Date(version).getTime(),
       }).toString(),
-    fileDownload: (id: string): string =>
-      buildUrl(`/api/storage/files/${id}/download`, {
+    /** A file inside a folder share. */
+    sharedFile: (token: string, fileId: string): string =>
+      buildUrl(`${sharePath(token)}/files/${fileId}`).toString(),
+    sharedFileDownload: (token: string, fileId: string): string =>
+      buildUrl(`${sharePath(token)}/files/${fileId}`, {
         download: "1",
       }).toString(),
-    shared: (token: string): string =>
-      buildUrl(`/api/storage/share/${encodeURIComponent(token)}`).toString(),
-    sharedDownload: (token: string): string =>
-      buildUrl(`/api/storage/share/${encodeURIComponent(token)}`, {
-        download: "1",
+    sharedFileThumbnail: (
+      token: string,
+      fileId: string,
+      width: 256 | 512 | 1024,
+      version: string,
+    ): string =>
+      buildUrl(`${sharePath(token)}/files/${fileId}/thumbnail`, {
+        w: width,
+        v: new Date(version).getTime(),
       }).toString(),
-    archiveDownload: (id: string): string =>
-      buildUrl(`/api/storage/download-archive/${id}/download`).toString(),
+    sharedArchiveDownload: (token: string, jobId: string): string =>
+      buildUrl(`${sharePath(token)}/archive/${jobId}/download`).toString(),
   },
 
   /**

@@ -36,18 +36,20 @@ function Notice({
   filename,
 }: {
   message: string;
-  downloadUrl: string;
+  downloadUrl: string | null;
   filename: string;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
       <p className="max-w-sm text-sm text-muted-foreground">{message}</p>
-      <Button asChild variant="outline" size="sm">
-        <a href={downloadUrl} download={filename}>
-          <Download className="size-3.5" />
-          Download
-        </a>
-      </Button>
+      {downloadUrl && (
+        <Button asChild variant="outline" size="sm">
+          <a href={downloadUrl} download={filename}>
+            <Download className="size-3.5" />
+            Download
+          </a>
+        </Button>
+      )}
     </div>
   );
 }
@@ -242,7 +244,7 @@ function TextLoader({
   filename: string;
   kind: FileKind;
   sizeBytes: number;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -398,7 +400,7 @@ function FontPreview({
   url: string;
   filename: string;
   sizeBytes: number;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }) {
   const [family, setFamily] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -500,7 +502,7 @@ function ProbePreview({
   url: string;
   filename: string;
   sizeBytes: number;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }) {
   const [head, setHead] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
@@ -583,7 +585,7 @@ function PdfPreview({
   url: string;
   filename: string;
   sizeBytes: number;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -655,7 +657,7 @@ export function FilePreview({
   poster,
 }: {
   url: string;
-  downloadUrl: string;
+  downloadUrl: string | null;
   filename: string;
   mimeType: string | null;
   sizeBytes: number;

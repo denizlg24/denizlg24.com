@@ -1,11 +1,14 @@
 import {
   type AuthVariables,
+  type RateLimitStore,
+  rateLimit,
   requireRole,
   requireScope,
 } from "@repo/cloud-core";
 import type { ArchiveJob } from "@repo/cloud-core/storage";
 import {
   isThumbnailWidth,
+  type ShareView,
   type StoragePrincipal,
   type StorageService,
   StorageServiceError,
@@ -62,7 +65,44 @@ function archiveJobView(job: ArchiveJob) {
   };
 }
 
-export function storageRoutes(service: StorageService) {
+export interface StorageRouteOptions {
+  /** Throttles password guesses on share links; absent in tests. */
+  rateLimitStore?: RateLimitStore;
+  isProduction?: boolean;
+}
+
+/** Dates as ISO strings; the schema on the other side parses them back. */
+function shareJson(share: ShareView) {
+  return {
+    ...share,
+    createdAt: share.createdAt.toISOString(),
+    expiresAt: share.expiresAt?.toISOString() ?? null,
+    lastAccessedAt: share.lastAccessedAt?.toISOString() ?? null,
+    revokedAt: share.revokedAt?.toISOString() ?? null,
+  };
+}
+
+/** The unlock cookie: HttpOnly, Secure, `__Host-`, scoped to this share. */
+function shareCookie(cookie: {
+  name: string;
+  value: string;
+  maxAgeSeconds: number;
+}): string {
+  return `${cookie.name}=${encodeURIComponent(cookie.value)}; Path=/; Max-Age=${cookie.maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function shareClientIp(context: StorageContext): string {
+  return (
+    context.req.header("CF-Connecting-IP")?.trim() ||
+    context.req.header("X-Real-IP")?.trim() ||
+    "unknown"
+  );
+}
+
+export function storageRoutes(
+  service: StorageService,
+  options: StorageRouteOptions = {},
+) {
   const router = new Hono<{ Variables: AuthVariables }>();
 
   router.get("/folders/roots", requireScope("storage:read"));
@@ -81,6 +121,10 @@ export function storageRoutes(service: StorageService) {
   router.patch("/files/:id", requireScope("storage:write"));
   router.delete("/files/:id", requireScope("storage:delete"));
   router.post("/files/:id/share", requireScope("storage:read"));
+  router.post("/folders/:id/share", requireScope("storage:read"));
+  router.get("/shares", requireScope("storage:read"));
+  router.patch("/shares/:id", requireScope("storage:read"));
+  router.delete("/shares/:id", requireScope("storage:read"));
   router.post("/download-archive", requireScope("storage:read"));
   router.get("/download-archive/:id", requireScope("storage:read"));
   router.get("/download-archive/:id/download", requireScope("storage:read"));
@@ -299,21 +343,130 @@ export function storageRoutes(service: StorageService) {
   });
   router.post("/files/:id/share", async (context) => {
     try {
-      const token = await service.createShare(
+      const { token, share } = await service.createFileShare(
         principal(context),
         context.req.param("id"),
         await jsonBody(context),
       );
-      return context.json({ data: { token } });
+      return context.json({ data: { share: shareJson(share), token } });
     } catch (error) {
       return serviceError(context, error);
     }
   });
+  router.post("/folders/:id/share", async (context) => {
+    try {
+      const { token, share } = await service.createFolderShare(
+        principal(context),
+        context.req.param("id"),
+        await jsonBody(context),
+      );
+      return context.json({ data: { share: shareJson(share), token } });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/shares", async (context) => {
+    try {
+      const shares = await service.listShares(
+        principal(context),
+        new URL(context.req.url).searchParams,
+      );
+      return context.json({ data: shares.map(shareJson) });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.patch("/shares/:id", async (context) => {
+    try {
+      const { share, token } = await service.updateShare(
+        principal(context),
+        context.req.param("id"),
+        await jsonBody(context),
+      );
+      return context.json({ data: { share: shareJson(share), token } });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.delete("/shares/:id", async (context) => {
+    try {
+      await service.deleteShare(principal(context), context.req.param("id"));
+      return context.json({ data: { id: context.req.param("id") } });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+
+  // Public: everything under /share/:token is reachable without a session
+  // (app.ts skips the auth gate for the prefix).
   router.get("/share/:token/meta", async (context) => {
     try {
       return context.json({
-        data: await service.sharedMeta(context.req.param("token")),
+        data: await service.sharedMeta(
+          context.req.param("token"),
+          context.req.raw,
+        ),
       });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  if (options.rateLimitStore) {
+    router.post(
+      "/share/:token/unlock",
+      rateLimit({
+        keyGenerator: (context) =>
+          `share-unlock:${shareClientIp(context as StorageContext)}`,
+        max: 10,
+        store: options.rateLimitStore,
+        windowMs: 60_000,
+      }),
+    );
+  }
+  router.post("/share/:token/unlock", async (context) => {
+    try {
+      const { cookie } = await service.unlockShare(
+        context.req.param("token"),
+        await jsonBody(context),
+      );
+      context.header("Set-Cookie", shareCookie(cookie));
+      return context.json({ data: { unlocked: true } });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/contents", async (context) => {
+    try {
+      return context.json(
+        await service.sharedContents(
+          context.req.param("token"),
+          context.req.raw,
+          new URL(context.req.url).searchParams,
+        ),
+      );
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/files/:fileId", async (context) => {
+    try {
+      return await service.sharedFileDownload(
+        context.req.param("token"),
+        context.req.param("fileId"),
+        context.req.raw,
+      );
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/files/:fileId/thumbnail", async (context) => {
+    try {
+      return await service.sharedThumbnail(
+        context.req.param("token"),
+        thumbnailWidth(context),
+        context.req.raw,
+        context.req.param("fileId"),
+      );
     } catch (error) {
       return serviceError(context, error);
     }
@@ -323,6 +476,41 @@ export function storageRoutes(service: StorageService) {
       return await service.sharedThumbnail(
         context.req.param("token"),
         thumbnailWidth(context),
+        context.req.raw,
+      );
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.post("/share/:token/archive", async (context) => {
+    try {
+      const job = await service.sharedArchive(
+        context.req.param("token"),
+        context.req.raw,
+      );
+      return context.json({ data: archiveJobView(job) }, 202);
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/archive/:jobId", async (context) => {
+    try {
+      const job = await service.sharedArchiveStatus(
+        context.req.param("token"),
+        context.req.raw,
+        context.req.param("jobId"),
+      );
+      return context.json({ data: archiveJobView(job) });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/archive/:jobId/download", async (context) => {
+    try {
+      return await service.sharedArchiveDownload(
+        context.req.param("token"),
+        context.req.raw,
+        context.req.param("jobId"),
       );
     } catch (error) {
       return serviceError(context, error);

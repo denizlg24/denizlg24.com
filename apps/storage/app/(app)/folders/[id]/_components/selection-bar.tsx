@@ -48,7 +48,7 @@ export function SelectionBar({ browser }: { browser: BrowserState }) {
           <FolderInput className="size-4" />
           <span className="hidden sm:inline">Move</span>
         </Button>
-        {single?.type === "file" && (
+        {single && (
           <Button
             variant="ghost"
             size="sm"
@@ -95,7 +95,9 @@ export function SelectionBar({ browser }: { browser: BrowserState }) {
         className="max-w-md"
       >
         {panel === "share" && single && (
-          <ShareSheet fileId={single.id} filename={single.name} />
+          <ShareSheet
+            target={{ id: single.id, kind: single.type, name: single.name }}
+          />
         )}
       </ResponsiveDialog>
     </div>

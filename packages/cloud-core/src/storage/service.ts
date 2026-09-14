@@ -3,12 +3,17 @@ import { open, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
+  type CreateShareLinkInput,
+  createShareLinkInputSchema,
   downloadArchiveInputSchema,
   mimeTypeForFilename,
-  shareExpiresInSchema,
+  type SharedMeta,
+  type StorageShare as StorageShareView,
   type ThumbnailWidth,
   thumbnailKindFor,
+  unlockShareInputSchema,
   updateFileInputSchema,
+  updateShareInputSchema,
 } from "@repo/schemas/cloud";
 import {
   and,
@@ -22,14 +27,16 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-
+import { hashPassword, verifyPassword } from "../auth/password";
 import type { Database } from "../db";
 import {
   type Folder,
   files,
   folders,
   type StorageFile,
+  type StorageShare,
   type StorageTier,
+  storageShares,
   tusUploads,
   users,
 } from "../db/schema";
@@ -75,7 +82,19 @@ import {
   sanitizeSegment,
   validatePath,
 } from "./path";
-import { generateShareToken, verifyShareToken } from "./share";
+import { verifyShareToken } from "./share";
+import {
+  generateShareSecret,
+  hashShareToken,
+  isLegacyShareToken,
+  readCookie,
+  shareCookieName,
+  shareCookieValue,
+  shareExpiresAt,
+  shareStatus,
+  unlockCookieMaxAgeSeconds,
+  verifyShareCookie,
+} from "./shares";
 import { ThumbnailBusyError, type ThumbnailService } from "./thumbnails";
 import type { PromotionQueue } from "./tiering";
 
@@ -390,6 +409,49 @@ export type FolderContentsResult =
         totalPages: number;
       };
     };
+
+/** The wire shape of a share, with dates still as Date; the route serializes. */
+export type ShareView = Omit<
+  StorageShareView,
+  "createdAt" | "expiresAt" | "revokedAt" | "lastAccessedAt"
+> & {
+  createdAt: Date;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  lastAccessedAt: Date | null;
+};
+
+interface ResolvedShare {
+  share: StorageShare;
+  /** A legacy HMAC token: nothing to count, nothing to revoke. */
+  legacy: boolean;
+  file: StorageFile | null;
+  folder: Folder | null;
+  sharerUsername: string;
+}
+
+function parseShareInput(bodyValue: unknown): CreateShareLinkInput {
+  const parsed = createShareLinkInputSchema.safeParse(bodyValue);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new StorageServiceError(
+      400,
+      issue?.path[0] === "expiresIn" ? "INVALID_EXPIRY" : "INVALID_SHARE",
+      issue?.path[0] === "expiresIn"
+        ? "expiresIn must be one of: 30m, 1d, 7d, 30d, never"
+        : (issue?.message ?? "Invalid share"),
+    );
+  }
+  return parsed.data;
+}
+
+function invalidShare(): StorageServiceError {
+  return new StorageServiceError(
+    403,
+    "INVALID_SHARE_LINK",
+    "Invalid or expired share link",
+  );
+}
 
 /** `_` and `%` are legal in names and must not act as wildcards in a prefix match. */
 function escapeLike(value: string): string {
@@ -1261,15 +1323,6 @@ export class StorageService {
     return this.thumbnailResponse(file, width, "private");
   }
 
-  async sharedThumbnail(
-    token: string,
-    width: ThumbnailWidth,
-  ): Promise<Response> {
-    const file = await this.sharedFile(token);
-    await this.assertNamespaceIdentity(file);
-    return this.thumbnailResponse(file, width, "public");
-  }
-
   /** Renders (or reads back) a thumbnail for a file row, for the warm queue and the backfill. */
   async warmThumbnail(
     file: StorageFile,
@@ -1444,63 +1497,658 @@ export class StorageService {
     void removeStorageDocuments(this.meili, [id]).catch(console.error);
   }
 
-  async createShare(
+  // ---------------------------------------------------------------------------
+  // Sharing
+
+  async createFileShare(
     principal: StoragePrincipal,
     id: string,
     bodyValue: unknown,
-  ): Promise<string> {
-    const body = safeJsonBody(bodyValue);
-    const expires = shareExpiresInSchema.safeParse(body.expiresIn);
-    if (!expires.success) {
-      throw new StorageServiceError(
-        400,
-        "INVALID_EXPIRY",
-        "expiresIn must be one of: 30m, 1d, 7d, 30d, never",
-      );
-    }
-    await this.getFile(principal, id, "storage:read", "modify");
-    return generateShareToken(id, expires.data, this.config.shareLinkSecret);
+  ): Promise<{ token: string; share: ShareView }> {
+    const input = parseShareInput(bodyValue);
+    const file = await this.getFile(principal, id, "storage:read", "modify");
+    return this.#insertShare(principal, "file", file.id, file.filename, input);
   }
 
-  private async sharedFile(token: string): Promise<StorageFile> {
-    const payload = verifyShareToken(token, this.config.shareLinkSecret);
-    if (!payload) {
+  async createFolderShare(
+    principal: StoragePrincipal,
+    id: string,
+    bodyValue: unknown,
+  ): Promise<{ token: string; share: ShareView }> {
+    const input = parseShareInput(bodyValue);
+    const folder = await this.findFolder(id);
+    deny(principal, folder.path, "storage:read", folder.ownerId, "modify");
+    if (folder.parentId === null) {
       throw new StorageServiceError(
-        403,
-        "INVALID_SHARE_LINK",
-        "Invalid or expired share link",
+        400,
+        "CANNOT_SHARE_ROOT",
+        "A root folder cannot be shared; share a folder inside it",
       );
     }
+    return this.#insertShare(
+      principal,
+      "folder",
+      folder.id,
+      folder.name,
+      input,
+    );
+  }
+
+  async #insertShare(
+    principal: StoragePrincipal,
+    kind: "file" | "folder",
+    targetId: string,
+    label: string,
+    input: CreateShareLinkInput,
+  ): Promise<{ token: string; share: ShareView }> {
+    const { token, tokenHash } = generateShareSecret();
+    const [row] = await this.db
+      .insert(storageShares)
+      .values({
+        allowDownload: input.allowDownload ?? true,
+        expiresAt: shareExpiresAt(input.expiresIn),
+        kind,
+        label,
+        ownerId: principal.user.id,
+        passwordHash: input.password
+          ? await hashPassword(input.password)
+          : null,
+        targetId,
+        tokenHash,
+      })
+      .returning();
+    if (!row) throw new Error("Failed to record the share");
+    return { share: await this.#shareView(row), token };
+  }
+
+  /**
+   * The caller's own links, or everyone's for a superuser asking with
+   * `owner=all`. Names are re-resolved so a renamed target reads right and a
+   * deleted one is flagged rather than shown as live.
+   */
+  async listShares(
+    principal: StoragePrincipal,
+    query: URLSearchParams,
+  ): Promise<ShareView[]> {
+    const all = query.get("owner") === "all";
+    if (all && principal.user.role !== "superuser") {
+      throw new StorageServiceError(
+        403,
+        "FORBIDDEN",
+        "Only a superuser can list everyone's links",
+      );
+    }
+    const rows = await this.db
+      .select()
+      .from(storageShares)
+      .where(all ? undefined : eq(storageShares.ownerId, principal.user.id))
+      .orderBy(desc(storageShares.createdAt));
+    return this.#shareViews(rows);
+  }
+
+  async updateShare(
+    principal: StoragePrincipal,
+    id: string,
+    bodyValue: unknown,
+  ): Promise<{ share: ShareView; token?: string }> {
+    const parsed = updateShareInputSchema.safeParse(bodyValue);
+    if (!parsed.success) {
+      throw new StorageServiceError(
+        400,
+        "INVALID_SHARE_UPDATE",
+        parsed.error.issues[0]?.message ?? "Invalid share update",
+      );
+    }
+    const share = await this.#ownedShare(principal, id);
+    const patch: Partial<typeof storageShares.$inferInsert> = {};
+    if (parsed.data.expiresIn !== undefined) {
+      patch.expiresAt = shareExpiresAt(parsed.data.expiresIn);
+    }
+    if (parsed.data.password !== undefined) {
+      patch.passwordHash = parsed.data.password
+        ? await hashPassword(parsed.data.password)
+        : null;
+    }
+    if (parsed.data.allowDownload !== undefined) {
+      patch.allowDownload = parsed.data.allowDownload;
+    }
+    if (parsed.data.revoke === true && !share.revokedAt) {
+      patch.revokedAt = new Date();
+    }
+    let token: string | undefined;
+    if (parsed.data.rotate === true) {
+      const secret = generateShareSecret();
+      patch.tokenHash = secret.tokenHash;
+      token = secret.token;
+    }
+    const [updated] = await this.db
+      .update(storageShares)
+      .set(patch)
+      .where(eq(storageShares.id, share.id))
+      .returning();
+    return { share: await this.#shareView(updated ?? share), token };
+  }
+
+  async deleteShare(principal: StoragePrincipal, id: string): Promise<void> {
+    const share = await this.#ownedShare(principal, id);
+    await this.db.delete(storageShares).where(eq(storageShares.id, share.id));
+  }
+
+  async #ownedShare(
+    principal: StoragePrincipal,
+    id: string,
+  ): Promise<StorageShare> {
+    const share = await this.db.query.storageShares.findFirst({
+      where: eq(storageShares.id, id),
+    });
+    if (
+      !share ||
+      (share.ownerId !== principal.user.id &&
+        principal.user.role !== "superuser")
+    ) {
+      throw new StorageServiceError(404, "SHARE_NOT_FOUND", "Share not found");
+    }
+    return share;
+  }
+
+  async #shareView(row: StorageShare): Promise<ShareView> {
+    const [view] = await this.#shareViews([row]);
+    if (!view) throw new Error("Share view missing");
+    return view;
+  }
+
+  async #shareViews(rows: StorageShare[]): Promise<ShareView[]> {
+    const fileIds = rows
+      .filter((r) => r.kind === "file")
+      .map((r) => r.targetId);
+    const folderIds = rows
+      .filter((r) => r.kind === "folder")
+      .map((r) => r.targetId);
+    const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
+    const [fileRows, folderRows, owners] = await Promise.all([
+      fileIds.length > 0
+        ? this.db
+            .select({ id: files.id, name: files.filename })
+            .from(files)
+            .where(inArray(files.id, fileIds))
+        : Promise.resolve([]),
+      folderIds.length > 0
+        ? this.db
+            .select({ id: folders.id, name: folders.name })
+            .from(folders)
+            .where(inArray(folders.id, folderIds))
+        : Promise.resolve([]),
+      ownerIds.length > 0
+        ? this.db
+            .select({ id: users.id, username: users.username })
+            .from(users)
+            .where(inArray(users.id, ownerIds))
+        : Promise.resolve([]),
+    ]);
+    const names = new Map(
+      [...fileRows, ...folderRows].map((r) => [r.id, r.name]),
+    );
+    const usernames = new Map(owners.map((o) => [o.id, o.username]));
+    return rows.map((row) => {
+      const name = names.get(row.targetId);
+      return {
+        accessCount: row.accessCount,
+        allowDownload: row.allowDownload,
+        createdAt: row.createdAt,
+        expiresAt: row.expiresAt,
+        hasPassword: row.passwordHash !== null,
+        id: row.id,
+        kind: row.kind,
+        lastAccessedAt: row.lastAccessedAt,
+        name: name ?? row.label,
+        ownerId: row.ownerId,
+        ownerUsername: usernames.get(row.ownerId),
+        revokedAt: row.revokedAt,
+        status: shareStatus(row),
+        targetId: row.targetId,
+        targetMissing: name === undefined,
+      };
+    });
+  }
+
+  /**
+   * Resolves a token to what it opens. A token with two dots is a legacy
+   * HMAC link and yields a synthetic, download-allowed, never-revocable
+   * share; anything else is looked up by hash. Every failure is the same
+   * 403 so the page cannot tell "revoked" from "never existed".
+   */
+  async #resolveShare(token: string): Promise<ResolvedShare> {
+    if (isLegacyShareToken(token)) {
+      const payload = verifyShareToken(token, this.config.shareLinkSecret);
+      if (!payload) throw invalidShare();
+      const file = await this.db.query.files.findFirst({
+        where: eq(files.id, payload.fileId),
+      });
+      if (!file) throw invalidShare();
+      const owner = await this.db.query.users.findFirst({
+        columns: { username: true },
+        where: eq(users.id, file.ownerId),
+      });
+      return {
+        file,
+        folder: null,
+        legacy: true,
+        share: {
+          accessCount: 0,
+          allowDownload: true,
+          createdAt: file.createdAt,
+          expiresAt:
+            payload.expiresAt === 0 ? null : new Date(payload.expiresAt),
+          id: `legacy:${file.id}`,
+          kind: "file",
+          label: file.filename,
+          lastAccessedAt: null,
+          ownerId: file.ownerId,
+          passwordHash: null,
+          revokedAt: null,
+          targetId: file.id,
+          tokenHash: hashShareToken(token),
+        },
+        sharerUsername: owner?.username ?? "Someone",
+      };
+    }
+    const share = await this.db.query.storageShares.findFirst({
+      where: eq(storageShares.tokenHash, hashShareToken(token)),
+    });
+    if (!share || shareStatus(share) !== "active") throw invalidShare();
+    const owner = await this.db.query.users.findFirst({
+      columns: { username: true },
+      where: eq(users.id, share.ownerId),
+    });
+    if (share.kind === "file") {
+      const file = await this.db.query.files.findFirst({
+        where: eq(files.id, share.targetId),
+      });
+      if (!file) throw invalidShare();
+      return {
+        file,
+        folder: null,
+        legacy: false,
+        share,
+        sharerUsername: owner?.username ?? "Someone",
+      };
+    }
+    const folder = await this.db.query.folders.findFirst({
+      where: eq(folders.id, share.targetId),
+    });
+    if (!folder) throw invalidShare();
+    return {
+      file: null,
+      folder,
+      legacy: false,
+      share,
+      sharerUsername: owner?.username ?? "Someone",
+    };
+  }
+
+  #shareUnlocked(resolved: ResolvedShare, request: Request): boolean {
+    if (!resolved.share.passwordHash) return true;
+    return verifyShareCookie(
+      readCookie(
+        request.headers.get("cookie"),
+        shareCookieName(resolved.share.id),
+      ),
+      resolved.share.id,
+      resolved.share.tokenHash,
+      this.config.shareLinkSecret,
+    );
+  }
+
+  /** Same resolution as `#resolveShare`, refusing a locked password share. */
+  async #openShare(token: string, request: Request): Promise<ResolvedShare> {
+    const resolved = await this.#resolveShare(token);
+    if (!this.#shareUnlocked(resolved, request)) {
+      throw new StorageServiceError(
+        403,
+        "SHARE_LOCKED",
+        "This link needs its password first",
+      );
+    }
+    return resolved;
+  }
+
+  /**
+   * What the share page shows before anything else. A locked share reveals
+   * only the sharer and the item's name; an open one also says what it is.
+   * Opens are counted here — one per page view, never per byte range.
+   */
+  async sharedMeta(token: string, request: Request): Promise<SharedMeta> {
+    const resolved = await this.#resolveShare(token);
+    const unlocked = this.#shareUnlocked(resolved, request);
+    const base: SharedMeta = {
+      allowDownload: resolved.share.allowDownload,
+      expiresAt: resolved.share.expiresAt?.toISOString() ?? null,
+      kind: resolved.share.kind,
+      name: resolved.file?.filename ?? resolved.folder?.name ?? "",
+      requiresPassword: resolved.share.passwordHash !== null,
+      sharer: { username: resolved.sharerUsername },
+      unlocked,
+    };
+    if (!unlocked) return base;
+    if (!resolved.legacy) {
+      void this.db
+        .update(storageShares)
+        .set({
+          accessCount: sql`${storageShares.accessCount} + 1`,
+          lastAccessedAt: new Date(),
+        })
+        .where(eq(storageShares.id, resolved.share.id))
+        .catch(console.error);
+    }
+    if (resolved.file) {
+      return {
+        ...base,
+        fileId: resolved.file.id,
+        mimeType: resolved.file.mimeType,
+        sizeBytes: resolved.file.sizeBytes,
+        thumbnail:
+          this.#thumbnails !== null && thumbnailKindFor(resolved.file) !== null,
+        updatedAt: resolved.file.updatedAt.toISOString(),
+      };
+    }
+    if (resolved.folder) {
+      const [stats] = await this.db
+        .select({
+          bytes: sql<string | null>`sum(${files.sizeBytes})`,
+          count: count(),
+        })
+        .from(files)
+        .where(like(files.path, descendantPattern(resolved.folder.path)));
+      return {
+        ...base,
+        folderId: resolved.folder.id,
+        itemCount: stats?.count ?? 0,
+        totalBytes: Number(stats?.bytes ?? 0),
+      };
+    }
+    return base;
+  }
+
+  /**
+   * Checks a password and answers the cookie that stands in for it. The
+   * route rate-limits this per IP; a wrong password is the same 403 every
+   * time so nothing leaks about how close a guess was.
+   */
+  async unlockShare(
+    token: string,
+    bodyValue: unknown,
+  ): Promise<{
+    cookie: { name: string; value: string; maxAgeSeconds: number };
+  }> {
+    const parsed = unlockShareInputSchema.safeParse(bodyValue);
+    if (!parsed.success) {
+      throw new StorageServiceError(
+        400,
+        "MISSING_PASSWORD",
+        "Password is required",
+      );
+    }
+    const resolved = await this.#resolveShare(token);
+    if (!resolved.share.passwordHash) {
+      throw new StorageServiceError(
+        400,
+        "SHARE_NOT_LOCKED",
+        "This link has no password",
+      );
+    }
+    const ok = await verifyPassword({
+      hash: resolved.share.passwordHash,
+      password: parsed.data.password,
+    });
+    if (!ok) {
+      throw new StorageServiceError(
+        403,
+        "SHARE_PASSWORD_WRONG",
+        "That password is not right",
+      );
+    }
+    return {
+      cookie: {
+        maxAgeSeconds: unlockCookieMaxAgeSeconds(resolved.share.expiresAt),
+        name: shareCookieName(resolved.share.id),
+        value: shareCookieValue(
+          resolved.share.id,
+          resolved.share.tokenHash,
+          this.config.shareLinkSecret,
+        ),
+      },
+    };
+  }
+
+  /** The legacy single-file download; a folder share answers 400. */
+  async sharedDownload(token: string, request: Request): Promise<Response> {
+    const resolved = await this.#openShare(token, request);
+    if (!resolved.file) {
+      throw new StorageServiceError(
+        400,
+        "SHARE_IS_FOLDER",
+        "This link shares a folder; list its contents instead",
+      );
+    }
+    return this.#serveSharedFile(resolved, resolved.file, request);
+  }
+
+  /** A file inside a shared folder. Ancestry is checked by path prefix. */
+  async sharedFileDownload(
+    token: string,
+    fileId: string,
+    request: Request,
+  ): Promise<Response> {
+    const resolved = await this.#openShare(token, request);
+    const file = await this.#fileWithinShare(resolved, fileId);
+    return this.#serveSharedFile(resolved, file, request);
+  }
+
+  async sharedThumbnail(
+    token: string,
+    width: ThumbnailWidth,
+    request: Request,
+    fileId?: string,
+  ): Promise<Response> {
+    const resolved = await this.#openShare(token, request);
+    const file = fileId
+      ? await this.#fileWithinShare(resolved, fileId)
+      : resolved.file;
+    if (!file) {
+      throw new StorageServiceError(
+        404,
+        "THUMBNAIL_UNAVAILABLE",
+        "No thumbnail for this share",
+      );
+    }
+    await this.assertNamespaceIdentity(file);
+    return this.thumbnailResponse(file, width, "public");
+  }
+
+  async #serveSharedFile(
+    resolved: ResolvedShare,
+    file: StorageFile,
+    request: Request,
+  ): Promise<Response> {
+    this.recordAccess(file);
+    await this.assertNamespaceIdentity(file);
+    // View-only is a courtesy, not DRM: the bytes are served inline and the
+    // `download` switch is ignored, and the page draws no download links.
+    return this.fileResponse(file, request, {
+      forceInline: !resolved.share.allowDownload,
+    });
+  }
+
+  async #fileWithinShare(
+    resolved: ResolvedShare,
+    fileId: string,
+  ): Promise<StorageFile> {
     const file = await this.db.query.files.findFirst({
-      where: eq(files.id, payload.fileId),
+      where: eq(files.id, fileId),
     });
     if (!file) {
       throw new StorageServiceError(404, "FILE_NOT_FOUND", "File not found");
     }
-    return file;
+    if (resolved.file && resolved.file.id === file.id) return file;
+    if (resolved.folder && file.path.startsWith(`${resolved.folder.path}/`)) {
+      return file;
+    }
+    throw new StorageServiceError(404, "FILE_NOT_FOUND", "File not found");
   }
 
-  async sharedDownload(token: string, request: Request): Promise<Response> {
-    const file = await this.sharedFile(token);
-    this.recordAccess(file);
-    await this.assertNamespaceIdentity(file);
-    return this.fileResponse(file, request);
-  }
-
-  // Lets an unauthenticated share page choose a renderer before it starts
-  // streaming bytes. Returns only what the recipient can already see by
-  // downloading — never the path, owner or folder.
-  async sharedMeta(token: string): Promise<{
-    filename: string;
-    mimeType: string | null;
-    sizeBytes: number;
-  }> {
-    const file = await this.sharedFile(token);
+  /**
+   * A folder share's listing. Navigation is confined to the shared subtree:
+   * a folder id outside it is "not found", and the crumbs start at the
+   * shared folder rather than the owner's root.
+   */
+  async sharedContents(
+    token: string,
+    request: Request,
+    query: URLSearchParams,
+  ) {
+    const resolved = await this.#openShare(token, request);
+    if (!resolved.folder) {
+      throw new StorageServiceError(
+        400,
+        "SHARE_IS_FILE",
+        "This link shares a single file",
+      );
+    }
+    const root = resolved.folder;
+    const requested = query.get("folderId");
+    let folder = root;
+    if (requested && requested !== root.id) {
+      const inner = await this.db.query.folders.findFirst({
+        where: eq(folders.id, requested),
+      });
+      if (!inner?.path.startsWith(`${root.path}/`)) {
+        throw new StorageServiceError(
+          404,
+          "FOLDER_NOT_FOUND",
+          "Folder not found",
+        );
+      }
+      folder = inner;
+    }
+    const { page, limit, offset } = pagination(query, 100);
+    const [subfolders, fileList, countResult] = await Promise.all([
+      this.db
+        .select({ id: folders.id, name: folders.name })
+        .from(folders)
+        .where(eq(folders.parentId, folder.id))
+        .orderBy(folders.name),
+      this.db
+        .select({
+          id: files.id,
+          filename: files.filename,
+          mimeType: files.mimeType,
+          sizeBytes: files.sizeBytes,
+          updatedAt: files.updatedAt,
+        })
+        .from(files)
+        .where(eq(files.folderId, folder.id))
+        .orderBy(desc(files.createdAt))
+        .limit(limit)
+        .offset(offset),
+      this.db
+        .select({ count: count() })
+        .from(files)
+        .where(eq(files.folderId, folder.id)),
+    ]);
+    const childCounts = await this.childCountsOf(subfolders.map((s) => s.id));
+    // Crumbs from the shared root down to the parent of the current folder,
+    // by path: every ancestor between the two is in the share by definition.
+    const ancestors: { id: string; name: string }[] = [];
+    if (folder.id !== root.id) {
+      const between = folder.path
+        .slice(root.path.length + 1)
+        .split("/")
+        .slice(0, -1);
+      const paths = between.map(
+        (_segment, index) =>
+          `${root.path}/${between.slice(0, index + 1).join("/")}`,
+      );
+      const rows =
+        paths.length > 0
+          ? await this.db
+              .select({
+                id: folders.id,
+                name: folders.name,
+                path: folders.path,
+              })
+              .from(folders)
+              .where(inArray(folders.path, paths))
+          : [];
+      const byPath = new Map(rows.map((row) => [row.path, row]));
+      ancestors.push({ id: root.id, name: root.name });
+      for (const path of paths) {
+        const row = byPath.get(path);
+        if (row) ancestors.push({ id: row.id, name: row.name });
+      }
+    }
+    const total = countResult[0]?.count ?? 0;
     return {
-      filename: file.filename,
-      mimeType: file.mimeType,
-      sizeBytes: file.sizeBytes,
+      data: {
+        ancestors,
+        files: fileList.map((file) => ({
+          ...file,
+          thumbnail:
+            this.#thumbnails !== null && thumbnailKindFor(file) !== null,
+        })),
+        folder: { id: folder.id, name: folder.name },
+        subfolders: subfolders.map((subfolder) => ({
+          ...subfolder,
+          childCount: childCounts.get(subfolder.id) ?? { files: 0, folders: 0 },
+        })),
+      },
+      pagination: { limit, page, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /** "Download all" for a folder share: the same archive path, under the share's own owner key. */
+  async sharedArchive(token: string, request: Request): Promise<ArchiveJob> {
+    const resolved = await this.#openShare(token, request);
+    if (!resolved.share.allowDownload) {
+      throw new StorageServiceError(
+        403,
+        "SHARE_VIEW_ONLY",
+        "This link is view-only",
+      );
+    }
+    if (!resolved.folder) {
+      throw new StorageServiceError(
+        400,
+        "SHARE_IS_FILE",
+        "This link shares a single file",
+      );
+    }
+    const selected = await this.db
+      .select()
+      .from(files)
+      .where(like(files.path, descendantPattern(resolved.folder.path)));
+    return this.#startArchive(
+      selected,
+      `share:${resolved.share.id}`,
+      resolved.folder.path,
+    );
+  }
+
+  async sharedArchiveStatus(
+    token: string,
+    request: Request,
+    jobId: string,
+  ): Promise<ArchiveJob> {
+    const resolved = await this.#openShare(token, request);
+    return this.#archiveJob(`share:${resolved.share.id}`, jobId);
+  }
+
+  async sharedArchiveDownload(
+    token: string,
+    request: Request,
+    jobId: string,
+  ): Promise<Response> {
+    const resolved = await this.#openShare(token, request);
+    return this.#serveArchive(`share:${resolved.share.id}`, jobId);
   }
 
   async createUpload(
@@ -1828,10 +2476,28 @@ export class StorageService {
         .where(like(files.path, descendantPattern(folder.path)));
       for (const file of descendants) selected.set(file.id, file);
     }
-    let total = 0;
-    const entries: ArchiveEntry[] = [];
     for (const file of selected.values()) {
       deny(principal, file.path, "storage:read", file.ownerId, "read");
+    }
+    return this.#startArchive(
+      [...selected.values()],
+      this.#archiveOwnerKey(principal),
+    );
+  }
+
+  /**
+   * Builds the entry list and starts the job. `stripPath` is the folder a
+   * share is rooted at, so a recipient's ZIP starts at that folder rather
+   * than at the owner's root.
+   */
+  async #startArchive(
+    selected: StorageFile[],
+    ownerKey: string,
+    stripPath?: string,
+  ): Promise<ArchiveJob> {
+    let total = 0;
+    const entries: ArchiveEntry[] = [];
+    for (const file of selected) {
       total += file.sizeBytes;
       if (total > this.config.archiveMaxBytes) {
         throw new StorageServiceError(
@@ -1840,9 +2506,12 @@ export class StorageService {
           `Archive exceeds the ${this.config.archiveMaxBytes} byte limit`,
         );
       }
-      const segments = file.path.split("/").filter(Boolean);
+      const relative =
+        stripPath && file.path.startsWith(`${stripPath}/`)
+          ? file.path.slice(stripPath.lastIndexOf("/") + 1)
+          : file.path.split("/").filter(Boolean).slice(1).join("/");
       entries.push({
-        name: segments.slice(1).join("/") || file.filename,
+        name: relative || file.filename,
         diskPath: this.#namespace.resolveFilePath(file),
         size: file.sizeBytes,
         modifiedAt: file.updatedAt,
@@ -1855,7 +2524,6 @@ export class StorageService {
         "The selected folders contain no files",
       );
     }
-    const ownerKey = this.#archiveOwnerKey(principal);
     if (this.#archives.activeCount(ownerKey) >= MAX_CONCURRENT_ARCHIVES) {
       throw new StorageServiceError(
         409,
@@ -1890,7 +2558,11 @@ export class StorageService {
   }
 
   archiveStatus(principal: StoragePrincipal, id: string): ArchiveJob {
-    const job = this.#archives.find(this.#archiveOwnerKey(principal), id);
+    return this.#archiveJob(this.#archiveOwnerKey(principal), id);
+  }
+
+  #archiveJob(ownerKey: string, id: string): ArchiveJob {
+    const job = this.#archives.find(ownerKey, id);
     if (!job) {
       throw new StorageServiceError(
         404,
@@ -1905,7 +2577,11 @@ export class StorageService {
     principal: StoragePrincipal,
     id: string,
   ): Promise<Response> {
-    const job = this.archiveStatus(principal, id);
+    return this.#serveArchive(this.#archiveOwnerKey(principal), id);
+  }
+
+  async #serveArchive(ownerKey: string, id: string): Promise<Response> {
+    const job = this.#archiveJob(ownerKey, id);
     if (job.state !== "ready") {
       throw new StorageServiceError(
         409,
@@ -2549,7 +3225,11 @@ export class StorageService {
     }
   }
 
-  private fileResponse(file: StorageFile, request: Request): Response {
+  private fileResponse(
+    file: StorageFile,
+    request: Request,
+    options: { forceInline?: boolean } = {},
+  ): Response {
     const url = new URL(request.url);
     // Only an upload through the API declares a type. Everything written over
     // SMB has no MIME xattr for the projector to read, so falling straight back
@@ -2560,7 +3240,8 @@ export class StorageService {
     // to download.
     const contentType = resolveContentType(file);
     const forceDownload =
-      url.searchParams.has("download") || isActiveContent(contentType);
+      (url.searchParams.has("download") && !options.forceInline) ||
+      isActiveContent(contentType);
     const headers = new Headers({
       "Content-Type": contentType,
       "Content-Disposition": contentDisposition(
