@@ -199,17 +199,20 @@ hint, not a platform ceiling.
 - **The terminal binds loopback or the Tailscale address, never a public one**, and
   runs as root only with `TERMINAL_ALLOW_ROOT=1`. It is a compiled binary
   (`bun build --compile --target=bun-linux-arm64`) installed at
-  `/usr/local/bin/cloud-terminal` — CI does not deploy it; rebuild and copy manually.
-- **`apps/storage-metadata` is the same deal, and it is easier to forget.** It is a
-  compiled binary at `/usr/local/bin/cloud-storage-metadata` under
-  `deniz-cloud-storage-metadata.service`; `bun run build:pi` then copy and
-  `systemctl restart`. Pushing to `main` rebuilds only the API container, so a fix
-  in this app is not live until the binary is replaced by hand — and because the
-  API keeps working against the old service, nothing reports that it wasn't.
-  Deploy it *before* pushing code that calls a new socket op. Two adjacent traps:
-  piping the binary through a shell `cat` can corrupt it (use `dd`), and the
-  `Release cloud API` workflow's **Deploy to Pi job waits on a manual environment
-  approval**, so a green build does not mean the API rolled out.
+  `/usr/local/bin/cloud-terminal`, shipped by `release-cloud-terminal.yml` on
+  every push to `main` that touches `apps/terminal`, `apps/storage-metadata`,
+  `cloud-core`, `schemas` or the lockfile.
+- **`apps/storage-metadata` rides the same workflow, and its ordering matters.**
+  It is a compiled binary at `/usr/local/bin/cloud-storage-metadata` under
+  `deniz-cloud-storage-metadata.service`; the workflow installs it and restarts
+  the unit while preserving the storage boundary target. It needs no approval,
+  whereas the `Release cloud API` workflow's **Deploy to Pi job waits on a manual
+  environment approval** — so a push that changes both lands the host binary
+  first, which is the order a new socket op needs. Because the API keeps working
+  against an old service, nothing reports a metadata release that failed: check
+  the workflow, not `/healthz`. For a hotfix without a push: `bun run build:pi`,
+  then `dd` the binary over (a shell `cat` corrupts it), `install -m 0755`,
+  `systemctl restart`.
 - **Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
   anything written as root makes deletes, renames and uploads fail with EACCES
   while reads keep working.
@@ -270,8 +273,10 @@ hint, not a platform ceiling.
   `STORAGE_SSD_BRANCH_PATH` / `STORAGE_HDD_BRANCH_PATH` on
   `apps/storage-metadata`, both or neither. Unset means the pass reports
   `blockedBy: branch-usage-unavailable` — it never reads that as an empty
-  namespace. And as with every change to that service, **CI does not deploy it**;
-  the binary is replaced by hand before the API starts calling a new op.
+  namespace. And as with every change to that service, the host binary must be
+  live before the API starts calling a new op — the terminal release lands
+  without approval, the API release waits for one, so pushing both together
+  gives the right order.
 - **`tiering_pass` is live** as of 2026-07-26: enabled, `0 3 * * *`,
   `dryRun: false`. The gate it used to sit behind — review a dry run before
   arming it — has been passed. It genuinely relocates data between physical
