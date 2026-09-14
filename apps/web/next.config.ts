@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   /* config options here */
   crossOrigin: "anonymous",
   reactCompiler: true,
@@ -34,11 +35,6 @@ const nextConfig: NextConfig = {
     "pino-pretty",
     "@resvg/resvg-js",
   ],
-  outputFileTracingIncludes: {
-    "/api/admin/cv/compile": [
-      "./node_modules/@node-latex-compiler/bin-linux-x64/bin/tectonic",
-    ],
-  },
 };
 
 export default nextConfig;
