@@ -68,6 +68,7 @@ export const userStatusEnum = pgEnum("user_status", ["pending", "active"]);
 export type UserStatus = (typeof userStatusEnum.enumValues)[number];
 
 export const storageTierEnum = pgEnum("storage_tier", ["ssd", "hdd"]);
+export const shareKindEnum = pgEnum("share_kind", ["file", "folder"]);
 export type StorageTier = (typeof storageTierEnum.enumValues)[number];
 
 export const uploadStatusEnum = pgEnum("upload_status", [
@@ -1711,6 +1712,45 @@ export type NewProjectDatabase = InferInsertModel<typeof projectDatabases>;
 export type Folder = InferSelectModel<typeof folders>;
 export type NewFolder = InferInsertModel<typeof folders>;
 export type StorageFile = InferSelectModel<typeof files>;
+
+/**
+ * A share link with state: revocable, countable, optionally password-locked.
+ *
+ * The token itself is never stored — only its SHA-256 — so a database read
+ * cannot mint a working link. Legacy HMAC tokens (`fileId.expiresAt.sig`)
+ * keep verifying without a row here; they cannot be listed or revoked, and
+ * the Shared links page says so.
+ */
+export const storageShares = pgTable(
+  "storage_shares",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: shareKindEnum("kind").notNull(),
+    targetId: uuid("target_id").notNull(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    /** The target's name when the link was made; the list re-resolves it. */
+    label: varchar("label", { length: 255 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    passwordHash: text("password_hash"),
+    allowDownload: boolean("allow_download").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
+    accessCount: integer("access_count").notNull().default(0),
+  },
+  (table) => [
+    index("storage_shares_owner_id_idx").on(table.ownerId),
+    index("storage_shares_target_idx").on(table.kind, table.targetId),
+  ],
+);
+
+export type StorageShare = InferSelectModel<typeof storageShares>;
+export type NewStorageShare = InferInsertModel<typeof storageShares>;
 export type NewStorageFile = InferInsertModel<typeof files>;
 export type TusUpload = InferSelectModel<typeof tusUploads>;
 export type NewTusUpload = InferInsertModel<typeof tusUploads>;

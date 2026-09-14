@@ -327,15 +327,22 @@
     {
       "idx": 46,
       "version": "7",
-      "when": 1789383898463,
+      "when": 1789385487602,
       "tag": "0046_thumbnail_tasks",
       "breakpoints": true
     },
     {
       "idx": 47,
       "version": "7",
-      "when": 1789384111382,
+      "when": 1789385488247,
       "tag": "0047_files_recent_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789385488925,
+      "tag": "0048_storage_shares",
       "breakpoints": true
     }
   ]
