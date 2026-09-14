@@ -119,9 +119,10 @@ hint, not a platform ceiling.
   `buildCommand`, which the Dockerfile path refuses or, worse, honours — a
   leftover `bun run start` override runs `bun` inside a `node` image) *before*
   pushing; a deploy in between fails harmlessly, the live container stays.
-- **`apps/web` builds and runs on glibc; the other Next images are alpine.**
-  The Tectonic binary `node-latex-compiler` ships is dynamically linked
-  against glibc, libssl 3 and graphite2, and bun installs the sharp/resvg
+- **`apps/web` builds and runs on glibc — trixie, not bookworm; the other Next
+  images are alpine.** The Tectonic binary `node-latex-compiler` ships is
+  dynamically linked against glibc **2.39+** (bookworm has 2.36 and refuses it
+  at exec), libssl 3 and graphite2, and bun installs the sharp/resvg
   platform packages for the libc it runs on, so an alpine install stage hands
   a Debian runtime the musl builds. Switching either stage "for consistency"
   breaks CV compile, `next/image` or whiteboard rendering at runtime, not at
