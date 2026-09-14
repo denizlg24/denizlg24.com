@@ -211,6 +211,8 @@ export const smbCredentialSchema = z.object({
   deviceName: z.string(),
   /** Optional so an older API still parses. */
   platform: smbPlatformSchema.nullable().optional(),
+  /** Present on the superuser's `?owner=all` listing only. */
+  ownerUsername: z.string().optional(),
   lastAuthenticatedAt: cloudDateTimeSchema.nullable(),
   lastAuthenticatedFrom: z.string().nullable(),
   /** A session is open on the host right now. Optional so an older API still parses. */

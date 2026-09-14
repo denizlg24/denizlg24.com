@@ -6,6 +6,7 @@ import {
   type CompleteSignupResult,
   type CreateFolderInput,
   type CreateShareLinkInput,
+  type CreateSmbCredentialInput,
   completeSignupResultSchema,
   type DeletedFolder,
   type DownloadArchiveInput,
@@ -343,12 +344,21 @@ export const api = {
   },
 
   smbCredentials: {
-    list: (): Promise<SmbCredential[]> =>
-      requestData(z.array(smbCredentialSchema), "/api/storage/smb-credentials"),
-    issue: (deviceName: string): Promise<IssuedSmbCredentialResponse> =>
+    /** `owner: "all"` is superuser-only and lists every account's devices. */
+    list: (owner?: "all"): Promise<SmbCredential[]> =>
+      requestData(
+        z.array(smbCredentialSchema),
+        "/api/storage/smb-credentials",
+        {
+          query: { owner },
+        },
+      ),
+    issue: (
+      input: CreateSmbCredentialInput,
+    ): Promise<IssuedSmbCredentialResponse> =>
       requestData(issuedSmbCredentialSchema, "/api/storage/smb-credentials", {
         method: "POST",
-        body: { deviceName },
+        body: input,
       }),
     revoke: (id: string): Promise<{ id: string }> =>
       requestData(

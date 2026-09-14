@@ -255,6 +255,7 @@ export {
 export {
   type IssuedSmbCredential,
   issueSmbCredential,
+  listAllSmbCredentials,
   listSmbCredentials,
   revokeSmbCredential,
   type SafeSmbCredential,

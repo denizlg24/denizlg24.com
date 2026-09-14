@@ -14,6 +14,7 @@ import {
   deleteUser,
   hashPassword,
   issueSmbCredential,
+  listAllSmbCredentials,
   listLegacyS3Credentials,
   listSmbCredentials,
   listUsers,
@@ -813,14 +814,38 @@ export function createCloudApiApp(options: CloudApiOptions) {
     // A device credential grants the whole of a user's storage over SMB, so
     // issuing one takes a human session — a project API key must not be able
     // to mint a credential broader than itself.
-    app.get("/api/storage/smb-credentials", requireSession(), async (context) =>
-      context.json({
-        data: await listSmbCredentials(
-          options.db,
-          context.get("user").id,
-          options.storage?.smbSessions,
-        ),
-      }),
+    app.get(
+      "/api/storage/smb-credentials",
+      requireSession(),
+      async (context) => {
+        const user = context.get("user");
+        if (context.req.query("owner") === "all") {
+          if (user.role !== "superuser") {
+            return context.json(
+              {
+                error: {
+                  code: "FORBIDDEN",
+                  message: "Only a superuser can list everyone's devices",
+                },
+              },
+              403,
+            );
+          }
+          return context.json({
+            data: await listAllSmbCredentials(
+              options.db,
+              options.storage?.smbSessions,
+            ),
+          });
+        }
+        return context.json({
+          data: await listSmbCredentials(
+            options.db,
+            user.id,
+            options.storage?.smbSessions,
+          ),
+        });
+      },
     );
     app.post(
       "/api/storage/smb-credentials",

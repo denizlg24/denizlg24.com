@@ -2,7 +2,7 @@ import type { SmbPlatform } from "@repo/schemas/cloud";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "../db";
-import { smbCredentials } from "../db/schema";
+import { smbCredentials, users } from "../db/schema";
 import type { SmbSessionsPayload } from "./metadata-protocol";
 import {
   deriveSmbPrincipal,
@@ -109,6 +109,45 @@ export async function listSmbCredentials(
     // Newest first, and ordered at all: an unordered select returns rows in
     // whatever order Postgres finds them, so the list reshuffled between polls.
     .orderBy(desc(smbCredentials.createdAt));
+  return foldSessions(db, rows, readSessions);
+}
+
+export interface OwnedSmbCredential extends SafeSmbCredential {
+  ownerId: string;
+  ownerUsername: string;
+}
+
+/**
+ * Every account's live devices, for the owner: the one person who can sign
+ * a family machine into the tailnet needs to see which one never connected.
+ */
+export async function listAllSmbCredentials(
+  db: Database,
+  readSessions?: SmbSessionsReader,
+): Promise<OwnedSmbCredential[]> {
+  const rows = await db
+    .select({ credential: smbCredentials, ownerUsername: users.username })
+    .from(smbCredentials)
+    .innerJoin(users, eq(users.id, smbCredentials.userId))
+    .where(isNull(smbCredentials.revokedAt))
+    .orderBy(desc(smbCredentials.createdAt));
+  const folded = await foldSessions(
+    db,
+    rows.map((row) => row.credential),
+    readSessions,
+  );
+  return folded.map((safe, index) => ({
+    ...safe,
+    ownerId: rows[index]?.credential.userId ?? "",
+    ownerUsername: rows[index]?.ownerUsername ?? "",
+  }));
+}
+
+async function foldSessions(
+  db: Database,
+  rows: (typeof smbCredentials.$inferSelect)[],
+  readSessions?: SmbSessionsReader,
+): Promise<SafeSmbCredential[]> {
   if (rows.length === 0 || !readSessions) {
     return rows.map((row) => toSafe(row));
   }

@@ -20,3 +20,11 @@ export const SMB_HOST =
 export function apiUrl(path: string): string {
   return new URL(path, API_BASE_URL).toString();
 }
+
+/**
+ * A tailnet-only HTTPS endpoint the device wizard fetches to tell whether
+ * this browser is on the network yet. Unset disables the live check and
+ * the step falls back to a manual "Done".
+ */
+export const TAILNET_PROBE_URL =
+  process.env.NEXT_PUBLIC_TAILNET_PROBE_URL?.trim() || null;
