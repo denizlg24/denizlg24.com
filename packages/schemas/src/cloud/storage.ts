@@ -186,8 +186,19 @@ export const storageFolderResponseSchema = apiResponseSchema(
   storageFolderDetailSchema,
 );
 
+/** What the device runs; picks the connect instructions and the icon. */
+export const smbPlatformSchema = z.enum([
+  "mac",
+  "windows",
+  "ios",
+  "linux",
+  "other",
+]);
+export type SmbPlatform = z.infer<typeof smbPlatformSchema>;
+
 export const createSmbCredentialInputSchema = z.object({
   deviceName: z.string().trim().min(1).max(255),
+  platform: smbPlatformSchema.nullish(),
   expiresAt: cloudDateTimeSchema.nullish(),
 });
 export type CreateSmbCredentialInput = z.infer<
@@ -198,6 +209,8 @@ export const smbCredentialSchema = z.object({
   id: z.uuid(),
   principal: z.string(),
   deviceName: z.string(),
+  /** Optional so an older API still parses. */
+  platform: smbPlatformSchema.nullable().optional(),
   lastAuthenticatedAt: cloudDateTimeSchema.nullable(),
   lastAuthenticatedFrom: z.string().nullable(),
   /** A session is open on the host right now. Optional so an older API still parses. */

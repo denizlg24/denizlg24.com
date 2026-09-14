@@ -858,6 +858,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
             expiresAt: parsed.data.expiresAt
               ? new Date(parsed.data.expiresAt)
               : null,
+            platform: parsed.data.platform ?? null,
             userId: context.get("user").id,
           });
           return context.json({ data: issued }, 201);

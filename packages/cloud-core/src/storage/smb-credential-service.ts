@@ -1,3 +1,4 @@
+import type { SmbPlatform } from "@repo/schemas/cloud";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "../db";
@@ -12,6 +13,7 @@ import {
 export interface SafeSmbCredential {
   createdAt: Date;
   deviceName: string;
+  platform: SmbPlatform | null;
   expiresAt: Date | null;
   id: string;
   lastAuthenticatedAt: Date | null;
@@ -51,6 +53,20 @@ export interface SmbProvisioner {
 /** Bounds how many devices one account can hold, as DAV credentials did. */
 export const SMB_MAX_CREDENTIALS_PER_USER = 10;
 
+const PLATFORMS: readonly SmbPlatform[] = [
+  "mac",
+  "windows",
+  "ios",
+  "linux",
+  "other",
+];
+
+function toPlatform(value: string | null): SmbPlatform | null {
+  return (PLATFORMS as readonly string[]).includes(value ?? "")
+    ? (value as SmbPlatform)
+    : null;
+}
+
 function toSafe(
   record: typeof smbCredentials.$inferSelect,
   connected = false,
@@ -60,6 +76,7 @@ function toSafe(
     createdAt: record.createdAt,
     deviceName: record.deviceName,
     expiresAt: record.expiresAt,
+    platform: toPlatform(record.platform),
     id: record.id,
     lastAuthenticatedAt: record.lastAuthenticatedAt,
     lastAuthenticatedFrom: record.lastAuthenticatedFrom,
@@ -144,7 +161,12 @@ export async function listSmbCredentials(
 export async function issueSmbCredential(
   db: Database,
   provisioner: SmbProvisioner,
-  input: { userId: string; deviceName: string; expiresAt?: Date | null },
+  input: {
+    userId: string;
+    deviceName: string;
+    platform?: SmbPlatform | null;
+    expiresAt?: Date | null;
+  },
 ): Promise<IssuedSmbCredential> {
   const live = await listSmbCredentials(db, input.userId);
   if (live.length >= SMB_MAX_CREDENTIALS_PER_USER) {
@@ -161,6 +183,7 @@ export async function issueSmbCredential(
     .values({
       deviceName: input.deviceName,
       expiresAt: input.expiresAt ?? null,
+      platform: input.platform ?? null,
       principal,
       userId: input.userId,
     })

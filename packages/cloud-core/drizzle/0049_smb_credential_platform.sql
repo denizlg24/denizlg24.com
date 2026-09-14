@@ -1,0 +1,1 @@
+ALTER TABLE "smb_credentials" ADD COLUMN "platform" varchar(16);

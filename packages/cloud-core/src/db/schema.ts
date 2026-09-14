@@ -321,6 +321,8 @@ export const smbCredentials = pgTable(
     /** The non-login Unix/Samba principal; unique across all devices. */
     principal: varchar("principal", { length: 64 }).notNull().unique(),
     deviceName: varchar("device_name", { length: 255 }).notNull(),
+    /** mac | windows | ios | linux | other, as the wizard reported it. */
+    platform: varchar("platform", { length: 16 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
