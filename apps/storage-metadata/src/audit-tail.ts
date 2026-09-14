@@ -1,5 +1,8 @@
 import {
   parseSmbAuditLine,
+  parseSmbConnectLine,
+  type RecentConnection,
+  RecentConnectionIndex,
   type RecentWriter,
   RecentWriterIndex,
 } from "@repo/cloud-core";
@@ -13,12 +16,15 @@ export interface AuditTailOptions {
 }
 
 /**
- * Follows `smbd_audit` so adoption can ask who wrote a path.
+ * Follows `smbd_audit` so adoption can ask who wrote a path, and so the
+ * device list can ask who has signed in.
  *
  * Reads journald rather than a log file because that is where Samba's LOCAL7
  * output actually lands on this host, and `--since now -f` means a restart
  * starts from the present instead of replaying hours of history into a cache
- * whose entries would all be past their TTL anyway.
+ * whose entries would all be past their TTL anyway. The one cost of that is
+ * to connections: a device that signed in before the last restart is not
+ * remembered here, which is why the API persists what it learns.
  *
  * Deliberately best-effort. If journalctl is missing, exits, or produces
  * nothing, `writerOf` simply returns null and adoption falls back to the tree —
@@ -26,6 +32,7 @@ export interface AuditTailOptions {
  */
 export class SmbAuditTail {
   readonly #index: RecentWriterIndex;
+  readonly #connections = new RecentConnectionIndex();
   readonly #options: AuditTailOptions;
   #process: { stdout: ReadableStream<Uint8Array>; kill(): void } | null = null;
   #stopped = false;
@@ -45,6 +52,14 @@ export class SmbAuditTail {
 
   writerOf(relativePath: string): RecentWriter | null {
     return this.#index.writerOf(relativePath);
+  }
+
+  connectionOf(principal: string): RecentConnection | null {
+    return this.#connections.connectionOf(principal);
+  }
+
+  connections(): ReturnType<RecentConnectionIndex["snapshot"]> {
+    return this.#connections.snapshot();
   }
 
   start(): void {
@@ -98,6 +113,8 @@ export class SmbAuditTail {
           newline = buffer.indexOf("\n");
           const event = parseSmbAuditLine(line);
           if (event) this.#index.record(event);
+          const connect = parseSmbConnectLine(line);
+          if (connect) this.#connections.record(connect);
         }
         // A single unterminated line must not grow without bound if the stream
         // ever stops producing newlines.

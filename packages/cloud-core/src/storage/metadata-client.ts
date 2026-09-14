@@ -8,6 +8,7 @@ import {
   type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
+  type SmbSessionsPayload,
   type TierMovePayload,
   type TierPlacementPayload,
 } from "./metadata-protocol";
@@ -49,10 +50,14 @@ export class NamespaceMetadataClient {
     this.moveTimeoutMs = options.moveTimeoutMs ?? MOVE_TIMEOUT_MS;
   }
 
-  private async raw(request: MetadataRequest): Promise<MetadataResponse> {
+  private async raw(
+    request: MetadataRequest,
+    timeoutOverrideMs?: number,
+  ): Promise<MetadataResponse> {
     let response: Response;
     const timeoutMs =
-      request.op === "tier-move" ? this.moveTimeoutMs : this.timeoutMs;
+      timeoutOverrideMs ??
+      (request.op === "tier-move" ? this.moveTimeoutMs : this.timeoutMs);
     try {
       response = await fetch("http://metadata/v1", {
         body: JSON.stringify(request),
@@ -158,6 +163,22 @@ export class NamespaceMetadataClient {
         }
       }
     }
+  }
+
+  /**
+   * Who has signed in over SMB. Answers the device list, which is read by a
+   * human waiting on it, so the budget is a short one of its own: a slow host
+   * should make the list a little stale, not make it hang.
+   */
+  async smbSessions(timeoutMs = 2_000): Promise<SmbSessionsPayload> {
+    const payload = await this.raw({ op: "smb-sessions" }, timeoutMs);
+    if (!payload.ok || !("smbSessions" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no SMB sessions",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.smbSessions;
   }
 
   async branchMarkers(): Promise<Record<string, string>> {

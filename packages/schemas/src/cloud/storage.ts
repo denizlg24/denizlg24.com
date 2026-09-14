@@ -167,6 +167,8 @@ export const smbCredentialSchema = z.object({
   deviceName: z.string(),
   lastAuthenticatedAt: cloudDateTimeSchema.nullable(),
   lastAuthenticatedFrom: z.string().nullable(),
+  /** A session is open on the host right now. Optional so an older API still parses. */
+  connected: z.boolean().optional(),
   expiresAt: cloudDateTimeSchema.nullable(),
   createdAt: cloudDateTimeSchema,
 });

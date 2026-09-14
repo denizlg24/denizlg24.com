@@ -25,6 +25,7 @@ import {
   revokeSmbCredential,
   type S3ApiConfig,
   type SmbProvisioner,
+  type SmbSessionsReader,
   type StorageService,
   s3Routes,
   toSafeUser,
@@ -133,6 +134,11 @@ export interface CloudApiOptions {
      * pretending to issue something that cannot authenticate.
      */
     smbProvisioner?: SmbProvisioner;
+    /**
+     * The host's record of SMB sign-ins, for `last_authenticated_at`. Absent
+     * with the provisioner; a failure reads as "nothing new observed".
+     */
+    smbSessions?: SmbSessionsReader;
   };
   platform?: {
     projects: ReturnType<typeof projectRoutes>;
@@ -809,7 +815,11 @@ export function createCloudApiApp(options: CloudApiOptions) {
     // to mint a credential broader than itself.
     app.get("/api/storage/smb-credentials", requireSession(), async (context) =>
       context.json({
-        data: await listSmbCredentials(options.db, context.get("user").id),
+        data: await listSmbCredentials(
+          options.db,
+          context.get("user").id,
+          options.storage?.smbSessions,
+        ),
       }),
     );
     app.post(

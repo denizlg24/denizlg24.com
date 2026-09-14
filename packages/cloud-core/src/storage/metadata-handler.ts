@@ -4,6 +4,7 @@ import {
   type MetadataEntryPayload,
   type MetadataRequest,
   type MetadataResponse,
+  type SmbSessionsPayload,
 } from "./metadata-protocol";
 import { NamespaceResolveError } from "./metadata-resolve";
 import type {
@@ -37,6 +38,7 @@ function isRequest(value: unknown): value is MetadataRequest {
   const isPathless =
     candidate.op === "smb-provision" ||
     candidate.op === "smb-revoke" ||
+    candidate.op === "smb-sessions" ||
     candidate.op === "branch-markers" ||
     candidate.op === "branch-usage" ||
     candidate.op === "tier-locate";
@@ -44,6 +46,7 @@ function isRequest(value: unknown): value is MetadataRequest {
   switch (candidate.op) {
     case "branch-markers":
     case "branch-usage":
+    case "smb-sessions":
       return true;
     case "tier-locate":
       return (
@@ -112,6 +115,7 @@ export async function handleMetadataRequest(
     relativePath: string,
   ) => { at: number; principal: string } | null,
   tiering?: BranchTieringAgent,
+  smbSessions?: () => Promise<SmbSessionsPayload>,
 ): Promise<MetadataResponse> {
   if (!isRequest(body)) {
     return {
@@ -122,6 +126,16 @@ export async function handleMetadataRequest(
   }
 
   try {
+    if (body.op === "smb-sessions") {
+      // No provider means nothing was ever observed, which is what an empty
+      // answer says; the API keeps whatever it last persisted.
+      return {
+        ok: true,
+        smbSessions: smbSessions
+          ? await smbSessions()
+          : { connections: [], open: [] },
+      };
+    }
     if (body.op === "branch-markers") {
       // An absent provider answers with no markers rather than an error: the
       // projector reads an empty map as "cannot prove the branches held" and

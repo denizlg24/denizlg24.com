@@ -41,6 +41,10 @@ export type MetadataRequest =
       secret: string;
     }
   | { op: "smb-revoke"; principal: string }
+  // Who has signed in over SMB, and when. The audit stream and `smbstatus`
+  // both live on the host; this is how `last_authenticated_at` gets written
+  // at all. Best-effort and pathless.
+  | { op: "smb-sessions" }
   // Branch mount proof for the projector. Names no path: the branch roots are
   // the host's own configuration, and the API is never told where they are.
   | { op: "branch-markers" }
@@ -101,6 +105,13 @@ export interface MetadataListingPayload {
   problems: { code: MetadataFailure; relativePath: string }[];
 }
 
+export interface SmbSessionsPayload {
+  /** Most recent successful sign-in per principal since the host service started. */
+  connections: { at: number; from: string; principal: string; share: string }[];
+  /** Sessions open right now, per `smbstatus`. */
+  open: { from: string; principal: string }[];
+}
+
 export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
   | {
@@ -114,6 +125,7 @@ export type MetadataResponse =
     }
   | { ok: true; writer: { at: number; principal: string } | null }
   | { ok: true; provisioned: true }
+  | { ok: true; smbSessions: SmbSessionsPayload }
   | { ok: true; listing: MetadataListingPayload }
   | { ok: true; branchMarkers: Record<string, string> }
   | { ok: true; branchUsage: BranchUsagePayload[] }

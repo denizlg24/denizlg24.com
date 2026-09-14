@@ -13,6 +13,7 @@ import {
 import { SmbAuditTail } from "./audit-tail";
 import { configFromEnv } from "./config";
 import { createSmbAgent } from "./smb-agent";
+import { readSmbSessions } from "./smb-sessions";
 import { watchStream } from "./watch-stream";
 import { WatchBroadcaster } from "./watcher";
 
@@ -131,6 +132,7 @@ const server = Bun.serve({
       () => readBranchMarkers(config.branchPaths),
       (relativePath) => auditTail.writerOf(relativePath),
       tiering,
+      () => readSmbSessions({ auditTail }),
     );
     return Response.json(response, { status: response.ok ? 200 : 409 });
   },

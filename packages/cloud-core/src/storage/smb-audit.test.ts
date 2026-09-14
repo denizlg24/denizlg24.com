@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { parseSmbAuditLine, RecentWriterIndex } from "./smb-audit";
+import {
+  parseSmbAuditLine,
+  parseSmbConnectLine,
+  parseSmbstatusBrief,
+  RecentConnectionIndex,
+  RecentWriterIndex,
+} from "./smb-audit";
 
 const ROOT = "/srv/deniz-cloud/storage";
 
@@ -123,5 +129,64 @@ describe("RecentWriterIndex", () => {
     expect(index.size).toBe(3);
     expect(index.writerOf("shared/file-0.pdf", 1_010)).toBeNull();
     expect(index.writerOf("shared/file-9.pdf", 1_010)?.principal).toBe("dc-x");
+  });
+});
+
+describe("SMB connect audit lines", () => {
+  it("parses a successful connect", () => {
+    expect(
+      parseSmbConnectLine(
+        "ana-macbook|100.64.0.5|Personal|connect|ok|Personal",
+      ),
+    ).toEqual({
+      from: "100.64.0.5",
+      principal: "ana-macbook",
+      share: "Personal",
+    });
+  });
+
+  it("ignores failed connects, other operations and the broker share", () => {
+    expect(
+      parseSmbConnectLine(
+        "ana-macbook|100.64.0.5|Personal|connect|fail|Personal",
+      ),
+    ).toBeNull();
+    expect(
+      parseSmbConnectLine(
+        "ana-macbook|100.64.0.5|Personal|disconnect|ok|Personal",
+      ),
+    ).toBeNull();
+    expect(
+      parseSmbConnectLine("apibroker|127.0.0.1|ApiBroker|connect|ok|ApiBroker"),
+    ).toBeNull();
+  });
+
+  it("keeps the latest connection per principal", () => {
+    const index = new RecentConnectionIndex();
+    index.record({ from: "100.64.0.5", principal: "p", share: "Personal" }, 1);
+    index.record({ from: "100.64.0.9", principal: "p", share: "Family" }, 2);
+    expect(index.connectionOf("p")).toEqual({
+      at: 2,
+      from: "100.64.0.9",
+      share: "Family",
+    });
+    expect(index.snapshot()).toEqual([
+      { at: 2, from: "100.64.0.9", principal: "p", share: "Family" },
+    ]);
+  });
+
+  it("parses the brief session table and skips its chrome", () => {
+    const output = [
+      "",
+      "Samba version 4.19.5-Debian",
+      "PID     Username     Group    Machine                              Protocol Version  Encryption  Signing",
+      "-------------------------------------------------------------------------------------------------------",
+      "1234    ana-macbook  storage  100.64.0.5 (ipv4:100.64.0.5:52344)   SMB3_11           -           AES-128-GMAC",
+      "",
+    ].join("\n");
+    expect(parseSmbstatusBrief(output)).toEqual([
+      { from: "100.64.0.5", principal: "ana-macbook" },
+    ]);
+    expect(parseSmbstatusBrief("Samba version 4.19.5-Debian\n")).toEqual([]);
   });
 });

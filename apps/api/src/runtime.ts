@@ -833,6 +833,11 @@ export async function createRuntimeApp() {
               revoke: (principal) => metadataClient.revokeSmb(principal),
             }
           : undefined,
+        // A host binary from before this op answers BAD_REQUEST; that reads
+        // as nothing observed, the same as a slow or absent host.
+        smbSessions: metadataClient
+          ? () => metadataClient.smbSessions().catch(() => null)
+          : undefined,
       },
       platform: {
         projects: projectRoutes({

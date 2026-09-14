@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { smbCredentials } from "../db/schema";
+import type { SmbSessionsPayload } from "./metadata-protocol";
 import {
   deriveSmbPrincipal,
   generateSmbSecret,
@@ -15,8 +16,16 @@ export interface SafeSmbCredential {
   id: string;
   lastAuthenticatedAt: Date | null;
   lastAuthenticatedFrom: string | null;
+  /** Whether the host reports a session open right now. Never persisted. */
+  connected: boolean;
   principal: string;
 }
+
+/**
+ * Reads the host's view of SMB sign-ins. Null when it cannot be read, which
+ * leaves the persisted columns as they are rather than failing the list.
+ */
+export type SmbSessionsReader = () => Promise<SmbSessionsPayload | null>;
 
 export interface IssuedSmbCredential extends SafeSmbCredential {
   /** Returned once, at creation. Samba holds the only other copy. */
@@ -42,8 +51,12 @@ export interface SmbProvisioner {
 /** Bounds how many devices one account can hold, as DAV credentials did. */
 export const SMB_MAX_CREDENTIALS_PER_USER = 10;
 
-function toSafe(record: typeof smbCredentials.$inferSelect): SafeSmbCredential {
+function toSafe(
+  record: typeof smbCredentials.$inferSelect,
+  connected = false,
+): SafeSmbCredential {
   return {
+    connected,
     createdAt: record.createdAt,
     deviceName: record.deviceName,
     expiresAt: record.expiresAt,
@@ -54,9 +67,21 @@ function toSafe(record: typeof smbCredentials.$inferSelect): SafeSmbCredential {
   };
 }
 
+/**
+ * Lists a user's live device credentials, folding in what the host has seen.
+ *
+ * `last_authenticated_at` is written here and nowhere else: Samba's audit
+ * stream lives on the host, so the API learns of a sign-in only by asking. A
+ * newer observation than the stored one is persisted before the list is
+ * returned, which is what makes the device page's "waiting for the
+ * connection…" poll able to flip. The host answering slowly or not at all
+ * degrades to the stored values — the list must not fail because a status
+ * column could not be refreshed.
+ */
 export async function listSmbCredentials(
   db: Database,
   userId: string,
+  readSessions?: SmbSessionsReader,
 ): Promise<SafeSmbCredential[]> {
   const rows = await db
     .select()
@@ -67,7 +92,44 @@ export async function listSmbCredentials(
     // Newest first, and ordered at all: an unordered select returns rows in
     // whatever order Postgres finds them, so the list reshuffled between polls.
     .orderBy(desc(smbCredentials.createdAt));
-  return rows.map(toSafe);
+  if (rows.length === 0 || !readSessions) {
+    return rows.map((row) => toSafe(row));
+  }
+
+  const sessions = await readSessions().catch(() => null);
+  if (!sessions) return rows.map((row) => toSafe(row));
+  const latest = new Map(
+    sessions.connections.map((entry) => [entry.principal, entry]),
+  );
+  const open = new Set(sessions.open.map((session) => session.principal));
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const seen = latest.get(row.principal);
+      const newer =
+        seen &&
+        (!row.lastAuthenticatedAt ||
+          seen.at > row.lastAuthenticatedAt.getTime());
+      if (!newer) return toSafe(row, open.has(row.principal));
+      const observedAt = new Date(seen.at);
+      await db
+        .update(smbCredentials)
+        .set({
+          lastAuthenticatedAt: observedAt,
+          lastAuthenticatedFrom: seen.from.slice(0, 64),
+        })
+        .where(eq(smbCredentials.id, row.id))
+        .catch(console.error);
+      return toSafe(
+        {
+          ...row,
+          lastAuthenticatedAt: observedAt,
+          lastAuthenticatedFrom: seen.from.slice(0, 64),
+        },
+        open.has(row.principal),
+      );
+    }),
+  );
 }
 
 /**
