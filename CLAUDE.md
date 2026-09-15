@@ -478,6 +478,14 @@ operator side: `docs/internal/runbooks/status-incident-agent.md`.
   service failing four minutes in five reads `degraded`, never `down`, and
   opens no incident. Samples store both `status` (confirmed; what the daily
   buckets count) and `observed`.
+- **Better Stack's `down` needs corroboration.** It checks every few minutes
+  and its verdict is sticky — a monitor reads `down` until its next check, an
+  incident stays open through its recovery period — so re-read each minute,
+  one failed check looked like three fresh failures and confirmed an outage
+  on its own (a 2-minute auth deploy swap became an incident on 2026-09-15).
+  `summarizeService` counts a Better Stack `down` as `degraded` whenever the
+  service's own evidence has a fresh pass and no failure; it stands when our
+  probe agrees or has nothing to say.
 - **A dependency's *confirmed* outage degrades its dependents; its blips do
   not.** The dependency pass runs after confirmation, on confirmed statuses,
   and adds at most `degraded`.

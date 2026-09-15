@@ -60,12 +60,32 @@ export function fromCheck(value: string): Health {
     )[value] ?? "unknown"
   );
 }
+const thirdParty = (item: Evidence) => item.source.startsWith("Better Stack");
+/**
+ * Better Stack checks every few minutes and its verdict is sticky: a monitor
+ * keeps reading `down` until its next check, and its incident stays open
+ * until its own recovery period ends. Re-read every minute, one failed check
+ * becomes a run of fresh-looking failures — enough on its own to confirm an
+ * outage the first-party probe had already watched end. So its `down` only
+ * stands when our own evidence agrees or has nothing to say; against a fresh
+ * first-party pass it is a degradation.
+ */
+function corroborated(evidence: Evidence[], states: Health[]): boolean {
+  const own = states.filter((_, index) => !thirdParty(evidence[index]!));
+  return own.includes("down") || !own.includes("operational");
+}
 export function summarizeService(
   service: Service,
   evidence: Evidence[],
   now: number,
 ): Service {
-  const states = evidence.map((item) => freshStatus(item.status, item.at, now));
+  const fresh = evidence.map((item) => freshStatus(item.status, item.at, now));
+  const trusted = corroborated(evidence, fresh);
+  const states = fresh.map((status, index) =>
+    status === "down" && !trusted && thirdParty(evidence[index]!)
+      ? "degraded"
+      : status,
+  );
   const latency =
     evidence.find((item) => item.latencyMs !== null)?.latencyMs ?? null;
   return {

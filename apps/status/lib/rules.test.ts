@@ -4,9 +4,10 @@ import {
   confirmStatus,
   maintenanceCovers,
   maintenanceOccurrence,
+  summarizeService,
 } from "./health";
 import { newAutoIncident, planIncidents } from "./incidents";
-import type { Health, Incident, Service } from "./model";
+import type { Evidence, Health, Incident, Service } from "./model";
 
 const service = (id: string, status: Health, name = id): Service => ({
   id,
@@ -220,5 +221,58 @@ describe("incident derivation", () => {
     expect(incident.evidence).toHaveLength(1);
     expect(incident.updates[0]?.visibility).toBe("private");
     expect(incident.cause).toContain("Timeout");
+  });
+});
+
+describe("third-party evidence", () => {
+  const now = Date.parse("2026-09-15T08:32:10Z");
+  const at = new Date(now - 5_000).toISOString();
+  const seen = (source: string, status: Health): Evidence => ({
+    source,
+    status,
+    at,
+    latencyMs: null,
+    detail: null,
+  });
+  const probe = (status: Health) => seen("Application runtime", status);
+  const monitor = (status: Health) =>
+    seen("Better Stack monitor 4922697", status);
+  const incident = seen("Better Stack incident 1015742331", "down");
+  const observe = (evidence: Evidence[]) =>
+    summarizeService(service("auth", "unknown"), evidence, now).status;
+
+  test("a stale Better Stack failure against a fresh first-party pass is a degradation", () => {
+    expect(observe([probe("operational"), monitor("down"), incident])).toBe(
+      "degraded",
+    );
+  });
+  test("it stands when our own evidence agrees or has nothing to say", () => {
+    expect(observe([probe("down"), monitor("down")])).toBe("down");
+    expect(observe([monitor("down")])).toBe("down");
+    expect(observe([probe("unknown"), monitor("down")])).toBe("down");
+  });
+  test("a two-minute deploy swap no longer opens an incident (auth, 2026-09-15 08:30)", () => {
+    const minutes: Evidence[][] = [
+      [probe("down")],
+      [probe("down"), monitor("down"), incident],
+      [probe("operational"), monitor("down"), incident],
+      [probe("operational"), monitor("down"), incident],
+      [probe("operational"), monitor("degraded"), incident],
+      [probe("operational"), monitor("degraded"), incident],
+      [probe("operational"), monitor("degraded"), incident],
+      [probe("operational")],
+      [probe("operational")],
+    ];
+    let previous: Health = "operational";
+    const recent: Health[] = [];
+    const confirmed: Health[] = [];
+    for (const evidence of minutes) {
+      const observed = observe(evidence);
+      previous = confirmStatus(observed, previous, recent);
+      recent.unshift(observed);
+      confirmed.push(previous);
+    }
+    expect(confirmed).not.toContain("down");
+    expect(confirmed.at(-1)).toBe("operational");
   });
 });
