@@ -100,6 +100,7 @@ export function Browser({ folderId }: { folderId: string }) {
 
   const empty =
     !state.error && !state.loading && rows.length === 0 && !creating;
+  const selecting = browser.selection.size > 0;
 
   return (
     <div
@@ -133,11 +134,15 @@ export function Browser({ folderId }: { folderId: string }) {
         {...cameraInput}
       />
 
-      {browser.selection.size > 0 ? (
-        <SelectionBar browser={browser} />
-      ) : (
-        <FolderHeader browser={browser} />
-      )}
+      {/* Both bars share one grid cell and the header stays mounted underneath,
+          so the row keeps the header's height: swapping them outright moved
+          the grid up under the second click of a double-click. */}
+      <div className="grid *:[grid-area:1/1]">
+        <div className={cn(selecting && "invisible")} inert={selecting}>
+          <FolderHeader browser={browser} />
+        </div>
+        {selecting && <SelectionBar browser={browser} />}
+      </div>
 
       <ContextMenu>
         <ContextMenuTrigger asChild>

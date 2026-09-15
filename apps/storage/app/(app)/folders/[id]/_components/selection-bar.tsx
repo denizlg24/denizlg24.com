@@ -9,7 +9,7 @@ import { MovePicker } from "./move-picker";
 import { ShareSheet } from "./share-sheet";
 import { type BrowserState, toEntries } from "./use-browser-controller";
 
-/** Replaces the folder header while anything is selected. */
+/** Covers the folder header while anything is selected. */
 export function SelectionBar({ browser }: { browser: BrowserState }) {
   const [panel, setPanel] = useState<"move" | "share" | null>(null);
   const { selectedRows } = browser;
