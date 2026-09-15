@@ -503,9 +503,19 @@ operator side: `docs/internal/runbooks/status-incident-agent.md`.
   the last hour. The run's verdict (`transient` / `operational` / `code`) lands
   on the incident through `status_incidents update`; `code` escalates through
   `status_incidents escalate`, which opens the GitHub issue
-  (`STATUS_GITHUB_TOKEN`, labels `incident` + `agent-fix`) a Claude Code
-  routine is wired to. Unset credentials skip that step silently: the incident
-  still opens.
+  (`STATUS_GITHUB_TOKEN`, labels `incident` + `agent-fix`) and then fires the
+  "Incident fixer" Claude Code routine through its API trigger
+  (`lib/routine.ts`, `STATUS_ROUTINE_FIRE_URL/TOKEN`) with the issue in the
+  payload. Not a GitHub trigger: routines only take pull request and release
+  events, so no issue event can start one. The routine also sweeps daily for
+  anything a failed fire missed. Unset credentials skip each step silently:
+  the incident still opens.
+- **A routine's connector tools are gated by `permitted_tools`, not
+  `allowed_tools`.** Every tool of an attached connector is otherwise callable
+  without approval. The Incident fixer permits only the read tools plus
+  `status_incidents`; anything else hits a permission prompt nobody answers,
+  so the run stalls rather than restarting or redeploying something. Its
+  sandbox has no `gh` (it uses the built-in GitHub tools) and Bun 1.3.
 - **The admin API and the server actions share `lib/admin-ops.ts`.** Routes
   under `app/api/admin/*` authenticate with `requireActor` (bearer for the
   status resource, else the cloud cookie) and go through `adminRoute`; every

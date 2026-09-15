@@ -2,10 +2,10 @@ import { z } from "zod";
 
 /**
  * The one thing the status page does on GitHub: turn an escalated incident
- * into an issue. The repository agent is wired to the `incident` label; the
- * `agent-fix` label is what releases it, and the triage run applies both, so
- * removing `agent-fix` from the defaults is the switch that puts the owner
- * back in the loop.
+ * into an issue. `agent-fix` is what releases the repository agent — the
+ * escalation fires the routine only when the issue carries it, and the
+ * routine's daily sweep only takes issues that do — so removing it from the
+ * defaults is the switch that puts the owner back in the loop.
  */
 export const ESCALATION_LABELS = ["incident", "agent-fix"];
 

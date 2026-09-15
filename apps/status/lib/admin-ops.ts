@@ -21,6 +21,7 @@ import {
 } from "./health";
 import { describeEvidence, isProblem } from "./incidents";
 import type { Incident, Maintenance, Service } from "./model";
+import { fireRoutine, routineConfig, routineFireText } from "./routine";
 
 /**
  * Every write the admin surface and the HTTP API share. The server actions in
@@ -223,6 +224,7 @@ export async function escalateIncident(
       services.find((service) => service.id === serviceId)?.name ?? serviceId,
   );
   const evidence = describeEvidence(incident.evidence);
+  const labels = Array.from(new Set([...ESCALATION_LABELS, ...input.labels]));
   const issue = await createIssue({
     title: input.title ?? `Incident: ${incident.title}`,
     body: [
@@ -240,7 +242,7 @@ export async function escalateIncident(
         : "",
       `Escalated by ${actor.username}.`,
     ].join("\n"),
-    labels: Array.from(new Set([...ESCALATION_LABELS, ...input.labels])),
+    labels,
   });
   const c = await collections();
   const now = stamp();
@@ -260,6 +262,31 @@ export async function escalateIncident(
       },
     },
   );
+  // The issue already exists and the daily sweep finds it, so a refused fire
+  // is a note on the incident, never a failed escalation.
+  if (labels.includes("agent-fix") && routineConfig()) {
+    const text = await fireRoutine(routineFireText(issue.url, incident._id))
+      .then((session) => `Repository agent started: ${session}`)
+      .catch(
+        (error: unknown) =>
+          `Repository agent not started (${error instanceof Error ? error.message : "unknown error"}); the daily sweep will pick the issue up.`,
+      );
+    await c.incidents.updateOne(
+      { _id: incident._id },
+      {
+        $push: {
+          updates: {
+            id: randomUUID(),
+            at: stamp(),
+            author: actor.username,
+            visibility: "private",
+            state: "identified",
+            text,
+          },
+        },
+      },
+    );
+  }
   return {
     incident: await loadIncident(id),
     issueUrl: issue.url,
