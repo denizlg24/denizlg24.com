@@ -29,6 +29,7 @@ describe("tool registry", () => {
     expect(byApp.get("forge")).toBeGreaterThanOrEqual(60);
     expect(byApp.get("cloud")).toBeGreaterThanOrEqual(70);
     expect(byApp.get("storage")).toBeGreaterThanOrEqual(18);
+    expect(byApp.get("status")).toBeGreaterThanOrEqual(5);
   });
 
   test("an action tool advertises its actions and marks fields with them", async () => {

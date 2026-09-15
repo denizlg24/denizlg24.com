@@ -90,6 +90,8 @@ export interface Upstream {
   cloud: (path: string, init?: RequestInit) => Promise<Response>;
   /** Calls denizlg24.com's admin API as its admin. */
   web: (path: string, init?: RequestInit) => Promise<Response>;
+  /** Calls the status page's admin API (incidents, maintenance) as its admin. */
+  status: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 export function createUpstream(
@@ -109,5 +111,9 @@ export function createUpstream(
         signal: init.signal ?? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
     };
-  return { cloud: call(config.cloud), web: call(config.web) };
+  return {
+    cloud: call(config.cloud),
+    web: call(config.web),
+    status: call(config.status),
+  };
 }

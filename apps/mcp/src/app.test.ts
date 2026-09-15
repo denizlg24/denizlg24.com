@@ -19,6 +19,10 @@ const config: McpConfig = {
     resource: "https://api.denizlg24.com",
   },
   web: { url: "https://denizlg24.com", resource: "https://denizlg24.com" },
+  status: {
+    url: "https://status.denizlg24.com",
+    resource: "https://status.denizlg24.com",
+  },
   service: { clientId: "svc", clientSecret: "secret" },
 };
 
@@ -42,6 +46,7 @@ function sign(payload: JWTPayload, audience = config.resource) {
 const upstream: Upstream = {
   cloud: async () => new Response(null, { status: 200 }),
   web: async () => new Response(null, { status: 200 }),
+  status: async () => new Response(null, { status: 200 }),
 };
 const app = createMcpApp({ config, upstream, keys });
 

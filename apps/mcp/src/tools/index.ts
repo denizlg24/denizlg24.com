@@ -3,6 +3,7 @@ import type { Upstream } from "../upstream";
 import { registerCloud } from "./cloud";
 import { createApi } from "./define";
 import { registerForge } from "./forge";
+import { registerStatus } from "./status";
 import { registerStorage } from "./storage";
 import { registerWeb } from "./web";
 import { registerWhoami } from "./whoami";
@@ -14,4 +15,5 @@ export function registerTools(server: McpServer, upstream: Upstream) {
   registerCloud(server, api);
   registerStorage(server, api);
   registerWeb(server, api);
+  registerStatus(server, api);
 }

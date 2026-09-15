@@ -6,7 +6,7 @@ import { MCP_ACTIONS_META_KEY, type McpActionsMeta } from "@repo/schemas";
 import { z } from "zod";
 import type { Upstream } from "../upstream";
 
-export type Side = "cloud" | "web";
+export type Side = "cloud" | "web" | "status";
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
 export type QueryValue =
@@ -183,6 +183,7 @@ export interface SideApi {
 export interface Api {
   cloud: SideApi;
   web: SideApi;
+  status: SideApi;
 }
 
 function sideApi(call: Upstream["cloud"]): SideApi {
@@ -223,14 +224,19 @@ function sideApi(call: Upstream["cloud"]): SideApi {
 }
 
 export function createApi(upstream: Upstream): Api {
-  return { cloud: sideApi(upstream.cloud), web: sideApi(upstream.web) };
+  return {
+    cloud: sideApi(upstream.cloud),
+    web: sideApi(upstream.web),
+    status: sideApi(upstream.status),
+  };
 }
 
 type Shape = Record<string, z.ZodType>;
 type ObjectSchema = z.ZodObject<Shape>;
 type Arguments = Record<string, unknown>;
 
-export const TOOL_NAME = /^(forge|cloud|storage|web)_[a-z0-9]+(_[a-z0-9]+)*$/;
+export const TOOL_NAME =
+  /^(forge|cloud|storage|web|status)_[a-z0-9]+(_[a-z0-9]+)*$/;
 
 function assertToolName(name: string) {
   if (!TOOL_NAME.test(name)) {

@@ -12,6 +12,10 @@ const config: McpConfig = {
     resource: "https://api.denizlg24.com",
   },
   web: { url: "https://denizlg24.com", resource: "https://denizlg24.com" },
+  status: {
+    url: "https://status.denizlg24.com",
+    resource: "https://status.denizlg24.com",
+  },
   service: { clientId: "svc", clientSecret: "secret" },
 };
 

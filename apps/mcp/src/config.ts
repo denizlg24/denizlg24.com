@@ -12,8 +12,10 @@ export interface McpConfig {
   issuer: string;
   cloud: { url: string; resource: string };
   web: { url: string; resource: string };
+  status: { url: string; resource: string };
   /**
-   * The service client this server authenticates to the cloud API and web as.
+   * The service client this server authenticates to the cloud API, web and
+   * the status page as.
    * Absent until one is created on auth.denizlg24.com/clients; the server
    * still authenticates MCP clients without it, and upstream calls report
    * that it is missing.
@@ -37,6 +39,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): McpConfig {
   }
   const cloudResource = env.OAUTH_RESOURCE_API ?? resources.api;
   const webResource = env.OAUTH_RESOURCE_WEB ?? resources.web;
+  const statusResource = env.OAUTH_RESOURCE_STATUS ?? resources.status;
   return {
     port: Number(env.PORT ?? 3009),
     resource: env.OAUTH_RESOURCE_MCP ?? resources.mcp,
@@ -51,6 +54,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): McpConfig {
     web: {
       url: trimSlash(env.WEB_URL ?? webResource),
       resource: webResource,
+    },
+    status: {
+      url: trimSlash(env.STATUS_URL ?? statusResource),
+      resource: statusResource,
     },
     service: clientId && clientSecret ? { clientId, clientSecret } : null,
   };

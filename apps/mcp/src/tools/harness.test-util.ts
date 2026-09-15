@@ -19,6 +19,10 @@ export const testConfig: McpConfig = {
     resource: "https://api.denizlg24.com",
   },
   web: { url: "https://denizlg24.com", resource: "https://denizlg24.com" },
+  status: {
+    url: "https://status.denizlg24.com",
+    resource: "https://status.denizlg24.com",
+  },
   service: { clientId: "svc", clientSecret: "secret" },
 };
 
@@ -40,7 +44,7 @@ async function sign(payload: JWTPayload) {
 }
 
 export interface RecordedCall {
-  side: "cloud" | "web";
+  side: "cloud" | "web" | "status";
   method: string;
   url: string;
   path: string;
@@ -57,7 +61,7 @@ export type Responder = (call: RecordedCall) => Response | Promise<Response>;
 export function recordingUpstream(respond?: Responder) {
   const calls: RecordedCall[] = [];
   const side =
-    (name: "cloud" | "web", base: string): Upstream["cloud"] =>
+    (name: "cloud" | "web" | "status", base: string): Upstream["cloud"] =>
     async (path, init = {}) => {
       const url = new URL(path, `${base}/`);
       const headers: Record<string, string> = {};
@@ -90,6 +94,7 @@ export function recordingUpstream(respond?: Responder) {
     upstream: {
       cloud: side("cloud", testConfig.cloud.url),
       web: side("web", testConfig.web.url),
+      status: side("status", testConfig.status.url),
     } satisfies Upstream,
   };
 }
