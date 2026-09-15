@@ -31,6 +31,7 @@ export function oauthConfigFromEnv(
       api: env.OAUTH_RESOURCE_API ?? resources.api,
       web: env.OAUTH_RESOURCE_WEB ?? resources.web,
       mcp: env.OAUTH_RESOURCE_MCP ?? resources.mcp,
+      status: env.OAUTH_RESOURCE_STATUS ?? resources.status,
     },
   };
 }

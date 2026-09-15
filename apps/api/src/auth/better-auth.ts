@@ -308,6 +308,7 @@ export function createCloudAuth(options: CloudAuthOptions) {
             accessTokenTtl: WEB_ACCESS_TOKEN_SECONDS,
           },
           { identifier: oauth.resources.mcp, name: "MCP" },
+          { identifier: oauth.resources.status, name: "Status page" },
         ],
         clientRegistrationDefaultResources: [oauth.resources.mcp],
         m2mAccessTokenExpiresIn: MACHINE_ACCESS_TOKEN_SECONDS,

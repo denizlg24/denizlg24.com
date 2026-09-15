@@ -9,6 +9,7 @@ describe("oauthConfigFromEnv", () => {
         api: "https://api.denizlg24.com",
         web: "https://denizlg24.com",
         mcp: "https://mcp.denizlg24.com/mcp",
+        status: "https://status.denizlg24.com",
       },
     });
   });
@@ -20,6 +21,7 @@ describe("oauthConfigFromEnv", () => {
         api: "http://localhost:3001",
         web: "http://localhost:3000",
         mcp: "http://localhost:3009/mcp",
+        status: "http://localhost:3007",
       },
     });
   });
