@@ -334,8 +334,8 @@ async function Body({
     return (
       <section>
         <p className="mb-6 text-sm text-muted-foreground">
-          Better Stack incidents retain their original failure observations.
-          Private notes stay off the public page.
+          Automatic incidents open after three failed observations and resolve
+          five minutes after recovery. Private notes stay off the public page.
         </p>
         <NewIncident services={services} />
         <PendingNewItem kind="incident" />
@@ -356,15 +356,39 @@ async function Body({
               {incident.cause}
             </p>
             <p className="text-xs text-muted-foreground">
+              {incident._id.startsWith("auto:")
+                ? "Automatic"
+                : incident._id.startsWith("manual:")
+                  ? "Manually reported"
+                  : "Mirrored from Better Stack"}
               {incident.betterStackId
-                ? `Better Stack incident ${incident.betterStackId}`
-                : "Manually reported"}{" "}
+                ? ` · Better Stack ${incident.betterStackId}`
+                : ""}{" "}
               ·{" "}
               {incident.resolvedAt
                 ? "Resolved"
-                : incident.acknowledgedAt
-                  ? "Acknowledged"
-                  : "Unacknowledged"}
+                : incident.recoveredAt
+                  ? "Recovered, confirming"
+                  : incident.acknowledgedAt
+                    ? "Acknowledged"
+                    : "Unacknowledged"}
+              {incident.agentVerdict
+                ? ` · verdict ${incident.agentVerdict}`
+                : ""}
+              {incident.agentRunId ? ` · run ${incident.agentRunId}` : ""}
+              {incident.issueUrl ? (
+                <>
+                  {" · "}
+                  <a
+                    href={incident.issueUrl}
+                    className="underline underline-offset-2"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    issue
+                  </a>
+                </>
+              ) : null}
             </p>
             <Log>
               {incident.evidence
@@ -434,7 +458,10 @@ async function Body({
               window.cancelledAt ? (
                 "Cancelled"
               ) : (
-                <Time value={window.startsAt} />
+                <>
+                  <Time value={window.startsAt} />
+                  {window.repeat === "weekly" ? " · weekly" : null}
+                </>
               )
             }
           >

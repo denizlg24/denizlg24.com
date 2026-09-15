@@ -64,6 +64,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   releases when its package version changes on `main`. Directory and workspace
   name are both extension-specific so a second extension can sit beside it.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
+- `apps/status/` — Next.js public status page (status.denizlg24.com). The one
+  app still on **Vercel** (project `denizlg24-status`, scope `oceaninformatix`;
+  env in `.env.status`, not `.env.example`). Its own Mongo on Atlas. See
+  [Status page](#status-page).
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/` — shared client pieces for the cloud apps.
 - `packages/cloud-auth-client/` — cloud auth clients, the post-login redirect
@@ -111,8 +115,8 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 Deploys: push to `main` → CI builds `ghcr.io/denizlg24/deniz-cloud-api` (arm64) →
 `docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml --profile tools up -d`
 from `/opt/deniz-cloud/infra/compose` on the Pi. Every Next.js app is built and
-run by Forge from its own Dockerfile; nothing in this repo deploys to Vercel any
-more. Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
+run by Forge from its own Dockerfile except `apps/status`, which stays on
+Vercel. Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
 
 Nothing that runs here sits behind a PaaS request limit — there is no 4.5 MB or
 100 MB body cap on an upload route, and no platform-imposed function timeout.
@@ -354,7 +358,9 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 | MCP clients (Claude) | `https://mcp.denizlg24.com/mcp` | Dynamic registration + authorization code + consent on auth.denizlg24.com |
 | `apps/web` | `https://denizlg24.com` | Trusted client, authorization code, no consent step |
 | `apps/desktop` | `https://denizlg24.com` | `native` public client: authorization code + PKCE, system browser, loopback redirect, no consent step |
-| `apps/mcp` → API and web | `https://api.denizlg24.com`, `https://denizlg24.com` | `client_credentials` as a service client |
+| `apps/mcp` → API, web and status | `https://api.denizlg24.com`, `https://denizlg24.com`, `https://status.denizlg24.com` | `client_credentials` as a service client |
+| `apps/status` → web | `https://denizlg24.com` | `client_credentials` as a service client, to start the incident triage run |
+| MCP server → `apps/status` | `https://status.denizlg24.com` | bearer on `/api/admin/*`; the admin UI keeps using the cloud cookie |
 
 - **Forge's edge strips every `deniz-cloud.*` cookie before a request reaches a
   deployment** (`apps/deploy-agent/src/caddy.ts`), on purpose — no deployed
@@ -447,14 +453,72 @@ reports that the server is not configured, and nothing else is affected. The
 in-app agent's denizlg24 connector likewise needs a `service` client holding
 only the MCP resource, set as `WEB_MCP_OAUTH_CLIENT_ID/SECRET` on web; until
 then the connector reports unconfigured and chat runs on its built-ins. Deploy
-mcp before web whenever web starts relying on a new MCP action.
+mcp before web whenever web starts relying on a new MCP action. The client
+management API cannot add a resource to an existing client, but the binding
+is one row in `auth_oauth_client_resource` (`client_id`, `resource_id` = the
+identifier) and the resource one row in `auth_oauth_resource`; the plugin
+seeds configured resources insert-only, so a hand-inserted row survives the
+next deploy. That is how the MCP client gained the status resource on
+2026-09-15 without rotating its secret — `docker exec -i
+deniz-cloud-postgres-1 psql -U admin -d denizcloud` on the Pi.
+
+## Status page
+
+`apps/status` collects once a minute (`/api/collect`, Vercel cron): its own
+probes of every app, the API's `/healthz/status`, Better Stack monitors and
+heartbeats. Design and rollout: `docs/internal/plans/022-status-incident-rules-and-agent.md`;
+operator side: `docs/internal/runbooks/status-incident-agent.md`.
+
+- **One failed observation is a degradation, three in a row are an outage.**
+  `confirmStatus` in `lib/health.ts` derives the status the page shows from
+  the raw verdict (`observed`) and the preceding samples' raw verdicts: `down`
+  needs `DOWN_CONFIRM_OBSERVATIONS` (3) consecutive, leaving `down` or
+  `degraded` needs `RECOVER_OBSERVATIONS` (2) clean ones, and `unknown` holds
+  the last confirmed status for 10 observations. Consequence worth knowing: a
+  service failing four minutes in five reads `degraded`, never `down`, and
+  opens no incident. Samples store both `status` (confirmed; what the daily
+  buckets count) and `observed`.
+- **A dependency's *confirmed* outage degrades its dependents; its blips do
+  not.** The dependency pass runs after confirmation, on confirmed statuses,
+  and adds at most `degraded`.
+- **Incidents are derived here, not mirrored.** `planIncidents` in
+  `lib/incidents.ts` opens `auto:` incidents on a confirmed `down`, merges
+  services related through `incidentRelations` into one, posts a public
+  `monitoring` update on recovery and resolves `AUTO_RESOLVE_MINUTES` (5)
+  later; a regression clears `recoveredAt`. Better Stack incidents are
+  evidence only, linked by id when one coincides so acknowledge/resolve and
+  the enrichment comment reach it; the `betterstack:` rows that exist are
+  history and only follow their upstream to resolution. Heartbeats never open
+  incidents — before this, 28 of 60 incidents had no service at all.
+- **An open incident no longer forces a tile red.** `data.ts` shows the
+  confirmed status; an incident is the narrative on top. Incidents with no
+  service are not shown publicly.
+- **Maintenance is applied in the collector**, so a service in a window is
+  `maintenance` in the snapshot and the samples, never builds a down streak
+  and never opens an incident. `repeat: "weekly"` recurs at the same weekday
+  and time (`maintenanceCovers`); one row covers the Sunday 02:00 UTC reboot.
+- **Every automatic incident starts one triage run on denizlg24.com**
+  (`lib/agent.ts`, `POST /api/admin/background-agent/runs` with a token from
+  `STATUS_OAUTH_CLIENT_ID/SECRET`), unless one of its services had a run in
+  the last hour. The run's verdict (`transient` / `operational` / `code`) lands
+  on the incident through `status_incidents update`; `code` escalates through
+  `status_incidents escalate`, which opens the GitHub issue
+  (`STATUS_GITHUB_TOKEN`, labels `incident` + `agent-fix`) a Claude Code
+  routine is wired to. Unset credentials skip that step silently: the incident
+  still opens.
+- **The admin API and the server actions share `lib/admin-ops.ts`.** Routes
+  under `app/api/admin/*` authenticate with `requireActor` (bearer for the
+  status resource, else the cloud cookie) and go through `adminRoute`; every
+  write is audited under the actor (`client:<id>` for the MCP server).
+  Input contracts are `@repo/schemas/status`.
 
 ## apps/mcp tools
 
 Every admin action of the infrastructure is a tool: `src/tools/forge/`
 (`/api/deploy` + `/api/forge`), `src/tools/cloud/` (`/api/ops`, `/api/projects`,
 `/api/db/*`, `/api/auth/admin`), `src/tools/storage/` (`/api/storage`,
-`/api/search`) and `src/tools/web/` (`/api/admin/*` on denizlg24.com). The
+`/api/search`), `src/tools/web/` (`/api/admin/*` on denizlg24.com) and
+`src/tools/status/` (`/api/admin/*` on status.denizlg24.com). The
 catalogue with every tool → route mapping is
 `docs/internal/plans/020-mcp-full-tool-catalogue.md`.
 
@@ -463,7 +527,7 @@ catalogue with every tool → route mapping is
   web is per-resource with an `action` enum (`defineActions`, e.g. `web_blogs`
   with `list|get|create|update|toggle|delete`). Id-only transitions on infra
   also use `defineActions` (`forge_deployment_action`). Names are enforced at
-  registration: `<forge|cloud|storage|web>_<resource>_<verb>`.
+  registration: `<forge|cloud|storage|web|status>_<resource>_<verb>`.
 - **`defineActions` merges every action's fields into one advertised schema**,
   each field labelled with the actions that use it, and parses the call with
   the chosen action's own schema. So the same concept must carry the same

@@ -17,8 +17,11 @@ async function Content() {
   return (
     <Live at={data.at} generatedAt={data.generatedAt}>
       {[false, true].map((past) => {
+        // A weekly window is always current or upcoming; it never completes.
         const windows = data.maintenance.filter(
-          (window) => Date.parse(window.endsAt) <= now === past,
+          (window) =>
+            (window.repeat === null && Date.parse(window.endsAt) <= now) ===
+            past,
         );
         return (
           <section className="mb-10" key={String(past)}>
@@ -52,6 +55,7 @@ async function Content() {
                         <span className="text-xs text-muted-foreground tabular-nums">
                           <Time value={window.startsAt} /> —{" "}
                           <Time value={window.endsAt} />
+                          {window.repeat === "weekly" ? " · weekly" : null}
                         </span>
                       </div>
                       <h3 className="text-sm font-medium">{window.title}</h3>

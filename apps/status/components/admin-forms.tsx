@@ -224,6 +224,16 @@ export function MaintenanceForm({
           />
         </Field>
       </div>
+      <Field label="Repeats">
+        <NativeSelect
+          name="repeat"
+          defaultValue={window?.repeat ?? "none"}
+          className="w-full"
+        >
+          <option value="none">Once</option>
+          <option value="weekly">Weekly, same weekday and time</option>
+        </NativeSelect>
+      </Field>
       <ServiceSelect services={services} selected={window?.serviceIds} />
       <ActionButton type="submit" size="sm">
         {window ? "Save maintenance" : "Schedule maintenance"}

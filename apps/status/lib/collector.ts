@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  AGENT_COOLDOWN_MS,
+  agentConfig,
+  startTriageRun,
+  triagePrompt,
+} from "./agent";
+import {
   type BetterResource,
   betterList,
   betterRequest,
@@ -19,8 +25,31 @@ import {
 } from "./config";
 import { monitoringSchema } from "./contracts";
 import { collections, statusConfig } from "./db";
-import { fromCheck, summarizeService } from "./health";
-import type { Backup, Evidence, Incident, Snapshot, Timing } from "./model";
+import {
+  combineHealth,
+  confirmStatus,
+  fromCheck,
+  maintenanceCovers,
+  STREAK_WINDOW_MS,
+  summarizeService,
+} from "./health";
+import {
+  describeEvidence,
+  isProblem,
+  newAutoIncident,
+  planIncidents,
+  statusWord,
+  systemUpdate,
+} from "./incidents";
+import type {
+  Backup,
+  Evidence,
+  Health,
+  Incident,
+  Service,
+  Snapshot,
+  Timing,
+} from "./model";
 import { probeApp } from "./probe";
 
 const apiOrigin = () =>
@@ -355,27 +384,79 @@ export async function collectStatus() {
         });
     }
     const now = Date.now();
-    let observed = Array.from(services.values()).map((service) =>
+    const nowIso = new Date(now).toISOString();
+    const minute = new Date(Math.floor(now / 60_000) * 60_000);
+    const raw = Array.from(services.values()).map((service) =>
       summarizeService(service, evidence.get(service.id) ?? [], now),
     );
+    // The confirmation streaks read the preceding samples' raw verdicts, and
+    // the previous snapshot carries the status each service was last confirmed
+    // at; one failed observation degrades, only repeated ones take a service
+    // down, and only repeated clean ones bring it back.
+    const [recentSamples, windows] = await Promise.all([
+      c.samples
+        .find(
+          {
+            at: { $gte: new Date(now - STREAK_WINDOW_MS), $lt: minute },
+          },
+          { projection: { serviceId: 1, at: 1, status: 1, observed: 1 } },
+        )
+        .sort({ at: -1 })
+        .toArray(),
+      c.maintenance.find({ cancelledAt: null }).toArray(),
+    ]);
+    const recentByService = new Map<string, Health[]>();
+    for (const sample of recentSamples)
+      recentByService.set(sample.serviceId, [
+        ...(recentByService.get(sample.serviceId) ?? []),
+        sample.observed ?? sample.status,
+      ]);
+    const previousByService = new Map(
+      (previous?.services ?? []).map((service) => [service.id, service]),
+    );
+    const underMaintenance = new Set(
+      windows
+        .filter((window) => maintenanceCovers(window, now))
+        .flatMap((window) => window.serviceIds),
+    );
+    const confirm = (service: Service, status: Health): Service => {
+      const last = previousByService.get(service.id);
+      const confirmed = underMaintenance.has(service.id)
+        ? "maintenance"
+        : confirmStatus(
+            status,
+            last?.status ?? "unknown",
+            recentByService.get(service.id) ?? [],
+          );
+      return {
+        ...service,
+        status: confirmed,
+        observed: status,
+        since: confirmed === last?.status ? (last.since ?? nowIso) : nowIso,
+      };
+    };
+    let observed = raw.map((service) => confirm(service, service.status));
+    // A dependency's *confirmed* outage degrades what depends on it; its raw
+    // blips stay its own.
     const dependencies: Record<string, string[]> = {
       api: ["postgres", "mongodb", "redis"],
       cloud: ["api", "postgres", "mongodb", "redis"],
       forge: ["api", "deploy-agent"],
       storage: ["api", "posix", "objectStorage", "storageProtocol", "search"],
     };
+    const confirmedById = new Map(observed.map((entry) => [entry.id, entry]));
     for (const [id, required] of Object.entries(dependencies)) {
-      const service = observed.find((entry) => entry.id === id);
+      const service = confirmedById.get(id);
       if (!service) continue;
       const signals: Evidence[] = required.map((dependency) => {
-        const result = observed.find((entry) => entry.id === dependency);
+        const result = confirmedById.get(dependency);
         return {
           source: `Dependency · ${result?.name ?? dependency}`,
           status:
             result?.status === "down"
               ? "degraded"
               : (result?.status ?? "unknown"),
-          at: result?.checkedAt ?? stamp(),
+          at: result?.checkedAt ?? nowIso,
           latencyMs: null,
           detail:
             result?.status === "down"
@@ -383,9 +464,23 @@ export async function collectStatus() {
               : null,
         };
       });
+      const status = underMaintenance.has(id)
+        ? "maintenance"
+        : combineHealth([
+            service.status,
+            ...signals.map((item) => item.status),
+          ]);
       observed = observed.map((entry) =>
         entry.id === id
-          ? summarizeService(service, [...service.evidence, ...signals], now)
+          ? {
+              ...entry,
+              status,
+              evidence: [...entry.evidence, ...signals],
+              since:
+                status === previousByService.get(id)?.status
+                  ? (previousByService.get(id)?.since ?? nowIso)
+                  : nowIso,
+            }
           : entry,
       );
     }
@@ -452,7 +547,6 @@ export async function collectStatus() {
       backups,
       warnings,
     };
-    const minute = new Date(Math.floor(now / 60_000) * 60_000);
     await c.samples.bulkWrite(
       observed.map((service) => ({
         updateOne: {
@@ -462,6 +556,7 @@ export async function collectStatus() {
               serviceId: service.id,
               at: minute,
               status: service.status,
+              observed: service.observed ?? service.status,
               latencyMs: service.latencyMs,
               evidence: service.evidence.filter(
                 (item) => item.status !== "operational",
@@ -545,109 +640,209 @@ export async function collectStatus() {
       .toArray();
     await c.snapshots.replaceOne({ _id: "latest" }, snapshot, { upsert: true });
 
-    const syncIncident = async (item: BetterResource) => {
-      if (!numericId(item.id)) return;
-      const serviceId = incidentTarget(item);
-      const startedAt = textAttribute(item, "started_at");
-      if (!startedAt || !Number.isFinite(Date.parse(startedAt))) return;
-      const service = observed.find((entry) => entry.id === serviceId);
-      const originalSample = serviceId
-        ? await c.samples.findOne(
-            {
-              serviceId,
-              at: {
-                $gte: new Date(Date.parse(startedAt) - 180_000),
-                $lte: new Date(Date.parse(startedAt) + 180_000),
-              },
-            },
-            { sort: { at: 1 } },
-          )
-        : null;
-      const incidentEvidence =
-        originalSample?.evidence ??
-        (Math.abs(Date.now() - Date.parse(startedAt)) < 180_000
-          ? (service?.evidence ?? [])
-          : []);
-      const event: Incident = {
-        _id: `betterstack:${item.id}`,
-        betterStackId: item.id,
-        title: service
-          ? `${service.name} interruption`
-          : "Service interruption",
-        serviceIds: serviceId ? [serviceId] : [],
-        startedAt,
-        acknowledgedAt: textAttribute(item, "acknowledged_at"),
-        resolvedAt: textAttribute(item, "resolved_at"),
-        cause:
-          textAttribute(item, "cause") ??
-          "The monitor did not provide a failure reason.",
-        evidence: incidentEvidence,
-        updates: [],
-      };
-      const { acknowledgedAt, resolvedAt, cause, ...initial } = event;
-      // Store contemporaneous evidence once; later recovery samples never rewrite it.
-      await c.incidents.updateOne(
-        { _id: event._id },
-        { $setOnInsert: initial, $set: { acknowledgedAt, resolvedAt, cause } },
-        { upsert: true },
-      );
-      const stored = await c.incidents.findOne({ _id: event._id });
-      if (stored && !stored.enrichmentSentAt && !stored.resolvedAt) {
-        const notes = stored.evidence
-          .filter((e) => e.status !== "operational")
-          .map(
-            (e) =>
-              `${e.source}: ${e.status}${e.detail ? ` — ${e.detail}` : ""}`,
+    // Incidents are derived from confirmed status, not mirrored from Better
+    // Stack: its incident opens on its own confirmation rules and lands here
+    // only as evidence. A Better Stack incident that coincides with one of
+    // ours is linked so acknowledge, resolve and the enrichment comment reach
+    // it.
+    const opened = await provider("Incident reconciliation", async () => {
+      const open = await c.incidents.find({ resolvedAt: null }).toArray();
+      const plan = planIncidents({ services: observed, open, now });
+      const created: Incident[] = [];
+      for (const group of plan.open) {
+        const incident = newAutoIncident(group.services, nowIso);
+        const upstream = (incidents ?? []).find((item) => {
+          const target = incidentTarget(item);
+          const startedAt = textAttribute(item, "started_at");
+          return (
+            !!target &&
+            incident.serviceIds.includes(target) &&
+            !!startedAt &&
+            Math.abs(now - Date.parse(startedAt)) < 5 * 60_000
           );
-        await betterRequest(`/api/v2/incidents/${item.id}/comments`, {
-          method: "POST",
-          body: JSON.stringify({
-            content: `Status page evidence (${stored.startedAt}). These observations are not a confirmed root cause.\n\n${notes.join("\n") || "No matching dependency observations were available. Investigation is required."}\n\nReference: ${stored._id}`,
-          }),
         });
+        if (upstream) incident.betterStackId = upstream.id;
+        await c.incidents.insertOne(incident);
+        created.push(incident);
+      }
+      for (const { incidentId, service } of plan.merge)
+        await c.incidents.updateOne(
+          { _id: incidentId },
+          {
+            $addToSet: { serviceIds: service.id },
+            $push: {
+              evidence: { $each: service.evidence.filter(isProblem) },
+              updates: systemUpdate(
+                "investigating",
+                "private",
+                `${service.name} is also affected.\n${describeEvidence(service.evidence).join("\n")}`,
+                nowIso,
+              ),
+            },
+          },
+        );
+      for (const incidentId of plan.recover)
+        await c.incidents.updateOne(
+          { _id: incidentId },
+          {
+            $set: { recoveredAt: nowIso },
+            $push: {
+              updates: systemUpdate(
+                "monitoring",
+                "public",
+                "Service has been restored. Monitoring continues to confirm the recovery holds.",
+                nowIso,
+              ),
+            },
+          },
+        );
+      for (const { incidentId, service } of plan.regress)
+        await c.incidents.updateOne(
+          { _id: incidentId },
+          {
+            $set: { recoveredAt: null },
+            $push: {
+              updates: systemUpdate(
+                "investigating",
+                "private",
+                `${service.name} is ${statusWord(service.status)} again.`,
+                nowIso,
+              ),
+            },
+          },
+        );
+      for (const incidentId of plan.resolve) {
+        const incident = open.find((item) => item._id === incidentId);
+        await c.incidents.updateOne(
+          { _id: incidentId },
+          {
+            $set: { resolvedAt: nowIso },
+            $push: {
+              updates: systemUpdate(
+                "resolved",
+                "public",
+                `Resolved. Service was restored at ${incident?.recoveredAt ?? nowIso} and has remained stable since.`,
+                nowIso,
+              ),
+            },
+          },
+        );
+      }
+      return created;
+    });
+    // Better Stack gets our evidence as a comment on its own incident, once.
+    await provider("Incident enrichment", async () => {
+      const linked = await c.incidents
+        .find({
+          _id: { $regex: /^auto:/ },
+          betterStackId: { $ne: null },
+          enrichmentSentAt: { $exists: false },
+          resolvedAt: null,
+        })
+        .toArray();
+      for (const stored of linked) {
+        if (!stored.betterStackId) continue;
+        const notes = describeEvidence(stored.evidence);
+        await betterRequest(
+          `/api/v2/incidents/${stored.betterStackId}/comments`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              content: `Status page evidence (${stored.startedAt}). These observations are not a confirmed root cause.\n\n${notes.join("\n") || "No matching dependency observations were available. Investigation is required."}\n\nReference: ${stored._id}`,
+            }),
+          },
+        );
         await c.incidents.updateOne(
           { _id: stored._id },
           { $set: { enrichmentSentAt: stamp() } },
         );
       }
-    };
-    // Import recent history and explicitly re-fetch unresolved local incidents;
-    // absence from a page/list is never interpreted as recovery.
-    await provider("Incident history", async () => {
-      const since = new Date(Date.now() - 90 * 86400_000)
-        .toISOString()
-        .slice(0, 10);
-      const recent = await betterList(
-        `/api/v3/incidents?per_page=50&from=${since}`,
-      );
-      const local = await c.incidents
-        .find({ betterStackId: { $ne: null }, resolvedAt: null })
-        .toArray();
-      const byId = new Map(
-        [...recent, ...(incidents ?? [])].map((item) => [item.id, item]),
-      );
-      for (const event of local)
-        if (event.betterStackId && !byId.has(event.betterStackId)) {
-          const result = z
-            .object({
-              data: z.object({
-                id: z.string(),
-                attributes: z.record(z.string(), z.unknown()),
-                relationships: z
-                  .record(
-                    z.string(),
-                    z.object({ data: z.object({ id: z.string() }).nullable() }),
-                  )
-                  .optional(),
-              }),
-            })
-            .parse(
-              await betterRequest(`/api/v3/incidents/${event.betterStackId}`),
-            );
-          byId.set(result.data.id, result.data);
-        }
-      await mapConcurrent(Array.from(byId.values()), 3, syncIncident);
     });
+    // Rows mirrored before incidents were derived here still follow their
+    // upstream to resolution; absence from a list is never read as recovery.
+    await provider("Legacy incident settlement", async () => {
+      const legacy = await c.incidents
+        .find({ _id: { $regex: /^betterstack:/ }, resolvedAt: null })
+        .toArray();
+      for (const event of legacy) {
+        if (!event.betterStackId) continue;
+        const result = z
+          .object({
+            data: z.object({
+              id: z.string(),
+              attributes: z.record(z.string(), z.unknown()),
+            }),
+          })
+          .parse(
+            await betterRequest(`/api/v3/incidents/${event.betterStackId}`),
+          );
+        await c.incidents.updateOne(
+          { _id: event._id },
+          {
+            $set: {
+              acknowledgedAt: textAttribute(result.data, "acknowledged_at"),
+              resolvedAt: textAttribute(result.data, "resolved_at"),
+            },
+          },
+        );
+      }
+    });
+    // Every automatic incident starts one triage run on denizlg24.com, unless
+    // one of its services had a run in the last hour — the hysteresis removes
+    // most flapping and this catches the rest.
+    const agent = agentConfig();
+    if (agent && opened?.length)
+      await provider("Incident agent", async () => {
+        const statusOrigin =
+          process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com";
+        for (const incident of opened) {
+          const recent = await c.incidents.findOne({
+            _id: { $ne: incident._id },
+            agentRunId: { $nin: [null, ""] },
+            serviceIds: { $in: incident.serviceIds },
+            startedAt: {
+              $gte: new Date(now - AGENT_COOLDOWN_MS).toISOString(),
+            },
+          });
+          if (recent) {
+            await c.incidents.updateOne(
+              { _id: incident._id },
+              {
+                $push: {
+                  updates: systemUpdate(
+                    "investigating",
+                    "private",
+                    `Triage skipped: ${recent._id} started a run less than an hour ago.`,
+                    nowIso,
+                  ),
+                },
+              },
+            );
+            continue;
+          }
+          const members = observed.filter((service) =>
+            incident.serviceIds.includes(service.id),
+          );
+          const runId = await startTriageRun(
+            agent,
+            triagePrompt(incident, members, statusOrigin),
+          );
+          await c.incidents.updateOne(
+            { _id: incident._id },
+            {
+              $set: { agentRunId: runId },
+              $push: {
+                updates: systemUpdate(
+                  "investigating",
+                  "private",
+                  `Triage run ${runId} started.`,
+                  nowIso,
+                ),
+              },
+            },
+          );
+        }
+      });
     // Every 5 minutes, retain all available regional samples. Overlapping data
     // is deduplicated by monitor/region/timestamp, including repeated cron calls.
     if (Math.floor(now / 60_000) % 5 === 0 || !previous) {

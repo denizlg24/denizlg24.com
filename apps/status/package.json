@@ -11,6 +11,8 @@
     "db:setup": "bun --env-file=../../.env.status scripts/setup-db.ts"
   },
   "dependencies": {
+    "@repo/cloud-auth-client": "workspace:*",
+    "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",
     "lucide-react": "^1.34.0",
     "mongodb": "^7.6.0",

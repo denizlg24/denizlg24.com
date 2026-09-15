@@ -76,6 +76,96 @@ export function summarizeService(
     evidence,
   };
 }
+/** Consecutive `down` observations before a service is confirmed down. */
+export const DOWN_CONFIRM_OBSERVATIONS = 3;
+/** Consecutive `operational` observations before a confirmed down or degraded service recovers. */
+export const RECOVER_OBSERVATIONS = 2;
+/** Consecutive `unknown` observations a confirmed status survives before it is reported as such. */
+export const UNKNOWN_HOLD_OBSERVATIONS = 10;
+/** Minutes every service must stay operational before an automatic incident resolves. */
+export const AUTO_RESOLVE_MINUTES = 5;
+/** Sample window the streaks are read from; older observations never count. */
+export const STREAK_WINDOW_MS = 15 * 60_000;
+function leading(recent: Health[], state: Health): number {
+  let count = 0;
+  for (const item of recent) {
+    if (item !== state) break;
+    count += 1;
+  }
+  return count;
+}
+/**
+ * The status the page shows, derived from this minute's observation and the
+ * ones before it. One failed observation is a degradation, not an outage:
+ * `down` takes `DOWN_CONFIRM_OBSERVATIONS` in a row, and leaving `down` or
+ * `degraded` takes `RECOVER_OBSERVATIONS` clean ones, so a probe that flaps
+ * neither paints an outage nor clears one. `unknown` holds the last confirmed
+ * status for a while — a stale collector is not a recovery and not an outage.
+ * `maintenance` is applied outside this function and wins over all of it.
+ *
+ * `recent` is the observed status of the preceding samples, newest first,
+ * excluding the current one.
+ */
+export function confirmStatus(
+  observed: Health,
+  previous: Health,
+  recent: Health[],
+): Health {
+  const streak = 1 + leading(recent, observed);
+  switch (observed) {
+    case "maintenance":
+      return "maintenance";
+    case "down":
+      if (streak >= DOWN_CONFIRM_OBSERVATIONS || previous === "down")
+        return "down";
+      return "degraded";
+    case "degraded":
+      return "degraded";
+    case "operational":
+      if (previous !== "down" && previous !== "degraded") return "operational";
+      return streak >= RECOVER_OBSERVATIONS ? "operational" : previous;
+    case "unknown":
+      if (previous === "unknown" || previous === "maintenance")
+        return "unknown";
+      return streak > UNKNOWN_HOLD_OBSERVATIONS ? "unknown" : previous;
+  }
+}
+const WEEK_MS = 7 * 86400_000;
+/**
+ * Whether a window covers `now`. A weekly window is the same weekday and time
+ * every week from `startsAt` on; the reboot that happens every Sunday is one
+ * row, not fifty-two.
+ */
+export function maintenanceCovers(
+  window: { startsAt: string; endsAt: string; repeat?: "weekly" | null },
+  now: number,
+): boolean {
+  const starts = Date.parse(window.startsAt);
+  const ends = Date.parse(window.endsAt);
+  if (!Number.isFinite(starts) || !Number.isFinite(ends) || ends <= starts)
+    return false;
+  if (window.repeat !== "weekly") return starts <= now && ends > now;
+  if (now < starts) return false;
+  const offset = (now - starts) % WEEK_MS;
+  return offset < ends - starts;
+}
+/** The next occurrence's bounds, for display; the row's own dates for one-off windows. */
+export function maintenanceOccurrence(
+  window: { startsAt: string; endsAt: string; repeat?: "weekly" | null },
+  now: number,
+): { startsAt: string; endsAt: string } {
+  const starts = Date.parse(window.startsAt);
+  const ends = Date.parse(window.endsAt);
+  if (window.repeat !== "weekly" || now < starts || ends <= starts)
+    return { startsAt: window.startsAt, endsAt: window.endsAt };
+  const weeks = Math.floor((now - starts) / WEEK_MS);
+  const current = starts + weeks * WEEK_MS;
+  const shift = current + (ends - starts) > now ? current : current + WEEK_MS;
+  return {
+    startsAt: new Date(shift).toISOString(),
+    endsAt: new Date(shift + (ends - starts)).toISOString(),
+  };
+}
 export function availability(days: Daily[]): {
   percent: number | null;
   measured: number;

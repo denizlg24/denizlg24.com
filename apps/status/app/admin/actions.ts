@@ -4,14 +4,21 @@ import { revalidatePath, updateTag } from "next/cache";
 import { z } from "zod";
 import type { AdminResult } from "@/lib/admin-feedback";
 import {
+  cancelMaintenance,
+  createIncident,
+  postIncidentUpdate,
+  saveMaintenance,
+  settleIncident,
+  visibleServices,
+} from "@/lib/admin-ops";
+import {
   AccessError,
   cloudRequest,
   requireAdmin,
   requireSameOrigin,
 } from "@/lib/auth";
-import { betterList, betterRequest, textAttribute } from "@/lib/better-stack";
-import { catalog } from "@/lib/catalog";
-import { resolveServices, type SourceKind } from "@/lib/config";
+import { betterList, textAttribute } from "@/lib/better-stack";
+import type { SourceKind } from "@/lib/config";
 import { collections, statusConfig } from "@/lib/db";
 import {
   backupCommandInput,
@@ -24,7 +31,6 @@ import {
   sourceIdInput,
   updateInput,
 } from "@/lib/input";
-import type { Incident, Service } from "@/lib/model";
 
 const field = (form: FormData, key: string) => String(form.get(key) ?? "");
 const targetId = (form: FormData) =>
@@ -86,138 +92,52 @@ async function performAdminAction(form: FormData): Promise<AdminResult> {
   }
   try {
     const now = new Date().toISOString();
-    // Only what the page actually shows can be named by an incident or a
-    // maintenance window; a hidden tile would announce impact nobody can see.
-    const visibleServices = async (): Promise<Service[]> => {
-      const [snapshot, config] = await Promise.all([
-        c.snapshots.findOne({ _id: "latest" }),
-        statusConfig(),
-      ]);
-      return resolveServices(snapshot?.services ?? catalog, config);
-    };
-    const validateServices = async (ids: string[]) => {
-      const services = await visibleServices();
-      if (ids.some((id) => !services.some((service) => service.id === id)))
-        throw new AccessError(
-          400,
-          "Select services from the latest monitoring report.",
-        );
-    };
     if (operation === "incident-create") {
-      const input = incidentInput.parse({
-        title: field(form, "title"),
-        text: field(form, "text"),
-        serviceIds: form.getAll("serviceIds"),
-      });
-      await validateServices(input.serviceIds);
-      const incident: Incident = {
-        _id: `manual:${randomUUID()}`,
-        betterStackId: null,
-        title: input.title,
-        serviceIds: input.serviceIds,
-        startedAt: now,
-        acknowledgedAt: now,
-        resolvedAt: null,
-        cause: "Manually reported",
-        evidence: [],
-        updates: [
-          {
-            id: randomUUID(),
-            at: now,
-            author: actor.username,
-            visibility: "public",
-            state: "investigating",
-            text: input.text,
-          },
-        ],
-      };
-      await c.incidents.insertOne(incident);
-    } else if (operation.startsWith("incident-")) {
-      const incident = await c.incidents.findOne({ _id: targetId(form) });
-      if (!incident) throw new AccessError(404, "Incident not found.");
-      const upstream = incident.betterStackId;
-      if (operation === "incident-update") {
-        const input = updateInput.parse({
-          id: incident._id,
+      await createIncident(
+        actor,
+        incidentInput.parse({
+          title: field(form, "title"),
           text: field(form, "text"),
-          visibility: field(form, "visibility"),
-          state: field(form, "state"),
-        });
-        if (input.state === "resolved" && !incident.resolvedAt)
-          throw new AccessError(
-            400,
-            "Resolve the incident before posting a resolved update.",
-          );
-        if (upstream)
-          await betterRequest(
-            `/api/v2/incidents/${encodeURIComponent(upstream)}/comments`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                content: `[${input.visibility} status-page note · ${input.state}] ${input.text}\n\nBy ${actor.username}`,
-              }),
-            },
-          );
-        await c.incidents.updateOne(
-          { _id: incident._id },
-          {
-            $push: {
-              updates: {
-                id: randomUUID(),
-                at: now,
-                author: actor.username,
-                visibility: input.visibility,
-                state: input.state,
-                text: input.text,
-              },
-            },
-          },
-        );
-      } else {
-        const resolve = operation === "incident-resolve";
-        if (upstream)
-          await betterRequest(
-            `/api/v3/incidents/${encodeURIComponent(upstream)}/${resolve ? "resolve" : "acknowledge"}`,
-            {
-              method: "POST",
-              body: JSON.stringify(
-                resolve
-                  ? { resolved_by: actor.username }
-                  : { acknowledged_by: actor.username },
-              ),
-            },
-          );
-        await c.incidents.updateOne(
-          { _id: incident._id },
-          { $set: resolve ? { resolvedAt: now } : { acknowledgedAt: now } },
-        );
-        message = resolve
-          ? "Incident resolved. Monitoring observations remain independent."
-          : "Incident acknowledged.";
-      }
-    } else if (operation === "maintenance-save") {
-      const input = maintenanceInput.parse({
-        id: field(form, "id"),
-        title: field(form, "title"),
-        description: field(form, "description"),
-        serviceIds: form.getAll("serviceIds"),
-        startsAt: `${field(form, "startsAt")}:00.000Z`,
-        endsAt: `${field(form, "endsAt")}:00.000Z`,
+          serviceIds: form.getAll("serviceIds"),
+        }),
+      );
+    } else if (operation === "incident-update") {
+      const { id, ...input } = updateInput.parse({
+        id: targetId(form),
+        text: field(form, "text"),
+        visibility: field(form, "visibility"),
+        state: field(form, "state"),
       });
-      await validateServices(input.serviceIds);
-      const { id, ...data } = input;
-      if (id && !(await c.maintenance.findOne({ _id: id })))
-        throw new AccessError(404, "Maintenance window not found.");
-      await c.maintenance.updateOne(
-        { _id: id || randomUUID() },
-        { $set: { ...data, author: actor.username, cancelledAt: null } },
-        { upsert: !id },
+      await postIncidentUpdate(actor, id, input);
+    } else if (
+      operation === "incident-acknowledge" ||
+      operation === "incident-resolve"
+    ) {
+      const resolve = operation === "incident-resolve";
+      await settleIncident(
+        actor,
+        targetId(form),
+        resolve ? "resolve" : "acknowledge",
+      );
+      message = resolve
+        ? "Incident resolved. Monitoring observations remain independent."
+        : "Incident acknowledged.";
+    } else if (operation === "maintenance-save") {
+      const id = z.string().max(160).parse(field(form, "id"));
+      await saveMaintenance(
+        actor,
+        id || null,
+        maintenanceInput.parse({
+          title: field(form, "title"),
+          description: field(form, "description"),
+          serviceIds: form.getAll("serviceIds"),
+          startsAt: `${field(form, "startsAt")}:00.000Z`,
+          endsAt: `${field(form, "endsAt")}:00.000Z`,
+          repeat: field(form, "repeat") === "weekly" ? "weekly" : null,
+        }),
       );
     } else if (operation === "maintenance-cancel") {
-      await c.maintenance.updateOne(
-        { _id: targetId(form) },
-        { $set: { cancelledAt: now } },
-      );
+      await cancelMaintenance(actor, targetId(form));
     } else if (operation === "backup-run" || operation === "backup-schedule") {
       const id = z.uuid().parse(targetId(form));
       const task = z

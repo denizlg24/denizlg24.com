@@ -1,5 +1,12 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
+import {
+  bearerToken,
+  createAccessTokenVerifier,
+  isSuperuserToken,
+  looksLikeJwt,
+} from "@repo/cloud-auth-client/resource";
+import { DEV_OAUTH_RESOURCES, OAUTH_RESOURCES } from "@repo/schemas/cloud";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { z } from "zod";
@@ -75,6 +82,58 @@ export async function requireAdmin() {
       "An active Cloud or Forge administrator session is required.",
     );
   return user;
+}
+export type Actor = { id: string; username: string };
+
+/**
+ * This page's own audience. The MCP server calls the admin API with a token
+ * the authorization server issued for `https://status.denizlg24.com`; a token
+ * for any other resource is refused, as everywhere else.
+ */
+function resourceConfig() {
+  const production = process.env.NODE_ENV === "production";
+  return {
+    issuer: (
+      process.env.STATUS_AUTH_ISSUER ?? `${apiOrigin()}/api/auth`
+    ).replace(/\/$/, ""),
+    audience:
+      process.env.STATUS_OAUTH_RESOURCE ??
+      (production ? OAUTH_RESOURCES.status : DEV_OAUTH_RESOURCES.status),
+  };
+}
+let verifier: ReturnType<typeof createAccessTokenVerifier> | undefined;
+async function bearerActor(request: Request): Promise<Actor | null> {
+  const token = bearerToken(request.headers.get("authorization"));
+  if (!token || !looksLikeJwt(token)) return null;
+  verifier ??= createAccessTokenVerifier(resourceConfig());
+  let verified: Awaited<ReturnType<typeof verifier>>;
+  try {
+    verified = await verifier(token);
+  } catch {
+    throw new AccessError(
+      503,
+      "Cloud authentication is temporarily unavailable.",
+    );
+  }
+  if (!verified || !isSuperuserToken(verified)) return null;
+  const name = verified.machine
+    ? `client:${verified.clientId}`
+    : verified.subject;
+  return { id: name, username: name };
+}
+/** Who is calling the admin API: a bearer token first, the admin cookie otherwise. */
+export async function requireActor(request: Request): Promise<Actor> {
+  const bearer = await bearerActor(request);
+  if (bearer) return bearer;
+  if (request.headers.get("authorization"))
+    throw new AccessError(401, "The bearer token was not accepted.");
+  const session = await adminSession();
+  if (!session)
+    throw new AccessError(
+      401,
+      "An administrator token or session is required.",
+    );
+  return { id: session.id, username: session.username };
 }
 export async function requireSameOrigin() {
   const origin = (await headers()).get("origin");

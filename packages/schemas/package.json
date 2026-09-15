@@ -8,7 +8,8 @@
     "./cloud": "./src/cloud/index.ts",
     "./envoy": "./src/envoy/index.ts",
     "./macros": "./src/macros/index.ts",
-    "./markets": "./src/markets.ts"
+    "./markets": "./src/markets.ts",
+    "./status": "./src/status/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -23,7 +23,12 @@ export type Service = {
   name: string;
   group: string;
   description: string;
+  /** Confirmed by the hysteresis rules in `health.ts`; what the page shows. */
   status: Health;
+  /** This minute's raw verdict from the evidence, before confirmation. */
+  observed?: Health;
+  /** When `status` last changed. */
+  since?: string | null;
   checkedAt: string | null;
   latencyMs: number | null;
   evidence: Evidence[];
@@ -63,6 +68,11 @@ export type Update = {
   state: "investigating" | "identified" | "monitoring" | "resolved";
   text: string;
 };
+/**
+ * `_id` names the origin: `auto:` opened by the collector from confirmed
+ * status, `manual:` by the admin, `betterstack:` mirrored before incidents
+ * were derived here (history only).
+ */
 export type Incident = {
   _id: string;
   betterStackId: string | null;
@@ -70,11 +80,18 @@ export type Incident = {
   serviceIds: string[];
   startedAt: string;
   acknowledgedAt: string | null;
+  /** Every service confirmed operational again; cleared if one regresses. */
+  recoveredAt?: string | null;
   resolvedAt: string | null;
   cause: string;
   evidence: Evidence[];
   updates: Update[];
   enrichmentSentAt?: string;
+  /** The background run triaging this incident on denizlg24.com. */
+  agentRunId?: string | null;
+  agentVerdict?: "transient" | "operational" | "code" | null;
+  /** The repository issue an escalation opened. */
+  issueUrl?: string | null;
 };
 export type Maintenance = {
   _id: string;
@@ -83,6 +100,8 @@ export type Maintenance = {
   serviceIds: string[];
   startsAt: string;
   endsAt: string;
+  /** A weekly window recurs at the same weekday and time as `startsAt`. */
+  repeat?: "weekly" | null;
   cancelledAt: string | null;
   author: string;
 };
@@ -90,7 +109,10 @@ export type Sample = {
   _id: string;
   serviceId: string;
   at: Date;
+  /** Confirmed status; what the daily buckets count. */
   status: Health;
+  /** The raw verdict, which the confirmation streaks are read from. */
+  observed?: Health;
   latencyMs: number | null;
   evidence: Evidence[];
 };

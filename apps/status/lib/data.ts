@@ -8,7 +8,13 @@ import {
   type StatusConfig,
 } from "./config";
 import { collections } from "./db";
-import { fallbackExplanation, freshStatus, overallHealth } from "./health";
+import {
+  fallbackExplanation,
+  freshStatus,
+  maintenanceCovers,
+  maintenanceOccurrence,
+  overallHealth,
+} from "./health";
 import type { Incident } from "./model";
 
 export { backupHealth } from "./backups";
@@ -60,7 +66,13 @@ export async function publicData() {
           .limit(200)
           .toArray(),
         c.maintenance
-          .find({ endsAt: { $gte: since.toISOString() }, cancelledAt: null })
+          .find({
+            cancelledAt: null,
+            $or: [
+              { repeat: "weekly" },
+              { endsAt: { $gte: since.toISOString() } },
+            ],
+          })
           .sort({ startsAt: 1 })
           .limit(100)
           .toArray(),
@@ -70,32 +82,25 @@ export async function publicData() {
     available = false;
     return null;
   });
-  const maintenance = (result?.maintenance ?? []).map(
-    ({ _id, title, description, serviceIds, startsAt, endsAt }) => ({
-      id: _id,
-      title,
-      description,
-      serviceIds,
-      startsAt,
-      endsAt,
-    }),
-  );
-  const currentMaintenance = maintenance.filter(
-    (item) => Date.parse(item.startsAt) <= now && Date.parse(item.endsAt) > now,
-  );
+  // A weekly window is shown as its current or next occurrence.
+  const maintenance = (result?.maintenance ?? []).map((window) => ({
+    id: window._id,
+    title: window.title,
+    description: window.description,
+    serviceIds: window.serviceIds,
+    ...maintenanceOccurrence(window, now),
+    repeat: window.repeat ?? null,
+    active: maintenanceCovers(window, now),
+  }));
+  const currentMaintenance = maintenance.filter((item) => item.active);
   const config: StatusConfig = { ...emptyConfig, ...(result?.config ?? {}) };
   const services = resolveServices(
     result?.snapshot?.services ?? catalog,
     config,
   ).map(({ evidence, ...service }) => {
+    // The confirmed status is the truth; an open incident is the narrative on
+    // top of it and never forces a tile red on its own.
     let status = freshStatus(service.status, service.checkedAt, now);
-    if (
-      (result?.incidents ?? []).some(
-        (incident) =>
-          !incident.resolvedAt && incident.serviceIds.includes(service.id),
-      )
-    )
-      status = "down";
     if (currentMaintenance.some((item) => item.serviceIds.includes(service.id)))
       status = "maintenance";
     return { ...service, status };
@@ -147,7 +152,10 @@ export async function publicData() {
     ),
     daily: result?.daily ?? [],
     backups,
-    incidents: (result?.incidents ?? []).map(publicIncident),
+    // A mirrored row that never resolved to a service is not a public event.
+    incidents: (result?.incidents ?? [])
+      .filter((incident) => incident.serviceIds.length > 0)
+      .map(publicIncident),
     maintenance,
   };
 }

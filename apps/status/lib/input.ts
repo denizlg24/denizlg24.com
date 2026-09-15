@@ -1,31 +1,17 @@
+import {
+  statusIncidentCreateInputSchema,
+  statusIncidentUpdateInputSchema,
+  statusMaintenanceInputSchema,
+} from "@repo/schemas/status";
 import { z } from "zod";
 
-const text = z.string().trim().min(1).max(4000);
-const ids = z.array(z.string().min(1).max(160)).min(1).max(100);
-export const incidentInput = z.object({
-  title: z.string().trim().min(1).max(160),
-  serviceIds: ids,
-  text,
-});
-export const updateInput = z.object({
+// The admin forms and the HTTP API validate with the same contracts; the
+// forms only add the id of the record they edit.
+export const incidentInput = statusIncidentCreateInputSchema;
+export const updateInput = statusIncidentUpdateInputSchema.extend({
   id: z.string().min(1).max(160),
-  text,
-  visibility: z.enum(["public", "private"]),
-  state: z.enum(["investigating", "identified", "monitoring", "resolved"]),
 });
-export const maintenanceInput = z
-  .object({
-    id: z.string().max(160),
-    title: z.string().trim().min(1).max(160),
-    description: text,
-    serviceIds: ids,
-    startsAt: z.iso.datetime(),
-    endsAt: z.iso.datetime(),
-  })
-  .refine(
-    (value) => Date.parse(value.endsAt) > Date.parse(value.startsAt),
-    "Maintenance must end after it starts",
-  );
+export const maintenanceInput = statusMaintenanceInputSchema;
 const serviceId = z.string().trim().min(1).max(160);
 export const serviceConfigInput = z.object({
   id: serviceId,
