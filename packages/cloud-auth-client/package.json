@@ -14,13 +14,13 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "^1.7.4",
     "@repo/schemas": "workspace:*",
     "better-auth": "^1.7.4",
-    "jose": "^6.2.10"
+    "jose": "^6.2.12"
   }
 }
