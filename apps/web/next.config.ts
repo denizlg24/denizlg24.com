@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     authInterrupts: true,
+    // proxy.ts matches /api/admin, and Next clones a proxied body only up to
+    // this size, silently cutting the rest off. At the 10 MB default every
+    // voice note over ~27 minutes arrived truncated and failed to parse.
+    // VOICE_NOTE_MAX_BYTES plus multipart overhead.
+    proxyClientMaxBodySize: "260mb",
   },
   images: {
     remotePatterns: [
