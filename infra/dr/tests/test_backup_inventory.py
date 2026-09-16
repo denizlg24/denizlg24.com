@@ -49,6 +49,22 @@ class InventoryTests(unittest.TestCase):
                 "([.images[].deploymentId] | sort) == $running"], input=json.dumps(data), text=True, capture_output=True)
             self.assertEqual(result.returncode, expected)
 
+    def test_control_plane_inventory_aggregates_matching_databases(self):
+        self.assertIn("map(.deployments) | add", SCRIPT)
+        records = [
+            {"database": "denizcloud", "deployments": [{"deploymentId": "a"}]},
+            {"database": "denizcloud_auth_test", "deployments": []},
+            {"database": "denizcloud_shard", "deployments": [{"deploymentId": "b"}]},
+        ]
+        result = subprocess.run(
+            ["jq", "-s", "map(.deployments) | add | sort_by(.deploymentId)"],
+            input="\n".join(json.dumps(record) for record in records),
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [{"deploymentId": "a"}, {"deploymentId": "b"}])
+
 
 if __name__ == "__main__":
     unittest.main()

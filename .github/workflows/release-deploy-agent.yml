@@ -178,6 +178,7 @@ jobs:
 
       - name: Package current disaster-recovery tooling
         run: |
+          git rev-parse HEAD > infra/dr/.git-revision
           tar -czf dr-runtime.tgz \
             --exclude='infra/dr/opentofu/.terraform' \
             --exclude='*.tfstate' \

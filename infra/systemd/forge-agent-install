@@ -61,6 +61,17 @@ install_dr_runtime() {
     "$unpack/infra/scripts/posix-namespace-backup.sh" \
     "$unpack/infra/scripts/posix-namespace-restore-verify.sh" \
     /opt/deniz-cloud/infra/scripts/
+  # The DR runtime is extracted without the checkout's .git metadata. Carry
+  # the exact source revision alongside it so backup manifests remain
+  # attributable on Forge, just as they are on Pi. The release workflow adds
+  # this file to the archive before staging it.
+  if [ -f "$unpack/infra/dr/.git-revision" ]; then
+    install -m 0644 -o root -g root \
+      "$unpack/infra/dr/.git-revision" /opt/deniz-cloud/infra/dr/.git-revision
+  else
+    echo "DR runtime is missing infra/dr/.git-revision" >&2
+    exit 1
+  fi
   if ! command -v restic >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq

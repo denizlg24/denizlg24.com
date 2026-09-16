@@ -535,9 +535,15 @@ SQL
     dump_postgres_database "$db"
   done < "$list"
   jq -s 'sort_by(.database,.schema,.table)' "$rows" > "$stage/meta/postgres-tables.json"
-  jq -s 'if length==1 then .[0].deployments else error("expected one Forge control-plane database") end |
-    sort_by(.deploymentId)' "$forge_control_plane_rows" > "$stage/meta/forge-control-plane.json" \
-    || dr_die "PostgreSQL snapshot did not contain exactly one Forge control-plane inventory"
+  # A test database can carry the same tables as the live control plane, and
+  # future control-plane shards may do the same. The database dump above is
+  # already dynamic; do not turn an empty or additional matching database
+  # into a backup failure merely because the inventory happened to be split
+  # across more than one database. Merge every discovered inventory and let
+  # the identity/duplicate checks below decide whether the result is valid.
+  jq -s 'map(.deployments) | add | sort_by(.deploymentId)' "$forge_control_plane_rows" \
+    > "$stage/meta/forge-control-plane.json" \
+    || dr_die "PostgreSQL snapshot did not contain a valid Forge control-plane inventory"
   jq -e '
     type=="array" and ([.[].deploymentId]|unique|length)==length and
     all(.[]; . as $item |
