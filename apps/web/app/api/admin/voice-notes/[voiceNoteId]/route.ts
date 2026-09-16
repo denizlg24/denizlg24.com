@@ -1,11 +1,15 @@
-import { voiceNoteTitleSchema } from "@repo/schemas";
+import { voiceNoteUpdateSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
-import { deleteVoiceNote, renameVoiceNote } from "@/lib/voice-notes/mutations";
-import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
+import {
+  deleteVoiceNote,
+  updateVoiceNote,
+  VoiceNoteContextNotFoundError,
+} from "@/lib/voice-notes/mutations";
+import { serializeVoiceNoteWithRelations } from "@/lib/voice-notes/serialize";
 import { type ILeanVoiceNote, VoiceNote } from "@/models/VoiceNote";
 
 export async function GET(
@@ -26,7 +30,9 @@ export async function GET(
     if (!voiceNote) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    return NextResponse.json({ voiceNote: serializeVoiceNote(voiceNote) });
+    return NextResponse.json({
+      voiceNote: await serializeVoiceNoteWithRelations(voiceNote),
+    });
   } catch (error) {
     console.error("Failed to get voice note", error);
     return NextResponse.json(
@@ -50,18 +56,26 @@ export async function PATCH(
     if (!mongoose.Types.ObjectId.isValid(voiceNoteId)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
-    const parsed = voiceNoteTitleSchema.safeParse(
+    const parsed = voiceNoteUpdateSchema.safeParse(
       await request.json().catch(() => null),
     );
     if (!parsed.success) {
-      return NextResponse.json({ error: "Title is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid update" },
+        { status: 400 },
+      );
     }
-    const voiceNote = await renameVoiceNote(voiceNoteId, parsed.data.title);
+    const voiceNote = await updateVoiceNote(voiceNoteId, parsed.data);
     if (!voiceNote) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    return NextResponse.json({ voiceNote: serializeVoiceNote(voiceNote) });
+    return NextResponse.json({
+      voiceNote: await serializeVoiceNoteWithRelations(voiceNote),
+    });
   } catch (error) {
+    if (error instanceof VoiceNoteContextNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     console.error("Failed to update voice note", error);
     return NextResponse.json(
       { error: "Failed to update voice note" },

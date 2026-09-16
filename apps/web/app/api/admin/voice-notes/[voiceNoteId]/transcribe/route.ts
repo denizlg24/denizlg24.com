@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
-import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
+import { serializeVoiceNoteWithRelations } from "@/lib/voice-notes/serialize";
 import { enqueueVoiceNoteTranscription } from "@/lib/voice-notes/transcription";
 
 export async function POST(
@@ -24,7 +24,7 @@ export async function POST(
     return NextResponse.json(
       {
         queued: result.queued,
-        voiceNote: serializeVoiceNote(result.voiceNote),
+        voiceNote: await serializeVoiceNoteWithRelations(result.voiceNote),
       },
       { status: result.queued ? 202 : 200 },
     );

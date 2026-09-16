@@ -957,6 +957,33 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
 - `PATCH /authenticator/{id}` → label/issuer/accountName only; a secret is never updated in place
 - `DELETE /authenticator/{id}` → `{ success: true }`
 
+### Voice notes
+- `GET /voice-notes` → summaries (no transcript body); filters `q`, `status`/`source`/`tag`/`groupId`/`contextId` (repeatable, any-of), `context=any|none`, `linked`, `from`/`to` on `recordedAt`, `sort`, `limit`/`offset` → `{ voiceNotes, total, totalDurationMs }`
+- `GET /voice-notes/facets`, `GET /voice-notes/{id}` (transcript + segments), `PATCH /voice-notes/{id}` → `{ title?, tags?, context?: {kind,id} | null | "auto" }`, `GET /voice-notes/{id}/context-candidates`
+- Design: `docs/internal/plans/023-voice-notes-overhaul.md`
+
+- **Any `/api/admin` body over `proxyClientMaxBodySize` is silently truncated.**
+  `proxy.ts` matches `/api/admin/:path*`, and Next clones a proxied body only
+  up to that limit before handing the rest of the request to the route — which
+  then fails to parse a multipart it cannot see the end of. It is `260mb` in
+  `next.config.ts` for voice notes; at the 10 MB default every recording over
+  ~27 minutes was a 500 and the recorder dropped the audio.
+- **`gpt-transcribe` answers a long request with `500 Audio file processing
+  failed`.** Every recording ≥ 39 min failed and every one ≤ 19 min worked, at
+  any size under 25 MB. Voice notes are cut into 300 s pieces with the static
+  ffmpeg in the web image (`FFMPEG_PATH`) and transcribed in order, each with
+  the previous text's tail as `prompt`; every piece lands in
+  `transcription.segments` as it finishes, so a retry resumes. Dictation
+  (`/voice-notes/transcribe`) is still one request and still has the ceiling.
+- **The desktop web view ignores `audioBitsPerSecond`.** It asks for 24 kbps
+  and writes ~50 kbps, so size limits reached twice as early as their comment
+  said.
+- **`context` is derived once, at save.** A timed calendar event overlapping
+  the recording wins, else the active timetable slot for that local weekday;
+  overlap must be ≥ min(10 min, half the recording). `contextSource: "manual"`
+  (set or cleared by hand) is never re-derived; an upload with no `recordedAt`
+  is never linked. Groups are not stored — they are read through linked notes.
+
 ### Upload
 - `POST /upload` → FormData with "file" field → `{ url, hash }`. Stores to the self-hosted cloud S3 via `uploadFileToStorage(file, "image")`, where `"image"` is the bucket name, not a type filter — the route enforces no type or size limit. Pinata is gone — the spreadsheets routes read and write the same self-hosted storage, and only their `pinata*` column names survive.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { IVoiceNote } from "@repo/schemas";
+import type { IVoiceNoteSummary } from "@repo/schemas";
 import { Loader2, Pause, Play, X } from "lucide-react";
 import { useMemo } from "react";
 import { useVoiceNotePlayback } from "@/hooks/use-voice-note-playback";
@@ -43,7 +43,7 @@ export function VoiceNoteBar({
   onDetach,
 }: {
   api: denizApi;
-  voiceNote: IVoiceNote;
+  voiceNote: IVoiceNoteSummary;
   onDetach?: () => void;
 }) {
   const {

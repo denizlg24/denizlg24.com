@@ -658,9 +658,27 @@ describe("web_voice_notes", () => {
   test("routes", async () => {
     await expectCall(
       "web_voice_notes",
-      { action: "list", q: "x", status: "failed", limit: 3 },
+      {
+        action: "list",
+        q: "x",
+        status: ["failed", "queued"],
+        linked: false,
+        limit: 3,
+      },
       "GET",
-      "/api/admin/voice-notes?q=x&status=failed&limit=3",
+      "/api/admin/voice-notes?q=x&status=failed&status=queued&linked=false&limit=3",
+    );
+    await expectCall(
+      "web_voice_notes",
+      { action: "facets" },
+      "GET",
+      "/api/admin/voice-notes/facets",
+    );
+    await expectCall(
+      "web_voice_notes",
+      { action: "context_candidates", voiceNoteId: "n1" },
+      "GET",
+      "/api/admin/voice-notes/n1/context-candidates",
     );
     await expectCall(
       "web_voice_notes",
@@ -674,6 +692,13 @@ describe("web_voice_notes", () => {
       "PATCH",
       "/api/admin/voice-notes/n1",
       { title: "New" },
+    );
+    await expectCall(
+      "web_voice_notes",
+      { action: "update", voiceNoteId: "n1", tags: ["lecture"], context: null },
+      "PATCH",
+      "/api/admin/voice-notes/n1",
+      { tags: ["lecture"], context: null },
     );
     await expectCall(
       "web_voice_notes",

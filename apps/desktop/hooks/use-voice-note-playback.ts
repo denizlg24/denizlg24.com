@@ -1,17 +1,52 @@
 "use client";
 
-import type { IVoiceNote } from "@repo/schemas";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { IVoiceNoteSummary } from "@repo/schemas";
+import {
+  type SyntheticEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
+
+export const PLAYBACK_RATES: readonly number[] = [1, 1.25, 1.5, 2];
+
+type PlayableVoiceNote = Pick<IVoiceNoteSummary, "_id" | "durationMs">;
+
+/**
+ * Setting `currentTime` before metadata has loaded is dropped by WebKit, so a
+ * seek on a note that has never played would silently start from zero.
+ */
+function whenSeekable(audio: HTMLAudioElement) {
+  if (audio.error || audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      audio.removeEventListener("loadedmetadata", done);
+      audio.removeEventListener("error", done);
+      resolve();
+    };
+    audio.addEventListener("loadedmetadata", done);
+    audio.addEventListener("error", done);
+  });
+}
 
 /**
  * Playback for one voice note. The audio is fetched through the authenticated
  * API as a blob rather than pointed at a URL, so the element only ever gets an
  * object URL — and it is fetched lazily, on the first play or seek, because a
  * list of these would otherwise download every recording on mount.
+ *
+ * Callers key the component using this by note id: the hook does not reset
+ * itself when handed a different note.
  */
-export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
+export function useVoiceNotePlayback(
+  api: denizApi,
+  voiceNote: PlayableVoiceNote,
+) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>();
   const [loadingAudio, setLoadingAudio] = useState(false);
@@ -19,6 +54,7 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(voiceNote.durationMs ?? 0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
 
   useEffect(() => {
     setDurationMs(voiceNote.durationMs ?? 0);
@@ -30,6 +66,15 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
     },
     [audioUrl],
   );
+
+  // `load()` resets `playbackRate` to `defaultPlaybackRate`, so both are set
+  // for the chosen speed to survive the lazy attach.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.defaultPlaybackRate = playbackRate;
+    audio.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   const ensureAudio = useCallback(async () => {
     if (audioUrl) return audioUrl;
@@ -60,8 +105,17 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
     return pending;
   }, [api, audioUrl, voiceNote._id]);
 
-  /** Attaches the blob on first use; returns the element once it can play. */
+  /**
+   * Attaches the blob on first use; returns the element once it can seek. The
+   * element's `src` is checked before state because a caller chaining two
+   * actions (seek, then play) holds a closure from before the URL existed.
+   */
   const readyAudio = useCallback(async () => {
+    const attached = audioRef.current;
+    if (attached?.src) {
+      await whenSeekable(attached);
+      return attached;
+    }
     const url = await ensureAudio();
     const audio = audioRef.current;
     if (!url || !audio) return null;
@@ -69,43 +123,79 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
       audio.src = url;
       audio.load();
     }
+    await whenSeekable(audio);
     return audio;
   }, [ensureAudio]);
+
+  /** Recordings from MediaRecorder report `Infinity` until fully scanned. */
+  const knownDurationSeconds = useCallback(
+    (audio: HTMLAudioElement) =>
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : durationMs / 1_000,
+    [durationMs],
+  );
+
+  const setPosition = useCallback(
+    (audio: HTMLAudioElement, seconds: number) => {
+      const limit = knownDurationSeconds(audio);
+      const next = Math.max(0, limit > 0 ? Math.min(limit, seconds) : seconds);
+      audio.currentTime = next;
+      setCurrentMs(next * 1_000);
+    },
+    [knownDurationSeconds],
+  );
+
+  const play = useCallback(async () => {
+    const audio = await readyAudio();
+    if (!audio?.paused) return;
+    try {
+      await audio.play();
+    } catch {
+      toast.error("This audio format could not be played");
+    }
+  }, [readyAudio]);
 
   const togglePlayback = useCallback(async () => {
     const audio = await readyAudio();
     if (!audio) return;
-    if (audio.paused) {
-      try {
-        await audio.play();
-      } catch {
-        toast.error("This audio format could not be played");
-      }
-    } else audio.pause();
+    if (!audio.paused) {
+      audio.pause();
+      return;
+    }
+    try {
+      await audio.play();
+    } catch {
+      toast.error("This audio format could not be played");
+    }
   }, [readyAudio]);
 
   const seek = useCallback(
     async (seconds: number) => {
       const audio = await readyAudio();
       if (!audio) return;
-      audio.currentTime = Math.max(
-        0,
-        Math.min(
-          audio.duration || durationMs / 1_000,
-          audio.currentTime + seconds,
-        ),
-      );
+      setPosition(audio, audio.currentTime + seconds);
     },
-    [durationMs, readyAudio],
+    [readyAudio, setPosition],
   );
 
   const seekToFraction = useCallback(
     async (fraction: number) => {
       const audio = await readyAudio();
       if (!audio) return;
-      audio.currentTime = fraction * (audio.duration || durationMs / 1_000);
+      const clamped = Math.max(0, Math.min(1, fraction));
+      setPosition(audio, clamped * knownDurationSeconds(audio));
     },
-    [durationMs, readyAudio],
+    [knownDurationSeconds, readyAudio, setPosition],
+  );
+
+  const seekToMs = useCallback(
+    async (milliseconds: number) => {
+      const audio = await readyAudio();
+      if (!audio) return;
+      setPosition(audio, milliseconds / 1_000);
+    },
+    [readyAudio, setPosition],
   );
 
   /** Spread onto the `<audio>` element the consumer renders. */
@@ -114,9 +204,9 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
     onEnded: () => setPlaying(false),
-    onTimeUpdate: (event: React.SyntheticEvent<HTMLAudioElement>) =>
+    onTimeUpdate: (event: SyntheticEvent<HTMLAudioElement>) =>
       setCurrentMs(event.currentTarget.currentTime * 1_000),
-    onLoadedMetadata: (event: React.SyntheticEvent<HTMLAudioElement>) => {
+    onLoadedMetadata: (event: SyntheticEvent<HTMLAudioElement>) => {
       if (Number.isFinite(event.currentTarget.duration)) {
         setDurationMs(event.currentTarget.duration * 1_000);
       }
@@ -129,9 +219,15 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
     loadingAudio,
     currentMs,
     durationMs,
-    progress: durationMs > 0 ? currentMs / durationMs : 0,
+    progress: durationMs > 0 ? Math.min(1, currentMs / durationMs) : 0,
+    playbackRate,
+    setPlaybackRate,
+    play,
     togglePlayback,
     seek,
     seekToFraction,
+    seekToMs,
   };
 }
+
+export type VoiceNotePlayback = ReturnType<typeof useVoiceNotePlayback>;

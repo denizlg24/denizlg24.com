@@ -1,3 +1,4 @@
+import type { VoiceNoteUpdateInput } from "@repo/schemas";
 import mongoose from "mongoose";
 import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
@@ -5,23 +6,70 @@ import { deleteFileFromStorage } from "@/lib/storage-api";
 import { AgentMemoryJob } from "@/models/AgentMemoryJob";
 import { Note } from "@/models/Note";
 import { type ILeanVoiceNote, VoiceNote } from "@/models/VoiceNote";
+import { applyDerivedContext, contextTargetExists } from "./context";
 
 /**
- * Rename and delete for voice notes, shared by the route and the agent tools.
+ * Update and delete for voice notes, shared by the route and the agent tools.
  * The delete is a cascade across four stores, so a second implementation of it
  * would drift into leaving orphans.
  */
 
-export async function renameVoiceNote(voiceNoteId: string, title: string) {
+export class VoiceNoteContextNotFoundError extends Error {}
+
+/** Lowercased, whitespace-collapsed and deduplicated, in the order given. */
+export function normalizeVoiceNoteTags(tags: string[]) {
+  return [
+    ...new Set(
+      tags
+        .map((tag) => tag.replace(/\s+/g, " ").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export async function updateVoiceNote(
+  voiceNoteId: string,
+  input: VoiceNoteUpdateInput,
+): Promise<ILeanVoiceNote | null> {
   if (!mongoose.Types.ObjectId.isValid(voiceNoteId)) return null;
   await connectDB();
-  return VoiceNote.findByIdAndUpdate(
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
+  if (input.title !== undefined) {
+    set.title = input.title;
+    set.titleSource = "manual";
+  }
+  if (input.tags !== undefined) set.tags = normalizeVoiceNoteTags(input.tags);
+  if (input.context === null) {
+    unset.context = "";
+    set.contextSource = "manual";
+  } else if (input.context && input.context !== "auto") {
+    if (!(await contextTargetExists(input.context.kind, input.context.id))) {
+      throw new VoiceNoteContextNotFoundError(
+        `${input.context.kind} ${input.context.id} was not found`,
+      );
+    }
+    set.context = {
+      kind: input.context.kind,
+      id: new mongoose.Types.ObjectId(input.context.id),
+    };
+    set.contextSource = "manual";
+  } else if (input.context === "auto") {
+    set.contextSource = "auto";
+  }
+
+  const updated = await VoiceNote.findByIdAndUpdate(
     voiceNoteId,
-    { $set: { title, titleSource: "manual" } },
+    {
+      ...(Object.keys(set).length ? { $set: set } : {}),
+      ...(Object.keys(unset).length ? { $unset: unset } : {}),
+    },
     { returnDocument: "after", runValidators: true },
   )
     .lean<ILeanVoiceNote>()
     .exec();
+  if (!updated || input.context !== "auto") return updated;
+  return applyDerivedContext(updated);
 }
 
 export async function deleteVoiceNote(voiceNoteId: string) {

@@ -5,6 +5,7 @@ import {
   failMemoryJob,
   leaseNextMemoryJob,
   sweepOrphanedLeases,
+  withMemoryJobHeartbeat,
 } from "@/lib/agent-memory/jobs";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
 import { processVoiceTranscriptionJob } from "@/lib/voice-notes/transcription";
@@ -25,7 +26,11 @@ async function processNext(request: Request) {
     return NextResponse.json({ processed: false });
   }
   try {
-    const result = await processVoiceTranscriptionJob(job);
+    // An hour of audio is a dozen sequential pieces, well past the lease.
+    const result = await withMemoryJobHeartbeat(
+      { jobId: job._id.toString(), workerId, onBeat: async () => {} },
+      () => processVoiceTranscriptionJob(job),
+    );
     await completeMemoryJob(job._id.toString(), workerId);
     return NextResponse.json({ processed: true, result });
   } catch (error) {

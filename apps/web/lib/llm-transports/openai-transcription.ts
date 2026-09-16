@@ -38,10 +38,12 @@ const EMPTY_USAGE: TranscriptionUsage = {
 export async function requestTranscription({
   file,
   model,
+  prompt,
   signal,
 }: {
   file: File;
   model: string;
+  prompt?: string;
   signal?: AbortSignal;
 }): Promise<TranscriptionResponse> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -54,7 +56,7 @@ export async function requestTranscription({
   let result: Awaited<ReturnType<OpenAI["audio"]["transcriptions"]["create"]>>;
   try {
     result = await new OpenAI({ apiKey }).audio.transcriptions.create(
-      { file, model, response_format: "json" },
+      { file, model, response_format: "json", ...(prompt ? { prompt } : {}) },
       { ...(signal ? { signal } : {}) },
     );
   } catch (error) {

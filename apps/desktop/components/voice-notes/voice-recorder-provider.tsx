@@ -1,6 +1,6 @@
 "use client";
 
-import type { IVoiceNote } from "@repo/schemas";
+import { type IVoiceNote, VOICE_NOTE_MAX_BYTES } from "@repo/schemas";
 import {
   createContext,
   useCallback,
@@ -25,8 +25,13 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useBackgroundTasksStore } from "@/stores/background-tasks";
 
-const MAX_RECORDING_BYTES = 24 * 1024 * 1024;
 const WAVEFORM_SAMPLES = 180;
+
+interface PendingUpload {
+  formData: FormData;
+  sizeBytes: number;
+  durationMs: number;
+}
 
 type RecorderStatus =
   | "idle"
@@ -42,11 +47,15 @@ interface VoiceRecorderContextValue {
   levels: number[];
   error?: string;
   lastVoiceNote?: IVoiceNote;
+  /** A finished recording whose save failed; it stays here until retried or discarded. */
+  unsaved?: { sizeBytes: number; durationMs: number };
   startRecording: () => Promise<void>;
   pauseRecording: () => void;
   resumeRecording: () => void;
   stopRecording: () => void;
   discardRecording: () => void;
+  retryUnsaved: () => Promise<void>;
+  discardUnsaved: () => void;
 }
 
 const VoiceRecorderContext = createContext<VoiceRecorderContextValue | null>(
@@ -77,6 +86,7 @@ export function VoiceRecorderProvider({
   const [levels, setLevels] = useState<number[]>([]);
   const [error, setError] = useState<string>();
   const [lastVoiceNote, setLastVoiceNote] = useState<IVoiceNote>();
+  const [unsaved, setUnsaved] = useState<PendingUpload>();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const levelMeterRef = useRef<LevelMeter | null>(null);
@@ -143,6 +153,53 @@ export function VoiceRecorderProvider({
     }, 500);
   }, []);
 
+  const upload = useCallback(
+    async (pending: PendingUpload) => {
+      if (!api) {
+        setUnsaved(pending);
+        setStatus("error");
+        setError("Not signed in");
+        toast.error("Not signed in");
+        return;
+      }
+      setStatus("uploading");
+      useBackgroundTasksStore.getState().register({
+        id: "voice-recording",
+        label: "Voice recording",
+        statusText: "Saving voice note",
+        color: "bg-amber-500",
+        active: true,
+        href: "/dashboard/voice-notes",
+      });
+      const result = await api.UPLOAD<{ voiceNote: IVoiceNote }>({
+        endpoint: "voice-notes",
+        formData: pending.formData,
+      });
+      if ("code" in result) {
+        // Clearing the audio here used to lose a whole lecture to one refused
+        // request; it stays in memory until a save lands or it is discarded.
+        setUnsaved(pending);
+        setStatus("error");
+        setError(result.message);
+        useBackgroundTasksStore.getState().update("voice-recording", {
+          active: false,
+          color: "bg-red-500",
+          statusText: `Save failed · ${formatDuration(pending.durationMs)}`,
+        });
+        toast.error(`Voice note not saved: ${result.message}`);
+        return;
+      }
+      setUnsaved(undefined);
+      useBackgroundTasksStore.getState().unregister("voice-recording");
+      setLastVoiceNote(result.voiceNote);
+      setStatus("idle");
+      setError(undefined);
+      window.dispatchEvent(new CustomEvent("voice-notes:changed"));
+      toast.success("Voice note saved");
+    },
+    [api],
+  );
+
   const finishRecording = useCallback(
     async (mimeType: string) => {
       const durationMs = currentElapsed();
@@ -164,71 +221,40 @@ export function VoiceRecorderProvider({
         return;
       }
 
-      // Recording is allowed to start before the session resolves; discarding the
-      // audio silently at the upload step would lose what was just said.
-      if (!api) {
-        chunksRef.current = [];
-        samplesRef.current = [];
-        byteLengthRef.current = 0;
-        useBackgroundTasksStore.getState().unregister("voice-recording");
-        setStatus("error");
-        setError("Not signed in");
-        toast.error("Not signed in");
-        return;
-      }
-
-      setStatus("uploading");
-      useBackgroundTasksStore.getState().update("voice-recording", {
-        active: true,
-        color: "bg-amber-500",
-        statusText: "Saving voice note",
-      });
       const extension = extensionForMime(mimeType);
       const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+      chunksRef.current = [];
+      samplesRef.current = [];
+      byteLengthRef.current = 0;
+      setElapsedMs(0);
+      setLevels([]);
       if (blob.size === 0) {
-        chunksRef.current = [];
-        samplesRef.current = [];
-        byteLengthRef.current = 0;
         useBackgroundTasksStore.getState().unregister("voice-recording");
         setStatus("error");
         setError("Recording was empty");
         return;
       }
-      const filename = `voice-note-${new Date(startedAtRef.current).toISOString().replace(/[:.]/g, "-")}.${extension}`;
+      const startedAt = new Date(startedAtRef.current);
+      const filename = `voice-note-${startedAt.toISOString().replace(/[:.]/g, "-")}.${extension}`;
       const formData = new FormData();
       formData.set("file", new File([blob], filename, { type: blob.type }));
       formData.set("title", titleRef.current);
       formData.set("titleSource", "placeholder");
       formData.set("durationMs", String(durationMs));
+      formData.set("recordedAt", startedAt.toISOString());
       formData.set("waveform", JSON.stringify(waveform));
       formData.set("source", "recording");
-
-      const result = await api.UPLOAD<{ voiceNote: IVoiceNote }>({
-        endpoint: "voice-notes",
-        formData,
-      });
-      chunksRef.current = [];
-      samplesRef.current = [];
-      byteLengthRef.current = 0;
-      useBackgroundTasksStore.getState().unregister("voice-recording");
-      setElapsedMs(0);
-      setLevels([]);
-      if ("code" in result) {
-        setStatus("error");
-        setError(result.message);
-        toast.error(result.message);
-        return;
-      }
-      setLastVoiceNote(result.voiceNote);
-      setStatus("idle");
-      window.dispatchEvent(new CustomEvent("voice-notes:changed"));
-      toast.success("Voice note saved");
+      await upload({ formData, sizeBytes: blob.size, durationMs });
     },
-    [api, currentElapsed, releaseMedia],
+    [currentElapsed, releaseMedia, upload],
   );
 
   const startRecording = useCallback(async () => {
     if (status !== "idle" && status !== "error") return;
+    if (unsaved) {
+      toast.error("Save or discard the unsaved recording first");
+      return;
+    }
     if (!api) {
       setStatus("error");
       setError("Not signed in");
@@ -273,7 +299,7 @@ export function VoiceRecorderProvider({
         chunksRef.current.push(event.data);
         byteLengthRef.current += event.data.size;
         if (
-          byteLengthRef.current >= MAX_RECORDING_BYTES &&
+          byteLengthRef.current >= VOICE_NOTE_MAX_BYTES - 1024 * 1024 &&
           recorder.state === "recording"
         ) {
           toast.warning("Recording limit reached; saving voice note");
@@ -331,6 +357,7 @@ export function VoiceRecorderProvider({
     releaseMedia,
     startCaptureMeters,
     status,
+    unsaved,
   ]);
 
   const pauseRecording = useCallback(() => {
@@ -392,6 +419,18 @@ export function VoiceRecorderProvider({
     recorder.stop();
   }, [clearTimers, freezeElapsed]);
 
+  const retryUnsaved = useCallback(async () => {
+    if (!unsaved || status === "uploading") return;
+    await upload(unsaved);
+  }, [status, unsaved, upload]);
+
+  const discardUnsaved = useCallback(() => {
+    setUnsaved(undefined);
+    setError(undefined);
+    setStatus((current) => (current === "error" ? "idle" : current));
+    useBackgroundTasksStore.getState().unregister("voice-recording");
+  }, []);
+
   const value = useMemo(
     () => ({
       status,
@@ -399,23 +438,31 @@ export function VoiceRecorderProvider({
       levels,
       error,
       lastVoiceNote,
+      unsaved: unsaved
+        ? { sizeBytes: unsaved.sizeBytes, durationMs: unsaved.durationMs }
+        : undefined,
       startRecording,
       pauseRecording,
       resumeRecording,
       stopRecording,
       discardRecording,
+      retryUnsaved,
+      discardUnsaved,
     }),
     [
       discardRecording,
+      discardUnsaved,
       elapsedMs,
       error,
       lastVoiceNote,
       levels,
       pauseRecording,
       resumeRecording,
+      retryUnsaved,
       startRecording,
       status,
       stopRecording,
+      unsaved,
     ],
   );
 

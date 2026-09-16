@@ -3,7 +3,7 @@ import { serializeNote } from "@/lib/note-route-utils";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { generateNoteFromVoice } from "@/lib/voice-notes/generate-note";
-import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
+import { serializeVoiceNoteWithRelations } from "@/lib/voice-notes/serialize";
 
 export const maxDuration = 120;
 
@@ -36,7 +36,7 @@ export async function POST(
     });
     return NextResponse.json({
       note: serializeNote(result.note),
-      voiceNote: serializeVoiceNote({
+      voiceNote: await serializeVoiceNoteWithRelations({
         ...result.voiceNote,
         noteIds: [...result.voiceNote.noteIds, result.note._id],
       }),

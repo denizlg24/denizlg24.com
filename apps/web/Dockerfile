@@ -36,8 +36,12 @@ ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV LATEX_TECTONIC_PATH=/usr/local/bin/tectonic
+ENV FFMPEG_PATH=/usr/local/bin/ffmpeg
 
 COPY --from=build /workspace/tectonic /usr/local/bin/tectonic
+# Static build, so it needs nothing from trixie. Voice transcription splits long
+# recordings with it: the model refuses anything much past twenty minutes.
+COPY --from=mwader/static-ffmpeg:8.0.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=build --chown=node:node /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=node:node /workspace/apps/web/public ./apps/web/public

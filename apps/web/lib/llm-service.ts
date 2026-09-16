@@ -489,6 +489,8 @@ const OPENAI_TRANSCRIPTION_PRICING: Record<
 export interface TranscribeAudioRequest extends LlmRequestContext {
   model: string;
   file: File;
+  /** Preceding transcript, so a piece cut mid-sentence continues it. */
+  prompt?: string;
   signal?: AbortSignal;
 }
 
@@ -505,9 +507,10 @@ export async function transcribeAudio({
   source,
   model,
   file,
+  prompt,
   signal,
 }: TranscribeAudioRequest): Promise<TranscribeAudioResult> {
-  const result = await requestTranscription({ file, model, signal });
+  const result = await requestTranscription({ file, model, prompt, signal });
 
   const pricing = OPENAI_TRANSCRIPTION_PRICING[model];
   const { audioInputTokens, textInputTokens, textOutputTokens, seconds } =

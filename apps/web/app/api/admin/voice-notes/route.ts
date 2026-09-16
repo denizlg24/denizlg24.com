@@ -1,18 +1,23 @@
-import { voiceNoteTranscriptionStatusSchema } from "@repo/schemas";
+import { VOICE_NOTE_MAX_BYTES } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
-import { isSupportedAudio, MAX_AUDIO_BYTES } from "@/lib/voice-notes/audio";
-import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
+import { isSupportedAudio } from "@/lib/voice-notes/audio";
+import { applyDerivedContext } from "@/lib/voice-notes/context";
+import {
+  listVoiceNotes,
+  parseVoiceNoteListQuery,
+} from "@/lib/voice-notes/query";
+import { serializeVoiceNoteWithRelations } from "@/lib/voice-notes/serialize";
 import { enqueueVoiceNoteTranscription } from "@/lib/voice-notes/transcription";
 import { Note } from "@/models/Note";
 import { type ILeanVoiceNote, VoiceNote } from "@/models/VoiceNote";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const MAX_WAVEFORM_SAMPLES = 240;
 
@@ -34,32 +39,15 @@ export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
-  try {
-    await connectDB();
-    const query = request.nextUrl.searchParams.get("q")?.trim();
-    const status = request.nextUrl.searchParams.get("status")?.trim();
-    const limit = Math.min(
-      100,
-      Math.max(1, Number(request.nextUrl.searchParams.get("limit")) || 50),
+  const parsed = parseVoiceNoteListQuery(request.nextUrl.searchParams);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid query" },
+      { status: 400 },
     );
-    const filter: Record<string, unknown> = {};
-    if (query) filter.$text = { $search: query.slice(0, 200) };
-    const parsedStatus = voiceNoteTranscriptionStatusSchema.safeParse(status);
-    if (parsedStatus.success) {
-      filter["transcription.status"] = parsedStatus.data;
-    }
-    const [voiceNotes, total] = await Promise.all([
-      VoiceNote.find(filter)
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean<ILeanVoiceNote[]>()
-        .exec(),
-      VoiceNote.countDocuments(filter),
-    ]);
-    return NextResponse.json({
-      voiceNotes: voiceNotes.map(serializeVoiceNote),
-      total,
-    });
+  }
+  try {
+    return NextResponse.json(await listVoiceNotes(parsed.data));
   } catch (error) {
     console.error("Failed to list voice notes", error);
     return NextResponse.json(
@@ -81,9 +69,9 @@ export async function POST(request: NextRequest) {
   let linkedNoteId: mongoose.Types.ObjectId | undefined;
   try {
     const declaredLength = Number(request.headers.get("content-length") ?? 0);
-    if (declaredLength > MAX_AUDIO_BYTES + 1024 * 1024) {
+    if (declaredLength > VOICE_NOTE_MAX_BYTES + 1024 * 1024) {
       return NextResponse.json(
-        { error: "Recording exceeds the 25 MB limit" },
+        { error: "Recording exceeds the 256 MB limit" },
         { status: 413 },
       );
     }
@@ -92,9 +80,9 @@ export async function POST(request: NextRequest) {
     if (!(entry instanceof File)) {
       return NextResponse.json({ error: "No audio provided" }, { status: 400 });
     }
-    if (entry.size === 0 || entry.size > MAX_AUDIO_BYTES) {
+    if (entry.size === 0 || entry.size > VOICE_NOTE_MAX_BYTES) {
       return NextResponse.json(
-        { error: "Recording must be between 1 byte and 25 MB" },
+        { error: "Recording must be between 1 byte and 256 MB" },
         { status: 413 },
       );
     }
@@ -133,6 +121,21 @@ export async function POST(request: NextRequest) {
         : data.get("source") === "upload"
           ? "upload"
           : "recording";
+    const rawRecordedAt = data.get("recordedAt");
+    const parsedRecordedAt =
+      typeof rawRecordedAt === "string" && rawRecordedAt.trim()
+        ? new Date(rawRecordedAt)
+        : undefined;
+    if (parsedRecordedAt && Number.isNaN(parsedRecordedAt.getTime())) {
+      return NextResponse.json(
+        { error: "Invalid recordedAt" },
+        { status: 400 },
+      );
+    }
+    // A recording that did not say when it started ended about now.
+    const recordedAt =
+      parsedRecordedAt ??
+      new Date(Date.now() - (source === "upload" ? 0 : (durationMs ?? 0)));
     const noteId = data.get("noteId");
     // Silently dropping an unusable noteId stored the recording detached from
     // the note the caller meant to attach it to, with nothing to indicate it.
@@ -159,6 +162,7 @@ export async function POST(request: NextRequest) {
       waveform: parseWaveform(data.get("waveform")),
       source,
       noteIds,
+      recordedAt,
       transcription: { status: "untranscribed", requestVersion: 0 },
     });
     createdVoiceNoteId = created._id;
@@ -175,6 +179,17 @@ export async function POST(request: NextRequest) {
       }
       linkedNoteId = noteIds[0];
     }
+    // Upload time says nothing about what an uploaded file was a recording of.
+    if (source !== "upload" || parsedRecordedAt) {
+      try {
+        const stored = await VoiceNote.findById(created._id)
+          .lean<ILeanVoiceNote>()
+          .exec();
+        if (stored) await applyDerivedContext(stored);
+      } catch (error) {
+        console.error("Failed to link voice note context", error);
+      }
+    }
     if (data.get("transcribe") === "true") {
       // The recording is already durable at this point. A queueing failure is
       // a transcription problem, not an upload one — rolling back here would
@@ -186,7 +201,9 @@ export async function POST(request: NextRequest) {
           created._id.toString(),
         );
         return NextResponse.json(
-          { voiceNote: serializeVoiceNote(queued.voiceNote) },
+          {
+            voiceNote: await serializeVoiceNoteWithRelations(queued.voiceNote),
+          },
           { status: 201 },
         );
       } catch (error) {
@@ -199,7 +216,7 @@ export async function POST(request: NextRequest) {
           .exec();
         if (stored) {
           return NextResponse.json(
-            { voiceNote: serializeVoiceNote(stored) },
+            { voiceNote: await serializeVoiceNoteWithRelations(stored) },
             { status: 201 },
           );
         }
@@ -211,7 +228,7 @@ export async function POST(request: NextRequest) {
       .exec();
     if (!lean) throw new Error("Voice note was not persisted");
     return NextResponse.json(
-      { voiceNote: serializeVoiceNote(lean) },
+      { voiceNote: await serializeVoiceNoteWithRelations(lean) },
       { status: 201 },
     );
   } catch (error) {

@@ -19,6 +19,14 @@ export interface IVoiceNoteTranscriptSegment {
  */
 export type VoiceNoteTitleSource = "placeholder" | "generated" | "manual";
 
+export type VoiceNoteContextKind = "calendar-event" | "timetable-entry";
+export type VoiceNoteContextSource = "auto" | "manual";
+
+export interface IVoiceNoteContextRef {
+  kind: VoiceNoteContextKind;
+  id: mongoose.Types.ObjectId;
+}
+
 export interface IVoiceNote extends Document {
   title: string;
   titleSource: VoiceNoteTitleSource;
@@ -30,6 +38,11 @@ export interface IVoiceNote extends Document {
   waveform: number[];
   source: "recording" | "upload" | "agent";
   noteIds: mongoose.Types.ObjectId[];
+  /** When recording started. Absent for uploads that did not say. */
+  recordedAt?: Date;
+  tags: string[];
+  context?: IVoiceNoteContextRef;
+  contextSource?: VoiceNoteContextSource;
   transcription: {
     status: VoiceNoteTranscriptionStatus;
     text?: string;
@@ -39,6 +52,8 @@ export interface IVoiceNote extends Document {
     requestVersion: number;
     /** Transcription attempts that have failed; caps unattended retries. */
     failedAttempts?: number;
+    /** Pieces of a split recording transcribed so far, while it runs. */
+    progress?: { completed: number; total: number };
     requestedAt?: Date;
     startedAt?: Date;
     completedAt?: Date;
@@ -60,6 +75,10 @@ export interface ILeanVoiceNote {
   waveform: number[];
   source: "recording" | "upload" | "agent";
   noteIds: Array<mongoose.Types.ObjectId | string>;
+  recordedAt?: Date;
+  tags?: string[];
+  context?: IVoiceNoteContextRef;
+  contextSource?: VoiceNoteContextSource;
   transcription: {
     status: VoiceNoteTranscriptionStatus;
     text?: string;
@@ -69,6 +88,8 @@ export interface ILeanVoiceNote {
     requestVersion: number;
     /** Transcription attempts that have failed; caps unattended retries. */
     failedAttempts?: number;
+    /** Pieces of a split recording transcribed so far, while it runs. */
+    progress?: { completed: number; total: number };
     requestedAt?: Date;
     startedAt?: Date;
     completedAt?: Date;
@@ -113,6 +134,25 @@ const VoiceNoteSchema = new Schema<IVoiceNote>(
       type: [{ type: Schema.Types.ObjectId, ref: "KnowledgeNote" }],
       default: [],
     },
+    recordedAt: { type: Date },
+    tags: {
+      type: [{ type: String, trim: true, maxlength: 40 }],
+      default: [],
+    },
+    context: {
+      type: new Schema<IVoiceNoteContextRef>(
+        {
+          kind: {
+            type: String,
+            enum: ["calendar-event", "timetable-entry"],
+            required: true,
+          },
+          id: { type: Schema.Types.ObjectId, required: true },
+        },
+        { _id: false },
+      ),
+    },
+    contextSource: { type: String, enum: ["auto", "manual"] },
     transcription: {
       status: {
         type: String,
@@ -132,6 +172,10 @@ const VoiceNoteSchema = new Schema<IVoiceNote>(
       segments: { type: [TranscriptSegmentSchema] },
       requestVersion: { type: Number, default: 0, min: 0 },
       failedAttempts: { type: Number, default: 0, min: 0 },
+      progress: {
+        completed: { type: Number, min: 0 },
+        total: { type: Number, min: 0 },
+      },
       requestedAt: { type: Date },
       startedAt: { type: Date },
       completedAt: { type: Date },
@@ -142,6 +186,9 @@ const VoiceNoteSchema = new Schema<IVoiceNote>(
 );
 
 VoiceNoteSchema.index({ createdAt: -1 });
+VoiceNoteSchema.index({ recordedAt: -1 });
+VoiceNoteSchema.index({ tags: 1 });
+VoiceNoteSchema.index({ "context.id": 1 });
 VoiceNoteSchema.index({ noteIds: 1, createdAt: -1 });
 VoiceNoteSchema.index({ title: "text", "transcription.text": "text" });
 

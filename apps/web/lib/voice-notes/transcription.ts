@@ -1,21 +1,29 @@
 import "server-only";
 
 import mongoose from "mongoose";
+import { LlmTransportError } from "@/lib/llm-errors";
 import { transcribeAudio } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { downloadBytesFromStorage } from "@/lib/storage-api";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import {
   type ILeanVoiceNote,
+  type IVoiceNoteTranscriptSegment,
   VoiceNote,
   type VoiceNoteTranscriptionStatus,
 } from "@/models/VoiceNote";
+import { type AudioPiece, withAudioPieces } from "./audio-pieces";
 import { observeVoiceNoteTranscript } from "./memory";
+import { TRANSCRIPT_PIECE_SEPARATOR } from "./search";
 import { generateVoiceNoteTitle } from "./title";
 
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe";
 const MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
 const NIGHTLY_BATCH_SIZE = 100;
+const PIECE_ATTEMPTS = 3;
+const PIECE_TIMEOUT_MS = 180_000;
+/** Enough preceding text to carry a sentence across a cut, well inside the prompt limit. */
+const PROMPT_TAIL_CHARS = 600;
 /**
  * Unattended transcription attempts before a note stops being picked up. A
  * recording that fails on a permanent fault — an unsupported codec, a blob the
@@ -50,11 +58,23 @@ export async function enqueueVoiceNoteTranscription(
   const allowedStatuses: VoiceNoteTranscriptionStatus[] = options.retryFailed
     ? ["untranscribed", "failed", "transcribed"]
     : ["untranscribed", "failed"];
+  const current = await VoiceNote.findById(voiceNoteId)
+    .lean<ILeanVoiceNote>()
+    .exec();
+  if (!current) throw new Error("Voice note not found");
+  if (!allowedStatuses.includes(current.transcription.status)) {
+    return { queued: false, voiceNote: current };
+  }
+  // Segments left by a failed run are the pieces already paid for, and the
+  // next run resumes after them. Re-transcribing a finished note is asking for
+  // a fresh pass, so its segments go.
+  const restart = current.transcription.status === "transcribed";
   const now = new Date();
   const voiceNote = await VoiceNote.findOneAndUpdate(
     {
       _id: voiceNoteId,
-      "transcription.status": { $in: allowedStatuses },
+      "transcription.status": current.transcription.status,
+      "transcription.requestVersion": current.transcription.requestVersion,
     },
     {
       $set: {
@@ -68,6 +88,8 @@ export async function enqueueVoiceNoteTranscription(
         "transcription.error": "",
         "transcription.startedAt": "",
         "transcription.completedAt": "",
+        "transcription.progress": "",
+        ...(restart ? { "transcription.segments": "" } : {}),
       },
       $inc: { "transcription.requestVersion": 1 },
     },
@@ -207,7 +229,11 @@ export async function repairTranscribedVoiceNotes() {
 }
 
 /** The single place voice audio is sent for transcription. */
-export async function transcribeAudioFile(file: File, source: string) {
+export async function transcribeAudioFile(
+  file: File,
+  source: string,
+  options: { prompt?: string; timeoutMs?: number } = {},
+) {
   if (file.size > MAX_TRANSCRIPTION_BYTES) {
     throw new Error("Audio exceeds the 25 MB transcription limit");
   }
@@ -216,8 +242,65 @@ export async function transcribeAudioFile(file: File, source: string) {
     source,
     model: getVoiceTranscriptionModel(),
     file,
-    signal: AbortSignal.timeout(270_000),
+    prompt: options.prompt,
+    signal: AbortSignal.timeout(options.timeoutMs ?? 270_000),
   });
+}
+
+function isRetryableTranscriptionError(error: unknown) {
+  return (
+    error instanceof LlmTransportError &&
+    (error.status >= 500 || error.status === 429)
+  );
+}
+
+async function transcribePiece(piece: AudioPiece, prompt: string | undefined) {
+  const file = await piece.load();
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await transcribeAudioFile(file, "voice-note-transcription", {
+        prompt,
+        timeoutMs: PIECE_TIMEOUT_MS,
+      });
+    } catch (error) {
+      if (attempt >= PIECE_ATTEMPTS || !isRetryableTranscriptionError(error)) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Piece ${piece.index + 1} (${Math.round(piece.startSecond)}s): ${reason}`,
+        );
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, 2_000 * 3 ** (attempt - 1)),
+      );
+    }
+  }
+}
+
+/**
+ * Stored segments survive only while they line up with the pieces this run
+ * produced; anything after the first disagreement is transcribed again.
+ */
+function reusableSegments(
+  stored: IVoiceNoteTranscriptSegment[],
+  pieces: AudioPiece[],
+): IVoiceNoteTranscriptSegment[] {
+  const reusable: IVoiceNoteTranscriptSegment[] = [];
+  for (const [index, segment] of stored.entries()) {
+    const piece = pieces[index];
+    if (
+      !piece ||
+      Math.abs(segment.startSecond - piece.startSecond) > 0.5 ||
+      Math.abs(segment.endSecond - piece.endSecond) > 0.5
+    ) {
+      break;
+    }
+    reusable.push({
+      text: segment.text,
+      startSecond: segment.startSecond,
+      endSecond: segment.endSecond,
+    });
+  }
+  return reusable;
 }
 
 /**
@@ -229,40 +312,93 @@ async function transcribeVoiceNote(
   requestVersion: number,
 ): Promise<ILeanVoiceNote | null> {
   const voiceNoteId = String(voiceNote._id);
+  const atVersion = {
+    _id: voiceNoteId,
+    "transcription.requestVersion": requestVersion,
+  };
   try {
-    if (voiceNote.sizeBytes > MAX_TRANSCRIPTION_BYTES) {
-      throw new Error("Voice note exceeds the 25 MB transcription limit");
-    }
     const audio = await downloadBytesFromStorage(voiceNote.storageKey);
-    const fileBytes = Uint8Array.from(audio).buffer;
-    const {
-      text,
-      model,
-      language,
-      durationSeconds: durationInSeconds,
-    } = await transcribeAudioFile(
-      new File([fileBytes], voiceNote.filename, { type: voiceNote.mimeType }),
-      "voice-note-transcription",
-    );
-    return await VoiceNote.findOneAndUpdate(
+    const outcome = await withAudioPieces(
       {
-        _id: voiceNoteId,
-        "transcription.requestVersion": requestVersion,
+        bytes: audio,
+        filename: voiceNote.filename,
+        mimeType: voiceNote.mimeType,
       },
+      async (pieces) => {
+        const segments = reusableSegments(
+          voiceNote.transcription.segments ?? [],
+          pieces,
+        );
+        const started = await VoiceNote.updateOne(atVersion, {
+          $set: {
+            "transcription.segments": segments,
+            "transcription.progress": {
+              completed: segments.length,
+              total: pieces.length,
+            },
+          },
+        }).exec();
+        if (started.matchedCount === 0) return null;
+
+        let model = voiceNote.transcription.model;
+        let language = voiceNote.transcription.language;
+        for (const piece of pieces.slice(segments.length)) {
+          const prompt = segments
+            .map((segment) => segment.text)
+            .join(TRANSCRIPT_PIECE_SEPARATOR)
+            .slice(-PROMPT_TAIL_CHARS)
+            .trim();
+          const result = await transcribePiece(piece, prompt || undefined);
+          model = result.model;
+          language ??= result.language;
+          // A silent piece still gets a segment, so indices keep matching
+          // pieces on a resume.
+          const segment = {
+            text: result.text,
+            startSecond: piece.startSecond,
+            endSecond: piece.endSecond,
+          };
+          segments.push(segment);
+          const saved = await VoiceNote.updateOne(atVersion, {
+            $push: { "transcription.segments": segment },
+            $set: {
+              "transcription.progress": {
+                completed: segments.length,
+                total: pieces.length,
+              },
+            },
+          }).exec();
+          if (saved.matchedCount === 0) return null;
+        }
+        return {
+          segments,
+          model,
+          language,
+          durationSeconds: pieces.at(-1)?.endSecond,
+        };
+      },
+    );
+    if (!outcome) return null;
+
+    return await VoiceNote.findOneAndUpdate(
+      atVersion,
       {
         $set: {
           "transcription.status": "transcribed",
-          "transcription.text": text,
-          "transcription.language": language,
-          "transcription.model": model,
+          "transcription.text": outcome.segments
+            .map((segment) => segment.text.trim())
+            .filter(Boolean)
+            .join(TRANSCRIPT_PIECE_SEPARATOR),
+          "transcription.language": outcome.language,
+          "transcription.model": outcome.model,
           "transcription.completedAt": new Date(),
-          ...(durationInSeconds && !voiceNote.durationMs
-            ? { durationMs: Math.round(durationInSeconds * 1_000) }
+          ...(outcome.durationSeconds && !voiceNote.durationMs
+            ? { durationMs: Math.round(outcome.durationSeconds * 1_000) }
             : {}),
         },
         $unset: {
           "transcription.error": "",
-          "transcription.segments": "",
+          "transcription.progress": "",
         },
       },
       { returnDocument: "after" },

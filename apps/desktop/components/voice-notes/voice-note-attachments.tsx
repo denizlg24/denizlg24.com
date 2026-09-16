@@ -1,6 +1,10 @@
 "use client";
 
-import type { INote, IVoiceNote, VoiceNotesResponse } from "@repo/schemas";
+import type {
+  INote,
+  IVoiceNoteSummary,
+  VoiceNotesResponse,
+} from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
   Command,
@@ -16,11 +20,35 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import { VoiceNoteBar } from "./voice-note-bar";
+import { formatDuration } from "./voice-recorder-provider";
 
 interface VoiceNoteAttachmentsProps {
   api: denizApi;
   note: INote;
   onPatch: (body: Record<string, unknown>) => Promise<INote | null>;
+}
+
+/**
+ * Every whitespace-separated term must appear somewhere in the item's
+ * keywords. The value is the id, which cmdk's fuzzy default would match on
+ * stray hex characters.
+ */
+function matchKeywords(_value: string, search: string, keywords?: string[]) {
+  const haystack = (keywords ?? []).join(" ").toLowerCase();
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  return terms.every((term) => haystack.includes(term)) ? 1 : 0;
+}
+
+function recordedLabel(voiceNote: IVoiceNoteSummary) {
+  const date = new Date(voiceNote.recordedAt).toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return voiceNote.durationMs
+    ? `${date} · ${formatDuration(voiceNote.durationMs)}`
+    : date;
 }
 
 export function VoiceNoteAttachments({
@@ -31,14 +59,16 @@ export function VoiceNoteAttachments({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [voiceNotes, setVoiceNotes] = useState<IVoiceNote[]>([]);
+  const [voiceNotes, setVoiceNotes] = useState<IVoiceNoteSummary[]>([]);
   const selectedIds = note.voiceNoteIds ?? [];
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selected = useMemo(
     () =>
       selectedIds
         .map((id) => voiceNotes.find((voiceNote) => voiceNote._id === id))
-        .filter((voiceNote): voiceNote is IVoiceNote => Boolean(voiceNote)),
+        .filter((voiceNote): voiceNote is IVoiceNoteSummary =>
+          Boolean(voiceNote),
+        ),
     [selectedIds, voiceNotes],
   );
 
@@ -106,15 +136,22 @@ export function VoiceNoteAttachments({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
-            <Command>
+            <Command filter={matchKeywords}>
               <CommandInput placeholder="Search voice notes…" />
               <CommandList>
-                <CommandEmpty>No voice notes found</CommandEmpty>
+                <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                  —
+                </CommandEmpty>
                 <CommandGroup>
                   {voiceNotes.map((voiceNote) => (
                     <CommandItem
                       key={voiceNote._id}
-                      value={`${voiceNote.title} ${voiceNote.transcription.text ?? ""}`}
+                      value={voiceNote._id}
+                      keywords={[
+                        voiceNote.title,
+                        voiceNote.transcriptPreview ?? "",
+                        ...voiceNote.tags,
+                      ]}
                       onSelect={() => {
                         const next = selectedIdSet.has(voiceNote._id)
                           ? selectedIds.filter((id) => id !== voiceNote._id)
@@ -128,8 +165,10 @@ export function VoiceNoteAttachments({
                       />
                       <div className="min-w-0">
                         <p className="truncate text-xs">{voiceNote.title}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">
-                          {voiceNote.transcription.status}
+                        <p className="truncate text-[10px] tabular-nums text-muted-foreground">
+                          {recordedLabel(voiceNote)}
+                          {voiceNote.transcription.status !== "transcribed" &&
+                            ` · ${voiceNote.transcription.status}`}
                         </p>
                       </div>
                     </CommandItem>

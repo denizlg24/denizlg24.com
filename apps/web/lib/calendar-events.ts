@@ -116,7 +116,7 @@ export function serializeCalendarEvent(
   };
 }
 
-function visibleCalendarFilter() {
+export function visibleCalendarFilter() {
   return {
     $or: [
       { "source.isSuppressed": { $ne: true } },

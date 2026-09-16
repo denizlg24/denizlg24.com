@@ -1,8 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import {
-  voiceNoteTitleSchema,
-  voiceNoteTranscriptionStatusSchema,
-} from "@repo/schemas";
+import { voiceNoteListQuerySchema, voiceNoteUpdateSchema } from "@repo/schemas";
 import { z } from "zod";
 import {
   type Api,
@@ -11,7 +8,6 @@ import {
   decodeUpload,
   defineActions,
   fromResponse,
-  limit,
   p,
 } from "../define";
 
@@ -31,25 +27,40 @@ export function registerWebVoiceNotes(server: McpServer, api: Api) {
     description: "Recorded audio with transcripts and generated notes.",
     actions: {
       list: action({
-        description: "Notes, optionally filtered by text or status",
-        input: z.object({
-          q: z.string().optional(),
-          status: voiceNoteTranscriptionStatusSchema.optional(),
-          limit,
-        }),
+        description:
+          "Summaries without transcripts. q matches title, tags and transcript text and returns a snippet with its start second; array filters match any value",
+        input: voiceNoteListQuerySchema,
         readOnly: true,
         run: (query) => api.web.get("/api/admin/voice-notes", query),
       }),
+      facets: action({
+        description:
+          "Tags, note groups, linked events/timetable slots, sources and statuses with counts",
+        input: z.object({}),
+        readOnly: true,
+        run: () => api.web.get("/api/admin/voice-notes/facets"),
+      }),
       get: action({
-        description: "One note with its transcript",
+        description: "One note with its transcript and timestamped segments",
         input: byId,
         readOnly: true,
         run: ({ voiceNoteId }) =>
           api.web.get(p`/api/admin/voice-notes/${voiceNoteId}`),
       }),
+      context_candidates: action({
+        description:
+          "Calendar events and timetable slots on the recording's day, most-overlapping first",
+        input: byId,
+        readOnly: true,
+        run: ({ voiceNoteId }) =>
+          api.web.get(
+            p`/api/admin/voice-notes/${voiceNoteId}/context-candidates`,
+          ),
+      }),
       update: action({
-        description: "Renames a note",
-        input: z.object({ voiceNoteId, ...voiceNoteTitleSchema.shape }),
+        description:
+          'Renames, retags or relinks a note. tags replaces the whole list; context null clears the link and keeps it cleared, "auto" re-derives it from the recording time',
+        input: z.object({ voiceNoteId, ...voiceNoteUpdateSchema.shape }),
         idempotent: true,
         run: ({ voiceNoteId, ...body }) =>
           api.web.patch(p`/api/admin/voice-notes/${voiceNoteId}`, body),
@@ -67,6 +78,12 @@ export function registerWebVoiceNotes(server: McpServer, api: Api) {
           ...audioFields,
           title: z.string().max(300).optional(),
           durationMs: z.number().int().min(0).optional(),
+          recordedAt: z.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "When recording started; links the note to what it was recorded during",
+            ),
           source: z.enum(["recording", "upload", "agent"]).optional(),
           noteId: z.string().optional().describe("Note to attach to"),
           waveform: z.array(z.number().min(0).max(1)).optional(),
@@ -80,6 +97,7 @@ export function registerWebVoiceNotes(server: McpServer, api: Api) {
           if (meta.title) form.set("title", meta.title);
           if (meta.durationMs !== undefined)
             form.set("durationMs", String(meta.durationMs));
+          if (meta.recordedAt) form.set("recordedAt", meta.recordedAt);
           if (meta.source) form.set("source", meta.source);
           if (meta.noteId) form.set("noteId", meta.noteId);
           if (meta.waveform)
