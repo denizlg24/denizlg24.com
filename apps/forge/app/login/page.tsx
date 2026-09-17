@@ -32,6 +32,7 @@ function LoginForm() {
   const returnTo = safePreviewReturnTo(searchParams.get("returnTo"));
   const [step, setStep] = useState<Step>(tokenParam ? "signup" : "credentials");
   const [password, setPassword] = useState("");
+  const [trustDevice, setTrustDevice] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,8 +111,8 @@ function LoginForm() {
     setError(null);
     const { error: verifyError } =
       mode === "recovery"
-        ? await authClient.twoFactor.verifyBackupCode({ code })
-        : await authClient.twoFactor.verifyTotp({ code });
+        ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice })
+        : await authClient.twoFactor.verifyTotp({ code, trustDevice });
     if (verifyError) {
       setBusy(false);
       setError(verifyError.message ?? "Invalid code");
@@ -159,6 +160,7 @@ function LoginForm() {
       {step === "challenge" ? (
         <CodeChallengeForm
           busy={busy}
+          trustDevice={{ checked: trustDevice, onChange: setTrustDevice }}
           onSubmit={submitChallenge}
           onModeChange={() => setError(null)}
         />

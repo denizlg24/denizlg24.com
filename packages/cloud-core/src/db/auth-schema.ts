@@ -120,6 +120,32 @@ export const authTwoFactor = pgTable(
   ],
 );
 
+// @better-auth/passkey. A row is one WebAuthn credential; `credentialID` is
+// what an authenticator presents at sign-in, `counter` is the signature
+// counter it must exceed. `publicKey` is base64.
+export const authPasskey = pgTable(
+  "auth_passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUser.id, { onDelete: "cascade" }),
+    credentialID: text("credential_id").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    createdAt: timestamp("created_at").defaultNow(),
+    aaguid: text("aaguid"),
+  },
+  (table) => [
+    index("authPasskey_userId_idx").on(table.userId),
+    index("authPasskey_credentialID_idx").on(table.credentialID),
+  ],
+);
+
 // The OAuth 2.1 provider and the JWT plugin that signs its access tokens.
 // Column shapes are the drizzle adapter's own generator output for this
 // configuration; Better Auth reads and writes these rows, nothing else should.
@@ -333,6 +359,7 @@ export const authUserRelations = relations(authUser, ({ many }) => ({
   authSessions: many(authSession),
   authAccounts: many(authAccount),
   authTwoFactors: many(authTwoFactor),
+  authPasskeys: many(authPasskey),
 }));
 
 export const authSessionRelations = relations(authSession, ({ one }) => ({
@@ -356,9 +383,17 @@ export const authTwoFactorRelations = relations(authTwoFactor, ({ one }) => ({
   }),
 }));
 
+export const authPasskeyRelations = relations(authPasskey, ({ one }) => ({
+  authUser: one(authUser, {
+    fields: [authPasskey.userId],
+    references: [authUser.id],
+  }),
+}));
+
 export type AuthUser = InferSelectModel<typeof authUser>;
 export type AuthSession = InferSelectModel<typeof authSession>;
 export type AuthAccount = InferSelectModel<typeof authAccount>;
 export type AuthVerification = InferSelectModel<typeof authVerification>;
 export type AuthTwoFactor = InferSelectModel<typeof authTwoFactor>;
+export type AuthPasskey = InferSelectModel<typeof authPasskey>;
 export type AuthOauthClient = InferSelectModel<typeof authOauthClient>;

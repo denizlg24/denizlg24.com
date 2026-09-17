@@ -30,6 +30,7 @@ export function CredentialsForm({
   busy,
   rememberMe,
   onSubmit,
+  onPasskey,
   onSignupRequested,
 }: {
   defaultUsername?: string;
@@ -40,6 +41,12 @@ export function CredentialsForm({
     username: string;
     password: string;
   }) => void | Promise<void>;
+  /**
+   * Renders the passkey button and marks the username field for conditional
+   * mediation, so a browser that has a passkey for this site offers it in the
+   * field's autofill.
+   */
+  onPasskey?: () => void | Promise<void>;
   onSignupRequested?: () => void;
 }) {
   const [username, setUsername] = useState(defaultUsername);
@@ -58,7 +65,7 @@ export function CredentialsForm({
         </Label>
         <Input
           id="username"
-          autoComplete="username"
+          autoComplete={onPasskey ? "username webauthn" : "username"}
           autoFocus
           value={username}
           onChange={(event) => setUsername(event.target.value)}
@@ -91,6 +98,16 @@ export function CredentialsForm({
       <Button type="submit" disabled={busy || !username || !password}>
         Sign in
       </Button>
+      {onPasskey && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void onPasskey()}
+        >
+          Sign in with a passkey
+        </Button>
+      )}
       {onSignupRequested && (
         <LinkButton onClick={onSignupRequested}>
           Redeem a signup token
@@ -200,10 +217,13 @@ export type ChallengeMode = "totp" | "recovery";
 
 export function CodeChallengeForm({
   busy,
+  trustDevice,
   onSubmit,
   onModeChange,
 }: {
   busy: boolean;
+  /** Renders the checkbox; omit it and the device is never trusted. */
+  trustDevice?: { checked: boolean; onChange: (checked: boolean) => void };
   onSubmit: (code: string, mode: ChallengeMode) => void | Promise<void>;
   onModeChange?: (mode: ChallengeMode) => void;
 }) {
@@ -241,6 +261,20 @@ export function CodeChallengeForm({
           onChange={(event) => setCode(event.target.value)}
         />
       </div>
+      {trustDevice && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="trust-device"
+            checked={trustDevice.checked}
+            onCheckedChange={(checked) =>
+              trustDevice.onChange(checked === true)
+            }
+          />
+          <Label htmlFor="trust-device" className="text-xs font-normal">
+            Trust this device
+          </Label>
+        </div>
+      )}
       <Button
         type="submit"
         disabled={busy || code.length < (mode === "totp" ? 6 : 1)}

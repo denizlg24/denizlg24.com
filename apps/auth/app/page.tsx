@@ -34,6 +34,15 @@ export default function HomePage() {
           <span>clients</span>
           <span className="font-mono text-xs text-muted-foreground">oauth</span>
         </Link>
+        <Link
+          href="/security"
+          className="grid grid-cols-[6rem_1fr] border-b py-2 hover:bg-accent/40"
+        >
+          <span>security</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            passkeys · trusted devices
+          </span>
+        </Link>
       </div>
     </Shell>
   );

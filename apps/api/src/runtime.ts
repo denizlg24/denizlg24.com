@@ -173,6 +173,7 @@ export async function createRuntimeApp() {
       cookieDomain: process.env.COOKIE_DOMAIN,
       db,
       oauth: oauthConfig,
+      passkey: { rpId: process.env.PASSKEY_RP_ID || undefined },
       secret: sharedAuthSecret,
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });

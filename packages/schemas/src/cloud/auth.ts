@@ -89,3 +89,17 @@ export const adminResetMfaInputSchema = z.object({
   userId: z.uuid(),
 });
 export type AdminResetMfaInput = z.infer<typeof adminResetMfaInputSchema>;
+
+// Devices the twoFactor plugin lets skip the TOTP step. Trust is a cookie
+// backed by a verification row; the API can count and revoke the rows but
+// cannot tell one device from another, so this is a count, not a list.
+export const trustedDevicesSummarySchema = z.object({
+  count: z.number().int().min(0),
+  nextExpiresAt: cloudDateTimeSchema.nullable(),
+});
+export type TrustedDevicesSummary = z.infer<typeof trustedDevicesSummarySchema>;
+
+export const trustedDevicesRevokedSchema = z.object({
+  revoked: z.number().int().min(0),
+});
+export type TrustedDevicesRevoked = z.infer<typeof trustedDevicesRevokedSchema>;

@@ -1,5 +1,6 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { oauthProvider } from "@better-auth/oauth-provider";
+import { passkey } from "@better-auth/passkey";
 import { type Database, hashPassword, verifyPassword } from "@repo/cloud-core";
 import * as schema from "@repo/cloud-core/db/schema";
 import {
@@ -15,12 +16,21 @@ import { expireCookie } from "better-auth/cookies";
 import { admin, jwt, twoFactor, username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import {
+  assertUserVerified,
+  type PasskeyRelyingParty,
+  passkeyRelyingParty,
+} from "./passkey";
 import { rememberMeGrants } from "./remember-me";
 
 const SESSION_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
 const MACHINE_ACCESS_TOKEN_SECONDS = 5 * 60;
 const WEB_ACCESS_TOKEN_SECONDS = 15 * 60;
+// A trusted device skips the TOTP step. The plugin re-issues the trust on
+// every sign-in from that device, so this is how long a device may go unused
+// before it is challenged again, not how often it is.
+const TRUST_DEVICE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 // A browser that loads an admin page fires several requests at once, and each
 // one finds the same expired access token. Without a grace window the second
 // refresh is indistinguishable from a stolen token being replayed, and the
@@ -91,6 +101,8 @@ export interface CloudAuthOptions {
   cookieDomain?: string;
   trustedOrigins?: readonly string[];
   oauth?: CloudOAuthConfig;
+  /** Derived from `cookieDomain` and the auth app URL when omitted. */
+  passkey?: Partial<PasskeyRelyingParty>;
 }
 
 const uuidSchema = z.uuid();
@@ -143,6 +155,14 @@ export function createCloudAuth(options: CloudAuthOptions) {
     db: options.db,
     secret: options.secret,
   });
+  const relyingParty = {
+    ...passkeyRelyingParty({
+      authAppUrl,
+      cookieDomain: options.cookieDomain,
+      rpId: options.passkey?.rpId,
+    }),
+    ...(options.passkey?.origins ? { origins: options.passkey.origins } : {}),
+  };
   return betterAuth({
     appName: "Deniz Cloud",
     baseURL: options.baseURL,
@@ -265,7 +285,26 @@ export function createCloudAuth(options: CloudAuthOptions) {
           digits: 6,
           period: 30,
         },
+        trustDeviceMaxAge: TRUST_DEVICE_MAX_AGE_SECONDS,
         twoFactorTable: "authTwoFactor",
+      }),
+      // A passkey sign-in is not a `/sign-in/*` path, so the twoFactor hook
+      // never challenges it: the credential is both factors. That is why
+      // registration insists on a resident, user-verified credential and
+      // authentication refuses one that was not verified.
+      passkey({
+        rpID: relyingParty.rpId,
+        rpName: "Deniz Cloud",
+        origin: relyingParty.origins,
+        authenticatorSelection: {
+          residentKey: "required",
+          userVerification: "required",
+        },
+        authentication: {
+          afterVerification: ({ verification }) =>
+            assertUserVerified(verification.authenticationInfo.userVerified),
+        },
+        schema: { passkey: { modelName: "authPasskey" } },
       }),
       username({
         maxUsernameLength: 255,

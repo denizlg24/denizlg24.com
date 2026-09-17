@@ -9,7 +9,7 @@ import {
 import { AuthShell } from "@repo/cloud-ui/auth-shell";
 import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient, enrollmentClient } from "@/lib/auth-client";
 import {
@@ -17,6 +17,10 @@ import {
   isAuthorizationRedirect,
   isProviderRedirect,
 } from "@/lib/authorization";
+import {
+  conditionalMediationAvailable,
+  isPasskeyDismissed,
+} from "@/lib/passkey";
 
 type Step =
   | "checking"
@@ -54,6 +58,7 @@ function LoginForm() {
   );
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [trustDevice, setTrustDevice] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -135,6 +140,55 @@ function LoginForm() {
     setBusy(false);
   };
 
+  // A passkey answers both factors, so there is no challenge step: the
+  // provider resumes an interrupted authorization exactly as it does after a
+  // password sign-in, and anything else lands in `finish`.
+  const signInWithPasskey = async (autoFill: boolean) => {
+    if (!autoFill) {
+      setBusy(true);
+      setError(null);
+    }
+    const { data, error: passkeyError } = await authClient.signIn.passkey({
+      autoFill,
+    });
+    if (passkeyError) {
+      if (!isPasskeyDismissed(passkeyError)) {
+        setError(passkeyError.message ?? "Passkey sign-in failed");
+      }
+      // The aborted autofill request reports here while the modal ceremony
+      // it yielded to is still up; only the path that set busy clears it.
+      if (!autoFill) setBusy(false);
+      return;
+    }
+    if (isProviderRedirect(data)) {
+      setStep("redirecting");
+      return;
+    }
+    setBusy(true);
+    await finish();
+    setBusy(false);
+  };
+
+  // Conditional mediation: one pending request per visit to the form, which
+  // the browser resolves when a passkey is picked from the username field's
+  // autofill. Starting the button's modal ceremony aborts it, which the
+  // dismissed-error check swallows. The ref keeps the effect keyed on the step
+  // alone, so a failed password attempt does not start a second request.
+  const autofill = useRef(() => {});
+  useEffect(() => {
+    autofill.current = () => void signInWithPasskey(true);
+  });
+  useEffect(() => {
+    if (step !== "credentials") return;
+    let active = true;
+    void conditionalMediationAvailable().then((available) => {
+      if (active && available) autofill.current();
+    });
+    return () => {
+      active = false;
+    };
+  }, [step]);
+
   const submitSignup = async (values: {
     username: string;
     email: string;
@@ -158,8 +212,8 @@ function LoginForm() {
     setError(null);
     const { data, error: verifyError } =
       mode === "recovery"
-        ? await authClient.twoFactor.verifyBackupCode({ code })
-        : await authClient.twoFactor.verifyTotp({ code });
+        ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice })
+        : await authClient.twoFactor.verifyTotp({ code, trustDevice });
     if (verifyError) {
       setBusy(false);
       setError(verifyError.message ?? "Invalid code");
@@ -199,6 +253,7 @@ function LoginForm() {
           busy={busy}
           rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
           onSubmit={submitCredentials}
+          onPasskey={() => signInWithPasskey(false)}
           onSignupRequested={
             authorizing
               ? undefined
@@ -224,6 +279,7 @@ function LoginForm() {
       {step === "challenge" ? (
         <CodeChallengeForm
           busy={busy}
+          trustDevice={{ checked: trustDevice, onChange: setTrustDevice }}
           onSubmit={submitChallenge}
           onModeChange={() => setError(null)}
         />

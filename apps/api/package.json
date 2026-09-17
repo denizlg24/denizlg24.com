@@ -27,6 +27,7 @@
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.4",
     "@better-auth/oauth-provider": "^1.7.4",
+    "@better-auth/passkey": "1.7.4",
     "@opentelemetry/api": "^1.9.1",
     "@repo/cloud-auth-client": "workspace:*",
     "@repo/cloud-core": "workspace:*",

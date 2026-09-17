@@ -10,6 +10,10 @@ import {
   oauthClientListSchema,
   type SafeUser,
   safeUserSchema,
+  type TrustedDevicesRevoked,
+  type TrustedDevicesSummary,
+  trustedDevicesRevokedSchema,
+  trustedDevicesSummarySchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 
@@ -69,4 +73,12 @@ export const api = {
       method: "PATCH",
       body: { disabled },
     }),
+  trustedDevices: (): Promise<TrustedDevicesSummary> =>
+    requestData(trustedDevicesSummarySchema, "/api/auth/trusted-devices"),
+  revokeTrustedDevices: (): Promise<TrustedDevicesRevoked> =>
+    requestData(
+      trustedDevicesRevokedSchema,
+      "/api/auth/trusted-devices/revoke",
+      { method: "POST" },
+    ),
 };
