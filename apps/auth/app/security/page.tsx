@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { PasskeyNameDialog } from "@/components/passkey-dialogs";
 import { Shell } from "@/components/shell";
@@ -128,6 +128,11 @@ function PasskeyTableRow({
 function SecurityPanel() {
   const { data, error, reload } = usePoll(loadSecurity, null);
   const [adding, setAdding] = useState(false);
+  const [newPasskeyName, setNewPasskeyName] = useState("Passkey");
+
+  useEffect(() => {
+    setNewPasskeyName(defaultPasskeyName(navigator.userAgent));
+  }, []);
 
   const forgetTrustedDevices = useCallback(async () => {
     try {
@@ -214,7 +219,7 @@ function SecurityPanel() {
         open={adding}
         title="New passkey"
         actionLabel="Create"
-        initialName={defaultPasskeyName(navigator.userAgent)}
+        initialName={newPasskeyName}
         onOpenChange={setAdding}
         onSubmit={async (name) => {
           const { error: passkeyError } = await authClient.passkey.addPasskey({

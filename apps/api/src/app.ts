@@ -379,7 +379,9 @@ export function createCloudApiApp(options: CloudApiOptions) {
     for (const path of SIGN_IN_PATHS) {
       app.use(path, async (context, next) => {
         await next();
-        if (context.res.status !== 401) return;
+        const status = context.res.status;
+        if (status !== 400 && status !== 401) return;
+
         options.activity?.recorder.record({
           category: "auth",
           action: ACTIVITY_ACTIONS.signInFailed,
@@ -387,7 +389,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
           actorType: "anonymous",
           method: context.req.method,
           path: context.req.path,
-          statusCode: 401,
+          statusCode: status,
           ip: clientIp(context, options.isProduction),
           userAgent: context.req.header("User-Agent") ?? null,
         });
