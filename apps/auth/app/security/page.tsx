@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { PasskeyNameDialog } from "@/components/passkey-dialogs";
 import { Shell } from "@/components/shell";
@@ -398,6 +398,11 @@ function SessionList({
 function SecurityPanel() {
   const { data, error, reload } = usePoll(loadSecurity, null);
   const [adding, setAdding] = useState(false);
+  const [newPasskeyName, setNewPasskeyName] = useState("Passkey");
+
+  useEffect(() => {
+    setNewPasskeyName(defaultPasskeyName(navigator.userAgent));
+  }, []);
 
   const forgetTrustedDevices = useCallback(async () => {
     try {
@@ -549,7 +554,7 @@ function SecurityPanel() {
         title="Add a passkey"
         description="Name it after the device that will hold it. The browser asks for Face ID, Touch ID or a PIN next."
         actionLabel="Create passkey"
-        initialName={defaultPasskeyName(navigator.userAgent)}
+        initialName={newPasskeyName}
         onOpenChange={setAdding}
         onSubmit={async (name) => {
           const { error: passkeyError } = await authClient.passkey.addPasskey({
