@@ -17,12 +17,12 @@
   },
   "dependencies": {
     "@repo/markets": "workspace:*",
-    "ai": "^7.0.99",
-    "zod": "^4.4.3"
+    "ai": "^7.0.100",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "typescript": "^5.9.3"
   }
 }
