@@ -55,6 +55,10 @@ import { createOAuthBearerResolver } from "./auth/oauth-bearer";
 import { oauthClientRoutes } from "./auth/oauth-clients";
 import { withOAuthRequestState } from "./auth/remember-me";
 import {
+  revokeTrustedDevices,
+  summarizeTrustedDevices,
+} from "./auth/trusted-devices";
+import {
   completePendingSignup,
   createPendingAuthUser,
   SignupCompletionError,
@@ -75,6 +79,11 @@ import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
+// A passkey challenge is minted on every login page load for the username
+// field's autofill, so it cannot share the login budget: a handful of reloads
+// would lock the password form. It writes a verification row, so it is not
+// unbounded either.
+const PASSKEY_CHALLENGE_MAX_REQUESTS = 60;
 const SIGNUP_MAX_REQUESTS = 5;
 const PREVIEW_AUTH_WINDOW_MS = 60 * 1_000;
 const PREVIEW_AUTH_MAX_REQUESTS = 1_200;
@@ -99,6 +108,15 @@ const MFA_ENROLLMENT_PATHS = new Set([
 // leaves a session that can no longer reach the one endpoint it needs. Signing
 // in again replaces that session and is no weaker than a fresh sign-in.
 const MFA_ENROLLMENT_PATH_PREFIXES = ["/api/auth/sign-in/"];
+// Everything that turns an anonymous request into a session. A passkey
+// assertion is a credential guess like a password is, so it shares the login
+// budget and the failure recorder.
+const SIGN_IN_PATHS = [
+  "/api/auth/sign-in/*",
+  "/api/auth/passkey/verify-authentication",
+];
+const PASSKEY_CHALLENGE_PATH =
+  "/api/auth/passkey/generate-authenticate-options";
 
 function allowedDuringMfaEnrollment(path: string): boolean {
   return (
@@ -358,21 +376,25 @@ export function createCloudApiApp(options: CloudApiOptions) {
     // better-auth owns the sign-in handler, so a failure is only visible from
     // the outside as a 401. Recording it under its own action is what lets the
     // auth_failure_burst alert count without scanning paths.
-    app.use("/api/auth/sign-in/*", async (context, next) => {
-      await next();
-      if (context.res.status !== 401) return;
-      options.activity?.recorder.record({
-        category: "auth",
-        action: ACTIVITY_ACTIONS.signInFailed,
-        severity: "warn",
-        actorType: "anonymous",
-        method: context.req.method,
-        path: context.req.path,
-        statusCode: 401,
-        ip: clientIp(context, options.isProduction),
-        userAgent: context.req.header("User-Agent") ?? null,
+    for (const path of SIGN_IN_PATHS) {
+      app.use(path, async (context, next) => {
+        await next();
+        const status = context.res.status;
+        if (status !== 400 && status !== 401) return;
+
+        options.activity?.recorder.record({
+          category: "auth",
+          action: ACTIVITY_ACTIONS.signInFailed,
+          severity: "warn",
+          actorType: "anonymous",
+          method: context.req.method,
+          path: context.req.path,
+          statusCode: status,
+          ip: clientIp(context, options.isProduction),
+          userAgent: context.req.header("User-Agent") ?? null,
+        });
       });
-    });
+    }
   }
 
   app.get("/", (context) => context.text("Deniz Cloud API"));
@@ -536,12 +558,22 @@ export function createCloudApiApp(options: CloudApiOptions) {
     oauthClientRoutes({ auth: options.auth, db: options.db }),
   );
 
+  const loginRateLimit = rateLimit({
+    keyGenerator: (context) =>
+      `login:${clientIp(context, options.isProduction)}`,
+    max: options.isProduction ? LOGIN_MAX_REQUESTS : DEV_LOGIN_MAX_REQUESTS,
+    store: options.rateLimitStore,
+    windowMs: LOGIN_WINDOW_MS,
+  });
+  for (const path of SIGN_IN_PATHS) app.use(path, loginRateLimit);
   app.use(
-    "/api/auth/sign-in/*",
+    PASSKEY_CHALLENGE_PATH,
     rateLimit({
       keyGenerator: (context) =>
-        `login:${clientIp(context, options.isProduction)}`,
-      max: options.isProduction ? LOGIN_MAX_REQUESTS : DEV_LOGIN_MAX_REQUESTS,
+        `passkey-challenge:${clientIp(context, options.isProduction)}`,
+      max: options.isProduction
+        ? PASSKEY_CHALLENGE_MAX_REQUESTS
+        : DEV_LOGIN_MAX_REQUESTS,
       store: options.rateLimitStore,
       windowMs: LOGIN_WINDOW_MS,
     }),
@@ -786,6 +818,24 @@ export function createCloudApiApp(options: CloudApiOptions) {
       ),
       403,
     ),
+  );
+  // The twoFactor plugin issues device trust but never lists or revokes it.
+  // Revoking only ever narrows access, so any session may do it.
+  for (const path of [
+    "/api/auth/trusted-devices",
+    "/api/auth/trusted-devices/*",
+  ]) {
+    app.use(path, authenticate, requireSession());
+  }
+  app.get("/api/auth/trusted-devices", async (context) =>
+    context.json({
+      data: await summarizeTrustedDevices(options.db, context.get("user").id),
+    }),
+  );
+  app.post("/api/auth/trusted-devices/revoke", async (context) =>
+    context.json({
+      data: await revokeTrustedDevices(options.db, context.get("user").id),
+    }),
   );
 
   app.get("/api/me", authenticate, (context) =>

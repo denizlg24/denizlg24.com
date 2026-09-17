@@ -441,9 +441,32 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   `AsyncLocalStorage` state first, which is why `app.ts` wraps the auth handler
   in `withOAuthRequestState`. Unchecked is Better Auth's real `rememberMe:
   false`: a browser-session cookie, rotating tokens as before.
+- **A passkey is both factors.** `@better-auth/passkey` (pinned to the
+  better-auth version; 1.7.5 peers on a newer core) signs in on
+  `/passkey/verify-authentication`, which the twoFactor hook does not match,
+  so there is no TOTP step. That is why `apps/api/src/auth/passkey.ts`
+  requires a resident, user-verified credential at registration and refuses
+  an assertion whose authenticator did not verify the user — the plugin
+  itself verifies with `requireUserVerification: false` on both ceremonies.
+  The rpID is the cookie domain (`denizlg24.com`; `PASSKEY_RP_ID` overrides)
+  because the plugin's default is the *API's* hostname, which no browser on
+  auth.denizlg24.com can use; the origin list pins ceremonies to the auth
+  app. Rows live in `auth_passkey` (0050) and are managed at
+  auth.denizlg24.com/security. A passkey session is always remember-me: the
+  path is not `/sign-in/*` and carries no flag, so the session hook falls
+  through to the cookie branch.
+- **"Trust this device" is the plugin's own `trustDevice`**, a signed
+  `deniz-cloud.trust_device` cookie backed by an `auth_verification` row
+  (`trust-device-*`, value = user id) that the credential sign-in hook checks
+  and **re-issues on every sign-in**. `trustDeviceMaxAge` is a year, so it is
+  how long a device may go unused, not a re-prompt interval. The plugin never
+  lists or revokes trust: `GET/POST /api/auth/trusted-devices[/revoke]`
+  (`apps/api/src/auth/trusted-devices.ts`) count and delete the rows. The
+  cookie only ever reaches the API — Forge's edge strips it with the rest of
+  `deniz-cloud.*`.
 
 Rollout order for anything touching this: apply cloud-core migrations (0043
-OAuth tables, 0044 issuer, 0045 remember-me) → roll the API (manual approval) → deploy auth and
+OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop

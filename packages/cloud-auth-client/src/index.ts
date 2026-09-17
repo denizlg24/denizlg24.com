@@ -1,4 +1,5 @@
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
+import { passkeyClient } from "@better-auth/passkey/client";
 import { createAuthClient } from "better-auth/client";
 import {
   adminClient,
@@ -28,7 +29,8 @@ export type CloudAuthClient = ReturnType<typeof createCloudAuthClient>;
  * The auth app's client. The OAuth provider plugin forwards the signed
  * authorization query on every request made from a page the authorization
  * server redirected to, which is what lets a plain sign-in resume the
- * authorization it interrupted.
+ * authorization it interrupted. Passkeys are here and not on the plain
+ * client because the API only accepts ceremonies from the auth app's origin.
  */
 export function createCloudOAuthClient(options: CloudAuthClientOptions = {}) {
   return createAuthClient({
@@ -38,6 +40,7 @@ export function createCloudOAuthClient(options: CloudAuthClientOptions = {}) {
     },
     plugins: [
       adminClient(),
+      passkeyClient(),
       twoFactorClient(),
       usernameClient(),
       oauthProviderClient(),
