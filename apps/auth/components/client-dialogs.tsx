@@ -11,16 +11,65 @@ import { CopyButton } from "@repo/ui/copy-button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
-import { NativeSelect, NativeSelectOption } from "@repo/ui/native-select";
+import { RadioGroup, RadioGroupItem } from "@repo/ui/radio-group";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import { type FormEvent, useState } from "react";
+import { cn } from "@repo/ui/utils";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { errorMessage } from "@/lib/api";
+
+const KINDS: {
+  value: CreateOAuthClientInput["kind"];
+  label: string;
+  detail: string;
+}[] = [
+  {
+    value: "service",
+    label: "Service",
+    detail: "Acts as you on its own with a secret. For servers and agents.",
+  },
+  {
+    value: "web",
+    label: "Web app",
+    detail: "Sends people here to sign in and keeps a secret on its server.",
+  },
+  {
+    value: "native",
+    label: "Native app",
+    detail:
+      "Sends people here to sign in from an installed app. No secret; PKCE.",
+  },
+];
+
+function CredentialRow({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div className="flex items-start gap-2">
+        <code className="min-w-0 flex-1 break-all rounded-md border px-3 py-2 font-mono text-sm">
+          {value}
+        </code>
+        <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export function CredentialsDialog({
   credentials,
@@ -29,6 +78,7 @@ export function CredentialsDialog({
   credentials: OAuthClientCredentials | null;
   onClose: () => void;
 }) {
+  const hasSecret = typeof credentials?.clientSecret === "string";
   return (
     <Dialog
       open={credentials !== null}
@@ -36,30 +86,23 @@ export function CredentialsDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-sm">
-            {credentials?.clientSecret === null
-              ? "Client id"
-              : "Client secret — shown once"}
+          <DialogTitle className="text-base">
+            {hasSecret ? "Client secret" : "Client id"}
           </DialogTitle>
+          <DialogDescription>
+            {hasSecret
+              ? "The secret is shown only now. Copy it into the app before closing this."
+              : "A native client has no secret; the id is all it needs."}
+          </DialogDescription>
         </DialogHeader>
         {credentials ? (
-          <div className="flex flex-col gap-3 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 break-all font-mono">
-                {credentials.clientId}
-              </span>
-              <CopyButton value={credentials.clientId} label="Copy client id" />
-            </div>
+          <div className="flex flex-col gap-4">
+            <CredentialRow label="Client id" value={credentials.clientId} />
             {credentials.clientSecret !== null ? (
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 break-all font-mono">
-                  {credentials.clientSecret}
-                </span>
-                <CopyButton
-                  value={credentials.clientSecret}
-                  label="Copy client secret"
-                />
-              </div>
+              <CredentialRow
+                label="Client secret"
+                value={credentials.clientSecret}
+              />
             ) : null}
           </div>
         ) : null}
@@ -126,65 +169,84 @@ export function CreateClientDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="text-sm">New client</DialogTitle>
+          <DialogTitle className="text-base">New client</DialogTitle>
+          <DialogDescription>
+            An app or service that signs in with your account. You get its id
+            and secret once it exists.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="flex flex-col gap-4 text-xs">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="client-kind" className="text-xs">
-              Kind
-            </Label>
-            <NativeSelect
-              id="client-kind"
-              size="sm"
+        <form onSubmit={submit} className="flex flex-col gap-5">
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm font-medium">Kind</legend>
+            <RadioGroup
               value={kind}
-              onChange={(event) => {
-                const next = event.target.value;
+              onValueChange={(next) => {
                 setKind(next === "web" || next === "native" ? next : "service");
               }}
+              className="gap-2"
             >
-              <NativeSelectOption value="service">
-                service — client_credentials
-              </NativeSelectOption>
-              <NativeSelectOption value="web">
-                web — authorization_code
-              </NativeSelectOption>
-              <NativeSelectOption value="native">
-                native — authorization_code, public (PKCE, no secret)
-              </NativeSelectOption>
-            </NativeSelect>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="client-name" className="text-xs">
-              Name
-            </Label>
+              {KINDS.map((option) => (
+                <label
+                  key={option.value}
+                  htmlFor={`client-kind-${option.value}`}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors has-[[data-state=checked]]:border-accent-strong has-[[data-state=checked]]:bg-surface",
+                  )}
+                >
+                  <RadioGroupItem
+                    id={`client-kind-${option.value}`}
+                    value={option.value}
+                    className="mt-0.5"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium text-accent-strong">
+                      {option.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {option.detail}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          </fieldset>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="client-name">Name</Label>
             <Input
               id="client-name"
+              autoComplete="off"
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
           </div>
           {kind !== "service" ? (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="client-redirects" className="text-xs">
-                Redirect URIs
-              </Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="client-redirects">Redirect URIs</Label>
               <Textarea
                 id="client-redirects"
-                className="font-mono text-xs"
+                className="min-h-20 font-mono text-xs"
+                spellCheck={false}
+                aria-describedby="client-redirects-hint"
                 value={redirectUris}
                 onChange={(event) => setRedirectUris(event.target.value)}
               />
+              <p
+                id="client-redirects-hint"
+                className="text-xs text-muted-foreground"
+              >
+                One per line. Where the browser is sent back with the code.
+              </p>
             </div>
           ) : null}
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1.5 text-xs font-medium">Resources</legend>
+            <legend className="mb-2 text-sm font-medium">Resources</legend>
             {resources.map((resource) => (
               <label
                 key={resource.identifier}
                 htmlFor={`resource-${resource.identifier}`}
-                className="flex items-center gap-2"
+                className="flex cursor-pointer items-center gap-2.5 text-sm"
               >
                 <Checkbox
                   id={`resource-${resource.identifier}`}
@@ -199,21 +261,29 @@ export function CreateClientDialog({
                     )
                   }
                 />
-                <span>{resource.name}</span>
-                <span className="font-mono text-muted-foreground">
+                <span className="text-accent-strong">{resource.name}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">
                   {resource.identifier}
                 </span>
               </label>
             ))}
+            <p className="text-xs text-muted-foreground">
+              What the client's tokens are good for. At least one.
+            </p>
           </fieldset>
           {error ? (
-            <p className="text-destructive" role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {error}
             </p>
           ) : null}
           <DialogFooter>
-            <Button type="submit" disabled={busy || !valid}>
-              Create
+            <Button
+              type="submit"
+              aria-busy={busy || undefined}
+              disabled={busy || !valid}
+            >
+              {busy ? <Spinner aria-hidden="true" /> : null}
+              Create client
             </Button>
           </DialogFooter>
         </form>

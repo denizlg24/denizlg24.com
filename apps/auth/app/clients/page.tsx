@@ -1,6 +1,6 @@
 "use client";
 
-import { formatRelative } from "@repo/cloud-ui/format";
+import { formatDateTime, formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
   OAuthClientCredentials,
@@ -9,7 +9,6 @@ import type {
 } from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { ConfirmButton } from "@repo/ui/confirm-button";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   Table,
@@ -19,119 +18,84 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
+import { cn } from "@repo/ui/utils";
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 import {
   CreateClientDialog,
   CredentialsDialog,
 } from "@/components/client-dialogs";
+import {
+  ClientSheet,
+  KIND_LABELS,
+  resourceName,
+} from "@/components/client-sheet";
 import { Shell } from "@/components/shell";
-import { api, errorMessage } from "@/lib/api";
-
-function resourceLabel(
-  identifier: string,
-  resources: OAuthResourceSummary[],
-): string {
-  return (
-    resources.find((resource) => resource.identifier === identifier)?.name ??
-    identifier
-  );
-}
+import { PageIntro, PageSection, SectionEmpty } from "@/components/shell-frame";
+import { api } from "@/lib/api";
 
 function ClientRow({
   client,
   resources,
-  onRotated,
-  onChanged,
+  onOpen,
 }: {
   client: OAuthClientSummary;
   resources: OAuthResourceSummary[];
-  onRotated: (credentials: OAuthClientCredentials) => void;
-  onChanged: () => Promise<void>;
+  onOpen: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await action();
-      await onChanged();
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-    setBusy(false);
-  };
-
   return (
-    <TableRow className={client.disabled ? "opacity-50" : undefined}>
-      <TableCell className="text-xs">{client.name ?? "—"}</TableCell>
-      <TableCell>
-        <Badge variant="outline">{client.kind}</Badge>
+    <TableRow
+      className={cn(
+        "cursor-pointer",
+        client.disabled && "text-muted-foreground",
+      )}
+      onClick={onOpen}
+    >
+      <TableCell className="max-w-56">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          className={cn(
+            "block max-w-full truncate rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            client.disabled ? "text-muted-foreground" : "text-accent-strong",
+          )}
+        >
+          {client.name ?? "Unnamed client"}
+        </button>
       </TableCell>
-      <TableCell className="max-w-40 truncate font-mono text-xs text-muted-foreground">
-        {client.clientId}
+      <TableCell className="text-xs text-muted-foreground">
+        {KIND_LABELS[client.kind]}
       </TableCell>
-      <TableCell className="text-xs">
+      <TableCell className="hidden max-w-64 truncate text-xs text-muted-foreground md:table-cell">
         {client.resources.length > 0
           ? client.resources
-              .map((identifier) => resourceLabel(identifier, resources))
+              .map((identifier) => resourceName(identifier, resources))
               .join(", ")
           : "—"}
       </TableCell>
-      <TableCell className="text-xs tabular-nums">
+      <TableCell className="hidden text-xs tabular-nums sm:table-cell">
         {client.activeGrants}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground tabular-nums">
-        {client.lastIssuedAt ? formatRelative(client.lastIssuedAt) : "—"}
+      <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
+        {client.lastIssuedAt ? (
+          <time
+            dateTime={client.lastIssuedAt}
+            title={formatDateTime(client.lastIssuedAt)}
+          >
+            {formatRelative(client.lastIssuedAt)}
+          </time>
+        ) : (
+          "Never"
+        )}
       </TableCell>
       <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          {client.kind !== "dynamic" &&
-          client.kind !== "native" &&
-          !client.disabled ? (
-            <ConfirmButton
-              trigger={
-                <Button size="sm" variant="ghost" disabled={busy}>
-                  rotate
-                </Button>
-              }
-              title="Rotate secret"
-              description={client.name ?? client.clientId}
-              actionLabel="Rotate"
-              onConfirm={() =>
-                run(async () =>
-                  onRotated(await api.rotateClientSecret(client.clientId)),
-                )
-              }
-            />
-          ) : null}
-          {client.disabled ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() =>
-                void run(() => api.setClientDisabled(client.clientId, false))
-              }
-            >
-              enable
-            </Button>
-          ) : (
-            <ConfirmButton
-              trigger={
-                <Button size="sm" variant="ghost" disabled={busy}>
-                  disable
-                </Button>
-              }
-              title="Disable client"
-              description={`${client.name ?? client.clientId} — ${client.activeGrants} active grants revoked`}
-              actionLabel="Disable"
-              onConfirm={() =>
-                run(() => api.setClientDisabled(client.clientId, true))
-              }
-            />
-          )}
-        </div>
+        {client.disabled ? (
+          <Badge variant="outline">Disabled</Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">Active</span>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -141,60 +105,103 @@ function ClientsPanel() {
   const fetchClients = useCallback(() => api.clients(), []);
   const { data, error, reload } = usePoll(fetchClients, null);
   const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<OAuthClientCredentials | null>(
     null,
   );
 
-  if (error) return <p className="text-xs text-destructive">{error}</p>;
-  if (!data) {
+  // The sheet reads the row from the latest list, so an action it ran shows
+  // its result without the sheet holding a stale copy.
+  const selected =
+    data?.clients.find((client) => client.clientId === selectedId) ?? null;
+
+  const intro = (
+    <PageIntro
+      title="Clients"
+      description="Apps and services that sign in with your account through OAuth."
+      actions={<Button onClick={() => setCreating(true)}>New client</Button>}
+    />
+  );
+
+  if (error) {
     return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-48 w-full" />
-      </div>
+      <>
+        {intro}
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+        <div>
+          <Button variant="outline" onClick={() => void reload()}>
+            Try again
+          </Button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-sm font-medium tracking-tight">
-          clients{" "}
-          <span className="text-muted-foreground tabular-nums">
-            {data.clients.length}
-          </span>
-        </h1>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          new
-        </Button>
-      </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>name</TableHead>
-            <TableHead>kind</TableHead>
-            <TableHead>client id</TableHead>
-            <TableHead>resources</TableHead>
-            <TableHead>grants</TableHead>
-            <TableHead>issued</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.clients.map((client) => (
-            <ClientRow
-              key={client.clientId}
-              client={client}
-              resources={data.resources}
-              onRotated={setCredentials}
-              onChanged={reload}
-            />
-          ))}
-        </TableBody>
-      </Table>
+    <>
+      {intro}
+      <PageSection title="Registered" count={data?.clients.length}>
+        {!data ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : data.clients.length === 0 ? (
+          <SectionEmpty
+            action={
+              <Button variant="outline" onClick={() => setCreating(true)}>
+                New client
+              </Button>
+            }
+          >
+            No clients yet. A client is an app or service that gets tokens for
+            your account; create one to get its id and secret. Apps that
+            register themselves, like Claude, appear here on their own.
+          </SectionEmpty>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Kind</TableHead>
+                <TableHead className="hidden md:table-cell">
+                  Resources
+                </TableHead>
+                <TableHead className="hidden sm:table-cell">Grants</TableHead>
+                <TableHead className="hidden md:table-cell">
+                  Last issued
+                </TableHead>
+                <TableHead className="text-right">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.clients.map((client) => (
+                <ClientRow
+                  key={client.clientId}
+                  client={client}
+                  resources={data.resources}
+                  onOpen={() => setSelectedId(client.clientId)}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </PageSection>
+      <ClientSheet
+        client={selected}
+        resources={data?.resources ?? []}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+        onRotated={setCredentials}
+        onChanged={reload}
+      />
       <CreateClientDialog
         open={creating}
-        resources={data.resources}
+        resources={data?.resources ?? []}
         onOpenChange={setCreating}
         onCreate={async (input) => {
           const created = await api.createClient(input);
@@ -207,7 +214,7 @@ function ClientsPanel() {
         credentials={credentials}
         onClose={() => setCredentials(null)}
       />
-    </div>
+    </>
   );
 }
 

@@ -10,6 +10,7 @@
     "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@repo/auth-ui": "workspace:*",
     "@repo/cloud-auth-client": "workspace:*",
     "@repo/cloud-ui": "workspace:*",
     "@repo/schemas": "workspace:*",

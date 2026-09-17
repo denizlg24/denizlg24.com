@@ -4,12 +4,14 @@ import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { Spinner } from "@repo/ui/spinner";
 import { type FormEvent, useEffect, useState } from "react";
 
 /**
@@ -20,6 +22,7 @@ import { type FormEvent, useEffect, useState } from "react";
 export function PasskeyNameDialog({
   open,
   title,
+  description,
   actionLabel,
   initialName,
   onOpenChange,
@@ -27,6 +30,7 @@ export function PasskeyNameDialog({
 }: {
   open: boolean;
   title: string;
+  description?: string;
   actionLabel: string;
   initialName: string;
   onOpenChange: (open: boolean) => void;
@@ -60,27 +64,40 @@ export function PasskeyNameDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-sm">{title}</DialogTitle>
+          <DialogTitle className="text-base">{title}</DialogTitle>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
         </DialogHeader>
-        <form onSubmit={submit} className="flex flex-col gap-4 text-xs">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="passkey-name" className="text-xs">
-              Name
-            </Label>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="passkey-name">Name</Label>
             <Input
               id="passkey-name"
               autoFocus
+              autoComplete="off"
               value={name}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "passkey-name-error" : undefined}
               onChange={(event) => setName(event.target.value)}
             />
+            {error ? (
+              <p
+                id="passkey-name-error"
+                className="text-xs text-destructive"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
           </div>
-          {error ? (
-            <p className="text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
           <DialogFooter>
-            <Button type="submit" disabled={busy || name.trim().length === 0}>
+            <Button
+              type="submit"
+              aria-busy={busy || undefined}
+              disabled={busy || name.trim().length === 0}
+            >
+              {busy ? <Spinner aria-hidden="true" /> : null}
               {actionLabel}
             </Button>
           </DialogFooter>

@@ -1,6 +1,10 @@
 "use client";
 
+import { FlowFrame } from "@repo/auth-ui/flow-frame";
+import { FlowMessage } from "@repo/auth-ui/status-step";
+import { ThemeToggle } from "@repo/cloud-ui/theme";
 import type { SafeUser } from "@repo/schemas/cloud";
+import { Button } from "@repo/ui/button";
 import {
   createContext,
   type ReactNode,
@@ -9,6 +13,7 @@ import {
   useState,
 } from "react";
 import { api, isApiError } from "@/lib/api";
+import { PageSkeleton, ShellFrame } from "./shell-frame";
 
 const SessionContext = createContext<SafeUser | null>(null);
 
@@ -61,16 +66,24 @@ export function SessionGate({ children }: { children: ReactNode }) {
 
   if (forbidden) {
     return (
-      <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-        superuser required
-      </div>
+      <FlowFrame themeToggle={<ThemeToggle />}>
+        <FlowMessage
+          title="This account can't manage deniz auth"
+          detail="Only the owner's account can open these pages. Sign out, then sign in with it."
+          action={
+            <Button asChild size="lg" className="h-11 w-full text-base">
+              <a href="/logout">Sign out</a>
+            </Button>
+          }
+        />
+      </FlowFrame>
     );
   }
   if (!user) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-      </div>
+      <ShellFrame user={null}>
+        <PageSkeleton />
+      </ShellFrame>
     );
   }
   return (

@@ -1,15 +1,34 @@
 "use client";
 
-import { safeReturnTo } from "@repo/cloud-auth-client/redirect";
+import { BackupCodesStep } from "@repo/auth-ui/backup-codes-step";
 import {
-  CodeChallengeForm,
-  CredentialsForm,
-  SignupForm,
-} from "@repo/cloud-ui/auth-forms";
-import { AuthShell } from "@repo/cloud-ui/auth-shell";
-import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
+  ACCOUNT_DESTINATION,
+  type Destination,
+  destinationFromClient,
+  destinationFromUrl,
+} from "@repo/auth-ui/destination";
+import { FlowFrame } from "@repo/auth-ui/flow-frame";
+import { transitionStep } from "@repo/auth-ui/flow-transition";
+import { InvitationStep } from "@repo/auth-ui/invitation-step";
+import { PasswordStep } from "@repo/auth-ui/password-step";
+import {
+  type SecondFactorMode,
+  SecondFactorStep,
+} from "@repo/auth-ui/second-factor-step";
+import { CheckingStep, FlowMessage } from "@repo/auth-ui/status-step";
+import { TotpEnrollment } from "@repo/auth-ui/totp-enrollment";
+import { UsernameStep } from "@repo/auth-ui/username-step";
+import { safeReturnTo } from "@repo/cloud-auth-client/redirect";
+import { ThemeToggle } from "@repo/cloud-ui/theme";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient, enrollmentClient } from "@/lib/auth-client";
 import {
@@ -24,26 +43,53 @@ import {
 
 type Step =
   | "checking"
-  | "credentials"
-  | "signup"
+  | "username"
+  | "password"
+  | "invitation"
   | "challenge"
   | "enroll"
   | "backup-codes"
   | "redirecting";
 
-const TITLES: Record<Step, string> = {
-  checking: "Sign in",
-  credentials: "Sign in",
-  signup: "Redeem signup token",
-  challenge: "Two-factor",
-  enroll: "TOTP enrollment",
-  "backup-codes": "Backup codes",
-  redirecting: "Signing in",
-};
-
 const ALLOW_LOOPBACK = process.env.NODE_ENV !== "production";
 
-function LoginForm() {
+/** Resolves an OAuth client's public name for the destination line. */
+function useDestination(
+  authorizing: boolean,
+  searchParams: URLSearchParams,
+  returnTo: string | null,
+): Destination | "pending" | null {
+  const base = useMemo<Destination | null>(() => {
+    if (authorizing) {
+      const clientId = searchParams.get("client_id") ?? "";
+      return { name: clientId, host: null, clientId };
+    }
+    return returnTo ? destinationFromUrl(returnTo) : ACCOUNT_DESTINATION;
+  }, [authorizing, searchParams, returnTo]);
+  const clientId = base?.clientId;
+  const [resolved, setResolved] = useState<Destination | null>(null);
+
+  useEffect(() => {
+    if (!clientId) return;
+    let active = true;
+    void api
+      .publicClient(clientId)
+      .then((client) => {
+        if (active) setResolved(destinationFromClient(clientId, client));
+      })
+      .catch(() => {
+        if (active) setResolved(destinationFromClient(clientId, null));
+      });
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+
+  if (!clientId) return base;
+  return resolved ?? "pending";
+}
+
+function LoginFlow() {
   const searchParams = useSearchParams();
   const authorizing = isAuthorizationRedirect(searchParams);
   const reason = searchParams.get("reason");
@@ -53,9 +99,10 @@ function LoginForm() {
     allowLoopback: ALLOW_LOOPBACK,
   });
 
-  const [step, setStep] = useState<Step>(
-    tokenParam ? "signup" : authorizing || reason ? "credentials" : "checking",
+  const [step, setStepState] = useState<Step>(
+    tokenParam ? "invitation" : authorizing || reason ? "username" : "checking",
   );
+  const [username, setUsername] = useState(searchParams.get("username") ?? "");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [trustDevice, setTrustDevice] = useState(false);
@@ -63,13 +110,32 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const destinationInfo = useDestination(authorizing, searchParams, returnTo);
+  const destinationName =
+    destinationInfo && destinationInfo !== "pending"
+      ? destinationInfo.name
+      : "this app";
+
+  // A step and the message that goes with it commit together, inside the step
+  // transition, so neither paints on the wrong screen.
+  const go = useCallback(
+    (next: Step, options: { error?: string | null; busy?: boolean } = {}) => {
+      transitionStep(() => {
+        setStepState(next);
+        setError(options.error ?? null);
+        if (options.busy !== undefined) setBusy(options.busy);
+      });
+    },
+    [],
+  );
+
   const destination = authorizing
     ? authorizeUrl(searchParams)
     : (returnTo ?? "/");
   const leave = useCallback(() => {
-    setStep("redirecting");
+    go("redirecting");
     window.location.assign(destination);
-  }, [destination]);
+  }, [destination, go]);
 
   // Every app sends a signed-out browser here, including one that is signed in
   // to the cloud already — landing on a form would make single sign-on a
@@ -84,59 +150,63 @@ function LoginForm() {
         if (active) leave();
       })
       .catch(() => {
-        if (active) setStep("credentials");
+        if (active) go("username");
       });
     return () => {
       active = false;
     };
-  }, [step, leave]);
+  }, [step, leave, go]);
 
-  const finish = async () => {
+  // `knownPassword` is the one the caller just submitted, passed explicitly:
+  // read from state it would be the value of the render this handler was
+  // created in, which on a first sign-in is still empty.
+  const finish = async (knownPassword: string) => {
     try {
       await api.me();
       leave();
     } catch (err) {
       if (isApiError(err) && err.code === "MFA_ENROLLMENT_REQUIRED") {
-        if (!password) {
-          setStep("credentials");
-          setError("Sign in again to finish TOTP enrollment");
+        if (!knownPassword) {
+          go("username", {
+            error: "Sign in again to finish setting up your authenticator app.",
+          });
           return;
         }
-        setStep("enroll");
+        go("enroll");
         return;
       }
       setError(errorMessage(err));
     }
   };
 
-  const submitCredentials = async (values: {
-    username: string;
-    password: string;
-  }) => {
+  const submitCredentials = async (value: string) => {
     setBusy(true);
     setError(null);
-    setPassword(values.password);
+    setPassword(value);
     const { data, error: signInError } = await authClient.signIn.username({
-      ...values,
+      username,
+      password: value,
       rememberMe,
     });
     if (signInError) {
       setBusy(false);
-      setError(signInError.message ?? "Sign in failed");
+      setError(
+        signInError.message ??
+          "That didn't work. Check the username and password and try again.",
+      );
       return;
     }
     // The provider resumed the authorization this sign-in interrupted and the
     // client is already navigating to it.
     if (isProviderRedirect(data)) {
-      setStep("redirecting");
+      go("redirecting");
       return;
     }
     if (data && "twoFactorRedirect" in data) {
-      setBusy(false);
-      setStep("challenge");
+      go("challenge", { busy: false });
       return;
     }
-    await finish();
+    await finish(value);
     setBusy(false);
   };
 
@@ -153,7 +223,10 @@ function LoginForm() {
     });
     if (passkeyError) {
       if (!isPasskeyDismissed(passkeyError)) {
-        setError(passkeyError.message ?? "Passkey sign-in failed");
+        setError(
+          passkeyError.message ??
+            "The passkey didn't work. Try again, or use your password.",
+        );
       }
       // The aborted autofill request reports here while the modal ceremony
       // it yielded to is still up; only the path that set busy clears it.
@@ -161,25 +234,25 @@ function LoginForm() {
       return;
     }
     if (isProviderRedirect(data)) {
-      setStep("redirecting");
+      go("redirecting");
       return;
     }
     setBusy(true);
-    await finish();
+    await finish(password);
     setBusy(false);
   };
 
-  // Conditional mediation: one pending request per visit to the form, which
-  // the browser resolves when a passkey is picked from the username field's
-  // autofill. Starting the button's modal ceremony aborts it, which the
-  // dismissed-error check swallows. The ref keeps the effect keyed on the step
-  // alone, so a failed password attempt does not start a second request.
+  // Conditional mediation: one pending request per visit to the username
+  // step, which the browser resolves when a passkey is picked from the
+  // field's autofill. Starting the button's modal ceremony aborts it, which
+  // the dismissed-error check swallows. The ref keeps the effect keyed on the
+  // step alone, so a failed password attempt does not start a second request.
   const autofill = useRef(() => {});
   useEffect(() => {
     autofill.current = () => void signInWithPasskey(true);
   });
   useEffect(() => {
-    if (step !== "credentials") return;
+    if (step !== "username") return;
     let active = true;
     void conditionalMediationAvailable().then((available) => {
       if (active && available) autofill.current();
@@ -189,7 +262,7 @@ function LoginForm() {
     };
   }, [step]);
 
-  const submitSignup = async (values: {
+  const submitInvitation = async (values: {
     username: string;
     email: string;
     password: string;
@@ -198,90 +271,101 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     setPassword(values.password);
+    setUsername(values.username);
     try {
       await api.completeSignup(values);
-      setStep("enroll");
+      go("enroll");
     } catch (err) {
       setError(errorMessage(err));
     }
     setBusy(false);
   };
 
-  const submitChallenge = async (code: string, mode: "totp" | "recovery") => {
+  const submitChallenge = async (code: string, mode: SecondFactorMode) => {
     setBusy(true);
     setError(null);
     const { data, error: verifyError } =
-      mode === "recovery"
+      mode === "backup"
         ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice })
         : await authClient.twoFactor.verifyTotp({ code, trustDevice });
     if (verifyError) {
       setBusy(false);
-      setError(verifyError.message ?? "Invalid code");
+      setError(
+        verifyError.message ??
+          (mode === "backup"
+            ? "That backup code didn't match. Each one works once."
+            : "That code didn't match. Wait for the next one and try again."),
+      );
       return;
     }
     if (isProviderRedirect(data)) {
-      setStep("redirecting");
+      go("redirecting");
       return;
     }
-    await finish();
+    await finish(password);
     setBusy(false);
   };
 
-  if (step === "checking" || step === "redirecting") {
-    return (
-      <AuthShell title={TITLES[step]}>
-        <span className="block size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-      </AuthShell>
-    );
-  }
+  const notice =
+    reason === "forbidden"
+      ? `This account can't open ${destinationName}. Sign in with a different account.`
+      : enrollPending
+        ? "Your authenticator app isn't set up yet. Sign in again to finish."
+        : null;
 
   return (
-    <AuthShell
-      title={TITLES[step]}
-      error={
-        error ??
-        (reason === "forbidden"
-          ? "Signed out — superuser required"
-          : step === "credentials" && enrollPending
-            ? "TOTP enrollment incomplete"
-            : null)
-      }
-    >
-      {step === "credentials" ? (
-        <CredentialsForm
-          defaultUsername={searchParams.get("username") ?? ""}
-          busy={busy}
-          rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
-          onSubmit={submitCredentials}
-          onPasskey={() => signInWithPasskey(false)}
-          onSignupRequested={
-            authorizing
-              ? undefined
-              : () => {
-                  setError(null);
-                  setStep("signup");
-                }
-          }
+    <FlowFrame destination={destinationInfo} themeToggle={<ThemeToggle />}>
+      {step === "checking" ? <CheckingStep /> : null}
+      {step === "redirecting" ? (
+        <FlowMessage
+          title="Signing you in"
+          detail={`Taking you to ${destinationName}.`}
         />
       ) : null}
-      {step === "signup" ? (
-        <SignupForm
-          defaultUsername={searchParams.get("username") ?? ""}
+      {step === "username" ? (
+        <UsernameStep
+          defaultUsername={username}
+          busy={busy}
+          error={error}
+          notice={notice}
+          onContinue={(value) => {
+            setUsername(value);
+            go("password");
+          }}
+          onPasskey={() => void signInWithPasskey(false)}
+          onInvitation={authorizing ? undefined : () => go("invitation")}
+        />
+      ) : null}
+      {step === "password" ? (
+        <PasswordStep
+          username={username}
+          defaultPassword={password}
+          busy={busy}
+          error={error}
+          rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
+          onContinue={(value) => void submitCredentials(value)}
+          onPasskey={() => void signInWithPasskey(false)}
+          onBack={() => go("username")}
+        />
+      ) : null}
+      {step === "invitation" ? (
+        <InvitationStep
+          defaultUsername={username}
           defaultToken={tokenParam ?? ""}
           busy={busy}
-          onSubmit={submitSignup}
-          onBack={() => {
-            setError(null);
-            setStep("credentials");
-          }}
+          error={error}
+          onSubmit={(values) => void submitInvitation(values)}
+          onBack={() => go("username")}
         />
       ) : null}
       {step === "challenge" ? (
-        <CodeChallengeForm
+        <SecondFactorStep
           busy={busy}
+          error={error}
           trustDevice={{ checked: trustDevice, onChange: setTrustDevice }}
-          onSubmit={submitChallenge}
+          onSubmit={(code, mode) => void submitChallenge(code, mode)}
           onModeChange={() => setError(null)}
+          onBack={() => go("password")}
         />
       ) : null}
       {step === "enroll" ? (
@@ -291,33 +375,38 @@ function LoginForm() {
           onVerified={(codes) => {
             setPassword("");
             setBackupCodes(codes);
-            setStep("backup-codes");
+            go("backup-codes");
           }}
           onFailed={(message) => {
             setPassword("");
-            setStep("credentials");
-            setError(message);
+            go("username", { error: message });
           }}
         />
       ) : null}
       {step === "backup-codes" ? (
-        <BackupCodes
+        <BackupCodesStep
           codes={backupCodes}
           busy={busy}
           onContinue={() => {
             setBusy(true);
-            void finish().finally(() => setBusy(false));
+            void finish(password).finally(() => setBusy(false));
           }}
         />
       ) : null}
-    </AuthShell>
+    </FlowFrame>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
-      <LoginForm />
+    <Suspense
+      fallback={
+        <FlowFrame themeToggle={<ThemeToggle />}>
+          <CheckingStep />
+        </FlowFrame>
+      }
+    >
+      <LoginFlow />
     </Suspense>
   );
 }
