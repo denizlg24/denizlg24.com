@@ -33,6 +33,15 @@ Family devices join the tailnet under the owner's own Tailscale identity, so
 the network step of any device-setup flow is something the owner does, not
 something a family member can be told to do.
 
+**`apps/auth` is the second exception** (decided 2026-09-17). Family members
+sign in through it to reach storage, and it is meant to serve other people's
+users through an SDK one day, so product copy is allowed everywhere in it:
+each flow screen asks one question with plain-language guidance, and the
+management pages (owner-only) carry descriptions and empty states. Product
+truth is `apps/auth/PRODUCT.md`, the built visual system `apps/auth/DESIGN.md`,
+and the flow components live in `packages/auth-ui` — `packages/cloud-ui`'s
+`auth-forms`/`auth-shell`/`totp` remain only for Forge's break-glass login.
+
 ## Structure
 
 Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at root).

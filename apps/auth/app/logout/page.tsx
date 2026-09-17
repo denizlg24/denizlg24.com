@@ -1,10 +1,23 @@
 "use client";
 
+import { FlowFrame } from "@repo/auth-ui/flow-frame";
+import { FlowMessage } from "@repo/auth-ui/status-step";
 import { safeReturnTo } from "@repo/cloud-auth-client/redirect";
-import { AuthShell } from "@repo/cloud-ui/auth-shell";
+import { ThemeToggle } from "@repo/cloud-ui/theme";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 import { authClient } from "@/lib/auth-client";
+
+function SigningOut() {
+  return (
+    <FlowFrame themeToggle={<ThemeToggle />}>
+      <FlowMessage
+        title="Signing you out"
+        detail="This device is being signed out of every app."
+      />
+    </FlowFrame>
+  );
+}
 
 function SignOut() {
   const searchParams = useSearchParams();
@@ -25,16 +38,12 @@ function SignOut() {
     };
   }, [returnTo]);
 
-  return (
-    <AuthShell title="Signing out">
-      <span className="block size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-    </AuthShell>
-  );
+  return <SigningOut />;
 }
 
 export default function LogoutPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<SigningOut />}>
       <SignOut />
     </Suspense>
   );

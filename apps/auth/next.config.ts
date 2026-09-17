@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  transpilePackages: ["@repo/ui", "@repo/cloud-ui"],
+  transpilePackages: ["@repo/ui", "@repo/cloud-ui", "@repo/auth-ui"],
   async headers() {
     return [
       {
