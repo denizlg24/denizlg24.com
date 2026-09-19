@@ -14,14 +14,14 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "^1.7.4",
-    "@better-auth/passkey": "1.7.4",
+    "@better-auth/oauth-provider": "^1.7.5",
+    "@better-auth/passkey": "1.7.5",
     "@repo/schemas": "workspace:*",
-    "better-auth": "^1.7.4",
-    "jose": "^6.2.10"
+    "better-auth": "^1.7.5",
+    "jose": "^6.2.12"
   }
 }
