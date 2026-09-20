@@ -10,6 +10,7 @@ import {
 import { FlowFrame } from "@repo/auth-ui/flow-frame";
 import { transitionStep } from "@repo/auth-ui/flow-transition";
 import { InvitationStep } from "@repo/auth-ui/invitation-step";
+import { PasskeyOfferStep } from "@repo/auth-ui/passkey-offer-step";
 import { PasswordStep } from "@repo/auth-ui/password-step";
 import {
   type SecondFactorMode,
@@ -38,8 +39,18 @@ import {
 } from "@/lib/authorization";
 import {
   conditionalMediationAvailable,
+  defaultPasskeyName,
   isPasskeyDismissed,
+  isPasskeyPreviouslyRegistered,
 } from "@/lib/passkey";
+import {
+  forgetPasskeyDevice,
+  hasPasskeyOnDevice,
+  isPasskeyOfferSnoozed,
+  rememberPasskeyDevice,
+  snoozePasskeyOffer,
+} from "@/lib/passkey-device";
+import { decidePasskeyOffer } from "@/lib/passkey-offer";
 
 type Step =
   | "checking"
@@ -49,7 +60,17 @@ type Step =
   | "challenge"
   | "enroll"
   | "backup-codes"
+  | "passkey-offer"
   | "redirecting";
+
+/**
+ * How the session came to be, which decides whether the passkey offer is
+ * worth a screen: a passkey sign-in proves the device has one, and someone
+ * who just scanned a QR code and saved backup codes has set up enough today.
+ */
+type SignInVia = "password" | "passkey" | "enrolled";
+
+type PasskeyOutcome = "signed-in" | "dismissed" | "failed";
 
 const ALLOW_LOOPBACK = process.env.NODE_ENV !== "production";
 
@@ -157,12 +178,39 @@ function LoginFlow() {
     };
   }, [step, leave, go]);
 
+  // Only a plain `returnTo` sign-in pauses for the offer. An authorization
+  // redirect is resumed by the provider itself the moment the session
+  // exists, so there is no gap to put a screen in.
+  const maybeOfferPasskey = async (): Promise<boolean> => {
+    if (authorizing) return false;
+    const [session, passkeys] = await Promise.all([
+      authClient.getSession(),
+      authClient.passkey.listUserPasskeys(),
+    ]);
+    if (!session.data || passkeys.error) return false;
+    const decision = decidePasskeyOffer({
+      passkeys: passkeys.data ?? [],
+      userAgent: navigator.userAgent,
+      deviceHasPasskey: hasPasskeyOnDevice(),
+      dismissed: session.data.user.passkeyOfferDismissed === true,
+      snoozed: isPasskeyOfferSnoozed(),
+    });
+    return decision === "offer";
+  };
+
   // `knownPassword` is the one the caller just submitted, passed explicitly:
   // read from state it would be the value of the render this handler was
   // created in, which on a first sign-in is still empty.
-  const finish = async (knownPassword: string) => {
+  const finish = async (knownPassword: string, via: SignInVia) => {
     try {
       await api.me();
+      if (
+        via === "password" &&
+        (await maybeOfferPasskey().catch(() => false))
+      ) {
+        go("passkey-offer", { busy: false });
+        return;
+      }
       leave();
     } catch (err) {
       if (isApiError(err) && err.code === "MFA_ENROLLMENT_REQUIRED") {
@@ -206,15 +254,22 @@ function LoginFlow() {
       go("challenge", { busy: false });
       return;
     }
-    await finish(value);
+    await finish(value, "password");
     setBusy(false);
   };
 
   // A passkey answers both factors, so there is no challenge step: the
   // provider resumes an interrupted authorization exactly as it does after a
-  // password sign-in, and anything else lands in `finish`.
-  const signInWithPasskey = async (autoFill: boolean) => {
-    if (!autoFill) {
+  // password sign-in, and anything else lands in `finish`. `mode` is who
+  // started the ceremony: only the button sets busy, since the two
+  // browser-driven modes (autofill, the automatic prompt) leave the form
+  // usable underneath. A refusal is reported whoever started it — the visitor
+  // picked a passkey either way — while a dismissal never is.
+  const signInWithPasskey = async (
+    mode: "button" | "autofill" | "automatic",
+  ): Promise<PasskeyOutcome> => {
+    const autoFill = mode === "autofill";
+    if (mode === "button") {
       setBusy(true);
       setError(null);
     }
@@ -222,7 +277,8 @@ function LoginFlow() {
       autoFill,
     });
     if (passkeyError) {
-      if (!isPasskeyDismissed(passkeyError)) {
+      const dismissed = isPasskeyDismissed(passkeyError);
+      if (!dismissed) {
         setError(
           passkeyError.message ??
             "The passkey didn't work. Try again, or use your password.",
@@ -230,37 +286,92 @@ function LoginFlow() {
       }
       // The aborted autofill request reports here while the modal ceremony
       // it yielded to is still up; only the path that set busy clears it.
-      if (!autoFill) setBusy(false);
-      return;
+      if (mode === "button") setBusy(false);
+      return dismissed ? "dismissed" : "failed";
     }
+    rememberPasskeyDevice();
     if (isProviderRedirect(data)) {
       go("redirecting");
-      return;
+      return "signed-in";
     }
     setBusy(true);
-    await finish(password);
+    await finish(password, "passkey");
     setBusy(false);
+    return "signed-in";
   };
 
-  // Conditional mediation: one pending request per visit to the username
-  // step, which the browser resolves when a passkey is picked from the
-  // field's autofill. Starting the button's modal ceremony aborts it, which
-  // the dismissed-error check swallows. The ref keeps the effect keyed on the
-  // step alone, so a failed password attempt does not start a second request.
-  const autofill = useRef(() => {});
+  // The username step starts one browser-driven ceremony per visit. When
+  // this browser has used a passkey before, that is the modal prompt itself,
+  // so a returning device signs in without touching the form; a dismissal
+  // drops the marker (a shared device, or the passkey is gone) and the visit
+  // falls back to conditional mediation — the pending request the browser
+  // resolves when a passkey is picked from the field's autofill. Starting the
+  // button's modal ceremony aborts whichever is pending, which the
+  // dismissed-error check swallows. The ref keeps the effect keyed on the
+  // step alone, so a failed password attempt does not start a second request;
+  // the automatic prompt additionally runs once per page load, and not at all
+  // when an app just signed this session out (`reason`): signing the same
+  // account straight back in is the loop that message exists to break.
+  const passkeyCeremony = useRef(signInWithPasskey);
   useEffect(() => {
-    autofill.current = () => void signInWithPasskey(true);
+    passkeyCeremony.current = signInWithPasskey;
   });
+  const automaticTried = useRef(false);
   useEffect(() => {
     if (step !== "username") return;
     let active = true;
-    void conditionalMediationAvailable().then((available) => {
-      if (active && available) autofill.current();
-    });
+    const start = async () => {
+      if (!automaticTried.current && !reason && hasPasskeyOnDevice()) {
+        automaticTried.current = true;
+        const outcome = await passkeyCeremony.current("automatic");
+        if (!active || outcome === "signed-in") return;
+        if (outcome === "dismissed") forgetPasskeyDevice();
+      }
+      const available = await conditionalMediationAvailable();
+      if (active && available) void passkeyCeremony.current("autofill");
+    };
+    void start();
     return () => {
       active = false;
     };
-  }, [step]);
+  }, [step, reason]);
+
+  const addOfferedPasskey = async () => {
+    setBusy(true);
+    setError(null);
+    const { error: passkeyError } = await authClient.passkey.addPasskey({
+      name: defaultPasskeyName(navigator.userAgent),
+    });
+    if (passkeyError) {
+      // The authenticator refusing a duplicate is the one exact answer to
+      // "does this device have one": it does, so the offer was redundant.
+      if (isPasskeyPreviouslyRegistered(passkeyError)) {
+        rememberPasskeyDevice();
+        leave();
+        return;
+      }
+      setBusy(false);
+      setError(
+        isPasskeyDismissed(passkeyError)
+          ? "The browser closed the prompt before the passkey was made. Try again, or continue without one."
+          : (passkeyError.message ?? "Couldn't create the passkey."),
+      );
+      return;
+    }
+    rememberPasskeyDevice();
+    leave();
+  };
+
+  const declineOfferedPasskey = async (forever: boolean) => {
+    setBusy(true);
+    snoozePasskeyOffer();
+    if (forever) {
+      // A failed write still leaves the snooze, so the visitor is not asked
+      // again today either way.
+      await authClient.updateUser({ passkeyOfferDismissed: true });
+    }
+    leave();
+  };
 
   const submitInvitation = async (values: {
     username: string;
@@ -302,7 +413,7 @@ function LoginFlow() {
       go("redirecting");
       return;
     }
-    await finish(password);
+    await finish(password, "password");
     setBusy(false);
   };
 
@@ -332,7 +443,7 @@ function LoginFlow() {
             setUsername(value);
             go("password");
           }}
-          onPasskey={() => void signInWithPasskey(false)}
+          onPasskey={() => void signInWithPasskey("button")}
           onInvitation={authorizing ? undefined : () => go("invitation")}
         />
       ) : null}
@@ -344,7 +455,7 @@ function LoginFlow() {
           error={error}
           rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
           onContinue={(value) => void submitCredentials(value)}
-          onPasskey={() => void signInWithPasskey(false)}
+          onPasskey={() => void signInWithPasskey("button")}
           onBack={() => go("username")}
         />
       ) : null}
@@ -389,8 +500,18 @@ function LoginFlow() {
           busy={busy}
           onContinue={() => {
             setBusy(true);
-            void finish(password).finally(() => setBusy(false));
+            void finish(password, "enrolled").finally(() => setBusy(false));
           }}
+        />
+      ) : null}
+      {step === "passkey-offer" ? (
+        <PasskeyOfferStep
+          busy={busy}
+          error={error}
+          destinationName={destinationName}
+          onAdd={() => void addOfferedPasskey()}
+          onLater={() => void declineOfferedPasskey(false)}
+          onNever={() => void declineOfferedPasskey(true)}
         />
       ) : null}
     </FlowFrame>

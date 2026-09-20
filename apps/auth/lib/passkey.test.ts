@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { defaultPasskeyName, isPasskeyDismissed } from "./passkey";
+import {
+  defaultPasskeyName,
+  isPasskeyDismissed,
+  isPasskeyPreviouslyRegistered,
+} from "./passkey";
 
 describe("isPasskeyDismissed", () => {
   it("hides a ceremony the browser ended", () => {
@@ -17,6 +21,20 @@ describe("isPasskeyDismissed", () => {
       false,
     );
     expect(isPasskeyDismissed({})).toBe(false);
+  });
+});
+
+describe("isPasskeyPreviouslyRegistered", () => {
+  it("recognises the authenticator refusing a duplicate", () => {
+    expect(
+      isPasskeyPreviouslyRegistered({
+        code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
+      }),
+    ).toBe(true);
+    expect(isPasskeyPreviouslyRegistered({ code: "AUTH_CANCELLED" })).toBe(
+      false,
+    );
+    expect(isPasskeyPreviouslyRegistered({})).toBe(false);
   });
 });
 

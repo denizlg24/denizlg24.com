@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { type ReactNode, useCallback, useState, useEffect } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PasskeyNameDialog } from "@/components/passkey-dialogs";
 import { Shell } from "@/components/shell";
@@ -24,6 +24,7 @@ import { PageIntro, PageSection, SectionEmpty } from "@/components/shell-frame";
 import { api, errorMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { defaultPasskeyName, isPasskeyDismissed } from "@/lib/passkey";
+import { rememberPasskeyDevice } from "@/lib/passkey-device";
 
 type PasskeyRow = NonNullable<
   Awaited<ReturnType<typeof authClient.passkey.listUserPasskeys>>["data"]
@@ -565,6 +566,7 @@ function SecurityPanel() {
               ? "The browser closed the prompt before the passkey was made. Try again when you're ready."
               : (passkeyError.message ?? "Couldn't create the passkey");
           }
+          rememberPasskeyDevice();
           await reload();
           return null;
         }}

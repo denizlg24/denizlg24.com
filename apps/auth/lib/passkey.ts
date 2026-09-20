@@ -8,12 +8,22 @@ const DISMISSED_CODES = new Set([
 ]);
 
 // The client's error union only carries `code` on some members.
+function errorCode(error: object): string | null {
+  return "code" in error && typeof error.code === "string" ? error.code : null;
+}
+
 export function isPasskeyDismissed(error: object): boolean {
-  return (
-    "code" in error &&
-    typeof error.code === "string" &&
-    DISMISSED_CODES.has(error.code)
-  );
+  const code = errorCode(error);
+  return code !== null && DISMISSED_CODES.has(code);
+}
+
+/**
+ * Registration lists the account's credentials as excluded, so an
+ * authenticator that already holds one refuses to make another. It is the
+ * only exact way to learn that this device has a passkey for the account.
+ */
+export function isPasskeyPreviouslyRegistered(error: object): boolean {
+  return errorCode(error) === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED";
 }
 
 /** A label for a new passkey from the platform that is about to hold it. */

@@ -3,6 +3,7 @@ import { passkeyClient } from "@better-auth/passkey/client";
 import { createAuthClient } from "better-auth/client";
 import {
   adminClient,
+  inferAdditionalFields,
   twoFactorClient,
   usernameClient,
 } from "better-auth/client/plugins";
@@ -44,6 +45,11 @@ export function createCloudOAuthClient(options: CloudAuthClientOptions = {}) {
       twoFactorClient(),
       usernameClient(),
       oauthProviderClient(),
+      // Mirrors `user.additionalFields` on the API so the session user and
+      // `updateUser` carry the field; the server is the one that validates it.
+      inferAdditionalFields({
+        user: { passkeyOfferDismissed: { type: "boolean", required: false } },
+      }),
     ] as const,
   });
 }

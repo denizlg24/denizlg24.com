@@ -413,6 +413,14 @@ export function createCloudAuth(options: CloudAuthOptions) {
           required: false,
           type: ["pending", "active"],
         },
+        // Settable by the signed-in user through `updateUser`: the auth app's
+        // "Never ask again" on the post-sign-in passkey offer.
+        passkeyOfferDismissed: {
+          defaultValue: false,
+          input: true,
+          required: false,
+          type: "boolean",
+        },
       },
       modelName: "authUser",
     },
