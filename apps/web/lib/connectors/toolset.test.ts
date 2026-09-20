@@ -1,11 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ListToolsResult } from "@ai-sdk/mcp";
-import {
+
+mock.module("server-only", () => ({}));
+
+const {
   boundConnectorResult,
   connectorInputSchemaForModel,
   exposedToolName,
+  offloadConnectorImages,
   primeToolHeaderBindings,
-} from "./toolset";
+} = await import("./toolset");
 
 describe("exposedToolName", () => {
   test("namespaces by connector and stays within 64 characters", () => {
@@ -61,6 +65,58 @@ describe("boundConnectorResult", () => {
     ).toBe(48_000);
     expect(result.content.at(-1)).toMatchObject({
       text: expect.stringContaining("truncated"),
+    });
+  });
+});
+
+describe("offloadConnectorImages", () => {
+  test("replaces stored images with their URL and names them in order", async () => {
+    const stored: string[] = [];
+    const result = await offloadConnectorImages(
+      {
+        content: [
+          { type: "text", text: "before" },
+          { type: "image", mimeType: "image/jpeg", data: "AAAA" },
+          { type: "image", mimeType: "image/png", data: "BBBB" },
+        ],
+      },
+      async (image, name) => {
+        stored.push(`${name}:${image.data}`);
+        return `https://files.test/${name}`;
+      },
+      "browser-shot",
+    );
+    expect(stored).toEqual([
+      "browser-shot-0.jpg:AAAA",
+      "browser-shot-1.png:BBBB",
+    ]);
+    expect(result.content).toEqual([
+      { type: "text", text: "before" },
+      {
+        type: "image",
+        mimeType: "image/jpeg",
+        url: "https://files.test/browser-shot-0.jpg",
+      },
+      {
+        type: "image",
+        mimeType: "image/png",
+        url: "https://files.test/browser-shot-1.png",
+      },
+    ]);
+  });
+
+  test("keeps the bytes inline when the store declines", async () => {
+    const result = await offloadConnectorImages(
+      {
+        content: [{ type: "image", mimeType: "image/webp", data: "CCCC" }],
+        truncated: true,
+      },
+      async () => null,
+      "shot",
+    );
+    expect(result).toEqual({
+      content: [{ type: "image", mimeType: "image/webp", data: "CCCC" }],
+      truncated: true,
     });
   });
 });

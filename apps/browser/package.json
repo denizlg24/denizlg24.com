@@ -1,0 +1,25 @@
+{
+  "name": "browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PORT=3010 bun --env-file=../../.env --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --external playwright --external playwright-core --external @playwright/mcp",
+    "start": "bun run dist/index.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@playwright/mcp": "0.0.82",
+    "hono": "^4.13.4",
+    "playwright": "1.64.0-alpha-1789764292000"
+  },
+  "devDependencies": {
+    "@ai-sdk/mcp": "2.0.49",
+    "@repo/typescript-config": "workspace:*",
+    "@types/bun": "^1.4.0",
+    "typescript": "^5.9.3"
+  }
+}

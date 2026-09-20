@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ListToolsResult, MCPClient } from "@ai-sdk/mcp";
 import type { ConnectorApproval, McpActionsMeta } from "@repo/schemas";
 import { dynamicTool, type JSONSchema7, jsonSchema, type ToolSet } from "ai";
+import { uploadFileToStorage } from "@/lib/storage-api";
 import type { IConnector } from "@/models/Connector";
 import {
   cachedToolDefinitions,
@@ -48,14 +49,24 @@ export interface ConnectorToolset {
   close(): Promise<void>;
 }
 
+export type ConnectorImagePart =
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "image"; mimeType: string; url: string };
+
 export type ConnectorContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: string; data: string };
+  | ConnectorImagePart;
 
 export interface ConnectorToolOutput {
   content: ConnectorContentPart[];
   truncated?: boolean;
 }
+
+/** Stores one image a tool returned and answers its URL, or null to keep it inline. */
+export type ConnectorImageStore = (
+  image: { mimeType: string; data: string },
+  name: string,
+) => Promise<string | null>;
 
 export class ConnectorToolError extends Error {
   constructor(message: string) {
@@ -147,6 +158,53 @@ export function boundConnectorResult(result: {
   return { content, ...(truncated ? { truncated } : {}) };
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+/**
+ * A screenshot is stored in the conversation and re-sent on every later
+ * model call, so its bytes leave the message here: the stored part carries a
+ * URL, and the model sees the image by reference. A store that fails keeps
+ * the bytes inline — one heavy message beats a lost result.
+ */
+export async function offloadConnectorImages(
+  output: ConnectorToolOutput,
+  store: ConnectorImageStore,
+  name: string,
+): Promise<ConnectorToolOutput> {
+  let index = 0;
+  const content = await Promise.all(
+    output.content.map(async (part) => {
+      if (part.type !== "image" || !("data" in part)) return part;
+      const extension = IMAGE_EXTENSIONS[part.mimeType] ?? "bin";
+      const url = await store(part, `${name}-${index++}.${extension}`);
+      return url
+        ? { type: "image" as const, mimeType: part.mimeType, url }
+        : part;
+    }),
+  );
+  return { ...output, content };
+}
+
+async function storeConnectorImage(
+  image: { mimeType: string; data: string },
+  name: string,
+): Promise<string | null> {
+  try {
+    const file = new File([Buffer.from(image.data, "base64")], name, {
+      type: image.mimeType,
+    });
+    return (await uploadFileToStorage(file, "image")).publicUrl;
+  } catch (error) {
+    console.warn("Connector image kept inline; storing it failed:", error);
+    return null;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -235,7 +293,12 @@ export async function openConnectorToolset(options: {
   only?: readonly string[];
   /** Fully qualified Gateway id, used for provider schema compatibility. */
   model: string;
+  /** The conversation or run these turns belong to; servers key cross-turn state on it. */
+  session?: string;
+  /** Test seam; production stores returned images in the image bucket. */
+  storeImage?: ConnectorImageStore;
 }): Promise<ConnectorToolset> {
+  const storeImage = options.storeImage ?? storeConnectorImage;
   const connectors = (await listConnectors()).filter(
     (connector) =>
       connector.enabled &&
@@ -263,7 +326,9 @@ export async function openConnectorToolset(options: {
     const key = connector._id.toString();
     let client = clients.get(key);
     if (!client) {
-      client = openConnectorClient(connector).then((opened) => {
+      client = openConnectorClient(connector, {
+        ...(options.session ? { session: options.session } : {}),
+      }).then((opened) => {
         primeToolHeaderBindings(opened, definitions);
         return opened;
       });
@@ -332,7 +397,11 @@ export async function openConnectorToolset(options: {
                 .slice(0, 4_000) || "The tool reported an error",
             );
           }
-          return bounded;
+          return offloadConnectorImages(
+            bounded,
+            storeImage,
+            `${connector.slug}-${definition.name}-${Date.now()}`,
+          );
         },
         toModelOutput: ({ output }) => {
           const content = isConnectorToolOutput(output) ? output.content : [];
@@ -344,7 +413,10 @@ export async function openConnectorToolset(options: {
                 : {
                     type: "file" as const,
                     mediaType: part.mimeType,
-                    data: { type: "data" as const, data: part.data },
+                    data:
+                      "url" in part
+                        ? { type: "url" as const, url: new URL(part.url) }
+                        : { type: "data" as const, data: part.data },
                   },
             ),
           };

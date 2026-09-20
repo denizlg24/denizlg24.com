@@ -1,8 +1,19 @@
 import type { BackgroundAgentPageContext } from "@repo/schemas";
-import type { ModelMessage, UserModelMessage } from "ai";
+import type { ModelMessage, ToolModelMessage, UserModelMessage } from "ai";
 import type { RetrievedMemoryImage } from "@/lib/agent-memory/retrieval";
 
 type UserPart = Exclude<UserModelMessage["content"], string>[number];
+type ToolResultPart = Extract<
+  ToolModelMessage["content"][number],
+  { type: "tool-result" }
+>;
+type ToolContentPart = Extract<
+  ToolResultPart["output"],
+  { type: "content" }
+>["value"][number];
+
+/** Images a turn's model call carries inline from earlier tool results. */
+export const MAX_INLINE_TOOL_IMAGES = 3;
 
 function lastUserIndex(messages: readonly ModelMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -61,6 +72,62 @@ export function withPageContext(
       ].join("\n"),
     },
   ]);
+}
+
+function isImageFilePart(
+  part: ToolContentPart,
+): part is Extract<ToolContentPart, { type: "file" }> {
+  return part.type === "file" && part.mediaType.startsWith("image/");
+}
+
+function imageReference(
+  part: Extract<ToolContentPart, { type: "file" }>,
+): string {
+  const data = part.data;
+  return typeof data === "object" && data !== null && "url" in data
+    ? `[earlier screenshot, not shown again: ${data.url.toString()}]`
+    : "[earlier screenshot, not shown again]";
+}
+
+/**
+ * Model-only: a browsing turn takes many screenshots and every one of them
+ * would otherwise ride along on every later call. Only the newest few stay
+ * pixels; the rest become a one-line reference the model can still act on
+ * (the stored message keeps them all).
+ */
+export function withBoundedToolImages(
+  messages: ModelMessage[],
+  keep = MAX_INLINE_TOOL_IMAGES,
+): ModelMessage[] {
+  let total = 0;
+  for (const message of messages) {
+    if (message.role !== "tool") continue;
+    for (const result of message.content) {
+      if (result.type !== "tool-result" || result.output.type !== "content") {
+        continue;
+      }
+      total += result.output.value.filter(isImageFilePart).length;
+    }
+  }
+  let toDrop = Math.max(0, total - keep);
+  if (toDrop === 0) return messages;
+  return messages.map((message) => {
+    if (message.role !== "tool" || toDrop === 0) return message;
+    return {
+      ...message,
+      content: message.content.map((result) => {
+        if (result.type !== "tool-result" || result.output.type !== "content") {
+          return result;
+        }
+        const value = result.output.value.map((part): ToolContentPart => {
+          if (!isImageFilePart(part) || toDrop === 0) return part;
+          toDrop -= 1;
+          return { type: "text", text: imageReference(part) };
+        });
+        return { ...result, output: { ...result.output, value } };
+      }),
+    };
+  });
 }
 
 function imageUrls(messages: readonly ModelMessage[]): Set<string> {

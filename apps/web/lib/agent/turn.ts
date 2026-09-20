@@ -31,6 +31,7 @@ import { buildAgentInstructions } from "./instructions";
 import type { TurnMemory } from "./memory";
 import { messageText, normalizeAgentMessage } from "./messages";
 import {
+  withBoundedToolImages,
   withContextBlocks,
   withMemoryImages,
   withPageContext,
@@ -119,9 +120,11 @@ export async function startAgentTurn(
 
   let connectors: ConnectorToolset | null = null;
   try {
+    const session = input.conversationId ?? input.task?.runId;
     connectors = await openConnectorToolset({
       only: input.connectors,
       model: input.model,
+      ...(session ? { session } : {}),
     });
     const tools: ToolSet = {
       ...connectors.tools,
@@ -164,7 +167,7 @@ export async function startAgentTurn(
     });
     const modelMessages = withMemoryImages(
       withContextBlocks(
-        withPageContext(converted, input.pageContext),
+        withPageContext(withBoundedToolImages(converted), input.pageContext),
         input.extraContext ?? [],
       ),
       input.memory.images,
