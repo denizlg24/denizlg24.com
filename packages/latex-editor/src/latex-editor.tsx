@@ -84,6 +84,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { LatexCompileFailure } from "./compile-failure";
+import { CompileOutput } from "./compile-output";
 import { latexSupport } from "./latex-language";
 import {
   addProjectEntry,
@@ -101,6 +103,7 @@ import {
 } from "./project";
 import { appEditorTheme } from "./theme";
 import type {
+  LatexEditorCompileError,
   LatexEditorHandle,
   LatexEditorProps,
   LatexEditorStateSnapshot,
@@ -108,6 +111,12 @@ import type {
   LatexProject,
   LatexProjectEntry,
 } from "./types";
+
+/** The last non-empty line of the streamed log, for the collapsed output bar. */
+function lastLogLine(log: string): string {
+  const lines = log.trimEnd().split("\n");
+  return lines[lines.length - 1]?.trim() ?? "";
+}
 
 function useIsDarkTheme() {
   const [isDark, setIsDark] = useState(false);
@@ -423,8 +432,14 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
     const [publishing, setPublishing] = useState(false);
     const [compiling, setCompiling] = useState(false);
     const [compileLog, setCompileLog] = useState("");
-    const [compileError, setCompileError] = useState<string | null>(null);
+    const [compileError, setCompileError] =
+      useState<LatexEditorCompileError | null>(null);
     const [consoleOpen, setConsoleOpen] = useState(false);
+    // File operations report through the output pane too; they have no log.
+    const reportProblem = (message: string) => {
+      setCompileError({ message, diagnostics: [] });
+      setConsoleOpen(true);
+    };
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
     const importFolderInputRef = useRef<HTMLInputElement>(null);
@@ -678,12 +693,26 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       setCompileError(null);
       setCompileLog("");
       try {
-        const result = await onCompile(project);
+        const result = await onCompile(project, {
+          onLog: (chunk) => setCompileLog((current) => current + chunk),
+        });
         setCompileLog(result.log);
       } catch (error) {
-        setCompileError(
-          error instanceof Error ? error.message : "Compilation failed",
-        );
+        // A build failure carries the whole log, engine transcript included,
+        // which supersedes what streamed in; anything else keeps the stream.
+        if (error instanceof LatexCompileFailure) {
+          if (error.log) setCompileLog(error.log);
+          setCompileError({
+            message: error.message,
+            diagnostics: error.diagnostics,
+          });
+        } else {
+          setCompileError({
+            message:
+              error instanceof Error ? error.message : "Compilation failed",
+            diagnostics: [],
+          });
+        }
         setConsoleOpen(true);
       } finally {
         setCompiling(false);
@@ -800,10 +829,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
         setPendingEntry(null);
         setPendingName("");
       } catch (error) {
-        setCompileError(
-          error instanceof Error ? error.message : "Invalid path",
-        );
-        setConsoleOpen(true);
+        reportProblem(error instanceof Error ? error.message : "Invalid path");
       }
     };
 
@@ -813,10 +839,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
         onChange(renameProjectEntry(project, entry.id, renamingName.trim()));
         setRenamingId(null);
       } catch (error) {
-        setCompileError(
-          error instanceof Error ? error.message : "Rename failed",
-        );
-        setConsoleOpen(true);
+        reportProblem(error instanceof Error ? error.message : "Rename failed");
       }
     };
 
@@ -847,10 +870,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
         const last = entries.at(-1);
         if (last?.encoding === "utf8") openFile(last);
       } catch (error) {
-        setCompileError(
-          error instanceof Error ? error.message : "Import failed",
-        );
-        setConsoleOpen(true);
+        reportProblem(error instanceof Error ? error.message : "Import failed");
       }
     };
 
@@ -1399,8 +1419,17 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
               <PanelBottomOpen className="size-3.5" />
             )}
             {bottomDockLabel ?? "Output"}
-            <span className="ml-auto flex items-center gap-1 normal-case tracking-normal">
-              {compileError ? (
+            <span className="ml-auto flex min-w-0 items-center gap-1.5 normal-case tracking-normal">
+              {compiling ? (
+                <>
+                  {!consoleOpen && compileLog ? (
+                    <span className="truncate font-mono text-[10px] text-muted-foreground/80">
+                      {lastLogLine(compileLog)}
+                    </span>
+                  ) : null}
+                  <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                </>
+              ) : compileError ? (
                 <>
                   <CircleAlert className="size-3.5 text-destructive" /> failed
                 </>
@@ -1414,14 +1443,17 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           {consoleOpen &&
             (bottomDock ? (
               <div className="h-[min(22rem,45vh)] border-t bg-background text-foreground">
-                {bottomDock({ compileLog, compileError })}
+                {bottomDock({ compileLog, compileError, compiling })}
               </div>
             ) : (
-              <ScrollArea className="h-32 border-t">
-                <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-4 text-muted-foreground">
-                  {compileError ?? compileLog ?? ""}
-                </pre>
-              </ScrollArea>
+              <div className="h-32 border-t">
+                <CompileOutput
+                  log={compileLog}
+                  error={compileError}
+                  compiling={compiling}
+                  className="text-[10px] leading-4"
+                />
+              </div>
             ))}
         </div>
 

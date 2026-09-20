@@ -151,6 +151,44 @@ export type CompileLatexProjectResponse = z.infer<
   typeof compileLatexProjectResponseSchema
 >;
 
+/**
+ * One TeX error, as Tectonic reports it on the console (`file:line: message`)
+ * joined with the `!` block from the engine log that quotes the source.
+ */
+export const latexCompileDiagnosticSchema = z.object({
+  file: z.string().nullable(),
+  line: z.number().int().positive().nullable(),
+  message: z.string(),
+  /** The engine log's transcript for this error, `l.N` context included. */
+  context: z.string(),
+});
+export type LatexCompileDiagnostic = z.infer<
+  typeof latexCompileDiagnosticSchema
+>;
+
+/**
+ * The compile routes answer as a server-sent event stream: `log` chunks while
+ * Tectonic runs, then exactly one `done` or `error`. `error.status` is the HTTP
+ * status the same failure carried before the response was a stream.
+ */
+export const latexCompileEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("log"), text: z.string() }),
+  z.object({
+    type: z.literal("done"),
+    log: z.string(),
+    payload: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    status: z.number().int(),
+    error: z.string(),
+    log: z.string(),
+    diagnostics: z.array(latexCompileDiagnosticSchema),
+    payload: z.unknown().optional(),
+  }),
+]);
+export type LatexCompileEvent = z.infer<typeof latexCompileEventSchema>;
+
 export const latexInlineCompletionRequestSchema = z.object({
   revision: z.number().int().nonnegative(),
   filePath: z.string().min(1).max(240),

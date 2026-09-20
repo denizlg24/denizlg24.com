@@ -464,6 +464,20 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   auth.denizlg24.com/security. A passkey session is always remember-me: the
   path is not `/sign-in/*` and carries no flag, so the session hook falls
   through to the cookie branch.
+- **The auth app infers "this device has a passkey"; nothing can ask.**
+  `apps/auth/lib/passkey-device.ts` marks the browser (localStorage on the
+  auth origin) when a passkey is registered or used there; the login page
+  then runs the modal ceremony on arrival and clears the mark when it is
+  dismissed. WebAuthn immediate mediation was considered and dropped: it
+  needs a user gesture, so it cannot fire on a redirect landing. After a
+  password sign-in with a plain `returnTo` (never an authorization — the
+  provider resumes those itself), `decidePasskeyOffer` in
+  `lib/passkey-offer.ts` offers to add one unless the mark is set, the
+  account has `passkeyOfferDismissed` (`auth_user`, 0051, set through
+  `updateUser`), the browser snoozed it, or a synced passkey's provider
+  (by `aaguid`) already reaches this platform. Accepting when the device
+  holds one fails with `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED`, which
+  sets the mark instead of showing an error.
 - **"Trust this device" is the plugin's own `trustDevice`**, a signed
   `deniz-cloud.trust_device` cookie backed by an `auth_verification` row
   (`trust-device-*`, value = user id) that the credential sign-in hook checks
@@ -475,7 +489,7 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   `deniz-cloud.*`.
 
 Rollout order for anything touching this: apply cloud-core migrations (0043
-OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys) → roll the API (manual approval) → deploy auth and
+OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys, 0051 passkey offer) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop
@@ -1023,7 +1037,7 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
 - `GET /cv` → `{ cv: ICvFile | null, project: LatexProject | null }` (metadata and LaTeX source are stored on the AppSettings singleton)
 - `GET /cv/file` → PDF bytes proxied from storage (admin preview renders these via react-pdf; webviews can't embed remote PDFs natively)
 - `PUT /cv` → validates and saves a multi-file LaTeX project draft without publishing it
-- `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`
+- `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`. Answers as `text/event-stream` (`latexCompileEventSchema`): `log` chunks while Tectonic runs, then one `done` (`payload` = the old JSON body) or `error` carrying the pre-stream HTTP `status`, the full log and parsed `diagnostics`. `POST /latex/projects/{id}/compile` streams the same way; `packages/admin/src/latex/compile-stream.ts` is the reader both pages use
 - `POST /cv` remains as the legacy PDF upload endpoint; `POST /cv/publish` revalidates the public page separately
 - The reusable editor workspace lives in `packages/latex-editor`; it supports files, folders, tabs, binary assets, a compile log, and a PDF preview slot
 - Public homepage resume button reads the stored URL via `lib/cv.ts` `getCvUrl()`, falling back to the bundled `/assets/DenizGunesCV2026.pdf`; shared admin UI is `packages/admin/src/cv/cv-page.tsx`

@@ -11,7 +11,7 @@ import { ExternalLink, FileUser, Loader2, RefreshCw } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AdminApiError } from "../client";
+import { compileOverStream } from "../latex/compile-stream";
 import { useAdmin } from "../provider";
 
 // react-pdf pulls in pdfjs (pdf.mjs) which throws when evaluated during SSR, so
@@ -24,10 +24,6 @@ const CvPdfPreview = dynamic(() => import("./cv-pdf-preview"), {
     </div>
   ),
 });
-
-interface CompileCvResponse extends CvResponse {
-  log: string;
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -140,26 +136,18 @@ export function CvPage() {
             setProject(result.project ?? nextProject);
             toast.success("Source saved");
           }}
-          onCompile={async (nextProject) => {
-            try {
-              const result = await client.post<CompileCvResponse>(
-                "cv/compile",
-                nextProject,
-              );
-              setCv(result.cv);
-              setDraft(result.draft);
-              setProject(result.project ?? nextProject);
-              toast.success("CV compiled");
-              return { log: result.log };
-            } catch (error) {
-              if (error instanceof AdminApiError) {
-                const log = error.details?.log;
-                if (typeof log === "string" && log.trim()) {
-                  throw new Error(log);
-                }
-              }
-              throw error;
-            }
+          onCompile={async (nextProject, { onLog }) => {
+            const result = await compileOverStream<CvResponse>(
+              client,
+              "cv/compile",
+              nextProject,
+              { onLog },
+            );
+            setCv(result.payload.cv);
+            setDraft(result.payload.draft);
+            setProject(result.payload.project ?? nextProject);
+            toast.success("CV compiled");
+            return { log: result.log };
           }}
           onPublish={async () => {
             const result = await client.post<CvResponse>("cv/publish", {});

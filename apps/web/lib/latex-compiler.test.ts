@@ -3,9 +3,11 @@ import { createDefaultLatexProject } from "../../../packages/latex-editor/src/pr
 
 mock.module("server-only", () => ({}));
 
-const { compileLatexProject, tryAcquireLatexCompileLock } = await import(
-  "./latex-compiler"
-);
+const {
+  compileLatexProject,
+  LatexCompilationError,
+  tryAcquireLatexCompileLock,
+} = await import("./latex-compiler");
 
 describe("compileLatexProject", () => {
   it("allows different project keys while rejecting duplicate concurrent work", () => {
@@ -107,14 +109,35 @@ describe("compileLatexProject", () => {
       ],
     });
 
-    await expect(compile).rejects.toThrow("LaTeX compilation failed");
-    const log = await compile.then(
-      () => "",
-      (error: { log?: string }) => error.log ?? "",
+    await expect(compile).rejects.toThrow(
+      "LaTeX compilation failed: main.tex:3: Undefined control sequence",
     );
-    expect(log).toContain("Undefined control sequence");
-    expect(log).toContain("--- main.log ---");
+    const failure = await compile.then(
+      () => null,
+      (error: unknown) =>
+        error instanceof LatexCompilationError ? error : null,
+    );
+    expect(failure?.log).toContain("Undefined control sequence");
+    expect(failure?.log).toContain("--- main.log ---");
     // The engine log, unlike the console output, quotes the offending source.
-    expect(log).toContain("undefinedcommandhere");
+    expect(failure?.log).toContain("undefinedcommandhere");
+    expect(failure?.diagnostics).toEqual([
+      {
+        file: "main.tex",
+        line: 3,
+        message: "Undefined control sequence",
+        context: expect.stringContaining("l.3 Hello \\undefinedcommandhere"),
+      },
+    ]);
+  }, 60_000);
+
+  it("streams the console output while the engine runs", async () => {
+    const chunks: string[] = [];
+    const result = await compileLatexProject(createDefaultLatexProject(), {
+      onOutput: (chunk) => chunks.push(chunk),
+    });
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.join("")).toContain("Running TeX");
+    expect(result.log).toBe(chunks.join("").trim());
   }, 60_000);
 });

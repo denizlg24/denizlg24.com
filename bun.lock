@@ -739,6 +739,7 @@
         "@codemirror/state": "^6.5.2",
         "@codemirror/view": "^6.43.9",
         "@lezer/highlight": "^1.2.3",
+        "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",
         "@uiw/react-codemirror": "^4.25.11",
         "codemirror": "^6.0.2",

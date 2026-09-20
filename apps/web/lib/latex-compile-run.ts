@@ -1,7 +1,13 @@
-import type { ILatexProject, ILatexProjectRecord } from "@repo/schemas";
+import type {
+  ILatexProject,
+  ILatexProjectRecord,
+  LatexCompileDiagnostic,
+} from "@repo/schemas";
+import { boundedCompileError } from "@/lib/latex-compile-log";
 import {
   compileLatexProject,
   LatexCompilationError,
+  type LatexCompileOptions,
   tryAcquireLatexCompileLock,
 } from "@/lib/latex-compiler";
 import { safeDownloadName } from "@/lib/latex-project-route";
@@ -28,17 +34,21 @@ export class LatexCompileFailedError extends Error {
   constructor(
     message: string,
     readonly log: string,
+    readonly diagnostics: LatexCompileDiagnostic[],
     readonly project: ILatexProjectRecord,
   ) {
     super(message);
   }
 }
 
-export async function runLatexProjectCompilation(options: {
-  projectId: string;
-  baseRevision: number;
-  project: ILatexProject;
-}): Promise<{ project: ILatexProjectRecord; log: string }> {
+export async function runLatexProjectCompilation(
+  options: {
+    projectId: string;
+    baseRevision: number;
+    project: ILatexProject;
+  },
+  compileOptions: LatexCompileOptions = {},
+): Promise<{ project: ILatexProjectRecord; log: string }> {
   const { projectId } = options;
   const release = tryAcquireLatexCompileLock(`project:${projectId}`);
   if (!release) throw new LatexCompileBusyError();
@@ -54,7 +64,10 @@ export async function runLatexProjectCompilation(options: {
 
     let compilation: Awaited<ReturnType<typeof compileLatexProject>>;
     try {
-      compilation = await compileLatexProject(lease.project.project);
+      compilation = await compileLatexProject(
+        lease.project.project,
+        compileOptions,
+      );
     } catch (error) {
       // Only Tectonic failures are recorded here; anything else falls through
       // to the outer catch, which records it once with the same message.
@@ -62,13 +75,14 @@ export async function runLatexProjectCompilation(options: {
       await failLatexProjectCompilation(
         projectId,
         revision,
-        `${error.message}\n${error.log}`.trim(),
+        boundedCompileError(error.message, error.log, error.diagnostics),
       ).catch((failError) =>
         console.error("Failed to record LaTeX compile failure", failError),
       );
       throw new LatexCompileFailedError(
         error.message,
         error.log,
+        error.diagnostics,
         await getLatexProject(projectId),
       );
     }
