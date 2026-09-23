@@ -16,6 +16,7 @@ const PRIVATE_V4: ReadonlyArray<readonly [string, number]> = [
   ["172.16.0.0", 12],
   ["192.0.0.0", 24],
   ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
   ["192.168.0.0", 16],
   ["198.18.0.0", 15],
   ["198.51.100.0", 24],
@@ -85,6 +86,13 @@ function isPrivateV6(address: string): boolean {
   if (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0) {
     return g5 === 0 ? isPrivateV4(embeddedV4) : false;
   }
+  // 2002::/16 6to4 embeds the v4 address it tunnels to in the next two
+  // groups, and 192.88.99.0/24 is its deprecated anycast relay (RFC 7526).
+  // A host with a 6to4 route would otherwise reach inward through either.
+  if (g0 === 0x2002) {
+    return isPrivateV4(`${g1 >> 8}.${g1 & 0xff}.${g2 >> 8}.${g2 & 0xff}`);
+  }
+  if (g0 === 0x2001 && g1 === 0) return true; // 2001::/32 Teredo, same shape
   if ((g0 & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   if ((g0 & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local

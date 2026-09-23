@@ -183,7 +183,16 @@ export function startEgressProxy(options: EgressProxyOptions): EgressProxy {
       buffered = Buffer.concat([buffered, chunk]);
       const head = parseHead(buffered);
       if (!head) {
-        if (buffered.length > HEAD_LIMIT) refuse(client, 431, "Too Large");
+        if (buffered.length > HEAD_LIMIT) {
+          // `refuse` half-closes the writable side only, so the reader stays
+          // attached and a client that keeps sending keeps growing `buffered`
+          // past the limit it was just refused for. Stop reading, drop what
+          // was read, and close once the response has flushed.
+          client.off("data", onData);
+          buffered = Buffer.alloc(0);
+          refuse(client, 431, "Too Large");
+          client.destroySoon();
+        }
         return;
       }
       client.off("data", onData);

@@ -17,6 +17,18 @@ import {
 const TOOL_CACHE_TTL_MS = 30 * 60_000;
 /** Text a single tool result may hand the model before it is cut. */
 const MAX_RESULT_CHARS = 48_000;
+/**
+ * Images a single tool result may carry, and what they may weigh once
+ * decoded. An enabled connector decides its own `content`, and every image
+ * kept here is decoded into a Buffer and uploaded — so without a bound a
+ * server that answers with a hundred screenshots exhausts the heap, the
+ * upload connections or the bucket, none of which the character budget
+ * above touches.
+ */
+const MAX_RESULT_IMAGES = 8;
+const MAX_RESULT_IMAGE_BYTES = 24 * 1024 * 1024;
+/** Uploads in flight at once; each holds one whole decoded image. */
+const IMAGE_UPLOAD_CONCURRENCY = 2;
 const MAX_TOOL_NAME = 64;
 
 export const CONNECTOR_TOOL_SEPARATOR = "__";
@@ -112,6 +124,12 @@ function isImagePart(
   );
 }
 
+/** What a base64 payload decodes to, without decoding it. */
+function base64Bytes(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+}
+
 /**
  * Keeps what the model needs from a `tools/call` result and bounds it. A
  * server that sends `structuredContent` beside an identical text copy (ours
@@ -123,6 +141,8 @@ export function boundConnectorResult(result: {
 }): ConnectorToolOutput {
   const content: ConnectorContentPart[] = [];
   let budget = MAX_RESULT_CHARS;
+  let images = 0;
+  let imageBytes = 0;
   let truncated = false;
   const source =
     result.content && result.content.length > 0
@@ -132,6 +152,16 @@ export function boundConnectorResult(result: {
         : [];
   for (const part of source) {
     if (isImagePart(part)) {
+      const bytes = base64Bytes(part.data);
+      if (
+        images >= MAX_RESULT_IMAGES ||
+        imageBytes + bytes > MAX_RESULT_IMAGE_BYTES
+      ) {
+        truncated = true;
+        continue;
+      }
+      images += 1;
+      imageBytes += bytes;
       content.push({ type: "image", mimeType: part.mimeType, data: part.data });
       continue;
     }
@@ -152,7 +182,7 @@ export function boundConnectorResult(result: {
   if (truncated) {
     content.push({
       type: "text",
-      text: `[Result truncated at ${MAX_RESULT_CHARS} characters. Narrow the request — filter, paginate, or fetch one record — to see the rest.]`,
+      text: `[Result truncated at ${MAX_RESULT_CHARS} characters and ${MAX_RESULT_IMAGES} images. Narrow the request — filter, paginate, or fetch one record — to see the rest.]`,
     });
   }
   return { content, ...(truncated ? { truncated } : {}) };
@@ -176,16 +206,35 @@ export async function offloadConnectorImages(
   store: ConnectorImageStore,
   name: string,
 ): Promise<ConnectorToolOutput> {
-  let index = 0;
-  const content = await Promise.all(
-    output.content.map(async (part) => {
-      if (part.type !== "image" || !("data" in part)) return part;
-      const extension = IMAGE_EXTENSIONS[part.mimeType] ?? "bin";
-      const url = await store(part, `${name}-${index++}.${extension}`);
-      return url
-        ? { type: "image" as const, mimeType: part.mimeType, url }
-        : part;
-    }),
+  const content: ConnectorContentPart[] = [...output.content];
+  const jobs = content.flatMap((part, at) =>
+    part.type === "image" && "data" in part ? [{ at, part }] : [],
+  );
+  let next = 0;
+  // Bounded rather than `Promise.all` over every image: each upload decodes
+  // its whole payload into a Buffer and holds a connection, so the peak is
+  // the concurrency, not however many images the server chose to send.
+  const worker = async () => {
+    while (next < jobs.length) {
+      const index = next++;
+      const job = jobs[index];
+      if (!job) return;
+      const extension = IMAGE_EXTENSIONS[job.part.mimeType] ?? "bin";
+      const url = await store(job.part, `${name}-${index}.${extension}`);
+      if (url) {
+        content[job.at] = {
+          type: "image",
+          mimeType: job.part.mimeType,
+          url,
+        };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(IMAGE_UPLOAD_CONCURRENCY, jobs.length) },
+      () => worker(),
+    ),
   );
   return { ...output, content };
 }

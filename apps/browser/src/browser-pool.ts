@@ -25,6 +25,8 @@ interface Session {
 export class BrowserPool {
   private browser: Promise<Browser> | null = null;
   private readonly sessions = new Map<string, Session>();
+  /** One in-flight `open` per key; see `acquire`. */
+  private readonly opening = new Map<string, Promise<BrowserContext>>();
   private reaper: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly options: BrowserPoolOptions) {}
@@ -88,18 +90,38 @@ export class BrowserPool {
     if (session) session.lastUsedAt = Date.now();
   }
 
+  /**
+   * Single-flight per key. Two POSTs carrying the same `x-agent-session` and
+   * no MCP session id both reach here, and `open` awaits — the stored
+   * context, an eviction, `newContext` — at every one of which the other call
+   * can see no usable entry and make a second context. The later `set` would
+   * then drop the first from the map, leaving it open, unreaped and held by
+   * one of the two callers while the other worked in a different one.
+   */
   async acquire(key: string): Promise<BrowserContext> {
+    const inFlight = this.opening.get(key);
+    if (inFlight) return inFlight;
+    const attempt = this.open(key).finally(() => {
+      if (this.opening.get(key) === attempt) this.opening.delete(key);
+    });
+    this.opening.set(key, attempt);
+    return attempt;
+  }
+
+  private async open(key: string): Promise<BrowserContext> {
     const existing = this.sessions.get(key);
     if (existing) {
       existing.lastUsedAt = Date.now();
-      const context = await existing.context;
-      if (context.browser()?.isConnected()) return context;
-      this.sessions.delete(key);
+      const context = await existing.context.catch(() => null);
+      if (context?.browser()?.isConnected()) return context;
+      // Removal is by identity: `release` or a `close` handler may already
+      // have taken this entry out while the promise above was settling.
+      if (this.sessions.get(key) === existing) this.sessions.delete(key);
     }
     while (this.sessions.size >= this.options.maxSessions) {
-      const oldest = [...this.sessions.entries()].sort(
-        (a, b) => a[1].lastUsedAt - b[1].lastUsedAt,
-      )[0];
+      const oldest = [...this.sessions.entries()]
+        .filter(([candidate]) => candidate !== key)
+        .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt)[0];
       if (!oldest) break;
       await this.release(oldest[0]);
     }
@@ -117,7 +139,7 @@ export class BrowserPool {
       });
       return context;
     } catch (error) {
-      this.sessions.delete(key);
+      if (this.sessions.get(key) === session) this.sessions.delete(key);
       throw error;
     }
   }

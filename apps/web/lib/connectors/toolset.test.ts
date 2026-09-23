@@ -67,6 +67,36 @@ describe("boundConnectorResult", () => {
       text: expect.stringContaining("truncated"),
     });
   });
+
+  test("drops images past the count bound", () => {
+    const result = boundConnectorResult({
+      content: Array.from({ length: 12 }, () => ({
+        type: "image",
+        mimeType: "image/png",
+        data: "AAAA",
+      })),
+    });
+    expect(result.content.filter((part) => part.type === "image")).toHaveLength(
+      8,
+    );
+    expect(result.truncated).toBe(true);
+  });
+
+  test("drops images past the byte bound", () => {
+    // 16 MB of base64 decodes to 12 MB, so the third would cross 24 MB.
+    const data = "A".repeat(16 * 1024 * 1024);
+    const result = boundConnectorResult({
+      content: Array.from({ length: 3 }, () => ({
+        type: "image",
+        mimeType: "image/png",
+        data,
+      })),
+    });
+    expect(result.content.filter((part) => part.type === "image")).toHaveLength(
+      2,
+    );
+    expect(result.truncated).toBe(true);
+  });
 });
 
 describe("offloadConnectorImages", () => {
@@ -103,6 +133,28 @@ describe("offloadConnectorImages", () => {
         url: "https://files.test/browser-shot-1.png",
       },
     ]);
+  });
+
+  test("uploads at most two images at a time", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const content = Array.from({ length: 6 }, (_, at) => ({
+      type: "image" as const,
+      mimeType: "image/png",
+      data: `IMG${at}`,
+    }));
+    await offloadConnectorImages(
+      { content },
+      async (_image, name) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight -= 1;
+        return `https://files.test/${name}`;
+      },
+      "shot",
+    );
+    expect(peak).toBe(2);
   });
 
   test("keeps the bytes inline when the store declines", async () => {

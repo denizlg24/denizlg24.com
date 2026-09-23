@@ -27,6 +27,11 @@ describe("isPrivateAddress", () => {
     "::ffff:7f00:1",
     "64:ff9b::192.168.0.1",
     "fe80::1%eth0",
+    "192.88.99.1",
+    "2002:c0a8:1::1",
+    "2002:7f00:1::1",
+    "2001::1",
+    "2001:0:4136:e378:8000:63bf:3fff:fdd2",
   ])("refuses %s", (address) => {
     expect(isPrivateAddress(address)).toBe(true);
   });
@@ -43,6 +48,7 @@ describe("isPrivateAddress", () => {
     "2001:4860:4860::8888",
     "::ffff:1.1.1.1",
     "64:ff9b::1.1.1.1",
+    "2002:0101:0101::1",
   ])("allows %s", (address) => {
     expect(isPrivateAddress(address)).toBe(false);
   });
