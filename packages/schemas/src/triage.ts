@@ -95,6 +95,17 @@ export const emailTriageSchema = z.object({
   classificationProbabilities: z
     .record(triageCategorySchema, z.number().min(0).max(1))
     .optional(),
+  adjudication: z
+    .object({
+      model: z.string(),
+      category: triageCategorySchema,
+      confidence: z.number().min(0).max(1),
+      probabilities: z.record(z.string(), z.number()).optional(),
+      needsPersonalAction: z.boolean(),
+      hasDatedCommitment: z.boolean(),
+      accepted: z.boolean(),
+    })
+    .optional(),
   reviewRequired: z.boolean(),
   reviewReason: z.string().optional(),
   summary: z.string().optional(),

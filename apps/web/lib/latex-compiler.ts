@@ -4,9 +4,17 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, resolve, sep } from "node:path";
-import type { ILatexFileEntry, ILatexProject } from "@repo/schemas";
+import type {
+  ILatexFileEntry,
+  ILatexProject,
+  LatexCompileDiagnostic,
+} from "@repo/schemas";
 import { Resvg } from "@resvg/resvg-js";
 import { createCompiler } from "node-latex-compiler";
+import {
+  describeLatexFailure,
+  parseLatexDiagnostics,
+} from "@/lib/latex-compile-log";
 
 const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_LOG_BYTES = 256 * 1024;
@@ -45,10 +53,16 @@ export interface LatexCompilationResult {
   log: string;
 }
 
+export interface LatexCompileOptions {
+  /** Each chunk of Tectonic's console output as it arrives, paths already sanitized. */
+  onOutput?: (chunk: string) => void;
+}
+
 export class LatexCompilationError extends Error {
   constructor(
     message: string,
     public readonly log: string,
+    public readonly diagnostics: LatexCompileDiagnostic[] = [],
   ) {
     super(message);
     this.name = "LatexCompilationError";
@@ -91,17 +105,33 @@ function workspacePath(workspace: string, projectPath: string): string {
   return target;
 }
 
-function appendBounded(current: string, chunk: Buffer): string {
-  if (Buffer.byteLength(current, "utf8") >= MAX_LOG_BYTES) return current;
-  const remaining = MAX_LOG_BYTES - Buffer.byteLength(current, "utf8");
-  return current + chunk.subarray(0, remaining).toString("utf8");
+/**
+ * The prefix of `text` that fits in `maxBytes` of UTF-8, cut on a character
+ * rather than a byte: walking back over continuation bytes (10xxxxxx) finds
+ * the start of the sequence the limit landed inside.
+ */
+export function sliceUtf8(text: string, maxBytes: number): string {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.length <= maxBytes) return text;
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+  return bytes.subarray(0, end).toString("utf8");
+}
+
+function appendBounded(current: string, chunk: string): string {
+  const used = Buffer.byteLength(current, "utf8");
+  if (used >= MAX_LOG_BYTES) return current;
+  return current + sliceUtf8(chunk, MAX_LOG_BYTES - used);
+}
+
+function hideWorkspace(text: string, workspace: string): string {
+  return text
+    .replaceAll(workspace, ".")
+    .replaceAll(workspace.replaceAll("\\", "/"), ".");
 }
 
 function sanitizeLog(log: string, workspace: string): string {
-  return log
-    .replaceAll(workspace, ".")
-    .replaceAll(workspace.replaceAll("\\", "/"), ".")
-    .trim();
+  return hideWorkspace(log, workspace).trim();
 }
 
 async function writeProject(workspace: string, project: ILatexProject) {
@@ -293,6 +323,7 @@ async function runTectonic(
   tectonicPath: string,
   workspace: string,
   mainFile: string,
+  onOutput?: (chunk: string) => void,
 ): Promise<string> {
   const input = workspacePath(workspace, mainFile);
   const cachePath = join(tmpdir(), "deniz-tectonic-cache");
@@ -301,6 +332,15 @@ async function runTectonic(
   return new Promise((resolvePromise, rejectPromise) => {
     let output = "";
     let timedOut = false;
+    // A chunk is forwarded as it comes, so a workspace path split across two
+    // reads can slip through; the assembled log is sanitized whole below.
+    const receive = (chunk: string) => {
+      const before = output.length;
+      output = appendBounded(output, chunk);
+      if (onOutput && output.length > before) {
+        onOutput(hideWorkspace(output.slice(before), workspace));
+      }
+    };
     const child = spawn(
       tectonicPath,
       [
@@ -325,12 +365,14 @@ async function runTectonic(
       },
     );
 
-    child.stdout.on("data", (chunk: Buffer) => {
-      output = appendBounded(output, chunk);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      output = appendBounded(output, chunk);
-    });
+    // Each stream decodes through its own StringDecoder, so a multi-byte
+    // character split across two `data` events survives; decoding each Buffer
+    // on its own turned those into replacement characters in the log, the
+    // streamed output and any diagnostic parsed out of them.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", receive);
+    child.stderr.on("data", receive);
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -350,15 +392,22 @@ async function runTectonic(
       }
       // Only failures pay for the extra read: a successful run's log is a
       // banner and a page count, and the console output already said so.
-      void readTectonicLog(workspace, mainFile).then((engineLog) => {
+      void readTectonicLog(workspace, mainFile).then((rawEngineLog) => {
         const name = `${basename(mainFile, ".tex")}.log`;
+        const engineLog = sanitizeLog(rawEngineLog, workspace);
         const log = engineLog
-          ? `${consoleLog}\n\n--- ${name} ---\n${sanitizeLog(engineLog, workspace)}`
+          ? `${consoleLog}\n\n--- ${name} ---\n${engineLog}`
           : consoleLog;
+        const diagnostics = timedOut
+          ? []
+          : parseLatexDiagnostics(consoleLog, engineLog);
         rejectPromise(
           new LatexCompilationError(
-            timedOut ? "Compilation timed out" : "LaTeX compilation failed",
+            timedOut
+              ? `Compilation timed out after ${COMPILE_TIMEOUT_MS / 1000}s`
+              : describeLatexFailure("LaTeX compilation failed", diagnostics),
             log,
+            diagnostics,
           ),
         );
       });
@@ -368,6 +417,7 @@ async function runTectonic(
 
 export async function compileLatexProject(
   project: ILatexProject,
+  options: LatexCompileOptions = {},
 ): Promise<LatexCompilationResult> {
   const workspace = await mkdtemp(join(tmpdir(), "deniz-latex-"));
   try {
@@ -377,6 +427,7 @@ export async function compileLatexProject(
       resolveTectonicPath(),
       workspace,
       project.mainFile,
+      options.onOutput,
     );
     const outputName = `${basename(project.mainFile, ".tex")}.pdf`;
     const pdf = await readFile(join(workspace, outputName));

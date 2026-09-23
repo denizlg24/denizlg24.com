@@ -74,6 +74,20 @@ export interface IEmailTriage extends Document {
   confidence: number;
   classificationThreshold?: number;
   classificationProbabilities?: Record<TriageCategory, number>;
+  /**
+   * The System One second opinion, present only on rows the fine-tuned
+   * classifier was unsure about. Recorded whether or not it was acted on, so
+   * a disagreement can be read back later.
+   */
+  adjudication?: {
+    model: string;
+    category: TriageCategory;
+    confidence: number;
+    probabilities?: Record<string, number>;
+    needsPersonalAction: boolean;
+    hasDatedCommitment: boolean;
+    accepted: boolean;
+  };
   reviewRequired: boolean;
   reviewReason?: string;
   summary?: string;
@@ -184,6 +198,21 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
     confidence: { type: Number, required: true, min: 0, max: 1 },
     classificationThreshold: { type: Number, min: 0, max: 1 },
     classificationProbabilities: { type: Schema.Types.Mixed },
+    adjudication: {
+      type: new Schema(
+        {
+          model: { type: String, required: true },
+          category: { type: String, enum: TRIAGE_CATEGORIES, required: true },
+          confidence: { type: Number, required: true, min: 0, max: 1 },
+          probabilities: { type: Schema.Types.Mixed },
+          needsPersonalAction: { type: Boolean, required: true },
+          hasDatedCommitment: { type: Boolean, required: true },
+          accepted: { type: Boolean, required: true },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
     reviewRequired: {
       type: Boolean,
       required: true,

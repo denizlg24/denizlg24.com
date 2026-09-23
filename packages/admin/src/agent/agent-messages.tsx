@@ -28,13 +28,13 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from "@repo/ui/ai-elements/reasoning";
-import { Shimmer } from "@repo/ui/ai-elements/shimmer";
 import {
   Source,
   Sources,
   SourcesContent,
   SourcesTrigger,
 } from "@repo/ui/ai-elements/sources";
+import { ThinkingDots } from "@repo/ui/ai-elements/thinking-dots";
 import {
   Tool,
   ToolContent,
@@ -157,16 +157,16 @@ function ToolResult({ part }: { part: AgentToolPart }) {
 }
 
 /**
- * A call still being written, still executing, or waiting on an answer is
- * what the reader wants to see; a polled transcript usually meets a call in
- * the second of those states, never having seen the first.
+ * Tool rows stay shut. The header already says which tool, on what, and how
+ * it went, which is what a reader following a turn needs; opening every call
+ * buried the answer under argument JSON.
+ *
+ * The one exception is a call waiting on approval, where the arguments are
+ * the thing being approved — an approve button over a collapsed row asks the
+ * reader to consent to something they cannot see.
  */
 function opensOnItsOwn(state: AgentToolPart["state"]): boolean {
-  return (
-    state === "input-streaming" ||
-    state === "input-available" ||
-    state === "approval-requested"
-  );
+  return state === "approval-requested";
 }
 
 function AgentToolRow({
@@ -284,8 +284,12 @@ function AgentBlockView({
         </MessageResponse>
       );
     case "reasoning":
+      // Open on arrival and left to the reader afterwards. `Reasoning` opens
+      // itself when it sees streaming start, which a block that mounts
+      // already finished never does — a polled task transcript renders every
+      // one of them closed without this.
       return (
-        <Reasoning isStreaming={isStreaming && block.streaming}>
+        <Reasoning defaultOpen isStreaming={isStreaming && block.streaming}>
           <ReasoningTrigger />
           <ReasoningContent>{block.text}</ReasoningContent>
         </Reasoning>
@@ -451,7 +455,7 @@ function AssistantMessage({
         {blocks.length === 0 ? (
           <Marker role="status" className="text-xs">
             <MarkerContent>
-              <Shimmer>Thinking</Shimmer>
+              <ThinkingDots />
             </MarkerContent>
           </Marker>
         ) : (
@@ -540,7 +544,7 @@ export function AgentMessageList({
               <MessageScrollerItem messageId="agent-pending" scrollAnchor>
                 <Marker role="status" className="text-xs">
                   <MarkerContent>
-                    <Shimmer>Thinking</Shimmer>
+                    <ThinkingDots />
                   </MarkerContent>
                 </Marker>
               </MessageScrollerItem>

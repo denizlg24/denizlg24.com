@@ -43,7 +43,11 @@ about who gets one and gentle with everyone else.
   on the way somewhere, and the page knows where.
 - TOTP is mandatory for every account; enrollment happens on first sign-in
   and shows backup codes exactly once. A passkey is an alternative that
-  answers both factors.
+  answers both factors. A browser that has used one is prompted for it on
+  arrival; a password sign-in headed to an app (not an authorization) is
+  followed by a one-screen offer to add one when nothing suggests the
+  device already has it — "Not now" snoozes a month, "Don't ask again" is
+  account-wide.
 - Consent only happens for dynamically registered clients (MCP); first-party
   clients skip it. The consent page is what Claude's users see.
 - Management: OAuth clients (create web/native/service, rotate, disable),

@@ -60,6 +60,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/mcp/` — Hono + Bun MCP server for the whole infrastructure (Forge,
   `mcp.denizlg24.com/mcp`), MCP TypeScript SDK v2. An OAuth resource server;
   tools go in `src/tools/` and call upstream through `src/upstream.ts`.
+- `apps/browser/` — Hono + Bun MCP server that gives the in-app agent a
+  headless Chromium (Forge, `browser.denizlg24.com/mcp`). Playwright's MCP
+  tools, embedded; bearer-gated; no workspace dependencies on purpose. See
+  [The agent's browser](#the-agents-browser-appsbrowser).
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Forge). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
@@ -118,6 +122,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | `storage.denizlg24.com` | Forge, `apps/storage` |
 | `auth.denizlg24.com` | Forge, `apps/auth` |
 | `mcp.denizlg24.com` | Forge, `apps/mcp` |
+| `browser.denizlg24.com` | Forge, `apps/browser` — memory reservation matters: one Chromium plus ~100 MB per open context |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
 
@@ -428,8 +433,11 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 - **better-auth ≥1.7.3 refuses to start while `auth_account.issuer` is NOT
   NULL** (`SCHEMA_MISMATCH` on every auth call). 1.7.0–1.7.2 required it
   (migration 0040); 0044 relaxes it. Never roll an API past 1.7.2 onto a
-  database without 0044. `apps/macros` is pinned to better-auth 1.7.1 on
-  purpose — it has its own database and was not part of this upgrade.
+  database without 0044. `apps/macros` was pinned to 1.7.1 for this reason
+  and no longer is: its `account` table has no `issuer` column at all — it
+  never ran 0040 and uses no plugin that adds one — so the mismatch cannot
+  arise. 1.7.5 was booted against the live `proj_macros` database before the
+  pin came off (adapter initialises, sessions and accounts read back).
 - **Keep web's Mongo `user` collection.** Sign-in no longer uses it, but agent
   memory reads its one document as the owner's identity and its `_id` as the
   owner node's id. `session`, `account` and `verification` are dead.
@@ -464,6 +472,20 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   auth.denizlg24.com/security. A passkey session is always remember-me: the
   path is not `/sign-in/*` and carries no flag, so the session hook falls
   through to the cookie branch.
+- **The auth app infers "this device has a passkey"; nothing can ask.**
+  `apps/auth/lib/passkey-device.ts` marks the browser (localStorage on the
+  auth origin) when a passkey is registered or used there; the login page
+  then runs the modal ceremony on arrival and clears the mark when it is
+  dismissed. WebAuthn immediate mediation was considered and dropped: it
+  needs a user gesture, so it cannot fire on a redirect landing. After a
+  password sign-in with a plain `returnTo` (never an authorization — the
+  provider resumes those itself), `decidePasskeyOffer` in
+  `lib/passkey-offer.ts` offers to add one unless the mark is set, the
+  account has `passkeyOfferDismissed` (`auth_user`, 0051, set through
+  `updateUser`), the browser snoozed it, or a synced passkey's provider
+  (by `aaguid`) already reaches this platform. Accepting when the device
+  holds one fails with `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED`, which
+  sets the mark instead of showing an error.
 - **"Trust this device" is the plugin's own `trustDevice`**, a signed
   `deniz-cloud.trust_device` cookie backed by an `auth_verification` row
   (`trust-device-*`, value = user id) that the credential sign-in hook checks
@@ -475,7 +497,7 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   `deniz-cloud.*`.
 
 Rollout order for anything touching this: apply cloud-core migrations (0043
-OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys) → roll the API (manual approval) → deploy auth and
+OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys, 0051 passkey offer) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop
@@ -561,6 +583,62 @@ operator side: `docs/internal/runbooks/status-incident-agent.md`.
   status resource, else the cloud cookie) and go through `adminRoute`; every
   write is audited under the actor (`client:<id>` for the MCP server).
   Input contracts are `@repo/schemas/status`.
+
+## The agent's browser (apps/browser)
+
+`@playwright/mcp`'s tools (snapshot, click, type, screenshot, coordinate
+clicks, PDF) served over streamable HTTP from one headless Chromium, added to
+the agent as an ordinary `bearer` connector (`BROWSER_MCP_TOKEN`, URL
+`https://browser.denizlg24.com/mcp`). Its Dockerfile is Debian, not alpine:
+Playwright's Chromium is a glibc build and `playwright install --with-deps`
+only knows apt.
+
+- **A browser context lives per agent session, not per MCP session.** Web
+  closes every connector client at the end of a turn, and Playwright MCP's
+  server cannot be re-initialised on an old `Mcp-Session-Id`, so
+  `apps/web/lib/connectors/service.ts` sends `x-agent-session` (a hash of
+  the conversation id, or the task run id) on every connector request and
+  `apps/browser/src/mcp-sessions.ts` keys its `BrowserPool` on it: a fresh
+  Playwright server per turn adopts the tabs the previous one left. A
+  request without the header gets a context that is closed with the session.
+  Contexts are reaped after `BROWSER_SESSION_IDLE_MINUTES` (30) or evicted
+  LRU past `BROWSER_MAX_SESSIONS` (4); nothing persists across a restart, so
+  logins do not survive one.
+- **Egress goes through `src/egress-proxy.ts`, which is the SSRF boundary.**
+  The container has real network access — unlike the code sandbox — and sits
+  on the tailnet, so Chromium is launched with the in-container proxy and
+  `<-loopback>` in the bypass list; the proxy resolves every name itself and
+  refuses loopback, RFC 1918, link-local, CGNAT (`100.64/10`, Tailscale) and
+  the rest of `src/private-address.ts` on the *resolved* address, so a
+  rebinding answer is refused rather than connected to. `BROWSER_ALLOW_PRIVATE_EGRESS=1`
+  is for local dev only. Playwright MCP's own `network.blockedOrigins` is a
+  URL filter and would not have caught any of this.
+- **Screenshots leave the message on arrival.** `offloadConnectorImages` in
+  `apps/web/lib/connectors/toolset.ts` uploads every image a connector
+  returns to the `image` bucket and stores `{ type: "image", url }` in the
+  UI message; `withBoundedToolImages` in `lib/agent/model-messages.ts` then
+  hands the model only the newest `MAX_INLINE_TOOL_IMAGES` (3) as pixels and
+  a one-line reference for the rest. Without both, a 30-screenshot session
+  re-sends ~36k image tokens on every step. A store failure keeps the bytes
+  inline; `packages/admin/src/agent/agent-parts.ts` renders either shape.
+- **The AI SDK's first `initialize` is a 400 by design.** It opens with
+  protocol `2026-07-28`, which SDK 1.x refuses, then retries with
+  `2025-11-25`; `McpSessions.open` only registers a session once the
+  transport accepted the initialize, otherwise every turn leaked a server.
+  The client's standalone `GET` stream answers 409 and it stops asking; tool
+  calls are unary and unaffected.
+- **Approval is the connector policy, nothing browser-specific.** Playwright
+  marks snapshot/screenshot read-only and everything else a write, so under
+  `reads-auto` every click asks; a browsing task wants `never-ask` (or
+  YOLO). Anything the agent reads on a page can instruct it — keep that in
+  mind before handing it an authenticated profile, which today does not
+  exist.
+- **Two pins must stay equal.** `playwright` in `apps/browser/package.json`
+  must be the exact alpha `@playwright/mcp` depends on, or two Playwright
+  copies are installed and the context the pool hands the MCP server is not
+  one it recognises. The Dockerfile's runtime stage installs only those two
+  packages (the rest is bundled) and `playwright install chromium` fetches
+  the revision that build names.
 
 ## apps/mcp tools
 
@@ -1023,7 +1101,7 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
 - `GET /cv` → `{ cv: ICvFile | null, project: LatexProject | null }` (metadata and LaTeX source are stored on the AppSettings singleton)
 - `GET /cv/file` → PDF bytes proxied from storage (admin preview renders these via react-pdf; webviews can't embed remote PDFs natively)
 - `PUT /cv` → validates and saves a multi-file LaTeX project draft without publishing it
-- `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`
+- `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`. Answers as `text/event-stream` (`latexCompileEventSchema`): `log` chunks while Tectonic runs, then one `done` (`payload` = the old JSON body) or `error` carrying the pre-stream HTTP `status`, the full log and parsed `diagnostics`. `POST /latex/projects/{id}/compile` streams the same way; `packages/admin/src/latex/compile-stream.ts` is the reader both pages use
 - `POST /cv` remains as the legacy PDF upload endpoint; `POST /cv/publish` revalidates the public page separately
 - The reusable editor workspace lives in `packages/latex-editor`; it supports files, folders, tabs, binary assets, a compile log, and a PDF preview slot
 - Public homepage resume button reads the stored URL via `lib/cv.ts` `getCvUrl()`, falling back to the bundled `/assets/DenizGunesCV2026.pdf`; shared admin UI is `packages/admin/src/cv/cv-page.tsx`
@@ -1051,6 +1129,46 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
     it still transcribes but logs $0 and warns.
 - Do not widen either exception without the same kind of evidence: an operation
   the Gateway genuinely cannot carry, not one that is merely inconvenient.
+
+### System One evaluations (Jev)
+
+`evaluateQuestions()` in `llm-service` asks `typesafe-ai/jev` typed questions
+against one shared state and gets typed values with probability distributions
+back — no text, no parsing, and no answer outside the options given. It is a
+Gateway call like any other (`AI_GATEWAY_API_KEY`), through
+`lib/llm-transports/jev-evaluate.ts`; it needs its own transport only because
+`experimental_evaluate` takes an evaluation model rather than a language one.
+`JEV_MODEL_ID` pins a revision. Design: `docs/internal/plans/025-jev-system-one-evaluations.md`.
+
+- **Confidence is the margin, not the top probability.** The Gateway's response
+  carries `probabilities` and no confidence field, so `jevConfidence` in
+  `@repo/schemas` defines it as the gap between the winner and the runner-up —
+  0.5 is decisive between two options and a coin toss between seven, which is
+  why top-1 cannot be the gate. A missing distribution reads as undecided, never
+  as certain. `jevIsTrue` needs P(true) ≥ 0.5 *and* a decided margin, because a
+  Noul's probability is not a measure of degree.
+- **Four sites, all live, all fail open.** Triage adjudicates only the rows
+  already bound for the review queue (`triage-adjudicator.ts`); formation
+  re-decides a candidate's typed fields and lowers its self-reported
+  confidence to measured support (`agent-memory/evaluation.ts`); the status
+  collector asks for a verdict before spending a full agent run
+  (`apps/status/lib/jev.ts`). Every one returns null on any failure and the
+  caller carries on exactly as it did before — a memory run must never fail
+  because a second opinion was unavailable.
+- **Formation's adoption is asymmetric on purpose.** `confidence` is the
+  *lower* of the stated and measured values, `explicitness` only ever moves
+  *down*, `sensitivity` only ever *up*; `memoryType` is taken outright because
+  it steers retrieval, not promotion. A second opinion may hold a candidate
+  back and must never wave one through into auto-promotion — a measurement
+  that raised confidence would do exactly that. Both inputs survive as
+  `extraction.statedConfidence` and `extraction.evaluatedConfidence`.
+- **Only `transient` skips a triage run.** `operational` and `code` are the
+  verdicts that need the agent, and Jev has no tools to act with.
+- **Jev's rate is a hand-maintained constant** (`JEV_PRICING`), like the
+  transcription rates, because the Gateway catalog lists only language and
+  embedding models. Free until 2026-09-25; a stale rate is wrong spend in usage
+  reporting, not a failure.
+- `apps/status` reads `AI_GATEWAY_API_KEY` from `.env.status`, not the root env.
 
 ## Porting Features from apps/web
 

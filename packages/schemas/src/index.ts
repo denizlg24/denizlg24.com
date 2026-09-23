@@ -12,6 +12,7 @@ export * from "./course";
 export * from "./dashboard";
 export * from "./email";
 export * from "./finance";
+export * from "./jev";
 export * from "./journal";
 export * from "./kanban";
 export * from "./latex-agent";

@@ -38,6 +38,12 @@ export interface IAgentMemoryCandidate extends Document {
     schemaVersion: string;
     inputHash: string;
     runId: mongoose.Types.ObjectId;
+    /** The System One model that re-decided the typed fields, when one ran. */
+    evaluationModel?: string;
+    /** What the extraction model said its own confidence was, before that. */
+    statedConfidence?: number;
+    /** P(supported) as the evaluation measured it, before the cap. */
+    evaluatedConfidence?: number;
   };
   reason: string;
   status: "pending" | "accepted" | "dismissed" | "superseded";
@@ -92,6 +98,9 @@ const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
             ref: "AgentMemoryRun",
             required: true,
           },
+          evaluationModel: { type: String },
+          statedConfidence: { type: Number, min: 0, max: 1 },
+          evaluatedConfidence: { type: Number, min: 0, max: 1 },
         },
         { _id: false },
       ),

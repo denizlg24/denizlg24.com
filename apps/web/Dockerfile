@@ -25,11 +25,13 @@ RUN tectonic="$(find /workspace -path '*/@node-latex-compiler/bin-linux-x64/bin/
 
 # trixie, not bookworm: the Tectonic binary wants glibc 2.39 and bookworm ships
 # 2.36. ca-certificates is for the TeX bundle it fetches over HTTPS on first use.
+# fontconfig-config is only /etc/fonts/fonts.conf: without it xdvipdfmx prints
+# "Fontconfig error: Cannot load default config file" into every compile log.
 FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libssl3t64 libgraphite2-3 ca-certificates \
+  && apt-get install -y --no-install-recommends libssl3t64 libgraphite2-3 ca-certificates fontconfig-config \
   && rm -rf /var/lib/apt/lists/*
 
 ENV HOSTNAME=0.0.0.0

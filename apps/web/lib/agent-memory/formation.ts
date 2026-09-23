@@ -21,6 +21,7 @@ import { AGENT_SOURCE_TYPES } from "@/models/AgentMemoryCommon";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import { OWNER_REFERENCE } from "./consolidation";
+import { applyMemoryEvaluation, evaluateMemoryCandidate } from "./evaluation";
 import {
   latestObservation,
   observationTimes,
@@ -653,12 +654,35 @@ export async function processFormationJob(
     const outputIds: string[] = [];
     for (const rawCandidate of parsed.data.candidates) {
       try {
-        const candidate = prepareFormationCandidate({
+        const prepared = prepareFormationCandidate({
           candidate: rawCandidate,
           evidence,
           activeMemoryIds,
           priorMemories,
         });
+        // The typed fields and the confidence are re-decided by a System One
+        // model against the same evidence; see `evaluation.ts` for why the
+        // adoption is asymmetric. An unavailable evaluation leaves the
+        // language model's own values, which is the behaviour this replaced.
+        const evaluation = await evaluateMemoryCandidate({
+          statement: prepared.statement,
+          reason: prepared.reason,
+          evidence: prepared.evidenceIds.flatMap((eventId) => {
+            const cited = evidence.find((item) => item.eventId === eventId);
+            return cited
+              ? [
+                  {
+                    id: eventId,
+                    summary: cited.snapshot ?? "",
+                    occurredAt: cited.occurredAt.toISOString(),
+                  },
+                ]
+              : [];
+          }),
+        });
+        const candidate = evaluation
+          ? { ...prepared, ...applyMemoryEvaluation(prepared, evaluation) }
+          : prepared;
         const created = await createMemoryCandidate({
           candidate,
           extraction: {
@@ -667,6 +691,16 @@ export async function processFormationJob(
             schemaVersion: SCHEMA_VERSION,
             inputHash,
             runId: run._id,
+            ...(evaluation
+              ? {
+                  evaluationModel: evaluation.model,
+                  // Both inputs to the adopted confidence, which is the lower
+                  // of them — without these a disagreement in either
+                  // direction is invisible after the fact.
+                  statedConfidence: prepared.confidence,
+                  evaluatedConfidence: evaluation.supported,
+                }
+              : {}),
           },
         });
         outputIds.push(created._id.toString());

@@ -1,0 +1,1 @@
+ALTER TABLE "auth_user" ADD COLUMN "passkey_offer_dismissed" boolean DEFAULT false NOT NULL;

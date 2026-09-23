@@ -1,4 +1,5 @@
 import type { Extension } from "@codemirror/state";
+import type { LatexCompileDiagnostic } from "@repo/schemas";
 import type { ReactNode } from "react";
 
 export interface LatexFileEntry {
@@ -28,6 +29,16 @@ export interface LatexCompileResult {
   log: string;
 }
 
+export interface LatexCompileHandlers {
+  /** Console output as it streams in; the editor appends it to the output pane. */
+  onLog: (chunk: string) => void;
+}
+
+export interface LatexEditorCompileError {
+  message: string;
+  diagnostics: LatexCompileDiagnostic[];
+}
+
 export interface LatexEditorSelection {
   from: number;
   to: number;
@@ -49,7 +60,8 @@ export interface LatexEditorExtensionContext {
 
 export interface LatexEditorBottomDockState {
   compileLog: string;
-  compileError: string | null;
+  compileError: LatexEditorCompileError | null;
+  compiling: boolean;
 }
 
 export interface LatexEditorHandle {
@@ -72,7 +84,14 @@ export interface LatexEditorHandle {
 export interface LatexEditorProps {
   project: LatexProject;
   onChange: (project: LatexProject) => void;
-  onCompile: (project: LatexProject) => Promise<LatexCompileResult>;
+  /**
+   * Throw a `LatexCompileFailure` (`./compile-failure`) when the source did
+   * not build, so the pane shows the parsed errors above the log.
+   */
+  onCompile: (
+    project: LatexProject,
+    handlers: LatexCompileHandlers,
+  ) => Promise<LatexCompileResult>;
   onSave?: (project: LatexProject) => Promise<void>;
   onPublish?: () => Promise<void>;
   canPublish?: boolean;

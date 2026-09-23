@@ -26,6 +26,7 @@ import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
+import { adjudicateTriage } from "@/lib/triage-adjudicator";
 import { EmailModel } from "@/models/Email";
 import {
   EmailTriageModel,
@@ -2104,17 +2105,43 @@ export async function runTriage(
         classificationThreshold,
       );
       let reviewReason = reviewRequired ? "low-confidence" : undefined;
+      // Only the rows already headed for the queue are adjudicated, so a
+      // confident classifier answer is never second-guessed and the common
+      // path costs nothing. A decided second opinion replaces the category
+      // and clears the review; an undecided one leaves both alone and is
+      // still recorded, which is what makes the disagreements readable.
+      const adjudication = reviewRequired
+        ? await adjudicateTriage({
+            subject: email.subject,
+            from: sender?.address ?? "",
+            body: normalizeBodyForClassifier(body.text, body.html),
+            classifierCategory: prediction.category,
+            classifierConfidence: prediction.confidence,
+          })
+        : null;
+      const adjudicated = adjudication?.decided === true;
+      if (adjudicated) {
+        reviewRequired = false;
+        reviewReason = undefined;
+      }
+      // Everything downstream keys off the decided category, not the
+      // classifier's: an adjudication that moves an email into
+      // `action-needed` has to pull its tasks out too, and one that moves it
+      // to `fyi` must not leave extraction running under the old label.
+      const category = adjudicated
+        ? adjudication.category
+        : prediction.category;
       const classification: ClassificationResult = {
-        category: prediction.category,
-        confidence: prediction.confidence,
+        category,
+        confidence: adjudicated
+          ? adjudication.confidence
+          : prediction.confidence,
         summary: normalizeSummary(
           email.subject,
           "Email classified without a subject.",
         ),
-        needsTaskExtraction:
-          !reviewRequired && prediction.category === "action-needed",
-        needsEventExtraction:
-          !reviewRequired && prediction.category === "scheduled",
+        needsTaskExtraction: !reviewRequired && category === "action-needed",
+        needsEventExtraction: !reviewRequired && category === "scheduled",
       };
       // Called for every email, not only the ones the classifier flagged: the
       // deterministic course match lives inside and is the one signal allowed
@@ -2151,6 +2178,19 @@ export async function runTriage(
         confidence: fullResult.confidence,
         classificationThreshold,
         classificationProbabilities: prediction.probabilities,
+        ...(adjudication
+          ? {
+              adjudication: {
+                model: adjudication.model,
+                category: adjudication.category,
+                confidence: adjudication.confidence,
+                probabilities: adjudication.probabilities,
+                needsPersonalAction: adjudication.needsPersonalAction,
+                hasDatedCommitment: adjudication.hasDatedCommitment,
+                accepted: adjudicated,
+              },
+            }
+          : {}),
         reviewRequired,
         reviewReason,
         summary: fullResult.summary,

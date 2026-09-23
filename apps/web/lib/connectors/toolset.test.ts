@@ -1,11 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ListToolsResult } from "@ai-sdk/mcp";
-import {
+
+mock.module("server-only", () => ({}));
+
+const {
   boundConnectorResult,
   connectorInputSchemaForModel,
   exposedToolName,
+  offloadConnectorImages,
   primeToolHeaderBindings,
-} from "./toolset";
+} = await import("./toolset");
 
 describe("exposedToolName", () => {
   test("namespaces by connector and stays within 64 characters", () => {
@@ -61,6 +65,110 @@ describe("boundConnectorResult", () => {
     ).toBe(48_000);
     expect(result.content.at(-1)).toMatchObject({
       text: expect.stringContaining("truncated"),
+    });
+  });
+
+  test("drops images past the count bound", () => {
+    const result = boundConnectorResult({
+      content: Array.from({ length: 12 }, () => ({
+        type: "image",
+        mimeType: "image/png",
+        data: "AAAA",
+      })),
+    });
+    expect(result.content.filter((part) => part.type === "image")).toHaveLength(
+      8,
+    );
+    expect(result.truncated).toBe(true);
+  });
+
+  test("drops images past the byte bound", () => {
+    // 16 MB of base64 decodes to 12 MB, so the third would cross 24 MB.
+    const data = "A".repeat(16 * 1024 * 1024);
+    const result = boundConnectorResult({
+      content: Array.from({ length: 3 }, () => ({
+        type: "image",
+        mimeType: "image/png",
+        data,
+      })),
+    });
+    expect(result.content.filter((part) => part.type === "image")).toHaveLength(
+      2,
+    );
+    expect(result.truncated).toBe(true);
+  });
+});
+
+describe("offloadConnectorImages", () => {
+  test("replaces stored images with their URL and names them in order", async () => {
+    const stored: string[] = [];
+    const result = await offloadConnectorImages(
+      {
+        content: [
+          { type: "text", text: "before" },
+          { type: "image", mimeType: "image/jpeg", data: "AAAA" },
+          { type: "image", mimeType: "image/png", data: "BBBB" },
+        ],
+      },
+      async (image, name) => {
+        stored.push(`${name}:${image.data}`);
+        return `https://files.test/${name}`;
+      },
+      "browser-shot",
+    );
+    expect(stored).toEqual([
+      "browser-shot-0.jpg:AAAA",
+      "browser-shot-1.png:BBBB",
+    ]);
+    expect(result.content).toEqual([
+      { type: "text", text: "before" },
+      {
+        type: "image",
+        mimeType: "image/jpeg",
+        url: "https://files.test/browser-shot-0.jpg",
+      },
+      {
+        type: "image",
+        mimeType: "image/png",
+        url: "https://files.test/browser-shot-1.png",
+      },
+    ]);
+  });
+
+  test("uploads at most two images at a time", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const content = Array.from({ length: 6 }, (_, at) => ({
+      type: "image" as const,
+      mimeType: "image/png",
+      data: `IMG${at}`,
+    }));
+    await offloadConnectorImages(
+      { content },
+      async (_image, name) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight -= 1;
+        return `https://files.test/${name}`;
+      },
+      "shot",
+    );
+    expect(peak).toBe(2);
+  });
+
+  test("keeps the bytes inline when the store declines", async () => {
+    const result = await offloadConnectorImages(
+      {
+        content: [{ type: "image", mimeType: "image/webp", data: "CCCC" }],
+        truncated: true,
+      },
+      async () => null,
+      "shot",
+    );
+    expect(result).toEqual({
+      content: [{ type: "image", mimeType: "image/webp", data: "CCCC" }],
+      truncated: true,
     });
   });
 });

@@ -2,6 +2,7 @@ import type { ICvFile, ILatexProject } from "@repo/schemas";
 import { revalidatePath } from "next/cache";
 import {
   compileLatexProject,
+  type LatexCompileOptions,
   tryAcquireLatexCompileLock,
 } from "@/lib/latex-compiler";
 import { connectDB } from "@/lib/mongodb";
@@ -79,7 +80,10 @@ export async function saveCvProject(project: ILatexProject) {
  * the log when the source does not build, which the caller reports rather than
  * treating as a server fault — a LaTeX error is an answer, not a failure.
  */
-export async function compileCvProject(project: ILatexProject) {
+export async function compileCvProject(
+  project: ILatexProject,
+  compileOptions: LatexCompileOptions = {},
+) {
   const releaseCompileLock = tryAcquireLatexCompileLock("cv");
   if (!releaseCompileLock) throw new CvCompileBusyError();
 
@@ -97,7 +101,7 @@ export async function compileCvProject(project: ILatexProject) {
       { upsert: true },
     ).exec();
 
-    const compilation = await compileLatexProject(project);
+    const compilation = await compileLatexProject(project, compileOptions);
     const filename = "DenizGunesCV.pdf";
     const file = new File([new Uint8Array(compilation.pdf)], filename, {
       type: "application/pdf",

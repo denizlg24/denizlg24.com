@@ -31,6 +31,12 @@ export const authUser = pgTable("auth_user", {
   username: text("username").unique(),
   displayUsername: text("display_username"),
   status: text("status", { enum: ["pending", "active"] }).default("active"),
+  // "Never ask again" on the auth app's post-sign-in passkey offer. Account
+  // wide by decision: the label promises it, and a device marker would not
+  // survive cleared storage.
+  passkeyOfferDismissed: boolean("passkey_offer_dismissed")
+    .default(false)
+    .notNull(),
 });
 
 export const authSession = pgTable(

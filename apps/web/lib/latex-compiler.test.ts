@@ -3,9 +3,26 @@ import { createDefaultLatexProject } from "../../../packages/latex-editor/src/pr
 
 mock.module("server-only", () => ({}));
 
-const { compileLatexProject, tryAcquireLatexCompileLock } = await import(
-  "./latex-compiler"
-);
+const {
+  compileLatexProject,
+  LatexCompilationError,
+  sliceUtf8,
+  tryAcquireLatexCompileLock,
+} = await import("./latex-compiler");
+
+describe("sliceUtf8", () => {
+  it("cuts on a character when the budget lands inside one", () => {
+    // "é" is two bytes, so a 3-byte budget can only hold one of them.
+    expect(sliceUtf8("aéb", 3)).toBe("aé");
+    expect(sliceUtf8("aéb", 2)).toBe("a");
+    expect(sliceUtf8("🙂", 3)).toBe("");
+    expect(sliceUtf8("🙂", 4)).toBe("🙂");
+  });
+
+  it("returns the whole string when it fits", () => {
+    expect(sliceUtf8("hello", 64)).toBe("hello");
+  });
+});
 
 describe("compileLatexProject", () => {
   it("allows different project keys while rejecting duplicate concurrent work", () => {
@@ -107,14 +124,35 @@ describe("compileLatexProject", () => {
       ],
     });
 
-    await expect(compile).rejects.toThrow("LaTeX compilation failed");
-    const log = await compile.then(
-      () => "",
-      (error: { log?: string }) => error.log ?? "",
+    await expect(compile).rejects.toThrow(
+      "LaTeX compilation failed: main.tex:3: Undefined control sequence",
     );
-    expect(log).toContain("Undefined control sequence");
-    expect(log).toContain("--- main.log ---");
+    const failure = await compile.then(
+      () => null,
+      (error: unknown) =>
+        error instanceof LatexCompilationError ? error : null,
+    );
+    expect(failure?.log).toContain("Undefined control sequence");
+    expect(failure?.log).toContain("--- main.log ---");
     // The engine log, unlike the console output, quotes the offending source.
-    expect(log).toContain("undefinedcommandhere");
+    expect(failure?.log).toContain("undefinedcommandhere");
+    expect(failure?.diagnostics).toEqual([
+      {
+        file: "main.tex",
+        line: 3,
+        message: "Undefined control sequence",
+        context: expect.stringContaining("l.3 Hello \\undefinedcommandhere"),
+      },
+    ]);
+  }, 60_000);
+
+  it("streams the console output while the engine runs", async () => {
+    const chunks: string[] = [];
+    const result = await compileLatexProject(createDefaultLatexProject(), {
+      onOutput: (chunk) => chunks.push(chunk),
+    });
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.join("")).toContain("Running TeX");
+    expect(result.log).toBe(chunks.join("").trim());
   }, 60_000);
 });

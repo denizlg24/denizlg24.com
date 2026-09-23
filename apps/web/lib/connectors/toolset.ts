@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ListToolsResult, MCPClient } from "@ai-sdk/mcp";
 import type { ConnectorApproval, McpActionsMeta } from "@repo/schemas";
 import { dynamicTool, type JSONSchema7, jsonSchema, type ToolSet } from "ai";
+import { uploadFileToStorage } from "@/lib/storage-api";
 import type { IConnector } from "@/models/Connector";
 import {
   cachedToolDefinitions,
@@ -16,6 +17,18 @@ import {
 const TOOL_CACHE_TTL_MS = 30 * 60_000;
 /** Text a single tool result may hand the model before it is cut. */
 const MAX_RESULT_CHARS = 48_000;
+/**
+ * Images a single tool result may carry, and what they may weigh once
+ * decoded. An enabled connector decides its own `content`, and every image
+ * kept here is decoded into a Buffer and uploaded — so without a bound a
+ * server that answers with a hundred screenshots exhausts the heap, the
+ * upload connections or the bucket, none of which the character budget
+ * above touches.
+ */
+const MAX_RESULT_IMAGES = 8;
+const MAX_RESULT_IMAGE_BYTES = 24 * 1024 * 1024;
+/** Uploads in flight at once; each holds one whole decoded image. */
+const IMAGE_UPLOAD_CONCURRENCY = 2;
 const MAX_TOOL_NAME = 64;
 
 export const CONNECTOR_TOOL_SEPARATOR = "__";
@@ -48,14 +61,24 @@ export interface ConnectorToolset {
   close(): Promise<void>;
 }
 
+export type ConnectorImagePart =
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "image"; mimeType: string; url: string };
+
 export type ConnectorContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: string; data: string };
+  | ConnectorImagePart;
 
 export interface ConnectorToolOutput {
   content: ConnectorContentPart[];
   truncated?: boolean;
 }
+
+/** Stores one image a tool returned and answers its URL, or null to keep it inline. */
+export type ConnectorImageStore = (
+  image: { mimeType: string; data: string },
+  name: string,
+) => Promise<string | null>;
 
 export class ConnectorToolError extends Error {
   constructor(message: string) {
@@ -101,6 +124,12 @@ function isImagePart(
   );
 }
 
+/** What a base64 payload decodes to, without decoding it. */
+function base64Bytes(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+}
+
 /**
  * Keeps what the model needs from a `tools/call` result and bounds it. A
  * server that sends `structuredContent` beside an identical text copy (ours
@@ -112,6 +141,8 @@ export function boundConnectorResult(result: {
 }): ConnectorToolOutput {
   const content: ConnectorContentPart[] = [];
   let budget = MAX_RESULT_CHARS;
+  let images = 0;
+  let imageBytes = 0;
   let truncated = false;
   const source =
     result.content && result.content.length > 0
@@ -121,6 +152,16 @@ export function boundConnectorResult(result: {
         : [];
   for (const part of source) {
     if (isImagePart(part)) {
+      const bytes = base64Bytes(part.data);
+      if (
+        images >= MAX_RESULT_IMAGES ||
+        imageBytes + bytes > MAX_RESULT_IMAGE_BYTES
+      ) {
+        truncated = true;
+        continue;
+      }
+      images += 1;
+      imageBytes += bytes;
       content.push({ type: "image", mimeType: part.mimeType, data: part.data });
       continue;
     }
@@ -141,10 +182,76 @@ export function boundConnectorResult(result: {
   if (truncated) {
     content.push({
       type: "text",
-      text: `[Result truncated at ${MAX_RESULT_CHARS} characters. Narrow the request — filter, paginate, or fetch one record — to see the rest.]`,
+      text: `[Result truncated at ${MAX_RESULT_CHARS} characters and ${MAX_RESULT_IMAGES} images. Narrow the request — filter, paginate, or fetch one record — to see the rest.]`,
     });
   }
   return { content, ...(truncated ? { truncated } : {}) };
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+/**
+ * A screenshot is stored in the conversation and re-sent on every later
+ * model call, so its bytes leave the message here: the stored part carries a
+ * URL, and the model sees the image by reference. A store that fails keeps
+ * the bytes inline — one heavy message beats a lost result.
+ */
+export async function offloadConnectorImages(
+  output: ConnectorToolOutput,
+  store: ConnectorImageStore,
+  name: string,
+): Promise<ConnectorToolOutput> {
+  const content: ConnectorContentPart[] = [...output.content];
+  const jobs = content.flatMap((part, at) =>
+    part.type === "image" && "data" in part ? [{ at, part }] : [],
+  );
+  let next = 0;
+  // Bounded rather than `Promise.all` over every image: each upload decodes
+  // its whole payload into a Buffer and holds a connection, so the peak is
+  // the concurrency, not however many images the server chose to send.
+  const worker = async () => {
+    while (next < jobs.length) {
+      const index = next++;
+      const job = jobs[index];
+      if (!job) return;
+      const extension = IMAGE_EXTENSIONS[job.part.mimeType] ?? "bin";
+      const url = await store(job.part, `${name}-${index}.${extension}`);
+      if (url) {
+        content[job.at] = {
+          type: "image",
+          mimeType: job.part.mimeType,
+          url,
+        };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(IMAGE_UPLOAD_CONCURRENCY, jobs.length) },
+      () => worker(),
+    ),
+  );
+  return { ...output, content };
+}
+
+async function storeConnectorImage(
+  image: { mimeType: string; data: string },
+  name: string,
+): Promise<string | null> {
+  try {
+    const file = new File([Buffer.from(image.data, "base64")], name, {
+      type: image.mimeType,
+    });
+    return (await uploadFileToStorage(file, "image")).publicUrl;
+  } catch (error) {
+    console.warn("Connector image kept inline; storing it failed:", error);
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -235,7 +342,12 @@ export async function openConnectorToolset(options: {
   only?: readonly string[];
   /** Fully qualified Gateway id, used for provider schema compatibility. */
   model: string;
+  /** The conversation or run these turns belong to; servers key cross-turn state on it. */
+  session?: string;
+  /** Test seam; production stores returned images in the image bucket. */
+  storeImage?: ConnectorImageStore;
 }): Promise<ConnectorToolset> {
+  const storeImage = options.storeImage ?? storeConnectorImage;
   const connectors = (await listConnectors()).filter(
     (connector) =>
       connector.enabled &&
@@ -263,7 +375,9 @@ export async function openConnectorToolset(options: {
     const key = connector._id.toString();
     let client = clients.get(key);
     if (!client) {
-      client = openConnectorClient(connector).then((opened) => {
+      client = openConnectorClient(connector, {
+        ...(options.session ? { session: options.session } : {}),
+      }).then((opened) => {
         primeToolHeaderBindings(opened, definitions);
         return opened;
       });
@@ -332,7 +446,11 @@ export async function openConnectorToolset(options: {
                 .slice(0, 4_000) || "The tool reported an error",
             );
           }
-          return bounded;
+          return offloadConnectorImages(
+            bounded,
+            storeImage,
+            `${connector.slug}-${definition.name}-${Date.now()}`,
+          );
         },
         toModelOutput: ({ output }) => {
           const content = isConnectorToolOutput(output) ? output.content : [];
@@ -344,7 +462,10 @@ export async function openConnectorToolset(options: {
                 : {
                     type: "file" as const,
                     mediaType: part.mimeType,
-                    data: { type: "data" as const, data: part.data },
+                    data:
+                      "url" in part
+                        ? { type: "url" as const, url: new URL(part.url) }
+                        : { type: "data" as const, data: part.data },
                   },
             ),
           };

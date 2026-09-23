@@ -1,12 +1,45 @@
 import { type ILatexProject, latexProjectSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { CvCompileBusyError, compileCvProject } from "@/lib/cv-project";
+import {
+  type LatexCompileErrorEvent,
+  latexCompileEventResponse,
+} from "@/lib/latex-compile-stream";
 import { LatexCompilationError } from "@/lib/latex-compiler";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+function toErrorEvent(error: unknown): LatexCompileErrorEvent {
+  if (error instanceof CvCompileBusyError) {
+    return {
+      type: "error",
+      status: 409,
+      error: error.message,
+      log: "",
+      diagnostics: [],
+    };
+  }
+  if (error instanceof LatexCompilationError) {
+    return {
+      type: "error",
+      status: 422,
+      error: error.message,
+      log: error.log,
+      diagnostics: error.diagnostics,
+    };
+  }
+  console.error("CV compilation failed", error);
+  return {
+    type: "error",
+    status: 500,
+    error: "Failed to compile CV",
+    log: "",
+    diagnostics: [],
+  };
+}
 
 export async function POST(request: NextRequest) {
   if (isCrossOriginCookieRequest(request)) {
@@ -30,22 +63,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  try {
-    return NextResponse.json(await compileCvProject(project));
-  } catch (error) {
-    if (error instanceof CvCompileBusyError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
-    }
-    if (error instanceof LatexCompilationError) {
-      return NextResponse.json(
-        { error: error.message, log: error.log },
-        { status: 422 },
-      );
-    }
-    console.error("CV compilation failed", error);
-    return NextResponse.json(
-      { error: "Failed to compile CV" },
-      { status: 500 },
-    );
-  }
+  return latexCompileEventResponse(async (onOutput) => {
+    const { log, ...payload } = await compileCvProject(project, { onOutput });
+    return { log, payload };
+  }, toErrorEvent);
 }

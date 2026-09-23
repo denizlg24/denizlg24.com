@@ -136,6 +136,12 @@ export function connectorContent(output: unknown): ConnectorContent[] | null {
       blocks.push({ kind: "text", text: block.text });
     } else if (
       block.type === "image" &&
+      "url" in block &&
+      typeof block.url === "string"
+    ) {
+      blocks.push({ kind: "image", src: block.url });
+    } else if (
+      block.type === "image" &&
       "data" in block &&
       typeof block.data === "string" &&
       "mimeType" in block &&

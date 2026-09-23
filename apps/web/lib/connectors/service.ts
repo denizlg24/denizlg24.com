@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { auth, createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import {
   type ConnectorAuthorizeResponse,
@@ -339,16 +340,41 @@ type ConnectorTransport = Extract<
   { type: "sse" | "http" }
 >;
 
-function connectorTransport(connector: IConnector): ConnectorTransport {
+/**
+ * Names the agent session on every request. An MCP session lives one turn —
+ * the client is closed with the turn — so a server that keeps state across
+ * turns (the browser keeps a conversation's tabs) keys it on this instead.
+ * `apps/browser/src/mcp-sessions.ts` reads the same name.
+ */
+export const AGENT_SESSION_HEADER = "x-agent-session";
+
+/** The id itself never leaves the box; a server only needs it to be stable. */
+export function agentSessionKey(session: string): string {
+  return createHash("sha256").update(session).digest("hex").slice(0, 32);
+}
+
+export interface ConnectorClientOptions {
+  /** A conversation or run id; hashed before it is sent. */
+  session?: string;
+}
+
+function connectorTransport(
+  connector: IConnector,
+  options: ConnectorClientOptions,
+): ConnectorTransport {
+  const headers: Record<string, string> = options.session
+    ? { [AGENT_SESSION_HEADER]: agentSessionKey(options.session) }
+    : {};
   switch (connector.auth) {
     case "service":
       return {
         type: "http",
         url: connector.url,
+        headers,
         fetch: primaryConnectorFetch(),
       };
     case "none":
-      return { type: "http", url: connector.url };
+      return { type: "http", url: connector.url, headers };
     case "bearer":
       if (!connector.secret) {
         throw new ConnectorError("This connector has no token", 400);
@@ -356,12 +382,16 @@ function connectorTransport(connector: IConnector): ConnectorTransport {
       return {
         type: "http",
         url: connector.url,
-        headers: { authorization: `Bearer ${decryptSecret(connector.secret)}` },
+        headers: {
+          ...headers,
+          authorization: `Bearer ${decryptSecret(connector.secret)}`,
+        },
       };
     case "oauth":
       return {
         type: "http",
         url: connector.url,
+        headers,
         authProvider: new ConnectorOAuthProvider(connector),
       };
   }
@@ -374,9 +404,10 @@ function connectorTransport(connector: IConnector): ConnectorTransport {
  */
 export async function openConnectorClient(
   connector: IConnector,
+  options: ConnectorClientOptions = {},
 ): Promise<MCPClient> {
   return createMCPClient({
-    transport: connectorTransport(connector),
+    transport: connectorTransport(connector, options),
     clientName: "denizlg24-agent",
     initializationOptions: {
       signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),

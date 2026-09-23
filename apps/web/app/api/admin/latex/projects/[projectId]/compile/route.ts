@@ -5,12 +5,49 @@ import {
   LatexCompileFailedError,
   runLatexProjectCompilation,
 } from "@/lib/latex-compile-run";
-import { latexProjectErrorResponse } from "@/lib/latex-project-route";
+import {
+  type LatexCompileErrorEvent,
+  latexCompileEventResponse,
+} from "@/lib/latex-compile-stream";
+import {
+  LatexProjectNotFoundError,
+  LatexProjectRevisionConflictError,
+} from "@/lib/latex-projects";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+function toErrorEvent(error: unknown): LatexCompileErrorEvent {
+  const base = { type: "error" as const, log: "", diagnostics: [] };
+  if (error instanceof LatexCompileBusyError) {
+    return { ...base, status: 409, error: error.message };
+  }
+  if (error instanceof LatexCompileFailedError) {
+    return {
+      type: "error",
+      status: 422,
+      error: error.message,
+      log: error.log,
+      diagnostics: error.diagnostics,
+      payload: { project: error.project },
+    };
+  }
+  if (error instanceof LatexProjectNotFoundError) {
+    return { ...base, status: 404, error: error.message };
+  }
+  if (error instanceof LatexProjectRevisionConflictError) {
+    return {
+      ...base,
+      status: 409,
+      error: error.message,
+      payload: { project: error.current },
+    };
+  }
+  console.error("LaTeX project compilation failed", error);
+  return { ...base, status: 500, error: "Failed to compile LaTeX project" };
+}
 
 export async function POST(
   request: NextRequest,
@@ -41,29 +78,15 @@ export async function POST(
   }
 
   const { projectId } = await context.params;
-  try {
-    const { project, log } = await runLatexProjectCompilation({
-      projectId,
-      baseRevision: parsed.data.baseRevision,
-      project: parsed.data.project,
-    });
-    return NextResponse.json({ project, log });
-  } catch (error) {
-    if (error instanceof LatexCompileBusyError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
-    }
-    if (error instanceof LatexCompileFailedError) {
-      return NextResponse.json(
-        { error: error.message, log: error.log, project: error.project },
-        { status: 422 },
-      );
-    }
-    const handled = latexProjectErrorResponse(error);
-    if (handled) return handled;
-    console.error("LaTeX project compilation failed", error);
-    return NextResponse.json(
-      { error: "Failed to compile LaTeX project" },
-      { status: 500 },
+  return latexCompileEventResponse(async (onOutput) => {
+    const { project, log } = await runLatexProjectCompilation(
+      {
+        projectId,
+        baseRevision: parsed.data.baseRevision,
+        project: parsed.data.project,
+      },
+      { onOutput },
     );
-  }
+    return { log, payload: { project } };
+  }, toErrorEvent);
 }

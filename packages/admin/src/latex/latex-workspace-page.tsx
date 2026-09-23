@@ -6,6 +6,7 @@ import {
   type LatexEditorStateSnapshot,
   type LatexProject,
 } from "@repo/latex-editor";
+import { CompileOutput } from "@repo/latex-editor/compile-output";
 import { buildLatexContextPack } from "@repo/latex-editor/context";
 import { basename, dirname } from "@repo/latex-editor/project";
 import {
@@ -56,6 +57,7 @@ import {
 import { toast } from "sonner";
 import { AdminApiError } from "../client";
 import { useAdmin } from "../provider";
+import { compileOverStream, LatexCompileRequestError } from "./compile-stream";
 import {
   type CachedLatexDraft,
   deleteLatexDraft,
@@ -946,35 +948,50 @@ export function LatexWorkspacePage({
             await saveNow(next);
             toast.success("Project saved");
           }}
-          onCompile={async (next) => {
+          onCompile={async (next, { onLog }) => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
             const saved = await saveNow(next);
             try {
-              const response = await client.post<CompileLatexProjectResponse>(
+              const response = await compileOverStream<
+                Pick<CompileLatexProjectResponse, "project">
+              >(
+                client,
                 `latex/projects/${projectId}/compile`,
                 { baseRevision: saved.revision, project: next },
+                { onLog },
               );
-              applyRecord(response.project);
-              void persistLocal(next, response.project.revision).catch(
+              applyRecord(response.payload.project);
+              void persistLocal(next, response.payload.project.revision).catch(
                 () => undefined,
               );
               setSaveState("saved");
               toast.success("Project compiled");
               return { log: response.log };
             } catch (error) {
-              if (error instanceof AdminApiError) {
-                const failedProject = latexProjectRecordSchema.safeParse(
-                  error.details?.project,
+              if (error instanceof LatexCompileRequestError) {
+                const payload = error.payload;
+                const returned = latexProjectRecordSchema.safeParse(
+                  payload && typeof payload === "object" && "project" in payload
+                    ? payload.project
+                    : undefined,
                 );
-                if (failedProject.success) {
-                  applyRecord(failedProject.data);
-                  void persistLocal(next, failedProject.data.revision).catch(
+                if (error.status === 409) {
+                  // 409 hands back somebody else's newer row, not the source
+                  // this compile sent. Applying it and persisting the local
+                  // draft against that revision would leave the editor
+                  // "saved" and let the next save overwrite the concurrent
+                  // change, so it goes through the same conflict gate a
+                  // refused save does.
+                  if (returned.success) setServerConflict(returned.data);
+                  setSaveState(returned.success ? "conflict" : "error");
+                } else if (returned.success) {
+                  // A refused compile (422) hands back the row it left
+                  // behind — this draft and its failure, which is the truth
+                  // now.
+                  applyRecord(returned.data);
+                  void persistLocal(next, returned.data.revision).catch(
                     () => undefined,
                   );
-                }
-                const log = error.details?.log;
-                if (typeof log === "string" && log.trim()) {
-                  throw new Error(log);
                 }
               }
               throw error;
@@ -1014,11 +1031,11 @@ export function LatexWorkspacePage({
           rightDockTitle="Workspace"
           bottomDockLabel="Output"
           bottomDock={(output) => (
-            <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-4.5 text-muted-foreground">
-              {output.compileError ??
-                output.compileLog ??
-                "No compiler output yet."}
-            </pre>
+            <CompileOutput
+              log={output.compileLog}
+              error={output.compileError}
+              compiling={output.compiling}
+            />
           )}
           compileLabel="Compile"
         />

@@ -358,6 +358,13 @@
       "when": 1789656843409,
       "tag": "0050_auth_passkey",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1789918730499,
+      "tag": "0051_passkey_offer_dismissed",
+      "breakpoints": true
     }
   ]
 }
