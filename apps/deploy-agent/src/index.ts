@@ -1,7 +1,9 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { ResolvedBuilder } from "./build";
 import { BuildLogStore } from "./build-log";
 import { CaddyRouter } from "./caddy";
+import { createSerialQueue } from "./concurrency";
 import { agentConfigFromEnv } from "./config";
 import { ControlPlaneClient } from "./control-plane";
 import { DockerClient } from "./docker";
@@ -76,6 +78,24 @@ const caddy = new CaddyRouter({
   logger,
 });
 
+/**
+ * One recovery push at a time, whether a deployment's own or a republish the
+ * control plane asked for. A push is gigabytes over a home uplink with a
+ * fifteen-minute budget: eleven of them sharing it after a monorepo-wide deploy
+ * all ran out of time together, and every one of those deployments then held
+ * both hosts' DR backups until it was redeployed. In series each gets the whole
+ * link, and the budget starts when its own upload does.
+ */
+const recoveryPushes = createSerialQueue();
+
+/**
+ * If the host never acts on the sentinel — the path unit missing, or the
+ * reboot refused — claiming resumes rather than leaving Forge unable to deploy.
+ * Longer than `forge-reboot`'s thirty-minute wait for the DR host lock, so a
+ * reboot that is merely queued behind a backup is not raced by a new build.
+ */
+const REBOOT_RESUME_MS = 40 * 60_000;
+
 const queue = new DeploymentQueue({
   capacity: config.maxConcurrentBuilds,
   pollIntervalMs: config.claimPollMs,
@@ -97,6 +117,8 @@ const queue = new DeploymentQueue({
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
     drainMs: config.drainMs,
     recoveryRegistryPrefix: config.recoveryRegistryPrefix,
+    recoveryImagePublisher: (input) =>
+      recoveryPushes(() => publishRecoveryImage(input)),
     healthPollMs: config.healthPollMs,
     acquireHostMutationLock: (owner, signal) =>
       hostMutationLock.acquire(owner, signal),
@@ -271,26 +293,26 @@ const app = createAgentApp({
         await logs.close(deploymentId).catch(() => {});
       }
     }),
+  // Outside the host mutation lock, as the pipeline's own push is: an upload
+  // touches nothing on this box, and holding the lock through one made every
+  // deployment and the DR backup wait out a multi-gigabyte push.
   publishRecovery: (body) =>
-    withHostMutation(
-      `publish-recovery:${body.request.deploymentId}`,
-      async () => {
-        const log = await logs.open(body.request.deploymentId);
-        try {
-          const published = await publishRecoveryImage({
-            exec,
-            log,
-            request: body.request,
-            localImage: body.localImage,
-            registryPrefix: config.recoveryRegistryPrefix,
-            signal: new AbortController().signal,
-          });
-          return { reference: published.reference, digest: published.digest };
-        } finally {
-          await logs.close(body.request.deploymentId).catch(() => {});
-        }
-      },
-    ),
+    recoveryPushes(async () => {
+      const log = await logs.open(body.request.deploymentId);
+      try {
+        const published = await publishRecoveryImage({
+          exec,
+          log,
+          request: body.request,
+          localImage: body.localImage,
+          registryPrefix: config.recoveryRegistryPrefix,
+          signal: new AbortController().signal,
+        });
+        return { reference: published.reference, digest: published.digest };
+      } finally {
+        await logs.close(body.request.deploymentId).catch(() => {});
+      }
+    }),
   rehost: (deploymentId, hostnames, options) =>
     withHostMutation(`rehost:${deploymentId}`, () =>
       caddy.rehost(deploymentId, hostnames, options),
@@ -309,6 +331,49 @@ const app = createAgentApp({
         acquireBuilderMaintenance: () => queue.tryAcquireBuildMaintenance(),
       }),
     ),
+  requestReboot: async ({ drainTimeoutMs }) => {
+    const startedAt = Date.now();
+    const release = await queue.drain(drainTimeoutMs);
+    const drainedMs = Date.now() - startedAt;
+    if (!release) {
+      return {
+        requested: false,
+        drainedMs,
+        running: queue.runningCount,
+        error: "The deployment queue did not drain in time",
+      };
+    }
+    try {
+      await mkdir(dirname(config.rebootSentinelPath), {
+        recursive: true,
+        mode: 0o750,
+      });
+      await writeFile(
+        config.rebootSentinelPath,
+        `${new Date().toISOString()}\n`,
+        { mode: 0o640 },
+      );
+    } catch (error) {
+      release();
+      return {
+        requested: false,
+        drainedMs,
+        running: 0,
+        error: `Could not write the reboot sentinel: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    logger.info("host reboot requested", { drainedMs });
+    // The request expires with the pause. A sentinel left behind would reboot
+    // the host the moment a path unit is next enabled — mid agent install.
+    setTimeout(() => {
+      void rm(config.rebootSentinelPath, { force: true })
+        .catch(() => {})
+        .finally(release);
+    }, REBOOT_RESUME_MS).unref();
+    return { requested: true, drainedMs, running: 0, error: null };
+  },
 });
 
 // Caddy opens the access-log files but will not create the directory holding

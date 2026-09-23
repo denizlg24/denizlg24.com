@@ -34,6 +34,8 @@ const NOTIFICATION_MESSAGE_LIMIT = 2_000;
 const FORGE_TASK_TYPES: readonly TaskType[] = [
   "forge_gc",
   "domain_verification",
+  "forge_recovery_publish",
+  "forge_reboot",
 ];
 
 const BACKUP_TASK_TYPES = new Set<TaskType>([
@@ -202,6 +204,31 @@ export async function seedDefaultOpsTasks(
         type: "domain_verification",
         cronExpression: "*/2 * * * *",
         config: validatedTaskConfig("domain_verification", {}),
+        createdBy: creator.id,
+      });
+    }
+    // Every half hour because a live deployment with no recovery image blocks
+    // both hosts' DR backups outright; a run with nothing missing is one query.
+    if (!existingTypes.has("forge_recovery_publish")) {
+      await createTask(db, {
+        name: "Forge recovery images",
+        type: "forge_recovery_publish",
+        cronExpression: "*/30 * * * *",
+        config: validatedTaskConfig("forge_recovery_publish", {}),
+        createdBy: creator.id,
+      });
+    }
+    // Sunday 03:30 UTC: clear of the Pi's 02:00 reboot, which every Forge app
+    // depends on, and of Forge's 00:17/06:17 backups. Seeded disabled because a
+    // reboot that hangs in firmware takes every Forge app down until someone is
+    // at the machine; it is armed by hand once a watched reboot has come back.
+    if (!existingTypes.has("forge_reboot")) {
+      await createTask(db, {
+        name: "Forge weekly reboot",
+        type: "forge_reboot",
+        cronExpression: "30 3 * * 0",
+        config: validatedTaskConfig("forge_reboot", {}),
+        enabled: false,
         createdBy: creator.id,
       });
     }

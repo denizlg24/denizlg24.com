@@ -24,3 +24,16 @@ export async function mapWithConcurrency<T, R>(
   );
   return results;
 }
+
+/**
+ * Runs the tasks handed to it one at a time, in arrival order. A rejection is
+ * the caller's; the next task still runs.
+ */
+export function createSerialQueue(): <T>(task: () => Promise<T>) => Promise<T> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (task) => {
+    const run = tail.then(task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}

@@ -16,6 +16,14 @@ on:
       # ReadWritePaths lets Caddy open it; out of step, Caddy 400s the whole
       # config and every deployment stops routing.
       - "infra/systemd/forge-caddy.service"
+      # The reboot path and its watchdog. The agent's /host/reboot writes the
+      # sentinel these units act on, so they move with it.
+      - "infra/systemd/forge-reboot"
+      - "infra/systemd/forge-reboot.path"
+      - "infra/systemd/forge-reboot.service"
+      - "infra/systemd/forge-watchdog.service"
+      - "infra/systemd/forge-watchdog.conf"
+      - "infra/systemd/forge-grub.cfg"
       - ".github/workflows/release-deploy-agent.yml"
       - "bun.lock"
   workflow_dispatch:
@@ -201,6 +209,12 @@ jobs:
             infra/systemd/forge-buildkit.service \
             infra/systemd/forge-buildkitd.toml \
             infra/systemd/forge-agent-install \
+            infra/systemd/forge-reboot \
+            infra/systemd/forge-reboot.path \
+            infra/systemd/forge-reboot.service \
+            infra/systemd/forge-watchdog.service \
+            infra/systemd/forge-watchdog.conf \
+            infra/systemd/forge-grub.cfg \
             dr-runtime.tgz \
             "denizlg24@${FORGE_ADDR}:/var/lib/forge-agent/staging/"
 
@@ -251,7 +265,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "denizlg24@${FORGE_ADDR}" \
-            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-caddy.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install /var/lib/forge-agent/staging/dr-runtime.tgz"
+            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-caddy.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install /var/lib/forge-agent/staging/forge-reboot /var/lib/forge-agent/staging/forge-reboot.path /var/lib/forge-agent/staging/forge-reboot.service /var/lib/forge-agent/staging/forge-watchdog.service /var/lib/forge-agent/staging/forge-watchdog.conf /var/lib/forge-agent/staging/forge-grub.cfg /var/lib/forge-agent/staging/dr-runtime.tgz"
           {
             echo "### Validate-only run"
             echo

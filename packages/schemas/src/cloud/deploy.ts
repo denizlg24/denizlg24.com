@@ -796,6 +796,30 @@ export type AgentRecoveryPublishResult = z.infer<
   typeof agentRecoveryPublishResultSchema
 >;
 
+/**
+ * Asks the agent to hand the host to `forge-reboot.path`. The agent stops
+ * claiming, waits up to `drainTimeoutMs` for every run to finish — a recovery
+ * push included — and only then writes the sentinel, so a scheduled reboot
+ * never interrupts a deployment.
+ */
+export const agentRebootRequestSchema = z.object({
+  drainTimeoutMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(2 * 60 * 60 * 1_000),
+});
+export type AgentRebootRequest = z.infer<typeof agentRebootRequestSchema>;
+
+export const agentRebootResultSchema = z.object({
+  requested: z.boolean(),
+  drainedMs: z.number().int().nonnegative(),
+  /** Runs still in flight when the drain gave up; zero when `requested`. */
+  running: z.number().int().nonnegative(),
+  error: z.string().nullable(),
+});
+export type AgentRebootResult = z.infer<typeof agentRebootResultSchema>;
+
 export const agentRecoveryResultSchema = z.object({
   restored: z.boolean(),
   containerId: z.string().max(64).nullable(),

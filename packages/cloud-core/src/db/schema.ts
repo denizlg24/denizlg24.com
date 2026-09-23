@@ -96,6 +96,8 @@ export const taskTypeEnum = pgEnum("task_type", [
   "domain_verification",
   "thumbnail_backfill",
   "thumbnail_gc",
+  "forge_recovery_publish",
+  "forge_reboot",
 ]);
 export type TaskType = (typeof taskTypeEnum.enumValues)[number];
 

@@ -2,6 +2,8 @@ import type {
   AgentApplyEnvRequest,
   AgentGcReport,
   AgentGcRequest,
+  AgentRebootRequest,
+  AgentRebootResult,
   AgentRecoveryPublishRequest,
   AgentRecoveryRequest,
 } from "@repo/schemas/cloud";
@@ -10,6 +12,7 @@ import {
   agentDeploymentRequestSchema,
   agentGcRequestSchema,
   agentPromoteRequestSchema,
+  agentRebootRequestSchema,
   agentRecoveryPublishRequestSchema,
   agentRecoveryRequestSchema,
 } from "@repo/schemas/cloud";
@@ -52,6 +55,7 @@ export interface AgentRouteOptions {
     options: { redirects?: { hostname: string; to: string }[] },
   ) => Promise<boolean>;
   collectGarbage: (request: AgentGcRequest) => Promise<AgentGcReport>;
+  requestReboot: (request: AgentRebootRequest) => Promise<AgentRebootResult>;
 }
 
 const DEPLOYMENT_ID =
@@ -509,6 +513,30 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       );
     }
     return context.json({ report: await options.collectGarbage(parsed.data) });
+  });
+
+  /**
+   * 409 when the queue did not drain in time: nothing was interrupted and the
+   * host was not touched, so the caller's only move is to try another time.
+   */
+  guarded.post("/host/reboot", async (context) => {
+    const parsed = agentRebootRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "Reboot request failed validation",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    const result = await options.requestReboot(parsed.data);
+    return context.json(result, result.requested ? 200 : 409);
   });
 
   guarded.post("/deployments/:id/cancel", (context) => {

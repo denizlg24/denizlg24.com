@@ -105,7 +105,7 @@ export function triagePrompt(
     "",
     "Do this, in order:",
     "1. Read the current state: status_overview, status_incidents get on this incident, and status_service_samples for each service (the last 30 minutes with evidence). Note whether the service is already back.",
-    "2. Diagnose with the infrastructure tools: cloud_ops_health and cloud_containers_list for the Pi; forge_target_by_slug, forge_deployments_list and forge_deployment_runtime_logs / forge_container_logs for a Forge app; cloud_activity_list for anything that changed just before the incident started. A deploy in progress, the Sunday 02:00 UTC host reboot, or a single upstream blip is a transient cause.",
+    "2. Diagnose with the infrastructure tools: cloud_ops_health and cloud_containers_list for the Pi; forge_target_by_slug, forge_deployments_list and forge_deployment_runtime_logs / forge_container_logs for a Forge app; cloud_activity_list for anything that changed just before the incident started. A deploy in progress, the Sunday host reboots (the Pi at 02:00 UTC, Forge at 03:30 UTC), or a single upstream blip is a transient cause.",
     "3. Decide one verdict:",
     "   - transient: it recovered or will on its own and nothing is wrong. Say so.",
     "   - operational: something needs an operator action you can take — restart a container (cloud_container_restart), restart or roll back a deployment (forge_deployment_action), re-run a failed task (cloud_task_run). Take the narrowest action, then verify with a fresh status_overview.",
