@@ -1146,17 +1146,19 @@ Gateway call like any other (`AI_GATEWAY_API_KEY`), through
   Noul's probability is not a measure of degree.
 - **Four sites, all live, all fail open.** Triage adjudicates only the rows
   already bound for the review queue (`triage-adjudicator.ts`); formation
-  re-decides a candidate's typed fields and replaces its self-reported
-  confidence with measured support (`agent-memory/evaluation.ts`); the status
+  re-decides a candidate's typed fields and lowers its self-reported
+  confidence to measured support (`agent-memory/evaluation.ts`); the status
   collector asks for a verdict before spending a full agent run
   (`apps/status/lib/jev.ts`). Every one returns null on any failure and the
   caller carries on exactly as it did before — a memory run must never fail
   because a second opinion was unavailable.
-- **Formation's adoption is asymmetric on purpose.** `confidence` and
-  `memoryType` are taken; `explicitness` only ever moves *down* and
-  `sensitivity` only ever *up*. A second opinion may hold a candidate back and
-  must never wave one through into auto-promotion. The extraction model's own
-  number survives as `extraction.statedConfidence`.
+- **Formation's adoption is asymmetric on purpose.** `confidence` is the
+  *lower* of the stated and measured values, `explicitness` only ever moves
+  *down*, `sensitivity` only ever *up*; `memoryType` is taken outright because
+  it steers retrieval, not promotion. A second opinion may hold a candidate
+  back and must never wave one through into auto-promotion — a measurement
+  that raised confidence would do exactly that. Both inputs survive as
+  `extraction.statedConfidence` and `extraction.evaluatedConfidence`.
 - **Only `transient` skips a triage run.** `operational` and `code` are the
   verdicts that need the agent, and Jev has no tools to act with.
 - **Jev's rate is a hand-maintained constant** (`JEV_PRICING`), like the

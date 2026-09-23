@@ -3,6 +3,7 @@ import type {
   AgentFormationCandidate,
   AgentMemoryType,
   AgentSensitivity,
+  AgentTrust,
 } from "@repo/schemas";
 import { jevConfidence, jevIsTrue } from "@repo/schemas";
 import { evaluateQuestions } from "@/lib/llm-service";
@@ -23,9 +24,12 @@ import { evaluateQuestions } from "@/lib/llm-service";
  * opinion should be able to hold a candidate back but never wave one
  * through:
  *
- * - `confidence` is replaced outright by P(the statement is supported by the
- *   evidence). That is what the field has always meant and now it is
- *   measured rather than asserted.
+ * - `confidence` is the *lower* of the two: the extraction model's own number
+ *   and P(the statement is supported by the evidence). Measuring it is the
+ *   point, but letting a measurement raise it would push candidates over the
+ *   promotion thresholds on Jev's word alone, which is the one thing this
+ *   pass must not do. Both values are kept on the candidate's extraction
+ *   record, so a disagreement in either direction stays readable.
  * - `memoryType` is adopted when the choice is decided. It steers retrieval,
  *   not promotion, so there is nothing to be gained by refusing it.
  * - `explicitness` is only ever moved *down* the ladder
@@ -222,6 +226,7 @@ export function applyMemoryEvaluation(
     memoryType: AgentMemoryType;
     explicitness: AgentExplicitness;
     sensitivity: AgentSensitivity;
+    trust: AgentTrust;
     reviewFlags: readonly ReviewFlag[];
   },
   evaluation: MemoryEvaluation,
@@ -238,14 +243,22 @@ export function applyMemoryEvaluation(
       SENSITIVITY_RANK[candidate.sensitivity]
       ? evaluation.sensitivity
       : candidate.sensitivity;
+  const memoryType = evaluation.memoryType ?? candidate.memoryType;
   const reviewFlags = new Set<ReviewFlag>(candidate.reviewFlags);
   if (evaluation.permissionLike) reviewFlags.add("permission-like");
   if (explicitness === "inferred" && candidate.explicitness === "explicit") {
     reviewFlags.add("weak-inference");
   }
+  // `prepareFormationCandidate` raises this for an untrusted core candidate,
+  // before Jev has had a say. Adopting a memory type can create exactly that
+  // combination afterwards, so the same rule is applied again to the type
+  // actually being stored.
+  if (candidate.trust === "untrusted" && memoryType === "core") {
+    reviewFlags.add("weak-inference");
+  }
   return {
-    confidence: evaluation.supported,
-    memoryType: evaluation.memoryType ?? candidate.memoryType,
+    confidence: Math.min(candidate.confidence, evaluation.supported),
+    memoryType,
     explicitness,
     sensitivity,
     reviewFlags: [...reviewFlags],

@@ -42,6 +42,8 @@ export interface IAgentMemoryCandidate extends Document {
     evaluationModel?: string;
     /** What the extraction model said its own confidence was, before that. */
     statedConfidence?: number;
+    /** P(supported) as the evaluation measured it, before the cap. */
+    evaluatedConfidence?: number;
   };
   reason: string;
   status: "pending" | "accepted" | "dismissed" | "superseded";
@@ -98,6 +100,7 @@ const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
           },
           evaluationModel: { type: String },
           statedConfidence: { type: Number, min: 0, max: 1 },
+          evaluatedConfidence: { type: Number, min: 0, max: 1 },
         },
         { _id: false },
       ),

@@ -2124,8 +2124,15 @@ export async function runTriage(
         reviewRequired = false;
         reviewReason = undefined;
       }
+      // Everything downstream keys off the decided category, not the
+      // classifier's: an adjudication that moves an email into
+      // `action-needed` has to pull its tasks out too, and one that moves it
+      // to `fyi` must not leave extraction running under the old label.
+      const category = adjudicated
+        ? adjudication.category
+        : prediction.category;
       const classification: ClassificationResult = {
-        category: adjudicated ? adjudication.category : prediction.category,
+        category,
         confidence: adjudicated
           ? adjudication.confidence
           : prediction.confidence,
@@ -2133,10 +2140,8 @@ export async function runTriage(
           email.subject,
           "Email classified without a subject.",
         ),
-        needsTaskExtraction:
-          !reviewRequired && prediction.category === "action-needed",
-        needsEventExtraction:
-          !reviewRequired && prediction.category === "scheduled",
+        needsTaskExtraction: !reviewRequired && category === "action-needed",
+        needsEventExtraction: !reviewRequired && category === "scheduled",
       };
       // Called for every email, not only the ones the classifier flagged: the
       // deterministic course match lives inside and is the one signal allowed

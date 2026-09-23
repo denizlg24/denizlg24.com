@@ -694,9 +694,11 @@ export async function processFormationJob(
             ...(evaluation
               ? {
                   evaluationModel: evaluation.model,
-                  // Kept beside the adopted value so a disagreement between
-                  // the two models stays legible after the fact.
+                  // Both inputs to the adopted confidence, which is the lower
+                  // of them — without these a disagreement in either
+                  // direction is invisible after the fact.
                   statedConfidence: prepared.confidence,
+                  evaluatedConfidence: evaluation.supported,
                 }
               : {}),
           },

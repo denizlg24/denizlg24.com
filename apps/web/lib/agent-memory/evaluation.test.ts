@@ -6,6 +6,7 @@ const candidate = {
   memoryType: "semantic" as const,
   explicitness: "explicit" as const,
   sensitivity: "standard" as const,
+  trust: "high" as const,
   reviewFlags: [] as never[],
 };
 
@@ -22,12 +23,22 @@ const evaluation = (
 });
 
 describe("applyMemoryEvaluation", () => {
-  it("replaces the self-reported confidence with the measured one", () => {
+  it("takes the measured confidence when it is lower", () => {
     const applied = applyMemoryEvaluation(
       candidate,
       evaluation({ supported: 0.42 }),
     );
     expect(applied.confidence).toBe(0.42);
+  });
+
+  it("never lets a measurement raise the confidence", () => {
+    // The extraction model was unsure; Jev being certain must not push the
+    // candidate over a promotion threshold on its own.
+    const applied = applyMemoryEvaluation(
+      { ...candidate, confidence: 0.4 },
+      evaluation({ supported: 0.99 }),
+    );
+    expect(applied.confidence).toBe(0.4);
   });
 
   it("adopts a decided memory type", () => {
@@ -86,6 +97,23 @@ describe("applyMemoryEvaluation", () => {
       evaluation({ permissionLike: true }),
     );
     expect(applied.reviewFlags).toContain("permission-like");
+  });
+
+  it("re-flags an untrusted candidate that Jev moves to core", () => {
+    const applied = applyMemoryEvaluation(
+      { ...candidate, trust: "untrusted" },
+      evaluation({ memoryType: "core" }),
+    );
+    expect(applied.memoryType).toBe("core");
+    expect(applied.reviewFlags).toContain("weak-inference");
+  });
+
+  it("does not flag a trusted candidate moved to core", () => {
+    const applied = applyMemoryEvaluation(
+      candidate,
+      evaluation({ memoryType: "core" }),
+    );
+    expect(applied.reviewFlags).not.toContain("weak-inference");
   });
 
   it("keeps the flags it was given", () => {

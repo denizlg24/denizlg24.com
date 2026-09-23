@@ -109,6 +109,15 @@ const JEV_PRICING: Record<
   "typesafe-ai/jev": { inputTokens: 0, outputTokens: 0 },
 };
 
+/**
+ * An evaluation is a side pass over work the caller is already doing — triage
+ * holds a worker, formation blocks the next candidate — and every caller
+ * turns a failure into its documented fallback. So a stalled request has to
+ * become that fallback rather than sit on a budget only checked between
+ * candidates.
+ */
+const EVALUATION_TIMEOUT_MS = 15_000;
+
 // Compatibility only: resolves model ids stored before the Gateway migration
 // (Mongo triage settings, persisted conversations, desktop clients). This is
 // not a selectable-model list — the catalog is.
@@ -628,7 +637,12 @@ export async function evaluateQuestions<Q extends JevQuestions>({
   signal,
   source,
 }: EvaluateQuestionsRequest<Q>): Promise<EvaluateQuestionsResult<Q>> {
-  const result = await runJevEvaluation({ state, questions, signal });
+  const deadline = AbortSignal.timeout(EVALUATION_TIMEOUT_MS);
+  const result = await runJevEvaluation({
+    state,
+    questions,
+    signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+  });
   const model = result.response.modelId || jevModelId();
   const inputTokens = result.usage.inputTokens ?? 0;
   const outputTokens = result.usage.outputTokens ?? 0;
@@ -1379,6 +1393,13 @@ export async function streamAgentTurn({
   const resolved = await resolveModel({ model, purpose, requiredTags });
   const limits = getModelLimits(resolved.catalogModel);
   const adaptive = ADAPTIVE_THINKING_MODELS.has(resolved.id);
+  // Not every model takes a reasoning effort — `anthropic/claude-3-haiku` and
+  // `deepseek/deepseek-v3.2` carry no `reasoning` tag — and sending one to a
+  // model that has none is an error, not a setting it ignores. A cold catalog
+  // reads as "no": losing the effort costs a less thorough turn, sending it
+  // blind costs the turn.
+  const supportsReasoning =
+    resolved.catalogModel?.tags.includes("reasoning") ?? false;
   const allTools: ToolSet = {
     ...tools,
     ...providerTools(resolved.id, { webSearch, webFetch }),
@@ -1436,7 +1457,7 @@ export async function streamAgentTurn({
     // streams reasoning as it arrives and it is the most useful thing on
     // screen while a long turn runs. An adaptive model decides its own budget
     // from `providerOptions` below and must not be given an effort as well.
-    ...(adaptive
+    ...(adaptive || !supportsReasoning
       ? {}
       : { reasoning: thinkLonger ? ("xhigh" as const) : ("medium" as const) }),
     providerOptions: {
