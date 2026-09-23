@@ -433,8 +433,11 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 - **better-auth ≥1.7.3 refuses to start while `auth_account.issuer` is NOT
   NULL** (`SCHEMA_MISMATCH` on every auth call). 1.7.0–1.7.2 required it
   (migration 0040); 0044 relaxes it. Never roll an API past 1.7.2 onto a
-  database without 0044. `apps/macros` is pinned to better-auth 1.7.1 on
-  purpose — it has its own database and was not part of this upgrade.
+  database without 0044. `apps/macros` was pinned to 1.7.1 for this reason
+  and no longer is: its `account` table has no `issuer` column at all — it
+  never ran 0040 and uses no plugin that adds one — so the mismatch cannot
+  arise. 1.7.5 was booted against the live `proj_macros` database before the
+  pin came off (adapter initialises, sessions and accounts read back).
 - **Keep web's Mongo `user` collection.** Sign-in no longer uses it, but agent
   memory reads its one document as the owner's identity and its `_id` as the
   owner node's id. `session`, `account` and `verification` are dead.
