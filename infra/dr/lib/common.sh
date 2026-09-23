@@ -251,19 +251,49 @@ dr_read_env_file() {
   done < "$path"
 }
 
+# Breaks a host lock whose recorded holder no longer exists — killed by the OOM
+# killer, SIGKILLed, crashed — and reports whether it did. This used to be a
+# STOP asking for operator review, which made one killed run absorbing: every
+# later backup died on the same directory until someone removed it by hand.
+#
+# Only a lock that names a pid is judged, and liveness is `/proc`, not
+# `kill -0`, which answers a live process owned by another user (the Forge
+# agent runs as `forge`) exactly as it answers a dead one. A lock with no pid is
+# either mid-publication — mkdir is the no-replace step, pid follows — or held
+# by the Mac bridge or a release workflow, which record only an owner; neither
+# is touched here. Locks left by a previous boot never reach this:
+# deniz-dr-locks.conf removes them before anything can take one.
+#
+# The break is a rename, the same publication point the deploy agent uses, so
+# two reclaimers cannot both win.
+dr_reclaim_abandoned_lock() {
+  local lock_dir="$1" pid tombstone
+  # Without a procfs every pid would look dead; never guess.
+  [[ -d /proc/self ]] || return 1
+  pid="$(cat "${lock_dir}/pid" 2>/dev/null)" || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ && ! -d "/proc/${pid}" ]] || return 1
+  tombstone="${lock_dir}.abandoned-$$-${RANDOM}"
+  mv -T -- "$lock_dir" "$tombstone" 2>/dev/null || return 1
+  rm -rf -- "$tombstone"
+  printf 'reclaimed %s from pid %s, which no longer exists\n' "$lock_dir" "$pid" >&2
+}
+
+# One attempt, for the jobs that skip rather than wait: a held lock means try
+# next time, but an abandoned one is reclaimed instead of skipped for ever.
+dr_try_lock() {
+  local lock_dir="$1"
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    dr_reclaim_abandoned_lock "$lock_dir" || return 1
+    mkdir "$lock_dir" 2>/dev/null || return 1
+  fi
+  printf '%s\n' "$$" > "${lock_dir}/pid"
+}
+
 dr_lock() {
   local lock_dir="$1" deadline="${2:-0}" now
   while ! mkdir "$lock_dir" 2>/dev/null; do
-    if [[ -f "${lock_dir}/pid" ]]; then
-      if ! kill -0 "$(cat "${lock_dir}/pid")" 2>/dev/null; then
-        dr_die "stale lock requires operator review: ${lock_dir}"
-      fi
-    elif [[ ! -f "${lock_dir}/owner" ]]; then
-      # mkdir is the cross-language no-replace operation. The unprivileged
-      # deploy agent writes pid/owner immediately afterward, so tolerate this
-      # publication window but never replace or remove the directory.
-      :
-    fi
+    # Straight back to mkdir: the lock is free, and that is the real contest.
+    if dr_reclaim_abandoned_lock "$lock_dir"; then continue; fi
     now="$(date +%s)"
     (( deadline > 0 )) || dr_die "another coordinated operation holds ${lock_dir}"
     (( now < deadline )) || dr_die "timed out waiting for ${lock_dir}"

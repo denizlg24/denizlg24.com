@@ -34,12 +34,11 @@ PYCODE
     echo '{"writes":false,"skipped":"weekly-retention-already-completed"}'
     exit 0
   fi
-  if ! mkdir "$lock_dir" 2>/dev/null; then
+  if ! dr_try_lock "$lock_dir"; then
     printf '%s\n' '{"phase":"skipped","reason":"host-lock-held"}' | dr_metrics
     echo '{"writes":false,"skipped":"host-lock-held"}'
     exit 0
   fi
-  printf '%s\n' "$$" > "$lock_dir/pid"
   trap 'result=$?; dr_unlock "$lock_dir"; if ((result)); then touch "$failed"; heartbeat /fail; else rm -f "$failed"; heartbeat ""; fi' EXIT
 fi
 if [[ "$mode" == --execute ]]; then dr_phase offsite-retention; fi

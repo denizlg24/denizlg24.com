@@ -82,6 +82,8 @@ install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.service" /etc/systemd/s
 install -m 0644 "$installed_dr/systemd/deniz-dr-r2-sync@.timer" /etc/systemd/system/
 install -m 0644 "$installed_dr/systemd/deniz-dr-r2-retention@.service" /etc/systemd/system/
 install -m 0644 "$installed_dr/systemd/deniz-dr-r2-retention@.timer" /etc/systemd/system/
+# Boot-only removal of the host locks; installing it removes nothing now.
+install -m 0644 "$installed_dr/systemd/deniz-dr-locks.conf" /etc/tmpfiles.d/deniz-dr-locks.conf
 # A libc update makes needrestart restart every process that mapped the old
 # library. These oneshots are transactions: interrupting a namespace archive or
 # repository publication wastes the run, and the immediate retry can happen
