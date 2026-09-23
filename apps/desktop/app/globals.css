@@ -49,6 +49,26 @@
   }
 }
 
+/* Three dots taking turns rising — the waiting state before an assistant
+   turn has produced anything. Duplicated from @repo/ui/theme.css for the
+   same reason `shimmer` above is. */
+@utility thinking-dot {
+  animation: thinking-dot 1.05s ease-in-out infinite;
+}
+
+@keyframes thinking-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-0.28em);
+    opacity: 1;
+  }
+}
+
 @keyframes cursor-blink {
   0%,
   100% {
