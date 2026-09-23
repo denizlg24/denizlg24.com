@@ -27,6 +27,12 @@ import {
   requestMultimodalEmbedding,
 } from "@/lib/llm-transports/cohere-embeddings";
 import { requestEmbedding } from "@/lib/llm-transports/embeddings";
+import {
+  type JevQuestions,
+  type JevState,
+  jevModelId,
+  runJevEvaluation,
+} from "@/lib/llm-transports/jev-evaluate";
 import { requestTranscription } from "@/lib/llm-transports/openai-transcription";
 import { connectDB } from "@/lib/mongodb";
 import type { ToolExecutionContext } from "@/lib/tools/types";
@@ -55,7 +61,10 @@ export type LlmPurpose =
   | "agent-memory-query-summary"
   | "agent-task"
   | "agent-task-learning"
-  | "transcription";
+  | "transcription"
+  | "triage-adjudicate"
+  | "agent-memory-evaluation"
+  | "incident-verdict";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -79,6 +88,25 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-task-learning": ["tool-use"],
   // Never resolved against the catalog: speech models are not in it.
   transcription: [],
+  // Nor are evaluation models. These purposes go to Jev through
+  // `evaluateQuestions`, which never calls `resolveModel`.
+  "triage-adjudicate": [],
+  "agent-memory-evaluation": [],
+  "incident-verdict": [],
+};
+
+/**
+ * Jev is not in the Gateway's model catalog — it lists language and
+ * embedding models only — so its rate is a constant here, the same way the
+ * transcription rates are. It is free while TypeSafe's launch promotion
+ * lasts; a wrong rate shows up as wrong spend in usage reporting, never as a
+ * failure, so this is the number to revisit rather than a thing to guard.
+ */
+const JEV_PRICING: Record<
+  string,
+  { inputTokens: number; outputTokens: number }
+> = {
+  "typesafe-ai/jev": { inputTokens: 0, outputTokens: 0 },
 };
 
 // Compatibility only: resolves model ids stored before the Gateway migration
@@ -566,6 +594,64 @@ export async function transcribeAudio({
     durationSeconds: seconds,
     usage,
   };
+}
+
+export interface EvaluateQuestionsRequest<Q extends JevQuestions>
+  extends LlmRequestContext {
+  /** Everything the questions may refer to, as text or a JSON object. */
+  state: JevState;
+  questions: Q;
+  /** One line for the usage log, since there is no prompt to record. */
+  describe: string;
+  signal?: AbortSignal;
+}
+
+export interface EvaluateQuestionsResult<Q extends JevQuestions> {
+  answers: Awaited<ReturnType<typeof runJevEvaluation<Q>>>["answers"];
+  model: string;
+  usage: LlmUsageResult;
+}
+
+/**
+ * Typed questions against one shared state, answered by a System One model.
+ *
+ * Use this wherever the code needs a value from a fixed set rather than
+ * prose: the model cannot answer outside the options, and the distribution
+ * it returns is calibrated, which is the difference between a gate that
+ * means something and a language model's opinion of its own certainty.
+ * Answers are read through `jevConfidence` and friends in `@repo/schemas`.
+ */
+export async function evaluateQuestions<Q extends JevQuestions>({
+  state,
+  questions,
+  describe,
+  signal,
+  source,
+}: EvaluateQuestionsRequest<Q>): Promise<EvaluateQuestionsResult<Q>> {
+  const result = await runJevEvaluation({ state, questions, signal });
+  const model = result.response.modelId || jevModelId();
+  const inputTokens = result.usage.inputTokens ?? 0;
+  const outputTokens = result.usage.outputTokens ?? 0;
+  const pricing = JEV_PRICING[model];
+  if (!pricing) {
+    console.warn(
+      `[llm-service] No rate for evaluation model "${model}"; recording cost as 0`,
+    );
+  }
+  const costUsd =
+    inputTokens * (pricing?.inputTokens ?? 0) +
+    outputTokens * (pricing?.outputTokens ?? 0);
+  const usage = { inputTokens, outputTokens, costUsd };
+  await logLlmUsage({
+    llmModel: model,
+    inputTokens,
+    outputTokens,
+    costUsd,
+    systemPrompt: describe,
+    userPrompt: Object.keys(questions).join(", "),
+    source,
+  });
+  return { answers: result.answers, model, usage };
 }
 
 export interface GenerateTextRequest extends LlmRequestContext {
@@ -1346,7 +1432,13 @@ export async function streamAgentTurn({
     // The SDK default is one step; the loop runs until the model stops itself.
     stopWhen: () => false,
     maxOutputTokens: limits.maxOutput,
-    ...(thinkLonger && !adaptive ? { reasoning: "xhigh" as const } : {}),
+    // Thinking is on by default, not only behind "Think longer": the chat
+    // streams reasoning as it arrives and it is the most useful thing on
+    // screen while a long turn runs. An adaptive model decides its own budget
+    // from `providerOptions` below and must not be given an effort as well.
+    ...(adaptive
+      ? {}
+      : { reasoning: thinkLonger ? ("xhigh" as const) : ("medium" as const) }),
     providerOptions: {
       anthropic: {
         cacheControl: { type: "ephemeral" },

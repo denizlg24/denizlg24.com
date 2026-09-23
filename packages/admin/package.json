@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.102",
+    "@ai-sdk/react": "^4.0.114",
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.43.9",
@@ -37,7 +37,7 @@
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
-    "ai": "^7.0.99",
+    "ai": "^7.0.111",
     "date-fns": "^4.4.0",
     "harper.js": "^2.7.0",
     "html5-qrcode": "^2.3.8",

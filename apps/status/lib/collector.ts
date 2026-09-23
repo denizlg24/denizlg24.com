@@ -41,6 +41,7 @@ import {
   statusWord,
   systemUpdate,
 } from "./incidents";
+import { preVerdict } from "./jev";
 import type {
   Backup,
   Evidence,
@@ -823,6 +824,27 @@ export async function collectStatus() {
           const members = observed.filter((service) =>
             incident.serviceIds.includes(service.id),
           );
+          // A System One verdict on the same evidence, before the agent run
+          // that costs minutes and a reasoning model. Only a decided
+          // "transient" stops here; see `jev.ts`.
+          const pre = await preVerdict(incident, members, statusOrigin);
+          if (pre?.skipTriage) {
+            await c.incidents.updateOne(
+              { _id: incident._id },
+              {
+                $set: { agentVerdict: "transient" },
+                $push: {
+                  updates: systemUpdate(
+                    "investigating",
+                    "private",
+                    `Triage skipped: ${pre.model} read this as transient (margin ${pre.confidence.toFixed(2)}${pre.alreadyRecovered ? ", services already answering" : ""}).`,
+                    nowIso,
+                  ),
+                },
+              },
+            );
+            continue;
+          }
           const runId = await startTriageRun(
             agent,
             triagePrompt(incident, members, statusOrigin),

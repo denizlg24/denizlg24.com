@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@repo/markets": "workspace:*",
-    "ai": "^7.0.99",
+    "ai": "^7.0.111",
     "zod": "^4.4.3"
   },
   "devDependencies": {
