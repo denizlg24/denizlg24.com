@@ -968,18 +968,28 @@ export function LatexWorkspacePage({
               toast.success("Project compiled");
               return { log: response.log };
             } catch (error) {
-              // A refused compile (bad source, revision conflict) still
-              // hands back the row it left behind, which is the truth now.
               if (error instanceof LatexCompileRequestError) {
                 const payload = error.payload;
-                const failedProject = latexProjectRecordSchema.safeParse(
+                const returned = latexProjectRecordSchema.safeParse(
                   payload && typeof payload === "object" && "project" in payload
                     ? payload.project
                     : undefined,
                 );
-                if (failedProject.success) {
-                  applyRecord(failedProject.data);
-                  void persistLocal(next, failedProject.data.revision).catch(
+                if (error.status === 409) {
+                  // 409 hands back somebody else's newer row, not the source
+                  // this compile sent. Applying it and persisting the local
+                  // draft against that revision would leave the editor
+                  // "saved" and let the next save overwrite the concurrent
+                  // change, so it goes through the same conflict gate a
+                  // refused save does.
+                  if (returned.success) setServerConflict(returned.data);
+                  setSaveState(returned.success ? "conflict" : "error");
+                } else if (returned.success) {
+                  // A refused compile (422) hands back the row it left
+                  // behind — this draft and its failure, which is the truth
+                  // now.
+                  applyRecord(returned.data);
+                  void persistLocal(next, returned.data.revision).catch(
                     () => undefined,
                   );
                 }

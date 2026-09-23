@@ -33,6 +33,18 @@ export function latexCompileEventResponse(
 ): Response {
   const encoder = new TextEncoder();
   let open = true;
+  let keepalive: ReturnType<typeof setInterval> | null = null;
+  // The one way off this stream, for all three ways it ends: the outcome
+  // arriving, an enqueue the controller refused, and a consumer that went
+  // away. `cancel` only half-closes the socket, so without this the keepalive
+  // kept firing at a stream nobody was reading until the compile finished.
+  const close = () => {
+    open = false;
+    if (keepalive !== null) {
+      clearInterval(keepalive);
+      keepalive = null;
+    }
+  };
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const write = (text: string) => {
@@ -40,20 +52,15 @@ export function latexCompileEventResponse(
         try {
           controller.enqueue(encoder.encode(text));
         } catch {
-          open = false;
+          close();
         }
       };
-      const keepalive = setInterval(
-        () => write(": keepalive\n\n"),
-        KEEPALIVE_MS,
-      );
+      keepalive = setInterval(() => write(": keepalive\n\n"), KEEPALIVE_MS);
       const finish = (event: LatexCompileEvent) => {
-        clearInterval(keepalive);
         write(encode(event));
-        if (open) {
-          open = false;
-          controller.close();
-        }
+        const delivered = open;
+        close();
+        if (delivered) controller.close();
       };
       run((text) => write(encode({ type: "log", text }))).then(
         ({ log, payload }) => finish({ type: "done", log, payload }),
@@ -71,7 +78,7 @@ export function latexCompileEventResponse(
       );
     },
     cancel() {
-      open = false;
+      close();
     },
   });
   return new Response(stream, {

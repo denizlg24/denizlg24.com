@@ -130,4 +130,29 @@ describe("boundedCompileError", () => {
     expect(stored).toContain("No pages of output.");
     expect(stored).not.toContain(banner);
   });
+
+  it("drops the log when the head leaves no room for a tail", () => {
+    const message = "x".repeat(299);
+    expect(boundedCompileError(message, "y".repeat(500), [], 300)).toBe(
+      message,
+    );
+    expect(boundedCompileError("x".repeat(298), "y".repeat(500), [], 300)).toBe(
+      "x".repeat(298),
+    );
+  });
+
+  it("keeps only the truncation marker on a one-character budget", () => {
+    const stored = boundedCompileError(
+      "x".repeat(297),
+      "y".repeat(500),
+      [],
+      300,
+    );
+    expect(stored).toBe(`${"x".repeat(297)}\n\n…`);
+    expect(stored.length).toBe(300);
+  });
+
+  it("appends a short log whole", () => {
+    expect(boundedCompileError("head", "tail", [], 300)).toBe("head\n\ntail");
+  });
 });

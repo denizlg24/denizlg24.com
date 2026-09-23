@@ -24,7 +24,7 @@ import { PageIntro, PageSection, SectionEmpty } from "@/components/shell-frame";
 import { api, errorMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { defaultPasskeyName, isPasskeyDismissed } from "@/lib/passkey";
-import { rememberPasskeyDevice } from "@/lib/passkey-device";
+import { rememberAccountPasskeyDevice } from "@/lib/passkey-device";
 
 type PasskeyRow = NonNullable<
   Awaited<ReturnType<typeof authClient.passkey.listUserPasskeys>>["data"]
@@ -39,6 +39,7 @@ interface SecurityData {
   trusted: TrustedDevicesSummary;
   sessions: SessionRow[];
   currentSessionToken: string | null;
+  userId: string | null;
 }
 
 async function loadSecurity(): Promise<SecurityData> {
@@ -55,6 +56,7 @@ async function loadSecurity(): Promise<SecurityData> {
     throw new Error(sessions.error.message ?? "Couldn't list sessions");
   }
   const currentSessionToken = current.data?.session.token ?? null;
+  const userId = current.data?.user.id ?? null;
   const rows = [...(sessions.data ?? [])].sort((a, b) => {
     if (a.token === currentSessionToken) return -1;
     if (b.token === currentSessionToken) return 1;
@@ -65,6 +67,7 @@ async function loadSecurity(): Promise<SecurityData> {
     trusted,
     sessions: rows,
     currentSessionToken,
+    userId,
   };
 }
 
@@ -566,7 +569,7 @@ function SecurityPanel() {
               ? "The browser closed the prompt before the passkey was made. Try again when you're ready."
               : (passkeyError.message ?? "Couldn't create the passkey");
           }
-          rememberPasskeyDevice();
+          if (data?.userId) rememberAccountPasskeyDevice(data.userId);
           await reload();
           return null;
         }}

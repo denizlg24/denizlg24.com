@@ -55,4 +55,34 @@ describe("latexCompileEventResponse", () => {
       { type: "error", status: 409, error: "busy", log: "", diagnostics: [] },
     ]);
   });
+
+  it("stops the keepalive when the consumer cancels", async () => {
+    const cleared: unknown[] = [];
+    const realClear = globalThis.clearInterval;
+    globalThis.clearInterval = ((handle: unknown) => {
+      cleared.push(handle);
+      return realClear(handle as Parameters<typeof realClear>[0]);
+    }) as typeof realClear;
+    let release: (() => void) | undefined;
+    try {
+      const response = latexCompileEventResponse(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ log: "", payload: null });
+          }),
+        () => ({
+          type: "error",
+          status: 500,
+          error: "unreachable",
+          log: "",
+          diagnostics: [],
+        }),
+      );
+      await response.body?.cancel();
+      expect(cleared.length).toBe(1);
+    } finally {
+      globalThis.clearInterval = realClear;
+      release?.();
+    }
+  });
 });

@@ -6,8 +6,23 @@ mock.module("server-only", () => ({}));
 const {
   compileLatexProject,
   LatexCompilationError,
+  sliceUtf8,
   tryAcquireLatexCompileLock,
 } = await import("./latex-compiler");
+
+describe("sliceUtf8", () => {
+  it("cuts on a character when the budget lands inside one", () => {
+    // "é" is two bytes, so a 3-byte budget can only hold one of them.
+    expect(sliceUtf8("aéb", 3)).toBe("aé");
+    expect(sliceUtf8("aéb", 2)).toBe("a");
+    expect(sliceUtf8("🙂", 3)).toBe("");
+    expect(sliceUtf8("🙂", 4)).toBe("🙂");
+  });
+
+  it("returns the whole string when it fits", () => {
+    expect(sliceUtf8("hello", 64)).toBe("hello");
+  });
+});
 
 describe("compileLatexProject", () => {
   it("allows different project keys while rejecting duplicate concurrent work", () => {

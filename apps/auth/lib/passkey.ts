@@ -26,6 +26,18 @@ export function isPasskeyPreviouslyRegistered(error: object): boolean {
   return errorCode(error) === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED";
 }
 
+/**
+ * The authenticator presented a credential the server has no record of — the
+ * passkey was deleted from the account, or the key belongs to somebody else
+ * on a shared device. It is the exact counterpart of
+ * `isPasskeyPreviouslyRegistered`: proof that this browser's marker is wrong.
+ * `AUTHENTICATION_FAILED` is deliberately not treated the same way, since a
+ * failed assertion proves nothing about the stored credential.
+ */
+export function isPasskeyUnknownToServer(error: object): boolean {
+  return errorCode(error) === "PASSKEY_NOT_FOUND";
+}
+
 /** A label for a new passkey from the platform that is about to hold it. */
 export function defaultPasskeyName(userAgent: string): string {
   if (/iPhone/.test(userAgent)) return "iPhone";

@@ -152,7 +152,13 @@ export function boundedCompileError(
     ...diagnostics.map((diagnostic) => diagnostic.context).filter(Boolean),
   ].join("\n\n");
   if (head.length >= limit) return head.slice(0, limit);
+  // What is left once the blank line between the two is paid for. A head that
+  // nearly fills the bound leaves nothing, and one character leaves room for
+  // the truncation marker alone — a negative budget fed to `slice` from the
+  // end would otherwise hand back most of the log.
   const remaining = limit - head.length - 2;
-  const tail = log.length > remaining ? `…${log.slice(-(remaining - 1))}` : log;
-  return tail ? `${head}\n\n${tail}` : head;
+  if (remaining <= 0 || !log) return head;
+  if (log.length <= remaining) return `${head}\n\n${log}`;
+  if (remaining === 1) return `${head}\n\n…`;
+  return `${head}\n\n…${log.slice(-(remaining - 1))}`;
 }

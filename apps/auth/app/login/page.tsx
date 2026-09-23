@@ -42,11 +42,14 @@ import {
   defaultPasskeyName,
   isPasskeyDismissed,
   isPasskeyPreviouslyRegistered,
+  isPasskeyUnknownToServer,
 } from "@/lib/passkey";
 import {
+  accountHasPasskeyOnDevice,
   forgetPasskeyDevice,
   hasPasskeyOnDevice,
   isPasskeyOfferSnoozed,
+  rememberAccountPasskeyDevice,
   rememberPasskeyDevice,
   snoozePasskeyOffer,
 } from "@/lib/passkey-device";
@@ -70,7 +73,14 @@ type Step =
  */
 type SignInVia = "password" | "passkey" | "enrolled";
 
-type PasskeyOutcome = "signed-in" | "dismissed" | "failed";
+// "unknown-credential" is the server reporting that the passkey the
+// authenticator offered is not on any account here, which — unlike a plain
+// failure — proves this browser's marker is stale.
+type PasskeyOutcome =
+  | "signed-in"
+  | "dismissed"
+  | "unknown-credential"
+  | "failed";
 
 const ALLOW_LOOPBACK = process.env.NODE_ENV !== "production";
 
@@ -130,6 +140,10 @@ function LoginFlow() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Whose offer the "passkey-offer" step is showing. Everything it writes is
+  // scoped to this account, so a marker from the previous person on a shared
+  // browser neither answers for nor is overwritten by this one.
+  const offerUserId = useRef<string | null>(null);
 
   const destinationInfo = useDestination(authorizing, searchParams, returnTo);
   const destinationName =
@@ -188,14 +202,17 @@ function LoginFlow() {
       authClient.passkey.listUserPasskeys(),
     ]);
     if (!session.data || passkeys.error) return false;
+    const userId = session.data.user.id;
     const decision = decidePasskeyOffer({
       passkeys: passkeys.data ?? [],
       userAgent: navigator.userAgent,
-      deviceHasPasskey: hasPasskeyOnDevice(),
+      deviceHasPasskey: accountHasPasskeyOnDevice(userId),
       dismissed: session.data.user.passkeyOfferDismissed === true,
-      snoozed: isPasskeyOfferSnoozed(),
+      snoozed: isPasskeyOfferSnoozed(userId),
     });
-    return decision === "offer";
+    if (decision !== "offer") return false;
+    offerUserId.current = userId;
+    return true;
   };
 
   // `knownPassword` is the one the caller just submitted, passed explicitly:
@@ -287,7 +304,10 @@ function LoginFlow() {
       // The aborted autofill request reports here while the modal ceremony
       // it yielded to is still up; only the path that set busy clears it.
       if (mode === "button") setBusy(false);
-      return dismissed ? "dismissed" : "failed";
+      if (dismissed) return "dismissed";
+      return isPasskeyUnknownToServer(passkeyError)
+        ? "unknown-credential"
+        : "failed";
     }
     rememberPasskeyDevice();
     if (isProviderRedirect(data)) {
@@ -325,7 +345,9 @@ function LoginFlow() {
         automaticTried.current = true;
         const outcome = await passkeyCeremony.current("automatic");
         if (!active || outcome === "signed-in") return;
-        if (outcome === "dismissed") forgetPasskeyDevice();
+        if (outcome === "dismissed" || outcome === "unknown-credential") {
+          forgetPasskeyDevice();
+        }
       }
       const available = await conditionalMediationAvailable();
       if (active && available) void passkeyCeremony.current("autofill");
@@ -335,6 +357,12 @@ function LoginFlow() {
       active = false;
     };
   }, [step, reason]);
+
+  const rememberOfferedPasskey = () => {
+    const userId = offerUserId.current;
+    if (userId) rememberAccountPasskeyDevice(userId);
+    else rememberPasskeyDevice();
+  };
 
   const addOfferedPasskey = async () => {
     setBusy(true);
@@ -346,7 +374,7 @@ function LoginFlow() {
       // The authenticator refusing a duplicate is the one exact answer to
       // "does this device have one": it does, so the offer was redundant.
       if (isPasskeyPreviouslyRegistered(passkeyError)) {
-        rememberPasskeyDevice();
+        rememberOfferedPasskey();
         leave();
         return;
       }
@@ -358,17 +386,31 @@ function LoginFlow() {
       );
       return;
     }
-    rememberPasskeyDevice();
+    rememberOfferedPasskey();
     leave();
   };
 
   const declineOfferedPasskey = async (forever: boolean) => {
     setBusy(true);
-    snoozePasskeyOffer();
+    // The snooze stands whatever happens next, so a write that fails does not
+    // turn into a second offer today.
+    const userId = offerUserId.current;
+    if (userId) snoozePasskeyOffer(userId);
     if (forever) {
-      // A failed write still leaves the snooze, so the visitor is not asked
-      // again today either way.
-      await authClient.updateUser({ passkeyOfferDismissed: true });
+      // "Never" that silently lasted 30 days would be a lie, so a refused or
+      // failed write keeps the visitor here with the reason rather than
+      // redirecting as though it had been recorded.
+      const dismissal = await authClient
+        .updateUser({ passkeyOfferDismissed: true })
+        .catch((err: unknown) => ({ error: { message: errorMessage(err) } }));
+      if (dismissal.error) {
+        setBusy(false);
+        setError(
+          dismissal.error.message ??
+            "Couldn't save that. Continue without a passkey and we'll ask again another time.",
+        );
+        return;
+      }
     }
     leave();
   };
