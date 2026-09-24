@@ -25,15 +25,57 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
+export class SerialQueueDrainingError extends Error {
+  constructor() {
+    super("The queue is draining and accepts no new work");
+    this.name = "SerialQueueDrainingError";
+  }
+}
+
+export interface SerialQueue {
+  <T>(task: () => Promise<T>): Promise<T>;
+  /**
+   * Refuses new tasks and waits for every accepted one to settle. Resolves
+   * with the release that reopens the queue, or null — already reopened — when
+   * they did not settle within `timeoutMs` or a drain is already in progress.
+   */
+  drain(timeoutMs: number): Promise<(() => void) | null>;
+}
+
 /**
  * Runs the tasks handed to it one at a time, in arrival order. A rejection is
  * the caller's; the next task still runs.
  */
-export function createSerialQueue(): <T>(task: () => Promise<T>) => Promise<T> {
+export function createSerialQueue(): SerialQueue {
   let tail: Promise<unknown> = Promise.resolve();
-  return (task) => {
+  let draining = false;
+  const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
+    if (draining) return Promise.reject(new SerialQueueDrainingError());
     const run = tail.then(task);
     tail = run.catch(() => undefined);
     return run;
   };
+  const drain = async (timeoutMs: number) => {
+    if (draining) return null;
+    draining = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      tail.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!settled) {
+      draining = false;
+      return null;
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      draining = false;
+    };
+  };
+  return Object.assign(enqueue, { drain });
 }

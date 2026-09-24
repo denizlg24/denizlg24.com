@@ -5,6 +5,7 @@ import { forgeRecoveryPublishSummary } from "../ops/executors";
 import {
   hasImmutableRecoveryImage,
   recordedRecoveryBuilder,
+  recoveryPublishBatch,
   recoveryPublishCandidates,
 } from "./ops";
 
@@ -82,6 +83,54 @@ describe("recovery image selection", () => {
     expect(
       recordedRecoveryBuilder(deployment({ resolvedBuilder: null })),
     ).toBeNull();
+  });
+
+  it("spends no batch slot on a row with no builder", () => {
+    const orphans = [1, 2].map((hours) =>
+      deployment({
+        resolvedBuilder: null,
+        createdAt: new Date(NOW - (10 + hours) * 60 * 60_000),
+      }),
+    );
+    const newer = deployment();
+
+    const { batch, unpublishable, deferred } = recoveryPublishBatch(
+      recoveryPublishCandidates([...orphans, newer], NOW),
+      new Map(),
+      2,
+    );
+
+    expect(batch.map(({ row }) => row.id)).toEqual([newer.id]);
+    expect(unpublishable.map((row) => row.id).sort()).toEqual(
+      orphans.map((row) => row.id).sort(),
+    );
+    expect(deferred).toBe(0);
+  });
+
+  it("puts rows that failed behind the ones that have not", () => {
+    const failedLastRun = deployment({
+      createdAt: new Date(NOW - 3 * 60 * 60_000),
+    });
+    const failedBefore = deployment({
+      createdAt: new Date(NOW - 2 * 60 * 60_000),
+    });
+    const untried = deployment({ createdAt: new Date(NOW - 60 * 60_000) });
+    const lastFailedAt = new Map([
+      [failedLastRun.id, NOW - 30 * 60_000],
+      [failedBefore.id, NOW - 60 * 60_000],
+    ]);
+
+    const { batch, deferred } = recoveryPublishBatch(
+      recoveryPublishCandidates([failedLastRun, failedBefore, untried], NOW),
+      lastFailedAt,
+      2,
+    );
+
+    expect(batch.map(({ row }) => row.id)).toEqual([
+      untried.id,
+      failedBefore.id,
+    ]);
+    expect(deferred).toBe(1);
   });
 });
 

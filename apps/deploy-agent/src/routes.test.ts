@@ -14,6 +14,7 @@ import type {
 
 import { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
+import { SerialQueueDrainingError } from "./concurrency";
 import { ForgeContainerNotFoundError } from "./docker";
 import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
@@ -71,6 +72,7 @@ function app(
     telemetry?: ForgeTelemetry;
     applyEnvResult?: ApplyEnvResult;
     rebootResult?: AgentRebootResult;
+    publishRecoveryError?: Error;
   } = {},
 ) {
   const queue = new DeploymentQueue({
@@ -155,6 +157,7 @@ function app(
         };
       },
       publishRecovery: async (request) => {
+        if (options.publishRecoveryError) throw options.publishRecoveryError;
         published.push(request);
         return {
           reference: `ghcr.io/denizlg24/forge-recovery/app@sha256:${"a".repeat(64)}`,
@@ -662,6 +665,25 @@ describe("immutable recovery routes", () => {
       digest,
     });
     expect(published).toHaveLength(1);
+  });
+
+  it("answers 503 while pushes are drained for a reboot", async () => {
+    const { instance } = app({
+      publishRecoveryError: new SerialQueueDrainingError(),
+    });
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/publish-recovery`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ request, localImage: "forge/hello-world:live" }),
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "DRAINING_FOR_REBOOT" },
+    });
   });
 
   it("rejects a body/path deployment mismatch on both routes", async () => {

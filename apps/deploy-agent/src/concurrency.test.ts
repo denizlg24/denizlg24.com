@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { createSerialQueue } from "./concurrency";
+import { createSerialQueue, SerialQueueDrainingError } from "./concurrency";
 
 describe("createSerialQueue", () => {
   it("runs one task at a time, in arrival order", async () => {
@@ -45,5 +45,44 @@ describe("createSerialQueue", () => {
 
     await expect(failed).rejects.toThrow("push timed out");
     expect(await next).toBe("published");
+  });
+
+  it("drains accepted work, refuses new work, and reopens on release", async () => {
+    const serial = createSerialQueue();
+    let finish = () => {};
+    const running = serial(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = () => resolve("pushed");
+        }),
+    );
+    const queued = serial(async () => "queued");
+
+    const draining = serial.drain(1_000);
+    await expect(serial(async () => "late")).rejects.toBeInstanceOf(
+      SerialQueueDrainingError,
+    );
+    finish();
+    const release = await draining;
+
+    expect(release).not.toBeNull();
+    expect(await running).toBe("pushed");
+    expect(await queued).toBe("queued");
+    await expect(serial(async () => "late")).rejects.toBeInstanceOf(
+      SerialQueueDrainingError,
+    );
+    release?.();
+    expect(await serial(async () => "after")).toBe("after");
+  });
+
+  it("gives up on a drain that runs out of time and stays open", async () => {
+    const serial = createSerialQueue();
+    void serial(() => new Promise<void>(() => {}));
+
+    expect(await serial.drain(5)).toBeNull();
+    const accepted = serial(async () => "accepted");
+    expect(await Promise.race([accepted, Promise.resolve("waiting")])).toBe(
+      "waiting",
+    );
   });
 });

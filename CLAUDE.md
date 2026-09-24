@@ -371,7 +371,8 @@ hint, not a platform ceiling.
   through `forge-agent-install` and only applies from the next boot, so the
   first reboot after it lands still needs watching.
 - **The weekly Forge reboot is seeded disabled.** `forge_reboot` asks the
-  agent to drain its queue (`POST /host/reboot`); the agent writes
+  agent to drain its queue and then its recovery pushes, refusing new
+  republishes with a 503 meanwhile (`POST /host/reboot`); the agent writes
   `/srv/forge/host-control/reboot-requested`, and `forge-reboot.path` runs
   `/usr/local/sbin/forge-reboot` as root, which waits up to 30 min for the DR
   host lock, keeps it, and reboots. Arm it only after a watched reboot has come

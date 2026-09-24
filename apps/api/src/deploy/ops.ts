@@ -133,6 +133,44 @@ export function recordedRecoveryBuilder(
   return value === "dockerfile" || value === "nixpacks" ? value : null;
 }
 
+export interface RecoveryPublishBatch {
+  batch: Array<{ row: DeploymentRow; builder: RecoveryBuilder }>;
+  /** No recorded builder: nothing a scheduled run can do for these. */
+  unpublishable: DeploymentRow[];
+  deferred: number;
+}
+
+/**
+ * The rows one run attempts. Rows with no builder are split out before the
+ * batch is cut, and a row that failed goes behind every row that has not
+ * failed as recently. Otherwise `maxDeployments` rows that can never publish —
+ * no builder, or a local image already collected — would take every slot of
+ * every run, and the newer deployments behind them would hold the DR backups
+ * for good.
+ */
+export function recoveryPublishBatch(
+  candidates: readonly DeploymentRow[],
+  lastFailedAt: ReadonlyMap<string, number>,
+  maxDeployments: number,
+): RecoveryPublishBatch {
+  const publishable: RecoveryPublishBatch["batch"] = [];
+  const unpublishable: DeploymentRow[] = [];
+  for (const row of candidates) {
+    const builder = recordedRecoveryBuilder(row);
+    if (builder) publishable.push({ row, builder });
+    else unpublishable.push(row);
+  }
+  publishable.sort(
+    (a, b) =>
+      (lastFailedAt.get(a.row.id) ?? 0) - (lastFailedAt.get(b.row.id) ?? 0),
+  );
+  return {
+    batch: publishable.slice(0, maxDeployments),
+    unpublishable,
+    deferred: Math.max(0, publishable.length - maxDeployments),
+  };
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -152,6 +190,8 @@ export class ForgeOps {
   readonly zoneName: string;
   readonly domainContext: DomainContext;
   readonly github: GithubSurfaces | null;
+  /** Deployment id → when its last republish failed; pruned to live rows. */
+  private readonly recoveryFailedAt = new Map<string, number>();
 
   constructor(options: ForgeOpsOptions) {
     this.db = options.db;
@@ -618,23 +658,29 @@ export class ForgeOps {
       ),
     });
     const pending = recoveryPublishCandidates(live, now());
+    const pendingIds = new Set(pending.map((row) => row.id));
+    for (const id of this.recoveryFailedAt.keys()) {
+      if (!pendingIds.has(id)) this.recoveryFailedAt.delete(id);
+    }
+    const { batch, unpublishable, deferred } = recoveryPublishBatch(
+      pending,
+      this.recoveryFailedAt,
+      config.maxDeployments,
+    );
     const published: ForgeRecoveryPublishReport["published"] = [];
-    const failures: StepFailure[] = [];
-    for (const row of pending.slice(0, config.maxDeployments)) {
-      const builder = recordedRecoveryBuilder(row);
-      if (!builder) {
-        failures.push({
-          step: "publish",
-          subject: row.id,
-          error:
-            "No recorded builder; publish it with the recovery backfill and an explicit builder",
-        });
-        continue;
-      }
+    const failures: StepFailure[] = unpublishable.map((row) => ({
+      step: "publish",
+      subject: row.id,
+      error:
+        "No recorded builder; publish it with the recovery backfill and an explicit builder",
+    }));
+    for (const { row, builder } of batch) {
       const outcome = await this.publishRecoveryImage(row, builder);
       if (outcome.published) {
+        this.recoveryFailedAt.delete(row.id);
         published.push({ deploymentId: row.id, reference: outcome.reference });
       } else {
+        this.recoveryFailedAt.set(row.id, now());
         failures.push({
           step: "publish",
           subject: row.id,
@@ -642,12 +688,7 @@ export class ForgeOps {
         });
       }
     }
-    return {
-      pending: pending.length,
-      published,
-      deferred: Math.max(0, pending.length - config.maxDeployments),
-      failures,
-    };
+    return { pending: pending.length, published, deferred, failures };
   }
 
   /**

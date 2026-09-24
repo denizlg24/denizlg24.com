@@ -338,7 +338,7 @@ export class OpsScheduler {
     this.unschedule(task.id);
     if (!task.enabled || !task.cronExpression) return;
     validateCronExpression(task.cronExpression);
-    const cron = new Cron(task.cronExpression, () => {
+    const cron = new Cron(task.cronExpression, { timezone: "UTC" }, () => {
       void this.runTask(task.id);
     });
     this.activeCrons.set(task.id, cron);

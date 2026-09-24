@@ -333,16 +333,34 @@ const app = createAgentApp({
     ),
   requestReboot: async ({ drainTimeoutMs }) => {
     const startedAt = Date.now();
-    const release = await queue.drain(drainTimeoutMs);
-    const drainedMs = Date.now() - startedAt;
-    if (!release) {
+    const releaseQueue = await queue.drain(drainTimeoutMs);
+    if (!releaseQueue) {
       return {
         requested: false,
-        drainedMs,
+        drainedMs: Date.now() - startedAt,
         running: queue.runningCount,
         error: "The deployment queue did not drain in time",
       };
     }
+    // Second, so a draining deployment can still hand its push to the queue;
+    // what this waits out is a republish, which runs outside every deployment.
+    const releasePushes = await recoveryPushes.drain(
+      Math.max(0, drainTimeoutMs - (Date.now() - startedAt)),
+    );
+    const drainedMs = Date.now() - startedAt;
+    if (!releasePushes) {
+      releaseQueue();
+      return {
+        requested: false,
+        drainedMs,
+        running: 0,
+        error: "A recovery image push did not finish in time",
+      };
+    }
+    const release = () => {
+      releasePushes();
+      releaseQueue();
+    };
     try {
       await mkdir(dirname(config.rebootSentinelPath), {
         recursive: true,

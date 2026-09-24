@@ -22,6 +22,7 @@ import { streamSSE } from "hono/streaming";
 import { requireAgentToken } from "./auth";
 import type { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
+import { SerialQueueDrainingError } from "./concurrency";
 import { ForgeContainerNotFoundError } from "./docker";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
@@ -447,7 +448,20 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
         400,
       );
     }
-    return context.json(await options.publishRecovery(parsed.data));
+    try {
+      return context.json(await options.publishRecovery(parsed.data));
+    } catch (error) {
+      if (!(error instanceof SerialQueueDrainingError)) throw error;
+      return context.json(
+        {
+          error: {
+            code: "DRAINING_FOR_REBOOT",
+            message: "Recovery pushes are paused for a host reboot",
+          },
+        },
+        503,
+      );
+    }
   });
 
   /**
