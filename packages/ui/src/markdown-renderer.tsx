@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { Checkbox } from "./checkbox";
+import { normalizeMathDelimiters } from "./math-delimiters";
 import { StyledLink } from "./styled-link";
 import { cn } from "./utils";
 
@@ -255,7 +256,7 @@ export function MarkdownRenderer({
         }
         components={components}
       >
-        {content}
+        {normalizeMathDelimiters(content)}
       </ReactMarkdown>
     </article>
   );
