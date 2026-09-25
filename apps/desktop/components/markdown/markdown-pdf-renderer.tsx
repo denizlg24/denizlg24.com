@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "@react-pdf/renderer";
+import { normalizeMathDelimiters } from "@repo/ui/math-delimiters";
 import type { ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -526,7 +527,7 @@ export function MarkdownPdfDocument({
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkMath)
-    .parse(content);
+    .parse(normalizeMathDelimiters(content));
 
   return (
     <Document>
