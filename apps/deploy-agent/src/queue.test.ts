@@ -371,6 +371,54 @@ describe("DeploymentQueue build maintenance", () => {
   });
 });
 
+describe("DeploymentQueue.drain", () => {
+  it("waits for in-flight runs and holds new claims until released", async () => {
+    let finish: () => void = () => {};
+    const { queue } = harness({
+      runner: () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ status: "ready" });
+        }),
+    });
+    queue.submit(deploymentRequest());
+
+    const draining = queue.drain(5_000, 1);
+    expect(() => queue.submit(deploymentRequest())).toThrow(
+      QueueAtCapacityError,
+    );
+    finish();
+    const release = await draining;
+
+    expect(release).not.toBeNull();
+    expect(queue.runningCount).toBe(0);
+    expect(() => queue.submit(deploymentRequest())).toThrow(
+      QueueAtCapacityError,
+    );
+    release?.();
+    expect(queue.submit(deploymentRequest()).status).toBe("building");
+  });
+
+  it("gives up at the deadline and resumes claiming", async () => {
+    const { queue } = harness({
+      capacity: 2,
+      runner: () => new Promise(() => {}),
+    });
+    queue.submit(deploymentRequest());
+
+    expect(await queue.drain(5, 1)).toBeNull();
+    expect(queue.submit(deploymentRequest()).status).toBe("building");
+  });
+
+  it("refuses a second drain while one is in progress", async () => {
+    const { queue } = harness();
+    const release = await queue.drain(1_000, 1);
+
+    expect(release).not.toBeNull();
+    expect(await queue.drain(1_000, 1)).toBeNull();
+    release?.();
+  });
+});
+
 describe("DeploymentQueue history", () => {
   it("answers lookups after a deployment finishes", async () => {
     const request = deploymentRequest();

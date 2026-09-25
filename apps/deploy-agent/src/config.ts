@@ -34,6 +34,11 @@ export interface AgentConfig {
   recoveryRegistryPrefix: string;
   /** Shared with root-run DR backup so route/container snapshots are atomic. */
   hostMutationLockPath: string;
+  /**
+   * The agent is unprivileged and cannot reboot the host. Creating this file
+   * is the whole request: `forge-reboot.path` watches for it as root.
+   */
+  rebootSentinelPath: string;
 }
 
 /**
@@ -225,6 +230,10 @@ export function agentConfigFromEnv(): AgentConfig {
     hostMutationLockPath: absolutePathEnv(
       "DR_HOST_MUTATION_LOCK_PATH",
       "/var/lib/deniz-dr/locks/forge.lock",
+    ),
+    rebootSentinelPath: absolutePathEnv(
+      "REBOOT_SENTINEL_PATH",
+      "/srv/forge/host-control/reboot-requested",
     ),
   };
 }

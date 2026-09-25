@@ -359,4 +359,39 @@ if jq -e --argjson domains "[\"$forge_domain\"]" -f "$dr_root/lib/forge-external
   dr_die "Forge external-state contract accepted a domain without managed DNS"
 fi
 
+# Host lock reclamation. Linux only: liveness is read from /proc, and without
+# one the helpers refuse to reclaim anything, which the last case pins.
+lock_root="$temporary/locks"
+mkdir -p "$lock_root"
+if [[ -d /proc/self ]]; then
+  sleep 30 & live_holder=$!
+  dead_holder="$(bash -c 'echo $$')"
+  mkdir "$lock_root/dead.lock" && printf '%s\n' "$dead_holder" > "$lock_root/dead.lock/pid"
+  dr_try_lock "$lock_root/dead.lock" 2>/dev/null \
+    || dr_die "a lock whose holder is gone was not reclaimed"
+  [[ "$(cat "$lock_root/dead.lock/pid")" == "$$" ]] \
+    || dr_die "a reclaimed lock does not name its new holder"
+  mkdir "$lock_root/live.lock" && printf '%s\n' "$live_holder" > "$lock_root/live.lock/pid"
+  if dr_try_lock "$lock_root/live.lock"; then
+    dr_die "a lock held by a running process was reclaimed"
+  fi
+  mkdir "$lock_root/owner.lock" && printf 'mac-501-1\n' > "$lock_root/owner.lock/owner"
+  if dr_try_lock "$lock_root/owner.lock"; then
+    dr_die "an owner-only lock was reclaimed"
+  fi
+  mkdir "$lock_root/wait.lock" && printf '%s\n' "$dead_holder" > "$lock_root/wait.lock/pid"
+  dr_lock "$lock_root/wait.lock" "$(( $(date +%s) + 5 ))" 2>/dev/null
+  [[ "$(cat "$lock_root/wait.lock/pid")" == "$$" ]] \
+    || dr_die "a waiting acquirer did not reclaim an abandoned lock"
+  kill "$live_holder" 2>/dev/null || true
+  wait "$live_holder" 2>/dev/null || true
+else
+  mkdir "$lock_root/dead.lock" && printf '999999\n' > "$lock_root/dead.lock/pid"
+  if dr_try_lock "$lock_root/dead.lock"; then
+    dr_die "a lock was reclaimed without a procfs to judge its holder"
+  fi
+fi
+grep -Fxq 'R! /var/lib/deniz-dr/locks/*.lock' "$dr_root/systemd/deniz-dr-locks.conf" \
+  || dr_die "host locks are no longer removed at boot"
+
 printf 'DR contract tests passed\n'

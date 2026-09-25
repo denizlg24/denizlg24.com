@@ -39,8 +39,11 @@ import {
   type ChecksumBackfillReport,
   domainVerificationTaskConfigSchema,
   type ForgeGcReport,
+  type ForgeRecoveryPublishReport,
   filesBackupTaskConfigSchema,
   forgeGcTaskConfigSchema,
+  forgeRebootTaskConfigSchema,
+  forgeRecoveryPublishTaskConfigSchema,
   metricsRollupTaskConfigSchema,
   mongoBackupTaskConfigSchema,
   type NamespaceTieringReport,
@@ -211,6 +214,21 @@ export function checksumBackfillSummary(
  * rather than the run status: a single unremovable image must not read as a
  * failed sweep and mute the disk warning that is the point of the whole pass.
  */
+export function forgeRecoveryPublishSummary(
+  report: ForgeRecoveryPublishReport,
+): string {
+  const failed = report.failures.map(
+    (failure) => `${failure.subject}: ${failure.error}`,
+  );
+  return [
+    `Recovery images: ${report.published.length} published of ${report.pending} missing`,
+    report.deferred > 0 ? `${report.deferred} left for the next run` : null,
+    ...failed,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n");
+}
+
 export function forgeGcSummary(report: ForgeGcReport): string {
   const agent = report.agent;
   const parts = [
@@ -1074,6 +1092,40 @@ export function getExecutor(
             thumbnailGc: report,
           },
         };
+      };
+    case "forge_recovery_publish":
+      return async (rawConfig) => {
+        const config = forgeRecoveryPublishTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const report =
+          await requireForge(context).publishMissingRecoveryImages(config);
+        const output = forgeRecoveryPublishSummary(report);
+        // A failed publish is a failed run, unlike a GC step: until it lands,
+        // both hosts' DR backups refuse every snapshot, and the run failure is
+        // the notification that names which deployment is holding them.
+        if (report.failures.length > 0) throw new Error(output);
+        return {
+          output,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            forgeRecoveryPublish: report,
+          },
+        };
+      };
+    case "forge_reboot":
+      return async (rawConfig) => {
+        const config = forgeRebootTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const result = await requireForge(context).requestReboot(config);
+        if (!result.requested) {
+          throw new Error(
+            `Forge reboot skipped: ${result.error ?? "the agent did not drain"} (${result.running} still running)`,
+          );
+        }
+        return durationResult(
+          startedAt,
+          `Forge reboot requested after a ${Math.round(result.drainedMs / 1_000)}s drain`,
+        );
       };
     case "alert_evaluation":
       return async (config, taskId) =>

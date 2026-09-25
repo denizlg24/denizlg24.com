@@ -57,6 +57,12 @@ install_dr_runtime() {
     mv /opt/deniz-cloud/infra/dr /opt/deniz-cloud/infra/dr.previous
   fi
   mv /opt/deniz-cloud/infra/dr.new /opt/deniz-cloud/infra/dr
+  # Boot-only removal of abandoned host locks. Installing it removes nothing.
+  if [ -f /opt/deniz-cloud/infra/dr/systemd/deniz-dr-locks.conf ]; then
+    install -m 0644 -o root -g root \
+      /opt/deniz-cloud/infra/dr/systemd/deniz-dr-locks.conf \
+      /etc/tmpfiles.d/deniz-dr-locks.conf
+  fi
   install -m 0755 -o root -g root \
     "$unpack/infra/scripts/posix-namespace-backup.sh" \
     "$unpack/infra/scripts/posix-namespace-restore-verify.sh" \
@@ -109,6 +115,17 @@ fi
 
 [ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
 [ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }
+
+# Installs a staged file over its destination and reports whether it changed.
+# A missing staged file is an older release, and counts as unchanged.
+install_staged() {
+  local name="$1" destination="$2" mode="$3" changed=1
+  [ -f "$STAGING_DIR/$name" ] || return 1
+  if cmp -s "$STAGING_DIR/$name" "$destination"; then changed=0; fi
+  install -D -m "$mode" -o root -g root "$STAGING_DIR/$name" "$destination"
+  rm -f "$STAGING_DIR/$name"
+  [ "$changed" = "1" ]
+}
 
 buildkit_changed=0
 if [ -f "$STAGING_DIR/forge-buildkit.service" ] \
@@ -200,6 +217,29 @@ fi
 # by the service user because both processes run as `forge`.
 install -d -m 0750 -o forge -g forge /srv/forge/access
 
+# The reboot path. The unprivileged agent drains its queue and creates the
+# sentinel in host-control; forge-reboot.path hands that to root. It travels
+# with the binary because the route writing the sentinel ships in it.
+install -d -m 0750 -o forge -g forge /srv/forge/host-control
+install_staged forge-reboot /usr/local/sbin/forge-reboot 0755 || true
+install_staged forge-reboot.path /etc/systemd/system/forge-reboot.path 0644 || true
+install_staged forge-reboot.service /etc/systemd/system/forge-reboot.service 0644 || true
+
+# The reboot watchdog: this board halts instead of resetting after a clean
+# shutdown. forge-watchdog.conf explains why it takes all three pieces. None of
+# them does anything until the next boot, and the first reboot after this lands
+# still runs on the old command line — watch that one.
+reexec_needed=0
+install_staged forge-watchdog.service \
+  /etc/systemd/system/forge-watchdog.service 0644 || true
+if install_staged forge-watchdog.conf \
+  /etc/systemd/system.conf.d/forge-watchdog.conf 0644; then
+  reexec_needed=1
+fi
+if install_staged forge-grub.cfg /etc/default/grub.d/90-forge.cfg 0644; then
+  update-grub
+fi
+
 # The unprivileged agent and root-run DR backup coordinate every authoritative
 # route/container mutation through this directory. Establish the service-group
 # contract before installing a unit that names it in SupplementaryGroups.
@@ -211,7 +251,18 @@ setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx \
   /var/lib/deniz-dr/locks
 
 systemctl daemon-reload
+# PID1 reads RebootWatchdogSec only when it starts; a re-exec is that restart
+# without touching a running service.
+if [ "$reexec_needed" = "1" ]; then
+  systemctl daemon-reexec
+fi
 systemctl enable forge-buildkit.service >/dev/null
+if [ -f /etc/systemd/system/forge-watchdog.service ]; then
+  systemctl enable --now forge-watchdog.service >/dev/null
+fi
+if [ -f /etc/systemd/system/forge-reboot.path ]; then
+  systemctl enable --now forge-reboot.path >/dev/null
+fi
 if [ "$buildkit_changed" = "1" ]; then
   systemctl restart forge-buildkit.service
 fi

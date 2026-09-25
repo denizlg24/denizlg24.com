@@ -1,0 +1,8 @@
+[Unit]
+Description=Reboot the Forge host after a drained agent request
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/forge-reboot
+# The script waits up to thirty minutes for the DR host lock.
+TimeoutStartSec=45min

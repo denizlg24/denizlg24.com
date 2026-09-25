@@ -1,0 +1,20 @@
+[Unit]
+Description=Load the Intel TCO watchdog that backs Forge's reboot
+# Ubuntu deny-lists every watchdog driver, and systemd-modules-load honours the
+# list ("Module 'iTCO_wdt' is deny-listed (by kmod)"), so a modules-load.d entry
+# silently loads nothing. An explicit modprobe is not subject to it.
+#
+# Early and outside the default dependencies: after a watchdog reset the timer
+# may still be counting when the kernel boots, and the watchdog core only keeps
+# it fed once the driver has registered it.
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/modprobe iTCO_wdt
+
+[Install]
+WantedBy=sysinit.target

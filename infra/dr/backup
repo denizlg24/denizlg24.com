@@ -343,6 +343,7 @@ postgres_dump() {
   local container="${DR_POSTGRES_CONTAINER:-deniz-cloud-postgres-1}" db list="$stage/meta/postgres-databases.txt"
   local rows="$stage/meta/postgres-rows.tsv"
   local forge_control_plane_rows="$stage/meta/forge-control-plane.ndjson"
+  local invalid_artifacts
   docker inspect "$container" >/dev/null 2>&1 || dr_die "PostgreSQL container not found: ${container}"
 
   capture_postgres_roles() {
@@ -544,16 +545,26 @@ SQL
   jq -s 'map(.deployments) | add | sort_by(.deploymentId)' "$forge_control_plane_rows" \
     > "$stage/meta/forge-control-plane.json" \
     || dr_die "PostgreSQL snapshot did not contain a valid Forge control-plane inventory"
-  jq -e '
-    type=="array" and ([.[].deploymentId]|unique|length)==length and
-    all(.[]; . as $item |
-      ($item.deploymentId|test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
-      ($item.imageReference|test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
-      ($item.imageDigest|test("^sha256:[0-9a-f]{64}$")) and
-      ($item.imageReference|endswith("@" + $item.imageDigest)) and
-      ($item.hostname|type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$")))
-  ' "$stage/meta/forge-control-plane.json" >/dev/null \
-    || dr_die "PostgreSQL snapshot contains an invalid Forge recovery artifact"
+  # Names the offending rows rather than just refusing: the fix is always a
+  # specific deployment (republish its image, or give its target a domain), and
+  # a bare refusal left that to a database session.
+  invalid_artifacts="$(jq -r '
+    def valid:
+      try (
+        (.deploymentId|test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+        (.imageReference|test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
+        (.imageDigest|test("^sha256:[0-9a-f]{64}$")) and
+        (.imageDigest as $digest | .imageReference|endswith("@" + $digest)) and
+        (.hostname|type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z0-9.-]+$"))
+      ) catch false;
+    if type != "array" then "the inventory is not an array"
+    elif ([.[].deploymentId]|unique|length) != length then "duplicate deployment ids"
+    else [.[] | select(valid | not) | "\(.deploymentId // "no id")"] | join(", ")
+    end
+  ' "$stage/meta/forge-control-plane.json")" \
+    || dr_die "PostgreSQL snapshot did not contain a valid Forge control-plane inventory"
+  [[ -z "$invalid_artifacts" ]] \
+    || dr_die "PostgreSQL snapshot contains an invalid Forge recovery artifact: ${invalid_artifacts}"
   capture_postgres_roles "$stage/meta/postgres-roles.after.json"
   capture_postgres_databases "$stage/meta/postgres-databases.after.json"
   docker exec "$container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --globals-only' \
@@ -698,7 +709,7 @@ namespace_dump() {
 
 forge_images() {
   local output="$stage/meta/images.json" agent_env="${DR_FORGE_AGENT_ENV:-/etc/forge/agent.env}"
-  local api_url token curl_config response running_deployments
+  local api_url token curl_config response running_deployments unrecoverable recoverable_image
   [[ -f "$agent_env" && ! -L "$agent_env" ]] || dr_die "Forge agent environment is missing"
   api_url="$(awk -F= '$1 == "CONTROL_PLANE_URL" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
   token="$(awk -F= '$1 == "AGENT_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$agent_env")"
@@ -710,11 +721,11 @@ forge_images() {
     "$api_url" "$token" > "$curl_config"
   response="$(curl --config "$curl_config")"
   rm -f -- "$curl_config"
-  jq -e '
-    (.expected | type=="number" and .>=0 and floor==.) and
-    (.expected == (.images | length)) and
-    ([.images[].deploymentId] | unique | length) == .expected and
-    all(.images[];
+  # Shared by the gate and the list of offenders below, so the STOP names every
+  # deployment the gate refused and not only those missing an image.
+  # shellcheck disable=SC2016 # a jq program; $digest is jq's, not the shell's
+  recoverable_image='
+    def recoverable_image:
       .recoverable == true and
       (.reference | test("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")) and
       (.digest | test("^sha256:[0-9a-f]{64}$")) and
@@ -729,9 +740,25 @@ forge_images() {
         (.encrypted|type=="string" and length>0) and
         (.iv|type=="string" and length>0) and
         (.authTag|type=="string" and length>0)) and
-      (.domain | type=="string" and test("^[A-Za-z0-9.-]+$") and contains("."))
-    )
-  ' <<< "$response" >/dev/null || dr_die "one or more live Forge deployments lack an immutable recovery artifact"
+      (.domain | type=="string" and test("^[A-Za-z0-9.-]+$") and contains("."));
+  '
+  jq -e "$recoverable_image"'
+    (.expected | type=="number" and .>=0 and floor==.) and
+    (.expected == (.images | length)) and
+    ([.images[].deploymentId] | unique | length) == .expected and
+    all(.images[]; recoverable_image)
+  ' <<< "$response" >/dev/null || {
+    # Which ones, so the failure says what to republish instead of leaving it
+    # to the inventory endpoint. `forge_recovery_publish` retries these on its
+    # own every half hour; this names them in the meantime.
+    unrecoverable="$(jq -r "$recoverable_image"'
+      [.images[]?
+        | select((try recoverable_image catch false) | not)
+        | "\(.service // "unknown") (\(.deploymentId // "no id"))"]
+      | join(", ")
+    ' <<< "$response" 2>/dev/null || true)"
+    dr_die "one or more live Forge deployments fail the recovery inventory${unrecoverable:+: ${unrecoverable}}"
+  }
   # Compare identities with the actual host while holding its mutation lock.
   # A fixed count cannot detect a missing app, and breaks whenever one is added.
   running_deployments="$(docker ps --filter label=forge.kind=production --format '{{.Label "forge.deployment"}}' | jq -Rsc 'split("\n") | map(select(length>0)) | sort')"

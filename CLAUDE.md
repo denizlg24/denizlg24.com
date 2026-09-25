@@ -348,6 +348,44 @@ hint, not a platform ceiling.
   `smb_credentials.last_authenticated_at`; the API asks for it on every device
   list and persists anything newer, so the column fills only once the
   hand-deployed host binary carries the op.
+- **One live Forge deployment without a recovery image stops every DR backup
+  on both hosts.** Forge's backup refuses an inventory with an unrecoverable
+  image and the Pi's refuses a control-plane row without a GHCR digest, so
+  nothing is captured until it is fixed. The deploy pipeline treats a failed
+  push as non-fatal (the site is already serving) and nothing used to retry it:
+  eleven pushes sharing the uplink after one monorepo-wide deploy on 2026-09-17
+  all timed out, and backups stayed down for five days. The agent now pushes one
+  at a time (`createSerialQueue`), and `forge_recovery_publish` (every 30 min)
+  republishes whatever is still missing through the agent's `publish-recovery`,
+  which no longer holds the host lock through an upload. Its failed run names
+  the deployment; so do both backup STOPs.
+- **Forge's board halts instead of resetting after a clean shutdown.** The
+  journal shows userspace finishing in seconds; the MSI Z370 then never
+  resets, and every `sudo reboot` needed someone at the power button. The
+  safety net is the Intel TCO watchdog, and it takes three pieces:
+  `forge-watchdog.service` (an explicit `modprobe`, because Ubuntu deny-lists
+  `iTCO_wdt` and `systemd-modules-load` honours that), `RebootWatchdogSec=3min`,
+  and `watchdog.stop_on_reboot=0` on the kernel command line, since the driver
+  otherwise asks the reboot notifier to disarm it right before the step that
+  hangs. `reboot=pci` rides along as the likelier clean fix. All of it arrives
+  through `forge-agent-install` and only applies from the next boot, so the
+  first reboot after it lands still needs watching.
+- **The weekly Forge reboot is seeded disabled.** `forge_reboot` asks the
+  agent to drain its queue and then its recovery pushes, refusing new
+  republishes with a 503 meanwhile (`POST /host/reboot`); the agent writes
+  `/srv/forge/host-control/reboot-requested`, and `forge-reboot.path` runs
+  `/usr/local/sbin/forge-reboot` as root, which waits up to 30 min for the DR
+  host lock, keeps it, and reboots. Arm it only after a watched reboot has come
+  back on its own, and add the status-page maintenance window for Forge's
+  services at the same time, or every Forge app opens an incident each Sunday.
+- **DR host locks that outlive their holder are reclaimed, not reviewed.**
+  `/etc/tmpfiles.d/deniz-dr-locks.conf` removes every
+  `/var/lib/deniz-dr/locks/*.lock` at boot, before anything can take one, and
+  `dr_reclaim_abandoned_lock` breaks one whose pid no longer exists in `/proc`
+  (`kill -0` cannot tell another user's live process from a dead one). Locks
+  that record only an owner (the Mac bridge, release workflows) are still left
+  alone. The Pi's copy of the tmpfiles rule is installed by `install-host`,
+  which no release runs, so a change to it needs that run by hand.
 
 ### Migration and cutover scripts
 

@@ -3,10 +3,13 @@ import {
   type DeploymentRow,
   deployEnvironments,
   deployments,
+  deployTargets,
+  projects,
 } from "@repo/cloud-core/db/schema";
 import {
   type CloudflareCustomHostnameClient,
   type CloudflareDnsClient,
+  DEPLOYMENT_HEARTBEAT_TIMEOUT_MS,
   type DomainContext,
   loadForgeKeepSet,
   markInterruptedDeployments,
@@ -18,15 +21,22 @@ import {
   routeHostnames,
   sweepDeployDomains,
   targetsWithActiveDomains,
+  toAgentRequest,
   unneededDeploymentDnsRecords,
 } from "@repo/cloud-core/deploy";
 import {
   type AgentGcReport,
+  type AgentRebootResult,
   agentGcReportSchema,
+  agentRebootResultSchema,
+  agentRecoveryPublishResultSchema,
   type DomainVerificationReport,
   type DomainVerificationTaskConfig,
   type ForgeGcReport,
   type ForgeGcTaskConfig,
+  type ForgeRebootTaskConfig,
+  type ForgeRecoveryPublishReport,
+  type ForgeRecoveryPublishTaskConfig,
 } from "@repo/schemas/cloud";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -74,6 +84,93 @@ interface StepFailure {
 // a slow, healthy sweep into "The deploy agent is unreachable".
 const AGENT_GC_TIMEOUT_MS = 30 * 60 * 1_000;
 
+// The agent's own budget is fifteen minutes of push plus a verifying pull, and
+// it serialises pushes, so a request can also wait out another one first.
+const AGENT_RECOVERY_PUBLISH_TIMEOUT_MS = 45 * 60 * 1_000;
+
+export type RecoveryBuilder = "dockerfile" | "nixpacks";
+
+export type RecoveryPublishOutcome =
+  | { published: true; reference: string; digest: string }
+  | { published: false; error: string };
+
+export function hasImmutableRecoveryImage(row: DeploymentRow): boolean {
+  return (
+    row.imageDigest !== null &&
+    row.imageTag?.endsWith(`@${row.imageDigest}`) === true
+  );
+}
+
+/**
+ * Live deployments that still need a recovery image, oldest first. A row in
+ * `backing-up` with a fresh heartbeat is the pipeline's own push in progress
+ * and is left to it; a stale one is an agent that died mid-push, which is
+ * exactly the case the republish exists for.
+ */
+export function recoveryPublishCandidates(
+  live: readonly DeploymentRow[],
+  now: number,
+): DeploymentRow[] {
+  const inFlightCutoff = now - DEPLOYMENT_HEARTBEAT_TIMEOUT_MS;
+  return live
+    .filter(
+      (row) =>
+        !hasImmutableRecoveryImage(row) &&
+        !(
+          row.phase === "backing-up" &&
+          row.heartbeatAt !== null &&
+          row.heartbeatAt.getTime() > inFlightCutoff
+        ),
+    )
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+/** The builder the deployment was actually built with, when it was recorded. */
+export function recordedRecoveryBuilder(
+  row: DeploymentRow,
+): RecoveryBuilder | null {
+  const value = row.resolvedBuilder ?? row.buildSpec?.builder;
+  return value === "dockerfile" || value === "nixpacks" ? value : null;
+}
+
+export interface RecoveryPublishBatch {
+  batch: Array<{ row: DeploymentRow; builder: RecoveryBuilder }>;
+  /** No recorded builder: nothing a scheduled run can do for these. */
+  unpublishable: DeploymentRow[];
+  deferred: number;
+}
+
+/**
+ * The rows one run attempts. Rows with no builder are split out before the
+ * batch is cut, and a row that failed goes behind every row that has not
+ * failed as recently. Otherwise `maxDeployments` rows that can never publish —
+ * no builder, or a local image already collected — would take every slot of
+ * every run, and the newer deployments behind them would hold the DR backups
+ * for good.
+ */
+export function recoveryPublishBatch(
+  candidates: readonly DeploymentRow[],
+  lastFailedAt: ReadonlyMap<string, number>,
+  maxDeployments: number,
+): RecoveryPublishBatch {
+  const publishable: RecoveryPublishBatch["batch"] = [];
+  const unpublishable: DeploymentRow[] = [];
+  for (const row of candidates) {
+    const builder = recordedRecoveryBuilder(row);
+    if (builder) publishable.push({ row, builder });
+    else unpublishable.push(row);
+  }
+  publishable.sort(
+    (a, b) =>
+      (lastFailedAt.get(a.row.id) ?? 0) - (lastFailedAt.get(b.row.id) ?? 0),
+  );
+  return {
+    batch: publishable.slice(0, maxDeployments),
+    unpublishable,
+    deferred: Math.max(0, publishable.length - maxDeployments),
+  };
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -93,6 +190,8 @@ export class ForgeOps {
   readonly zoneName: string;
   readonly domainContext: DomainContext;
   readonly github: GithubSurfaces | null;
+  /** Deployment id → when its last republish failed; pruned to live rows. */
+  private readonly recoveryFailedAt = new Map<string, number>();
 
   constructor(options: ForgeOpsOptions) {
     this.db = options.db;
@@ -465,6 +564,153 @@ export class ForgeOps {
       domainsTimedOut: sweep?.verificationTimedOut ?? [],
       failures,
     };
+  }
+
+  /**
+   * Pushes one deployment's local image to the recovery registry and records
+   * the immutable reference on its row. The scheduled republish and the
+   * one-time backfill both come through here; they differ only in where the
+   * builder comes from.
+   */
+  async publishRecoveryImage(
+    row: DeploymentRow,
+    builder: RecoveryBuilder,
+  ): Promise<RecoveryPublishOutcome> {
+    const target = await this.db.query.deployTargets.findFirst({
+      where: eq(deployTargets.id, row.targetId),
+    });
+    const project = target
+      ? await this.db.query.projects.findFirst({
+          where: eq(projects.id, target.projectId),
+        })
+      : undefined;
+    if (!target || !project || !row.imageTag) {
+      return {
+        published: false,
+        error: "Missing target, project, or local image",
+      };
+    }
+    const request = toAgentRequest({
+      deployment: row,
+      target,
+      projectSlug: project.slug,
+    });
+    request.build.builder = builder;
+    let response: { status: number; body: unknown };
+    try {
+      response = await this.agent.json<unknown>(
+        `/deployments/${row.id}/publish-recovery`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ request, localImage: row.imageTag }),
+          timeoutMs: AGENT_RECOVERY_PUBLISH_TIMEOUT_MS,
+        },
+      );
+    } catch (error) {
+      return {
+        published: false,
+        error: `Forge agent did not answer the recovery publish: ${describe(error)}`,
+      };
+    }
+    const result = agentRecoveryPublishResultSchema.safeParse(response.body);
+    if (
+      response.status < 200 ||
+      response.status >= 300 ||
+      !result.success ||
+      !result.data.reference.endsWith(`@${result.data.digest}`)
+    ) {
+      return {
+        published: false,
+        error: `Forge agent did not return a verified immutable image (${response.status})`,
+      };
+    }
+    await this.db
+      .update(deployments)
+      .set({
+        imageTag: result.data.reference,
+        imageDigest: result.data.digest,
+        resolvedBuilder: builder,
+      })
+      .where(eq(deployments.id, row.id));
+    return {
+      published: true,
+      reference: result.data.reference,
+      digest: result.data.digest,
+    };
+  }
+
+  /**
+   * Republishes every live production image that went ready without a
+   * recovery reference. The deploy pipeline treats a failed push as non-fatal
+   * — the site is already serving — and nothing used to retry it, so one push
+   * timing out left both hosts' DR backups refusing every snapshot until that
+   * app happened to be redeployed.
+   */
+  async publishMissingRecoveryImages(
+    config: ForgeRecoveryPublishTaskConfig,
+    now: () => number = Date.now,
+  ): Promise<ForgeRecoveryPublishReport> {
+    const live = await this.db.query.deployments.findMany({
+      where: and(
+        eq(deployments.kind, "production"),
+        eq(deployments.status, "ready"),
+      ),
+    });
+    const pending = recoveryPublishCandidates(live, now());
+    const pendingIds = new Set(pending.map((row) => row.id));
+    for (const id of this.recoveryFailedAt.keys()) {
+      if (!pendingIds.has(id)) this.recoveryFailedAt.delete(id);
+    }
+    const { batch, unpublishable, deferred } = recoveryPublishBatch(
+      pending,
+      this.recoveryFailedAt,
+      config.maxDeployments,
+    );
+    const published: ForgeRecoveryPublishReport["published"] = [];
+    const failures: StepFailure[] = unpublishable.map((row) => ({
+      step: "publish",
+      subject: row.id,
+      error:
+        "No recorded builder; publish it with the recovery backfill and an explicit builder",
+    }));
+    for (const { row, builder } of batch) {
+      const outcome = await this.publishRecoveryImage(row, builder);
+      if (outcome.published) {
+        this.recoveryFailedAt.delete(row.id);
+        published.push({ deploymentId: row.id, reference: outcome.reference });
+      } else {
+        this.recoveryFailedAt.set(row.id, now());
+        failures.push({
+          step: "publish",
+          subject: row.id,
+          error: outcome.error,
+        });
+      }
+    }
+    return { pending: pending.length, published, deferred, failures };
+  }
+
+  /**
+   * Hands the host to its reboot unit once the agent has drained. The agent
+   * owns the waiting because only it knows what is in flight; the request
+   * timeout covers the whole drain budget.
+   */
+  async requestReboot(
+    config: ForgeRebootTaskConfig,
+  ): Promise<AgentRebootResult> {
+    const drainTimeoutMs = config.drainTimeoutMinutes * 60_000;
+    const response = await this.agent.json<unknown>("/host/reboot", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ drainTimeoutMs }),
+      timeoutMs: drainTimeoutMs + 60_000,
+    });
+    const result = agentRebootResultSchema.safeParse(response.body);
+    if (!result.success) {
+      throw new Error(`The agent refused the reboot (${response.status})`);
+    }
+    return result.data;
   }
 
   /**

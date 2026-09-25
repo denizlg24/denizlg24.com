@@ -7,6 +7,23 @@ import unittest
 SCRIPT = (Path(__file__).parents[1] / "backup").read_text()
 
 
+def between(start, end):
+    _, found, rest = SCRIPT.partition(start)
+    assert found, f"backup no longer contains {start!r}"
+    body, found, _ = rest.partition(end)
+    assert found, f"backup no longer contains {end!r} after {start!r}"
+    return body
+
+
+RECOVERABLE_IMAGE = between("  recoverable_image='", "\n  '\n")
+GATE = RECOVERABLE_IMAGE + between("jq -e \"$recoverable_image\"'", "' <<< \"$response\" >/dev/null")
+OFFENDERS = RECOVERABLE_IMAGE + between("unrecoverable=\"$(jq -r \"$recoverable_image\"'", "' <<< \"$response\" 2>/dev/null")
+
+
+def jq(*args, data):
+    return subprocess.run(["jq", *args], input=json.dumps(data), text=True, capture_output=True)
+
+
 class InventoryTests(unittest.TestCase):
     def inventory(self, count):
         return {"expected": count, "images": [{
@@ -19,9 +36,12 @@ class InventoryTests(unittest.TestCase):
         } for i in range(count)]}
 
     def accepts(self, data):
-        guard = SCRIPT.split("  jq -e '\n    (.expected", 1)[1].split("  ' <<< \"$response\"", 1)[0]
-        result = subprocess.run(["jq", "-e", "(.expected" + guard], input=json.dumps(data), text=True, capture_output=True)
-        return result.returncode == 0
+        return jq("-e", GATE, data=data).returncode == 0
+
+    def offenders(self, data):
+        result = jq("-r", OFFENDERS, data=data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
 
     def test_growth_and_removal_need_no_configuration_change(self):
         for count in (1, 13, 14, 16, 40):
@@ -39,6 +59,16 @@ class InventoryTests(unittest.TestCase):
         data = self.inventory(16)
         data["images"][-1]["deploymentId"] = "0"
         self.assertFalse(self.accepts(data))
+
+    def test_offender_list_names_every_image_the_gate_refuses(self):
+        self.assertEqual(self.offenders(self.inventory(3)), "")
+        for field, value in (("digest", None), ("recoverable", False), ("environmentCipher", None),
+                             ("imageSizeBytes", 0), ("platform", "linux/arm64"), ("domain", "localhost")):
+            data = self.inventory(3)
+            data["images"][1][field] = value
+            data["images"][1]["service"] = "web"
+            self.assertFalse(self.accepts(data), field)
+            self.assertEqual(self.offenders(data), "web (1)", field)
 
     def test_host_identity_comparison_detects_omissions_and_extras(self):
         guard = SCRIPT.split("'([.images[].deploymentId] | sort) == $running'", 1)

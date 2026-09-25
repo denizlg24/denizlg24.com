@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Reboots Forge for the unprivileged deploy agent, which asks by creating the
+# sentinel `forge-reboot.path` watches — only after it has drained its queue.
+#
+# The DR host lock is taken first so a reboot never lands inside a backup, an
+# offsite sync or a Mac pull, and it is kept: deniz-dr-locks.conf removes it at
+# boot, so nothing can take it between here and the reset. A holder that
+# outlasts the wait does not cancel the reboot. systemd stops its unit
+# gracefully and it retries on its next timer, whereas a weekly reboot skipped
+# whenever something runs long is one that eventually never happens.
+
+set -euo pipefail
+
+SENTINEL=/srv/forge/host-control/reboot-requested
+LOCK=/var/lib/deniz-dr/locks/forge.lock
+COMMON=/opt/deniz-cloud/infra/dr/lib/common.sh
+WAIT_SECONDS=1800
+
+rm -f -- "$SENTINEL"
+
+held=false
+if [[ -r "$COMMON" ]]; then
+  # shellcheck source=../dr/lib/common.sh
+  source "$COMMON"
+  deadline=$(( $(date +%s) + WAIT_SECONDS ))
+  until dr_try_lock "$LOCK"; do
+    if (( $(date +%s) >= deadline )); then
+      echo "DR host lock still held by '$(cat "$LOCK/owner" 2>/dev/null || cat "$LOCK/pid" 2>/dev/null || echo unknown)' after ${WAIT_SECONDS}s; rebooting anyway" >&2
+      break
+    fi
+    sleep 10
+  done
+  if [[ "$(cat "$LOCK/pid" 2>/dev/null)" == "$$" ]]; then
+    printf 'forge-reboot\n' > "$LOCK/owner"
+    held=true
+  fi
+else
+  echo "DR runtime is not installed; rebooting without the host lock" >&2
+fi
+
+if ! systemctl reboot; then
+  if [[ "$held" == true ]]; then
+    rm -f -- "$LOCK/owner" "$LOCK/pid"
+    rmdir -- "$LOCK"
+  fi
+  exit 1
+fi
+# Keep this pid alive, and so the lock visibly held, until shutdown stops the
+# unit: a lock naming a dead pid is one the deploy agent would reclaim.
+exec sleep infinity

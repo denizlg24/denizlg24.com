@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for the Forge reboot sentinel
+
+[Path]
+PathExists=/srv/forge/host-control/reboot-requested
+Unit=forge-reboot.service
+
+[Install]
+WantedBy=multi-user.target

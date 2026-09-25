@@ -114,7 +114,6 @@ import {
 } from "@repo/cloud-core/deploy";
 import {
   type AgentApplyEnvResult,
-  type AgentRecoveryPublishResult,
   type AgentRecoveryResult,
   agentDeploymentKindsRequestSchema,
   agentModuleGraphReportSchema,
@@ -165,7 +164,12 @@ import { z } from "zod";
 import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
-import type { ForgeOps, RouteSlot } from "./ops";
+import {
+  type ForgeOps,
+  hasImmutableRecoveryImage,
+  type RouteSlot,
+  recordedRecoveryBuilder,
+} from "./ops";
 import { DeployAgentProxy, DeployAgentUnavailableError } from "./proxy";
 
 export interface DeployRouteOptions {
@@ -4079,35 +4083,18 @@ export function deployRoutes(options: DeployRouteOptions) {
       error: string | null;
     }> = [];
     for (const row of live) {
-      const target = await db.query.deployTargets.findFirst({
-        where: eq(deployTargets.id, row.targetId),
-      });
-      const project = target
-        ? await db.query.projects.findFirst({
-            where: eq(projects.id, target.projectId),
-          })
-        : null;
-      const recordedBuilder = row.buildSpec?.builder;
-      const builderValue =
-        row.resolvedBuilder ??
-        (recordedBuilder === "dockerfile" || recordedBuilder === "nixpacks"
-          ? recordedBuilder
-          : parsed.data.builders[row.id]);
       const builder =
-        builderValue === "dockerfile" || builderValue === "nixpacks"
-          ? builderValue
-          : undefined;
-      if (!target || !project || !row.imageTag || !builder) {
+        recordedRecoveryBuilder(row) ?? parsed.data.builders[row.id] ?? null;
+      if (!row.imageTag || !builder) {
         results.push({
           deploymentId: row.id,
           published: false,
           reference: row.imageTag,
-          error:
-            "Missing target, project, local image, or explicit historical builder",
+          error: "Missing local image or explicit historical builder",
         });
         continue;
       }
-      if (row.imageDigest && row.imageTag.endsWith(`@${row.imageDigest}`)) {
+      if (hasImmutableRecoveryImage(row)) {
         await db
           .update(deployments)
           .set({ resolvedBuilder: builder })
@@ -4120,73 +4107,28 @@ export function deployRoutes(options: DeployRouteOptions) {
         });
         continue;
       }
-      const request = toAgentRequest({
-        deployment: row,
-        target,
-        projectSlug: project.slug,
-      });
-      request.build.builder = builder;
       // A publish that never answers is one deployment's failure, not the
-      // run's. `agentProxy.json` throws rather than returning a status when the
-      // agent is unreachable or the 20 minutes elapse, and an uncaught throw
-      // here escaped the `results` array this loop exists to fill: the request
-      // 500'd and every deployment after it was abandoned. These images are
-      // several gigabytes each over a home uplink, so a push outrunning the
-      // timeout is an ordinary event, and the caller re-runs to finish the
-      // rest — which only works if the rest were attempted.
-      let response: Awaited<
-        ReturnType<typeof agentProxy.json<AgentRecoveryPublishResult | null>>
-      >;
-      try {
-        response = await agentProxy.json<AgentRecoveryPublishResult | null>(
-          `/deployments/${row.id}/publish-recovery`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ request, localImage: row.imageTag }),
-            timeoutMs: 20 * 60_000,
-          },
-        );
-      } catch (error) {
-        results.push({
-          deploymentId: row.id,
-          published: false,
-          reference: row.imageTag,
-          error: `Forge agent did not answer the recovery publish: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-        continue;
-      }
-      if (
-        response.status < 200 ||
-        response.status >= 300 ||
-        !response.body?.reference ||
-        !response.body.digest ||
-        !response.body.reference.endsWith(`@${response.body.digest}`)
-      ) {
-        results.push({
-          deploymentId: row.id,
-          published: false,
-          reference: row.imageTag,
-          error: "Forge agent did not return a verified immutable image",
-        });
-        continue;
-      }
-      await db
-        .update(deployments)
-        .set({
-          imageTag: response.body.reference,
-          imageDigest: response.body.digest,
-          resolvedBuilder: builder,
-        })
-        .where(eq(deployments.id, row.id));
-      results.push({
-        deploymentId: row.id,
-        published: true,
-        reference: response.body.reference,
-        error: null,
-      });
+      // run's: `publishRecoveryImage` reports an unreachable agent as an
+      // outcome rather than throwing, so every deployment is still attempted.
+      // These images are several gigabytes each over a home uplink, so a push
+      // outrunning the timeout is an ordinary event, and the caller re-runs to
+      // finish the rest — which only works if the rest were attempted.
+      const outcome = await forge.publishRecoveryImage(row, builder);
+      results.push(
+        outcome.published
+          ? {
+              deploymentId: row.id,
+              published: true,
+              reference: outcome.reference,
+              error: null,
+            }
+          : {
+              deploymentId: row.id,
+              published: false,
+              reference: row.imageTag,
+              error: outcome.error,
+            },
+      );
     }
     const published = results.filter((item) => item.published).length;
     const body = {

@@ -6,12 +6,15 @@ import type {
   AgentApplyEnvRequest,
   AgentGcRequest,
   AgentHealth,
+  AgentRebootRequest,
+  AgentRebootResult,
   AgentRecoveryPublishRequest,
   AgentRecoveryRequest,
 } from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
+import { SerialQueueDrainingError } from "./concurrency";
 import { ForgeContainerNotFoundError } from "./docker";
 import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
@@ -68,6 +71,8 @@ function app(
     logRoot?: string;
     telemetry?: ForgeTelemetry;
     applyEnvResult?: ApplyEnvResult;
+    rebootResult?: AgentRebootResult;
+    publishRecoveryError?: Error;
   } = {},
 ) {
   const queue = new DeploymentQueue({
@@ -92,6 +97,7 @@ function app(
   const envApplied: AgentApplyEnvRequest[] = [];
   const recovered: AgentRecoveryRequest[] = [];
   const published: AgentRecoveryPublishRequest[] = [];
+  const rebootRequests: AgentRebootRequest[] = [];
   const routes: CaddyRouteEntry[] = [
     {
       deploymentId: "dep-1",
@@ -111,6 +117,7 @@ function app(
     envApplied,
     recovered,
     published,
+    rebootRequests,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
@@ -150,6 +157,7 @@ function app(
         };
       },
       publishRecovery: async (request) => {
+        if (options.publishRecoveryError) throw options.publishRecoveryError;
         published.push(request);
         return {
           reference: `ghcr.io/denizlg24/forge-recovery/app@sha256:${"a".repeat(64)}`,
@@ -188,6 +196,17 @@ function app(
           },
           failures: [],
         };
+      },
+      requestReboot: async (request) => {
+        rebootRequests.push(request);
+        return (
+          options.rebootResult ?? {
+            requested: true,
+            drainedMs: 1_200,
+            running: 0,
+            error: null,
+          }
+        );
       },
     }),
   };
@@ -648,6 +667,25 @@ describe("immutable recovery routes", () => {
     expect(published).toHaveLength(1);
   });
 
+  it("answers 503 while pushes are drained for a reboot", async () => {
+    const { instance } = app({
+      publishRecoveryError: new SerialQueueDrainingError(),
+    });
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/publish-recovery`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ request, localImage: "forge/hello-world:live" }),
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "DRAINING_FOR_REBOOT" },
+    });
+  });
+
   it("rejects a body/path deployment mismatch on both routes", async () => {
     for (const [path, body] of [
       [
@@ -776,5 +814,63 @@ describe("POST /gc", () => {
     expect(collected[0]?.keepDeploymentIds).toEqual([keep]);
     expect(collected[0]?.logRetentionDays).toBe(30);
     expect((await response.json()).report.failures).toEqual([]);
+  });
+});
+
+describe("POST /host/reboot", () => {
+  it("passes the drain budget through and reports the request", async () => {
+    const { instance, rebootRequests } = app();
+    const response = await instance.request("/host/reboot", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({ drainTimeoutMs: 60_000 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(rebootRequests).toEqual([{ drainTimeoutMs: 60_000 }]);
+    expect((await response.json()).requested).toBe(true);
+  });
+
+  it("answers 409 when the queue did not drain", async () => {
+    const { instance } = app({
+      rebootResult: {
+        requested: false,
+        drainedMs: 60_000,
+        running: 2,
+        error: "The deployment queue did not drain in time",
+      },
+    });
+    const response = await instance.request("/host/reboot", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({ drainTimeoutMs: 60_000 }),
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).running).toBe(2);
+  });
+
+  it("refuses a request without a drain budget", async () => {
+    const { instance, rebootRequests } = app();
+    const response = await instance.request("/host/reboot", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(400);
+    expect(rebootRequests).toEqual([]);
+  });
+
+  it("requires the agent token", async () => {
+    const { instance, rebootRequests } = app();
+    const response = await instance.request("/host/reboot", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ drainTimeoutMs: 60_000 }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(rebootRequests).toEqual([]);
   });
 });

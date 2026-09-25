@@ -26,6 +26,8 @@ export const TASK_TYPES = [
   "domain_verification",
   "thumbnail_backfill",
   "thumbnail_gc",
+  "forge_recovery_publish",
+  "forge_reboot",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -223,6 +225,31 @@ export type ThumbnailBackfillTaskConfig = z.infer<
 export const thumbnailGcTaskConfigSchema = z.object({});
 export type ThumbnailGcTaskConfig = z.infer<typeof thumbnailGcTaskConfigSchema>;
 
+/**
+ * Republishes the recovery image of every live production deployment that went
+ * ready without one. A push that fails after the health check leaves the row
+ * serving under its local tag, and both hosts' DR backups refuse to publish a
+ * snapshot while any live deployment has no immutable artifact — so without
+ * this, one failed push stopped every backup until that app was redeployed.
+ * Bounded per run because each push is gigabytes over a home uplink.
+ */
+export const forgeRecoveryPublishTaskConfigSchema = z.object({
+  maxDeployments: z.number().int().min(1).max(50).default(5),
+});
+export type ForgeRecoveryPublishTaskConfig = z.infer<
+  typeof forgeRecoveryPublishTaskConfigSchema
+>;
+
+/**
+ * The deploy host's counterpart to `reboot_server`. The drain budget is how
+ * long the agent waits for in-flight deployments before giving up on this
+ * week's reboot rather than cancelling one.
+ */
+export const forgeRebootTaskConfigSchema = z.object({
+  drainTimeoutMinutes: z.number().int().min(1).max(120).default(30),
+});
+export type ForgeRebootTaskConfig = z.infer<typeof forgeRebootTaskConfigSchema>;
+
 export const thumbnailBackfillReportSchema = z.object({
   scanned: z.number().int().nonnegative(),
   generated: z.number().int().nonnegative(),
@@ -272,6 +299,20 @@ export const domainVerificationReportSchema = z.object({
 });
 export type DomainVerificationReport = z.infer<
   typeof domainVerificationReportSchema
+>;
+
+export const forgeRecoveryPublishReportSchema = z.object({
+  /** Live production deployments with no immutable recovery artifact. */
+  pending: z.number().int().nonnegative(),
+  published: z.array(
+    z.object({ deploymentId: z.uuid(), reference: z.string() }),
+  ),
+  /** Left for the next run by `maxDeployments`. */
+  deferred: z.number().int().nonnegative(),
+  failures: z.array(forgeStepFailureSchema),
+});
+export type ForgeRecoveryPublishReport = z.infer<
+  typeof forgeRecoveryPublishReportSchema
 >;
 
 export const metricsRollupTaskConfigSchema = z.object({
@@ -376,6 +417,8 @@ export const taskConfigSchema = z.object({
   buildCacheMaxAgeDays: z.number().optional(),
   builderPruneHours: z.number().optional(),
   diskLowPercent: z.number().optional(),
+  maxDeployments: z.number().optional(),
+  drainTimeoutMinutes: z.number().optional(),
 });
 export type TaskConfig = z.infer<typeof taskConfigSchema>;
 
@@ -397,6 +440,8 @@ export const TASK_CONFIG_SCHEMAS = {
   domain_verification: domainVerificationTaskConfigSchema,
   thumbnail_backfill: thumbnailBackfillTaskConfigSchema,
   thumbnail_gc: thumbnailGcTaskConfigSchema,
+  forge_recovery_publish: forgeRecoveryPublishTaskConfigSchema,
+  forge_reboot: forgeRebootTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -422,6 +467,7 @@ export const taskRunMetadataSchema = z.object({
   domainVerification: domainVerificationReportSchema.optional(),
   thumbnailBackfill: thumbnailBackfillReportSchema.optional(),
   thumbnailGc: thumbnailGcReportSchema.optional(),
+  forgeRecoveryPublish: forgeRecoveryPublishReportSchema.optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

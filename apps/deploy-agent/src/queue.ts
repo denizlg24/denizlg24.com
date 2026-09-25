@@ -130,6 +130,7 @@ export class DeploymentQueue {
   #wake: (() => void) | null = null;
   #claimsInFlight = 0;
   #buildMaintenance = false;
+  #draining = false;
 
   constructor(options: DeploymentQueueOptions) {
     this.#options = options;
@@ -169,6 +170,7 @@ export class DeploymentQueue {
   get #hasRoom(): boolean {
     return (
       !this.#buildMaintenance &&
+      !this.#draining &&
       this.buildingCount < this.#options.capacity &&
       this.#running.size < this.#maxInFlight
     );
@@ -197,6 +199,33 @@ export class DeploymentQueue {
       if (released) return;
       released = true;
       this.#buildMaintenance = false;
+      this.#wake?.();
+    };
+  }
+
+  /**
+   * Stops claiming and waits for every in-flight run to finish — the post-build
+   * recovery push included — for a host operation that must not cut one short.
+   * Resolves to a release, or to null when the deadline passes first; claiming
+   * then resumes and nothing was interrupted.
+   */
+  async drain(timeoutMs: number, pollMs = 1_000): Promise<(() => void) | null> {
+    if (this.#stopped || this.#draining) return null;
+    this.#draining = true;
+    const deadline = this.#now() + timeoutMs;
+    while (this.#claimsInFlight > 0 || this.#running.size > 0) {
+      if (this.#now() >= deadline) {
+        this.#draining = false;
+        this.#wake?.();
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#draining = false;
       this.#wake?.();
     };
   }
