@@ -101,6 +101,9 @@ const FinanceReviewsPage = dynamic(() =>
 const FinanceBudgetPage = dynamic(() =>
   import("./finance-budget-page").then((module) => module.FinanceBudgetPage),
 );
+const FinancePayrollTab = dynamic(() =>
+  import("./finance-payroll").then((module) => module.FinancePayrollTab),
+);
 const FinanceAlertsPage = dynamic(() =>
   import("./finance-alerts-page").then((module) => module.FinanceAlertsPage),
 );
@@ -108,6 +111,7 @@ const FinanceAlertsPage = dynamic(() =>
 const FINANCE_TABS = new Set([
   "ledger",
   "recurring",
+  "payroll",
   "reviews",
   "budget",
   "alerts",
@@ -351,6 +355,7 @@ export function FinancePage({
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="payroll">Payroll</TabsTrigger>
               <TabsTrigger value="reviews">
                 Review
                 {data.matchReviews.length > 0 && (
@@ -390,6 +395,9 @@ export function FinancePage({
                 }
                 onReload={load}
               />
+            </TabsContent>
+            <TabsContent value="payroll">
+              <FinancePayrollTab data={data} onReload={load} />
             </TabsContent>
             <TabsContent value="reviews">
               <FinanceReviewsPage embedded dashboard={data} onReload={load} />

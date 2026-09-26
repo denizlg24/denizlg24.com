@@ -10,6 +10,7 @@ export default function RuleRoute() {
         <FinanceRulePage
           ruleId={params.get("id") ?? undefined}
           candidateFingerprint={params.get("candidate") ?? undefined}
+          payout={params.get("kind") === "payout"}
         />
       )}
     </AdminQueryRoute>

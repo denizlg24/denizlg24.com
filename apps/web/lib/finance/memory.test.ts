@@ -6,6 +6,7 @@ const dashboard: FinanceDashboardResponse = {
   accounts: [],
   balances: [],
   categories: [],
+  deductionProfiles: [],
   settings: { baseCurrency: "EUR", fxSource: "frankfurter" },
   aggregateBalances: [{ amountMinor: 120_000, currency: "EUR" }],
   recurringCommitment: {

@@ -35,3 +35,4 @@ export * from "./tool-labels";
 export * from "./triage";
 export * from "./voice-notes";
 export * from "./whiteboard";
+export * from "./work-hours";

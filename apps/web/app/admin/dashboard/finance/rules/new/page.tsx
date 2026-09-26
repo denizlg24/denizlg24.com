@@ -17,7 +17,10 @@ export default async function RuleNewRoute({
     : params.candidate;
   return (
     <AdminFeatureShell>
-      <FinanceRulePage candidateFingerprint={candidate} />
+      <FinanceRulePage
+        candidateFingerprint={candidate}
+        payout={params.kind === "payout"}
+      />
     </AdminFeatureShell>
   );
 }

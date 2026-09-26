@@ -17,6 +17,7 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
   settings: `${ROOT}/settings`,
   markets: `${ROOT}/markets`,
   portfolios: `${ROOT}/markets/portfolios`,
+  hours: `${ROOT}/hours`,
 
   courses: {
     root: `${ROOT}/courses`,
@@ -34,6 +35,8 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     entryNew: `${ROOT}/finance/entry`,
     rule: (ruleId) => withQuery(`${ROOT}/finance/rule`, { id: ruleId }),
     ruleNew: `${ROOT}/finance/rule`,
+    payoutNew: withQuery(`${ROOT}/finance/rule`, { kind: "payout" }),
+    payroll: `${ROOT}/finance?tab=payroll`,
     accounts: `${ROOT}/finance/accounts`,
     account: (accountId) =>
       withQuery(`${ROOT}/finance/accounts`, { id: accountId }),
