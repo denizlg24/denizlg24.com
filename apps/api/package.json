@@ -34,7 +34,7 @@
     "@repo/schemas": "workspace:*",
     "better-auth": "^1.7.5",
     "croner": "^10.0.1",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "hono": "^4.13.8",
     "jose": "^6.2.12",
     "mongodb": "^7.6.0",
