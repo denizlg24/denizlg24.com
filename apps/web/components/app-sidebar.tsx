@@ -24,6 +24,7 @@ import {
   NotebookPen,
   Server,
   Settings2,
+  Timer,
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
@@ -146,6 +147,11 @@ const items = [
     title: "Finance",
     url: "/admin/dashboard/finance",
     icon: CircleDollarSign,
+  },
+  {
+    title: "Hours",
+    url: "/admin/dashboard/hours",
+    icon: Timer,
   },
   {
     title: "Markets",

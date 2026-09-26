@@ -3,9 +3,12 @@
 import type {
   FinanceAccount,
   FinanceCadence,
+  FinanceDeductionProfile,
+  FinancePayoutConfig,
   FinanceRecurrence,
   FinanceRecurringCandidate,
   FinanceRecurringRule,
+  WorkJob,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { CurrencySelect } from "@repo/ui/currency-select";
@@ -19,11 +22,14 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Toggle } from "@repo/ui/toggle";
+import { cn } from "@repo/ui/utils";
 import {
+  computePayout,
   describeRecurrence,
   majorToMinor,
   minorToMajor,
   nextRecurringOccurrences,
+  payoutPeriodBounds,
 } from "@repo/utils";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -31,7 +37,7 @@ import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { createFinanceRule, updateFinanceRule } from "./finance-data";
 import { FieldRow } from "./finance-primitives";
-import { shortDay, todayKey } from "./finance-series";
+import { money, shortDay, todayKey } from "./finance-series";
 
 const CADENCE_LABEL: Record<FinanceCadence, string> = {
   daily: "Daily",
@@ -93,7 +99,15 @@ interface RuleDraft {
   endDate: string | undefined;
   tolerancePercent: string;
   matchWindowDays: string;
+  isPayout: boolean;
+  payoutSource: FinancePayoutConfig["source"]["kind"];
+  jobId: string;
+  cycleCloseDay: number;
+  employmentStart: string;
+  deductionProfileId: string;
 }
+
+const NO_PROFILE = "none";
 
 function draftFromRule(rule: FinanceRecurringRule): RuleDraft {
   const recurrence = rule.recurrence;
@@ -126,12 +140,28 @@ function draftFromRule(rule: FinanceRecurringRule): RuleDraft {
     endDate: rule.endDate,
     tolerancePercent: String(rule.matchTolerancePercent),
     matchWindowDays: String(rule.matchWindowDays),
+    isPayout: Boolean(rule.payout),
+    payoutSource: rule.payout?.source.kind ?? "hours",
+    jobId: rule.payout?.source.kind === "hours" ? rule.payout.source.jobId : "",
+    cycleCloseDay: rule.payout?.cycleCloseDay ?? 10,
+    employmentStart: rule.payout?.employmentStart ?? rule.anchorDate,
+    deductionProfileId: rule.payout?.deductionProfileId ?? NO_PROFILE,
+    ...(rule.payout?.source.kind === "fixed"
+      ? {
+          amount: String(
+            minorToMajor(rule.payout.source.grossMinor, rule.currency),
+          ),
+        }
+      : {}),
   };
 }
 
 function emptyDraft(
   accounts: FinanceAccount[],
   seed: FinanceRecurringCandidate | null,
+  payout = false,
+  jobs: WorkJob[] = [],
+  profiles: FinanceDeductionProfile[] = [],
 ): RuleDraft {
   const account =
     accounts.find((item) => item.id === seed?.accountId) ?? accounts[0];
@@ -156,6 +186,59 @@ function emptyDraft(
     endDate: undefined,
     tolerancePercent: "10",
     matchWindowDays: "3",
+    ...payoutDefaults(payout, jobs, profiles, today),
+  };
+}
+
+/** A Danish monthly payroll: hours close on the 10th, paid on the 25th. */
+function payoutDefaults(
+  payout: boolean,
+  jobs: WorkJob[],
+  profiles: FinanceDeductionProfile[],
+  today: string,
+): Pick<
+  RuleDraft,
+  | "isPayout"
+  | "payoutSource"
+  | "jobId"
+  | "cycleCloseDay"
+  | "employmentStart"
+  | "deductionProfileId"
+> &
+  Partial<RuleDraft> {
+  const job = jobs.find((item) => item.status === "active") ?? jobs[0];
+  const base = {
+    isPayout: payout,
+    payoutSource: "hours" as const,
+    jobId: job?.id ?? "",
+    cycleCloseDay: 10,
+    employmentStart: today,
+    deductionProfileId: profiles[0]?.id ?? NO_PROFILE,
+  };
+  if (!payout) return base;
+  const anchor = new Date(`${today}T00:00:00Z`);
+  // The first 25th on or after today; the form's preview shows it.
+  const firstPayout =
+    anchor.getUTCDate() <= 25
+      ? `${today.slice(0, 8)}25`
+      : new Date(
+          Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 25),
+        )
+          .toISOString()
+          .slice(0, 10);
+  return {
+    ...base,
+    name: job ? `${job.name} salary` : "",
+    direction: "income",
+    amountKind: "variable",
+    currency: job?.currency ?? "DKK",
+    // Not a hand choice: a fixed salary follows the account it is paid into.
+    currencyPinned: false,
+    cadence: "monthly",
+    dayOfMonth: 25,
+    anchorDate: firstPayout,
+    tolerancePercent: "10",
+    matchWindowDays: "4",
   };
 }
 
@@ -188,27 +271,41 @@ export function RuleForm({
   accounts,
   seed,
   rule,
+  payout = false,
+  jobs = [],
+  profiles = [],
   onSaved,
   onDone,
 }: {
   accounts: FinanceAccount[];
   seed: FinanceRecurringCandidate | null;
   rule: FinanceRecurringRule | null;
+  /** Opens a new rule as a payout. */
+  payout?: boolean;
+  jobs?: WorkJob[];
+  profiles?: FinanceDeductionProfile[];
   onSaved: () => Promise<void>;
   /** Leaves the form — a page navigates away where a sheet just closed. */
   onDone: () => void;
 }) {
   const { client } = useAdmin();
   const [draft, setDraft] = useState<RuleDraft>(() =>
-    emptyDraft(accounts, seed),
+    rule
+      ? draftFromRule(rule)
+      : emptyDraft(accounts, seed, payout, jobs, profiles),
   );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setDraft(rule ? draftFromRule(rule) : emptyDraft(accounts, seed));
-    // `accounts` is intentionally not a dependency: it only seeds the default
-    // account, and a new array identity mid-edit would discard the draft.
-  }, [rule, seed]);
+    setDraft(
+      rule
+        ? draftFromRule(rule)
+        : emptyDraft(accounts, seed, payout, jobs, profiles),
+    );
+    // `accounts`, `jobs` and `profiles` are intentionally not dependencies:
+    // they only seed defaults, and a new array identity mid-edit would
+    // discard the draft.
+  }, [rule, seed, payout]);
 
   function patch(next: Partial<RuleDraft>) {
     setDraft((current) => ({ ...current, ...next }));
@@ -232,9 +329,44 @@ export function RuleForm({
     [draft.anchorDate, draft.endDate, recurrence],
   );
 
-  const ready = Boolean(
-    draft.accountId && draft.name.trim() && draft.amount && draft.anchorDate,
+  const selectedJob = jobs.find((job) => job.id === draft.jobId);
+  const selectedProfile = profiles.find(
+    (profile) => profile.id === draft.deductionProfileId,
   );
+  const payoutReady = draft.isPayout
+    ? draft.payoutSource === "hours"
+      ? Boolean(selectedJob)
+      : Boolean(draft.amount)
+    : Boolean(draft.amount);
+  const ready = Boolean(
+    draft.accountId && draft.name.trim() && payoutReady && draft.anchorDate,
+  );
+
+  // What the first previewed payout covers and, for a salary, pays.
+  const payoutPreview = useMemo(() => {
+    if (!draft.isPayout || preview.length === 0) return [];
+    const first = nextRecurringOccurrences(
+      { anchorDate: draft.anchorDate, recurrence, endDate: draft.endDate },
+      draft.anchorDate,
+      1,
+    )[0];
+    return preview.map((date) => ({
+      date,
+      ...payoutPeriodBounds({
+        payoutDate: date,
+        cycleCloseDay: draft.cycleCloseDay,
+        employmentStart: draft.employmentStart,
+        isFirst: date === first,
+      }),
+    }));
+  }, [draft, preview, recurrence]);
+  const salaryPreview =
+    draft.isPayout && draft.payoutSource === "fixed" && draft.amount
+      ? computePayout(
+          Math.abs(majorToMinor(Number(draft.amount), draft.currency)),
+          selectedProfile?.lines ?? [],
+        )
+      : null;
   const showsInterval = draft.cadence !== "semiMonthly";
   const showsDayOfMonth =
     draft.cadence === "monthly" ||
@@ -245,15 +377,37 @@ export function RuleForm({
     if (!ready) return;
     setSaving(true);
     try {
+      const currency =
+        draft.isPayout && draft.payoutSource === "hours" && selectedJob
+          ? selectedJob.currency
+          : draft.currency;
+      const typedMinor = draft.amount
+        ? Math.abs(majorToMinor(Number(draft.amount), currency))
+        : 0;
+      const payoutConfig: FinancePayoutConfig | undefined = draft.isPayout
+        ? {
+            source:
+              draft.payoutSource === "hours"
+                ? { kind: "hours", jobId: draft.jobId }
+                : { kind: "fixed", grossMinor: typedMinor },
+            cycleCloseDay: Math.min(28, Math.max(1, draft.cycleCloseDay)),
+            employmentStart: draft.employmentStart,
+            deductionProfileId:
+              draft.deductionProfileId === NO_PROFILE
+                ? undefined
+                : draft.deductionProfileId,
+            overrides: rule?.payout?.overrides ?? [],
+          }
+        : undefined;
       const input = {
         accountId: draft.accountId,
         name: draft.name.trim(),
-        direction: draft.direction,
-        amountKind: draft.amountKind,
-        amountMinor: Math.abs(
-          majorToMinor(Number(draft.amount), draft.currency),
-        ),
-        currency: draft.currency,
+        direction: draft.isPayout ? ("income" as const) : draft.direction,
+        amountKind: draft.isPayout ? ("variable" as const) : draft.amountKind,
+        // A payout's amount is recomputed server-side on every projection.
+        amountMinor: draft.isPayout ? (rule?.amountMinor ?? 0) : typedMinor,
+        currency,
+        payout: payoutConfig,
         recurrence,
         anchorDate: draft.anchorDate,
         matchTolerancePercent: Math.min(
@@ -296,20 +450,40 @@ export function RuleForm({
         </div>
       )}
 
-      <div className="flex gap-1">
-        {(["expense", "income"] as const).map((value) => (
-          <Toggle
-            key={value}
-            size="sm"
-            variant="outline"
-            pressed={draft.direction === value}
-            onPressedChange={() => patch({ direction: value })}
-            className="flex-1 capitalize"
-          >
-            {value}
-          </Toggle>
-        ))}
-      </div>
+      {!rule?.payout && (
+        <div className="flex gap-1">
+          {(rule
+            ? (["expense", "income"] as const)
+            : (["expense", "income", "payout"] as const)
+          ).map((value) => (
+            <Toggle
+              key={value}
+              size="sm"
+              variant="outline"
+              pressed={
+                value === "payout"
+                  ? draft.isPayout
+                  : !draft.isPayout && draft.direction === value
+              }
+              onPressedChange={() =>
+                value === "payout"
+                  ? setDraft((current) => ({
+                      ...current,
+                      ...payoutDefaults(true, jobs, profiles, todayKey()),
+                      name:
+                        current.name ||
+                        payoutDefaults(true, jobs, profiles, todayKey()).name ||
+                        "",
+                    }))
+                  : patch({ direction: value, isPayout: false })
+              }
+              className="flex-1 capitalize"
+            >
+              {value}
+            </Toggle>
+          ))}
+        </div>
+      )}
 
       <FieldRow label="Name" htmlFor="rule-name">
         <Input
@@ -319,32 +493,183 @@ export function RuleForm({
         />
       </FieldRow>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-        <FieldRow label="Amount" htmlFor="rule-amount" className="min-w-0">
-          <Input
-            id="rule-amount"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            value={draft.amount}
-            onChange={(event) => patch({ amount: event.target.value })}
-            className="text-right font-medium tabular-nums"
-            placeholder="0.00"
-          />
-        </FieldRow>
-        <FieldRow label="Currency" className="min-w-0">
-          <CurrencySelect
-            value={draft.currency}
-            onValueChange={(value) =>
-              patch({ currency: value, currencyPinned: true })
-            }
-          />
-        </FieldRow>
-      </div>
+      {draft.isPayout && (
+        <div className="space-y-3 border-y py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label="Gross from" className="min-w-0">
+              <Select
+                value={draft.payoutSource}
+                onValueChange={(value) => {
+                  const source = value as RuleDraft["payoutSource"];
+                  const job = jobs.find((item) => item.id === draft.jobId);
+                  const account = accounts.find(
+                    (item) => item.id === draft.accountId,
+                  );
+                  patch({
+                    payoutSource: source,
+                    // Hours pay in the job's currency; a salary in the one
+                    // chosen for it, else the receiving account's.
+                    currency:
+                      source === "hours"
+                        ? (job?.currency ?? draft.currency)
+                        : draft.currencyPinned || !account
+                          ? draft.currency
+                          : account.currency,
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hours">Hours</SelectItem>
+                  <SelectItem value="fixed">Fixed salary</SelectItem>
+                </SelectContent>
+              </Select>
+            </FieldRow>
+            {draft.payoutSource === "hours" ? (
+              <FieldRow label="Job" className="min-w-0">
+                <Select
+                  value={draft.jobId}
+                  onValueChange={(value) => {
+                    const job = jobs.find((item) => item.id === value);
+                    patch({
+                      jobId: value,
+                      currency: job?.currency ?? draft.currency,
+                    });
+                  }}
+                >
+                  <SelectTrigger className="w-full min-w-0">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobs.map((job) => (
+                      <SelectItem key={job.id} value={job.id}>
+                        {job.name} · {money(job.hourlyRateMinor, job.currency)}
+                        /h
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldRow>
+            ) : (
+              <FieldRow label="Monthly gross" className="col-span-2 min-w-0">
+                <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={draft.amount}
+                    onChange={(event) => patch({ amount: event.target.value })}
+                    className="min-w-0 text-right font-medium tabular-nums"
+                    placeholder="0.00"
+                  />
+                  <CurrencySelect
+                    value={draft.currency}
+                    onValueChange={(value) =>
+                      patch({ currency: value, currencyPinned: true })
+                    }
+                  />
+                </div>
+              </FieldRow>
+            )}
+          </div>
+          <FieldRow label="Deductions">
+            <Select
+              value={draft.deductionProfileId}
+              onValueChange={(value) => patch({ deductionProfileId: value })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROFILE}>None</SelectItem>
+                {profiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldRow>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label="Hours close on" htmlFor="rule-close-day">
+              <Input
+                id="rule-close-day"
+                type="number"
+                min={1}
+                max={28}
+                value={draft.cycleCloseDay}
+                onChange={(event) =>
+                  patch({ cycleCloseDay: Number(event.target.value) })
+                }
+                className="tabular-nums"
+              />
+            </FieldRow>
+            <FieldRow label="Employed from">
+              <DatePicker
+                value={draft.employmentStart}
+                onValueChange={(value) =>
+                  patch({ employmentStart: value ?? todayKey() })
+                }
+                aria-label="Employment start"
+              />
+            </FieldRow>
+          </div>
+          {salaryPreview && (
+            <div className="space-y-0.5 text-[11px] tabular-nums text-muted-foreground">
+              {salaryPreview.lines.map((line) => (
+                <div key={line.lineId} className="flex justify-between">
+                  <span>{line.name}</span>
+                  <span>−{money(line.amountMinor, draft.currency)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between font-medium text-foreground">
+                <span>Net / month</span>
+                <span>{money(salaryPreview.netMinor, draft.currency)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-        <FieldRow label="Account" className="min-w-0">
+      {!draft.isPayout && (
+        <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+          <FieldRow label="Amount" htmlFor="rule-amount" className="min-w-0">
+            <Input
+              id="rule-amount"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={draft.amount}
+              onChange={(event) => patch({ amount: event.target.value })}
+              className="text-right font-medium tabular-nums"
+              placeholder="0.00"
+            />
+          </FieldRow>
+          <FieldRow label="Currency" className="min-w-0">
+            <CurrencySelect
+              value={draft.currency}
+              onValueChange={(value) =>
+                patch({ currency: value, currencyPinned: true })
+              }
+            />
+          </FieldRow>
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "grid gap-3",
+          !draft.isPayout && "grid-cols-[minmax(0,1fr)_7rem]",
+        )}
+      >
+        <FieldRow
+          label={draft.isPayout ? "Paid into" : "Account"}
+          className="min-w-0"
+        >
           <Select
             value={draft.accountId}
             onValueChange={(value) => {
@@ -372,22 +697,24 @@ export function RuleForm({
             </SelectContent>
           </Select>
         </FieldRow>
-        <FieldRow label="Kind" className="min-w-0">
-          <Select
-            value={draft.amountKind}
-            onValueChange={(value) =>
-              patch({ amountKind: value as RuleDraft["amountKind"] })
-            }
-          >
-            <SelectTrigger className="w-full min-w-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="fixed">Fixed</SelectItem>
-              <SelectItem value="variable">Variable</SelectItem>
-            </SelectContent>
-          </Select>
-        </FieldRow>
+        {!draft.isPayout && (
+          <FieldRow label="Kind" className="min-w-0">
+            <Select
+              value={draft.amountKind}
+              onValueChange={(value) =>
+                patch({ amountKind: value as RuleDraft["amountKind"] })
+              }
+            >
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed">Fixed</SelectItem>
+                <SelectItem value="variable">Variable</SelectItem>
+              </SelectContent>
+            </Select>
+          </FieldRow>
+        )}
       </div>
 
       <div className="space-y-3 border-y py-4">
@@ -510,7 +837,7 @@ export function RuleForm({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <FieldRow label="Starts">
+          <FieldRow label={draft.isPayout ? "First payout" : "Starts"}>
             <DatePicker
               value={draft.anchorDate}
               onValueChange={(value) =>
@@ -536,7 +863,16 @@ export function RuleForm({
             {preview.length === 0 ? (
               <span>no upcoming dates</span>
             ) : (
-              preview.map((date) => <span key={date}>→ {shortDay(date)}</span>)
+              preview.map((date) => {
+                const period = payoutPreview.find((row) => row.date === date);
+                return (
+                  <span key={date}>
+                    → {shortDay(date)}
+                    {period &&
+                      ` · hours ${shortDay(period.periodStart)} – ${shortDay(period.periodEnd)}${period.partial ? " (partial)" : ""}`}
+                  </span>
+                );
+              })
             )}
           </div>
         </div>
@@ -575,7 +911,13 @@ export function RuleForm({
         disabled={saving || !ready}
       >
         {saving && <Loader2 className="size-4 animate-spin" />}
-        {rule ? "Save rule" : "Add rule"}
+        {rule
+          ? draft.isPayout
+            ? "Save payout"
+            : "Save rule"
+          : draft.isPayout
+            ? "Add payout"
+            : "Add rule"}
       </Button>
     </div>
   );

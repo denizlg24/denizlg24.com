@@ -9,6 +9,7 @@ import {
 import { registerWebAgentMemory } from "./agent-memory";
 import { registerWebAuthenticator } from "./authenticator";
 import { registerWebFinance } from "./finance";
+import { registerWebHours } from "./hours";
 import { registerWebMarkets } from "./markets";
 import { registerWebMisc } from "./misc";
 import { registerWebSemantic } from "./semantic";
@@ -18,6 +19,7 @@ const register: ToolRegistrar = (server, upstream) => {
   registerWebAgentMemory(server, api);
   registerWebMarkets(server, api);
   registerWebFinance(server, api);
+  registerWebHours(server, api);
   registerWebSemantic(server, api);
   registerWebMisc(server, api);
   registerWebAuthenticator(server, api);
@@ -66,6 +68,7 @@ describe("system tool catalogue", () => {
         "web_finance_categories",
         "web_finance_entries",
         "web_finance_rules",
+        "web_finance_payroll",
         "web_finance_budget",
         "web_finance_envelopes",
         "web_semantic",
@@ -77,6 +80,7 @@ describe("system tool catalogue", () => {
         "web_instagram_token",
         "web_api_keys",
         "web_authenticator",
+        "web_work_hours",
       ].sort(),
     );
   });
@@ -519,6 +523,50 @@ describe("web_finance", () => {
     await client.call("web_finance_rules", { action: "delete", id: "r1" });
     expect(last().method).toBe("DELETE");
     expect(last().path).toBe("/api/admin/finance/rules/r1");
+  });
+
+  test("payroll", async () => {
+    await client.call("web_finance_payroll", { action: "payouts", id: "r1" });
+    expect(last().method).toBe("GET");
+    expect(last().path).toBe("/api/admin/finance/rules/r1/payouts");
+    await client.call("web_finance_payroll", {
+      action: "override",
+      id: "r1",
+      payoutDate: "2026-10-25",
+      netMinor: 1_234_500,
+      grossMinor: null,
+    });
+    expect(last().method).toBe("PUT");
+    expect(last().path).toBe("/api/admin/finance/rules/r1/payouts/2026-10-25");
+    expect(json(last())).toEqual({ netMinor: 1_234_500, grossMinor: null });
+    await client.call("web_finance_payroll", {
+      action: "profile_create",
+      profile: { name: "Denmark", currency: "DKK", lines: [] },
+    });
+    expect(last().method).toBe("POST");
+    expect(last().path).toBe("/api/admin/finance/deductions");
+  });
+
+  test("work hours", async () => {
+    await client.call("web_work_hours", {
+      action: "clock",
+      clock: "out",
+      at: "2026-09-26T15:00:00.000Z",
+    });
+    expect(last().method).toBe("POST");
+    expect(last().path).toBe("/api/admin/hours/clock");
+    expect(json(last())).toEqual({
+      action: "out",
+      at: "2026-09-26T15:00:00.000Z",
+    });
+    await client.call("web_work_hours", {
+      action: "session_update",
+      id: "s1",
+      end: null,
+    });
+    expect(last().method).toBe("PATCH");
+    expect(last().path).toBe("/api/admin/hours/sessions/s1");
+    expect(json(last())).toEqual({ end: null });
   });
 
   test("budget queries and decisions", async () => {

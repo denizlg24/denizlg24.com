@@ -952,6 +952,24 @@ Things worth knowing before touching this:
   alerts from the same ledger. As with markets, nothing in this repo drives
   that cron.
 
+### Work hours and payroll
+- `GET /hours` → `WorkHoursOverview`: jobs, the open shift, today/week/month totals, recent shifts, each hours-backed payout's current pay period
+- `POST /hours/clock` → `{ action: "in" | "out" | "break" | "resume", jobId?, at? }`; `at` backdates. `409` when the state does not allow it (already in, not on a break)
+- `GET|POST /hours/sessions`, `PATCH|DELETE /hours/sessions/{id}`; `GET|POST /hours/jobs`, `PATCH /hours/jobs/{id}` (jobs archive, never delete)
+- `GET|POST /finance/deductions`, `PATCH|DELETE /finance/deductions/{id}` — reusable deduction profiles; `409` deleting one a payout still uses
+- `GET /finance/rules/{id}/payouts` → every pay period with hours, gross, deduction lines, net, the reconciled bank row and variance; `PUT|DELETE /finance/rules/{id}/payouts/{date}` sets or clears an override
+- The iOS home-screen app is `/admin/hours` (its own manifest at `/admin/hours/manifest.webmanifest`, like `/admin/voice`); `/admin/dashboard/hours` and desktop `/dashboard/hours` render the same `@repo/admin/hours/hours-app`
+
+Things worth knowing before touching this:
+
+- **A payout is a recurring rule with `payout` set, and its amount is never typed.** `materializeRecurringFinanceEntries` asks `lib/finance/payouts.ts` for each occurrence's net (hours in the period × the job's rate, minus the profile's lines, or an override) and writes it onto that occurrence's projection. `amountMinor` on the rule is rewritten to the next payout's estimate so the recurring commitment follows. Editing `amountMinor` by hand does nothing lasting.
+- **The pay period ends on `cycleCloseDay` of the payout's month** (the previous month if the close day is after the payout day) and starts the day after the previous close. The *first* scheduled payout starts at `employmentStart` instead, which covers both a short first month paid on time and one rolled into the next cycle — move the rule's anchor to the first real payout date.
+- **The arithmetic lives in `@repo/utils` (`payroll.ts`)**, so the rule form and the profile editor preview with the same code the server projects with. Lines apply in order; `taxable` shrinks by every earlier `reducesTaxableBase` line, and `allowanceMinor` comes off a line's base before its rate — that is how AM-bidrag and A-skat with personfradrag compose.
+- **Shifts count on the job-local day they start** (`WorkSession.day`, from the job's timezone), and worked time is derived on read, never stored. Changing a job's timezone re-keys its shifts.
+- **One open shift at a time**, enforced by a unique sparse index on `openKey` — a partial index cannot filter on `$exists: false`.
+- **Hour changes re-project after the response** (`after()`), so a tap stays instant; a lost refresh is redone by the next projection run. Rule saves never carry overrides; the server keeps the stored ones.
+- **A payout period with nothing to pay is not projected.** A zero row can never match a bank transaction and would only sit in the forecast until marked missed.
+
 ### Markets orders and margin
 - `GET /markets/portfolios/{id}/orders` → `{ orders: Order[] }`; repeatable `?status=` narrows to the live book
 - `POST /markets/portfolios/{id}/orders` → `OrderInput` → `{ orders }` (the entry plus any bracket legs). **422, not 400**, when the order is well-formed but refused — no buying power, no position to reduce, shorting off
