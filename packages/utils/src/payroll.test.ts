@@ -215,3 +215,20 @@ describe("helpers", () => {
     expect(weekStartDay("2026-09-21")).toBe("2026-09-21");
   });
 });
+
+describe("payoutPeriodBounds first-payout floor", () => {
+  test("a first payout reaches back at most one extra cycle", () => {
+    expect(
+      payoutPeriodBounds({
+        payoutDate: "2026-11-25",
+        cycleCloseDay: 10,
+        employmentStart: "2023-02-01",
+        isFirst: true,
+      }),
+    ).toEqual({
+      periodStart: "2026-09-11",
+      periodEnd: "2026-11-10",
+      partial: true,
+    });
+  });
+});

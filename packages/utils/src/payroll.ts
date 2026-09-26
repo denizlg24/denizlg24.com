@@ -157,8 +157,16 @@ export function payoutPeriodBounds(input: {
     input.cycleCloseDay,
   );
   const cycleStart = addDays(previousClose, 1);
+  // A first payout may absorb one earlier, short cycle — never unbounded
+  // history, which would pay years of salary or every tracked shift at once.
+  const priorCycleStart = addDays(
+    clampedDayOfMonth(year, month - 2, input.cycleCloseDay),
+    1,
+  );
   const periodStart = input.isFirst
-    ? input.employmentStart
+    ? input.employmentStart > priorCycleStart
+      ? input.employmentStart
+      : priorCycleStart
     : cycleStart > input.employmentStart
       ? cycleStart
       : input.employmentStart;

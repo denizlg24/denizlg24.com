@@ -4,6 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceDeductionProfile } from "@/lib/finance/dashboard";
 import {
   deleteFinanceDeductionProfile,
+  FinanceDeductionProfileCurrencyError,
   FinanceDeductionProfileInUseError,
   updateFinanceDeductionProfile,
 } from "@/lib/finance/deductions";
@@ -26,7 +27,15 @@ export async function PATCH(request: NextRequest, context: Context) {
       { status: 400 },
     );
   }
-  const profile = await updateFinanceDeductionProfile(id, parsed.data);
+  let profile: Awaited<ReturnType<typeof updateFinanceDeductionProfile>>;
+  try {
+    profile = await updateFinanceDeductionProfile(id, parsed.data);
+  } catch (error) {
+    if (error instanceof FinanceDeductionProfileCurrencyError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
   if (!profile) {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }

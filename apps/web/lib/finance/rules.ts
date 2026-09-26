@@ -50,12 +50,19 @@ async function preparePayoutInput<T extends Partial<FinanceRecurringRuleInput>>(
     next.currency = job.currency;
   }
   if (payout.deductionProfileId) {
-    const exists =
-      mongoose.isValidObjectId(payout.deductionProfileId) &&
-      (await FinanceDeductionProfile.exists({
-        _id: payout.deductionProfileId,
-      }));
-    if (!exists) throw new FinancePayoutRuleError("Unknown deduction profile");
+    const profile = mongoose.isValidObjectId(payout.deductionProfileId)
+      ? await FinanceDeductionProfile.findById(
+          payout.deductionProfileId,
+        ).select("currency")
+      : null;
+    if (!profile) throw new FinancePayoutRuleError("Unknown deduction profile");
+    // Fixed amounts and allowances are minor units of the profile's currency;
+    // applied to a payout in another one they would be off by the exchange rate.
+    if (next.currency && profile.currency !== next.currency) {
+      throw new FinancePayoutRuleError(
+        `Deduction profile is in ${profile.currency}, payout is in ${next.currency}`,
+      );
+    }
   }
   return next;
 }

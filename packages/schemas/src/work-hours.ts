@@ -17,6 +17,22 @@ const isoDateTimeSchema = z.iso.datetime({ offset: true });
 // started on, in the job's timezone, which is what a payslip means by a day.
 // ---------------------------------------------------------------------------
 
+/** An IANA zone the runtime can format in. A typo would otherwise fall back
+ *  to UTC silently and key every shift and pay period by UTC days. */
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .refine((zone) => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: zone });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Unknown timezone");
+
 export const workJobSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -39,14 +55,22 @@ export const workJobInputSchema = z.object({
   currency: financeCurrencySchema,
   breaksPaid: z.boolean().default(false),
   expectedWeeklyHours: z.number().min(0).max(168).optional(),
-  timezone: z.string().trim().min(1).max(60).default("Europe/Copenhagen"),
+  timezone: timezoneSchema.default("Europe/Copenhagen"),
   status: z.enum(["active", "archived"]).default("active"),
 });
 export type WorkJobInput = z.infer<typeof workJobInputSchema>;
 export type WorkJobInputPayload = z.input<typeof workJobInputSchema>;
 
-export const workJobUpdateSchema = workJobInputSchema.partial().extend({
+// Built without the input's defaults: `.partial()` keeps them, so a PATCH of
+// `{ status }` would also reset `breaksPaid` and `timezone`.
+export const workJobUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  hourlyRateMinor: z.number().int().nonnegative().optional(),
+  currency: financeCurrencySchema.optional(),
+  breaksPaid: z.boolean().optional(),
   expectedWeeklyHours: z.number().min(0).max(168).nullable().optional(),
+  timezone: timezoneSchema.optional(),
+  status: z.enum(["active", "archived"]).optional(),
 });
 export type WorkJobUpdate = z.infer<typeof workJobUpdateSchema>;
 export type WorkJobUpdatePayload = z.input<typeof workJobUpdateSchema>;
@@ -82,10 +106,15 @@ export const workSessionInputSchema = z
     breaks: z.array(workBreakSchema).max(20).default([]),
     note: z.string().trim().max(500).optional(),
   })
-  .refine((value) => !value.end || value.end > value.start, {
-    message: "A shift must end after it starts",
-    path: ["end"],
-  });
+  // Instants, not strings: offsets and fractional precision make ISO strings
+  // sort out of time order.
+  .refine(
+    (value) => !value.end || Date.parse(value.end) > Date.parse(value.start),
+    {
+      message: "A shift must end after it starts",
+      path: ["end"],
+    },
+  );
 export type WorkSessionInput = z.infer<typeof workSessionInputSchema>;
 
 export const workSessionUpdateSchema = z.object({

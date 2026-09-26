@@ -37,11 +37,31 @@ export async function createFinanceDeductionProfile(
   return FinanceDeductionProfile.create(input);
 }
 
+export class FinanceDeductionProfileCurrencyError extends Error {
+  constructor(readonly ruleNames: string[]) {
+    super(`Payouts in another currency use it: ${ruleNames.join(", ")}`);
+    this.name = "FinanceDeductionProfileCurrencyError";
+  }
+}
+
 export async function updateFinanceDeductionProfile(
   id: string,
   input: Partial<FinanceDeductionProfileInput>,
 ) {
   await connectDB();
+  if (input.currency) {
+    // The lines' fixed amounts mean nothing in another currency, so a profile
+    // cannot move away from the currency of a payout that uses it.
+    const mismatched = await FinanceRecurringRule.find({
+      "payout.deductionProfileId": id,
+      currency: { $ne: input.currency },
+    }).select("name");
+    if (mismatched.length > 0) {
+      throw new FinanceDeductionProfileCurrencyError(
+        mismatched.map((rule) => rule.name),
+      );
+    }
+  }
   const profile = await FinanceDeductionProfile.findByIdAndUpdate(
     id,
     { $set: input },

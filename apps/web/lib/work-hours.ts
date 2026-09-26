@@ -228,6 +228,9 @@ export async function createWorkSession(input: WorkSessionInput) {
   const job = await jobOrThrow(input.jobId);
   const start = new Date(input.start);
   const end = input.end ? new Date(input.end) : undefined;
+  if (end && end <= start) {
+    throw new WorkHoursError("A shift must end after it starts");
+  }
   if (end && end > new Date(Date.now() + 60_000)) {
     throw new WorkHoursError("A shift cannot end in the future");
   }

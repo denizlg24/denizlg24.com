@@ -160,7 +160,12 @@ function PeriodRow({
 }) {
   const { routes } = useAdmin();
   const [open, setOpen] = useState(false);
-  const shown = period.actual?.amountMinor ?? period.netMinor;
+  // A bank row may be in another currency than the payout (a DKK job paid
+  // into a EUR account), so the shown figure carries its own.
+  const shown = period.actual ?? {
+    amountMinor: period.netMinor,
+    currency: period.currency,
+  };
 
   return (
     <div className="py-2.5">
@@ -200,7 +205,7 @@ function PeriodRow({
               period.actual && "text-status-good",
             )}
           >
-            {money(shown, period.currency)}
+            {money(shown.amountMinor, shown.currency)}
           </div>
           {period.varianceMinor !== undefined && period.varianceMinor !== 0 ? (
             <div

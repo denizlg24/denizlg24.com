@@ -232,7 +232,8 @@ function payoutDefaults(
     direction: "income",
     amountKind: "variable",
     currency: job?.currency ?? "DKK",
-    currencyPinned: true,
+    // Not a hand choice: a fixed salary follows the account it is paid into.
+    currencyPinned: false,
     cadence: "monthly",
     dayOfMonth: 25,
     anchorDate: firstPayout,
@@ -498,11 +499,24 @@ export function RuleForm({
             <FieldRow label="Gross from" className="min-w-0">
               <Select
                 value={draft.payoutSource}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
+                  const source = value as RuleDraft["payoutSource"];
+                  const job = jobs.find((item) => item.id === draft.jobId);
+                  const account = accounts.find(
+                    (item) => item.id === draft.accountId,
+                  );
                   patch({
-                    payoutSource: value as RuleDraft["payoutSource"],
-                  })
-                }
+                    payoutSource: source,
+                    // Hours pay in the job's currency; a salary in the one
+                    // chosen for it, else the receiving account's.
+                    currency:
+                      source === "hours"
+                        ? (job?.currency ?? draft.currency)
+                        : draft.currencyPinned || !account
+                          ? draft.currency
+                          : account.currency,
+                  });
+                }}
               >
                 <SelectTrigger className="w-full min-w-0">
                   <SelectValue />
@@ -539,17 +553,25 @@ export function RuleForm({
                 </Select>
               </FieldRow>
             ) : (
-              <FieldRow label="Monthly gross" className="min-w-0">
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={draft.amount}
-                  onChange={(event) => patch({ amount: event.target.value })}
-                  className="text-right font-medium tabular-nums"
-                  placeholder="0.00"
-                />
+              <FieldRow label="Monthly gross" className="col-span-2 min-w-0">
+                <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={draft.amount}
+                    onChange={(event) => patch({ amount: event.target.value })}
+                    className="min-w-0 text-right font-medium tabular-nums"
+                    placeholder="0.00"
+                  />
+                  <CurrencySelect
+                    value={draft.currency}
+                    onValueChange={(value) =>
+                      patch({ currency: value, currencyPinned: true })
+                    }
+                  />
+                </div>
               </FieldRow>
             )}
           </div>
