@@ -55,6 +55,7 @@
     "@repo/latex-editor": "workspace:*",
     "@repo/markets": "workspace:*",
     "@repo/schemas": "workspace:*",
+    "@repo/tts": "workspace:*",
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@repo/whiteboard-render": "workspace:*",

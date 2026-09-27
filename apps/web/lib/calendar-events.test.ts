@@ -30,7 +30,11 @@ mock.module("@/models/CalendarEvent", () => ({
   },
 }));
 
-const { updateCalendarEvent } = await import("./calendar-events");
+const {
+  normalizeCalendarEventInput,
+  serializeCalendarEvent,
+  updateCalendarEvent,
+} = await import("./calendar-events");
 
 const localEventId = "64f000000000000000000001";
 
@@ -83,6 +87,46 @@ beforeEach(() => {
   eventLeanMock.mockResolvedValue(null);
   calendarEventFindByIdMock.mockClear();
   calendarEventFindByIdAndUpdateMock.mockReset();
+});
+
+describe("calendar date placement", () => {
+  test("places a timed October 6 event on October 6 when its stored date key is stale", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T10:30:00.000Z"),
+      calendarDate: "2026-09-24",
+    });
+    expect(serializeCalendarEvent(event, "Europe/Lisbon").calendarDate).toBe(
+      "2026-10-06",
+    );
+    expect(
+      normalizeCalendarEventInput(
+        { date: event.date, calendarDate: event.calendarDate, isAllDay: false },
+        "Europe/Lisbon",
+      ).calendarDate,
+    ).toBe("2026-10-06");
+  });
+
+  test("preserves the chosen calendar date for all-day events", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-10-06",
+      isAllDay: true,
+    });
+    expect(serializeCalendarEvent(event, "Pacific/Auckland").calendarDate).toBe(
+      "2026-10-06",
+    );
+  });
+
+  test("repairs a stale all-day date key when the stored timestamp is twelve days later", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-09-24",
+      isAllDay: true,
+    });
+    expect(serializeCalendarEvent(event, "Europe/Lisbon").calendarDate).toBe(
+      "2026-10-06",
+    );
+  });
 });
 
 describe("updateCalendarEvent", () => {

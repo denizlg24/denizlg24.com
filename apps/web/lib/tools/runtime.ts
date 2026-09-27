@@ -73,7 +73,7 @@ function describeNow(timeZone: string, now: Date) {
 const SURFACE_NOTES: Record<AgentRunContext["surface"], string> = {
   "user-chat": "Deniz is in the chat now and can answer a question.",
   "user-voice":
-    "Deniz is speaking to you. Answers are read aloud, so keep them to one or two plain-text sentences.",
+    "Deniz is speaking to you. Tool activity is shown silently; your final answer is read aloud. Use natural spoken language with as much detail as the request needs, and report the result rather than narrating tool calls. If he asks you to read text, preserve that text.",
   "background-agent":
     "Started from a dashboard page and running detached. Deniz is not watching the stream; the result is read afterwards.",
   "scheduled-task":

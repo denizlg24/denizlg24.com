@@ -49,10 +49,11 @@ export function normalizeCalendarEventInput(
   const kind = data.kind ?? "manual";
   const isAllDay = data.isAllDay ?? false;
   const calendarDate =
-    data.calendarDate ??
-    (data.date
-      ? calendarDateFromDate(data.date, timeZone)
-      : calendarDateFromDate(new Date(), timeZone));
+    isAllDay && data.calendarDate
+      ? data.calendarDate
+      : data.date
+        ? calendarDateFromDate(data.date, timeZone)
+        : (data.calendarDate ?? calendarDateFromDate(new Date(), timeZone));
   const date = data.date
     ? new Date(data.date)
     : isAllDay
@@ -78,11 +79,26 @@ export function normalizeCalendarEventInput(
 
 export function serializeCalendarEvent(
   event: ICalendarEvent | Record<string, unknown>,
+  timeZone: string = getCachedAppTimeZone(),
 ): ILeanCalendarEvent {
   const source = event.source as ILeanCalendarEvent["source"] | undefined;
   const date = event.date as Date;
-  const calendarDate =
-    (event.calendarDate as string | undefined) ?? calendarDateFromDate(date);
+  const isAllDay = (event.isAllDay as boolean | undefined) ?? false;
+  const storedCalendarDate = event.calendarDate as string | undefined;
+  // All-day timestamps are stored at noon UTC. A one-day difference can be a
+  // timezone conversion; a larger difference means the date key is stale.
+  const storedDayDistance = storedCalendarDate
+    ? Math.abs(
+        (Date.parse(`${storedCalendarDate}T00:00:00.000Z`) -
+          Date.parse(`${date.toISOString().slice(0, 10)}T00:00:00.000Z`)) /
+          86_400_000,
+      )
+    : 0;
+  const calendarDate = isAllDay
+    ? storedDayDistance > 1
+      ? date.toISOString().slice(0, 10)
+      : (storedCalendarDate ?? calendarDateFromDate(date, timeZone))
+    : calendarDateFromDate(date, timeZone);
 
   return {
     ...(event as ILeanCalendarEvent),
@@ -90,7 +106,7 @@ export function serializeCalendarEvent(
     date,
     endDate: event.endDate as Date | undefined,
     calendarDate,
-    isAllDay: (event.isAllDay as boolean | undefined) ?? false,
+    isAllDay,
     kind: (event.kind as ILeanCalendarEvent["kind"] | undefined) ?? "manual",
     source: source
       ? {
@@ -145,7 +161,7 @@ export const getMonthCalendarEvents = async (start: Date, end: Date) => {
       .sort({ calendarDate: 1, isAllDay: -1, date: 1 })
       .lean();
 
-    return events.map(serializeCalendarEvent);
+    return events.map((event) => serializeCalendarEvent(event, timeZone));
   } catch {
     return [];
   }
@@ -171,7 +187,7 @@ export const getCalendarEvents = async (date: Date) => {
       .sort({ isAllDay: -1, date: 1 })
       .lean();
 
-    return events.map(serializeCalendarEvent);
+    return events.map((event) => serializeCalendarEvent(event, timeZone));
   } catch {
     return [];
   }

@@ -132,8 +132,10 @@ export function AuthenticatorPage() {
       setAddOpen(false);
       toast.success("Account added");
       fetchCodes();
-    } catch {
-      toast.error("Failed to add account");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add account",
+      );
     }
   };
 
@@ -178,24 +180,49 @@ export function AuthenticatorPage() {
   };
 
   const handleImport = async (uris: string[]) => {
+    const knownIds = new Set(accounts.map((account) => account._id));
     try {
       const result = await client.post<{
         imported: IAuthenticatorAccount[];
         errors: { uri: string; error: string }[];
       }>("authenticator/import", { uris });
-      setAccounts((prev) => [...result.imported, ...prev]);
-      setImportOpen(false);
-      fetchCodes();
+      if (result.imported.length > 0) {
+        setAccounts((prev) => [...result.imported, ...prev]);
+        setImportOpen(false);
+        void fetchCodes();
+      }
 
       if (result.errors.length > 0) {
+        const detail = result.errors[0]?.error;
         toast.warning(
-          `Imported ${result.imported.length}, failed ${result.errors.length}`,
+          `Imported ${result.imported.length}, failed ${result.errors.length}${detail ? `: ${detail}` : ""}`,
         );
       } else {
         toast.success(`Imported ${result.imported.length} account(s)`);
       }
-    } catch {
-      toast.error("Import failed");
+    } catch (error) {
+      // An upstream error can arrive after the account has been written. Read
+      // the vault before telling the user the import failed or inviting a retry.
+      try {
+        const refreshed = await client.get<{
+          accounts: IAuthenticatorAccount[];
+        }>("authenticator");
+        const imported = refreshed.accounts.filter(
+          (account) => !knownIds.has(account._id),
+        );
+        setAccounts(refreshed.accounts);
+        if (imported.length > 0) {
+          setImportOpen(false);
+          void fetchCodes();
+          toast.success(
+            `Imported ${imported.length} account${imported.length === 1 ? "" : "s"}`,
+          );
+          return;
+        }
+      } catch {
+        // Keep the original import error when the recovery read also fails.
+      }
+      toast.error(error instanceof Error ? error.message : "Import failed");
     }
   };
 

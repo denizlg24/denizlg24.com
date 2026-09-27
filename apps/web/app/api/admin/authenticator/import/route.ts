@@ -26,6 +26,21 @@ export async function POST(request: NextRequest) {
 
     const result = await importAccounts(uris);
 
+    if (
+      result.imported.length === 0 &&
+      result.errors.some((entry) =>
+        entry.error.startsWith("IMAP_ENCRYPTION_KEY"),
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Authenticator encryption is not configured. Set IMAP_ENCRYPTION_KEY to a 64-character hex key.",
+        },
+        { status: 503 },
+      );
+    }
+
     return NextResponse.json(
       {
         message: `Imported ${result.imported.length} account(s)`,

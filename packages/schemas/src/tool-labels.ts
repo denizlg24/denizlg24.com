@@ -108,6 +108,8 @@ export const TOOL_LABELS: Record<string, string> = {
   get_corporate_actions: "Fetched corporate actions",
   get_course: "Fetched course",
   get_current_page_context: "Read page context",
+  read_current_page_aloud: "Reading page aloud",
+  stop_reading_aloud: "Stopping page audio",
   get_cv: "Fetched CV",
   get_email: "Read email",
   get_filings: "Fetched SEC filings",

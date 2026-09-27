@@ -10,7 +10,10 @@ import {
   Highlighter,
   Info,
   ListTree,
+  Loader2,
+  Pause,
   Search,
+  Volume2,
   X,
 } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -25,6 +28,9 @@ import {
   useState,
 } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
+import { toast } from "sonner";
+import { useAdmin } from "../provider";
+import { useAdminSpeech } from "../tts/use-admin-speech";
 import {
   findPdfMatches,
   flattenPdfOutline,
@@ -52,6 +58,79 @@ interface ReaderProps {
   onPageChange: (page: number) => void;
   onTotalPages: (total: number) => void;
   onHighlightSelection?: (text: string, page: number) => void;
+}
+
+function SpeakDocumentButton({
+  document,
+  page,
+  onPageChange,
+  compact = false,
+}: {
+  document: PDFDocumentProxy | null;
+  page: number;
+  onPageChange: (page: number) => void;
+  compact?: boolean;
+}) {
+  const { client } = useAdmin();
+  const speech = useAdminSpeech(client);
+  useEffect(() => speech.stop(), [document, speech.stop]);
+  const start = () => {
+    if (!document) return;
+    if (speech.state !== "idle") {
+      speech.stop();
+      return;
+    }
+    const from = page;
+    async function* pages() {
+      if (!document) return;
+      for (let number = from; number <= document.numPages; number++) {
+        const pdfPage = await document.getPage(number);
+        const content = await pdfPage.getTextContent();
+        const text = content.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .trim();
+        if (text) {
+          if (number !== from) onPageChange(number);
+          yield text;
+        }
+      }
+    }
+    void speech.play(pages()).catch((error: unknown) => {
+      toast.error(
+        error instanceof Error ? error.message : "Could not read this document",
+      );
+    });
+  };
+  return (
+    <Button
+      type="button"
+      variant={speech.state === "idle" ? "ghost" : "secondary"}
+      size={compact ? "icon" : "sm"}
+      className={compact ? "size-8 shrink-0" : "h-7 text-[11px]"}
+      disabled={!document}
+      onClick={start}
+      aria-label={
+        speech.state === "idle" ? "Read from this page aloud" : "Stop reading"
+      }
+      title={
+        speech.state === "idle" ? "Read from this page aloud" : "Stop reading"
+      }
+    >
+      {speech.state === "loading" ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : speech.state === "playing" ? (
+        <Pause className="size-4" />
+      ) : (
+        <Volume2 className="size-4" />
+      )}
+      {!compact && (
+        <span className="ml-1">
+          {speech.state === "idle" ? "Listen" : "Stop"}
+        </span>
+      )}
+    </Button>
+  );
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -579,6 +658,12 @@ export function MobilePdfReader({
         <span className="min-w-0 flex-1 truncate text-xs font-medium">
           {title}
         </span>
+        <SpeakDocumentButton
+          document={document}
+          page={page}
+          onPageChange={onPageChange}
+          compact
+        />
         <Button
           variant="ghost"
           size="icon"
@@ -956,6 +1041,11 @@ export function DesktopPdfReader({
             {fileName}
           </p>
         </div>
+        <SpeakDocumentButton
+          document={document}
+          page={page}
+          onPageChange={onPageChange}
+        />
         {onHighlightSelection && selection ? (
           <Button
             variant="outline"
