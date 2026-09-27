@@ -1651,7 +1651,7 @@ export function CalendarPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Date & time</Label>
+              <Label>{addForm.isAllDay ? "Date" : "Date & time"}</Label>
               <div className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1692,6 +1692,7 @@ export function CalendarPage() {
                       ? String(new Date(addForm.date).getHours())
                       : "0"
                   }
+                  disabled={addForm.isAllDay}
                   onValueChange={(v) => {
                     const d = addForm.date
                       ? new Date(addForm.date)
@@ -1723,6 +1724,7 @@ export function CalendarPage() {
                       ? String(new Date(addForm.date).getMinutes())
                       : "0"
                   }
+                  disabled={addForm.isAllDay}
                   onValueChange={(v) => {
                     const d = addForm.date
                       ? new Date(addForm.date)
@@ -1758,6 +1760,17 @@ export function CalendarPage() {
                 placeholder="Optional"
                 onChange={(e) =>
                   setAddForm((f) => ({ ...f, place: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label htmlFor="add-all-day">All-day event</Label>
+              <Switch
+                id="add-all-day"
+                checked={addForm.isAllDay}
+                onCheckedChange={(value) =>
+                  setAddForm((form) => ({ ...form, isAllDay: value }))
                 }
               />
             </div>

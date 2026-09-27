@@ -140,7 +140,7 @@ export function AddAccountDialog({
                 placeholder="JBSWY3DPEHPK3PXP"
                 value={secret}
                 onChange={(e) =>
-                  setSecret(e.target.value.toUpperCase().replace(/\s/g, ""))
+                  setSecret(e.target.value.toUpperCase().replace(/[\s-]/g, ""))
                 }
                 className="font-mono tracking-wider overflow-hidden text-ellipsis"
               />

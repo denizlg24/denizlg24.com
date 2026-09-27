@@ -44,12 +44,15 @@ export function ImportDialog({
   const tabStreamRef = useRef<MediaStream | null>(null);
   const tabScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureStartingRef = useRef(false);
+  const captureSessionRef = useRef(0);
+  const tabRef = useRef(tab);
   const openRef = useRef(open);
   const html5QrRef = useRef<InstanceType<
     typeof import("html5-qrcode").Html5Qrcode
   > | null>(null);
 
   const stopTabCapture = useCallback(() => {
+    captureSessionRef.current += 1;
     if (tabScanTimerRef.current) clearTimeout(tabScanTimerRef.current);
     tabScanTimerRef.current = null;
     tabStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -92,6 +95,7 @@ export function ImportDialog({
       return;
     }
 
+    const session = ++captureSessionRef.current;
     try {
       captureStartingRef.current = true;
       setCaptureStarting(true);
@@ -99,40 +103,61 @@ export function ImportDialog({
         video: true,
         audio: false,
       });
-      if (!openRef.current) {
+      if (
+        !openRef.current ||
+        tabRef.current !== "qr" ||
+        captureSessionRef.current !== session
+      ) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
+      const isCurrentCapture = () =>
+        openRef.current &&
+        tabRef.current === "qr" &&
+        captureSessionRef.current === session &&
+        tabStreamRef.current === stream;
       tabStreamRef.current = stream;
       setTabCaptureActive(true);
-      stream
-        .getVideoTracks()[0]
-        ?.addEventListener("ended", stopTabCapture, { once: true });
+      stream.getVideoTracks()[0]?.addEventListener(
+        "ended",
+        () => {
+          if (isCurrentCapture()) stopTabCapture();
+        },
+        { once: true },
+      );
       const video = tabVideoRef.current;
       if (!video) throw new Error("Video preview unavailable");
       video.srcObject = stream;
       await video.play();
+      if (!isCurrentCapture()) return;
       const { Html5Qrcode } = await import("html5-qrcode");
+      if (!isCurrentCapture()) return;
       const scanner = new Html5Qrcode("qr-reader-tab");
       const canvas = document.createElement("canvas");
 
       const scanFrame = async () => {
-        if (!tabStreamRef.current || !openRef.current || video.readyState < 2)
-          return;
+        if (!isCurrentCapture()) return;
+        const retry = () => {
+          if (isCurrentCapture())
+            tabScanTimerRef.current = setTimeout(() => void scanFrame(), 900);
+        };
+        if (video.readyState < 2) return retry();
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const context = canvas.getContext("2d");
-        if (!context || !canvas.width || !canvas.height) return;
+        if (!context || !canvas.width || !canvas.height) return retry();
         context.drawImage(video, 0, 0);
         const blob = await new Promise<Blob | null>((resolve) =>
           canvas.toBlob(resolve, "image/png"),
         );
-        if (!blob || !tabStreamRef.current) return;
+        if (!isCurrentCapture()) return;
+        if (!blob) return retry();
         try {
           const result = await scanner.scanFile(
             new File([blob], "tab-frame.png", { type: "image/png" }),
             false,
           );
+          if (!isCurrentCapture()) return;
           if (result.startsWith("otpauth://")) {
             setQrResult(result);
             stopTabCapture();
@@ -143,11 +168,16 @@ export function ImportDialog({
         } catch {
           // Most frames do not contain a readable QR code; keep scanning.
         }
-        if (tabStreamRef.current)
-          tabScanTimerRef.current = setTimeout(() => void scanFrame(), 900);
+        retry();
       };
       void scanFrame();
     } catch (error) {
+      if (
+        !openRef.current ||
+        tabRef.current !== "qr" ||
+        captureSessionRef.current !== session
+      )
+        return;
       stopTabCapture();
       if (error instanceof DOMException && error.name === "NotAllowedError") {
         setQrError(
@@ -267,6 +297,7 @@ export function ImportDialog({
         <Tabs
           value={tab}
           onValueChange={(value) => {
+            tabRef.current = value;
             stopTabCapture();
             if (value !== "qr" && html5QrRef.current) {
               void html5QrRef.current.stop().catch(() => {});

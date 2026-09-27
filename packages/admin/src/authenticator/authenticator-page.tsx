@@ -70,6 +70,7 @@ export function AuthenticatorPage() {
   const [deleting, setDeleting] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accountsLoadedRef = useRef(false);
 
   const fetchCodes = useCallback(async () => {
     try {
@@ -90,7 +91,10 @@ export function AuthenticatorPage() {
         const result = await client.get<{ accounts: IAuthenticatorAccount[] }>(
           "authenticator",
         );
-        if (!cancelled) setAccounts(result.accounts ?? []);
+        if (!cancelled) {
+          setAccounts(result.accounts ?? []);
+          accountsLoadedRef.current = true;
+        }
       } catch {
         if (!cancelled) toast.error("Failed to load accounts");
       }
@@ -180,7 +184,9 @@ export function AuthenticatorPage() {
   };
 
   const handleImport = async (uris: string[]) => {
-    const knownIds = new Set(accounts.map((account) => account._id));
+    const knownIds = accountsLoadedRef.current
+      ? new Set(accounts.map((account) => account._id))
+      : null;
     try {
       const result = await client.post<{
         imported: IAuthenticatorAccount[];
@@ -203,24 +209,27 @@ export function AuthenticatorPage() {
     } catch (error) {
       // An upstream error can arrive after the account has been written. Read
       // the vault before telling the user the import failed or inviting a retry.
-      try {
-        const refreshed = await client.get<{
-          accounts: IAuthenticatorAccount[];
-        }>("authenticator");
-        const imported = refreshed.accounts.filter(
-          (account) => !knownIds.has(account._id),
-        );
-        setAccounts(refreshed.accounts);
-        if (imported.length > 0) {
-          setImportOpen(false);
-          void fetchCodes();
-          toast.success(
-            `Imported ${imported.length} account${imported.length === 1 ? "" : "s"}`,
+      if (knownIds) {
+        try {
+          const refreshed = await client.get<{
+            accounts: IAuthenticatorAccount[];
+          }>("authenticator");
+          const imported = refreshed.accounts.filter(
+            (account) => !knownIds.has(account._id),
           );
-          return;
+          setAccounts(refreshed.accounts);
+          accountsLoadedRef.current = true;
+          if (imported.length > 0) {
+            setImportOpen(false);
+            void fetchCodes();
+            toast.success(
+              `Imported ${imported.length} account${imported.length === 1 ? "" : "s"}`,
+            );
+            return;
+          }
+        } catch {
+          // Keep the original import error when the recovery read also fails.
         }
-      } catch {
-        // Keep the original import error when the recovery read also fails.
       }
       toast.error(error instanceof Error ? error.message : "Import failed");
     }

@@ -42,6 +42,14 @@ export function anchorDateFromCalendarDate(calendarDate: string) {
   return new Date(`${calendarDate}T12:00:00.000Z`);
 }
 
+function allDayUtcRange(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(
+    new Date(`${endDate}T00:00:00.000Z`).getTime() + 86_400_000,
+  );
+  return { $gte: start, $lt: end };
+}
+
 export function normalizeCalendarEventInput(
   data: CalendarEventInput,
   timeZone: string = getCachedAppTimeZone(),
@@ -154,6 +162,7 @@ export const getMonthCalendarEvents = async (start: Date, end: Date) => {
           $or: [
             { date: { $gte: start, $lte: end } },
             { calendarDate: { $gte: startDate, $lte: endDate } },
+            { isAllDay: true, date: allDayUtcRange(startDate, endDate) },
           ],
         },
       ],
@@ -161,7 +170,12 @@ export const getMonthCalendarEvents = async (start: Date, end: Date) => {
       .sort({ calendarDate: 1, isAllDay: -1, date: 1 })
       .lean();
 
-    return events.map((event) => serializeCalendarEvent(event, timeZone));
+    return events
+      .map((event) => serializeCalendarEvent(event, timeZone))
+      .filter(
+        (event) =>
+          event.calendarDate >= startDate && event.calendarDate <= endDate,
+      );
   } catch {
     return [];
   }
@@ -180,6 +194,10 @@ export const getCalendarEvents = async (date: Date) => {
           $or: [
             { date: { $gte: startOfDay(tzDate), $lte: endOfDay(tzDate) } },
             { calendarDate },
+            {
+              isAllDay: true,
+              date: allDayUtcRange(calendarDate, calendarDate),
+            },
           ],
         },
       ],
@@ -187,7 +205,9 @@ export const getCalendarEvents = async (date: Date) => {
       .sort({ isAllDay: -1, date: 1 })
       .lean();
 
-    return events.map((event) => serializeCalendarEvent(event, timeZone));
+    return events
+      .map((event) => serializeCalendarEvent(event, timeZone))
+      .filter((event) => event.calendarDate === calendarDate);
   } catch {
     return [];
   }
