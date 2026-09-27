@@ -14,6 +14,7 @@
     "./agent/use-dictation": "./src/agent/use-dictation.ts",
     "./agent/use-model-catalog": "./src/agent/use-model-catalog.ts",
     "./client": "./src/client.ts",
+    "./tts/use-admin-speech": "./src/tts/use-admin-speech.ts",
     "./platform": "./src/platform.ts",
     "./routes": "./src/routes.ts"
   },
@@ -34,6 +35,7 @@
     "@repo/latex-editor": "workspace:*",
     "@repo/markets": "workspace:*",
     "@repo/schemas": "workspace:*",
+    "@repo/tts": "workspace:*",
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",

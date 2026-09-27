@@ -14,6 +14,9 @@ export interface IAppSettings extends Document<string> {
   timeZone: string | null;
   semanticModel: string | null;
   unattendedModel: string | null;
+  ttsModel: string | null;
+  ttsVoice: string | null;
+  ttsInstructions: string | null;
   cv: IStoredCv | null;
   cvDraft: IStoredCv | null;
   cvProject: ILatexProject | null;
@@ -26,6 +29,9 @@ export interface ILeanAppSettings {
   timeZone: string | null;
   semanticModel: string | null;
   unattendedModel: string | null;
+  ttsModel: string | null;
+  ttsVoice: string | null;
+  ttsInstructions: string | null;
   cv: IStoredCv | null;
   cvDraft: IStoredCv | null;
   cvProject: ILatexProject | null;
@@ -50,6 +56,9 @@ const AppSettingsSchema = new Schema<IAppSettings>(
     timeZone: { type: String, default: null },
     semanticModel: { type: String, default: null, maxlength: 200 },
     unattendedModel: { type: String, default: null, maxlength: 200 },
+    ttsModel: { type: String, default: null, maxlength: 200 },
+    ttsVoice: { type: String, default: null, maxlength: 80 },
+    ttsInstructions: { type: String, default: null, maxlength: 1_000 },
     cv: { type: StoredCvSchema, default: null },
     cvDraft: { type: StoredCvSchema, default: null },
     cvProject: { type: Schema.Types.Mixed, default: null },

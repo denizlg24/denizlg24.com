@@ -1,4 +1,4 @@
-import path from "path";
+import path from "node:path";
 
 const tauriConfFile = path.join(
   __dirname,
@@ -30,12 +30,12 @@ const cargoSearchString = 'name = "denizlg24"';
 function updateVersionInTauriConf(newVersion: string) {
   const tauriConf = require(tauriConfFile);
   tauriConf.version = newVersion;
-  const fs = require("fs");
-  fs.writeFileSync(tauriConfFile, JSON.stringify(tauriConf, null, 2));
+  const fs = require("node:fs");
+  fs.writeFileSync(tauriConfFile, `${JSON.stringify(tauriConf, null, 2)}\n`);
 }
 
 function updateVersionInCargo(newVersion: string, cargoFile: string) {
-  const fs = require("fs");
+  const fs = require("node:fs");
   const cargoLockContent = fs.readFileSync(cargoFile, "utf-8");
   const lines = cargoLockContent.split("\n");
   let found = false;

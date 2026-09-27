@@ -9,6 +9,8 @@ export const AGENT_PAGE_TOOLS = [
   "get_current_page_context",
   "navigate_desktop",
   "refresh_current_page",
+  "read_current_page_aloud",
+  "stop_reading_aloud",
 ] as const;
 export type AgentPageTool = (typeof AGENT_PAGE_TOOLS)[number];
 

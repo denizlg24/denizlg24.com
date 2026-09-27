@@ -1,6 +1,7 @@
 "use client";
 import { DialogClose } from "@radix-ui/react-dialog";
 import { pdf } from "@react-pdf/renderer";
+import { useAdminSpeech } from "@repo/admin/tts/use-admin-speech";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
@@ -32,12 +33,15 @@ import {
   Loader2,
   Save,
   Sparkles,
+  Square,
+  Volume2,
 } from "lucide-react";
 import type React from "react";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -45,6 +49,7 @@ import { toast } from "sonner";
 import { MarkdownPdfDocument } from "@/components/markdown/markdown-pdf-renderer";
 import { useUserSettings } from "@/context/user-context";
 import { pickDefaultModel, useModelCatalog } from "@/hooks/use-model-catalog";
+import { createDesktopAdminClient } from "@/lib/admin-client";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote } from "@/lib/data-types";
 import { isTauri } from "@/lib/platform";
@@ -78,6 +83,9 @@ export const NoteEditor = ({
   autoFocusEditor?: boolean;
 }) => {
   const { settings, setSettings } = useUserSettings();
+  const speechClient = useMemo(() => createDesktopAdminClient(), []);
+  const speech = useAdminSpeech(speechClient);
+  useEffect(() => speech.stop(), [note._id, speech.stop]);
 
   const [togglePreview, setTogglePreview] = useState(!startInEditMode);
   const [initialContent, setInitialContent] = useState(note.content || "");
@@ -392,8 +400,41 @@ export const NoteEditor = ({
             variant="outline"
             size="icon-sm"
             onClick={() => setTogglePreview((prev) => !prev)}
+            aria-label={togglePreview ? "Edit note" : "Preview note"}
           >
             {togglePreview ? <Edit2 /> : <Eye />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={!content.trim()}
+            onClick={() => {
+              if (speech.state !== "idle") {
+                speech.stop();
+              } else {
+                void speech
+                  .play(`${note.title}. ${content}`)
+                  .catch((error: unknown) => {
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : "Could not read this note",
+                    );
+                  });
+              }
+            }}
+            aria-label={
+              speech.state === "idle" ? "Read note aloud" : "Stop reading note"
+            }
+            title={speech.state === "idle" ? "Read note aloud" : "Stop reading"}
+          >
+            {speech.state === "loading" ? (
+              <Loader2 className="animate-spin" />
+            ) : speech.state === "idle" ? (
+              <Volume2 />
+            ) : (
+              <Square />
+            )}
           </Button>
           {!disableAiEnhance && (
             <Dialog>

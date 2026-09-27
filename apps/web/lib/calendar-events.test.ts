@@ -10,6 +10,10 @@ const calendarEventFindByIdAndUpdateMock = mock(
     lean: mock(async (): Promise<unknown> => null),
   }),
 );
+let calendarEventFindResults: ILeanCalendarEvent[] = [];
+const calendarEventFindMock = mock((_filter: unknown) => ({
+  sort: () => ({ lean: async () => calendarEventFindResults }),
+}));
 
 mock.module("./mongodb", () => ({ connectDB: connectDBMock }));
 mock.module("@/models/AppSettings", () => ({
@@ -25,12 +29,18 @@ mock.module("@/models/CalendarEvent", () => ({
   // CalendarEventSchema (via models/Journal) would otherwise fail to link.
   CalendarEventSchema,
   CalendarEvent: {
+    find: calendarEventFindMock,
     findById: calendarEventFindByIdMock,
     findByIdAndUpdate: calendarEventFindByIdAndUpdateMock,
   },
 }));
 
-const { updateCalendarEvent } = await import("./calendar-events");
+const {
+  normalizeCalendarEventInput,
+  serializeCalendarEvent,
+  getCalendarEvents,
+  updateCalendarEvent,
+} = await import("./calendar-events");
 
 const localEventId = "64f000000000000000000001";
 
@@ -83,6 +93,78 @@ beforeEach(() => {
   eventLeanMock.mockResolvedValue(null);
   calendarEventFindByIdMock.mockClear();
   calendarEventFindByIdAndUpdateMock.mockReset();
+  calendarEventFindMock.mockClear();
+  calendarEventFindResults = [];
+});
+
+describe("calendar date placement", () => {
+  test("places a timed October 6 event on October 6 when its stored date key is stale", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T10:30:00.000Z"),
+      calendarDate: "2026-09-24",
+    });
+    expect(serializeCalendarEvent(event, "Europe/Lisbon").calendarDate).toBe(
+      "2026-10-06",
+    );
+    expect(
+      normalizeCalendarEventInput(
+        { date: event.date, calendarDate: event.calendarDate, isAllDay: false },
+        "Europe/Lisbon",
+      ).calendarDate,
+    ).toBe("2026-10-06");
+  });
+
+  test("preserves the chosen calendar date for all-day events", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-10-06",
+      isAllDay: true,
+    });
+    expect(serializeCalendarEvent(event, "Pacific/Auckland").calendarDate).toBe(
+      "2026-10-06",
+    );
+  });
+
+  test("repairs a stale all-day date key when the stored timestamp is twelve days later", () => {
+    const event = manualEvent({
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-09-24",
+      isAllDay: true,
+    });
+    expect(serializeCalendarEvent(event, "Europe/Lisbon").calendarDate).toBe(
+      "2026-10-06",
+    );
+  });
+
+  test("retrieves a stale all-day event by its UTC anchor and filters to the repaired day", async () => {
+    const stale = manualEvent({
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-09-24",
+      isAllDay: true,
+    });
+    const nextDay = manualEvent({
+      _id: "64f000000000000000000002",
+      date: new Date("2026-10-06T12:00:00.000Z"),
+      calendarDate: "2026-10-07",
+      isAllDay: true,
+    });
+    calendarEventFindResults = [stale, nextDay];
+
+    const events = await getCalendarEvents(
+      new Date("2026-10-06T10:00:00.000Z"),
+    );
+    expect(events.map((event) => event._id)).toEqual([stale._id]);
+    const filter = calendarEventFindMock.mock.calls[0]?.[0] as {
+      $and: [unknown, { $or: unknown[] }];
+    };
+    expect(filter.$and[1].$or).toContainEqual({
+      isAllDay: true,
+      date: {
+        $gte: new Date("2026-10-06T00:00:00.000Z"),
+        $lt: new Date("2026-10-07T00:00:00.000Z"),
+      },
+    });
+  });
 });
 
 describe("updateCalendarEvent", () => {
