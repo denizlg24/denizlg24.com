@@ -28,6 +28,7 @@ describe("Forge recovery environment envelope", () => {
 
   test("rejects both ciphertext tampering and a semantic checksum mismatch", () => {
     const envelope = encryptRecoveryEnvironment({ SECRET: "value" }, KEY);
+    const encrypted = envelope.environmentCipher.encrypted;
     expect(() =>
       decryptRecoveryEnvironment(
         {
@@ -35,7 +36,7 @@ describe("Forge recovery environment envelope", () => {
           ...envelope,
           environmentCipher: {
             ...envelope.environmentCipher,
-            encrypted: `${envelope.environmentCipher.encrypted.slice(0, -1)}A`,
+            encrypted: `${encrypted[0] === "A" ? "B" : "A"}${encrypted.slice(1)}`,
           },
         },
         KEY,

@@ -4,6 +4,7 @@ import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import {
   createFinanceRecurringRule,
+  FinancePayoutRuleError,
   listFinanceRecurringRules,
 } from "@/lib/finance/rules";
 import { requireAdmin } from "@/lib/require-admin";
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
   try {
     rule = await createFinanceRecurringRule(parsed.data);
   } catch (error) {
+    if (error instanceof FinancePayoutRuleError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error("[finance] Rule creation failed", error);
     return NextResponse.json(
       { error: "Failed to create recurring rule" },

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -55,23 +55,37 @@ export function AddAccountDialog({
 
   const isEditing = !!editing;
 
+  useEffect(() => {
+    if (!open) return;
+    setLabel(editing?.label ?? "");
+    setIssuer(editing?.issuer ?? "");
+    setAccountName(editing?.accountName ?? "");
+    setSecret("");
+    setAlgorithm(editing?.algorithm ?? "SHA1");
+    setDigits(editing?.digits ?? 6);
+    setPeriod(editing?.period ?? 30);
+  }, [open, editing]);
+
   const handleSubmit = async () => {
     setSubmitting(true);
-    await onSubmit({
-      label,
-      issuer,
-      accountName,
-      secret: isEditing ? undefined : secret,
-      algorithm,
-      digits,
-      period,
-    });
-    setSubmitting(false);
+    try {
+      await onSubmit({
+        label: label.trim(),
+        issuer: issuer.trim(),
+        accountName: accountName.trim(),
+        secret: isEditing ? undefined : secret,
+        algorithm,
+        digits,
+        period,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const canSubmit = isEditing
     ? label.trim().length > 0
-    : label.trim().length > 0 && secret.trim().length > 0;
+    : label.trim().length > 0 && /^[A-Z2-7]+=*$/.test(secret) && period > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,7 +140,7 @@ export function AddAccountDialog({
                 placeholder="JBSWY3DPEHPK3PXP"
                 value={secret}
                 onChange={(e) =>
-                  setSecret(e.target.value.toUpperCase().replace(/\s/g, ""))
+                  setSecret(e.target.value.toUpperCase().replace(/[\s-]/g, ""))
                 }
                 className="font-mono tracking-wider overflow-hidden text-ellipsis"
               />

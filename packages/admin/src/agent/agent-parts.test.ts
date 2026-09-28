@@ -3,6 +3,7 @@ import type { AgentUIMessage } from "@repo/schemas";
 import {
   buildAgentBlocks,
   shouldContinueAgentTurn,
+  spokenReplyText,
   toolTitle,
 } from "./agent-parts";
 
@@ -105,6 +106,45 @@ describe("shouldContinueAgentTurn", () => {
       ]),
     ];
     expect(shouldContinueAgentTurn({ messages })).toBe(false);
+  });
+});
+
+describe("spokenReplyText", () => {
+  test("speaks the answer after a tool, not the earlier progress message", () => {
+    const reply = assistant([
+      { type: "text", text: "Okay, I'm looking at your notes.", state: "done" },
+      {
+        type: "dynamic-tool",
+        toolName: "denizlg24__web_notes",
+        toolCallId: "c1",
+        state: "output-available",
+        input: { action: "list" },
+        output: { notes: [] },
+      },
+      { type: "step-start" },
+      {
+        type: "text",
+        text: "I found three notes from this week.",
+        state: "done",
+      },
+    ]);
+    expect(spokenReplyText(reply)).toBe("I found three notes from this week.");
+  });
+
+  test("does not read a tool call or its preamble as the answer", () => {
+    expect(
+      spokenReplyText(
+        assistant([
+          { type: "text", text: "Let me check.", state: "done" },
+          {
+            type: "tool-get_current_page_context",
+            toolCallId: "c1",
+            state: "input-available",
+            input: {},
+          },
+        ]),
+      ),
+    ).toBe("");
   });
 });
 

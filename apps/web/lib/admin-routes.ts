@@ -15,6 +15,7 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
   settings: `${ROOT}/settings`,
   markets: `${ROOT}/markets`,
   portfolios: `${ROOT}/markets/portfolios`,
+  hours: `${ROOT}/hours`,
 
   courses: {
     root: `${ROOT}/courses`,
@@ -33,6 +34,8 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     entryNew: `${ROOT}/finance/entries/new`,
     rule: (ruleId) => withSegments(`${ROOT}/finance/rules`, ruleId),
     ruleNew: `${ROOT}/finance/rules/new`,
+    payoutNew: `${ROOT}/finance/rules/new?kind=payout`,
+    payroll: `${ROOT}/finance?tab=payroll`,
     accounts: `${ROOT}/finance/accounts`,
     account: (accountId) => withSegments(`${ROOT}/finance/accounts`, accountId),
     budget: `${ROOT}/finance?tab=budget`,

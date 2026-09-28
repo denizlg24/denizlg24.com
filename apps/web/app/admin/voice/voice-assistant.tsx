@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  awaitsClient,
   isAgentToolPart,
   messageText,
+  shouldContinueAgentTurn,
+  spokenReplyText,
   toolPartName,
 } from "@repo/admin/agent/agent-parts";
 import { useAgentChat } from "@repo/admin/agent/use-agent-chat";
@@ -11,6 +14,7 @@ import {
   useModelCatalog,
 } from "@repo/admin/agent/use-model-catalog";
 import { useAdmin } from "@repo/admin/provider";
+import { useAdminSpeech } from "@repo/admin/tts/use-admin-speech";
 import { getToolLabel, voiceTranscriptionResponseSchema } from "@repo/schemas";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -204,6 +208,7 @@ function VoiceOrb({
 
 export function VoiceAssistant() {
   const { client } = useAdmin();
+  const speech = useAdminSpeech(client);
   const modelCatalog = useModelCatalog();
   const [state, setState] = useState<VoiceState>("idle");
   const [level, setLevel] = useState(0);
@@ -218,6 +223,9 @@ export function VoiceAssistant() {
   const animationRef = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
   const sendOnStopRef = useRef(false);
+  const responseSequence = useRef(0);
+  const spokenReplyId = useRef<string | null>(null);
+  const expectingReply = useRef(false);
 
   const model = modelCatalog.models
     ? pickDefaultModel(modelCatalog.models, ["tool-use"])
@@ -232,6 +240,42 @@ export function VoiceAssistant() {
       executionMode: "yolo",
       responseStyle: "voice",
     }),
+    onFinish: ({ message, messages, isAbort, isError }) => {
+      if (
+        !expectingReply.current ||
+        isAbort ||
+        isError ||
+        message.role !== "assistant"
+      )
+        return;
+      if (awaitsClient(messages) || shouldContinueAgentTurn({ messages }))
+        return;
+      if (spokenReplyId.current === message.id) return;
+      const spoken = spokenReplyText(message);
+      if (!spoken) {
+        if (message.parts.some(isAgentToolPart)) return;
+        expectingReply.current = false;
+        setState("idle");
+        return;
+      }
+      expectingReply.current = false;
+      spokenReplyId.current = message.id;
+      const sequence = responseSequence.current;
+      setTickerTarget(latestTickerText(spoken));
+      setState("responding");
+      void speech.play(spoken).then(
+        () => {
+          if (sequence === responseSequence.current) setState("idle");
+        },
+        (cause: unknown) => {
+          if (sequence !== responseSequence.current) return;
+          setState("error");
+          setTickerTarget(
+            cause instanceof Error ? cause.message : "Voice playback failed",
+          );
+        },
+      );
+    },
   });
 
   const lastMessage = chat.messages.at(-1);
@@ -291,6 +335,7 @@ export function VoiceAssistant() {
 
   const sendTranscript = useCallback(
     async (blob: Blob, mimeType: string) => {
+      const sequence = ++responseSequence.current;
       if (!model) {
         setState("error");
         setTickerTarget("Model unavailable");
@@ -326,14 +371,13 @@ export function VoiceAssistant() {
           conversationIdRef.current = created.conversation._id;
         }
 
+        expectingReply.current = true;
         await chat.sendMessage({ text });
+        if (sequence !== responseSequence.current) return;
         if (chat.chat.error) throw chat.chat.error;
-        const reply = chat.chat.lastMessage;
-        if (reply?.role === "assistant") {
-          setTickerTarget(latestTickerText(messageText(reply)));
-        }
-        setState("responding");
       } catch (cause) {
+        expectingReply.current = false;
+        if (sequence !== responseSequence.current) return;
         setState("error");
         setTickerTarget(cause instanceof Error ? cause.message : "Failed");
         setTimeout(() => setState("idle"), 1_200);
@@ -351,6 +395,11 @@ export function VoiceAssistant() {
 
   const startRecording = useCallback(async () => {
     if (state !== "idle" && state !== "responding" && state !== "error") return;
+    responseSequence.current += 1;
+    expectingReply.current = false;
+    speech.stop();
+    speech.prime();
+    void chat.chat.stop();
     try {
       const media = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -456,7 +505,7 @@ export function VoiceAssistant() {
       );
       setTimeout(() => setState("idle"), 1_200);
     }
-  }, [releaseMedia, sendTranscript, state, stopRecording]);
+  }, [chat.chat, releaseMedia, sendTranscript, speech, state, stopRecording]);
 
   useEffect(() => releaseMedia, [releaseMedia]);
 

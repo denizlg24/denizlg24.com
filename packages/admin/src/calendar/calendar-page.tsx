@@ -45,12 +45,10 @@ import { Switch } from "@repo/ui/switch";
 import { format, formatDuration } from "date-fns";
 import {
   Bell,
-  BellOff,
   CalendarDays,
   CalendarIcon,
   Check,
   ChevronDown,
-  Clock,
   ExternalLink,
   Link as LinkIcon,
   Loader2,
@@ -259,7 +257,7 @@ export function CalendarPage() {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const replaceEventEverywhere = useCallback((event: ICalendarEvent) => {
     setViewEvent((current) => (current?._id === event._id ? event : current));
@@ -278,6 +276,7 @@ export function CalendarPage() {
   const openViewEvent = useCallback((e: ICalendarEvent) => {
     setViewEvent(e);
     setEditing(false);
+    setConfirmingDelete(false);
   }, []);
 
   const startEditing = useCallback(() => {
@@ -285,7 +284,9 @@ export function CalendarPage() {
     setEditForm({
       title: viewEvent.title,
       place: viewEvent.place ?? "",
-      date: format(new Date(viewEvent.date), "yyyy-MM-dd'T'HH:mm"),
+      date: viewEvent.isAllDay
+        ? `${viewEvent.calendarDate}T12:00`
+        : format(new Date(viewEvent.date), "yyyy-MM-dd'T'HH:mm"),
       isAllDay: viewEvent.isAllDay,
       kind: viewEvent.kind,
       status: viewEvent.status,
@@ -348,7 +349,7 @@ export function CalendarPage() {
       invalidateCache(startDate, endDate);
       removeEventEverywhere(eventId);
       setEditing(false);
-      setDeleteDialogOpen(false);
+      setConfirmingDelete(false);
       toast.success("Event deleted");
     } catch (error) {
       toast.error(
@@ -625,7 +626,7 @@ export function CalendarPage() {
         place: addForm.place || undefined,
         date: new Date(addForm.date).toISOString(),
         calendarDate: addForm.date.slice(0, 10),
-        isAllDay: false,
+        isAllDay: addForm.isAllDay,
         kind: addForm.kind,
         status: "scheduled",
         notifyBySlack: addForm.notifyBySlack,
@@ -1018,24 +1019,34 @@ export function CalendarPage() {
 
       <Dialog
         open={viewEvent !== null}
-        onOpenChange={() => {
-          setViewEvent(null);
-          setEditing(false);
+        onOpenChange={(open) => {
+          if (!open) {
+            setViewEvent(null);
+            setEditing(false);
+            setConfirmingDelete(false);
+          }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-3xl max-h-[90dvh] overflow-y-auto gap-5 p-5 sm:p-8">
           {!editing ? (
             <>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <DialogTitle className="leading-snug">
-                    {viewEvent?.title}
-                  </DialogTitle>
-                  {viewEvent && (
-                    <Badge variant="outline">
-                      {getEventKindLabel(viewEvent.kind)}
+              <div className="space-y-3 pr-8">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">
+                    {viewEvent ? getEventKindLabel(viewEvent.kind) : "Event"}
+                  </Badge>
+                  {viewEvent?.source && (
+                    <Badge variant="secondary">
+                      {viewEvent.source.provider === "google"
+                        ? "Google Calendar"
+                        : "Synced event"}
                     </Badge>
                   )}
+                </div>
+                <DialogTitle className="text-2xl leading-tight sm:text-3xl">
+                  {viewEvent?.title}
+                </DialogTitle>
+                <div className="flex items-center gap-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button type="button" className="shrink-0 cursor-pointer">
@@ -1072,50 +1083,61 @@ export function CalendarPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-                <DialogDescription className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 shrink-0" />
-                  {viewEvent
-                    ? viewEvent.isAllDay
-                      ? `All day · ${format(new Date(`${viewEvent.calendarDate}T12:00:00`), "PPP")}`
-                      : `${format(new Date(viewEvent.date), "p")} · ${format(new Date(viewEvent.date), "PPP")}`
-                    : ""}
+                <DialogDescription>
+                  View the schedule, links and notifications, or edit this
+                  event.
                 </DialogDescription>
               </div>
 
               <Separator />
 
-              <div className="space-y-2.5 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <MapPin className="w-4 h-4 shrink-0" />
-                  <span>{viewEvent?.place || "No location specified"}</span>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <CalendarDays className="size-4" /> Date and time
+                  </div>
+                  <p className="text-lg font-semibold">
+                    {viewEvent &&
+                      format(
+                        new Date(`${viewEvent.calendarDate}T12:00:00`),
+                        "EEEE, MMMM d, yyyy",
+                      )}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {viewEvent?.isAllDay
+                      ? "All day"
+                      : viewEvent
+                        ? `${format(new Date(viewEvent.date), "p")}${viewEvent.endDate ? ` – ${format(new Date(viewEvent.endDate), "p")}` : ""}`
+                        : ""}
+                  </p>
                 </div>
-
-                <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <MapPin className="size-4" /> Location
+                  </div>
+                  <p className="text-sm font-medium">
+                    {viewEvent?.place || "No location specified"}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-4 sm:col-span-2">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <Bell className="size-4" /> Notification
+                  </div>
                   {viewEvent?.notifyBySlack ? (
-                    <>
-                      <Bell className="w-4 h-4 shrink-0" />
-                      <span>
-                        Slack{" "}
-                        {formatDuration(
-                          {
-                            hours: Math.floor(
-                              viewEvent.notifyBeforeMinutes / 60,
-                            ),
-                            minutes: viewEvent.notifyBeforeMinutes % 60,
-                          },
-                          { zero: false },
-                        )}{" "}
-                        before
-                        {viewEvent.isNotificationSent
-                          ? " · sent"
-                          : " · pending"}
-                      </span>
-                    </>
+                    <p className="text-sm">
+                      Slack{" "}
+                      {formatDuration(
+                        {
+                          hours: Math.floor(viewEvent.notifyBeforeMinutes / 60),
+                          minutes: viewEvent.notifyBeforeMinutes % 60,
+                        },
+                        { zero: false },
+                      )}{" "}
+                      before
+                      {viewEvent.isNotificationSent ? " · sent" : " · pending"}
+                    </p>
                   ) : (
-                    <>
-                      <BellOff className="w-4 h-4 shrink-0" />
-                      <span>No notifications</span>
-                    </>
+                    <p className="text-sm">No notifications</p>
                   )}
                 </div>
               </div>
@@ -1123,14 +1145,15 @@ export function CalendarPage() {
               {(viewEvent?.links?.length ?? 0) > 0 && (
                 <>
                   <Separator />
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Links</p>
                     {viewEvent?.links.map((link) => (
                       <a
                         key={link._id}
                         href={link.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                       >
                         {link.icon ? (
                           <Image
@@ -1144,7 +1167,8 @@ export function CalendarPage() {
                         ) : (
                           <ExternalLink className="w-4 h-4 shrink-0" />
                         )}
-                        <span>{link.label}</span>
+                        <span className="flex-1 truncate">{link.label}</span>
+                        <ExternalLink className="size-3.5" />
                       </a>
                     ))}
                   </div>
@@ -1152,6 +1176,40 @@ export function CalendarPage() {
               )}
 
               <Separator />
+
+              {confirmingDelete && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-destructive/40 bg-destructive/5 p-4"
+                >
+                  <p className="font-semibold">Delete this event?</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {viewEvent?.title} will be permanently deleted. This cannot
+                    be undone.
+                  </p>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={deleting}
+                    >
+                      Keep event
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => void deleteViewedEvent()}
+                      disabled={deleting}
+                    >
+                      {deleting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                      {deleting ? "Deleting…" : "Delete event"}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
@@ -1166,8 +1224,9 @@ export function CalendarPage() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => setDeleteDialogOpen(true)}
+                  onClick={() => setConfirmingDelete(true)}
                   disabled={deleting}
+                  className={confirmingDelete ? "hidden" : undefined}
                 >
                   {deleting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1180,12 +1239,13 @@ export function CalendarPage() {
             </>
           ) : (
             <>
-              <DialogTitle>Edit event</DialogTitle>
-              <DialogDescription className="sr-only">
-                Edit event details
+              <DialogTitle className="text-2xl">Edit event</DialogTitle>
+              <DialogDescription>
+                Update the schedule, details, status and notifications for{" "}
+                {viewEvent?.title}.
               </DialogDescription>
 
-              <div className="space-y-3">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-title">Title</Label>
                   <Input
@@ -1230,7 +1290,7 @@ export function CalendarPage() {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label>Date & time</Label>
                   <div className="flex items-center gap-2">
                     <Popover>
@@ -1423,7 +1483,7 @@ export function CalendarPage() {
                   </div>
                 )}
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label>Links</Label>
                   <div className="flex items-center gap-2">
                     <Input
@@ -1540,31 +1600,6 @@ export function CalendarPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete event?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete {viewEvent?.title ?? "this event"}.
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={(event) => {
-                event.preventDefault();
-                void deleteViewedEvent();
-              }}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <Dialog open={addingEvent} onOpenChange={setAddingEvent}>
         <DialogContent className="max-w-md">
           <DialogTitle>New event</DialogTitle>
@@ -1616,7 +1651,7 @@ export function CalendarPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Date & time</Label>
+              <Label>{addForm.isAllDay ? "Date" : "Date & time"}</Label>
               <div className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1657,6 +1692,7 @@ export function CalendarPage() {
                       ? String(new Date(addForm.date).getHours())
                       : "0"
                   }
+                  disabled={addForm.isAllDay}
                   onValueChange={(v) => {
                     const d = addForm.date
                       ? new Date(addForm.date)
@@ -1688,6 +1724,7 @@ export function CalendarPage() {
                       ? String(new Date(addForm.date).getMinutes())
                       : "0"
                   }
+                  disabled={addForm.isAllDay}
                   onValueChange={(v) => {
                     const d = addForm.date
                       ? new Date(addForm.date)
@@ -1723,6 +1760,17 @@ export function CalendarPage() {
                 placeholder="Optional"
                 onChange={(e) =>
                   setAddForm((f) => ({ ...f, place: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label htmlFor="add-all-day">All-day event</Label>
+              <Switch
+                id="add-all-day"
+                checked={addForm.isAllDay}
+                onCheckedChange={(value) =>
+                  setAddForm((form) => ({ ...form, isAllDay: value }))
                 }
               />
             </div>

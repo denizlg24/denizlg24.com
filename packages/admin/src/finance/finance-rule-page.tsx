@@ -1,7 +1,9 @@
 "use client";
 
-import type { FinanceDashboardResponse } from "@repo/schemas";
-import { Repeat } from "lucide-react";
+import type { FinanceDashboardResponse, WorkJob } from "@repo/schemas";
+import { Button } from "@repo/ui/button";
+import { Clock, Repeat } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -10,7 +12,10 @@ import {
   DetailPageShell,
   DetailPageSkeleton,
 } from "../detail-page-shell";
+import { fetchWorkJobs } from "../hours/hours-data";
 import { useAdmin } from "../provider";
+import { FinancePayoutSchedule } from "./finance-payout-schedule";
+import { SectionHead } from "./finance-primitives";
 import { RuleForm } from "./finance-rule-form";
 
 const ICON = <Repeat className="size-4 text-muted-foreground" />;
@@ -26,20 +31,32 @@ export function FinanceRulePage({
    * moment the ledger moved.
    */
   candidateFingerprint,
+  payout = false,
 }: {
   /** Absent opens the create form. */
   ruleId?: string;
   candidateFingerprint?: string;
+  /** A new rule opens as a payout. */
+  payout?: boolean;
 }) {
   const { client, routes } = useAdmin();
   const router = useRouter();
   const backTo = routes.finance.root;
 
   const [data, setData] = useState<FinanceDashboardResponse | null>(null);
+  const [jobs, setJobs] = useState<WorkJob[] | null>(null);
+  const [revision, setRevision] = useState(0);
 
   const load = useCallback(async () => {
     try {
-      setData(await client.get<FinanceDashboardResponse>("finance"));
+      const [finance, workJobs] = await Promise.all([
+        client.get<FinanceDashboardResponse>("finance"),
+        // The tracker is optional: a failure here only empties the job list.
+        fetchWorkJobs(client).catch(() => [] as WorkJob[]),
+      ]);
+      setData(finance);
+      setJobs(workJobs);
+      setRevision((value) => value + 1);
     } catch {
       toast.error("Failed to load finance data");
     }
@@ -51,7 +68,7 @@ export function FinanceRulePage({
 
   const shell = { icon: ICON, backTo, backLabel: "Finance" } as const;
 
-  if (!data) {
+  if (!data || !jobs) {
     return <DetailPageSkeleton {...shell} title="Rule" rows={2} />;
   }
 
@@ -75,18 +92,50 @@ export function FinanceRulePage({
       ) ?? null)
     : null;
 
+  const isPayout = Boolean(rule?.payout) || (!rule && payout);
+
   return (
     <DetailPageShell
       {...shell}
-      title={rule ? rule.name : (seed?.name ?? "New rule")}
+      backTo={isPayout ? routes.finance.payroll : backTo}
+      backLabel={isPayout ? "Payroll" : "Finance"}
+      title={
+        rule ? rule.name : (seed?.name ?? (payout ? "New payout" : "New rule"))
+      }
+      actions={
+        rule?.payout?.source.kind === "hours" ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={routes.hours}>
+              <Clock className="size-3.5" />
+              Hours
+            </Link>
+          </Button>
+        ) : undefined
+      }
     >
-      <RuleForm
-        accounts={data.accounts}
-        seed={seed}
-        rule={rule}
-        onSaved={load}
-        onDone={() => router.push(backTo)}
-      />
+      <div className="space-y-8">
+        <RuleForm
+          accounts={data.accounts}
+          seed={seed}
+          rule={rule}
+          payout={payout}
+          jobs={jobs}
+          profiles={data.deductionProfiles}
+          onSaved={load}
+          onDone={() =>
+            // An edited payout stays open: its schedule below is what changed.
+            rule?.payout
+              ? undefined
+              : router.push(isPayout ? routes.finance.payroll : backTo)
+          }
+        />
+        {rule?.payout && (
+          <section className="space-y-2">
+            <SectionHead label="Payouts" />
+            <FinancePayoutSchedule ruleId={rule.id} refreshKey={revision} />
+          </section>
+        )}
+      </div>
     </DetailPageShell>
   );
 }

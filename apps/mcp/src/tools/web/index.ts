@@ -11,6 +11,7 @@ import { registerWebCourses } from "./courses";
 import { registerWebCv } from "./cv";
 import { registerWebEmail } from "./email";
 import { registerWebFinance } from "./finance";
+import { registerWebHours } from "./hours";
 import { registerWebKanban } from "./kanban";
 import { registerWebLatex } from "./latex";
 import { registerWebLlm } from "./llm";
@@ -50,6 +51,7 @@ export function registerWeb(server: McpServer, api: Api) {
   registerWebLlm(server, api);
   registerWebMarkets(server, api);
   registerWebFinance(server, api);
+  registerWebHours(server, api);
   registerWebSemantic(server, api);
   registerWebAuthenticator(server, api);
 }

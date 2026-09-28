@@ -9,6 +9,7 @@ import {
   financeCategoryDeleteSchema,
   financeCategoryInputSchema,
   financeCsvImportInputSchema,
+  financeDeductionProfileInputSchema,
   financeEnvelopeContributionInputSchema,
   financeEnvelopeInputSchema,
   financeEnvelopePeriodSchema,
@@ -22,6 +23,7 @@ import {
   financeMatchDecisionSchema,
   financeMatchReviewStatusSchema,
   financeNaturalEntryInputSchema,
+  financePayoutOverrideInputSchema,
   financeRecurringRuleInputSchema,
   financeSettingsInputSchema,
   financeSpendSummaryQuerySchema,
@@ -274,6 +276,75 @@ export function registerWebFinance(server: McpServer, api: Api) {
         input: byId,
         destructive: true,
         run: ({ id }) => api.web.delete(p`/api/admin/finance/rules/${id}`),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_finance_payroll",
+    title: "Web: payroll",
+    description:
+      "Payout rules (gross from hours or salary, net after a deduction profile), their per-period schedule, overrides and deduction profiles.",
+    actions: {
+      payouts: action({
+        description:
+          "One payout rule's periods: hours, gross, deduction lines, estimated net, reconciled bank row and variance",
+        input: byId,
+        readOnly: true,
+        run: ({ id }) => api.web.get(p`/api/admin/finance/rules/${id}/payouts`),
+      }),
+      override: action({
+        description:
+          "Sets a hand correction on one payout (null clears a field)",
+        input: z.object({
+          id,
+          payoutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          ...financePayoutOverrideInputSchema.shape,
+        }),
+        idempotent: true,
+        run: ({ id, payoutDate, ...body }) =>
+          api.web.put(
+            p`/api/admin/finance/rules/${id}/payouts/${payoutDate}`,
+            body,
+          ),
+      }),
+      override_clear: action({
+        description: "Removes the correction on one payout",
+        input: z.object({
+          id,
+          payoutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+        idempotent: true,
+        run: ({ id, payoutDate }) =>
+          api.web.delete(
+            p`/api/admin/finance/rules/${id}/payouts/${payoutDate}`,
+          ),
+      }),
+      profiles: action({
+        description: "Every deduction profile",
+        readOnly: true,
+        run: () => api.web.get(`${base}/deductions`),
+      }),
+      profile_create: action({
+        description: "Adds a deduction profile",
+        input: z.object({ profile: financeDeductionProfileInputSchema }),
+        run: ({ profile }) => api.web.post(`${base}/deductions`, profile),
+      }),
+      profile_update: action({
+        description: "Changes a deduction profile; re-projects its payouts",
+        input: z.object({
+          id,
+          ...financeDeductionProfileInputSchema.partial().shape,
+        }),
+        idempotent: true,
+        run: ({ id, ...body }) =>
+          api.web.patch(p`/api/admin/finance/deductions/${id}`, body),
+      }),
+      profile_delete: action({
+        description: "Deletes a profile no payout uses",
+        input: byId,
+        destructive: true,
+        run: ({ id }) => api.web.delete(p`/api/admin/finance/deductions/${id}`),
       }),
     },
   });

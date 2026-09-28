@@ -23,6 +23,7 @@
     "@react-pdf/renderer": "^4.9.0",
     "@repo/admin": "workspace:*",
     "@repo/schemas": "workspace:*",
+    "@repo/tts": "workspace:*",
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@repo/whiteboard-render": "workspace:*",

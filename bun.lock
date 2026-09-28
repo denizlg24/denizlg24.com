@@ -185,6 +185,7 @@
         "@react-pdf/renderer": "^4.9.0",
         "@repo/admin": "workspace:*",
         "@repo/schemas": "workspace:*",
+        "@repo/tts": "workspace:*",
         "@repo/ui": "workspace:*",
         "@repo/utils": "workspace:*",
         "@repo/whiteboard-render": "workspace:*",
@@ -577,6 +578,7 @@
         "@repo/latex-editor": "workspace:*",
         "@repo/markets": "workspace:*",
         "@repo/schemas": "workspace:*",
+        "@repo/tts": "workspace:*",
         "@repo/ui": "workspace:*",
         "@repo/utils": "workspace:*",
         "@repo/whiteboard-render": "workspace:*",
@@ -676,6 +678,7 @@
         "@repo/latex-editor": "workspace:*",
         "@repo/markets": "workspace:*",
         "@repo/schemas": "workspace:*",
+        "@repo/tts": "workspace:*",
         "@repo/ui": "workspace:*",
         "@repo/utils": "workspace:*",
         "@tanstack/react-table": "^8.21.3",
@@ -863,6 +866,19 @@
         "@repo/typescript-config": "workspace:*",
         "@types/bun": "^1.4.2",
         "typescript": "^5.9.3",
+      },
+    },
+    "packages/tts": {
+      "name": "@repo/tts",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@repo/typescript-config": "workspace:*",
+        "@types/bun": "^1.4.2",
+        "@types/react": "^19.3.0",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "react": "19.2.4",
       },
     },
     "packages/typescript-config": {
@@ -1909,6 +1925,8 @@
     "@repo/markets": ["@repo/markets@workspace:packages/markets"],
 
     "@repo/schemas": ["@repo/schemas@workspace:packages/schemas"],
+
+    "@repo/tts": ["@repo/tts@workspace:packages/tts"],
 
     "@repo/typescript-config": ["@repo/typescript-config@workspace:packages/typescript-config"],
 
@@ -4621,6 +4639,8 @@
     "@reduxjs/toolkit/reselect": ["reselect@5.1.1", "", {}, "sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w=="],
 
     "@repo/admin/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/tts/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@streamdown/math/katex": ["katex@0.16.47", "", { "dependencies": { "commander": "^8.3.0" }, "bin": { "katex": "cli.js" } }, "sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg=="],
 

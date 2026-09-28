@@ -215,6 +215,21 @@ export function messageText(message: Pick<AgentUIMessage, "parts">): string {
     .trim();
 }
 
+/** The words to synthesize after tools finish, excluding earlier progress text. */
+export function spokenReplyText(
+  message: Pick<AgentUIMessage, "parts">,
+): string {
+  let lastToolIndex = -1;
+  message.parts.forEach((part, index) => {
+    if (isAgentToolPart(part)) lastToolIndex = index;
+  });
+  return message.parts
+    .slice(lastToolIndex + 1)
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n\n")
+    .trim();
+}
+
 export type AgentBlock =
   | { kind: "text"; key: string; text: string; streaming: boolean }
   | { kind: "reasoning"; key: string; text: string; streaming: boolean }

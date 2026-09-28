@@ -5,6 +5,7 @@ import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import {
   deleteFinanceRecurringRule,
+  FinancePayoutRuleError,
   updateFinanceRecurringRule,
 } from "@/lib/finance/rules";
 import { requireAdmin } from "@/lib/require-admin";
@@ -26,7 +27,15 @@ export async function PATCH(request: NextRequest, context: Context) {
       { status: 400 },
     );
   }
-  const rule = await updateFinanceRecurringRule(id, parsed.data);
+  let rule: Awaited<ReturnType<typeof updateFinanceRecurringRule>>;
+  try {
+    rule = await updateFinanceRecurringRule(id, parsed.data);
+  } catch (error) {
+    if (error instanceof FinancePayoutRuleError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    throw error;
+  }
   if (!rule) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
   }

@@ -1,3 +1,4 @@
+import type { FinanceDeductionLine, FinancePayoutConfig } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 import type { EncryptedSecret } from "@/lib/encrypted-secret";
 
@@ -302,6 +303,8 @@ export interface IFinanceRecurringRule extends Document {
   merchantFingerprint?: string;
   status: "active" | "paused";
   endDate?: string;
+  /** Validated against `financePayoutConfigSchema` on the way in. */
+  payout?: FinancePayoutConfig;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -341,8 +344,35 @@ const financeRecurringRuleSchema = new Schema<IFinanceRecurringRule>(
       required: true,
     },
     endDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
+    payout: { type: Schema.Types.Mixed },
   },
   { collection: "finance_recurring_rules", timestamps: true },
+);
+
+financeRecurringRuleSchema.index(
+  { "payout.source.jobId": 1 },
+  { partialFilterExpression: { "payout.source.kind": "hours" } },
+);
+
+export interface IFinanceDeductionProfile extends Document {
+  name: string;
+  currency: string;
+  lines: FinanceDeductionLine[];
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeDeductionProfileSchema = new Schema<IFinanceDeductionProfile>(
+  {
+    name: { type: String, required: true },
+    currency: { type: String, required: true, match: /^[A-Z]{3}$/ },
+    // Ordered, and validated as a whole by the input schema; the lines only
+    // mean anything together, so there is nothing to index inside them.
+    lines: { type: Schema.Types.Mixed, default: [] },
+    notes: { type: String },
+  },
+  { collection: "finance_deduction_profiles", timestamps: true },
 );
 
 financeRecurringRuleSchema.index({ status: 1, accountId: 1 });
@@ -782,4 +812,10 @@ export const FinanceBudgetSuggestion =
   mongoose.model<IFinanceBudgetSuggestion>(
     "FinanceBudgetSuggestion",
     financeBudgetSuggestionSchema,
+  );
+export const FinanceDeductionProfile =
+  existingModel<IFinanceDeductionProfile>("FinanceDeductionProfile") ||
+  mongoose.model<IFinanceDeductionProfile>(
+    "FinanceDeductionProfile",
+    financeDeductionProfileSchema,
   );

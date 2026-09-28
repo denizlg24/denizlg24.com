@@ -3,6 +3,7 @@ import type {
   FinanceBalance as FinanceBalanceWire,
   FinanceCategory as FinanceCategoryWire,
   FinanceDashboardResponse,
+  FinanceDeductionProfile as FinanceDeductionProfileWire,
   FinanceLedgerEntry as FinanceLedgerEntryWire,
   FinanceRecurringRule as FinanceRecurringRuleWire,
 } from "@repo/schemas";
@@ -12,6 +13,7 @@ import {
   FinanceAccount,
   FinanceBalance,
   FinanceCategory,
+  FinanceDeductionProfile,
   FinanceFxSnapshot,
   FinanceLedgerEntry,
   FinanceMatchReview,
@@ -19,6 +21,7 @@ import {
   type IFinanceAccount,
   type IFinanceBalance,
   type IFinanceCategory,
+  type IFinanceDeductionProfile,
   type IFinanceFxSnapshot,
   type IFinanceLedgerEntry,
   type IFinanceRecurringRule,
@@ -161,8 +164,25 @@ export function serializeFinanceRecurringRule(
     merchantFingerprint: rule.merchantFingerprint,
     status: rule.status,
     endDate: rule.endDate,
+    payout: rule.payout
+      ? { ...rule.payout, overrides: rule.payout.overrides ?? [] }
+      : undefined,
     createdAt: rule.createdAt.toISOString(),
     updatedAt: rule.updatedAt.toISOString(),
+  };
+}
+
+export function serializeFinanceDeductionProfile(
+  profile: IFinanceDeductionProfile,
+): FinanceDeductionProfileWire {
+  return {
+    id: profile._id.toString(),
+    name: profile.name,
+    currency: profile.currency,
+    lines: profile.lines ?? [],
+    notes: profile.notes,
+    createdAt: profile.createdAt.toISOString(),
+    updatedAt: profile.updatedAt.toISOString(),
   };
 }
 
@@ -255,6 +275,7 @@ export async function getFinanceDashboard(
     fxSnapshots,
     categories,
     settings,
+    deductionProfiles,
   ] = await Promise.all([
     FinanceAccount.find().sort({ displayName: 1 }),
     FinanceBalance.find().sort({ fetchedAt: -1 }),
@@ -268,6 +289,7 @@ export async function getFinanceDashboard(
       .limit(FX_SNAPSHOT_LIMIT),
     FinanceCategory.find().sort({ sortOrder: 1, name: 1 }),
     getFinanceSettings(),
+    FinanceDeductionProfile.find().sort({ name: 1 }),
   ]);
   const ledger = ledgerRows.map(serializeFinanceLedgerEntry);
   const recurringRuleFingerprints = new Set(
@@ -371,6 +393,7 @@ export async function getFinanceDashboard(
     }),
     recurringCandidates,
     categories: categories.map(serializeFinanceCategory),
+    deductionProfiles: deductionProfiles.map(serializeFinanceDeductionProfile),
     settings: serializeFinanceSettings(settings),
     matchReviews: reviews.map((review) => ({
       id: review._id.toString(),

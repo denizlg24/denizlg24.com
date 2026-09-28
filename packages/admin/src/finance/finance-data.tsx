@@ -3,20 +3,24 @@ import {
   type FinanceCategoryInput,
   type FinanceCsvImportInput,
   type FinanceDashboardResponse,
+  type FinanceDeductionProfileInput,
   type FinanceExpectedEntryInput,
   type FinanceLedgerEntryUpdate,
   type FinanceManualEntryInput,
   type FinanceMatchDecision,
   type FinanceNaturalEntryInput,
+  type FinancePayoutOverrideInput,
   type FinanceRecurringRuleInput,
   type FinanceSettingsInput,
   financeBeginLinkResponseSchema,
   financeCategorySchema,
   financeDashboardResponseSchema,
+  financeDeductionProfileSchema,
   financeInstitutionSchema,
   financeLedgerEntrySchema,
   financeManualLedgerEntrySchema,
   financeNarrativeResponseSchema,
+  financePayoutScheduleResponseSchema,
   financeRecurringRuleSchema,
   financeSettingsSchema,
   financeSyncResponseSchema,
@@ -272,4 +276,63 @@ export async function updateFinanceSettings(
 export async function refreshFinanceFxRates(client: AdminClient) {
   const response = await client.post<unknown>("finance/fx/refresh");
   return fxRefreshResponseSchema.parse(response);
+}
+
+const deductionProfileResponseSchema = z.object({
+  profile: financeDeductionProfileSchema,
+});
+
+export async function createFinanceDeductionProfile(
+  client: AdminClient,
+  input: FinanceDeductionProfileInput,
+) {
+  const response = await client.post<unknown>("finance/deductions", input);
+  return deductionProfileResponseSchema.parse(response).profile;
+}
+
+export async function updateFinanceDeductionProfile(
+  client: AdminClient,
+  id: string,
+  input: Partial<FinanceDeductionProfileInput>,
+) {
+  const response = await client.patch<unknown>(
+    `finance/deductions/${encodeURIComponent(id)}`,
+    input,
+  );
+  return deductionProfileResponseSchema.parse(response).profile;
+}
+
+export async function deleteFinanceDeductionProfile(
+  client: AdminClient,
+  id: string,
+) {
+  const response = await client.del<unknown>(
+    `finance/deductions/${encodeURIComponent(id)}`,
+  );
+  return successSchema.parse(response);
+}
+
+export async function fetchFinancePayouts(
+  client: AdminClient,
+  ruleId: string,
+  options?: AdminRequestOptions,
+) {
+  const response = await client.get<unknown>(
+    `finance/rules/${encodeURIComponent(ruleId)}/payouts`,
+    options,
+  );
+  return financePayoutScheduleResponseSchema.parse(response);
+}
+
+export async function setFinancePayoutOverride(
+  client: AdminClient,
+  ruleId: string,
+  payoutDate: string,
+  input: FinancePayoutOverrideInput | null,
+) {
+  const path = `finance/rules/${encodeURIComponent(ruleId)}/payouts/${payoutDate}`;
+  const response = input
+    ? await client.put<unknown>(path, input)
+    : await client.del<unknown>(path);
+  return ruleMutationResponseSchema.parse(response).rule;
 }

@@ -30,6 +30,7 @@ import {
   transactionSyntheticKey,
 } from "./core";
 import { loadFinanceFxConverter } from "./fx";
+import { estimatePayouts } from "./payouts";
 
 const PROMOTION_DATE_TOLERANCE_DAYS = 4;
 const PROMOTION_AMOUNT_TOLERANCE_PERCENT = 15;
@@ -1017,17 +1018,45 @@ export async function materializeRecurringFinanceEntries(
             through,
           )
         : [];
-    scheduled.set(rule._id.toString(), occurrences);
+    // A payout's amount is derived per occurrence from the hours in its pay
+    // period, so each date carries its own figure. A period with nothing to
+    // pay is not projected at all — a zero row can never match and would
+    // only sit in the forecast until it was marked missed.
+    const payoutEstimates = rule.payout
+      ? await estimatePayouts(rule, occurrences, now)
+      : undefined;
+    const projectedOccurrences = payoutEstimates
+      ? occurrences.filter(
+          (date) => (payoutEstimates.get(date)?.netMinor ?? 0) > 0,
+        )
+      : occurrences;
+    scheduled.set(rule._id.toString(), projectedOccurrences);
+    if (payoutEstimates) {
+      const today = now.toISOString().slice(0, 10);
+      const next = occurrences.find((date) => date >= today);
+      const estimate = next ? payoutEstimates.get(next) : undefined;
+      // The rule's own amount is what the recurring commitment and the rule
+      // list show, so it tracks the next payout rather than a typed figure.
+      if (estimate && estimate.netMinor !== rule.amountMinor) {
+        await FinanceRecurringRule.updateOne(
+          { _id: rule._id },
+          { $set: { amountMinor: estimate.netMinor } },
+          { session },
+        );
+      }
+    }
 
-    for (const occurrence of occurrences) {
+    for (const occurrence of projectedOccurrences) {
       const normalizedDescriptor = normalizeFinanceDescriptor(rule.name);
+      const payoutEstimate = payoutEstimates?.get(occurrence);
+      const amountMinor = payoutEstimate?.netMinor ?? rule.amountMinor;
       const fields = {
         accountId: rule.accountId,
         amountMinor:
           rule.direction === "expense"
-            ? -Math.abs(rule.amountMinor)
-            : Math.abs(rule.amountMinor),
-        currency: rule.currency,
+            ? -Math.abs(amountMinor)
+            : Math.abs(amountMinor),
+        currency: payoutEstimate?.currency ?? rule.currency,
         descriptor: rule.name,
         normalizedDescriptor,
         merchantFingerprint:

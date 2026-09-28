@@ -27,7 +27,12 @@ export async function POST(request: NextRequest) {
     const { label, issuer, accountName, secret, algorithm, digits, period } =
       body;
 
-    if (!label || !secret) {
+    if (
+      typeof label !== "string" ||
+      typeof secret !== "string" ||
+      !label.trim() ||
+      !secret.trim()
+    ) {
       return NextResponse.json(
         { error: "label and secret are required" },
         { status: 400 },
@@ -50,6 +55,24 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Error creating authenticator account:", error);
+    if (error instanceof Error) {
+      if (error.message.startsWith("IMAP_ENCRYPTION_KEY")) {
+        return NextResponse.json(
+          {
+            error:
+              "Authenticator encryption is not configured. Set IMAP_ENCRYPTION_KEY to a 64-character hex key.",
+          },
+          { status: 503 },
+        );
+      }
+      if (
+        /^(Account label|Secret must|Unsupported TOTP|TOTP code|TOTP period|Invalid character)/.test(
+          error.message,
+        )
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
     return NextResponse.json(
       { error: "Failed to create account" },
       { status: 500 },

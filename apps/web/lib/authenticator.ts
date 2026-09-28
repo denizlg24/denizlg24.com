@@ -77,10 +77,33 @@ export async function createAccount(data: {
   digits?: number;
   period?: number;
 }) {
+  const label = data.label.trim();
+  const secret = data.secret.replace(/[\s-]/g, "").toUpperCase();
+  if (!label) throw new Error("Account label is required");
+  if (!/^[A-Z2-7]+=*$/.test(secret)) {
+    throw new Error("Secret must be a valid Base32 code");
+  }
+  if (!VALID_ALGORITHMS.has(data.algorithm ?? "SHA1")) {
+    throw new Error("Unsupported TOTP algorithm");
+  }
+  if (data.digits !== undefined && ![6, 8].includes(data.digits)) {
+    throw new Error("TOTP code length must be 6 or 8 digits");
+  }
+  if (
+    data.period !== undefined &&
+    (!Number.isInteger(data.period) || data.period < 1)
+  ) {
+    throw new Error("TOTP period must be a positive whole number");
+  }
+  try {
+    OTPAuth.Secret.fromBase32(secret);
+  } catch {
+    throw new Error("Secret must be a valid Base32 code");
+  }
   await connectDB();
-  const encrypted = encryptPassword(data.secret);
+  const encrypted = encryptPassword(secret);
   const account = await AuthenticatorAccount.create({
-    label: data.label,
+    label,
     issuer: data.issuer,
     accountName: data.accountName,
     secret: encrypted,
@@ -116,30 +139,47 @@ export async function generateCodes() {
   const accounts = await AuthenticatorAccount.find().lean();
   const now = Date.now();
 
-  return accounts.map((account) => {
-    const decryptedSecret = decryptPassword(
-      account.secret.ciphertext,
-      account.secret.iv,
-      account.secret.authTag,
-    );
+  return accounts.flatMap((account) => {
+    try {
+      const decryptedSecret = decryptPassword(
+        account.secret.ciphertext,
+        account.secret.iv,
+        account.secret.authTag,
+      );
 
-    const totp = new OTPAuth.TOTP({
-      secret: OTPAuth.Secret.fromBase32(decryptedSecret),
-      algorithm: account.algorithm,
-      digits: account.digits,
-      period: account.period,
-    });
+      const totp = new OTPAuth.TOTP({
+        secret: OTPAuth.Secret.fromBase32(decryptedSecret),
+        algorithm: account.algorithm,
+        digits: account.digits,
+        period: account.period,
+      });
 
-    const code = totp.generate();
-    const elapsed = Math.floor(now / 1000) % account.period;
-    const remaining = account.period - elapsed;
+      const code = totp.generate();
+      const elapsed = Math.floor(now / 1000) % account.period;
+      const remaining = account.period - elapsed;
 
-    return {
-      _id: account._id.toString(),
-      code,
-      period: account.period,
-      remaining,
-    };
+      return [
+        {
+          _id: account._id.toString(),
+          code,
+          period: account.period,
+          remaining,
+        },
+      ];
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("IMAP_ENCRYPTION_KEY")
+      ) {
+        throw error;
+      }
+      console.error(
+        "Failed to generate code for authenticator account",
+        account._id.toString(),
+        error,
+      );
+      return [];
+    }
   });
 }
 

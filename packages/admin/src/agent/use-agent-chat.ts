@@ -17,6 +17,7 @@ import { AdminApiError, type AdminClient } from "../client";
 import { useAdmin } from "../provider";
 import { captureAgentPageContext } from "./agent-page-context";
 import { shouldContinueAgentTurn } from "./agent-parts";
+import { readCurrentPageAloud, stopPageSpeech } from "./page-speech";
 
 export type AgentChatTrigger = "submit-message" | "regenerate-message";
 
@@ -138,6 +139,16 @@ export function useAgentChat(options: UseAgentChatOptions) {
           includeVisibleText: true,
           dashboardRoot: currentRoutes.dashboardRoot,
         });
+      }
+      if (tool === "read_current_page_aloud") {
+        if (latest.current.options.canReadPage?.() === false) {
+          throw new Error("Page reading is unavailable in Incognito mode");
+        }
+        return readCurrentPageAloud(latest.current.client);
+      }
+      if (tool === "stop_reading_aloud") {
+        stopPageSpeech();
+        return { stopped: true };
       }
       if (tool === "navigate_desktop") {
         const path = pathInput(input);

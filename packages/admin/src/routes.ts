@@ -35,6 +35,10 @@ export interface FinanceRoutes {
   /** Recurring-rule editor, replacing `RuleSheet`. */
   rule: (ruleId: string) => string;
   ruleNew: string;
+  /** The rule form opened as a payout (gross from hours, net after deductions). */
+  payoutNew: string;
+  /** Payouts and deduction profiles. */
+  payroll: string;
   /** Bank/CSV import and account management, replacing `AccountSheet`. */
   accounts: string;
   account: (accountId: string) => string;
@@ -89,6 +93,8 @@ export interface AdminRoutes {
   markets: string;
   /** Full path of the virtual-portfolios surface, paired with markets. */
   portfolios: string;
+  /** Full path of the hour tracker, which payouts link across to. */
+  hours: string;
   courses: CourseRoutes;
   finance: FinanceRoutes;
   blog: EditableCollectionRoutes;

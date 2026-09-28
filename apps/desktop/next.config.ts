@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
     "@repo/admin",
     "@repo/latex-editor",
     "@repo/schemas",
+    "@repo/tts",
     "@repo/utils",
     "@repo/ui",
   ],

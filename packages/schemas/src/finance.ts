@@ -237,6 +237,96 @@ export const financeRecurrenceSchema = z.discriminatedUnion("cadence", [
 export type FinanceRecurrence = z.infer<typeof financeRecurrenceSchema>;
 export type FinanceCadence = FinanceRecurrence["cadence"];
 
+// ---------------------------------------------------------------------------
+// Payroll
+//
+// A payout is a recurring income rule whose amount is derived rather than
+// typed: gross pay for a pay period, minus an ordered set of deduction lines
+// from a reusable profile. Gross comes from the hour tracker (hours × the
+// job's hourly rate) or from a fixed monthly figure. The rule's recurrence is
+// the payout date; `cycleCloseDay` is the day hours close, so a payout on the
+// 25th with a close on the 10th pays for the 11th of the previous month
+// through the 10th of this one.
+// ---------------------------------------------------------------------------
+
+/**
+ * One deduction, applied in order.
+ *
+ * `base` picks what the line is computed on: `gross`, or `taxable` — gross
+ * minus every earlier line marked `reducesTaxableBase`. That is enough to
+ * express Danish payroll: pension and ATP reduce the base, AM-bidrag is 8% of
+ * what is left, A-skat is the trækprocent of what is left after AM-bidrag and
+ * the monthly personfradrag (`allowanceMinor`).
+ */
+export const financeDeductionLineSchema = z.object({
+  id: z.string().min(1).max(40),
+  name: z.string().trim().min(1).max(60),
+  kind: z.enum(["percent", "fixed"]),
+  /** Percent of the base, for `percent`. */
+  ratePercent: z.number().min(0).max(100).optional(),
+  /** Per payout, for `fixed`. */
+  amountMinor: z.number().int().nonnegative().optional(),
+  base: z.enum(["gross", "taxable"]),
+  /** Subtracted from the base before the rate applies, per payout. */
+  allowanceMinor: z.number().int().nonnegative().optional(),
+  reducesTaxableBase: z.boolean(),
+});
+export type FinanceDeductionLine = z.infer<typeof financeDeductionLineSchema>;
+
+export const financeDeductionProfileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  currency: financeCurrencySchema,
+  lines: z.array(financeDeductionLineSchema),
+  notes: z.string().optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type FinanceDeductionProfile = z.infer<
+  typeof financeDeductionProfileSchema
+>;
+
+export const financeDeductionProfileInputSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  currency: financeCurrencySchema,
+  lines: z.array(financeDeductionLineSchema).max(20),
+  notes: z.string().trim().max(2_000).optional(),
+});
+export type FinanceDeductionProfileInput = z.infer<
+  typeof financeDeductionProfileInputSchema
+>;
+
+export const financePayoutSourceSchema = z.discriminatedUnion("kind", [
+  /** Hours × rate, both supplied by the hour tracker's job. */
+  z.object({ kind: z.literal("hours"), jobId: z.string().min(1) }),
+  z.object({
+    kind: z.literal("fixed"),
+    grossMinor: z.number().int().nonnegative(),
+  }),
+]);
+export type FinancePayoutSource = z.infer<typeof financePayoutSourceSchema>;
+
+/** A hand correction to one payout, keyed by its payout date. */
+export const financePayoutOverrideSchema = z.object({
+  payoutDate: isoDateSchema,
+  workedMinutes: z.number().int().nonnegative().optional(),
+  grossMinor: z.number().int().nonnegative().optional(),
+  netMinor: z.number().int().nonnegative().optional(),
+  note: z.string().trim().max(500).optional(),
+});
+export type FinancePayoutOverride = z.infer<typeof financePayoutOverrideSchema>;
+
+export const financePayoutConfigSchema = z.object({
+  source: financePayoutSourceSchema,
+  /** Last day of the month whose hours count towards this month's payout. */
+  cycleCloseDay: z.number().int().min(1).max(28),
+  /** First day any hours count. The first payout's period starts here. */
+  employmentStart: isoDateSchema,
+  deductionProfileId: z.string().min(1).optional(),
+  overrides: z.array(financePayoutOverrideSchema).default([]),
+});
+export type FinancePayoutConfig = z.infer<typeof financePayoutConfigSchema>;
+
 export const financeRecurringRuleSchema = z.object({
   id: z.string().min(1),
   accountId: z.string().min(1),
@@ -252,10 +342,77 @@ export const financeRecurringRuleSchema = z.object({
   merchantFingerprint: z.string().min(1).optional(),
   status: z.enum(["active", "paused"]),
   endDate: isoDateSchema.optional(),
+  /** Present makes this a payout: `amountMinor` is then the latest estimate
+   *  of the next net payout, rewritten on every projection. */
+  payout: financePayoutConfigSchema.optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
 export type FinanceRecurringRule = z.infer<typeof financeRecurringRuleSchema>;
+
+export const financePayoutLineResultSchema = z.object({
+  lineId: z.string().min(1),
+  name: z.string().min(1),
+  baseMinor: z.number().int().nonnegative(),
+  amountMinor: z.number().int().nonnegative(),
+});
+export type FinancePayoutLineResult = z.infer<
+  typeof financePayoutLineResultSchema
+>;
+
+export const financePayoutPeriodSchema = z.object({
+  payoutDate: isoDateSchema,
+  periodStart: isoDateSchema,
+  periodEnd: isoDateSchema,
+  /** `open` while hours still accrue, `closed` between close and payout. */
+  phase: z.enum(["upcoming", "open", "closed", "paid"]),
+  /** Shorter than a full cycle — the first month, or a clipped employment. */
+  partial: z.boolean(),
+  loggedMinutes: z.number().int().nonnegative(),
+  /** Logged plus the job's expected hours over the days still to come. */
+  projectedMinutes: z.number().int().nonnegative(),
+  hourlyRateMinor: z.number().int().nonnegative().optional(),
+  grossMinor: z.number().int().nonnegative(),
+  lines: z.array(financePayoutLineResultSchema),
+  deductionsMinor: z.number().int().nonnegative(),
+  netMinor: z.number().int().nonnegative(),
+  currency: financeCurrencySchema,
+  override: financePayoutOverrideSchema.optional(),
+  projectedLedgerId: z.string().min(1).optional(),
+  actual: z
+    .object({
+      ledgerId: z.string().min(1),
+      amountMinor: z.number().int(),
+      currency: financeCurrencySchema,
+      effectiveDate: isoDateSchema,
+      descriptor: z.string(),
+    })
+    .optional(),
+  /** actual − estimate, in the payout currency, when both exist. */
+  varianceMinor: z.number().int().optional(),
+});
+export type FinancePayoutPeriod = z.infer<typeof financePayoutPeriodSchema>;
+
+export const financePayoutScheduleResponseSchema = z.object({
+  rule: financeRecurringRuleSchema,
+  profile: financeDeductionProfileSchema.nullable(),
+  periods: z.array(financePayoutPeriodSchema),
+});
+export type FinancePayoutScheduleResponse = z.infer<
+  typeof financePayoutScheduleResponseSchema
+>;
+
+export const financePayoutOverrideInputSchema = financePayoutOverrideSchema
+  .omit({ payoutDate: true })
+  .extend({
+    workedMinutes: z.number().int().nonnegative().nullable().optional(),
+    grossMinor: z.number().int().nonnegative().nullable().optional(),
+    netMinor: z.number().int().nonnegative().nullable().optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+  });
+export type FinancePayoutOverrideInput = z.infer<
+  typeof financePayoutOverrideInputSchema
+>;
 
 export const financeRecurringCandidateSchema = z.object({
   accountId: z.string().min(1),
@@ -391,6 +548,7 @@ export const financeDashboardResponseSchema = z.object({
   recurringCandidates: z.array(financeRecurringCandidateSchema),
   matchReviews: z.array(financeMatchReviewSchema),
   categories: z.array(financeCategorySchema),
+  deductionProfiles: z.array(financeDeductionProfileSchema).default([]),
   settings: financeSettingsSchema,
   forecast: financeForecastSchema.optional(),
 });

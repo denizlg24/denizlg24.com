@@ -9,6 +9,11 @@ export const appSettingsSchema = z.object({
   effectiveSemanticModel: z.string(),
   unattendedModel: modelSettingSchema,
   effectiveUnattendedModel: z.string(),
+  ttsModel: modelSettingSchema,
+  effectiveTtsModel: z.string(),
+  ttsVoice: z.string().nullable(),
+  effectiveTtsVoice: z.string(),
+  ttsInstructions: z.string().nullable(),
 });
 export type IAppSettings = z.infer<typeof appSettingsSchema>;
 

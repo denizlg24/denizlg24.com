@@ -14,6 +14,27 @@ export const clientTools: ToolDefinition[] = [
   },
   {
     schema: {
+      name: "read_current_page_aloud",
+      description:
+        "Speak the selected text, or the visible desktop page when nothing is selected. Use this when Deniz asks you to read the page aloud.",
+      input_schema: { type: "object", properties: {} },
+    },
+    isWrite: false,
+    category: "desktop",
+    runtime: "client",
+  },
+  {
+    schema: {
+      name: "stop_reading_aloud",
+      description: "Stop text-to-speech playback started by the desktop agent.",
+      input_schema: { type: "object", properties: {} },
+    },
+    isWrite: false,
+    category: "desktop",
+    runtime: "client",
+  },
+  {
+    schema: {
       name: "navigate_desktop",
       description:
         "Navigate the desktop app to another dashboard route. Use an absolute /dashboard/... path.",

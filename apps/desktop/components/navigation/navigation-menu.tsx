@@ -36,6 +36,7 @@ import {
   Radio,
   Settings,
   Table,
+  Timer,
   UserSquare,
   UsersRound,
   Wallet,
@@ -197,6 +198,11 @@ export const GROUPS: NavGroup[] = [
         label: "Finance",
         href: "/finance",
         icon: CircleDollarSign,
+      },
+      {
+        label: "Hours",
+        href: "/hours",
+        icon: Timer,
       },
       {
         label: "Markets",
