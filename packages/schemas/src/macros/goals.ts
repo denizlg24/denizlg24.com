@@ -39,3 +39,29 @@ export type MacrosActiveGoal = z.infer<typeof macrosActiveGoalSchema>;
 export type MacrosGoalHistoryEntry = z.infer<
   typeof macrosGoalHistoryEntrySchema
 >;
+
+/** Only the literal "true" switches `GET /api/weight-goals` to the history. */
+export const macrosWeightGoalsQuerySchema = z.object({
+  history: z.literal("true").optional(),
+});
+export const macrosActiveGoalResponseSchema = z.object({
+  goal: macrosActiveGoalSchema.nullable(),
+});
+export const macrosGoalHistoryResponseSchema = z.object({
+  history: z.array(macrosGoalHistoryEntrySchema),
+});
+export const macrosGoalMutationResponseSchema = z.object({
+  goal: macrosActiveGoalSchema,
+});
+export type MacrosWeightGoalsQuery = z.infer<
+  typeof macrosWeightGoalsQuerySchema
+>;
+export type MacrosActiveGoalResponse = z.infer<
+  typeof macrosActiveGoalResponseSchema
+>;
+export type MacrosGoalHistoryResponse = z.infer<
+  typeof macrosGoalHistoryResponseSchema
+>;
+export type MacrosGoalMutationResponse = z.infer<
+  typeof macrosGoalMutationResponseSchema
+>;

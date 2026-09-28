@@ -36,3 +36,11 @@ export type MacrosVisionLabelResponse = z.infer<
 export type MacrosVisionClassifyResponse = z.infer<
   typeof macrosVisionClassifyResponseSchema
 >;
+/**
+ * Both vision routes take multipart form data: an `image` file, plus an
+ * optional `labelFormat` field on the label route.
+ */
+export const macrosVisionLabelFormatSchema = z.enum(["eu", "us"]);
+export type MacrosVisionLabelFormat = z.infer<
+  typeof macrosVisionLabelFormatSchema
+>;

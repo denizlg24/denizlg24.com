@@ -57,3 +57,14 @@ export type MacrosWeightTrendPoint = z.infer<
 >;
 export type MacrosWeightSummary = z.infer<typeof macrosWeightSummarySchema>;
 export type MacrosWeightOverview = z.infer<typeof macrosWeightOverviewSchema>;
+export const macrosWeightOverviewResponseSchema = z.object({
+  overview: macrosWeightOverviewSchema,
+  fetchedAt: z.string(),
+});
+export const macrosWeighInResponseSchema = z.object({
+  entry: macrosWeighInItemSchema,
+});
+export type MacrosWeightOverviewResponse = z.infer<
+  typeof macrosWeightOverviewResponseSchema
+>;
+export type MacrosWeighInResponse = z.infer<typeof macrosWeighInResponseSchema>;

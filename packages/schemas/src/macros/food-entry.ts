@@ -1,37 +1,44 @@
 import { z } from "zod";
-import { macrosIsoDateSchema, macrosMealTypeSchema } from "./common";
+import {
+  macrosDailyMacrosSchema,
+  macrosIsoDateSchema,
+  macrosMealTypeSchema,
+} from "./common";
 
 export const macrosFavoriteFoodBodySchema = z.object({
   sourceItemId: z.uuid(),
   defaultServings: z.number().positive().max(9999).default(1),
-  defaultMealType: macrosMealTypeSchema.optional(),
 });
+// Each copy keeps its source's time of day on the target date. Absent
+// `entryIds` copies the whole source day.
 export const macrosCopyLogBodySchema = z.object({
   sourceDate: macrosIsoDateSchema,
   targetDate: macrosIsoDateSchema,
-  sourceMealType: macrosMealTypeSchema.optional(),
-  targetMealType: macrosMealTypeSchema.optional(),
+  entryIds: z.array(z.uuid()).min(1).max(100).optional(),
 });
 export const macrosCreateMealTemplateBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   entryIds: z.array(z.uuid()).min(1).max(100),
-  defaultMealType: macrosMealTypeSchema.optional(),
 });
 export const macrosLogMealTemplateBodySchema = z.object({
   templateId: z.uuid(),
   logDate: macrosIsoDateSchema.optional(),
-  mealType: macrosMealTypeSchema.optional(),
+  // Every item lands at this instant; absent means now.
+  eatenAt: z.iso.datetime({ offset: true }).optional(),
   clientMutationId: z.uuid().optional(),
 });
-export const macrosMoveEntriesBodySchema = z.object({
-  entryIds: z.array(z.uuid()).min(1).max(100),
-  logDate: macrosIsoDateSchema.optional(),
-  mealType: macrosMealTypeSchema.optional(),
-  // The food log is ordered by eatenAt, so retiming is how an entry is moved
-  // within a day. Absent keeps each entry's own time of day, which is what
-  // makes a pure date move leave the ordering alone.
-  hour: z.number().int().min(0).max(23).optional(),
-});
+export const macrosMoveEntriesBodySchema = z
+  .object({
+    entryIds: z.array(z.uuid()).min(1).max(100),
+    // Absent keeps each entry on its day, or on the day of `eatenAt`.
+    logDate: macrosIsoDateSchema.optional(),
+    // Sets every entry to this instant. Absent keeps each entry's own time of
+    // day, which is what makes a pure date move leave the ordering alone.
+    eatenAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .refine((body) => body.logDate !== undefined || body.eatenAt !== undefined, {
+    message: "Move to a day, a time, or both",
+  });
 export const macrosBulkDeleteEntriesBodySchema = z.object({
   entryIds: z.array(z.uuid()).min(1).max(100),
 });
@@ -53,6 +60,9 @@ export const macrosUpdateLogEntryBodySchema = z
     notes: z.string().trim().max(500).optional(),
     // Absent leaves the entry where it sits in the day's order.
     eatenAt: z.iso.datetime({ offset: true }).optional(),
+    // Absent keeps the entry's day. Without `eatenAt`, a new day carries the
+    // entry's time of day across.
+    logDate: macrosIsoDateSchema.optional(),
   })
   .extend(macrosEnteredMeasureSchema.shape)
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
@@ -74,4 +84,42 @@ export type MacrosLogMealTemplateBody = z.infer<
 export type MacrosMoveEntriesBody = z.infer<typeof macrosMoveEntriesBodySchema>;
 export type MacrosUpdateLogEntryBody = z.infer<
   typeof macrosUpdateLogEntryBodySchema
+>;
+
+export const macrosMealTemplateSchema = z.object({
+  id: z.uuid(),
+  userId: z.string(),
+  name: z.string(),
+  defaultMealType: macrosMealTypeSchema.nullable(),
+  archivedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const macrosMealTemplateListItemSchema = macrosMealTemplateSchema.extend(
+  { itemCount: z.number().int().nonnegative() },
+);
+export const macrosMealTemplatesResponseSchema = z.object({
+  items: z.array(macrosMealTemplateListItemSchema),
+});
+export const macrosCreateMealTemplateResponseSchema = z.object({
+  template: macrosMealTemplateSchema,
+});
+export const macrosLogMealTemplateResponseSchema = z.object({
+  entryIds: z.array(z.uuid()),
+  logDate: z.string(),
+  totals: macrosDailyMacrosSchema,
+});
+
+export type MacrosMealTemplate = z.infer<typeof macrosMealTemplateSchema>;
+export type MacrosMealTemplateListItem = z.infer<
+  typeof macrosMealTemplateListItemSchema
+>;
+export type MacrosMealTemplatesResponse = z.infer<
+  typeof macrosMealTemplatesResponseSchema
+>;
+export type MacrosCreateMealTemplateResponse = z.infer<
+  typeof macrosCreateMealTemplateResponseSchema
+>;
+export type MacrosLogMealTemplateResponse = z.infer<
+  typeof macrosLogMealTemplateResponseSchema
 >;
