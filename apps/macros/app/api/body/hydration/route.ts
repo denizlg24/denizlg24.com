@@ -1,3 +1,4 @@
+import type { MacrosHydrationResponse } from "@repo/schemas/macros";
 import { macrosHydrationBodySchema } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
@@ -15,7 +16,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    { hydration: await addHydration(session.user.id, parsed.data) },
+    {
+      hydration: await addHydration(session.user.id, parsed.data),
+    } satisfies MacrosHydrationResponse,
     { status: 201 },
   );
 }

@@ -1,3 +1,4 @@
+import type { MacrosAcceptIssueResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRequiredSession } from "@/lib/api/session";
@@ -20,5 +21,5 @@ export async function POST(
       { status: 404 },
     );
   }
-  return NextResponse.json({ issue });
+  return NextResponse.json({ issue } satisfies MacrosAcceptIssueResponse);
 }

@@ -1,3 +1,7 @@
+import type {
+  MacrosCreateRecipeResponse,
+  MacrosRecipesResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -9,7 +13,10 @@ export async function GET() {
   if (!session) return response;
 
   const items = await getUserRecipes(session.user.id);
-  return NextResponse.json({ items, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    items,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosRecipesResponse);
 }
 
 export async function POST(request: Request) {
@@ -28,7 +35,10 @@ export async function POST(request: Request) {
 
   const recipe = await createRecipeFromFoods(session.user.id, parsed.data);
   return NextResponse.json(
-    { recipe, fetchedAt: new Date().toISOString() },
+    {
+      recipe,
+      fetchedAt: new Date().toISOString(),
+    } satisfies MacrosCreateRecipeResponse,
     { status: 201 },
   );
 }

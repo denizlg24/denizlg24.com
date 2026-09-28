@@ -1,14 +1,13 @@
+import {
+  type MacrosCaloriePreferenceResponse,
+  macrosCaloriePreferenceBodySchema,
+} from "@repo/schemas/macros";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/connection";
 import { userProfiles } from "@/db/schema";
 import { auth } from "@/lib/auth";
-
-const bodySchema = z.object({
-  caloriePreference: z.enum(["consumed", "remaining"]),
-});
 
 export async function PUT(request: Request) {
   const session = await auth.api.getSession({
@@ -19,7 +18,9 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  const parsed = macrosCaloriePreferenceBodySchema.safeParse(
+    await request.json().catch(() => null),
+  );
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
@@ -35,5 +36,5 @@ export async function PUT(request: Request) {
 
   return NextResponse.json({
     caloriePreference: parsed.data.caloriePreference,
-  });
+  } satisfies MacrosCaloriePreferenceResponse);
 }

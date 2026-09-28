@@ -1,3 +1,4 @@
+import type { MacrosWeightOverviewResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { getWeightOverview } from "@/lib/weights/queries";
@@ -7,5 +8,8 @@ export async function GET() {
   if (!session) return response;
 
   const overview = await getWeightOverview(session.user.id);
-  return NextResponse.json({ overview, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    overview,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosWeightOverviewResponse);
 }

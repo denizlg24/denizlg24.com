@@ -1,3 +1,4 @@
+import type { MacrosShoppingListResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -23,7 +24,10 @@ export async function PATCH(request: Request) {
       session.user.id,
       parsed.data.itemIds,
     );
-    return NextResponse.json({ items, fetchedAt: new Date().toISOString() });
+    return NextResponse.json({
+      items,
+      fetchedAt: new Date().toISOString(),
+    } satisfies MacrosShoppingListResponse);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not reorder" },

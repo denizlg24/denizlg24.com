@@ -1,3 +1,9 @@
+import type {
+  MacrosFoodLogActivityDay,
+  MacrosFoodLogActivityOverview,
+  MacrosFoodLogDayStatus,
+  MacrosFoodLoggingSummary,
+} from "@repo/schemas/macros";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -6,29 +12,13 @@ import {
   userProfiles,
 } from "@/db/schema";
 
-export type FoodLogDayStatus = "empty" | "partial" | "full";
+export type FoodLogDayStatus = MacrosFoodLogDayStatus;
 
-export interface FoodLogActivityDay {
-  date: string;
-  calories: number;
-  status: FoodLogDayStatus;
-}
+export type FoodLogActivityDay = MacrosFoodLogActivityDay;
 
-export interface FoodLoggingSummary {
-  last30Days: FoodLogActivityDay[];
-  fullThisWeek: number;
-  partialThisWeek: number;
-  emptyThisWeek: number;
-}
+export type FoodLoggingSummary = MacrosFoodLoggingSummary;
 
-export interface FoodLogActivityOverview {
-  today: string;
-  timezone: string;
-  calorieTarget: number | null;
-  years: number[];
-  days: FoodLogActivityDay[];
-  summary: FoodLoggingSummary;
-}
+export type FoodLogActivityOverview = MacrosFoodLogActivityOverview;
 
 const partialFloorCalories = 150;
 

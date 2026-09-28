@@ -1,4 +1,7 @@
-import { macrosCopyLogBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosCopyLogResponse,
+  macrosCopyLogBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { copyLoggedMeal } from "@/lib/foods/entry-acceleration";
@@ -14,7 +17,11 @@ export async function POST(request: Request) {
       { error: "Invalid copy request", issues: parsed.error.issues },
       { status: 400 },
     );
-  return NextResponse.json(await copyLoggedMeal(session.user.id, parsed.data), {
-    status: 201,
-  });
+  return NextResponse.json(
+    (await copyLoggedMeal(
+      session.user.id,
+      parsed.data,
+    )) satisfies MacrosCopyLogResponse,
+    { status: 201 },
+  );
 }

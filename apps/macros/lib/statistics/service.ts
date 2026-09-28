@@ -1,3 +1,9 @@
+import {
+  type MacrosMealType,
+  type MacrosStatistics,
+  type MacrosStatisticsPeriod,
+  macrosStatisticsPeriods,
+} from "@repo/schemas/macros";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -14,8 +20,8 @@ import {
 import { WHO_DAILY_VALUES } from "@/lib/foods/who-guidelines";
 import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
 
-export const statisticsPeriods = ["7d", "28d", "90d", "1y", "all"] as const;
-export type StatisticsPeriod = (typeof statisticsPeriods)[number];
+export const statisticsPeriods = macrosStatisticsPeriods;
+export type StatisticsPeriod = MacrosStatisticsPeriod;
 
 function subtractDays(date: string, count: number) {
   const value = new Date(`${date}T00:00:00Z`);
@@ -71,7 +77,7 @@ export async function getStatistics(
   userId: string,
   today: string,
   period: StatisticsPeriod,
-) {
+): Promise<MacrosStatistics> {
   const start = startForPeriod(today, period);
   const [
     summaries,
@@ -215,7 +221,10 @@ export async function getStatistics(
     return mean(values);
   };
   let cumulativeEnergyKcal = 0;
-  const mealTotals = new Map<string, { calories: number; entries: number }>();
+  const mealTotals = new Map<
+    MacrosMealType,
+    { calories: number; entries: number }
+  >();
   const hourTotals = new Map<number, { calories: number; entries: number }>();
   for (const entry of entryFacts) {
     const meal = mealTotals.get(entry.mealType) ?? { calories: 0, entries: 0 };
@@ -517,7 +526,7 @@ export async function getStatistics(
   };
 }
 
-export type StatisticsData = Awaited<ReturnType<typeof getStatistics>>;
+export type StatisticsData = MacrosStatistics;
 
 export function statisticsToCsv(data: StatisticsData) {
   const rows = [

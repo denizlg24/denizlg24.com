@@ -1,4 +1,7 @@
-import { macrosHealthImportTokenBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosHealthImportTokenResponse,
+  macrosHealthImportTokenBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { createHealthImportToken } from "@/lib/body/service";
@@ -21,7 +24,7 @@ export async function POST(request: Request) {
         parsed.data.source,
         parsed.data.label,
       ),
-    },
+    } satisfies MacrosHealthImportTokenResponse,
     { status: 201 },
   );
 }

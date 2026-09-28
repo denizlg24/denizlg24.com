@@ -1,3 +1,7 @@
+import type {
+  MacrosCreateFoodResponse,
+  MacrosUserCustomFoodsResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -16,7 +20,7 @@ export async function GET() {
   return NextResponse.json({
     items,
     fetchedAt: new Date().toISOString(),
-  });
+  } satisfies MacrosUserCustomFoodsResponse);
 }
 
 export async function POST(request: Request) {
@@ -46,7 +50,7 @@ export async function POST(request: Request) {
       localFoodId: result.foodId,
       snapshotId: result.snapshotId,
       fetchedAt: new Date().toISOString(),
-    },
+    } satisfies MacrosCreateFoodResponse,
     { status: 201 },
   );
 }

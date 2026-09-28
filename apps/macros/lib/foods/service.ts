@@ -34,6 +34,8 @@ import type {
   UpdateFoodInput,
 } from "@/lib/foods/contracts";
 import { externalFoodNutritionSchema } from "@/lib/foods/contracts";
+import { ownIconsByBarcode } from "@/lib/foods/icons";
+import { hourInTimezone, mealTypeAt } from "@/lib/foods/meal-bucket";
 import {
   type NutrientKey,
   nutrientDefinitionsInput,
@@ -76,29 +78,6 @@ export function toFoodSearchItem(summary: ExternalFoodSummary): FoodSearchItem {
 
 function toIsoDate(date: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
-}
-
-function getHourInTimezone(date: Date, timezone: string) {
-  return Number(
-    new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      hour12: false,
-      timeZone: timezone,
-    }).format(date),
-  );
-}
-
-function inferMealType(hour: number) {
-  if (hour >= 5 && hour < 11) {
-    return "breakfast";
-  }
-  if (hour >= 11 && hour < 16) {
-    return "lunch";
-  }
-  if (hour >= 17 && hour < 22) {
-    return "dinner";
-  }
-  return "snack";
 }
 
 function hourDistance(left: number, right: number) {
@@ -822,7 +801,7 @@ export async function getFoodHistory(
   limit: number,
 ): Promise<FoodHistoryItem[]> {
   const timezone = await getUserTimezone(userId);
-  const referenceHour = atHour ?? getHourInTimezone(new Date(), timezone);
+  const referenceHour = atHour ?? hourInTimezone(new Date(), timezone);
   const rows = await db
     .select({
       localFoodId: foods.id,
@@ -872,10 +851,10 @@ export async function getFoodHistory(
   const orderedRows = [...latestByFood.values()]
     .sort((left, right) => {
       const leftHour = left.eatenAt
-        ? getHourInTimezone(left.eatenAt, timezone)
+        ? hourInTimezone(left.eatenAt, timezone)
         : referenceHour;
       const rightHour = right.eatenAt
-        ? getHourInTimezone(right.eatenAt, timezone)
+        ? hourInTimezone(right.eatenAt, timezone)
         : referenceHour;
       const score = (row: typeof left, hour: number) => {
         const frequency = frequencyByFood.get(row.sourceItemId ?? "") ?? 1;
@@ -916,6 +895,10 @@ export async function getFoodHistory(
     nutrients[row.nutrientKey] = Number(row.amount);
     nutrientsByEntry.set(row.entryId, nutrients);
   }
+  const ownIcons = await ownIconsByBarcode(
+    userId,
+    orderedRows.map((row) => row.barcode),
+  );
 
   return orderedRows.map((row) => {
     const servingsConsumed = Number(row.servingsConsumed);
@@ -927,7 +910,7 @@ export async function getFoodHistory(
       localFoodId: row.localFoodId,
       lastLogEntryId: row.entryId,
       barcode: row.barcode,
-      iconKey: row.iconKey,
+      iconKey: (row.barcode && ownIcons.get(row.barcode)) || row.iconKey,
       name: row.foodName,
       brand: row.brand,
       servingLabel: row.servingLabel,
@@ -1108,8 +1091,7 @@ export async function logExternalFood(
   const timezone = await getUserTimezone(userId);
   const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
   const logDate = input.logDate ?? toIsoDate(eatenAt, timezone);
-  const mealType =
-    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone));
+  const mealType = mealTypeAt(eatenAt, timezone);
   const customFood = await getCustomFoodSnapshot(userId, input.sourceItemId);
   const resolvedFood = customFood
     ? {
@@ -1205,8 +1187,7 @@ export async function logQuickAdd(userId: string, input: LogQuickAddInput) {
   const timezone = await getUserTimezone(userId);
   const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
   const logDate = input.logDate ?? toIsoDate(eatenAt, timezone);
-  const mealType =
-    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone));
+  const mealType = mealTypeAt(eatenAt, timezone);
 
   const macros: Partial<Record<NutrientKey, number>> = {
     calories: input.calories,

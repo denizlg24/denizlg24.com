@@ -1,5 +1,8 @@
+import {
+  type MacrosFoodDetailResponse,
+  macrosBarcodeParamsSchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { getRequiredSession } from "@/lib/api/session";
 import {
@@ -10,7 +13,7 @@ import {
 import { getNutritionFoodByBarcode } from "@/lib/foods/source";
 import { toNutritionSourceErrorResponse } from "../../_lib/source-error-response";
 
-const paramsSchema = z.object({ barcode: z.string().trim().min(1).max(128) });
+const paramsSchema = macrosBarcodeParamsSchema;
 
 export async function GET(
   _request: Request,
@@ -41,7 +44,7 @@ export async function GET(
       snapshotId: customFood.snapshotId,
       createdSnapshot: false,
       fetchedAt: new Date().toISOString(),
-    });
+    } satisfies MacrosFoodDetailResponse);
   }
 
   try {
@@ -55,7 +58,7 @@ export async function GET(
       snapshotId: result.snapshotId,
       createdSnapshot: result.createdSnapshot,
       fetchedAt: new Date().toISOString(),
-    });
+    } satisfies MacrosFoodDetailResponse);
   } catch (error) {
     return toNutritionSourceErrorResponse(error);
   }

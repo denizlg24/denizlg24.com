@@ -1,3 +1,4 @@
+import type { MacrosFoodRevalidateResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -61,5 +62,5 @@ export async function POST(request: Request) {
     items: results,
     failures,
     fetchedAt: new Date().toISOString(),
-  });
+  } satisfies MacrosFoodRevalidateResponse);
 }

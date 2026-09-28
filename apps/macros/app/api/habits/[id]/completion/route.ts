@@ -1,4 +1,7 @@
-import { macrosHabitCompletionBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosHabitCompletionResponse,
+  macrosHabitCompletionBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { setHabitCompletion } from "@/lib/body/service";
@@ -20,6 +23,8 @@ export async function PUT(
   const { id } = await context.params;
   const updated = await setHabitCompletion(session.user.id, id, parsed.data);
   return updated
-    ? NextResponse.json({ updated: true })
+    ? NextResponse.json({
+        updated: true,
+      } satisfies MacrosHabitCompletionResponse)
     : NextResponse.json({ error: "Habit not found" }, { status: 404 });
 }

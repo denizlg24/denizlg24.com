@@ -1,3 +1,4 @@
+import type { MacrosCalorieSummaryResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { getDailyCalorieSummary } from "@/lib/queries/calorie-summary";
@@ -10,5 +11,5 @@ export async function GET() {
   return NextResponse.json({
     calorieSummary,
     fetchedAt: new Date().toISOString(),
-  });
+  } satisfies MacrosCalorieSummaryResponse);
 }

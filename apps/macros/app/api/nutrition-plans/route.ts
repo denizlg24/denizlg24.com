@@ -1,3 +1,7 @@
+import type {
+  MacrosActivePlanResponse,
+  MacrosPlanMutationResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { upsertPlanBodySchema } from "@/lib/plans/contracts";
@@ -7,7 +11,7 @@ export async function GET() {
   const { session, response } = await getRequiredSession();
   if (!session) return response;
   const plan = await getActivePlan(session.user.id);
-  return NextResponse.json({ plan });
+  return NextResponse.json({ plan } satisfies MacrosActivePlanResponse);
 }
 
 export async function POST(request: Request) {
@@ -24,5 +28,7 @@ export async function POST(request: Request) {
   }
 
   const plan = await createPlan(session.user.id, parsed.data);
-  return NextResponse.json({ plan }, { status: 201 });
+  return NextResponse.json({ plan } satisfies MacrosPlanMutationResponse, {
+    status: 201,
+  });
 }

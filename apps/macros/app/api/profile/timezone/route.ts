@@ -1,14 +1,13 @@
+import {
+  type MacrosTimezoneResponse,
+  macrosTimezoneBodySchema,
+} from "@repo/schemas/macros";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/connection";
 import { userProfiles } from "@/db/schema";
 import { auth } from "@/lib/auth";
-
-const timezoneSchema = z.object({
-  timezone: z.string().min(1),
-});
 
 function isValidTimezone(timezone: string) {
   try {
@@ -29,7 +28,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
-  const parsed = timezoneSchema.safeParse(body);
+  const parsed = macrosTimezoneBodySchema.safeParse(body);
 
   if (!parsed.success || !isValidTimezone(parsed.data.timezone)) {
     return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
@@ -42,5 +41,7 @@ export async function PUT(request: Request) {
     .set({ timezone: parsed.data.timezone, updatedAt: now })
     .where(eq(userProfiles.userId, session.user.id));
 
-  return NextResponse.json({ timezone: parsed.data.timezone });
+  return NextResponse.json({
+    timezone: parsed.data.timezone,
+  } satisfies MacrosTimezoneResponse);
 }

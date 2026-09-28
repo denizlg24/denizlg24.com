@@ -1,5 +1,9 @@
+import {
+  type MacrosOkResponse,
+  type MacrosShoppingListItemResponse,
+  macrosShoppingListItemParamsSchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { getRequiredSession } from "@/lib/api/session";
 import { updateShoppingListItemBodySchema } from "@/lib/shopping-list/contracts";
@@ -8,7 +12,7 @@ import {
   updateShoppingListItem,
 } from "@/lib/shopping-list/service";
 
-const paramsSchema = z.object({ id: z.uuid() });
+const paramsSchema = macrosShoppingListItemParamsSchema;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -40,7 +44,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ item, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    item,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosShoppingListItemResponse);
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
@@ -57,5 +64,5 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true } satisfies MacrosOkResponse);
 }

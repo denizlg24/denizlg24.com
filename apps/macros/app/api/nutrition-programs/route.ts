@@ -1,4 +1,8 @@
-import { macrosUpsertProgramBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosProgramsResponse,
+  type MacrosUpsertProgramResponse,
+  macrosUpsertProgramBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import {
@@ -14,7 +18,10 @@ export async function GET() {
     getActiveProgram(session.user.id),
     getTargetHistory(session.user.id),
   ]);
-  return NextResponse.json({ program, issues });
+  return NextResponse.json({
+    program,
+    issues,
+  } satisfies MacrosProgramsResponse);
 }
 
 export async function PUT(request: Request) {
@@ -29,5 +36,5 @@ export async function PUT(request: Request) {
     );
   }
   const result = await upsertProgram(session.user.id, parsed.data);
-  return NextResponse.json(result);
+  return NextResponse.json(result satisfies MacrosUpsertProgramResponse);
 }

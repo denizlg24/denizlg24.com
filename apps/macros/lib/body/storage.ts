@@ -1,9 +1,11 @@
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -99,4 +101,42 @@ export async function inspectBodyPhoto(key: string) {
 export async function deleteBodyPhotoObject(key: string) {
   const bucket = await ensureBucket();
   await getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+// Everything a user uploads lives under this prefix, including uploads that
+// were presigned but never registered, which no database row points at.
+export async function deleteUserObjects(userId: string) {
+  const bucket = await ensureBucket();
+  const client = getClient();
+  let continuationToken: string | undefined;
+
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: `users/${userId}/`,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    const keys = (page.Contents ?? []).flatMap((object) =>
+      object.Key ? [{ Key: object.Key }] : [],
+    );
+    if (keys.length > 0) {
+      const result = await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys, Quiet: true },
+        }),
+      );
+      const failed = result.Errors ?? [];
+      if (failed.length > 0) {
+        throw new Error(
+          `Could not delete ${failed.length} stored object(s) for the account: ${failed[0]?.Code ?? "unknown error"}`,
+        );
+      }
+    }
+    continuationToken = page.IsTruncated
+      ? page.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
 }

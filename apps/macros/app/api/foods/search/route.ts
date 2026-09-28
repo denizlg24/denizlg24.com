@@ -1,7 +1,9 @@
+import type { MacrosFoodSearchResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
 import { foodSearchParamsSchema } from "@/lib/foods/contracts";
+import { ownIconsByBarcode, syncStoredIcons } from "@/lib/foods/icons";
 import {
   getFoodHistory,
   searchUserCustomFoods,
@@ -58,11 +60,32 @@ export async function GET(request: Request) {
         .includes(parsed.data.brand.toLocaleLowerCase());
     return matchesQuery && matchesBrand;
   });
+  // History rows come first, but their icons are stored copies: the source's
+  // answer is the current one, and an icon the user picked beats both.
+  const sourceItems = sourceResult.ok ? sourceResult.items : [];
+  const sourceIcons = new Map(
+    sourceItems.map((summary) => [summary.id, summary.iconKey]),
+  );
+  // Awaited, not deferred: a client that sees a new icon here refetches its
+  // log straight away and must not read the old copy.
+  await syncStoredIcons(sourceItems).catch(() => undefined);
+  const ownIcons = await ownIconsByBarcode(session.user.id, [
+    ...localHistory.map((item) => item.barcode),
+    ...sourceItems.map((summary) => summary.barcode ?? null),
+  ]);
+  const iconFor = (barcode: string | null, fallback: string) =>
+    (barcode && ownIcons.get(barcode)) || fallback;
   const seen = new Set<string>();
   const items = [
-    ...localHistory,
+    ...localHistory.map((item) => ({
+      ...item,
+      iconKey: iconFor(item.barcode, sourceIcons.get(item.id) ?? item.iconKey),
+    })),
     ...userItems,
-    ...(sourceResult.ok ? sourceResult.items.map(toFoodSearchItem) : []),
+    ...sourceItems.map((summary) => {
+      const item = toFoodSearchItem(summary);
+      return { ...item, iconKey: iconFor(item.barcode, item.iconKey) };
+    }),
   ].filter((item) => {
     if (seen.has(item.id)) return false;
     seen.add(item.id);
@@ -76,5 +99,5 @@ export async function GET(request: Request) {
     items: items.slice(0, parsed.data.limit),
     fetchedAt: new Date().toISOString(),
     sourceUnavailable: !sourceResult.ok,
-  });
+  } satisfies MacrosFoodSearchResponse);
 }

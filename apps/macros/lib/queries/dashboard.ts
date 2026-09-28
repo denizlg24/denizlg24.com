@@ -1,3 +1,11 @@
+import type {
+  MacrosCaloriePreference,
+  MacrosDailyMacros,
+  MacrosDashboard,
+  MacrosEnergyBalancePoint,
+  MacrosGoalProgress,
+  MacrosNutritionTargets,
+} from "@repo/schemas/macros";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -8,67 +16,36 @@ import {
   nutritionPlans,
   userProfiles,
   weighIns,
+  weightGoals,
 } from "@/db/schema";
 import { getBodyOverview } from "@/lib/body/service";
 import {
-  type FoodLoggingSummary,
   getFoodLoggingSummary,
   getFullLogThreshold,
 } from "@/lib/food-logging/activity";
-import type { WeightSummary } from "@/lib/weights/contracts";
+import {
+  adherenceRule,
+  summarizeAdherence,
+} from "@/lib/food-logging/adherence";
 import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
 import { getWeightSummary } from "@/lib/weights/queries";
 
-export type DailyMacros = {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-};
+export type DailyMacros = MacrosDailyMacros;
 
-export type NutritionTargets = {
-  calories: number | null;
-  protein: number | null;
-  carbs: number | null;
-  fat: number | null;
-};
+export type NutritionTargets = MacrosNutritionTargets;
 
-export type EnergyBalancePoint = {
-  date: string;
-  consumed: number;
-  tdee: number | null;
-};
+export type EnergyBalancePoint = MacrosEnergyBalancePoint;
 
-export type GoalProgress = {
-  daysTracked: number;
-  daysOnTarget: number;
-  totalDays: number;
-};
+export type GoalProgress = MacrosGoalProgress;
 
 type ActivePlan = {
   targets: NutritionTargets;
   startDate: string | null;
 };
 
-export type CaloriePreference = "consumed" | "remaining";
+export type CaloriePreference = MacrosCaloriePreference;
 
-export type DashboardData = {
-  today: string;
-  timezone: string;
-  caloriePreference: CaloriePreference;
-  consumed: DailyMacros;
-  targets: NutritionTargets;
-  energyBalance: EnergyBalancePoint[];
-  goalProgress: GoalProgress;
-  foodLoggingSummary: FoodLoggingSummary;
-  weightSummary: WeightSummary;
-  habits: Array<{
-    id: string;
-    name: string;
-    targetPerWeek: number;
-    completedDates: string[];
-  }>;
-};
+export type DashboardData = MacrosDashboard;
 
 function toIsoDate(date: Date, timezone: string): string {
   // en-CA gives YYYY-MM-DD format
@@ -322,40 +299,69 @@ async function getEnergyBalance(
   return result;
 }
 
-async function getRecentSummaries(
+/**
+ * Adherence over the plan's closed days. Today is still being logged, so it
+ * would count as a miss until the evening.
+ */
+async function getGoalProgress(
   userId: string,
   today: string,
-  days: number,
-): Promise<Array<{ logDate: string; calories: string }>> {
-  const startDate = subtractDays(today, days - 1);
-  return db.query.dailyNutritionSummaries.findMany({
-    where: and(
-      eq(dailyNutritionSummaries.userId, userId),
-      gte(dailyNutritionSummaries.logDate, startDate),
-      lte(dailyNutritionSummaries.logDate, today),
-    ),
-    columns: { logDate: true, calories: true },
-  });
-}
+  plan: ActivePlan,
+): Promise<GoalProgress> {
+  const target = plan.targets.calories;
+  const yesterday = subtractDays(today, 1);
+  if (
+    plan.startDate == null ||
+    target == null ||
+    target <= 0 ||
+    plan.startDate > yesterday
+  ) {
+    return { daysTracked: 0, daysOnTarget: 0, totalDays: 0, rule: "within" };
+  }
 
-function computeGoalProgress(
-  summaries: Array<{ calories: string }>,
-  targetCalories: number | null,
-  totalDays: number,
-): GoalProgress {
-  const tracked = summaries.filter((s) => Number(s.calories) > 0);
-  const onTarget =
-    targetCalories != null
-      ? tracked.filter(
-          (s) =>
-            Math.abs(Number(s.calories) - targetCalories) / targetCalories <=
-            0.1,
-        )
-      : [];
+  // Full days are judged against the same trailing 60 days the food log
+  // activity uses, so "full" means the same thing on both screens.
+  const thresholdStart = subtractDays(today, 60);
+  const [summaries, goal] = await Promise.all([
+    db.query.dailyNutritionSummaries.findMany({
+      where: and(
+        eq(dailyNutritionSummaries.userId, userId),
+        gte(
+          dailyNutritionSummaries.logDate,
+          plan.startDate < thresholdStart ? plan.startDate : thresholdStart,
+        ),
+        lte(dailyNutritionSummaries.logDate, yesterday),
+      ),
+      columns: { logDate: true, calories: true },
+    }),
+    db.query.weightGoals.findFirst({
+      where: and(
+        eq(weightGoals.userId, userId),
+        eq(weightGoals.status, "active"),
+      ),
+      columns: { goalType: true },
+    }),
+  ]);
+
+  const fullDayThreshold = getFullLogThreshold(
+    summaries
+      .filter((row) => row.logDate >= thresholdStart)
+      .map((row) => Number(row.calories)),
+    target,
+  );
+  const rule = adherenceRule(goal?.goalType ?? null);
+  const startDate = plan.startDate;
   return {
-    daysTracked: tracked.length,
-    daysOnTarget: onTarget.length,
-    totalDays,
+    ...summarizeAdherence(
+      summaries
+        .filter((row) => row.logDate >= startDate)
+        .map((row) => Number(row.calories)),
+      target,
+      fullDayThreshold,
+      rule,
+    ),
+    totalDays: daysBetween(startDate, yesterday),
+    rule,
   };
 }
 
@@ -369,13 +375,13 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
     profile?.caloriePreference ?? "consumed";
   const today = toIsoDate(new Date(), timezone);
 
-  const [consumed, { targets, startDate }, weightSummary, bodyOverview] =
-    await Promise.all([
-      getDailyNutrition(userId, today),
-      getActiveNutritionPlan(userId),
-      getWeightSummary(userId, today),
-      getBodyOverview(userId, today),
-    ]);
+  const [consumed, plan, weightSummary, bodyOverview] = await Promise.all([
+    getDailyNutrition(userId, today),
+    getActiveNutritionPlan(userId),
+    getWeightSummary(userId, today),
+    getBodyOverview(userId, today),
+  ]);
+  const { targets } = plan;
   const foodLoggingSummary = await getFoodLoggingSummary(
     userId,
     today,
@@ -400,26 +406,7 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
           tdee: targets.calories,
         }));
 
-  const planDays = startDate ? daysBetween(startDate, today) : 0;
-
-  const recentSummaryRows =
-    planDays > 0 ? await getRecentSummaries(userId, today, planDays) : [];
-  const recentSummaries = recentSummaryRows.some((row) => row.logDate === today)
-    ? recentSummaryRows.map((row) =>
-        row.logDate === today
-          ? { ...row, calories: consumed.calories.toString() }
-          : row,
-      )
-    : [
-        ...recentSummaryRows,
-        { logDate: today, calories: consumed.calories.toString() },
-      ];
-
-  const goalProgress = computeGoalProgress(
-    recentSummaries,
-    targets.calories,
-    planDays,
-  );
+  const goalProgress = await getGoalProgress(userId, today, plan);
 
   return {
     today,

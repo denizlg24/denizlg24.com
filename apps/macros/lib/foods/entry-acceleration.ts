@@ -1,10 +1,19 @@
 import type {
+  MacrosBulkDeleteEntriesResponse,
   MacrosCopyLogBody,
+  MacrosCopyLogResponse,
   MacrosCreateMealTemplateBody,
+  MacrosFavoriteFood,
   MacrosFavoriteFoodBody,
   MacrosLogMealTemplateBody,
+  MacrosLogMealTemplateResponse,
+  MacrosMealTemplate,
+  MacrosMealTemplateListItem,
   MacrosMoveEntriesBody,
+  MacrosMoveEntriesResponse,
+  MacrosSaveFavoriteResponse,
   MacrosUpdateLogEntryBody,
+  MacrosUpdateLogEntryResponse,
 } from "@repo/schemas/macros";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -23,6 +32,7 @@ import {
   recipes,
   userProfiles,
 } from "@/db/schema";
+import { mealTypeAt } from "./meal-bucket";
 import {
   ensureExternalFoodSnapshot,
   getCustomFoodSnapshot,
@@ -30,6 +40,17 @@ import {
 } from "./service";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function toWireTemplate(
+  template: typeof mealTemplates.$inferSelect,
+): MacrosMealTemplate {
+  return {
+    ...template,
+    archivedAt: template.archivedAt?.toISOString() ?? null,
+    createdAt: template.createdAt.toISOString(),
+    updatedAt: template.updatedAt.toISOString(),
+  };
+}
 
 async function timezoneForUser(userId: string) {
   const profile = await db.query.userProfiles.findFirst({
@@ -39,9 +60,9 @@ async function timezoneForUser(userId: string) {
   return profile?.timezone ?? "UTC";
 }
 
-function todayInTimezone(timezone: string) {
+function dateInTimezone(instant: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
-    new Date(),
+    instant,
   );
 }
 
@@ -67,34 +88,27 @@ function zonedHourAndMinute(eatenAt: Date | null, timezone: string) {
   return { hour: zoned.getHours(), minute: zoned.getMinutes() };
 }
 
-function inferMealType(timezone: string) {
-  const hour = Number(
-    new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      hour12: false,
-      timeZone: timezone,
-    }).format(new Date()),
-  );
-  if (hour >= 5 && hour < 11) return "breakfast" as const;
-  if (hour < 16) return "lunch" as const;
-  if (hour < 22) return "dinner" as const;
-  return "snack" as const;
+/** The same time of day as `eatenAt`, on `logDate`. */
+function sameTimeOn(eatenAt: Date | null, logDate: string, timezone: string) {
+  const { hour, minute } = zonedHourAndMinute(eatenAt, timezone);
+  return retimedEatenAt(logDate, hour, minute, timezone);
 }
 
 async function cloneEntry(
   tx: Transaction,
   source: typeof foodLogEntries.$inferSelect,
   logDate: string,
-  mealType: typeof source.mealType,
+  eatenAt: Date,
+  timezone: string,
 ) {
   const [entry] = await tx
     .insert(foodLogEntries)
     .values({
       userId: source.userId,
       logDate,
-      timezoneAtLog: source.timezoneAtLog,
-      eatenAt: new Date(),
-      mealType,
+      timezoneAtLog: timezone,
+      eatenAt,
+      mealType: mealTypeAt(eatenAt, timezone),
       entryType: source.entryType,
       foodId: source.foodId,
       snapshotId: source.snapshotId,
@@ -126,18 +140,24 @@ async function cloneEntry(
   return entry.id;
 }
 
-export async function copyLoggedMeal(userId: string, input: MacrosCopyLogBody) {
+export async function copyLoggedMeal(
+  userId: string,
+  input: MacrosCopyLogBody,
+): Promise<MacrosCopyLogResponse> {
   const clauses = [
     eq(foodLogEntries.userId, userId),
     eq(foodLogEntries.logDate, input.sourceDate),
   ];
-  if (input.sourceMealType) {
-    clauses.push(eq(foodLogEntries.mealType, input.sourceMealType));
+  if (input.entryIds) {
+    clauses.push(inArray(foodLogEntries.id, input.entryIds));
   }
   const sources = await db.query.foodLogEntries.findMany({
     where: and(...clauses),
     orderBy: [asc(foodLogEntries.eatenAt)],
   });
+  if (input.entryIds && sources.length !== input.entryIds.length)
+    throw new Error("Log entry not found");
+  const timezone = await timezoneForUser(userId);
   return db.transaction(async (tx) => {
     const entryIds: string[] = [];
     for (const source of sources) {
@@ -146,7 +166,8 @@ export async function copyLoggedMeal(userId: string, input: MacrosCopyLogBody) {
           tx,
           source,
           input.targetDate,
-          input.targetMealType ?? source.mealType,
+          sameTimeOn(source.eatenAt, input.targetDate, timezone),
+          timezone,
         ),
       );
     }
@@ -155,7 +176,11 @@ export async function copyLoggedMeal(userId: string, input: MacrosCopyLogBody) {
   });
 }
 
-export async function duplicateLogEntry(userId: string, entryId: string) {
+/** A second copy of an entry at the same instant, so it lands beside it. */
+export async function duplicateLogEntry(
+  userId: string,
+  entryId: string,
+): Promise<string | null> {
   const source = await db.query.foodLogEntries.findFirst({
     where: and(
       eq(foodLogEntries.id, entryId),
@@ -163,8 +188,15 @@ export async function duplicateLogEntry(userId: string, entryId: string) {
     ),
   });
   if (!source) return null;
+  const timezone = await timezoneForUser(userId);
   return db.transaction(async (tx) => {
-    const id = await cloneEntry(tx, source, source.logDate, source.mealType);
+    const id = await cloneEntry(
+      tx,
+      source,
+      source.logDate,
+      source.eatenAt ?? sameTimeOn(null, source.logDate, timezone),
+      timezone,
+    );
     await refreshDailyNutritionSummary(tx, userId, source.logDate);
     return id;
   });
@@ -174,7 +206,7 @@ export async function updateLogEntryServing(
   userId: string,
   entryId: string,
   input: MacrosUpdateLogEntryBody,
-) {
+): Promise<MacrosUpdateLogEntryResponse["entry"] | null> {
   const source = await db.query.foodLogEntries.findFirst({
     where: and(
       eq(foodLogEntries.id, entryId),
@@ -186,6 +218,16 @@ export async function updateLogEntryServing(
   if (!Number.isFinite(previous) || previous <= 0)
     throw new Error("Invalid existing serving");
   const servings = input.servingsConsumed;
+  const logDate = input.logDate ?? source.logDate;
+  const moved = logDate !== source.logDate;
+  const timezone =
+    input.eatenAt !== undefined || moved ? await timezoneForUser(userId) : null;
+  const eatenAt =
+    input.eatenAt !== undefined
+      ? new Date(input.eatenAt)
+      : moved && timezone
+        ? sameTimeOn(source.eatenAt, logDate, timezone)
+        : null;
   return db.transaction(async (tx) => {
     await tx
       .update(foodLogEntries)
@@ -200,23 +242,28 @@ export async function updateLogEntryServing(
               enteredUnit: input.enteredUnit ?? null,
             }),
         ...(input.notes === undefined ? {} : { notes: input.notes || null }),
-        ...(input.eatenAt === undefined
-          ? {}
-          : { eatenAt: new Date(input.eatenAt) }),
+        ...(eatenAt && timezone
+          ? { eatenAt, mealType: mealTypeAt(eatenAt, timezone) }
+          : {}),
+        ...(moved ? { logDate } : {}),
         updatedAt: new Date(),
       })
       .where(
         and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
       );
-    if (servings !== undefined && servings !== previous) {
+    const rescaled = servings !== undefined && servings !== previous;
+    if (rescaled) {
       await tx
         .update(foodLogEntryNutrients)
         .set({
           amount: sql`${foodLogEntryNutrients.amount} * ${servings / previous}`,
         })
         .where(eq(foodLogEntryNutrients.entryId, entryId));
+    }
+    if (rescaled || moved) {
       await refreshDailyNutritionSummary(tx, userId, source.logDate);
     }
+    if (moved) await refreshDailyNutritionSummary(tx, userId, logDate);
     return { id: entryId, servingsConsumed: servings ?? previous };
   });
 }
@@ -224,7 +271,7 @@ export async function updateLogEntryServing(
 export async function moveLogEntries(
   userId: string,
   input: MacrosMoveEntriesBody,
-) {
+): Promise<MacrosMoveEntriesResponse> {
   const entries = await db.query.foodLogEntries.findMany({
     where: and(
       eq(foodLogEntries.userId, userId),
@@ -233,59 +280,45 @@ export async function moveLogEntries(
   });
   if (entries.length !== input.entryIds.length)
     throw new Error("Log entry not found");
-  if (entries.some((entry) => entry.entryType === "quick_add")) {
-    throw new Error("Quick-add entries cannot be saved in a meal template");
-  }
-  // eatenAt is the field the timeline orders and buckets by, so a move that
-  // only rewrote logDate would land the entry on the new day still carrying the
-  // old day's instant - it would sort against entries it no longer sits with.
-  const timezone =
-    input.logDate || input.hour !== undefined
-      ? await timezoneForUser(userId)
-      : null;
+  const timezone = await timezoneForUser(userId);
+  const instant = input.eatenAt ? new Date(input.eatenAt) : null;
   const now = new Date();
 
   return db.transaction(async (tx) => {
-    if (timezone) {
-      for (const entry of entries) {
-        const logDate = input.logDate ?? entry.logDate;
-        const current = zonedHourAndMinute(entry.eatenAt, timezone);
-        const hour = input.hour ?? current.hour;
-        await tx
-          .update(foodLogEntries)
-          .set({
-            logDate,
-            ...(input.mealType ? { mealType: input.mealType } : {}),
-            eatenAt: retimedEatenAt(logDate, hour, current.minute, timezone),
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(foodLogEntries.id, entry.id),
-              eq(foodLogEntries.userId, userId),
-            ),
-          );
-      }
-    } else if (input.mealType) {
+    const dates = new Set(entries.map((entry) => entry.logDate));
+    for (const entry of entries) {
+      const logDate =
+        input.logDate ??
+        (instant ? dateInTimezone(instant, timezone) : entry.logDate);
+      // eatenAt is what the log orders and groups by, so a date move carries
+      // each entry's time of day across rather than keeping the old instant.
+      const eatenAt = instant ?? sameTimeOn(entry.eatenAt, logDate, timezone);
+      dates.add(logDate);
       await tx
         .update(foodLogEntries)
-        .set({ mealType: input.mealType, updatedAt: now })
+        .set({
+          logDate,
+          eatenAt,
+          mealType: mealTypeAt(eatenAt, timezone),
+          updatedAt: now,
+        })
         .where(
           and(
+            eq(foodLogEntries.id, entry.id),
             eq(foodLogEntries.userId, userId),
-            inArray(foodLogEntries.id, input.entryIds),
           ),
         );
     }
-    const dates = new Set(entries.map((entry) => entry.logDate));
-    if (input.logDate) dates.add(input.logDate);
     for (const date of dates)
       await refreshDailyNutritionSummary(tx, userId, date);
     return { moved: entries.length };
   });
 }
 
-export async function bulkDeleteLogEntries(userId: string, entryIds: string[]) {
+export async function bulkDeleteLogEntries(
+  userId: string,
+  entryIds: string[],
+): Promise<MacrosBulkDeleteEntriesResponse> {
   const entries = await db.query.foodLogEntries.findMany({
     where: and(
       eq(foodLogEntries.userId, userId),
@@ -313,7 +346,7 @@ export async function bulkDeleteLogEntries(userId: string, entryIds: string[]) {
 export async function saveFavorite(
   userId: string,
   input: MacrosFavoriteFoodBody,
-) {
+): Promise<MacrosSaveFavoriteResponse> {
   const custom = await getCustomFoodSnapshot(userId, input.sourceItemId);
   const resolved = custom
     ? { foodId: custom.foodId, snapshotId: custom.snapshotId }
@@ -325,21 +358,21 @@ export async function saveFavorite(
       foodId: resolved.foodId,
       snapshotId: resolved.snapshotId,
       defaultServings: input.defaultServings.toFixed(4),
-      defaultMealType: input.defaultMealType,
     })
     .onConflictDoUpdate({
       target: [foodFavorites.userId, foodFavorites.foodId],
       set: {
         snapshotId: resolved.snapshotId,
         defaultServings: input.defaultServings.toFixed(4),
-        defaultMealType: input.defaultMealType,
         updatedAt: new Date(),
       },
     });
   return resolved;
 }
 
-export async function listFavorites(userId: string) {
+export async function listFavorites(
+  userId: string,
+): Promise<MacrosFavoriteFood[]> {
   const rows = await db
     .select({
       foodId: foodFavorites.foodId,
@@ -398,7 +431,7 @@ export async function removeFavorite(userId: string, foodId: string) {
 export async function createMealTemplate(
   userId: string,
   input: MacrosCreateMealTemplateBody,
-) {
+): Promise<MacrosMealTemplate> {
   const entries = await db.query.foodLogEntries.findMany({
     where: and(
       eq(foodLogEntries.userId, userId),
@@ -413,7 +446,6 @@ export async function createMealTemplate(
       .values({
         userId,
         name: input.name,
-        defaultMealType: input.defaultMealType,
       })
       .returning();
     if (!template) throw new Error("Failed to create meal template");
@@ -432,11 +464,13 @@ export async function createMealTemplate(
         servings: entry.servingsConsumed,
       })),
     );
-    return template;
+    return toWireTemplate(template);
   });
 }
 
-export async function listMealTemplates(userId: string) {
+export async function listMealTemplates(
+  userId: string,
+): Promise<MacrosMealTemplateListItem[]> {
   const templates = await db.query.mealTemplates.findMany({
     where: and(
       eq(mealTemplates.userId, userId),
@@ -446,7 +480,7 @@ export async function listMealTemplates(userId: string) {
   });
   const counts = await Promise.all(
     templates.map(async (template) => ({
-      ...template,
+      ...toWireTemplate(template),
       itemCount: (
         await db.query.mealTemplateItems.findMany({
           where: eq(mealTemplateItems.templateId, template.id),
@@ -458,10 +492,49 @@ export async function listMealTemplates(userId: string) {
   return counts;
 }
 
+// A template log inserts all its entries in one transaction, so they share
+// `createdAt` (Postgres `now()` is the transaction's start time). The
+// idempotency key can only sit on one row — it is unique per user — so it
+// goes on the first entry and the rest are found through its timestamp.
+async function replayedTemplateLog(
+  userId: string,
+  clientMutationId: string,
+): Promise<MacrosLogMealTemplateResponse | null> {
+  const stamped = await db.query.foodLogEntries.findFirst({
+    where: and(
+      eq(foodLogEntries.userId, userId),
+      eq(foodLogEntries.clientMutationId, clientMutationId),
+    ),
+    columns: { createdAt: true, logDate: true },
+  });
+  if (!stamped) return null;
+  const entries = await db
+    .select({ id: foodLogEntries.id })
+    .from(foodLogEntries)
+    .where(
+      and(
+        eq(foodLogEntries.userId, userId),
+        eq(foodLogEntries.createdAt, stamped.createdAt),
+      ),
+    );
+  const totals = await db.transaction((tx) =>
+    refreshDailyNutritionSummary(tx, userId, stamped.logDate),
+  );
+  return {
+    entryIds: entries.map((entry) => entry.id),
+    logDate: stamped.logDate,
+    totals,
+  };
+}
+
 export async function logMealTemplate(
   userId: string,
   input: MacrosLogMealTemplateBody,
-) {
+): Promise<MacrosLogMealTemplateResponse> {
+  if (input.clientMutationId) {
+    const replayed = await replayedTemplateLog(userId, input.clientMutationId);
+    if (replayed) return replayed;
+  }
   const template = await db.query.mealTemplates.findFirst({
     where: and(
       eq(mealTemplates.id, input.templateId),
@@ -475,9 +548,9 @@ export async function logMealTemplate(
     orderBy: [asc(mealTemplateItems.position)],
   });
   const timezone = await timezoneForUser(userId);
-  const logDate = input.logDate ?? todayInTimezone(timezone);
-  const mealType =
-    input.mealType ?? template.defaultMealType ?? inferMealType(timezone);
+  const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
+  const logDate = input.logDate ?? dateInTimezone(eatenAt, timezone);
+  const mealType = mealTypeAt(eatenAt, timezone);
 
   return db.transaction(async (tx) => {
     const entryIds: string[] = [];
@@ -506,7 +579,7 @@ export async function logMealTemplate(
           userId,
           logDate,
           timezoneAtLog: timezone,
-          eatenAt: new Date(),
+          eatenAt,
           mealType,
           entryType: item.entryType,
           foodId: item.foodId,
@@ -525,6 +598,8 @@ export async function logMealTemplate(
             recipeSnapshot?.servingLabel ??
             "serving",
           servingsConsumed: item.servings,
+          clientMutationId:
+            entryIds.length === 0 ? input.clientMutationId : undefined,
         })
         .returning({ id: foodLogEntries.id });
       if (!entry) throw new Error("Failed to log meal template");

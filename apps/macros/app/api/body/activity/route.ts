@@ -1,3 +1,4 @@
+import type { MacrosDailyActivityResponse } from "@repo/schemas/macros";
 import { macrosDailyActivityBodySchema } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
@@ -15,7 +16,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    { activity: await upsertDailyActivity(session.user.id, parsed.data) },
+    {
+      activity: await upsertDailyActivity(session.user.id, parsed.data),
+    } satisfies MacrosDailyActivityResponse,
     { status: 201 },
   );
 }

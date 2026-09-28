@@ -1,4 +1,8 @@
-import { macrosUpdateLogEntryBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosDeleteLogEntryResponse,
+  type MacrosUpdateLogEntryResponse,
+  macrosUpdateLogEntryBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -22,7 +26,7 @@ export async function PATCH(
   const { id } = await context.params;
   const entry = await updateLogEntryServing(session.user.id, id, parsed.data);
   return entry
-    ? NextResponse.json({ entry })
+    ? NextResponse.json({ entry } satisfies MacrosUpdateLogEntryResponse)
     : NextResponse.json({ error: "Not found" }, { status: 404 });
 }
 
@@ -38,5 +42,8 @@ export async function DELETE(
   if (!result) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ success: true, logDate: result.logDate });
+  return NextResponse.json({
+    success: true,
+    logDate: result.logDate,
+  } satisfies MacrosDeleteLogEntryResponse);
 }

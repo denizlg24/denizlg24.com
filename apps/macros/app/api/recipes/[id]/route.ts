@@ -1,3 +1,8 @@
+import type {
+  MacrosOkResponse,
+  MacrosRecipeDetailResponse,
+  MacrosUpdateRecipeResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -20,7 +25,10 @@ export async function GET(_request: Request, context: RouteContext) {
 
   try {
     const recipe = await getRecipeDetail(session.user.id, id);
-    return NextResponse.json({ recipe, fetchedAt: new Date().toISOString() });
+    return NextResponse.json({
+      recipe,
+      fetchedAt: new Date().toISOString(),
+    } satisfies MacrosRecipeDetailResponse);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Recipe not found" },
@@ -46,7 +54,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const recipe = await updateRecipe(session.user.id, id, parsed.data);
-    return NextResponse.json({ recipe, fetchedAt: new Date().toISOString() });
+    return NextResponse.json({
+      recipe,
+      fetchedAt: new Date().toISOString(),
+    } satisfies MacrosUpdateRecipeResponse);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Recipe not found" },
@@ -63,7 +74,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
   try {
     await deleteRecipe(session.user.id, id);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true } satisfies MacrosOkResponse);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Recipe not found" },

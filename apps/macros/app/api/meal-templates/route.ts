@@ -1,4 +1,8 @@
-import { macrosCreateMealTemplateBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosCreateMealTemplateResponse,
+  type MacrosMealTemplatesResponse,
+  macrosCreateMealTemplateBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import {
@@ -9,7 +13,9 @@ import {
 export async function GET() {
   const { session, response } = await getRequiredSession();
   if (!session) return response;
-  return NextResponse.json({ items: await listMealTemplates(session.user.id) });
+  return NextResponse.json({
+    items: await listMealTemplates(session.user.id),
+  } satisfies MacrosMealTemplatesResponse);
 }
 
 export async function POST(request: Request) {
@@ -24,7 +30,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    { template: await createMealTemplate(session.user.id, parsed.data) },
+    {
+      template: await createMealTemplate(session.user.id, parsed.data),
+    } satisfies MacrosCreateMealTemplateResponse,
     { status: 201 },
   );
 }

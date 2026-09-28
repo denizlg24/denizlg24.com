@@ -1,7 +1,11 @@
+import {
+  type MacrosCompleteRegistrationBody,
+  type MacrosCompleteRegistrationResponse,
+  macrosCompleteRegistrationBodySchema,
+} from "@repo/schemas/macros";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/connection";
 import {
   nutritionPlanDays,
@@ -12,39 +16,6 @@ import {
   weightGoals,
 } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { planDayInputSchema } from "@/lib/plans/contracts";
-
-const dateSchema = z.iso.date();
-
-const completeRegistrationSchema = z.object({
-  profile: z.object({
-    timezone: z.string().min(1).default("UTC"),
-    birthDate: dateSchema.optional(),
-    ageYears: z.number().int().min(13).max(120).optional(),
-    heightCm: z.number().min(50).max(260).optional(),
-    sex: z.enum(["female", "male", "other", "prefer_not_to_say"]).optional(),
-    activityLevel: z
-      .enum(["sedentary", "light", "moderate", "active", "very_active"])
-      .optional(),
-    weightUnit: z.enum(["kg", "lb"]).default("kg"),
-    energyUnit: z.enum(["kcal", "kj"]).default("kcal"),
-  }),
-  metrics: z.object({
-    measuredAt: z.iso.datetime({ offset: true }).optional(),
-    logDate: dateSchema.optional(),
-    weightKg: z.number().min(20).max(500),
-  }),
-  weightGoal: z.object({
-    goalType: z.enum(["lose", "maintain", "gain"]),
-    targetWeightKg: z.number().min(20).max(500).optional(),
-    targetDate: dateSchema.optional(),
-    weeklyRateKg: z.number().min(0).max(2).optional(),
-  }),
-  nutritionPlan: z.object({
-    name: z.string().min(1).max(120).default("Coached Program"),
-    days: z.array(planDayInputSchema).length(7),
-  }),
-});
 
 function getTodayInTimezone(now: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
@@ -57,7 +28,7 @@ function getBirthDateFromAge(ageYears: number, now: Date) {
 }
 
 function getProfileBirthDate(
-  profile: z.infer<typeof completeRegistrationSchema>["profile"],
+  profile: MacrosCompleteRegistrationBody["profile"],
   now: Date,
 ) {
   if (profile.birthDate) return profile.birthDate;
@@ -92,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
-  const parsed = completeRegistrationSchema.safeParse(body);
+  const parsed = macrosCompleteRegistrationBodySchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -283,5 +254,7 @@ export async function POST(request: Request) {
     }
   });
 
-  return NextResponse.json({ status: "completed" });
+  return NextResponse.json({
+    status: "completed",
+  } satisfies MacrosCompleteRegistrationResponse);
 }

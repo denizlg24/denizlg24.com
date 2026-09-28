@@ -1,4 +1,7 @@
-import { macrosLogMealTemplateBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosLogMealTemplateResponse,
+  macrosLogMealTemplateBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { logMealTemplate } from "@/lib/foods/entry-acceleration";
@@ -15,7 +18,10 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    await logMealTemplate(session.user.id, parsed.data),
+    (await logMealTemplate(
+      session.user.id,
+      parsed.data,
+    )) satisfies MacrosLogMealTemplateResponse,
     { status: 201 },
   );
 }

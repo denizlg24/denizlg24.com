@@ -1,9 +1,11 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
-import { nextCookies } from "better-auth/next-js";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 
 import { db } from "@/db/connection";
 import { schema } from "@/db/schema";
+import { deleteAccountData } from "@/lib/account/delete";
 import {
   createAuthEmail,
   getPublicAppOrigin,
@@ -11,9 +13,13 @@ import {
   sendEmail,
 } from "@/lib/email";
 
-const defaultPostVerificationPath = "/register/complete";
+// Verification links are opened in a browser, usually on the phone, and the
+// app picks up from there. Better Auth appends `?error=` to this path when the
+// token is bad, so the page renders both outcomes.
+const postVerificationPath = "/register/verified";
 const productionOrigin = "https://macros.denizlg24.com";
 const forgeDeploymentOriginPattern = "https://macros-*.denizlg24.com";
+const nativeAppOrigin = "macros://";
 
 function getAuthBaseUrl() {
   return getPublicAppOrigin();
@@ -22,9 +28,12 @@ function getAuthBaseUrl() {
 function getTrustedOrigins() {
   return Array.from(
     new Set(
-      [getAuthBaseUrl(), productionOrigin, forgeDeploymentOriginPattern].filter(
-        (origin): origin is string => Boolean(origin),
-      ),
+      [
+        getAuthBaseUrl(),
+        productionOrigin,
+        forgeDeploymentOriginPattern,
+        nativeAppOrigin,
+      ].filter((origin): origin is string => Boolean(origin)),
     ),
   );
 }
@@ -32,7 +41,7 @@ function getTrustedOrigins() {
 function getEmailVerificationUrl(token: string) {
   const url = new URL("/register/verify-email", getAuthBaseUrl());
   url.searchParams.set("token", token);
-  url.searchParams.set("callbackURL", defaultPostVerificationPath);
+  url.searchParams.set("callbackURL", postVerificationPath);
 
   return url.toString();
 }
@@ -52,6 +61,27 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 90,
     updateAge: 60 * 60 * 24,
+  },
+  user: {
+    deleteUser: {
+      enabled: true,
+      beforeDelete: async (user) => {
+        await deleteAccountData(user.id);
+      },
+    },
+  },
+  hooks: {
+    // Without a password, Better Auth deletes the account for any session
+    // younger than a day. Deleting everything is never that casual.
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/delete-user") return;
+      const password: unknown = ctx.body?.password;
+      if (typeof password !== "string" || password.length === 0) {
+        throw new APIError("BAD_REQUEST", {
+          message: "Enter your password to delete your account.",
+        });
+      }
+    }),
   },
   emailAndPassword: {
     enabled: true,
@@ -92,5 +122,5 @@ export const auth = betterAuth({
       });
     },
   },
-  plugins: [nextCookies()],
+  plugins: [expo()],
 });

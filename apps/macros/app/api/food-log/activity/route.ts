@@ -1,3 +1,4 @@
+import type { MacrosFoodLogActivityResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { getFoodLogActivityOverview } from "@/lib/food-logging/activity";
@@ -7,5 +8,8 @@ export async function GET() {
   if (!session) return response;
 
   const activity = await getFoodLogActivityOverview(session.user.id);
-  return NextResponse.json({ activity, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    activity,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosFoodLogActivityResponse);
 }

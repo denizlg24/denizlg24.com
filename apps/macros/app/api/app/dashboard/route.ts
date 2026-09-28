@@ -1,3 +1,4 @@
+import type { MacrosDashboardResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { getDashboardData } from "@/lib/queries/dashboard";
@@ -7,5 +8,8 @@ export async function GET() {
   if (!session) return response;
 
   const dashboard = await getDashboardData(session.user.id);
-  return NextResponse.json({ dashboard, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    dashboard,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosDashboardResponse);
 }

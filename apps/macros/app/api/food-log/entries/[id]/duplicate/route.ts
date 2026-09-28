@@ -1,3 +1,4 @@
+import type { MacrosDuplicateLogEntryResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRequiredSession } from "@/lib/api/session";
@@ -14,6 +15,8 @@ export async function POST(
     return NextResponse.json({ error: "Invalid entry id" }, { status: 400 });
   const entryId = await duplicateLogEntry(session.user.id, parsed.data);
   return entryId
-    ? NextResponse.json({ entryId }, { status: 201 })
+    ? NextResponse.json({ entryId } satisfies MacrosDuplicateLogEntryResponse, {
+        status: 201,
+      })
     : NextResponse.json({ error: "Entry not found" }, { status: 404 });
 }
