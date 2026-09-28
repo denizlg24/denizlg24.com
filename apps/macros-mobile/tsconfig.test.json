@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "plugins/**/*.test.ts",
+    "expo-env.d.ts",
+    "src/env.d.ts"
+  ],
+  "exclude": ["node_modules", "dist", "ios", "android"]
+}
