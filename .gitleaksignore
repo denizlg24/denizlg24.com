@@ -24,3 +24,4 @@ bb249118c94ac717cff898a49d01aa06c70d9d4b:apps/desktop/src-tauri/tauri.conf.json:
 87fab24b1a2c1f87ef9bdfb5b35c9d850c7892c8:apps/macros/public/food-icons/catalog.json:generic-api-key:1956
 905e2d54a11b0cb1a8d19bf5b4065e77ce9b0c3b:apps/deploy-agent/src/docker.test.ts:generic-api-key:25
 a35651b3cc1ed4103f9d699bf2777926b11ed2e7:infra/compose/.env.pi.example:generic-api-key:51
+8489db5184a557ea259217c6919f24a6504a661a:apps/macros/app/_landing/demo-data.ts:generic-api-key:106

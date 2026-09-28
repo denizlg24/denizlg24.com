@@ -1,5 +1,10 @@
+import {
+  type MacrosDeleteFoodResponse,
+  type MacrosFoodDetailResponse,
+  type MacrosFoodMutationResponse,
+  macrosFoodIdParamsSchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { getRequiredSession } from "@/lib/api/session";
 import { updateFoodBodySchema } from "@/lib/foods/contracts";
@@ -12,7 +17,7 @@ import {
 } from "@/lib/foods/service";
 import { toNutritionSourceErrorResponse } from "../_lib/source-error-response";
 
-const paramsSchema = z.object({ id: z.uuid() });
+const paramsSchema = macrosFoodIdParamsSchema;
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -48,7 +53,7 @@ export async function GET(
         snapshotId: customFood.snapshotId,
         createdSnapshot: false,
         fetchedAt: new Date().toISOString(),
-      });
+      } satisfies MacrosFoodDetailResponse);
     }
 
     const result = await ensureExternalFoodSnapshot(parsed.data.id);
@@ -60,7 +65,7 @@ export async function GET(
       snapshotId: result.snapshotId,
       createdSnapshot: result.createdSnapshot,
       fetchedAt: new Date().toISOString(),
-    });
+    } satisfies MacrosFoodDetailResponse);
   } catch (error) {
     return toNutritionSourceErrorResponse(error);
   }
@@ -113,7 +118,7 @@ export async function PATCH(
     localFoodId: result.foodId,
     snapshotId: result.snapshotId,
     fetchedAt: new Date().toISOString(),
-  });
+  } satisfies MacrosFoodMutationResponse);
 }
 
 export async function DELETE(
@@ -146,5 +151,5 @@ export async function DELETE(
   return NextResponse.json({
     ok: true,
     fetchedAt: new Date().toISOString(),
-  });
+  } satisfies MacrosDeleteFoodResponse);
 }

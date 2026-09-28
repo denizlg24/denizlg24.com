@@ -1,4 +1,7 @@
-import { macrosHabitBodySchema } from "@repo/schemas/macros";
+import {
+  type MacrosHabitResponse,
+  macrosHabitBodySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { createHabit } from "@/lib/body/service";
@@ -15,7 +18,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    { habit: await createHabit(session.user.id, parsed.data) },
+    {
+      habit: await createHabit(session.user.id, parsed.data),
+    } satisfies MacrosHabitResponse,
     { status: 201 },
   );
 }

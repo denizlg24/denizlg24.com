@@ -1,3 +1,7 @@
+import type {
+  MacrosCalendarTotals,
+  MacrosDayCalories,
+} from "@repo/schemas/macros";
 import { and, eq, gte, lte } from "drizzle-orm";
 
 import { db } from "@/db/connection";
@@ -7,18 +11,9 @@ import {
   userProfiles,
 } from "@/db/schema";
 
-export interface CalendarDayTotals {
-  date: string;
-  calories: number;
-}
+export type CalendarDayTotals = MacrosDayCalories;
 
-export interface CalendarTotalsPayload {
-  start: string;
-  end: string;
-  timezone: string;
-  calorieTarget: number | null;
-  days: CalendarDayTotals[];
-}
+export type CalendarTotalsPayload = MacrosCalendarTotals;
 
 export async function getFoodLogCalendarTotals(
   userId: string,

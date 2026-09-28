@@ -1,3 +1,4 @@
+import type { MacrosLogFoodResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -26,5 +27,7 @@ export async function POST(request: Request) {
     parsed.data,
   );
 
-  return NextResponse.json({ entry, totals }, { status: 201 });
+  return NextResponse.json({ entry, totals } satisfies MacrosLogFoodResponse, {
+    status: 201,
+  });
 }

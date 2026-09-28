@@ -1,3 +1,4 @@
+import type { MacrosGoalMutationResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { NotFoundError, reopenGoal } from "@/lib/goals/service";
@@ -13,7 +14,7 @@ export async function POST(
   try {
     const goal = await reopenGoal(session.user.id, id);
     await issueTargetsForGoalChange(session.user.id, goal.id, goal.goalType);
-    return NextResponse.json({ goal });
+    return NextResponse.json({ goal } satisfies MacrosGoalMutationResponse);
   } catch (err) {
     console.error("Error reopening goal:", err);
     const isNotFound = err instanceof NotFoundError;

@@ -1,3 +1,4 @@
+import type { MacrosOkResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { deleteWeighIn } from "@/lib/weights/service";
@@ -15,5 +16,5 @@ export async function DELETE(
     return NextResponse.json({ error: "Weigh-in not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true } satisfies MacrosOkResponse);
 }

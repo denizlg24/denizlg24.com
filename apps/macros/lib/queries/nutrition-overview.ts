@@ -1,3 +1,8 @@
+import type {
+  MacrosNutrientRow,
+  MacrosNutritionOverview,
+  MacrosNutritionOverviewRange,
+} from "@repo/schemas/macros";
 import { and, between, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db/connection";
@@ -21,33 +26,11 @@ import {
 } from "@/lib/foods/who-guidelines";
 import { toIsoDate } from "./food-log-day";
 
-export type OverviewRange = "today" | "yesterday" | "1w" | "1m" | "3m" | "1y";
+export type OverviewRange = MacrosNutritionOverviewRange;
 
-export interface NutrientRow {
-  key: string;
-  label: string;
-  group: string;
-  unit: string;
-  sortOrder: number;
-  consumed: number;
-  target: number | null;
-  upperLimit: number | null;
-}
+export type NutrientRow = MacrosNutrientRow;
 
-export interface NutritionOverviewPayload {
-  range: OverviewRange;
-  startDate: string;
-  endDate: string;
-  daysCount: number;
-  timezone: string;
-  nutrients: NutrientRow[];
-  targets: {
-    calories: number | null;
-    protein: number | null;
-    carbs: number | null;
-    fat: number | null;
-  };
-}
+export type NutritionOverviewPayload = MacrosNutritionOverview;
 
 function rangeBounds(
   range: OverviewRange,

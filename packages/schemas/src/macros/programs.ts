@@ -91,3 +91,23 @@ export type MacrosUpsertProgramBody = z.infer<
 >;
 export type MacrosProgram = z.infer<typeof macrosProgramSchema>;
 export type MacrosTargetIssue = z.infer<typeof macrosTargetIssueSchema>;
+export const macrosProgramsResponseSchema = z.object({
+  program: macrosProgramSchema.nullable(),
+  issues: z.array(macrosTargetIssueSchema),
+});
+export const macrosUpsertProgramResponseSchema = z.object({
+  program: macrosProgramSchema,
+  issue: macrosTargetIssueSchema,
+});
+export const macrosAcceptIssueResponseSchema = z.object({
+  issue: macrosTargetIssueSchema,
+});
+export type MacrosProgramsResponse = z.infer<
+  typeof macrosProgramsResponseSchema
+>;
+export type MacrosUpsertProgramResponse = z.infer<
+  typeof macrosUpsertProgramResponseSchema
+>;
+export type MacrosAcceptIssueResponse = z.infer<
+  typeof macrosAcceptIssueResponseSchema
+>;

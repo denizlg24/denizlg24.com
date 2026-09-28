@@ -1,3 +1,4 @@
+import type { MacrosBodyMeasurementResponse } from "@repo/schemas/macros";
 import { macrosBodyMeasurementBodySchema } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
@@ -15,7 +16,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    { measurement: await upsertBodyMeasurement(session.user.id, parsed.data) },
+    {
+      measurement: await upsertBodyMeasurement(session.user.id, parsed.data),
+    } satisfies MacrosBodyMeasurementResponse,
     { status: 201 },
   );
 }

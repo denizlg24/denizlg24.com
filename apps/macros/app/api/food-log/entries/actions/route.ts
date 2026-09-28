@@ -1,4 +1,6 @@
 import {
+  type MacrosBulkDeleteEntriesResponse,
+  type MacrosMoveEntriesResponse,
   macrosBulkDeleteEntriesBodySchema,
   macrosMoveEntriesBodySchema,
 } from "@repo/schemas/macros";
@@ -20,7 +22,12 @@ export async function PATCH(request: Request) {
       { error: "Invalid move request", issues: parsed.error.issues },
       { status: 400 },
     );
-  return NextResponse.json(await moveLogEntries(session.user.id, parsed.data));
+  return NextResponse.json(
+    (await moveLogEntries(
+      session.user.id,
+      parsed.data,
+    )) satisfies MacrosMoveEntriesResponse,
+  );
 }
 
 export async function DELETE(request: Request) {
@@ -35,6 +42,9 @@ export async function DELETE(request: Request) {
       { status: 400 },
     );
   return NextResponse.json(
-    await bulkDeleteLogEntries(session.user.id, parsed.data.entryIds),
+    (await bulkDeleteLogEntries(
+      session.user.id,
+      parsed.data.entryIds,
+    )) satisfies MacrosBulkDeleteEntriesResponse,
   );
 }

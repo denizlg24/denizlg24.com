@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
+import {
+  macrosBodyPhotoAngleSchema as angleSchema,
+  macrosBodyPhotoCompleteBodySchema as completeSchema,
+  type MacrosBodyPhotoCompleteResponse,
+  type MacrosBodyPhotosResponse,
+  type MacrosBodyPhotoUploadResponse,
+  macrosBodyPhotoUploadBodySchema as uploadSchema,
+} from "@repo/schemas/macros";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/connection";
 import { weighInPhotos, weighIns } from "@/db/schema";
 import { getRequiredSession } from "@/lib/api/session";
@@ -10,20 +17,6 @@ import {
   createBodyPhotoUploadUrl,
   inspectBodyPhoto,
 } from "@/lib/body/storage";
-
-const angleSchema = z.enum(["front", "left", "right", "back", "other"]);
-const uploadSchema = z.object({
-  angle: angleSchema,
-  mimeType: z.literal("image/jpeg"),
-});
-const completeSchema = z.object({
-  storageKey: z.string().min(1),
-  angle: angleSchema,
-  width: z.number().int().positive().max(5000),
-  height: z.number().int().positive().max(5000),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  capturedAt: z.string().datetime().optional(),
-});
 
 export async function GET(request: Request) {
   const { session, response } = await getRequiredSession();
@@ -59,11 +52,12 @@ export async function GET(request: Request) {
   const photos = await Promise.all(
     rows.map(async (row) => ({
       ...row,
+      capturedAt: row.capturedAt?.toISOString() ?? null,
       weightKg: Number(row.weightKg),
       url: await createBodyPhotoDownloadUrl(row.storageKey),
     })),
   );
-  return NextResponse.json({ photos });
+  return NextResponse.json({ photos } satisfies MacrosBodyPhotosResponse);
 }
 
 export async function POST(request: Request) {
@@ -89,7 +83,11 @@ export async function POST(request: Request) {
     storageKey,
     parsed.data.mimeType,
   );
-  return NextResponse.json({ uploadUrl, storageKey, weighInId: latest.id });
+  return NextResponse.json({
+    uploadUrl,
+    storageKey,
+    weighInId: latest.id,
+  } satisfies MacrosBodyPhotoUploadResponse);
 }
 
 export async function PUT(request: Request) {
@@ -139,5 +137,15 @@ export async function PUT(request: Request) {
         : new Date(),
     })
     .returning();
-  return NextResponse.json({ photo }, { status: 201 });
+  if (!photo) throw new Error("Failed to save progress photo");
+  return NextResponse.json(
+    {
+      photo: {
+        ...photo,
+        capturedAt: photo.capturedAt?.toISOString() ?? null,
+        uploadedAt: photo.uploadedAt.toISOString(),
+      },
+    } satisfies MacrosBodyPhotoCompleteResponse,
+    { status: 201 },
+  );
 }

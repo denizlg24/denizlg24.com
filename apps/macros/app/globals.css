@@ -1,209 +1,573 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
-@import "@repo/ui/theme.css";
-@source "../../../packages/ui/src";
+@source "../../../packages/ui/src/button.tsx";
+@source "../../../packages/ui/src/input.tsx";
+@source "../../../packages/ui/src/label.tsx";
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 :root {
-  --app-safe-end: max(env(safe-area-inset-bottom), 1rem);
-  --app-mobile-width: 440px;
-  --kb-inset: 0px;
-  --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: Lora, ui-serif, serif;
-  --font-mono: Fira Code, ui-monospace, monospace;
-  --tracking-normal: -0.01em;
+  color-scheme: light dark;
+
+  --background: #ffffff;
+  --foreground: #0b0b0c;
+  --muted-foreground: #6e6e73;
+  --border: rgb(0 0 0 / 0.1);
+  --ring: #0b0b0c;
+  --destructive: #d70015;
+
+  --macro-calories: #5f9df7;
+  --macro-protein: #ff8468;
+  --macro-carbs: #62bd8b;
+  --macro-fat: #ffd15c;
+  --macro-overflow: #c4834a;
+
+  --ios-bg: #ffffff;
+  --ios-label: #000000;
+  --ios-secondary: rgb(60 60 67 / 0.6);
+  --ios-tertiary: rgb(60 60 67 / 0.3);
+  --ios-separator: rgb(60 60 67 / 0.22);
+  --ios-fill: rgb(120 120 128 / 0.2);
+  --ios-tertiary-fill: rgb(118 118 128 / 0.12);
+  --ios-glass: rgb(255 255 255 / 0.74);
+  --ios-glass-edge: rgb(0 0 0 / 0.08);
+  --ios-segment: #ffffff;
+
+  --phone-edge: linear-gradient(
+    150deg,
+    #d6d6db 0%,
+    #8e8e93 22%,
+    #f2f2f4 48%,
+    #6e6e73 76%,
+    #c7c7cc 100%
+  );
+  --phone-shadow:
+    0 50px 90px -30px rgb(0 0 0 / 0.35), 0 26px 40px -24px rgb(0 0 0 / 0.3);
 }
 
-/* Macros intentionally has a denser, neutral app palette than the shared
-   denizlg24.com theme. It keeps nutrition colours legible and makes cards read
-   as distinct, touchable surfaces in dark mode. */
-.dark {
-  --background: #111111;
-  --foreground: #f7f7f7;
-  --surface: #202020;
-  --card: #202020;
-  --card-foreground: #f7f7f7;
-  --popover: #202020;
-  --popover-foreground: #f7f7f7;
-  --primary: #f7f7f7;
-  --primary-foreground: #111111;
-  --secondary: #2b2b2b;
-  --secondary-foreground: #f7f7f7;
-  --muted: #303030;
-  --muted-foreground: #b8b8b8;
-  --accent: #5f9df7;
-  --accent-foreground: #111111;
-  --border: #383838;
-  --input: #303030;
-  --ring: #f7f7f7;
-  --sidebar: #1d1d1d;
-  --sidebar-foreground: #f7f7f7;
-  --sidebar-primary: #f7f7f7;
-  --sidebar-primary-foreground: #111111;
-  --sidebar-accent: #303030;
-  --sidebar-accent-foreground: #f7f7f7;
-  --sidebar-border: #383838;
-  --sidebar-ring: #f7f7f7;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --foreground: #f5f5f7;
+    --muted-foreground: #a1a1a6;
+    --border: rgb(255 255 255 / 0.14);
+    --ring: #f5f5f7;
+    --destructive: #ff6961;
+
+    --ios-bg: #000000;
+    --ios-label: #ffffff;
+    --ios-secondary: rgb(235 235 245 / 0.6);
+    --ios-tertiary: rgb(235 235 245 / 0.3);
+    --ios-separator: rgb(84 84 88 / 0.65);
+    --ios-fill: rgb(120 120 128 / 0.36);
+    --ios-tertiary-fill: rgb(118 118 128 / 0.24);
+    --ios-glass: rgb(38 38 40 / 0.72);
+    --ios-glass-edge: rgb(255 255 255 / 0.12);
+    --ios-segment: #636366;
+
+    --phone-edge: linear-gradient(
+      150deg,
+      #5a5a5f 0%,
+      #2c2c2e 24%,
+      #8e8e93 48%,
+      #2c2c2e 74%,
+      #48484a 100%
+    );
+    --phone-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.06), 0 40px 90px -40px rgb(95 157 247 / 0.2);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-input: var(--border);
+  --color-primary: var(--foreground);
+  --color-primary-foreground: var(--background);
+  --color-destructive: var(--destructive);
+
+  --color-macro-calories: var(--macro-calories);
+  --color-macro-protein: var(--macro-protein);
+  --color-macro-carbs: var(--macro-carbs);
+  --color-macro-fat: var(--macro-fat);
+  --color-macro-overflow: var(--macro-overflow);
+
+  --color-ios-bg: var(--ios-bg);
+  --color-ios-label: var(--ios-label);
+  --color-ios-secondary: var(--ios-secondary);
+  --color-ios-tertiary: var(--ios-tertiary);
+  --color-ios-separator: var(--ios-separator);
+  --color-ios-fill: var(--ios-fill);
+  --color-ios-tertiary-fill: var(--ios-tertiary-fill);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-rounded:
+    ui-rounded, "SF Pro Rounded", var(--font-nunito), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-ios:
+    -apple-system, BlinkMacSystemFont, var(--font-inter), ui-sans-serif,
+    system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
-  html,
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: 5rem;
+  }
+
   body {
-    height: 100%;
-    overscroll-behavior-y: contain;
+    @apply bg-background font-sans text-foreground antialiased;
+    text-rendering: optimizeLegibility;
   }
-  body {
-    @apply bg-background text-foreground;
-    position: relative;
-    letter-spacing: var(--tracking-normal);
-    -webkit-font-smoothing: antialiased;
+
+  ::selection {
+    background: var(--foreground);
+    color: var(--background);
   }
-  .macros-app-shell {
-    min-height: 100dvh;
-    width: min(100%, var(--app-mobile-width));
-    margin-inline: auto;
-    overflow-x: clip;
-    background: var(--background);
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
   }
-  [data-keyboard="open"] [data-slot="bottom-tab-bar"] {
-    display: none;
-  }
-  [data-slot="keyboard-sheet-content"] > :is(main, form, section),
-  [data-slot="keyboard-sheet-content"] [data-sheet-scroll] {
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-  :is(button, a, [role="button"], [role="tab"], [role="radio"]) {
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    user-select: none;
-  }
-  :is(input, textarea, select) {
-    scroll-margin-block: 5rem;
-  }
-  html.macros-add-food-scroll-lock,
-  html.macros-add-food-scroll-lock body {
-    overflow: hidden;
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 }
 
-/* iOS zooms the viewport when a focused field renders below 16px. Keep every
-   interactive field at the native-app-safe size on touch devices. */
-@media (pointer: coarse), (max-width: 640px) {
-  :is(input, textarea, select),
-  [data-slot="input"] {
-    font-size: 16px;
+@utility font-figure {
+  font-family: var(--font-rounded);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility eyebrow {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* iOS text styles, in points, for the screen recreations. */
+@utility ios-large-title {
+  font-size: 34px;
+  line-height: 41px;
+  font-weight: 700;
+}
+@utility ios-title1 {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+}
+@utility ios-title2 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+}
+@utility ios-title3 {
+  font-size: 20px;
+  line-height: 25px;
+  font-weight: 600;
+}
+@utility ios-headline {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+}
+@utility ios-body {
+  font-size: 17px;
+  line-height: 22px;
+}
+@utility ios-subheadline {
+  font-size: 15px;
+  line-height: 20px;
+}
+@utility ios-footnote {
+  font-size: 13px;
+  line-height: 18px;
+}
+@utility ios-caption1 {
+  font-size: 12px;
+  line-height: 16px;
+}
+@utility ios-caption2 {
+  font-size: 11px;
+  line-height: 13px;
+}
+@utility ios-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+}
+
+/* The phone is laid out at device points (393 × 852 screen) and scaled as a
+   whole, so every recreation is exact and a screenshot can replace it 1:1. */
+.phone {
+  --phone-scale: 0.7;
+  position: relative;
+  flex: none;
+  width: calc(417px * var(--phone-scale));
+  height: calc(876px * var(--phone-scale));
+}
+
+.phone[data-size="hero"] {
+  --phone-scale: 0.7;
+}
+
+.phone[data-size="feature"] {
+  --phone-scale: 0.68;
+}
+
+@media (min-width: 640px) {
+  .phone[data-size="hero"] {
+    --phone-scale: 0.78;
+  }
+  .phone[data-size="feature"] {
+    --phone-scale: 0.72;
   }
 }
 
-@layer utilities {
-  .macros-page-top {
-    padding-top: max(1.5rem, env(safe-area-inset-top));
+@media (min-width: 1024px) {
+  .phone[data-size="hero"] {
+    --phone-scale: 0.82;
   }
-
-  .macros-fixed-inset-x {
-    left: max(0px, calc((100vw - var(--app-mobile-width)) / 2));
-    right: max(0px, calc((100vw - var(--app-mobile-width)) / 2));
-  }
-
-  .macros-fixed-inset {
-    inset-block: 0;
-    left: max(0px, calc((100vw - var(--app-mobile-width)) / 2));
-    right: max(0px, calc((100vw - var(--app-mobile-width)) / 2));
-  }
-
-  .pb-safe-end {
-    padding-bottom: var(--app-safe-end);
-  }
-
-  .mb-safe-end {
-    margin-bottom: var(--app-safe-end);
+  .phone[data-size="feature"] {
+    --phone-scale: 0.76;
   }
 }
 
-/* Nothing in this app uses a floating toast: on a phone one covers the very row
-   the owner just touched. Feedback is the affected surface itself briefly
-   tinting, so "where it happened" needs no words. The two keyframe names are
-   identical on purpose - flashing the same target twice has to change
-   animation-name to replay, and an unchanged one would not. */
-[data-flash] {
-  --macros-flash-tint: color-mix(in oklab, var(--accent) 30%, transparent);
+.phone-body {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 417px;
+  height: 876px;
+  transform: scale(var(--phone-scale));
+  transform-origin: 0 0;
 }
 
-[data-flash-tone="danger"] {
-  --macros-flash-tint: color-mix(in oklab, var(--destructive) 26%, transparent);
+.phone-frame {
+  position: absolute;
+  inset: 0;
+  padding: 3px;
+  border-radius: 68px;
+  background: var(--phone-edge);
+  box-shadow: var(--phone-shadow);
 }
 
-@keyframes macros-flash-a {
+.phone-bezel {
+  height: 100%;
+  padding: 9px;
+  border-radius: 65px;
+  background: #050505;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+
+.phone-screen {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 56px;
+  background: var(--ios-bg);
+  color: var(--ios-label);
+  font-family: var(--font-ios);
+  isolation: isolate;
+}
+
+.phone-island {
+  position: absolute;
+  z-index: 30;
+  top: 11px;
+  left: 50%;
+  width: 124px;
+  height: 36px;
+  translate: -50% 0;
+  border-radius: 18px;
+  background: #000;
+}
+
+.phone-button {
+  position: absolute;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--phone-edge);
+}
+
+.ios-glass {
+  background: var(--ios-glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  backdrop-filter: blur(18px) saturate(1.8);
+  box-shadow:
+    0 0 0 0.5px var(--ios-glass-edge),
+    0 8px 28px rgb(0 0 0 / 0.12);
+}
+
+.ios-tab-lens {
+  transition: translate 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hero-screen {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  scale: 0.985;
+}
+
+.hero-screen[data-active="true"] {
+  opacity: 1;
+  visibility: visible;
+  scale: 1;
+}
+
+.switch-fill {
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+[aria-pressed="true"] > .switch-track > .switch-fill {
+  transform: scaleX(1);
+}
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-screen {
+    transition:
+      opacity 450ms ease,
+      scale 700ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 700ms;
+  }
+
+  .hero-screen[data-active="true"] {
+    transition-delay: 0s;
+  }
+
+  [data-autoplay="true"] [aria-pressed="true"] > .switch-track > .switch-fill {
+    animation: switch-fill var(--slide-duration, 6s) linear both;
+  }
+
+  [data-autoplay="true"][data-visible="false"]
+    [aria-pressed="true"]
+    > .switch-track
+    > .switch-fill {
+    animation-play-state: paused;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .site-header {
+      animation: header-rule linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 48px;
+    }
+
+    .reveal {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+
+  [data-active="true"] .a-ring {
+    animation: a-ring 1.5s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-grow-x {
+    transform-origin: left center;
+    animation: a-grow-x 1s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-grow-y {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: a-grow-y 0.8s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-draw {
+    animation: a-draw 1.8s cubic-bezier(0.65, 0, 0.35, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-wipe {
+    animation: a-wipe 2.2s cubic-bezier(0.45, 0, 0.25, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-fade {
+    animation: a-fade 0.6s ease-out var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-rise {
+    animation: a-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-pop {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: a-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-insert {
+    animation: a-insert 0.6s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-slide-in {
+    animation: a-slide-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-flash {
+    animation: a-flash 1.4s ease-out var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-tick-off {
+    animation: a-tick-off 0.3s ease var(--d, 0s) both;
+  }
+
+  [data-active="true"] .a-tick-on {
+    animation: a-tick-on 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) var(--d, 0s)
+      both;
+  }
+
+  .a-arc {
+    animation: a-arc 1.8s cubic-bezier(0.65, 0, 0.35, 1) var(--d, 0s) both;
+  }
+}
+
+@keyframes switch-fill {
   from {
-    background-color: var(--macros-flash-tint);
+    transform: scaleX(0);
   }
   to {
-    background-color: transparent;
+    transform: scaleX(1);
   }
 }
 
-@keyframes macros-flash-b {
+@keyframes header-rule {
   from {
-    background-color: var(--macros-flash-tint);
+    border-bottom-color: transparent;
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    translate: 0 28px;
+  }
+}
+
+@keyframes a-ring {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+
+@keyframes a-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes a-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes a-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes a-arc {
+  from {
+    stroke-dashoffset: var(--len);
+  }
+}
+
+@keyframes a-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
   }
   to {
-    background-color: transparent;
+    clip-path: inset(0 0 0 0);
   }
 }
 
-[data-flash="a"] {
-  animation: macros-flash-a 900ms ease-out;
-}
-
-[data-flash="b"] {
-  animation: macros-flash-b 900ms ease-out;
-}
-
-@keyframes macros-loader-spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(-360deg);
-  }
-}
-
-.macros-loader-spin {
-  animation: macros-loader-spin 2.4s linear infinite;
-}
-
-@keyframes macros-caret-blink {
-  0%,
-  45% {
-    opacity: 1;
-  }
-  46%,
-  100% {
+@keyframes a-fade {
+  from {
     opacity: 0;
   }
 }
 
-.macros-caret-blink {
-  animation: macros-caret-blink 1s steps(1, end) infinite;
+@keyframes a-rise {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .macros-loader-spin {
-    animation-duration: 8s;
+@keyframes a-pop {
+  from {
+    transform: scale(0);
   }
+}
 
-  /* A colour fade carries no motion, so it stays - only shortened. */
-  [data-flash="a"],
-  [data-flash="b"] {
-    animation-duration: 400ms;
+@keyframes a-insert {
+  from {
+    grid-template-rows: 0fr;
   }
+  to {
+    grid-template-rows: 1fr;
+  }
+}
 
-  .macros-caret-blink {
-    animation: none;
+@keyframes a-slide-in {
+  from {
+    opacity: 0;
+    translate: 48px 0;
+  }
+}
+
+@keyframes a-flash {
+  0%,
+  40% {
+    background-color: var(--ios-fill);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes a-tick-off {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+
+@keyframes a-tick-on {
+  from {
+    opacity: 0;
+    scale: 0.4;
   }
 }

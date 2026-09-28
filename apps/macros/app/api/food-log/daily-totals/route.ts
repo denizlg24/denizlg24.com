@@ -1,3 +1,4 @@
+import type { MacrosDailyNutrientTotalsResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -8,5 +9,7 @@ export async function GET() {
   if (!session) return response;
 
   const totals = await getDailyNutrientTotals(session.user.id);
-  return NextResponse.json({ totals });
+  return NextResponse.json({
+    totals,
+  } satisfies MacrosDailyNutrientTotalsResponse);
 }

@@ -370,7 +370,10 @@ export async function upsertProgram(
   });
 }
 
-export async function acceptPendingIssue(userId: string, issueId: string) {
+export async function acceptPendingIssue(
+  userId: string,
+  issueId: string,
+): Promise<MacrosTargetIssue | null> {
   return db.transaction(async (tx) => {
     const pending = await tx.query.nutritionPlans.findFirst({
       where: and(

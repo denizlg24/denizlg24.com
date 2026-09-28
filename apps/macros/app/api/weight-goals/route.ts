@@ -1,3 +1,8 @@
+import type {
+  MacrosActiveGoalResponse,
+  MacrosGoalHistoryResponse,
+  MacrosGoalMutationResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { upsertGoalBodySchema } from "@/lib/goals/contracts";
@@ -14,10 +19,10 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   if (url.searchParams.get("history") === "true") {
     const history = await listGoalHistory(session.user.id);
-    return NextResponse.json({ history });
+    return NextResponse.json({ history } satisfies MacrosGoalHistoryResponse);
   }
   const goal = await getActiveGoal(session.user.id);
-  return NextResponse.json({ goal });
+  return NextResponse.json({ goal } satisfies MacrosActiveGoalResponse);
 }
 
 export async function POST(request: Request) {
@@ -35,5 +40,7 @@ export async function POST(request: Request) {
 
   const goal = await createGoal(session.user.id, parsed.data);
   await issueTargetsForGoalChange(session.user.id, goal.id, goal.goalType);
-  return NextResponse.json({ goal }, { status: 201 });
+  return NextResponse.json({ goal } satisfies MacrosGoalMutationResponse, {
+    status: 201,
+  });
 }

@@ -1,3 +1,4 @@
+import type { MacrosBodyOverviewResponse } from "@repo/schemas/macros";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db/connection";
@@ -18,5 +19,5 @@ export async function GET() {
       session.user.id,
       toIsoDate(new Date(), profile?.timezone ?? "UTC"),
     ),
-  });
+  } satisfies MacrosBodyOverviewResponse);
 }

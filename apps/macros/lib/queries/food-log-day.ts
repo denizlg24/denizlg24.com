@@ -1,5 +1,9 @@
 import {
+  type MacrosDailyMacros,
   type MacrosEnteredUnit,
+  type MacrosFoodLogDay,
+  type MacrosFoodLogEntry,
+  type MacrosNutritionTargets,
   macrosEnteredUnitSchema,
 } from "@repo/schemas/macros";
 import { and, asc, eq } from "drizzle-orm";
@@ -14,54 +18,15 @@ import {
   recipes,
   userProfiles,
 } from "@/db/schema";
+import { ownIconsByBarcode } from "@/lib/foods/icons";
 
-export interface FoodLogEntry {
-  id: string;
-  logDate: string;
-  eatenAt: string | null;
-  mealType: "breakfast" | "lunch" | "dinner" | "snack";
-  entryType: "food" | "recipe" | "quick_add";
-  foodId: string | null;
-  recipeId: string | null;
-  foodName: string;
-  brand: string | null;
-  iconKey?: string | null;
-  servingLabel: string | null;
-  servingQuantity: number;
-  servingUnit: string;
-  servingsConsumed: number;
-  enteredQuantity: number | null;
-  enteredUnit: MacrosEnteredUnit | null;
-  notes: string | null;
-  nutrients: Record<string, number>;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
+export type FoodLogEntry = MacrosFoodLogEntry;
 
-export interface FoodLogDayMacros {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
+export type FoodLogDayMacros = MacrosDailyMacros;
 
-export interface FoodLogDayTargets {
-  calories: number | null;
-  protein: number | null;
-  carbs: number | null;
-  fat: number | null;
-}
+export type FoodLogDayTargets = MacrosNutritionTargets;
 
-export interface FoodLogDayPayload {
-  date: string;
-  timezone: string;
-  entries: FoodLogEntry[];
-  totals: FoodLogDayMacros;
-  targets: FoodLogDayTargets;
-  note: string | null;
-}
+export type FoodLogDayPayload = MacrosFoodLogDay;
 
 function toEnteredUnit(value: string | null): MacrosEnteredUnit | null {
   const parsed = macrosEnteredUnitSchema.safeParse(value);
@@ -95,6 +60,7 @@ export async function getFoodLogDay(
         foodName: foodLogEntries.foodName,
         brand: foodLogEntries.brand,
         iconKey: foods.iconKey,
+        barcode: foods.barcode,
         recipeIconKey: recipes.iconKey,
         servingLabel: foodLogEntries.servingLabel,
         servingQuantity: foodLogEntries.servingQuantity,
@@ -159,6 +125,10 @@ export async function getFoodLogDay(
     }),
   ]);
 
+  const ownIcons = await ownIconsByBarcode(
+    userId,
+    entryRows.map((row) => row.barcode),
+  );
   const nutrientByEntry = new Map<string, Record<string, number>>();
   for (const row of nutrientRows) {
     const bucket = nutrientByEntry.get(row.entryId) ?? {};
@@ -178,7 +148,9 @@ export async function getFoodLogDay(
       recipeId: row.recipeId,
       foodName: row.foodName,
       brand: row.brand,
-      iconKey: row.iconKey ?? row.recipeIconKey,
+      iconKey:
+        (row.barcode && ownIcons.get(row.barcode)) ||
+        (row.iconKey ?? row.recipeIconKey),
       servingLabel: row.servingLabel,
       servingQuantity: Number(row.servingQuantity),
       servingUnit: row.servingUnit,

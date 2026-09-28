@@ -1,3 +1,4 @@
+import type { MacrosGoalMutationResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { upsertGoalBodySchema } from "@/lib/goals/contracts";
@@ -19,5 +20,5 @@ export async function PATCH(request: Request) {
 
   const goal = await updateActiveGoal(session.user.id, parsed.data);
   await issueTargetsForGoalChange(session.user.id, goal.id, goal.goalType);
-  return NextResponse.json({ goal });
+  return NextResponse.json({ goal } satisfies MacrosGoalMutationResponse);
 }

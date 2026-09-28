@@ -1,3 +1,8 @@
+import type {
+  MacrosShoppingListClearResponse,
+  MacrosShoppingListItemResponse,
+  MacrosShoppingListResponse,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
@@ -13,7 +18,10 @@ export async function GET() {
   if (!session) return response;
 
   const items = await getShoppingList(session.user.id);
-  return NextResponse.json({ items, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    items,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosShoppingListResponse);
 }
 
 export async function POST(request: Request) {
@@ -32,7 +40,10 @@ export async function POST(request: Request) {
 
   const item = await createShoppingListItem(session.user.id, parsed.data);
   return NextResponse.json(
-    { item, fetchedAt: new Date().toISOString() },
+    {
+      item,
+      fetchedAt: new Date().toISOString(),
+    } satisfies MacrosShoppingListItemResponse,
     { status: 201 },
   );
 }
@@ -42,5 +53,7 @@ export async function DELETE() {
   if (!session) return response;
 
   const cleared = await clearCheckedShoppingListItems(session.user.id);
-  return NextResponse.json({ cleared });
+  return NextResponse.json({
+    cleared,
+  } satisfies MacrosShoppingListClearResponse);
 }

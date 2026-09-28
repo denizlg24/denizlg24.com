@@ -1,5 +1,8 @@
+import {
+  type MacrosNutritionOverview,
+  macrosNutritionOverviewQuerySchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { getRequiredSession } from "@/lib/api/session";
 import {
@@ -7,17 +10,12 @@ import {
   type OverviewRange,
 } from "@/lib/queries/nutrition-overview";
 
-const querySchema = z.object({
-  range: z.enum(["today", "yesterday", "1w", "1m", "3m", "1y"]).optional(),
-  date: z.iso.date().optional(),
-});
-
 export async function GET(request: Request) {
   const { session, response } = await getRequiredSession();
   if (!session) return response;
 
   const url = new URL(request.url);
-  const parsed = querySchema.safeParse({
+  const parsed = macrosNutritionOverviewQuerySchema.safeParse({
     range: url.searchParams.get("range") ?? undefined,
     date: url.searchParams.get("date") ?? undefined,
   });
@@ -35,5 +33,5 @@ export async function GET(request: Request) {
     range,
     parsed.data.date,
   );
-  return NextResponse.json(payload);
+  return NextResponse.json(payload satisfies MacrosNutritionOverview);
 }

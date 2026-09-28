@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import type { MacrosFoodHistoryResponse } from "@repo/schemas/macros";
+import { after, NextResponse } from "next/server";
 
 import { getRequiredSession } from "@/lib/api/session";
 import { foodHistoryQuerySchema } from "@/lib/foods/contracts";
+import { refreshStaleIcons } from "@/lib/foods/icons";
 import { getFoodHistory } from "@/lib/foods/service";
 
 export async function GET(request: Request) {
@@ -30,5 +32,14 @@ export async function GET(request: Request) {
     parsed.data.limit,
   );
 
-  return NextResponse.json({ items, fetchedAt: new Date().toISOString() });
+  after(() =>
+    refreshStaleIcons(items.map((item) => item.localFoodId)).catch(
+      () => undefined,
+    ),
+  );
+
+  return NextResponse.json({
+    items,
+    fetchedAt: new Date().toISOString(),
+  } satisfies MacrosFoodHistoryResponse);
 }

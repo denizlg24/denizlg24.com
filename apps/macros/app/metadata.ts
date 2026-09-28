@@ -1,63 +1,73 @@
 import type { Metadata } from "next";
+import { getPublicAppOrigin } from "@/lib/email";
 
 const appName = "Macros";
-const defaultDescription =
-  "A mobile-first nutrition tracker for food logs, recipes, micronutrients, weight trends, and energy expenditure.";
-const appleTouchIconSizes = [
-  57, 60, 72, 76, 114, 120, 144, 152, 167, 180, 1024,
-];
+
+/** A segment that sets its own `openGraph` loses the root image file's tags. */
+const shareImage = {
+  url: "/opengraph-image",
+  width: 1200,
+  height: 630,
+  alt: "Macros — nutrition tracking for iPhone.",
+};
+
+const siteDescription =
+  "A nutrition tracker for iPhone. Log food in a few taps, follow a weight trend instead of daily noise, and get targets set from what you actually burn.";
 
 export function pageMetadata(
   title: string,
-  description = defaultDescription,
+  description = siteDescription,
+  path?: string,
 ): Metadata {
   return {
     title,
     description,
-    appleWebApp: {
-      capable: true,
-      statusBarStyle: "default",
-      title: appName,
-    },
-    applicationName: appName,
-    formatDetection: {
-      telephone: false,
-    },
+    ...(path ? { alternates: { canonical: path } } : {}),
     openGraph: {
       title,
       description,
       siteName: appName,
       type: "website",
+      images: [shareImage],
+      ...(path ? { url: path } : {}),
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [shareImage],
     },
   };
 }
 
 export const rootMetadata: Metadata = {
-  ...pageMetadata(appName),
+  metadataBase: new URL(getPublicAppOrigin()),
   title: {
-    default: appName,
-    template: `%s | ${appName}`,
+    default: "Macros — nutrition tracking for iPhone",
+    template: `%s · ${appName}`,
+  },
+  description: siteDescription,
+  applicationName: appName,
+  formatDetection: {
+    telephone: false,
+    email: false,
+    address: false,
+  },
+  openGraph: {
+    title: "Macros — nutrition tracking for iPhone",
+    description: siteDescription,
+    siteName: appName,
+    type: "website",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Macros — nutrition tracking for iPhone",
+    description: siteDescription,
   },
   icons: {
-    icon: "/favicon.ico",
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-      ...appleTouchIconSizes.map((size) => ({
-        url: `/apple-touch-icon-${size}x${size}.png`,
-        sizes: `${size}x${size}`,
-        type: "image/png",
-      })),
-      ...appleTouchIconSizes.map((size) => ({
-        url: `/apple-touch-icon-transparent-${size}x${size}.png`,
-        sizes: `${size}x${size}`,
-        type: "image/png",
-      })),
     ],
   },
-  manifest: "/manifest.webmanifest",
 };

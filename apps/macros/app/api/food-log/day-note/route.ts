@@ -1,21 +1,19 @@
+import {
+  type MacrosDayNoteResponse,
+  macrosDayNoteBodySchema,
+} from "@repo/schemas/macros";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { db } from "@/db/connection";
 import { foodLogDayNotes } from "@/db/schema";
 import { getRequiredSession } from "@/lib/api/session";
 
-const dayNoteBodySchema = z.object({
-  logDate: z.iso.date(),
-  note: z.string().max(2000),
-});
-
 export async function PUT(request: Request) {
   const { session, response } = await getRequiredSession();
   if (!session) return response;
 
-  const parsed = dayNoteBodySchema.safeParse(
+  const parsed = macrosDayNoteBodySchema.safeParse(
     await request.json().catch(() => null),
   );
   if (!parsed.success) {
@@ -38,7 +36,7 @@ export async function PUT(request: Request) {
           eq(foodLogDayNotes.logDate, logDate),
         ),
       );
-    return NextResponse.json({ note: null });
+    return NextResponse.json({ note: null } satisfies MacrosDayNoteResponse);
   }
 
   await db
@@ -49,5 +47,5 @@ export async function PUT(request: Request) {
       set: { note: trimmed, updatedAt: new Date() },
     });
 
-  return NextResponse.json({ note: trimmed });
+  return NextResponse.json({ note: trimmed } satisfies MacrosDayNoteResponse);
 }

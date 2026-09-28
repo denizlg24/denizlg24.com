@@ -10,6 +10,7 @@ import {
   recipes,
   userProfiles,
 } from "@/db/schema";
+import { mealTypeAt } from "@/lib/foods/meal-bucket";
 import type { NutrientKey } from "@/lib/foods/nutrients";
 import {
   ensureExternalFoodSnapshot,
@@ -33,23 +34,6 @@ function toNumericString(value: number) {
 
 function toIsoDate(date: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
-}
-
-function getHourInTimezone(date: Date, timezone: string) {
-  return Number(
-    new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      hour12: false,
-      timeZone: timezone,
-    }).format(date),
-  );
-}
-
-function inferMealType(hour: number) {
-  if (hour >= 5 && hour < 11) return "breakfast";
-  if (hour >= 11 && hour < 16) return "lunch";
-  if (hour >= 17 && hour < 22) return "dinner";
-  return "snack";
 }
 
 async function getUserTimezone(userId: string) {
@@ -466,8 +450,7 @@ export async function logRecipe(userId: string, input: LogRecipeInput) {
   const timezone = await getUserTimezone(userId);
   const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
   const logDate = input.logDate ?? toIsoDate(eatenAt, timezone);
-  const mealType =
-    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone));
+  const mealType = mealTypeAt(eatenAt, timezone);
 
   const recipe = await db.query.recipes.findFirst({
     where: and(

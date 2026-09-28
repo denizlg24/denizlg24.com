@@ -1,4 +1,7 @@
 import {
+  type MacrosVisionClassifyResponse,
+  type MacrosVisionLabelFormat,
+  type MacrosVisionLabelResponse,
   macrosVisionClassifyResponseSchema,
   macrosVisionLabelResponseSchema,
 } from "@repo/schemas/macros";
@@ -26,7 +29,7 @@ export class VisionServiceError extends Error {
 async function requestVision(
   path: "/v1/label" | "/v1/classify",
   image: Blob,
-  labelFormat?: "eu" | "us",
+  labelFormat?: MacrosVisionLabelFormat,
 ) {
   const baseUrl = process.env.MACROS_VISION_URL?.replace(/\/$/, "");
   const token = process.env.MACROS_VISION_API_TOKEN;
@@ -86,14 +89,16 @@ async function requestVision(
 
 export async function parseNutritionLabel(
   image: Blob,
-  labelFormat?: "eu" | "us",
-) {
+  labelFormat?: MacrosVisionLabelFormat,
+): Promise<MacrosVisionLabelResponse> {
   return macrosVisionLabelResponseSchema.parse(
     await requestVision("/v1/label", image, labelFormat),
   );
 }
 
-export async function classifyFoodPhoto(image: Blob) {
+export async function classifyFoodPhoto(
+  image: Blob,
+): Promise<MacrosVisionClassifyResponse> {
   return macrosVisionClassifyResponseSchema.parse(
     await requestVision("/v1/classify", image),
   );

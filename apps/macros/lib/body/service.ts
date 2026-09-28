@@ -1,11 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
 import type {
   MacrosBodyMeasurementBody,
+  MacrosBodyMeasurementRow,
+  MacrosBodyOverview,
   MacrosDailyActivityBody,
+  MacrosDailyActivityRow,
+  MacrosHabit,
   MacrosHabitBody,
   MacrosHabitCompletionBody,
   MacrosHealthImportBody,
+  MacrosHealthImportSource,
+  MacrosHealthImportToken,
   MacrosHydrationBody,
+  MacrosHydrationRow,
 } from "@repo/schemas/macros";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
@@ -29,7 +36,50 @@ function daysAgo(isoDate: string, amount: number) {
   return date.toISOString().slice(0, 10);
 }
 
-export async function getBodyOverview(userId: string, today: string) {
+function toMeasurementRow(
+  row: typeof bodyMeasurements.$inferSelect,
+): MacrosBodyMeasurementRow {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toActivityRow(
+  row: typeof dailyActivity.$inferSelect,
+): MacrosDailyActivityRow {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toHydrationRow(
+  row: typeof hydrationLogs.$inferSelect,
+): MacrosHydrationRow {
+  return {
+    ...row,
+    loggedAt: row.loggedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toHabit(row: typeof habitDefinitions.$inferSelect): MacrosHabit {
+  return {
+    ...row,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function getBodyOverview(
+  userId: string,
+  today: string,
+): Promise<MacrosBodyOverview> {
   const since = daysAgo(today, 89);
   const [measurements, activity, hydration, habits, completions] =
     await Promise.all([
@@ -81,11 +131,11 @@ export async function getBodyOverview(userId: string, today: string) {
   return {
     today,
     measurements: measurements.map((item) => ({
-      ...item,
+      ...toMeasurementRow(item),
       value: Number(item.value),
     })),
     activity: activity.map((item) => ({
-      ...item,
+      ...toActivityRow(item),
       activeEnergyKcal:
         item.activeEnergyKcal == null ? null : Number(item.activeEnergyKcal),
     })),
@@ -94,7 +144,7 @@ export async function getBodyOverview(userId: string, today: string) {
       volumeMl: Math.round(volumeMl),
     })),
     habits: habits.map((habit) => ({
-      ...habit,
+      ...toHabit(habit),
       completedDates: completions
         .filter((item) => item.habitId === habit.id)
         .map((item) => item.logDate),
@@ -105,7 +155,7 @@ export async function getBodyOverview(userId: string, today: string) {
 export async function upsertBodyMeasurement(
   userId: string,
   input: MacrosBodyMeasurementBody,
-) {
+): Promise<MacrosBodyMeasurementRow> {
   const [row] = await db
     .insert(bodyMeasurements)
     .values({ ...input, userId, value: input.value.toFixed(3) })
@@ -122,13 +172,14 @@ export async function upsertBodyMeasurement(
       },
     })
     .returning();
-  return row;
+  if (!row) throw new Error("Failed to save body measurement");
+  return toMeasurementRow(row);
 }
 
 export async function upsertDailyActivity(
   userId: string,
   input: MacrosDailyActivityBody,
-) {
+): Promise<MacrosDailyActivityRow> {
   const [row] = await db
     .insert(dailyActivity)
     .values({
@@ -151,23 +202,32 @@ export async function upsertDailyActivity(
       },
     })
     .returning();
-  return row;
+  if (!row) throw new Error("Failed to save daily activity");
+  return toActivityRow(row);
 }
 
-export async function addHydration(userId: string, input: MacrosHydrationBody) {
+export async function addHydration(
+  userId: string,
+  input: MacrosHydrationBody,
+): Promise<MacrosHydrationRow> {
   const [row] = await db
     .insert(hydrationLogs)
     .values({ ...input, userId, volume: input.volume.toFixed(2) })
     .returning();
-  return row;
+  if (!row) throw new Error("Failed to save hydration");
+  return toHydrationRow(row);
 }
 
-export async function createHabit(userId: string, input: MacrosHabitBody) {
+export async function createHabit(
+  userId: string,
+  input: MacrosHabitBody,
+): Promise<MacrosHabit> {
   const [row] = await db
     .insert(habitDefinitions)
     .values({ ...input, userId })
     .returning();
-  return row;
+  if (!row) throw new Error("Failed to create habit");
+  return toHabit(row);
 }
 
 export async function setHabitCompletion(
@@ -208,9 +268,9 @@ function tokenHash(token: string) {
 
 export async function createHealthImportToken(
   userId: string,
-  source: "apple_shortcuts" | "health_connect" | "file" | "vendor",
+  source: MacrosHealthImportSource,
   label: string,
-) {
+): Promise<MacrosHealthImportToken> {
   const token = randomBytes(32).toString("base64url");
   const [record] = await db
     .insert(healthImportTokens)
@@ -219,6 +279,7 @@ export async function createHealthImportToken(
       id: healthImportTokens.id,
       source: healthImportTokens.source,
     });
+  if (!record) throw new Error("Failed to create health import token");
   return { ...record, token };
 }
 

@@ -1,3 +1,4 @@
+import type { MacrosVisionClassifyResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { classifyFoodPhoto, VisionServiceError } from "@/lib/vision-client";
@@ -12,7 +13,9 @@ export async function POST(request: Request) {
   if (!(image instanceof Blob))
     return NextResponse.json({ error: "Image is required" }, { status: 400 });
   try {
-    return NextResponse.json(await classifyFoodPhoto(image));
+    return NextResponse.json(
+      (await classifyFoodPhoto(image)) satisfies MacrosVisionClassifyResponse,
+    );
   } catch (error) {
     if (error instanceof VisionServiceError)
       return NextResponse.json(

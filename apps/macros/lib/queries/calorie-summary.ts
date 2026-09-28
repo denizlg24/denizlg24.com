@@ -1,3 +1,7 @@
+import type {
+  MacrosCaloriePreference,
+  MacrosDailyCalorieSummary,
+} from "@repo/schemas/macros";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -8,18 +12,9 @@ import {
   userProfiles,
 } from "@/db/schema";
 
-export type CaloriePreference = "consumed" | "remaining";
+export type CaloriePreference = MacrosCaloriePreference;
 
-export type DailyCalorieSummary = {
-  today: string;
-  timezone: string;
-  consumed: number;
-  target: number | null;
-  preference: CaloriePreference;
-  proteinTarget: number | null;
-  carbsTarget: number | null;
-  fatTarget: number | null;
-};
+export type DailyCalorieSummary = MacrosDailyCalorieSummary;
 
 function toIsoDate(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);

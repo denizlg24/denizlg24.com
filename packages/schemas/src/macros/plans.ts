@@ -48,3 +48,15 @@ export type MacrosPlanGoalType = z.infer<typeof macrosGoalTypeSchema>;
 export type MacrosUpsertPlanBody = z.infer<typeof macrosUpsertPlanBodySchema>;
 export type MacrosPlanDay = z.infer<typeof macrosPlanDaySchema>;
 export type MacrosPlanDetail = z.infer<typeof macrosPlanDetailSchema>;
+export const macrosActivePlanResponseSchema = z.object({
+  plan: macrosPlanDetailSchema.nullable(),
+});
+export const macrosPlanMutationResponseSchema = z.object({
+  plan: macrosPlanDetailSchema,
+});
+export type MacrosActivePlanResponse = z.infer<
+  typeof macrosActivePlanResponseSchema
+>;
+export type MacrosPlanMutationResponse = z.infer<
+  typeof macrosPlanMutationResponseSchema
+>;

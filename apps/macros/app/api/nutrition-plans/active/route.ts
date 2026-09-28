@@ -1,3 +1,4 @@
+import type { MacrosPlanMutationResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { upsertPlanBodySchema } from "@/lib/plans/contracts";
@@ -17,5 +18,5 @@ export async function PATCH(request: Request) {
   }
 
   const plan = await updateActivePlan(session.user.id, parsed.data);
-  return NextResponse.json({ plan });
+  return NextResponse.json({ plan } satisfies MacrosPlanMutationResponse);
 }

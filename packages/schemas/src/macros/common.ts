@@ -19,3 +19,44 @@ export const macrosMealTypeSchema = z.enum([
   "dinner",
   "snack",
 ]);
+
+export const macrosEntryTypeSchema = z.enum(["food", "recipe", "quick_add"]);
+
+export const macrosCaloriePreferenceSchema = z.enum(["consumed", "remaining"]);
+
+export const macrosNutrientAmountsSchema = z.record(z.string(), z.number());
+
+export const macrosDailyMacrosSchema = z.object({
+  calories: z.number(),
+  protein: z.number(),
+  carbs: z.number(),
+  fat: z.number(),
+});
+
+export const macrosNutritionTargetsSchema = z.object({
+  calories: z.number().nullable(),
+  protein: z.number().nullable(),
+  carbs: z.number().nullable(),
+  fat: z.number().nullable(),
+});
+
+export const macrosApiErrorSchema = z.object({
+  error: z.string(),
+  issues: z.array(z.unknown()).optional(),
+});
+
+export const macrosOkResponseSchema = z.object({ ok: z.literal(true) });
+
+export type MacrosIsoDate = z.infer<typeof macrosIsoDateSchema>;
+export type MacrosMealType = z.infer<typeof macrosMealTypeSchema>;
+export type MacrosEntryType = z.infer<typeof macrosEntryTypeSchema>;
+export type MacrosCaloriePreference = z.infer<
+  typeof macrosCaloriePreferenceSchema
+>;
+export type MacrosNutrientAmounts = z.infer<typeof macrosNutrientAmountsSchema>;
+export type MacrosDailyMacros = z.infer<typeof macrosDailyMacrosSchema>;
+export type MacrosNutritionTargets = z.infer<
+  typeof macrosNutritionTargetsSchema
+>;
+export type MacrosApiError = z.infer<typeof macrosApiErrorSchema>;
+export type MacrosOkResponse = z.infer<typeof macrosOkResponseSchema>;

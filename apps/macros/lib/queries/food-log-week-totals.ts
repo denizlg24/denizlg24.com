@@ -1,3 +1,4 @@
+import type { MacrosDayCalories, MacrosWeekTotals } from "@repo/schemas/macros";
 import { and, eq, gte, lte } from "drizzle-orm";
 
 import { db } from "@/db/connection";
@@ -7,18 +8,9 @@ import {
   userProfiles,
 } from "@/db/schema";
 
-export interface WeekDayTotals {
-  date: string;
-  calories: number;
-}
+export type WeekDayTotals = MacrosDayCalories;
 
-export interface WeekTotalsPayload {
-  start: string;
-  end: string;
-  timezone: string;
-  calorieTarget: number | null;
-  days: WeekDayTotals[];
-}
+export type WeekTotalsPayload = MacrosWeekTotals;
 
 export async function getFoodLogWeekTotals(
   userId: string,

@@ -1,3 +1,4 @@
+import type { MacrosStrategyResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { getActiveGoal, listGoalHistory } from "@/lib/goals/service";
@@ -13,5 +14,9 @@ export async function GET() {
     listGoalHistory(session.user.id),
   ]);
 
-  return NextResponse.json({ plan, goal, history });
+  return NextResponse.json({
+    plan,
+    goal,
+    history,
+  } satisfies MacrosStrategyResponse);
 }

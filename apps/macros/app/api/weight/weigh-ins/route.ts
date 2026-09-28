@@ -1,3 +1,4 @@
+import type { MacrosWeighInResponse } from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { upsertWeighInBodySchema } from "@/lib/weights/contracts";
@@ -18,5 +19,7 @@ export async function POST(request: Request) {
   }
 
   const entry = await upsertWeighIn(session.user.id, parsed.data);
-  return NextResponse.json({ entry }, { status: 201 });
+  return NextResponse.json({ entry } satisfies MacrosWeighInResponse, {
+    status: 201,
+  });
 }

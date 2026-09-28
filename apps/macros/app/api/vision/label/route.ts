@@ -1,3 +1,7 @@
+import {
+  type MacrosVisionLabelResponse,
+  macrosVisionLabelFormatSchema,
+} from "@repo/schemas/macros";
 import { NextResponse } from "next/server";
 import { getRequiredSession } from "@/lib/api/session";
 import { parseNutritionLabel, VisionServiceError } from "@/lib/vision-client";
@@ -11,15 +15,18 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const image = form.get("image");
   const requestedFormat = form.get("labelFormat");
-  const labelFormat =
-    requestedFormat === "eu" || requestedFormat === "us"
-      ? requestedFormat
-      : undefined;
+  const parsedFormat = macrosVisionLabelFormatSchema.safeParse(requestedFormat);
+  const labelFormat = parsedFormat.success ? parsedFormat.data : undefined;
   if (!(image instanceof Blob)) {
     return NextResponse.json({ error: "Image is required" }, { status: 400 });
   }
   try {
-    return NextResponse.json(await parseNutritionLabel(image, labelFormat));
+    return NextResponse.json(
+      (await parseNutritionLabel(
+        image,
+        labelFormat,
+      )) satisfies MacrosVisionLabelResponse,
+    );
   } catch (error) {
     if (error instanceof VisionServiceError) {
       return NextResponse.json(

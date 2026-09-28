@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Macros is a **MOBILE FIRST** MacroFactor-style nutrition tracker for food logs, micronutrients, recipes, weight trends, energy expenditure estimates, and multi-angle weigh-in photo metadata.
+Macros is a MacroFactor-style nutrition tracker for food logs, micronutrients, recipes, weight trends, energy expenditure estimates, and multi-angle weigh-in photo metadata.
+
+This app is the **backend** for the iOS client (`apps/macros-mobile`) plus a public marketing site. There is no web app and no web sign-in: `/`, `/terms`, `/privacy` are marketing, `/register/*` are the pages auth emails open (verify, reset password), `/ios/source.json` proxies the SideStore source, and everything else is `/api/*`. `/app/*` redirects to `/` for old home-screen installs. The app is not public: the site says "coming soon" and carries no install steps, `/ios` redirects to that section, and only the owner installs through SideStore (so `source.json` must keep working).
 
 ## Stack
 
@@ -13,7 +15,7 @@ Macros is a **MOBILE FIRST** MacroFactor-style nutrition tracker for food logs, 
 - Drizzle ORM and drizzle-kit
 - Better Auth v1.6.x with the Drizzle adapter
 - Resend for auth emails
-- shadcn/ui and Tailwind CSS
+- Tailwind CSS and `@repo/ui` for the marketing and `/register/*` pages (no component library of its own)
 
 ## Nutrition API Source
 
@@ -54,6 +56,8 @@ create extension if not exists pgcrypto;
 - Do not commit `.env`.
 - Do not store photo bytes in PostgreSQL.
 - Do not mutate historical nutrient snapshots.
+- The food log is time-based. `food_log_entries.mealType` is only a bucket derived from `eatenAt` in the user's timezone (`lib/foods/meal-bucket.ts`), recomputed on every write that sets `eatenAt`; no request schema accepts a meal. Copies keep their source's time of day on the target date, duplicates keep the original's instant.
+- Account deletion is Better Auth's `/delete-user` (password required by a `hooks.before` in `lib/auth.ts`) with `beforeDelete` = `deleteAccountData` in `lib/account/delete.ts`. It clears the user's objects under `users/<id>/` in storage, then every row that points at the user's own data with `RESTRICT`, so the user-row cascade can run in one statement. Postgres checks `RESTRICT` row by row in cascade order, so a new `RESTRICT` reference between user-owned rows breaks deletion unless it is cleared there too; without the pre-step, any user with a recipe could not delete their account.
 - Keep object storage credentials and upload transport out of this scaffold unless explicitly requested.
 - **Never** use unsafe typecasts such as `as unknown as T` or `as any` if there are type erros it usually means the code is wrong or drizzle hasn't been generated.
 - When committing to the repository **always** use the format `type(scope): message` in imperative form, e.g. `feat(auth): add OTP login`. Allowed types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`, `style`, `revert`. Scope is required and kebab-case. Subject is lowercase, no trailing period, max 100 chars. Longer messages go in the body after a blank line, each line starting with `- `. Enforced by commitlint via the `commit-msg` husky hook. If you are an AI model, append a footer line `Assisted by "model name" & authored by "author name"`.
