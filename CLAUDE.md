@@ -81,6 +81,14 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   app still on **Vercel** (project `denizlg24-status`, scope `oceaninformatix`;
   env in `.env.status`, not `.env.example`). Its own Mongo on Atlas. See
   [Status page](#status-page).
+- `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client;
+  `apps/macros` is now just the API, the marketing site and the auth-email
+  landing pages (`/register/*`). Not deployed by Forge: distributed through
+  SideStore. See
+  [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
+- `packages/macros-core/` — pure Macros domain logic (nutrients, serving
+  display, wizard maths, weight trend, expenditure) shared by the web app and
+  the iOS app. Wire contracts are `@repo/schemas/macros`.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/` — shared client pieces for the cloud apps.
 - `packages/cloud-auth-client/` — cloud auth clients, the post-login redirect
@@ -104,6 +112,53 @@ Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=we
 - Before archiving `denizlg24/envoy`, publish one final release there containing
   a build with the new update endpoint. Older installed binaries only poll that
   repository and otherwise cannot discover the monorepo release feed.
+
+### Macros for iPhone (apps/macros-mobile)
+
+Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
+
+- **Released by version bump, installed through SideStore.**
+  `release-macros-ios.yml` builds an unsigned IPA on `macos-26` for every PR
+  touching the app, and publishes `macros-ios-v<version>` when `version` in
+  `apps/macros-mobile/package.json` changes on `main`, then regenerates
+  `source.json` on the rolling `macros-ios-source` release. People add
+  `https://macros.denizlg24.com/ios/source.json`, which `apps/macros` proxies.
+  SideStore detects updates by `version` alone, so a republished version with
+  new bytes is refused by the workflow.
+- **No entitlements, ever, without a plan.** SideStore signs with the user's
+  own Apple ID, usually a free one, which cannot grant push, App Groups,
+  HealthKit, iCloud or associated domains. The workflow fails the build if the
+  IPA asks for any. The source must also never carry `marketplaceID` or
+  `buildVersion`: SideStore reads either as an AltStore PAL source and
+  refuses to add it.
+- **Macros releases are never "latest".** The Envoy CLI's updater reads this
+  repository's releases.
+- **React is 19.2.7 here, Expo SDK 57 pins 19.2.3.** The root `overrides` win;
+  React Native 0.86's renderer has no React version check, so this runs, but
+  `expo install --check` / `expo-doctor` will flag it. Do not "fix" it by
+  downgrading the root override — every Next app shares it.
+- **The Expo auth client rewrites relative callback URLs into `macros://`
+  deep links.** Auth callbacks the app sends are absolute web URLs
+  (`/register/verified`, `/register/reset-password`). The server ignores the
+  verification callback anyway: every verification email lands on
+  `/register/verified`, which also renders Better Auth's `?error=` outcome.
+- **`bun run dev:macros:ios` talks to a local API.** It builds and runs the app
+  in the simulator (`expo run:ios`) against `http://<en0>:3000`, so run
+  `bun run dev:macros` beside it — whose `.env.macros` is the production DB.
+  Expo Go works only against `next dev` at all: `@better-auth/expo` trusts its
+  `exp://` origin only under `NODE_ENV=development`.
+- **The iOS project is generated, never committed** (`expo prebuild`; `ios/` is
+  gitignored). Native configuration belongs in `app.config.ts` and config
+  plugins, which live in `apps/macros-mobile/plugins/` as CommonJS — Expo
+  compiles `app.config.ts` but `require`s local plugins as plain JavaScript.
+  After changing either, `bun run prebuild` (it runs `--clean`).
+- **The iOS 27 SDK refuses to launch an app without the UIScene life cycle**,
+  and Expo 57's prebuild template (57.0.27) still starts React Native from the
+  app delegate. `plugins/with-scene-lifecycle.js` moves it onto Expo's own
+  `ExpoAppSceneDelegate` and adds `UIApplicationSceneManifest`. It throws at
+  prebuild if the template changes shape — that is the signal to delete it.
+  Without it the simulator build dies at launch and so does every IPA the
+  `latest-stable` Xcode on CI produces.
 
 ## The self-hosted cloud (apps/api, apps/cloud, apps/forge, apps/storage, apps/terminal)
 
