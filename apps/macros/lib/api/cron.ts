@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-function timingSafeEqualText(left: string, right: string): boolean {
+export function timingSafeEqualText(left: string, right: string): boolean {
   const leftHash = createHash("sha256").update(left, "utf8").digest();
   const rightHash = createHash("sha256").update(right, "utf8").digest();
 

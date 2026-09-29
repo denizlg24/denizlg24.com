@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { router } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,8 +10,8 @@ import {
   latestLogInstant,
   pinnedAt,
 } from "@/lib/log-time";
-import { Button, colors, gutter, spacing } from "@/ui";
-import { SheetHeader } from "../today/sheet-header";
+import { Button, colors, SheetHeader, sheetGutter, spacing } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { hubTime, useHubTime } from "./hub-time";
 import { useZone } from "./target";
 
@@ -74,7 +73,7 @@ export function WhenSheet() {
 const styles = StyleSheet.create({
   container: {
     gap: spacing.lg,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     backgroundColor: colors.background,
   },

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   useAcceptIssue,
+  useCheckIn,
   useNutritionProgram,
   useStrategy,
 } from "@/api/strategy";
@@ -34,6 +35,7 @@ import {
   Text,
   VStack,
 } from "@/ui";
+import { toolbarText } from "@/ui/toolbar";
 import {
   checkInWeekdayNames,
   confidenceRadius,
@@ -63,12 +65,14 @@ export function StrategyScreen() {
   const { energyUnit, weightUnit, today } = useUnits();
   const programQuery = useNutritionProgram();
   const strategy = useStrategy();
+  const program = programQuery.data?.program ?? null;
+  const checkIn = useCheckIn({ enabled: program != null });
   const { refreshing, onRefresh } = useRefresh([
     programQuery.refetch,
     strategy.refetch,
+    checkIn.refetch,
   ]);
 
-  const program = programQuery.data?.program ?? null;
   const issues = programQuery.data?.issues ?? [];
   const active = issues.find((issue) => issue.status === "active") ?? null;
   const pending =
@@ -76,6 +80,7 @@ export function StrategyScreen() {
   const plan = strategy.data?.plan ?? null;
   const goal = strategy.data?.goal ?? null;
   const openEditor = () => router.push(progressPaths.program);
+  const openCheckIn = () => router.push(progressPaths.checkIn);
 
   const error = programQuery.error ?? strategy.error;
   const loading = programQuery.isPending;
@@ -84,7 +89,10 @@ export function StrategyScreen() {
     <>
       {program ? (
         <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button onPress={openEditor}>Edit</Stack.Toolbar.Button>
+          {toolbarText({
+            onPress: openEditor,
+            children: "Edit",
+          })}
         </Stack.Toolbar>
       ) : null}
       <Screen onRefresh={onRefresh} refreshing={refreshing}>
@@ -112,6 +120,14 @@ export function StrategyScreen() {
             </EmptyState>
           ) : (
             <>
+              <CheckInCall
+                due={checkIn.data?.due ?? false}
+                scheduledOn={checkIn.data?.scheduledOn ?? null}
+                nextOn={checkIn.data?.nextOn ?? null}
+                today={today}
+                onPress={openCheckIn}
+              />
+
               {pending ? (
                 <PendingIssue
                   issue={pending}
@@ -151,6 +167,45 @@ export function StrategyScreen() {
         </VStack>
       </Screen>
     </>
+  );
+}
+
+function CheckInCall({
+  due,
+  scheduledOn,
+  nextOn,
+  today,
+  onPress,
+}: {
+  due: boolean;
+  scheduledOn: string | null;
+  nextOn: string | null;
+  today: string;
+  onPress: () => void;
+}) {
+  const when = due
+    ? scheduledOn === today
+      ? "Due today"
+      : scheduledOn
+        ? `Due since ${formatIsoDate(scheduledOn)}`
+        : null
+    : nextOn
+      ? `Next check-in ${formatIsoDate(nextOn)}`
+      : null;
+  return (
+    <View style={styles.checkIn}>
+      <Button
+        label={due ? "Check in" : "Check in early"}
+        variant={due ? "filled" : "tinted"}
+        icon="target"
+        onPress={onPress}
+      />
+      {when ? (
+        <Text variant="footnote" tone="secondary" style={styles.checkInWhen}>
+          {when}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -205,7 +260,10 @@ function PendingIssue({
           label="Accept new targets"
           loading={accept.isPending}
           onPress={() =>
-            accept.mutate(issue.id, { onSuccess: () => haptics.success() })
+            accept.mutate(issue.id, {
+              onSuccess: () => haptics.success(),
+              onError: () => haptics.error(),
+            })
           }
         />
       </View>
@@ -344,7 +402,7 @@ function ProgramSummary({
   return (
     <Section
       title="Program"
-      footer="Macros estimates what you burn from your logs and weigh-ins. On check-in day it sets next week’s targets from that estimate and your goal."
+      footer="Macros estimates what you burn from your logs and weigh-ins. Each check-in turns that estimate and your goal into next week’s targets."
     >
       {rows.map((row, index) => (
         <Row
@@ -421,6 +479,12 @@ function expenditureSentence(
 }
 
 const styles = StyleSheet.create({
+  checkIn: {
+    gap: spacing.sm,
+  },
+  checkInWhen: {
+    textAlign: "center",
+  },
   spinner: {
     paddingVertical: spacing.xxxl,
   },

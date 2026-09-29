@@ -144,6 +144,7 @@ export function CalendarScreen() {
   }
 
   async function refresh() {
+    haptics.light();
     setRefreshing(true);
     try {
       await totals.refetch();

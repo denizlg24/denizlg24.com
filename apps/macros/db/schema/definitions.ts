@@ -148,6 +148,14 @@ export const healthImportSourceEnum = pgEnum("health_import_source", [
   "file",
   "vendor",
 ]);
+export const pushEnvironmentEnum = pgEnum("push_environment", [
+  "sandbox",
+  "production",
+]);
+export const distributionRequestStatusEnum = pgEnum(
+  "distribution_request_status",
+  ["pending", "approved", "declined"],
+);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -1131,6 +1139,87 @@ export const healthImportTokens = pgTable(
 );
 
 /**
+ * An APNs device token. A token belongs to whoever registered it last: a
+ * phone that signs into another account moves its row rather than notifying
+ * both. `disabledAt` is set when APNs answers 410 (the app was removed).
+ */
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    environment: pushEnvironmentEnum("environment").notNull(),
+    bundleId: text("bundleId").notNull(),
+    lastSeenAt: timestamp("lastSeenAt", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    disabledAt: timestamp("disabledAt", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [index("push_devices_user_idx").on(table.userId)],
+);
+
+/**
+ * Server-sent notifications only. On-device reminders (log food, weigh in)
+ * are scheduled locally and their settings never leave the phone. The
+ * `last*` columns make each cron send idempotent within its window.
+ */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    userId: text("userId")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    weeklySummary: boolean("weeklySummary").notNull().default(true),
+    streakNudge: boolean("streakNudge").notNull().default(true),
+    streakNudgeHour: integer("streakNudgeHour").notNull().default(20),
+    lastWeeklySummaryOn: date("lastWeeklySummaryOn"),
+    lastStreakNudgeOn: date("lastStreakNudgeOn"),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "notification_preferences_hour_range",
+      sql`${table.streakNudgeHour} between 0 and 23`,
+    ),
+  ],
+);
+
+/**
+ * A request for an ad-hoc build, made from the public site before the
+ * requester has an account, so it is keyed by device rather than by user.
+ * `registeredAt` is when the UDID reached the Apple developer account;
+ * `installableAt` is when a signed build containing it was published.
+ */
+export const distributionRequests = pgTable(
+  "distribution_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    udid: text("udid").notNull(),
+    note: text("note"),
+    status: distributionRequestStatusEnum("status")
+      .notNull()
+      .default("pending"),
+    appleDeviceId: text("appleDeviceId"),
+    decidedAt: timestamp("decidedAt", { withTimezone: true }),
+    registeredAt: timestamp("registeredAt", { withTimezone: true }),
+    installableAt: timestamp("installableAt", { withTimezone: true }),
+    notifiedAt: timestamp("notifiedAt", { withTimezone: true }),
+    lastError: text("lastError"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("distribution_requests_udid_unique").on(table.udid),
+    index("distribution_requests_status_idx").on(table.status, table.createdAt),
+  ],
+);
+
+/**
  * One flat, always-on shopping list rather than one per day: the owner shops
  * from a running list, so "daily" is how often it is read, not how it is keyed.
  * A row either names a catalogue food (foodId set, so it keeps that food's
@@ -1515,6 +1604,9 @@ export const schema = {
   habitCompletions,
   healthImportTokens,
   shoppingListItems,
+  pushDevices,
+  notificationPreferences,
+  distributionRequests,
   userRelations,
   sessionRelations,
   accountRelations,

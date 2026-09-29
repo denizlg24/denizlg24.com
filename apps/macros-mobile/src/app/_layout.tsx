@@ -8,7 +8,12 @@ import {
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { ActivityIndicator, useColorScheme, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  useColorScheme,
+  View,
+} from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useProfile } from "@/api/profile";
 import { ConnectionProblem } from "@/features/shell/connection-problem";
@@ -19,6 +24,7 @@ import { QueryProviders } from "@/lib/providers";
 import { wireReactQueryToNative } from "@/lib/query-client";
 import { forgetSessionLocally } from "@/lib/session";
 import { colors } from "@/ui";
+import { AndroidDialogHost } from "@/ui/android-dialogs";
 
 void SplashScreen.preventAutoHideAsync();
 wireReactQueryToNative();
@@ -37,8 +43,15 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
         <QueryProviders userId={userId}>
-          <RootNavigator userId={userId} sessionPending={session.isPending} />
+          <RootNavigator
+            // Android resolves a colour resource once, when a view is made, so
+            // a dark mode switch redraws the tree to pick up the other palette.
+            key={Platform.OS === "android" ? (scheme ?? "light") : undefined}
+            userId={userId}
+            sessionPending={session.isPending}
+          />
         </QueryProviders>
+        {Platform.OS === "android" ? <AndroidDialogHost /> : null}
         <StatusBar style="auto" />
       </ThemeProvider>
     </GestureHandlerRootView>

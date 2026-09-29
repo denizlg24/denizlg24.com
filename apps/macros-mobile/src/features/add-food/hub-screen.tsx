@@ -13,6 +13,7 @@ import {
 } from "@/lib/log-time";
 import { gutter, InlineNotice, Screen, spacing, useResolvedColors } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
+import { toolbarText, useBottomToolbarInset } from "@/ui/toolbar";
 import { CaloriePill } from "./components/calorie-pill";
 import { type HubTab, HubTabs, isHubTab } from "./components/hub-tabs";
 import type { QuickHandlers } from "./components/quick-section";
@@ -41,6 +42,7 @@ export function HubScreen() {
   const paramTime = readParam(params.time);
   const zone = useZone();
   const resolved = useResolvedColors();
+  const toolbarInset = useBottomToolbarInset();
 
   // Opened from a day or an hour of the Log tab it starts there; opened
   // plainly it starts at now, whatever was picked the last time.
@@ -75,11 +77,16 @@ export function HubScreen() {
 
   const handlers: QuickHandlers = {
     stage: (quick) => {
-      haptics.success();
+      haptics.light();
       addToPlate(quickPlateItem(quick, placement()));
     },
     logNow: (quick) =>
-      log(quickRequest(quick, placement()), quick.row.name, quick.row.key),
+      log(
+        quickRequest(quick, placement()),
+        quick.row.name,
+        quick.row.key,
+        quick.macros,
+      ),
     open: (quick) => router.push(quickHref(quick, whenParams)),
   };
 
@@ -114,12 +121,11 @@ export function HubScreen() {
           accessibilityLabel="Close"
           onPress={() => router.back()}
         />
-        <Stack.Toolbar.Button
-          accessibilityLabel="When these foods were eaten"
-          onPress={() => router.push("/add-food/when")}
-        >
-          {hubTimeLabel(when, zone.timeZone, zone.today, now)}
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          accessibilityLabel: "When these foods were eaten",
+          onPress: () => router.push("/add-food/when"),
+          children: hubTimeLabel(when, zone.timeZone, zone.today, now),
+        })}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
@@ -134,21 +140,24 @@ export function HubScreen() {
       </Stack.Toolbar>
       <Stack.Toolbar placement="bottom">
         <Stack.Toolbar.SearchBarSlot />
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={resolved.label}
-          style={{ color: resolved.background, fontWeight: "600" }}
-          disabled={plate.length === 0 || committing}
-          onPress={() => void commit(plate)}
-        >
-          {plate.length > 0 ? `Log Foods (${plate.length})` : "Log Foods"}
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "prominent",
+          tintColor: resolved.label,
+          style: { color: resolved.background, fontWeight: "600" },
+          disabled: plate.length === 0 || committing,
+          onPress: () => void commit(plate),
+          children:
+            plate.length > 0 ? `Log Foods (${plate.length})` : "Log Foods",
+        })}
       </Stack.Toolbar>
 
       <Screen
         bleed
         stickyHeaderIndices={[0]}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          toolbarInset > 0 && { paddingBottom: toolbarInset },
+        ]}
       >
         <HubTabs
           value={tab}

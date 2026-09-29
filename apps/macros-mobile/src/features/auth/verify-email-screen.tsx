@@ -1,6 +1,7 @@
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { AppState } from "react-native";
+import { DEVICE_NAME } from "@/lib/config";
 import { haptics } from "@/lib/haptics";
 import {
   Button,
@@ -132,8 +133,8 @@ export function VerifyEmailScreen() {
           {email}
         </Text>
         <Text variant="subheadline" tone="secondary">
-          Open it on this iPhone and Macros signs you in. Can’t find it? Check
-          your spam folder.
+          Open it on this {DEVICE_NAME} and Macros signs you in. Can’t find it?
+          Check your spam folder.
         </Text>
       </VStack>
 

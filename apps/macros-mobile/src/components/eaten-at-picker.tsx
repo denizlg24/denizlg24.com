@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useCurrentMinute } from "@/lib/day";
 import { haptics } from "@/lib/haptics";
@@ -10,6 +9,7 @@ import {
   pinnedAt,
 } from "@/lib/log-time";
 import { spacing, Text } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 
 export interface EatenAtPickerProps {
   value: LogTime;

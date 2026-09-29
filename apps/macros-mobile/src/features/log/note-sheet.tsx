@@ -7,7 +7,14 @@ import { errorMessage } from "@/lib/api";
 import { deviceTimeZone, useToday } from "@/lib/day";
 import { formatDayLabel, formatInteger } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
-import { colors, gutter, InlineNotice, spacing, Text, typeScale } from "@/ui";
+import {
+  colors,
+  InlineNotice,
+  sheetGutter,
+  spacing,
+  Text,
+  typeScale,
+} from "@/ui";
 import { noteFlashKey } from "./day-note-row";
 import { flashEntries } from "./flash";
 import { isIsoDate } from "./selected-date";
@@ -123,14 +130,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   notice: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
   },
   loading: {
     paddingVertical: spacing.xxxl,
   },
   editor: {
     flex: 1,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.lg,
     gap: spacing.sm,
   },

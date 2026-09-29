@@ -7,8 +7,8 @@ import { haptics } from "@/lib/haptics";
 import { clearSignedInDevice } from "@/lib/session";
 import {
   Button,
-  gutter,
   InlineNotice,
+  sheetGutter,
   spacing,
   Text,
   TextField,
@@ -91,7 +91,7 @@ export function DeleteAccountSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

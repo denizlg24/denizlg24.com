@@ -92,7 +92,7 @@ function SpeakDocumentButton({
           .trim();
         if (text) {
           if (number !== from) onPageChange(number);
-          yield text;
+          yield `${text}\n\n`;
         }
       }
     }

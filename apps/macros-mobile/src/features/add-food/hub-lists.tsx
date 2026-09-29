@@ -277,7 +277,10 @@ export function ShopBody({ query }: { query: string }) {
                 item={item}
                 onToggle={() => {
                   haptics.selection();
-                  update.mutate({ id: item.id, checked: !item.checked });
+                  update.mutate(
+                    { id: item.id, checked: !item.checked },
+                    { onError: () => haptics.error() },
+                  );
                 }}
               />
             ))}

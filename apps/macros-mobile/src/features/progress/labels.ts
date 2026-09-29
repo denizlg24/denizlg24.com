@@ -39,12 +39,8 @@ export const programModeOptions: ReadonlyArray<{
   {
     value: "coached",
     label: "Coached",
-    description: "Targets update on their own at each check-in.",
-  },
-  {
-    value: "collaborative",
-    label: "Collaborative",
-    description: "Each check-in proposes new targets for you to accept.",
+    description:
+      "Each check-in proposes calories from what you burn and your goal.",
   },
   {
     value: "manual",

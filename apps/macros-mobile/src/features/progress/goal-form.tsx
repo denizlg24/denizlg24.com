@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import type { MacrosActiveGoal, MacrosGoalType } from "@repo/schemas/macros";
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -36,6 +35,8 @@ import {
   TextField,
   VStack,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
+import { toolbarText } from "@/ui/toolbar";
 import { Segmented } from "./controls";
 import { goalTypeOptions } from "./labels";
 import { ScrollScreen } from "./scroll-screen";
@@ -69,9 +70,10 @@ export function GoalFormScreen() {
     return (
       <>
         <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button onPress={() => router.back()}>
-            Cancel
-          </Stack.Toolbar.Button>
+          {toolbarText({
+            onPress: () => router.back(),
+            children: "Cancel",
+          })}
         </Stack.Toolbar>
         <ActivityIndicator style={styles.spinner} />
       </>
@@ -224,18 +226,18 @@ function GoalForm({
         }}
       />
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>
-          Cancel
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          onPress: () => router.back(),
+          children: "Cancel",
+        })}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="done"
-          disabled={saving}
-          onPress={saveOnce}
-        >
-          Save
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "done",
+          disabled: saving,
+          onPress: saveOnce,
+          children: "Save",
+        })}
       </Stack.Toolbar>
       <ScrollScreen ref={scrollRef}>
         <VStack>

@@ -1,5 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
-import { Slider } from "@expo/ui/community/slider";
 import { Image } from "expo-image";
 import {
   launchCameraAsync,
@@ -26,6 +24,8 @@ import { useProfile } from "@/api/profile";
 import { formatShortDate, formatWeight } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { Button, colors, EmptyState, Section, spacing, Text } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
+import { Slider } from "@/ui/slider";
 import { confirmDestructive, showActionSheet } from "../shared/action-sheet";
 import type { Notice } from "../shared/notice";
 import { prepareBodyPhoto } from "./prepare-photo";

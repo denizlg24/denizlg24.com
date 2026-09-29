@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { emitFoodLogChanged } from "@/lib/log-events";
 
 /**
  * Every query key starts with its domain so a whole domain can be invalidated
@@ -23,6 +24,7 @@ export const queryKeys = {
 
 /** Anything that changes what was eaten on a day. */
 export function invalidateAfterLogging(queryClient: QueryClient) {
+  emitFoodLogChanged();
   return Promise.all(
     [
       ["dashboard"],

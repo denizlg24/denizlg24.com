@@ -18,6 +18,7 @@ import { Button, colors, Icon, type IconName, spacing, Text } from "@/ui";
 import { isPlausibleBarcode } from "./barcode";
 import { CameraPermissionGate } from "./components/camera-permission";
 import { CameraStatus } from "./components/camera-status";
+import { goToHub, useHubBelow } from "./hub-route";
 import { forwardedTimeParams, useZone } from "./target";
 
 type ScanState =
@@ -66,11 +67,15 @@ export function ScanScreen() {
   const params = useLocalSearchParams();
   const zone = useZone();
   const [forward] = useState(() => forwardedTimeParams(params, zone.today));
+  const hubBelow = useHubBelow();
 
   return (
     <CameraPermissionGate
       purpose="scan barcodes"
-      fallback={{ label: "Search by name", onPress: () => router.back() }}
+      fallback={{
+        label: "Search by name",
+        onPress: () => goToHub(hubBelow(), forward),
+      }}
       onClose={() => router.back()}
     >
       <Scanner timeParams={forward} />
@@ -80,6 +85,7 @@ export function ScanScreen() {
 
 function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
   const queryClient = useQueryClient();
+  const hubBelow = useHubBelow();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [state, setState] = useState<ScanState>({ kind: "scanning" });
@@ -106,7 +112,7 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
       }
       // The sheet opens on data it already has instead of fetching it again.
       queryClient.setQueryData(foodKeys.detail(detail.item.id), detail);
-      router.replace({
+      goToHub(hubBelow(), forward, {
         pathname: "/food/[id]",
         params: { id: detail.item.id, name: detail.item.name, ...forward },
       });
@@ -244,7 +250,7 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
                 variant="plain"
                 size="regular"
                 block={false}
-                onPress={() => router.back()}
+                onPress={() => goToHub(hubBelow(), forward)}
               />
             </View>
           </View>

@@ -1,4 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { NUTRIENT_SECTIONS } from "@repo/macros-core/foods/who-guidelines";
 import {
   MACRO_COLORS,
@@ -37,6 +36,7 @@ import {
   Text,
   VStack,
 } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { useSelectedDate } from "./selected-date";
 
 const RANGES = [

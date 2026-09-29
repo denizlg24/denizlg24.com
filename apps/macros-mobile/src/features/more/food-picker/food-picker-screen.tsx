@@ -19,6 +19,7 @@ import {
   Text,
   VStack,
 } from "@/ui";
+import { toolbarText } from "@/ui/toolbar";
 import { recipeDraft, useRecipeDraft } from "../recipes/recipe-draft";
 import { FoodListRow, ListSection } from "../shared/list-rows";
 import { NoticeSlot, useNotice } from "../shared/notice";
@@ -132,9 +133,11 @@ export function FoodPickerScreen() {
         onCancelButtonPress={() => setQuery("")}
       />
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button variant="done" onPress={() => router.back()}>
-          Done
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "done",
+          onPress: () => router.back(),
+          children: "Done",
+        })}
       </Stack.Toolbar>
       <Screen bleed stickyHeaderIndices={[0]}>
         <NoticeSlot notice={notice} onDismiss={clear} inset />

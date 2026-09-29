@@ -1,10 +1,9 @@
-import { Host, Stepper } from "@expo/ui/swift-ui";
-import { labelsHidden } from "@expo/ui/swift-ui/modifiers";
 import { WEEKDAY_FULL } from "@repo/macros-core/wizard/calc";
 import { StyleSheet, View } from "react-native";
 import { energyLabel, formatInteger } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { Row, Section, Stat, spacing, VStack } from "@/ui";
+import { Stepper } from "@/ui/stepper";
 import {
   caloriesKcalOf,
   dayAdjustmentLimit,
@@ -85,23 +84,21 @@ export function WeekStep() {
                 valueTone="primary"
                 separator={index < WEEKDAY_FULL.length - 1}
                 trailing={
-                  <Host matchContents>
-                    <Stepper
-                      label={`Adjust ${weekday}`}
-                      value={delta}
-                      step={WEEKDAY_STEP_KCAL}
-                      min={-limit}
-                      max={limit}
-                      modifiers={[labelsHidden()]}
-                      onValueChange={(value) => {
-                        if (value === delta) return;
-                        haptics.selection();
-                        update((current) =>
-                          stepDayDelta(current, index, value > delta ? 1 : -1),
-                        );
-                      }}
-                    />
-                  </Host>
+                  <Stepper
+                    label={`Adjust ${weekday}`}
+                    value={delta}
+                    step={WEEKDAY_STEP_KCAL}
+                    min={-limit}
+                    max={limit}
+                    hideLabel
+                    onValueChange={(value) => {
+                      if (value === delta) return;
+                      haptics.selection();
+                      update((current) =>
+                        stepDayDelta(current, index, value > delta ? 1 : -1),
+                      );
+                    }}
+                  />
                 }
               />
             );

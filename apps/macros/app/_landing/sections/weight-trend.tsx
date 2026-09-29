@@ -203,7 +203,7 @@ export function WeightTrendFeature() {
   return (
     <section aria-labelledby="weight-title" className="py-20 sm:py-24">
       <div className={container}>
-        <SectionLabel index="02">Weight</SectionLabel>
+        <SectionLabel>Weight</SectionLabel>
         <div className="mt-12 grid gap-6 lg:mt-16 lg:grid-cols-2 lg:items-end lg:gap-20">
           <h2 id="weight-title" className={cn(sectionTitle, "reveal max-w-xl")}>
             A trend line, not a daily verdict.

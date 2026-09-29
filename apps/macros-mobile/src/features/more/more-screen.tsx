@@ -2,12 +2,13 @@ import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { useBodyOverview } from "@/api/body";
+import { useDistributionAccess } from "@/api/distribution";
 import { useCustomFoods } from "@/api/foods";
 import { useProfile } from "@/api/profile";
 import { useRecipes } from "@/api/recipes";
 import { useShoppingList } from "@/api/shopping-list";
 import { formatInteger } from "@/lib/format";
-import { Row, Screen, Section, spacing, Text, VStack } from "@/ui";
+import { PageHeader, Row, Screen, Section, spacing, Text, VStack } from "@/ui";
 import { useRefresh } from "./shared/use-refresh";
 
 function count(value: number | undefined) {
@@ -21,6 +22,7 @@ export function MoreScreen() {
   const recipes = useRecipes();
   const shopping = useShoppingList();
   const body = useBodyOverview();
+  const access = useDistributionAccess();
 
   const refetch = useCallback(
     () =>
@@ -44,8 +46,9 @@ export function MoreScreen() {
       : undefined;
 
   return (
-    <Screen onRefresh={onRefresh} refreshing={refreshing}>
+    <Screen statusBarScrim onRefresh={onRefresh} refreshing={refreshing}>
       <VStack>
+        <PageHeader title="More" />
         {profile.data ? (
           <View style={styles.account} accessible accessibilityRole="header">
             <Text variant="title2" numberOfLines={2}>
@@ -102,6 +105,18 @@ export function MoreScreen() {
             onPress={() => router.push("/more/habits")}
           />
         </Section>
+
+        {access.data?.owner ? (
+          <Section title="Owner">
+            <Row
+              icon="inbox"
+              title="Device requests"
+              chevron
+              separator={false}
+              onPress={() => router.push("/more/device-requests")}
+            />
+          </Section>
+        ) : null}
 
         <Section>
           <Row

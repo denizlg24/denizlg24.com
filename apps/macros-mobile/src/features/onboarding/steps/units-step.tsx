@@ -1,7 +1,7 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { useProfile } from "@/api/profile";
 import { haptics } from "@/lib/haptics";
 import { Section } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { withEnergyUnit, withWeightUnit } from "../model";
 import { StepScaffold } from "../step-scaffold";
 import { useStep } from "../use-step";

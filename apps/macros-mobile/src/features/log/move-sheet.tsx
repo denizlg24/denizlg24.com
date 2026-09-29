@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { dateToIso, isoToDate } from "@repo/macros-core/food-log/date-utils";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -11,14 +10,15 @@ import { haptics } from "@/lib/haptics";
 import { clockOf, eatenAtFor, formatTimeOfDay } from "@/lib/log-time";
 import {
   colors,
-  gutter,
   Hairline,
   Icon,
   InlineNotice,
   Section,
+  sheetGutter,
   spacing,
   Text,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { flashEntries } from "./flash";
 import { isIsoDate } from "./selected-date";
 import { stopSelecting } from "./selection";
@@ -190,10 +190,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   notice: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
     gap: spacing.xxl,
   },

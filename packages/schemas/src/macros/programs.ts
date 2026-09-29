@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { macrosGoalTypeSchema } from "./goals";
+import { macrosIsoDateSchema } from "./common";
+import { macrosGoalTypeSchema, macrosUpsertGoalBodySchema } from "./goals";
 
 export const macrosProgramModeSchema = z.enum([
   "coached",
@@ -111,3 +112,71 @@ export type MacrosUpsertProgramResponse = z.infer<
 export type MacrosAcceptIssueResponse = z.infer<
   typeof macrosAcceptIssueResponseSchema
 >;
+
+/** What the target engine was fed, so a client can preview edits with the same maths. */
+export const macrosCheckInEngineInputsSchema = z.object({
+  tdeeKcal: z.number(),
+  tdeeVarianceKcal2: z.number(),
+  bmrKcal: z.number(),
+  weightKg: z.number(),
+  previousCalories: z.number().nullable(),
+});
+export const macrosCheckInTargetsSchema = z.object({
+  calories: z.number(),
+  proteinGrams: z.number(),
+  carbsGrams: z.number(),
+  fatGrams: z.number(),
+});
+export const macrosCheckInWeekSchema = z.object({
+  from: macrosIsoDateSchema,
+  to: macrosIsoDateSchema,
+  loggedDays: z.number().int(),
+  averageIntakeKcal: z.number().nullable(),
+  weighIns: z.number().int(),
+  trendStartKg: z.number().nullable(),
+  trendEndKg: z.number().nullable(),
+});
+export const macrosCheckInResponseSchema = z.object({
+  /** The most recent scheduled check-in on or before today, or null without a program. */
+  scheduledOn: macrosIsoDateSchema.nullable(),
+  nextOn: macrosIsoDateSchema.nullable(),
+  lastCheckInOn: macrosIsoDateSchema.nullable(),
+  due: z.boolean(),
+  current: macrosTargetIssueSchema.nullable(),
+  week: macrosCheckInWeekSchema,
+  expenditure: z.object({
+    tdeeKcal: z.number(),
+    varianceKcal2: z.number(),
+    previousTdeeKcal: z.number().nullable(),
+    method: z.string().nullable(),
+  }),
+  engine: macrosCheckInEngineInputsSchema,
+  proposal: macrosCheckInTargetsSchema.extend({
+    clamps: z.array(z.string()),
+  }),
+});
+export const macrosCheckInBodySchema = z.object({
+  program: macrosUpsertProgramBodySchema,
+  /** Sent only when the goal changed in the check-in; applied without a separate goal_change issue. */
+  goal: macrosUpsertGoalBodySchema.optional(),
+  /** Custom grams for this week only; calories are derived from them. The next check-in recomputes from the program. */
+  targets: z
+    .object({
+      proteinGrams: z.number().finite().min(0).max(1000),
+      carbsGrams: z.number().finite().min(0).max(2000),
+      fatGrams: z.number().finite().min(0).max(1000),
+    })
+    .refine(
+      (value) =>
+        value.proteinGrams * 4 + value.carbsGrams * 4 + value.fatGrams * 9 >=
+        800,
+      { message: "Custom targets must add up to at least 800 kcal" },
+    )
+    .nullable()
+    .optional(),
+});
+export type MacrosCheckInEngineInputs = z.infer<
+  typeof macrosCheckInEngineInputsSchema
+>;
+export type MacrosCheckInResponse = z.infer<typeof macrosCheckInResponseSchema>;
+export type MacrosCheckInBody = z.infer<typeof macrosCheckInBodySchema>;

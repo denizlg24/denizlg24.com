@@ -4,7 +4,7 @@ import { MACRO_COLORS } from "@repo/macros-core/macro-colors";
 import { ImageResponse } from "next/og";
 
 export const alt =
-  "Macros — nutrition tracking for iPhone. Know what you eat. Learn what you burn.";
+  "Macros — nutrition tracking for iPhone and Android. Know what you eat. Learn what you burn.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -73,7 +73,7 @@ export default function OpengraphImage() {
           ))}
         </div>
         <div style={{ fontSize: 30, color: "#6e6e73" }}>
-          Nutrition tracking for iPhone · Coming soon
+          For iPhone and Android
         </div>
       </div>
     </div>,

@@ -1,7 +1,7 @@
-import { Slider } from "@expo/ui/community/slider";
 import { adjustSplit, type MacroSplit } from "@repo/macros-core/wizard/calc";
 import { StyleSheet, View } from "react-native";
 import { energyLabel, formatDecimal, formatInteger } from "@/lib/format";
+import { haptics } from "@/lib/haptics";
 import {
   macroColors,
   Section,
@@ -11,6 +11,7 @@ import {
   typeScale,
   VStack,
 } from "@/ui";
+import { Slider } from "@/ui/slider";
 import { caloriesKcalOf, macroGrams, toKg } from "../model";
 import { StepScaffold } from "../step-scaffold";
 import { useStep } from "../use-step";
@@ -117,6 +118,7 @@ export function TargetsStep() {
                   onValueChange={(value) => {
                     const next = Math.round(value);
                     if (next === draft.split[macro.key]) return;
+                    haptics.selection();
                     update((current) => ({
                       ...current,
                       split: adjustSplit(macro.key, next, current.split),

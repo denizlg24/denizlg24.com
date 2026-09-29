@@ -1,4 +1,3 @@
-import { Host, Stepper } from "@expo/ui/swift-ui";
 import { onlineManager } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -12,7 +11,8 @@ import { deviceTimeZone, useToday } from "@/lib/day";
 import { energyLabel, formatDecimal, formatEnergy } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { type LogTime, logPlacement } from "@/lib/log-time";
-import { Button, EmptyState, gutter, spacing, Text } from "@/ui";
+import { Button, EmptyState, sheetGutter, spacing, Text } from "@/ui";
+import { Stepper } from "@/ui/stepper";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
 function servingsLabel(servings: number) {
@@ -83,19 +83,18 @@ export function RecipeLogSheet() {
         </Text>
       </View>
 
-      <Host matchContents={{ vertical: true }} style={styles.control}>
-        <Stepper
-          label={servingsLabel(servings)}
-          value={servings}
-          step={0.5}
-          min={0.5}
-          max={50}
-          onValueChange={(value) => {
-            haptics.selection();
-            setServings(value);
-          }}
-        />
-      </Host>
+      <Stepper
+        label={servingsLabel(servings)}
+        value={servings}
+        step={0.5}
+        min={0.5}
+        max={50}
+        onValueChange={(value) => {
+          haptics.selection();
+          setServings(value);
+        }}
+        style={styles.control}
+      />
 
       <View
         style={styles.totals}
@@ -136,7 +135,7 @@ export function RecipeLogSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

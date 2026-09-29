@@ -81,7 +81,8 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   app still on **Vercel** (project `denizlg24-status`, scope `oceaninformatix`;
   env in `.env.status`, not `.env.example`). Its own Mongo on Atlas. See
   [Status page](#status-page).
-- `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client;
+- `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client
+  (also shipped as a sideloaded Android APK);
   `apps/macros` is now just the API, the marketing site and the auth-email
   landing pages (`/register/*`). Not deployed by Forge: distributed through
   SideStore. See
@@ -117,10 +118,15 @@ Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=we
 
 Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
 
-- **Released by version bump, installed through SideStore.**
-  `release-macros-ios.yml` builds an unsigned IPA on `macos-26` for every PR
-  touching the app, and publishes `macros-ios-v<version>` when `version` in
-  `apps/macros-mobile/package.json` changes on `main`, then regenerates
+- **One workflow, builds ungated, releases behind approval.**
+  `macros-mobile.yml` builds the unsigned SideStore IPA, the ad-hoc build
+  (compiled unsigned) and a debug-signed APK on every PR and push with no
+  secret in reach. Its release jobs run in the `macros-release` environment
+  (owner approval), which holds every signing secret as an *environment*
+  secret — a repository secret would be readable by the ungated builds.
+- **Released by version bump, installed through SideStore.** When `version`
+  in `apps/macros-mobile/package.json` changes on `main`,
+  `release-ios-sidestore` publishes `macros-ios-v<version>` and regenerates
   `source.json` on the rolling `macros-ios-source` release. People add
   `https://macros.denizlg24.com/ios/source.json`, which `apps/macros` proxies.
   SideStore detects updates by `version` alone, so a republished version with
@@ -131,6 +137,23 @@ Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
   IPA asks for any. The source must also never carry `marketplaceID` or
   `buildVersion`: SideStore reads either as an AltStore PAL source and
   refuses to add it.
+- **Entitlements hang off `MACROS_IOS_DISTRIBUTION=adhoc`.** Unset, the
+  build is the SideStore one and carries none; `adhoc` adds HealthKit
+  (`plugins/with-healthkit.js`) and `aps-environment` and sets
+  `extra.capabilities`, which is what shows the Health and push UI.
+  Expo applies expo-notifications' plugin to every build merely because the
+  package is installed, so the SideStore build runs
+  `plugins/without-entitlements.js` to strip what it writes — drop that and
+  CI's entitlement check fails. HealthKit is a local Swift module,
+  `modules/macros-health`, not a dependency. Until the paid Apple team
+  exists, `adhoc` is only buildable for the simulator.
+- **Ad-hoc distribution runs through GitHub, not the server.** The App Store
+  Connect key lives only in the `macros-release` environment: approving a
+  request dispatches `macros-mobile.yml` with `adhoc: true`, and once the
+  environment is approved too, `release-ios-adhoc` registers approved UDIDs, rebuilds the
+  profile with every enabled device, and reports back to `/api/distribution/*`
+  under `MACROS_DISTRIBUTION_SECRET`. It exits green with a notice while any
+  secret is missing. Declining never frees a device slot (100 per year).
 - **Macros releases are never "latest".** The Envoy CLI's updater reads this
   repository's releases.
 - **React is 19.2.7 here, Expo SDK 57 pins 19.2.3.** The root `overrides` win;
@@ -159,6 +182,25 @@ Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
   prebuild if the template changes shape — that is the signal to delete it.
   Without it the simulator build dies at launch and so does every IPA the
   `latest-stable` Xcode on CI produces.
+
+Android (same app, sideloaded APK; details in `apps/macros-mobile/AGENTS.md`):
+
+- **Released on the same version bump.** `build-android` builds a
+  debug-signed APK; `release-android` re-signs that APK with `apksigner` and
+  publishes `macros-android-v<version>` (`--latest=false`) from `main`; `macros.denizlg24.com/android/Macros.apk`
+  streams the newest by version. Without the `MACROS_ANDROID_KEYSTORE`,
+  `_KEYSTORE_PASSWORD`, `_KEY_ALIAS`, `_KEY_PASSWORD` secrets it builds and
+  skips publishing. **Never rotate that keystore**: Android refuses an update
+  signed by another key, so every installed copy would need uninstalling.
+- **Android silently drops what iOS relies on.** A text-only
+  `Stack.Toolbar.Button` renders nothing (Save vanishes), iOS `PlatformColor`
+  names throw, `ActionSheetIOS` / `Alert.prompt` / `Link.Menu` do nothing,
+  and the community date picker opens a dialog on mount. The wrappers in
+  `src/ui` (`toolbarText`, `date-time-picker`, `stepper`, …) and the
+  `@color/macros_*` resources exist for this; the iOS code paths are left as
+  they were.
+- **No HealthKit, no FCM.** `capabilities` is false for both on Android;
+  Health Connect and FCM push are not built.
 
 ## The self-hosted cloud (apps/api, apps/cloud, apps/forge, apps/storage, apps/terminal)
 

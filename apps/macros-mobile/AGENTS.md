@@ -1,7 +1,8 @@
-# Macros for iPhone
+# Macros for iPhone and Android
 
-The native iOS client for Macros, and its only client. `apps/macros` (Next.js)
-is the backend plus a marketing site; there is no web app. This app talks to its
+The native client for Macros, and its only client: an iOS app first, plus a
+sideloaded Android APK built from the same code. `apps/macros` (Next.js) is
+the backend plus a marketing site; there is no web app. This app talks to its
 `/api/*` routes and nothing else, except the `/register/*` pages that
 verification and password-reset emails open.
 
@@ -16,13 +17,21 @@ verification and password-reset emails open.
 - `@expo/ui` for SwiftUI-backed controls: `@expo/ui/community/segmented-control`,
   `@expo/ui/community/datetime-picker`, `@expo/ui/community/menu`,
   `@expo/ui/community/picker`, `@expo/ui/community/slider`, and
-  `@expo/ui/swift-ui` (`Host`, `ContextMenu`, `Chart`, `Gauge`, …).
+  `@expo/ui/swift-ui` (`Host`, `ContextMenu`, `Chart`, `Gauge`, …). On
+  Android the community components render Jetpack Compose; `swift-ui` has
+  no Android side at all.
 - `react-native-svg` for charts that need more than Swift Charts' single series.
 - `expo-camera` (barcodes, label photos), `expo-image-picker`,
   `expo-image-manipulator`, `expo-haptics`, `expo-image`, `expo-sharing`,
   `expo-file-system`, `expo-crypto`.
 - `lucide-react-native` for icons, the web app's set. `@resvg/resvg-js`
   (dev only) renders them to PNGs for native chrome.
+
+- `expo-notifications`: local reminders in every build, APNs registration
+  only when `capabilities.push`.
+- `modules/macros-health`: our own Swift Expo module over HealthKit
+  (`@modules/macros-health`). Null outside a native build; gate on
+  `healthAvailable()` from `features/health/sync.ts`.
 
 Nothing else is installed. Do not add dependencies without a reason that
 survives review.
@@ -100,11 +109,48 @@ web app, never copied. The food-icon catalogue is `src/api/food-icons.ts`.
 
 ## Native iOS, not a web page in a shell
 
-- Every tab screen is a `Screen` (a ScrollView with automatic content insets)
-  under a large title that collapses on scroll. Header buttons and menus are
-  `Stack.Toolbar` / `Stack.Toolbar.Menu` / `Stack.Toolbar.MenuAction`,
-  declared inside the screen via `<Stack.Screen options>` or
-  `<Stack.Toolbar placement="right">`.
+iOS is the design target and its code paths stay as they are; Android gets
+fallbacks. Where a component diverges, a `name.android.tsx` sits beside
+`name.tsx` and types itself as `typeof import("./name")`'s export, so Metro
+picks it on Android and `tsc` still checks it against the iOS signature;
+small differences are a `Platform.OS` check. The ones that exist:
+
+- `@/ui/date-time-picker`, `@/ui/segmented-control`, `@/ui/slider`,
+  `@/ui/stepper`: import these, never `@expo/ui` directly. Android's
+  community date picker opens a dialog the moment it mounts, and Compose
+  controls otherwise take the wallpaper's Material You colours.
+- `toolbarText({...})` from `@/ui/toolbar` for every text-only
+  `Stack.Toolbar.Button`: Android silently drops a toolbar button without an
+  image, so Save and Cancel vanish. It is a call, not a component, because
+  the toolbar reads its children's element types. A bottom toolbar becomes a
+  floating Material toolbar over the content on Android; screens with one
+  pad by `useBottomToolbarInset()`.
+- `showActionSheet` / `confirmDestructive` and `promptText`
+  (`features/more/shared`) — ActionSheetIOS and `Alert.prompt` do not exist
+  on Android; `AndroidDialogHost` (root layout) draws both. `Link.Menu` is
+  iOS only, so a row that relies on it adds an Android `onLongPress` into
+  `showActionSheet`. `Stack.Toolbar.SearchBarSlot` renders nothing there;
+  the search field lives in the header.
+- `colors` in `ui/theme.ts` reads `@color/macros_*` resources on Android,
+  written by `plugins/with-android-colors.js` with iOS's own values (light
+  and night). A new colour needs an entry in both. Android resolves a
+  resource once per view, so the root navigator remounts on a dark-mode
+  switch.
+- Keyboard: an edge-to-edge Android window no longer shrinks for the
+  keyboard, and the `keyboardWill*` events are iOS only. `Screen` with
+  `automaticallyAdjustKeyboardInsets` handles it; anything else uses
+  `useAndroidKeyboardHeight` or the `keyboardDid*` events.
+- iOS-only surfaces hide on Android: the Apple Health section (HealthKit
+  and the Shortcuts import). Copy that names the device uses `DEVICE_NAME`.
+
+- A tab's root screen hides the native bar (`tabRootOptions`) and draws its
+  own `PageHeader`: the large title with the screen's actions
+  (`HeaderIconButton`, `HeaderTextButton`, an `@expo/ui` `MenuView`) on the
+  same row, inside a `Screen statusBarScrim`. A native large title leaves an
+  empty bar above it, which on a root is dead space. Pushed pages keep the
+  native header (back button, `Stack.Toolbar` buttons and menus). A bottom
+  `Stack.Toolbar` does not render under a hidden bar, so a root's modes
+  (Log's selection) put their actions in the `PageHeader` row too.
 - Icons are Lucide. In content, `<Icon name>` from `@/ui` (the registry is
   `ui/icons.ts`; add a name there first). Native chrome (the tab bar,
   toolbar buttons and their menus) takes images, not components: pass
@@ -112,7 +158,7 @@ web app, never copied. The food-icon catalogue is `src/api/food-icons.ts`.
   the bar draws it black. Those PNGs are generated: add the name to
   `scripts/render-glyphs.ts` and run `bun scripts/render-glyphs.ts`. Only
   `Link.MenuAction` and `@expo/ui` menus are left on SF Symbols — they accept
-  nothing else.
+  nothing else, and Android shows those menus without icons.
 - Taps never act twice. `installNavigationGuard` (root layout) drops a second
   navigation within 400 ms, so no sheet opens twice and no close pops two
   screens; calls in the same tick (close, then open) count as one. `Button`
@@ -121,7 +167,10 @@ web app, never copied. The food-icon catalogue is `src/api/food-icons.ts`.
   that stages food is the one deliberate exception: tapping it twice adds
   twice.
 - Short tasks are sheets, not pages: `compactSheet` (fits content) or
-  `detentSheet` (0.6 → 1) from `features/shell/routes.ts`. Full forms with
+  `detentSheet` (0.6 → 1) from `features/shell/routes.ts`. A sheet without a
+  navigation bar opens with `SheetHeader` from `@/ui` (title, artwork,
+  actions, Close) and pads its content by `sheetGutter` with `spacing.xl`
+  above the header; edit sheets with Cancel / Save use the log's bar. Full forms with
   Cancel/Save are `formModal`. Camera surfaces are `cameraModal`. A modal
   route is registered by adding it to the feature's `routes.ts` array — the
   presentation must be known before the screen is pushed.
@@ -133,13 +182,21 @@ web app, never copied. The food-icon catalogue is `src/api/food-icons.ts`.
   the header, a Scan / Search / Recipes / Library / Shop strip, and the search
   field with "Log Foods (N)" in the bottom toolbar. A row's "+" stages its
   amount on the plate; everything on it is logged together. Swipe logs at once.
+  The food and recipe sheets only add to the plate; opened from anywhere but
+  the hub (a scan, My foods, New food) they land in the hub afterwards
+  (`goToHub`), and a scanned food opens in the same sheet over the hub.
 - Lists: swipe actions via `SwipeRow`, long-press context menus, pull to
   refresh through `Screen onRefresh`. Search uses the native search bar
   (`headerSearchBarOptions`).
 - Pickers are native: segmented controls, date pickers and menus from
-  `@expo/ui/community/*`. No hand-rolled dropdowns.
-- Haptics (`lib/haptics.ts`): `success` when something is logged or saved,
-  `selection` on picker changes, `impact` on a barcode read.
+  `@expo/ui/community/*` (through the `@/ui` wrappers above where one
+  exists). No hand-rolled dropdowns.
+- Haptics (`lib/haptics.ts`): `success` when a write lands (`goalReached` if a
+  log first crosses the day's calorie or protein target), `error` when one is
+  refused, `warning` on an undoable delete and `selection` on its undo and on
+  every picker/toggle, `light` staging on the plate, `impact` on a swipe or
+  barcode read. `Screen` (refresh), `SwipeRow` and `useDeferredCommit` fire
+  their own; don't repeat them at call sites.
 - Respect Dynamic Type: no fixed heights on text containers.
 - Icon-only buttons get an `accessibilityLabel`.
 
@@ -173,8 +230,14 @@ belongs there are expected here — but keep them short.
 bun run typecheck          # app + scripts
 bun test                   # pure logic and release tooling
 bunx expo export --platform ios --output-dir dist   # Metro bundle (Hermes)
+bunx expo export --platform android --output-dir dist
 bunx expo prebuild --platform ios --no-install      # native project generation
+bunx expo prebuild --platform android --no-install
 ```
+
+`android/` is generated like `ios/` and never committed (`bun run
+prebuild:android`, `bun run android` for an emulator; both need a JDK 17 and
+the Android SDK).
 
 Biome runs from the repo root (`bunx biome check --write apps/macros-mobile`).
 Never cast to `any`/`unknown` to silence a type error.
@@ -189,13 +252,53 @@ a request that bypasses `api()` but carries the session calls
 
 ## Release
 
-`.github/workflows/release-macros-ios.yml` builds an unsigned IPA on a macOS
-runner for every PR that touches this app, and publishes when `version` in
-`package.json` changes on `main`: a `macros-ios-v<version>` GitHub release
-with the IPA, plus the SideStore source regenerated from every release
-(`scripts/compose-source.ts`) on the rolling `macros-ios-source` release.
-SideStore re-signs the IPA with the user's Apple ID, which is why the app has
-no entitlements: a free account cannot grant push, App Groups, HealthKit or
-associated domains. Adding any of those breaks installation for free
-accounts. Bump `version` for every release — SideStore detects updates by
-version alone.
+`.github/workflows/macros-mobile.yml` does everything. Its build jobs run on
+every PR and push, reference no secret, and must pass: `build-ios` (the
+unsigned SideStore IPA, refused if it carries any entitlement),
+`build-ios-adhoc` (`MACROS_IOS_DISTRIBUTION=adhoc` compiled unsigned for a
+device, its generated entitlements checked against the ad-hoc allowlist with
+`scripts/adhoc-entitlements.ts --unsigned`) and `build-android` (a release
+APK with the embedded bundle, debug-signed). The release jobs run in the
+`macros-release` environment, which needs the owner's approval, and every
+signing secret lives there as an environment secret — never a repository
+one, or the ungated build jobs could read it.
+
+When `version` in `package.json` changes on `main`, `release-ios-sidestore`
+publishes the built IPA as `macros-ios-v<version>` and regenerates the
+SideStore source (`scripts/compose-source.ts`) on the rolling
+`macros-ios-source` release. SideStore re-signs the IPA with the user's
+Apple ID, which is why that build has no entitlements: a free account cannot
+grant push, App Groups, HealthKit or associated domains. Bump `version` for
+every release — SideStore detects updates by version alone.
+
+Entitled features exist only in the ad-hoc build (`MACROS_IOS_DISTRIBUTION=adhoc`),
+signed by the paid team in `release-ios-adhoc`, which runs on the same
+version change and when the server dispatches the workflow with
+`adhoc: true` after the owner approves a device — so a device approval also
+needs a GitHub environment approval before it ships. `lib/config.ts`
+`capabilities` says which build is running; UI for HealthKit and remote push
+hides behind it. `plugins/without-entitlements.js` strips the
+`aps-environment` expo-notifications writes into every build. To exercise
+the ad-hoc build locally without a paid team, prebuild with the flag and run
+it in the simulator, which needs no provisioning.
+
+`release-android` takes the APK `build-android` produced, re-signs it with
+the release key (`zipalign`, then `apksigner`, refusing the debug
+certificate) and publishes `macros-android-v<version>` (`--latest=false`),
+which `https://macros.denizlg24.com/android/Macros.apk` streams. `versionCode` is
+the workflow run number (`MACROS_ANDROID_VERSION_CODE`); Android refuses an
+update signed with a different key, so the keystore behind the
+`MACROS_ANDROID_*` secrets can never change. `plugins/with-android-signing.js`
+still signs at prebuild when all four variables are set, for a local release
+build; CI never passes them. Every release job whose secrets are missing
+exits green with a notice.
+
+Android has no HealthKit and no FCM: `capabilities` is false for both there, and reminders
+are local notifications on the `reminders` channel, scheduled inexactly
+(no exact-alarm permission). Health Connect and FCM push are not built.
+
+HealthKit sync runs on foreground (at most every 10 minutes) and after log
+changes: it posts weight, body fat, steps and active energy to
+`/api/health-sync` (the Shortcuts import, under the session) and writes one
+sample per nutrient per day back, keyed by an HK sync identifier so a higher
+version replaces the day's previous total.

@@ -9,7 +9,12 @@ import { errorMessage } from "@/lib/api";
 import { energyLabel, formatEnergy } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { newClientMutationId } from "@/lib/ids";
-import { type LogTime, logPlacement, logTimeOf } from "@/lib/log-time";
+import {
+  type LogTime,
+  logPlacement,
+  logTimeOf,
+  logTimeParams,
+} from "@/lib/log-time";
 import {
   Button,
   InlineNotice,
@@ -17,6 +22,8 @@ import {
   Row,
   Screen,
   Section,
+  SheetHeader,
+  sheetGutter,
   spacing,
   VStack,
 } from "@/ui";
@@ -25,8 +32,7 @@ import {
   AmountNutrition,
   NutritionBreakdown,
 } from "./components/nutrition-panel";
-import { SheetHeader } from "./components/sheet-header";
-import { useLogActions } from "./log-actions";
+import { goToHub, useHubBelow } from "./hub-route";
 import {
   addToPlate,
   findPlateItem,
@@ -64,8 +70,11 @@ export function RecipeLogScreen() {
 
   if (!recipe.data) {
     return (
-      <Screen>
-        <SheetHeader title={readParam(params.name) ?? "Recipe"} />
+      <Screen contentContainerStyle={styles.sheet}>
+        <SheetHeader
+          title={readParam(params.name) ?? "Recipe"}
+          onClose={() => router.back()}
+        />
         {recipe.isError ? (
           <InlineNotice
             message={`Couldn’t load this recipe. ${errorMessage(recipe.error)}`}
@@ -102,7 +111,7 @@ function RecipeLogBody({
 }) {
   const zone = useZone();
   const targets = useTargets(zone.today);
-  const { log } = useLogActions();
+  const hubBelow = useHubBelow();
 
   // A recipe serving weighs its total divided by its serving count, which is
   // what lets it be logged by weight too.
@@ -172,17 +181,18 @@ function RecipeLogBody({
       macros: macrosOf(scaled),
       input: { ...buildInput(), clientMutationId: uid },
     };
-    haptics.success();
+    haptics.light();
     if (plateItem) replacePlateItem(staged);
     else addToPlate(staged);
-    router.back();
+    goToHub(hubBelow(), logTimeParams(when, zone.today));
   }
 
   return (
-    <Screen>
+    <Screen contentContainerStyle={styles.sheet}>
       <VStack gap={spacing.xl}>
         <SheetHeader
           title={recipe.name}
+          onClose={() => router.back()}
           subtitle={`Recipe · ${recipe.ingredientCount} ingredients`}
           leading={
             <FoodIcon
@@ -199,6 +209,7 @@ function RecipeLogBody({
           value={amount}
           presets={presets}
           onChange={setAmount}
+          autoFocus
         />
 
         <EatenAtPicker
@@ -229,27 +240,12 @@ function RecipeLogBody({
               />
             </>
           ) : (
-            <>
-              <Button
-                label="Log"
-                disabled={!valid}
-                onPress={() => {
-                  log(
-                    { kind: "recipe", input: buildInput() },
-                    recipe.name,
-                    `recipe:${recipe.id}`,
-                  );
-                  router.back();
-                }}
-              />
-              <Button
-                label="Add to plate"
-                variant="tinted"
-                icon="inbox"
-                disabled={!valid}
-                onPress={stage}
-              />
-            </>
+            <Button
+              label="Add to plate"
+              icon="plus"
+              disabled={!valid}
+              onPress={stage}
+            />
           )}
         </View>
 
@@ -279,6 +275,10 @@ function RecipeLogBody({
 }
 
 const styles = StyleSheet.create({
+  sheet: {
+    paddingTop: spacing.xl,
+    paddingHorizontal: sheetGutter,
+  },
   loading: {
     paddingVertical: spacing.xxxl,
   },

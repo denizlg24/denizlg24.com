@@ -32,11 +32,17 @@ extension for UUID generation.
 
 ## Scheduled jobs
 
-Three cron routes are driven by an external scheduler, authenticated with a
-shared secret sent as a bearer token: a daily reset, a weight-trend
-recomputation, and weekly target issuance. Each route decides for itself which
-user-local days or weekly check-ins are due, so invoking them more often than
-necessary is harmless.
+Cron routes are driven by an external scheduler, authenticated with a shared
+secret sent as a bearer token: a daily reset and a weight-trend recomputation,
+plus the push nudges. Each route decides for itself which user-local days are
+due, so invoking them more often than necessary is harmless.
+
+Weekly target changes are not a cron. A check-in is due from the program's
+check-in weekday until the owner makes one
+(`/api/nutrition-programs/check-in`): the app shows the proposal, lets every
+program field or the week's grams be overridden, and issues the target on
+submit. Both the read and the write recompute the weight trend and expenditure
+first, since those otherwise only move on a weigh-in.
 
 ## How the data model works
 

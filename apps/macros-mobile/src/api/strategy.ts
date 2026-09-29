@@ -1,8 +1,10 @@
 import type {
   MacrosAcceptIssueResponse,
+  MacrosCheckInResponse,
   MacrosProgramsResponse,
   MacrosStrategyResponse,
   MacrosUpsertProgramResponse,
+  macrosCheckInBodySchema,
   macrosUpsertProgramBodySchema,
 } from "@repo/schemas/macros";
 import {
@@ -16,9 +18,11 @@ import { api } from "@/lib/api";
 import { queryKeys } from "./keys";
 
 export type ProgramInput = z.input<typeof macrosUpsertProgramBodySchema>;
+export type CheckInInput = z.input<typeof macrosCheckInBodySchema>;
 
 export const strategyKeys = {
   overview: [...queryKeys.strategy, "overview"] as const,
+  checkIn: [...queryKeys.strategy, "check-in"] as const,
   program: queryKeys.program,
 };
 
@@ -79,5 +83,35 @@ export function useAcceptIssue() {
         { method: "POST" },
       ),
     onSuccess: () => invalidateAfterTargetChange(queryClient),
+  });
+}
+
+/** Whether a check-in is due, last week's recap and the engine's proposal. 409 without a program. */
+export function useCheckIn({ enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: strategyKeys.checkIn,
+    queryFn: ({ signal }) =>
+      api<MacrosCheckInResponse>("/api/nutrition-programs/check-in", {
+        signal,
+      }),
+    enabled,
+  });
+}
+
+/** Saves the (possibly edited) program and goal, then issues this week's targets. */
+export function useSubmitCheckIn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CheckInInput) =>
+      api<MacrosUpsertProgramResponse>("/api/nutrition-programs/check-in", {
+        method: "POST",
+        body,
+      }),
+    // The check-in recomputed trend and expenditure as well.
+    onSuccess: () =>
+      Promise.all([
+        invalidateAfterTargetChange(queryClient),
+        queryClient.invalidateQueries({ queryKey: queryKeys.weight }),
+      ]),
   });
 }

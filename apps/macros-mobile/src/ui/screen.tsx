@@ -6,6 +6,9 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { haptics } from "@/lib/haptics";
+import { useAndroidKeyboardHeight } from "@/lib/keyboard";
 import { colors, gutter, spacing } from "./theme";
 
 export interface ScreenProps extends Omit<ScrollViewProps, "refreshControl"> {
@@ -17,6 +20,11 @@ export interface ScreenProps extends Omit<ScrollViewProps, "refreshControl"> {
   grouped?: boolean;
   /** Drop the horizontal gutter for edge-to-edge lists. */
   bleed?: boolean;
+  /**
+   * For screens without a navigation bar (tab roots): content scrolls under
+   * the status bar, so the bar gets the screen's background behind it.
+   */
+  statusBarScrim?: boolean;
 }
 
 /**
@@ -30,23 +38,26 @@ export function Screen({
   refreshing = false,
   grouped = false,
   bleed = false,
+  statusBarScrim = false,
   contentContainerStyle,
   style,
   ...rest
 }: ScreenProps) {
-  return (
+  const keyboard = useAndroidKeyboardHeight(
+    rest.automaticallyAdjustKeyboardInsets === true,
+  );
+  const insets = useSafeAreaInsets();
+  const background = grouped ? colors.groupedBackground : colors.background;
+  const scroll = (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       {...rest}
       style={[
-        {
-          backgroundColor: grouped
-            ? colors.groupedBackground
-            : colors.background,
-        },
+        { backgroundColor: background },
         style,
+        keyboard > 0 && { marginBottom: keyboard },
       ]}
       contentContainerStyle={[
         styles.content,
@@ -55,12 +66,31 @@ export function Screen({
       ]}
       refreshControl={
         onRefresh ? (
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              haptics.light();
+              onRefresh();
+            }}
+          />
         ) : undefined
       }
     >
       {children}
     </ScrollView>
+  );
+  if (!statusBarScrim) return scroll;
+  return (
+    <View style={styles.fill}>
+      {scroll}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.scrim,
+          { height: insets.top, backgroundColor: background },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -76,6 +106,15 @@ export function Stack({
 }
 
 const styles = StyleSheet.create({
+  fill: {
+    flex: 1,
+  },
+  scrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   content: {
     paddingTop: spacing.sm,
     paddingBottom: spacing.xxxl,

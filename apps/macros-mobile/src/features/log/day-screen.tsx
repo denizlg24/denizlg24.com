@@ -1,8 +1,18 @@
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { weekDaysFor } from "@repo/macros-core/food-log/date-utils";
 import type { MacrosFoodLogEntry } from "@repo/schemas/macros";
+import { useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  type ImageSourcePropType,
+  Platform,
+  StyleSheet,
+  View,
+} from "react-native";
+import { reachesDayTarget } from "@/api/day-targets";
 import {
   useBulkDeleteEntries,
   useCopyEntries,
@@ -22,7 +32,10 @@ import {
   Button,
   colors,
   EmptyState,
+  HeaderIconButton,
+  HeaderTextButton,
   InlineNotice,
+  PageHeader,
   Screen,
   spacing,
   VStack,
@@ -46,8 +59,55 @@ import {
 import { groupByHour } from "./timeline";
 import { WeekStrip } from "./week-strip";
 
+/** SF Symbols on iOS; Android's Compose menu takes images instead. */
+function menuIcon(
+  sfSymbol: Extract<MenuAction["image"], string>,
+  glyph: ImageSourcePropType,
+): MenuAction["image"] {
+  return Platform.OS === "ios" ? sfSymbol : glyph;
+}
+
+function dayMenu(hasEntries: boolean): MenuAction[] {
+  return [
+    {
+      id: "select",
+      title: "Select entries",
+      image: menuIcon("checkmark.circle", glyphs["circle-check"]),
+      attributes: { disabled: !hasEntries },
+    },
+    {
+      id: "copy",
+      title: "Copy from another day",
+      image: menuIcon("doc.on.doc", glyphs.copy),
+    },
+    {
+      id: "note",
+      title: "Day note",
+      image: menuIcon("square.and.pencil", glyphs["notebook-pen"]),
+    },
+    {
+      id: "insights",
+      title: "",
+      displayInline: true,
+      subactions: [
+        {
+          id: "nutrition",
+          title: "Nutrition",
+          image: menuIcon("chart.bar", glyphs["chart-column"]),
+        },
+        {
+          id: "streak",
+          title: "Logging streak",
+          image: menuIcon("flame", glyphs.flame),
+        },
+      ],
+    },
+  ];
+}
+
 export function LogDayScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const profile = useProfile();
   const timezone = profile.data?.timezone ?? deviceTimeZone();
   const energyUnit = profile.data?.energyUnit ?? "kcal";
@@ -142,25 +202,34 @@ export function LogDayScreen() {
     router.push({ pathname: "/day-note", params: { date } });
   }
 
+  function feelLoggedOn(logDate: string, entry: MacrosFoodLogEntry) {
+    return reachesDayTarget(queryClient, [{ logDate, macros: entry }])
+      ? haptics.goalReached
+      : haptics.success;
+  }
+
   function copyToToday(entry: MacrosFoodLogEntry) {
+    const feelLogged = feelLoggedOn(today, entry);
     copy.mutate(
       {
         sourceDate: entry.logDate,
         targetDate: today,
         entryIds: [entry.id],
       },
-      { onSuccess: () => haptics.success(), onError: showError },
+      { onSuccess: () => feelLogged(), onError: showError },
     );
   }
 
   const actions: EntryActions = {
     onDelete: (entry) => deferredDelete.schedule(entry.id),
     onUndo: (entry) => deferredDelete.undo(entry.id),
-    onDuplicate: (entry) =>
+    onDuplicate: (entry) => {
+      const feelLogged = feelLoggedOn(entry.logDate, entry);
       duplicate.mutate(entry.id, {
-        onSuccess: () => haptics.success(),
+        onSuccess: () => feelLogged(),
         onError: showError,
-      }),
+      });
+    },
     onMove: (entry) => openMove([entry.id]),
     onCopyToToday: copyToToday,
     onToggle: (entry) => {
@@ -200,7 +269,7 @@ export function LogDayScreen() {
     selectedCount === entries.length;
   const title = selection.active
     ? selectedCount === 0
-      ? "Select entries"
+      ? "Select"
       : `${selectedCount} selected`
     : formatDayLabel(date, today);
   const dayTimezone = day.data?.timezone ?? timezone;
@@ -210,106 +279,80 @@ export function LogDayScreen() {
   return (
     <>
       <Stack.Screen options={{ title }} />
-      {selection.active ? (
-        <>
-          <Stack.Toolbar placement="left">
-            <Stack.Toolbar.Button
-              onPress={() =>
-                setSelected(
-                  allSelected ? [] : (entries?.map((entry) => entry.id) ?? []),
-                )
-              }
-            >
-              {allSelected ? "Deselect All" : "Select All"}
-            </Stack.Toolbar.Button>
-          </Stack.Toolbar>
-          <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button variant="done" onPress={stopSelecting}>
-              Done
-            </Stack.Toolbar.Button>
-          </Stack.Toolbar>
-          <Stack.Toolbar placement="bottom">
-            <Stack.Toolbar.Button
-              disabled={selectedCount === 0}
-              onPress={() => openMove([...selection.ids])}
-            >
-              Move…
-            </Stack.Toolbar.Button>
-            <Stack.Toolbar.Spacer />
-            <Stack.Toolbar.Button
-              disabled={selectedCount === 0 || bulkDelete.isPending}
-              tintColor={colors.destructive}
-              onPress={confirmBulkDelete}
-            >
-              Delete
-            </Stack.Toolbar.Button>
-          </Stack.Toolbar>
-        </>
-      ) : (
-        <Stack.Toolbar placement="right">
-          {viewingToday ? null : (
-            <Stack.Toolbar.Button onPress={() => changeDate(today)}>
-              Today
-            </Stack.Toolbar.Button>
-          )}
-          <Stack.Toolbar.Button
-            icon={glyphs.calendar}
-            iconRenderingMode="template"
-            accessibilityLabel="Calendar"
-            onPress={() => router.push("/log/calendar")}
-          />
-          <Stack.Toolbar.Menu
-            icon={glyphs["circle-ellipsis"]}
-            iconRenderingMode="template"
-            accessibilityLabel="More"
-          >
-            <Stack.Toolbar.MenuAction
-              icon={glyphs["circle-check"]}
-              iconRenderingMode="template"
-              disabled={!hasEntries}
-              onPress={startSelecting}
-            >
-              Select entries
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction
-              icon={glyphs.copy}
-              iconRenderingMode="template"
-              onPress={() => openCopy()}
-            >
-              Copy from another day
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction
-              icon={glyphs["notebook-pen"]}
-              iconRenderingMode="template"
-              onPress={openNote}
-            >
-              Day note
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.Menu inline>
-              <Stack.Toolbar.MenuAction
-                icon={glyphs["chart-column"]}
-                iconRenderingMode="template"
-                onPress={() => router.push("/log/nutrition")}
-              >
-                Nutrition
-              </Stack.Toolbar.MenuAction>
-              <Stack.Toolbar.MenuAction
-                icon={glyphs.flame}
-                iconRenderingMode="template"
-                onPress={() => router.push("/log/activity")}
-              >
-                Logging streak
-              </Stack.Toolbar.MenuAction>
-            </Stack.Toolbar.Menu>
-          </Stack.Toolbar.Menu>
-        </Stack.Toolbar>
-      )}
-
       <Screen
+        statusBarScrim
         onRefresh={() => void refresh()}
         refreshing={refreshing}
-        stickyHeaderIndices={[0]}
+        stickyHeaderIndices={[1]}
       >
+        <PageHeader title={title}>
+          {selection.active ? (
+            <>
+              <HeaderIconButton
+                icon={allSelected ? "list-x" : "list-checks"}
+                label={allSelected ? "Deselect all" : "Select all"}
+                onPress={() =>
+                  setSelected(
+                    allSelected
+                      ? []
+                      : (entries?.map((entry) => entry.id) ?? []),
+                  )
+                }
+              />
+              <HeaderIconButton
+                icon="arrow-up-down"
+                label="Move"
+                disabled={selectedCount === 0}
+                onPress={() => openMove([...selection.ids])}
+              />
+              <HeaderIconButton
+                icon="trash"
+                label="Delete"
+                destructive
+                disabled={selectedCount === 0 || bulkDelete.isPending}
+                onPress={confirmBulkDelete}
+              />
+              <HeaderTextButton
+                label="Done"
+                prominent
+                onPress={stopSelecting}
+              />
+            </>
+          ) : (
+            <>
+              {viewingToday ? null : (
+                <HeaderTextButton
+                  label="Today"
+                  onPress={() => changeDate(today)}
+                />
+              )}
+              <HeaderIconButton
+                icon="calendar"
+                label="Calendar"
+                onPress={() => router.push("/log/calendar")}
+              />
+              <MenuView
+                actions={dayMenu(hasEntries)}
+                onPressAction={({ nativeEvent }) => {
+                  switch (nativeEvent.event) {
+                    case "select":
+                      return startSelecting();
+                    case "copy":
+                      return openCopy();
+                    case "note":
+                      return openNote();
+                    case "nutrition":
+                      return router.push("/log/nutrition");
+                    case "streak":
+                      return router.push("/log/activity");
+                  }
+                }}
+              >
+                <HeaderIconButton icon="ellipsis" label="More" />
+              </MenuView>
+            </>
+          )}
+        </PageHeader>
         <View
           style={
             notice || day.isError || failedWrites.length > 0

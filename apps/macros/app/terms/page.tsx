@@ -4,7 +4,7 @@ import { pageMetadata } from "@/app/metadata";
 
 export const metadata = pageMetadata(
   "Terms of use",
-  "The terms for using Macros, the nutrition tracker for iPhone.",
+  "The terms for using Macros, the nutrition tracker for iPhone and Android.",
   "/terms",
 );
 
@@ -12,11 +12,11 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of use"
-      updated="27 September 2026"
+      updated="29 September 2026"
       intro={
         <p>
-          These terms cover the Macros iPhone app and the service behind it,
-          built and run by one developer (
+          These terms cover the Macros apps for iPhone and Android and the
+          service behind them, built and run by one developer (
           <a
             href="https://denizlg24.com"
             className="font-medium text-foreground underline decoration-border underline-offset-4"
@@ -67,6 +67,11 @@ export default function TermsPage() {
           Apple ID and is not part of Macros. With a free Apple ID, the app has
           to be re-signed every 7 days; if that lapses, the app won’t open until
           SideStore refreshes it.
+        </p>
+        <p>
+          The Android app is not distributed through Google Play. It is
+          downloaded from this website as an APK file, which Android asks you to
+          allow before it installs. Updates are installed the same way.
         </p>
       </LegalSection>
 

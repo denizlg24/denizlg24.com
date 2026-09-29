@@ -5,10 +5,10 @@ import { quickAddHref, weighInHref } from "@/features/today/links";
 import { haptics } from "@/lib/haptics";
 import {
   colors,
-  gutter,
   Hairline,
   Icon,
   type IconName,
+  sheetGutter,
   spacing,
   Text,
 } from "@/ui";
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
   },
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingVertical: spacing.xl,
   },
   action: {

@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { endOfDay, format, parseISO } from "date-fns";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -22,18 +21,19 @@ import { haptics } from "@/lib/haptics";
 import {
   Button,
   colors,
-  gutter,
   Hairline,
   InlineNotice,
   parseDecimal,
+  SheetHeader,
+  sheetGutter,
   spacing,
   Text,
   TextField,
   typeScale,
   useResolvedColors,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { isIsoDate } from "./logic";
-import { SheetHeader } from "./sheet-header";
 
 const MAX_WEIGHT_KG = 999;
 
@@ -262,7 +262,7 @@ export function WeighInSheet() {
 const styles = StyleSheet.create({
   container: {
     gap: spacing.xl,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     backgroundColor: colors.background,
   },

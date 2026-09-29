@@ -5,6 +5,7 @@
 import Apple from "lucide-react-native/icons/apple";
 import ArrowUpDown from "lucide-react-native/icons/arrow-up-down";
 import Barcode from "lucide-react-native/icons/barcode";
+import Bell from "lucide-react-native/icons/bell";
 import BookOpen from "lucide-react-native/icons/book-open";
 import Braces from "lucide-react-native/icons/braces";
 import Cake from "lucide-react-native/icons/cake";
@@ -58,6 +59,7 @@ import LogOut from "lucide-react-native/icons/log-out";
 import Mail from "lucide-react-native/icons/mail";
 import MailCheck from "lucide-react-native/icons/mail-check";
 import Milk from "lucide-react-native/icons/milk";
+import Minus from "lucide-react-native/icons/minus";
 import NotebookPen from "lucide-react-native/icons/notebook-pen";
 import Pencil from "lucide-react-native/icons/pencil";
 import PersonStanding from "lucide-react-native/icons/person-standing";
@@ -86,6 +88,7 @@ import Utensils from "lucide-react-native/icons/utensils";
 import VideoOff from "lucide-react-native/icons/video-off";
 import WifiOff from "lucide-react-native/icons/wifi-off";
 import Wine from "lucide-react-native/icons/wine";
+import Workflow from "lucide-react-native/icons/workflow";
 import X from "lucide-react-native/icons/x";
 import Zap from "lucide-react-native/icons/zap";
 
@@ -115,6 +118,7 @@ export const icons = {
   "circle-ellipsis": CircleEllipsis,
   "circle-minus": CircleMinus,
   "circle-plus": CirclePlus,
+  bell: Bell,
   "circle-question-mark": CircleQuestionMark,
   "circle-user": CircleUser,
   "circle-x": CircleX,
@@ -146,6 +150,7 @@ export const icons = {
   mail: Mail,
   "mail-check": MailCheck,
   milk: Milk,
+  minus: Minus,
   "notebook-pen": NotebookPen,
   pencil: Pencil,
   "person-standing": PersonStanding,
@@ -174,6 +179,7 @@ export const icons = {
   "video-off": VideoOff,
   "wifi-off": WifiOff,
   wine: Wine,
+  workflow: Workflow,
   x: X,
   zap: Zap,
 } as const;

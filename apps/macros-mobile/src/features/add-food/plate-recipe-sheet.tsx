@@ -9,14 +9,14 @@ import { haptics } from "@/lib/haptics";
 import {
   Button,
   colors,
-  gutter,
   InlineNotice,
   parseDecimal,
+  SheetHeader,
+  sheetGutter,
   spacing,
   Text,
   TextField,
 } from "@/ui";
-import { SheetHeader } from "../today/sheet-header";
 import { type PlateItem, removeFromPlate, usePlate } from "./plate-store";
 
 type FoodPlateItem = Extract<PlateItem, { kind: "food" }>;
@@ -169,7 +169,7 @@ export function PlateRecipeSheet() {
 const styles = StyleSheet.create({
   container: {
     gap: spacing.xl,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     backgroundColor: colors.background,
   },

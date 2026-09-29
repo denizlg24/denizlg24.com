@@ -6,8 +6,12 @@ import { SiteFooter, SiteHeader } from "@/app/_landing/site";
 import { pageMetadata } from "@/app/metadata";
 
 export const metadata: Metadata = {
-  ...pageMetadata("Macros — nutrition tracking for iPhone", undefined, "/"),
-  title: { absolute: "Macros — nutrition tracking for iPhone" },
+  ...pageMetadata(
+    "Macros — nutrition tracking for iPhone and Android",
+    undefined,
+    "/",
+  ),
+  title: { absolute: "Macros — nutrition tracking for iPhone and Android" },
 };
 
 export default function HomePage() {

@@ -4,6 +4,7 @@ export { parseDecimal, TextField, type TextFieldProps } from "./field";
 export { Flash, type FlashProps } from "./flash";
 export { Icon, type IconName, type IconProps } from "./icon";
 export { InlineNotice, type InlineNoticeProps } from "./notice";
+export { HeaderIconButton, HeaderTextButton, PageHeader } from "./page-header";
 export { Screen, type ScreenProps, Stack as VStack } from "./screen";
 export {
   Hairline,
@@ -12,6 +13,10 @@ export {
   Section,
   type SectionProps,
 } from "./section";
+export {
+  SheetHeader,
+  type SheetHeaderAction,
+} from "./sheet-header";
 export { Skeleton, type SkeletonProps } from "./skeleton";
 export { Meter, type MeterProps, Stat, type StatProps } from "./stat";
 export { type SwipeAction, SwipeRow, type SwipeRowProps } from "./swipe-row";
@@ -25,6 +30,7 @@ export {
   macroColors,
   type ResolvedColors,
   radius,
+  sheetGutter,
   spacing,
   type TypeVariant,
   typeScale,

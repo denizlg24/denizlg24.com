@@ -101,7 +101,7 @@ export function registerLogMutationDefaults(queryClient: QueryClient) {
   });
 }
 
-function fetchFoodLogDay(date: string, signal?: AbortSignal) {
+export function fetchFoodLogDay(date: string, signal?: AbortSignal) {
   return api<MacrosFoodLogDay>("/api/food-log/day", {
     query: { date },
     signal,

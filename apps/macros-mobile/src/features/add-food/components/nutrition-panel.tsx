@@ -90,7 +90,7 @@ export function NutritionBreakdown({
   nutrients: Record<string, number>;
   targets: MacroTargets | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const sections = nutritionBreakdown(nutrients, targets);
   if (sections.length === 0) return null;
   const count = sections.reduce(

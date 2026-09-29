@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Keyboard, type KeyboardEvent } from "react-native";
+import { Keyboard, type KeyboardEvent, Platform } from "react-native";
 import {
   Easing,
   type SharedValue,
@@ -9,6 +9,10 @@ import {
 
 // Close to UIKit's keyboard curve, which is not a public timing function.
 const KEYBOARD_EASING = Easing.bezier(0.17, 0.59, 0.4, 0.77);
+
+// Android only reports the keyboard once it has moved.
+const SHOW = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+const HIDE = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
 /**
  * The keyboard's height, animated with the keyboard. Valid for full-height
@@ -25,12 +29,10 @@ export function useKeyboardInset(): SharedValue<number> {
         easing: KEYBOARD_EASING,
       });
     }
-    const show = Keyboard.addListener("keyboardWillShow", (event) =>
+    const show = Keyboard.addListener(SHOW, (event) =>
       follow(event.endCoordinates.height, event),
     );
-    const hide = Keyboard.addListener("keyboardWillHide", (event) =>
-      follow(0, event),
-    );
+    const hide = Keyboard.addListener(HIDE, (event) => follow(0, event));
     return () => {
       show.remove();
       hide.remove();

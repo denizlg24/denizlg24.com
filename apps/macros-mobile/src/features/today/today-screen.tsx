@@ -13,11 +13,12 @@ import { haptics } from "@/lib/haptics";
 import {
   Button,
   Flash,
+  HeaderIconButton,
   InlineNotice,
+  PageHeader,
   Screen,
   Section,
   spacing,
-  Text,
   VStack,
 } from "@/ui";
 import { EnergySection } from "./energy-section";
@@ -81,16 +82,23 @@ export function TodayScreen() {
   const openLog = () => router.push("/log");
   const openProgress = () => router.push("/progress");
   const openMore = () => router.push("/more");
+  const strategyButton = (
+    <HeaderIconButton
+      icon="target"
+      label="Strategy"
+      onPress={() => router.push("/strategy")}
+    />
+  );
 
   const data = dashboard.data;
   const dateLine = format(parseISO(data?.today ?? day), "EEEE d MMMM");
 
   if (!data) {
     return (
-      <Screen>
-        <Text variant="subheadline" tone="secondary">
-          {dateLine}
-        </Text>
+      <Screen statusBarScrim>
+        <PageHeader title="Today" subtitle={dateLine}>
+          {strategyButton}
+        </PageHeader>
         {dashboard.fetchStatus === "paused" ? (
           <View style={styles.firstLoad}>
             <InlineNotice
@@ -124,12 +132,16 @@ export function TodayScreen() {
   const stale = dashboard.isError;
 
   return (
-    <Screen onRefresh={() => void refresh()} refreshing={refreshing}>
+    <Screen
+      statusBarScrim
+      onRefresh={() => void refresh()}
+      refreshing={refreshing}
+    >
       <VStack>
         <View style={styles.top}>
-          <Text variant="subheadline" tone="secondary">
-            {dateLine}
-          </Text>
+          <PageHeader title="Today" subtitle={dateLine}>
+            {strategyButton}
+          </PageHeader>
           {stale ? (
             <InlineNotice
               tone={

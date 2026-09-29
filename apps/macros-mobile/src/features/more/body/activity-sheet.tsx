@@ -7,7 +7,7 @@ import { useToday } from "@/lib/day";
 import { energyLabel, energyValue } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { parseDecimal } from "@/lib/numbers";
-import { Button, gutter, spacing, Text, TextField } from "@/ui";
+import { Button, sheetGutter, spacing, Text, TextField } from "@/ui";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
 const KJ_PER_KCAL = 4.184;
@@ -127,7 +127,7 @@ export function ActivitySheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

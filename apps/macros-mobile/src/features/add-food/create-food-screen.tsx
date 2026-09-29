@@ -1,4 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { formatFoodQuantity } from "@repo/macros-core/foods/display";
 import type {
   MacrosFoodDetailResponse,
@@ -11,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -22,6 +22,7 @@ import {
   useFoodDetail,
   useUpdateFood,
 } from "@/api/foods";
+import { confirmDestructive } from "@/features/more/shared/action-sheet";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import { newClientMutationId } from "@/lib/ids";
@@ -40,6 +41,8 @@ import {
   TextField,
   VStack,
 } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
+import { toolbarText } from "@/ui/toolbar";
 import { IconPicker } from "./components/icon-picker";
 import {
   CoreNutrientFields,
@@ -186,6 +189,13 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
       router.back();
       return;
     }
+    if (Platform.OS === "android") {
+      confirmDestructive({
+        confirmLabel: "Discard changes",
+        onConfirm: () => router.back(),
+      });
+      return;
+    }
     ActionSheetIOS.showActionSheetWithOptions(
       {
         options: ["Discard changes", "Keep editing"],
@@ -263,26 +273,39 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
 
   function confirmDelete() {
     if (mode.kind !== "edit") return;
+    const id = mode.id;
+    const title = `Delete ${state.name.trim() || "this food"}?`;
+    const message = "Entries already logged keep their nutrition.";
+    const remove = () =>
+      deleteFood.mutate(id, {
+        onSuccess: () => {
+          haptics.success();
+          router.back();
+        },
+        onError: (error) => {
+          haptics.error();
+          setNotice({ tone: "error", message: errorMessage(error) });
+        },
+      });
+    if (Platform.OS === "android") {
+      confirmDestructive({
+        title,
+        message,
+        confirmLabel: "Delete food",
+        onConfirm: remove,
+      });
+      return;
+    }
     ActionSheetIOS.showActionSheetWithOptions(
       {
-        title: `Delete ${state.name.trim() || "this food"}?`,
-        message: "Entries already logged keep their nutrition.",
+        title,
+        message,
         options: ["Delete food", "Cancel"],
         destructiveButtonIndex: 0,
         cancelButtonIndex: 1,
       },
       (index) => {
-        if (index !== 0) return;
-        deleteFood.mutate(mode.id, {
-          onSuccess: () => {
-            haptics.success();
-            router.back();
-          },
-          onError: (error) => {
-            haptics.error();
-            setNotice({ tone: "error", message: errorMessage(error) });
-          },
-        });
+        if (index === 0) remove();
       },
     );
   }
@@ -304,16 +327,18 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
         }}
       />
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={cancel}>Cancel</Stack.Toolbar.Button>
+        {toolbarText({
+          onPress: cancel,
+          children: "Cancel",
+        })}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="done"
-          disabled={saving}
-          onPress={saveOnce}
-        >
-          Save
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "done",
+          disabled: saving,
+          onPress: saveOnce,
+          children: "Save",
+        })}
       </Stack.Toolbar>
 
       <Screen automaticallyAdjustKeyboardInsets>

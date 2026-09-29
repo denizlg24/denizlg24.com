@@ -16,34 +16,33 @@ function LoggingFeature() {
   return (
     <FeatureRow
       id="logging"
-      index="01"
       label="Logging"
-      title="Logging that keeps up with you."
+      title="Log a meal in seconds."
       lead={
         <p>
-          Search common and branded foods, scan a barcode, or photograph a
-          nutrition label. What you usually eat around this time is already at
-          the top, one tap from logged.
+          Search common and branded foods, scan a barcode, or snap a nutrition
+          label. The things you usually eat at this time of day are already
+          waiting at the top.
         </p>
       }
       details={[
-        ["Barcodes", "Point the camera at a packet to find the product."],
+        ["Barcode scanning", "Point your camera at a packet and it’s found."],
         [
-          "Nutrition labels",
-          "Photograph a label and the values are read in for you to check.",
+          "Label photos",
+          "Snap a nutrition label and Macros fills in the numbers.",
         ],
         [
-          "Recipes and saved meals",
-          "Log a serving of a recipe, or a saved meal, in one go.",
+          "Recipes and meals",
+          "Save the dishes you make and log a serving in one tap.",
         ],
-        ["The plate", "Gather several foods, then log them together."],
+        ["The plate", "Pile up a whole meal, then log it all at once."],
         [
-          "Any day, any time",
-          "Copy another day, or just part of it, and move entries to another time or day.",
+          "Copy and move",
+          "Repeat yesterday’s breakfast or shift an entry to another day.",
         ],
         [
-          "Offline",
-          "Entries made without signal are kept and sent when you’re back.",
+          "Works offline",
+          "No signal at the gym? Keep logging — it syncs when you’re back.",
         ],
       ]}
       visual={
@@ -61,31 +60,24 @@ function TargetsFeature() {
   return (
     <FeatureRow
       id="targets"
-      index="03"
       label="Targets"
       reverse
-      title="Targets that learn what you burn."
+      title="Targets that learn how you burn."
       lead={
         <p>
-          Macros starts from a formula, then follows your data: it estimates
-          what you burn from what you eat and what you weigh. On check-in day it
-          sets next week’s calories and macros from that estimate and your goal.
+          Most apps guess your calories once and never look back. Macros learns
+          from what you eat and what you weigh, and every week it tunes your
+          calories and macros to keep you moving toward your goal.
         </p>
       }
       details={[
-        ["Coached", "Targets update on their own at each check-in."],
+        ["Hands-off", "Let your targets adjust themselves every week."],
+        ["Your call", "Review each week’s new targets before you accept them."],
+        ["Fully manual", "Prefer your own numbers? Set them and go."],
+        ["High days", "Save extra calories for weekends or big days."],
         [
-          "Collaborative",
-          "Each check-in proposes new targets for you to accept.",
-        ],
-        [
-          "Manual",
-          "You set the calorie target; macros follow your preferences.",
-        ],
-        ["High days", "Put extra calories on the days you choose."],
-        [
-          "Activity",
-          "Steps are shown as context and never added on top of your budget.",
+          "Honest about activity",
+          "Steps never inflate your budget, so there’s no eating back guesses.",
         ],
       ]}
       visual={
@@ -101,50 +93,47 @@ function TargetsFeature() {
 
 const EVERYTHING_ELSE: ReadonlyArray<readonly [string, string]> = [
   [
-    "Micronutrients",
-    "Vitamins and minerals for the day, measured against WHO guidelines.",
+    "Vitamins and minerals",
+    "See the full picture of your day, not just calories and macros.",
   ],
-  [
-    "Recipes",
-    "Built from ingredients, logged by the serving, with nutrition per serving.",
-  ],
+  ["Recipes", "Build a dish once and log it by the serving forever."],
   [
     "Your own foods",
-    "With their own serving sizes — or started from a label photo.",
+    "Add anything that’s missing — a label photo does most of the work.",
   ],
-  ["Shopping list", "What to buy, ticked off as you go."],
-  ["Body", "Waist, hips and other measurements, each with its own trend."],
+  ["Shopping list", "Plan the week’s food and tick it off in the shop."],
+  [
+    "Body measurements",
+    "Track your waist, hips and more, each with its own trend.",
+  ],
   [
     "Progress photos",
-    "Several angles per weigh-in, kept in private object storage.",
+    "See the change you can’t read on the scale. Only you can view them.",
   ],
-  ["Habits", "Weekly targets for the rest of your routine, ticked from Today."],
+  ["Habits", "Water, sleep, steps — tick off the rest of your routine."],
   [
     "Apple Health",
-    "A Shortcut you set up sends weight, body fat, steps and active energy.",
+    "On iPhone, bring in your weight, steps and activity automatically.",
   ],
-  [
-    "Streaks",
-    "A year of logging as a heatmap, and streaks for food and weigh-ins.",
-  ],
-  ["Export", "Your statistics as CSV or JSON, whenever you want them."],
-  ["Units", "kcal or kJ, kg or lb."],
-  ["Light and dark", "Follows your iPhone’s appearance."],
+  ["Streaks", "A year of logging at a glance to keep you going."],
+  ["Export", "Your data is yours. Download it whenever you like."],
+  ["Your units", "Calories or kilojoules, kilograms or pounds."],
+  ["Dark mode", "Follows your phone’s light or dark setting."],
 ];
 
 function EverythingElse() {
   return (
     <section aria-labelledby="more-title" className="py-20 sm:py-24">
       <div className={container}>
-        <SectionLabel index="04">More</SectionLabel>
+        <SectionLabel>More</SectionLabel>
         <div className="mt-12 grid gap-12 lg:mt-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
           <div className="reveal">
             <h2 id="more-title" className={sectionTitle}>
-              The rest of the toolkit.
+              Everything else, included.
             </h2>
             <p className={cn(sectionLead, "mt-5 max-w-md")}>
-              Tucked behind a tab or a menu, out of the way until you want it —
-              and all of it free.
+              No premium tier and no paywall. Every feature is free, for
+              everyone.
             </p>
           </div>
           <ul className="grid gap-x-10 sm:grid-cols-2">
@@ -177,10 +166,9 @@ function NoTrackers() {
         </h2>
         <div className="reveal flex max-w-xl flex-col gap-5">
           <p className={sectionLead}>
-            Macros has no advertising and no third-party analytics. What you log
-            is stored on servers the developer runs, and progress photos sit in
-            private storage, shown to you through links that expire within
-            minutes.
+            What you eat is your business. Macros has no advertising and no
+            third-party analytics, and your progress photos stay private — only
+            you can see them.
           </p>
           <Link
             href="/privacy"

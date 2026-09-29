@@ -1,4 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { formatFoodQuantity } from "@repo/macros-core/foods/display";
 import type {
   MacrosEnteredUnit,
@@ -36,15 +35,16 @@ import {
   Button,
   colors,
   EmptyState,
-  gutter,
   InlineNotice,
   macroColors,
   parseDecimal,
   Section,
+  sheetGutter,
   spacing,
   Text,
   TextField,
 } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { amountModel, quantityFor, scaleFor, unitLabel } from "./entry-amount";
 import { flashEntries } from "./flash";
 import { isIsoDate } from "./selected-date";
@@ -395,10 +395,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xxxl,
   },
   notice: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
     gap: spacing.xxl,
   },

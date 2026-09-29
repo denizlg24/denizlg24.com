@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-// Written by .github/workflows/release-macros-ios.yml on every iOS release.
+// Written by .github/workflows/macros-mobile.yml on every iOS release.
 // Serving it from this origin keeps the URL people add to SideStore stable
 // whatever hosts the file.
 const SOURCE_ASSET_URL =

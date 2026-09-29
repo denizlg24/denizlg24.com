@@ -38,6 +38,7 @@ import {
   TextField,
   VStack,
 } from "@/ui";
+import { toolbarText } from "@/ui/toolbar";
 import { showActionSheet } from "../shared/action-sheet";
 import { NoticeSlot, useNotice } from "../shared/notice";
 import {
@@ -270,7 +271,10 @@ export function RecipeEditorScreen() {
       <Screen>
         <Stack.Screen options={{ title: "Edit recipe" }} />
         <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button onPress={close}>Cancel</Stack.Toolbar.Button>
+          {toolbarText({
+            onPress: close,
+            children: "Cancel",
+          })}
         </Stack.Toolbar>
         {existing.isError ? (
           <EmptyState icon="triangle-alert" title="Couldn’t load this recipe" />
@@ -288,16 +292,18 @@ export function RecipeEditorScreen() {
         }}
       />
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={cancel}>Cancel</Stack.Toolbar.Button>
+        {toolbarText({
+          onPress: cancel,
+          children: "Cancel",
+        })}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="done"
-          disabled={pending}
-          onPress={saveOnce}
-        >
-          {pending ? "Saving…" : "Save"}
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "done",
+          disabled: pending,
+          onPress: saveOnce,
+          children: pending ? "Saving…" : "Save",
+        })}
       </Stack.Toolbar>
       <Screen stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
         <NoticeSlot notice={notice} onDismiss={clear} />

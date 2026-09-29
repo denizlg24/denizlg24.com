@@ -1,10 +1,10 @@
-import { Host, Stepper } from "@expo/ui/swift-ui";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useCreateHabit } from "@/api/habits";
 import { haptics } from "@/lib/haptics";
-import { Button, gutter, spacing, Text, TextField } from "@/ui";
+import { Button, sheetGutter, spacing, Text, TextField } from "@/ui";
+import { Stepper } from "@/ui/stepper";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
 function targetLabel(days: number) {
@@ -51,19 +51,18 @@ export function NewHabitSheet() {
         returnKeyType="done"
         onSubmitEditing={save}
       />
-      <Host matchContents={{ vertical: true }} style={styles.control}>
-        <Stepper
-          label={targetLabel(target)}
-          value={target}
-          step={1}
-          min={1}
-          max={7}
-          onValueChange={(value) => {
-            haptics.selection();
-            setTarget(Math.round(value));
-          }}
-        />
-      </Host>
+      <Stepper
+        label={targetLabel(target)}
+        value={target}
+        step={1}
+        min={1}
+        max={7}
+        onValueChange={(value) => {
+          haptics.selection();
+          setTarget(Math.round(value));
+        }}
+        style={styles.control}
+      />
       <Text variant="footnote" tone="secondary">
         The weekly target sets what counts as on track; streaks still count
         every day you tick it.
@@ -81,7 +80,7 @@ export function NewHabitSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

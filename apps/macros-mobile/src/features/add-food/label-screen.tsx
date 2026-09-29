@@ -1,4 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import type { MacrosVisionLabelFormat } from "@repo/schemas/macros";
 import { CameraView } from "expo-camera";
 import { Image } from "expo-image";
@@ -19,6 +18,7 @@ import { isVisionUnavailable, parseNutritionLabel } from "@/api/vision";
 import { errorMessage, NetworkError } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import { Button, colors, Icon, type IconName, spacing, Text } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { CameraPermissionGate } from "./components/camera-permission";
 import { putLabelDraft } from "./label-draft";
 import { forwardedTimeParams, readParam, useZone } from "./target";
@@ -157,6 +157,7 @@ export function LabelScreen() {
       const photo = await camera.current.takePictureAsync({ quality: 0.9 });
       await read(photo);
     } catch (error) {
+      haptics.error();
       setState({
         kind: "failed",
         uri: "",

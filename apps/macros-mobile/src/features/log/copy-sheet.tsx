@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { dateToIso, isoToDate } from "@repo/macros-core/food-log/date-utils";
 import { formatLoggedAmount } from "@repo/macros-core/foods/display";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -14,14 +13,15 @@ import { haptics } from "@/lib/haptics";
 import { formatTimeOfDay } from "@/lib/log-time";
 import {
   colors,
-  gutter,
   Icon,
   InlineNotice,
   Row,
   Section,
+  sheetGutter,
   spacing,
   Text,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { isIsoDate } from "./selected-date";
 import { SheetHeader } from "./sheet-header";
 import { sumEntries } from "./timeline";
@@ -217,10 +217,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   notice: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
     gap: spacing.xxl,
   },

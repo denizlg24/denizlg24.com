@@ -5,6 +5,7 @@ import {
   HEALTH_IMPORT_WEBHOOK_URL,
   useCreateHealthImportToken,
 } from "@/api/health-import";
+import { capabilities } from "@/lib/config";
 import { haptics } from "@/lib/haptics";
 import {
   Button,
@@ -79,8 +80,9 @@ export function HealthImportScreen() {
       <NoticeSlot notice={notice} onDismiss={clear} />
       <VStack>
         <Text variant="subheadline" tone="secondary">
-          Macros can’t read Apple Health directly. A Shortcut on this iPhone can
-          send your weigh-ins and activity to Macros every day instead.
+          {capabilities.healthKit
+            ? "Sync with Health in Settings does this for you. A Shortcut is only needed to send data from somewhere Macros can’t read."
+            : "Macros can’t read Apple Health directly. A Shortcut on this iPhone can send your weigh-ins and activity to Macros every day instead."}
         </Text>
 
         <Section title="How to set it up">
