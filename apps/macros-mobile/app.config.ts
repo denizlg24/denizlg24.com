@@ -96,6 +96,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     "./plugins/with-scene-lifecycle",
+    "./plugins/without-script-sandboxing",
     "./plugins/with-android-colors",
     "./plugins/with-android-signing",
     ...(entitled
