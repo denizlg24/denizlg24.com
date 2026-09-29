@@ -1,27 +1,46 @@
 import {
   type MacrosCalorieCycling,
+  type MacrosCheckInBody,
+  type MacrosCheckInResponse,
   type MacrosPlanReason,
   type MacrosProgram,
   type MacrosTargetIssue,
   type MacrosUpsertProgramBody,
   macrosCalorieCyclingSchema,
 } from "@repo/schemas/macros";
-import { and, desc, eq, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
+  dailyNutritionSummaries,
   energyExpenditureEstimates,
   nutritionPlanDays,
   nutritionPlans,
   nutritionPrograms,
   userProfiles,
+  weighIns,
   weightGoals,
   weightTrendPoints,
 } from "@/db/schema";
-import { toIsoDate } from "@/lib/weights/date-utils";
+import { updateActiveGoal } from "@/lib/goals/service";
+import { shiftIso, toIsoDate } from "@/lib/weights/date-utils";
 import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
-import { buildCycledTargets, calculateDynamicTargets } from "./target-engine";
+import { recomputeEnergyExpenditureInTransaction } from "@/lib/weights/expenditure-service";
+import { recomputeWeightTrendInTransaction } from "@/lib/weights/trend-service";
+import { caloriesFromMacros, checkInSchedule } from "./check-in";
+import {
+  buildCycledTargets,
+  calculateDynamicTargets,
+  type TargetEngineResult,
+} from "./target-engine";
 
-const TARGET_CHANGE_THRESHOLD_KCAL = 25;
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type CustomTargets = NonNullable<MacrosCheckInBody["targets"]>;
+
+export class NoProgramError extends Error {
+  constructor() {
+    super("Set up a program before checking in");
+  }
+}
 
 function numberOrNull(value: string | null): number | null {
   return value == null ? null : Number(value);
@@ -130,7 +149,7 @@ export async function getTargetHistory(
 }
 
 async function resolveEngineInputs(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: Transaction,
   userId: string,
   program: typeof nutritionPrograms.$inferSelect,
   effectiveFrom: string,
@@ -209,10 +228,12 @@ async function resolveEngineInputs(
   );
   const bmrKcal =
     prior.tdeeKcal / activityMultiplier(profile?.activityLevel ?? null);
+  const previousCalories = numberOrNull(currentIssue?.calorieTarget ?? null);
 
   return {
     goal,
     currentIssue,
+    expenditure,
     target: calculateDynamicTargets({
       tdeeKcal,
       tdeeVarianceKcal2,
@@ -223,39 +244,60 @@ async function resolveEngineInputs(
       proteinGramsPerKg: Number(program.proteinGramsPerKg),
       fatGramsPerKg: numberOrNull(program.fatGramsPerKg),
       fatPercent: numberOrNull(program.fatPercent),
-      previousCalories: numberOrNull(currentIssue?.calorieTarget ?? null),
+      previousCalories,
       manualCalories: numberOrNull(program.manualCalorieTarget),
     }),
-    tdeeKcal,
-    tdeeVarianceKcal2,
+    engine: {
+      tdeeKcal,
+      tdeeVarianceKcal2,
+      bmrKcal,
+      weightKg,
+      previousCalories,
+    },
   };
 }
 
+function customTargetResult(
+  targets: CustomTargets,
+  engineResult: TargetEngineResult,
+): TargetEngineResult {
+  const calories = caloriesFromMacros(targets);
+  return {
+    ...engineResult,
+    calories,
+    proteinGrams: Math.round(targets.proteinGrams),
+    carbsGrams: Math.round(targets.carbsGrams),
+    fatGrams: Math.round(targets.fatGrams),
+    unclampedCalories: calories,
+    clamps: [],
+  };
+}
+
+/**
+ * Every issue is active the moment it is made: a check-in is the owner's
+ * acceptance, so the old collaborative `pending_acceptance` step is gone.
+ */
 async function issueTargetsInTransaction(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: Transaction,
   userId: string,
   program: typeof nutritionPrograms.$inferSelect,
   reason: MacrosPlanReason,
   effectiveFrom: string,
+  custom?: CustomTargets | null,
 ): Promise<MacrosTargetIssue> {
-  const { currentIssue, target, tdeeKcal, tdeeVarianceKcal2 } =
-    await resolveEngineInputs(tx, userId, program, effectiveFrom);
+  const resolved = await resolveEngineInputs(
+    tx,
+    userId,
+    program,
+    effectiveFrom,
+  );
+  const { currentIssue } = resolved;
+  const { tdeeKcal, tdeeVarianceKcal2 } = resolved.engine;
+  const target = custom
+    ? customTargetResult(custom, resolved.target)
+    : resolved.target;
 
-  if (
-    reason === "check_in" &&
-    program.mode !== "coached" &&
-    (program.mode === "manual" ||
-      Math.abs(target.calories - Number(currentIssue?.calorieTarget ?? 0)) <
-        TARGET_CHANGE_THRESHOLD_KCAL)
-  ) {
-    if (!currentIssue)
-      throw new Error("A manual program needs an initial issue");
-    return mapIssue(currentIssue);
-  }
-
-  const status =
-    program.mode === "collaborative" ? "pending_acceptance" : "active";
-  if (status === "active" && currentIssue) {
+  if (currentIssue) {
     await tx
       .update(nutritionPlans)
       .set({
@@ -267,25 +309,26 @@ async function issueTargetsInTransaction(
       .where(eq(nutritionPlans.id, currentIssue.id));
   }
 
-  if (status === "pending_acceptance") {
-    await tx
-      .update(nutritionPlans)
-      .set({ status: "archived", updatedAt: new Date() })
-      .where(
-        and(
-          eq(nutritionPlans.userId, userId),
-          eq(nutritionPlans.status, "pending_acceptance"),
-        ),
-      );
-  }
+  // A proposal left waiting from before check-ins were manual is moot now.
+  await tx
+    .update(nutritionPlans)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(
+      and(
+        eq(nutritionPlans.userId, userId),
+        eq(nutritionPlans.status, "pending_acceptance"),
+      ),
+    );
 
   const [inserted] = await tx
     .insert(nutritionPlans)
     .values({
       userId,
       programId: program.id,
-      name: `${program.mode === "manual" ? "Manual" : "Adaptive"} target`,
-      status,
+      name: custom
+        ? "Custom target"
+        : `${program.mode === "manual" ? "Manual" : "Adaptive"} target`,
+      status: "active",
       goalType: program.goalType,
       startDate: effectiveFrom,
       effectiveFrom,
@@ -318,6 +361,45 @@ async function issueTargetsInTransaction(
   return mapIssue(inserted);
 }
 
+function programValues(input: MacrosUpsertProgramBody) {
+  return {
+    activeWeightGoalId: input.activeWeightGoalId ?? null,
+    goalType: input.goalType,
+    proteinGramsPerKg: input.proteinGramsPerKg.toFixed(2),
+    fatGramsPerKg: input.fatGramsPerKg?.toFixed(2) ?? null,
+    fatPercent: input.fatPercent?.toFixed(2) ?? null,
+    distributionProfile: input.distributionProfile,
+    calorieCycling: input.calorieCycling satisfies MacrosCalorieCycling,
+    checkInWeekday: input.checkInWeekday,
+    // Collaborative only differed by waiting for acceptance, which every check-in now is.
+    mode: input.mode === "collaborative" ? "coached" : input.mode,
+    dietPhase: input.dietPhase,
+    manualCalorieTarget: input.manualCalorieTarget?.toFixed(2) ?? null,
+    updatedAt: new Date(),
+  } as const;
+}
+
+async function saveProgramRow(
+  tx: Transaction,
+  userId: string,
+  existing: typeof nutritionPrograms.$inferSelect | undefined,
+  input: MacrosUpsertProgramBody,
+) {
+  const values = programValues(input);
+  const [program] = existing
+    ? await tx
+        .update(nutritionPrograms)
+        .set(values)
+        .where(eq(nutritionPrograms.id, existing.id))
+        .returning()
+    : await tx
+        .insert(nutritionPrograms)
+        .values({ userId, ...values })
+        .returning();
+  if (!program) throw new Error("Failed to save nutrition program");
+  return program;
+}
+
 export async function upsertProgram(
   userId: string,
   input: MacrosUpsertProgramBody,
@@ -329,31 +411,7 @@ export async function upsertProgram(
         eq(nutritionPrograms.status, "active"),
       ),
     });
-    const values = {
-      activeWeightGoalId: input.activeWeightGoalId ?? null,
-      goalType: input.goalType,
-      proteinGramsPerKg: input.proteinGramsPerKg.toFixed(2),
-      fatGramsPerKg: input.fatGramsPerKg?.toFixed(2) ?? null,
-      fatPercent: input.fatPercent?.toFixed(2) ?? null,
-      distributionProfile: input.distributionProfile,
-      calorieCycling: input.calorieCycling satisfies MacrosCalorieCycling,
-      checkInWeekday: input.checkInWeekday,
-      mode: input.mode,
-      dietPhase: input.dietPhase,
-      manualCalorieTarget: input.manualCalorieTarget?.toFixed(2) ?? null,
-      updatedAt: new Date(),
-    };
-    const [program] = existing
-      ? await tx
-          .update(nutritionPrograms)
-          .set(values)
-          .where(eq(nutritionPrograms.id, existing.id))
-          .returning()
-      : await tx
-          .insert(nutritionPrograms)
-          .values({ userId, ...values })
-          .returning();
-    if (!program) throw new Error("Failed to save nutrition program");
+    const program = await saveProgramRow(tx, userId, existing, input);
     const profile = await tx.query.userProfiles.findFirst({
       where: eq(userProfiles.userId, userId),
       columns: { timezone: true },
@@ -440,28 +498,182 @@ export async function issueTargetsForGoalChange(
   });
 }
 
-export async function runWeeklyProgramCheckIns() {
-  const programs = await db.query.nutritionPrograms.findMany({
-    where: eq(nutritionPrograms.status, "active"),
+async function lastCheckInOn(
+  tx: Transaction,
+  userId: string,
+): Promise<string | null> {
+  const row = await tx.query.nutritionPlans.findFirst({
+    where: and(
+      eq(nutritionPlans.userId, userId),
+      inArray(nutritionPlans.reason, ["check_in", "onboarding"]),
+      ne(nutritionPlans.status, "pending_acceptance"),
+    ),
+    orderBy: [desc(nutritionPlans.effectiveFrom)],
+    columns: { effectiveFrom: true, startDate: true },
   });
-  let issued = 0;
-  let skipped = 0;
-  for (const program of programs) {
-    const profile = await db.query.userProfiles.findFirst({
-      where: eq(userProfiles.userId, program.userId),
-      columns: { timezone: true },
+  return row ? (row.effectiveFrom ?? row.startDate) : null;
+}
+
+/** The seven completed days before today: today's log is still being written. */
+async function weekRecap(tx: Transaction, userId: string, today: string) {
+  const from = shiftIso(today, -7);
+  const to = shiftIso(today, -1);
+  const [days, weighInRows, start, end] = await Promise.all([
+    tx.query.dailyNutritionSummaries.findMany({
+      where: and(
+        eq(dailyNutritionSummaries.userId, userId),
+        gte(dailyNutritionSummaries.logDate, from),
+        lte(dailyNutritionSummaries.logDate, to),
+      ),
+      columns: { calories: true },
+    }),
+    tx.query.weighIns.findMany({
+      where: and(
+        eq(weighIns.userId, userId),
+        gte(weighIns.logDate, from),
+        lte(weighIns.logDate, to),
+      ),
+      columns: { id: true },
+    }),
+    tx.query.weightTrendPoints.findFirst({
+      where: and(
+        eq(weightTrendPoints.userId, userId),
+        lte(weightTrendPoints.logDate, shiftIso(from, -1)),
+      ),
+      orderBy: [desc(weightTrendPoints.logDate)],
+      columns: { trendWeightKg: true },
+    }),
+    tx.query.weightTrendPoints.findFirst({
+      where: and(
+        eq(weightTrendPoints.userId, userId),
+        lte(weightTrendPoints.logDate, to),
+      ),
+      orderBy: [desc(weightTrendPoints.logDate)],
+      columns: { trendWeightKg: true },
+    }),
+  ]);
+  const logged = days
+    .map((day) => Number(day.calories))
+    .filter((calories) => calories > 0);
+  return {
+    from,
+    to,
+    loggedDays: logged.length,
+    averageIntakeKcal:
+      logged.length > 0
+        ? Math.round(
+            logged.reduce((sum, value) => sum + value, 0) / logged.length,
+          )
+        : null,
+    weighIns: weighInRows.length,
+    trendStartKg: start ? Number(start.trendWeightKg) : null,
+    trendEndKg: end ? Number(end.trendWeightKg) : null,
+  };
+}
+
+async function todayFor(tx: Transaction, userId: string) {
+  const profile = await tx.query.userProfiles.findFirst({
+    where: eq(userProfiles.userId, userId),
+    columns: { timezone: true },
+  });
+  return toIsoDate(new Date(), profile?.timezone ?? "UTC");
+}
+
+/** Expenditure otherwise only moves on a weigh-in; a check-in reads it fresh. */
+async function refreshEstimates(
+  tx: Transaction,
+  userId: string,
+  today: string,
+) {
+  await recomputeWeightTrendInTransaction(tx, userId, today);
+  await recomputeEnergyExpenditureInTransaction(tx, userId, today);
+}
+
+export async function getCheckIn(
+  userId: string,
+): Promise<MacrosCheckInResponse> {
+  return db.transaction(async (tx) => {
+    const program = await tx.query.nutritionPrograms.findFirst({
+      where: and(
+        eq(nutritionPrograms.userId, userId),
+        eq(nutritionPrograms.status, "active"),
+      ),
     });
-    const today = toIsoDate(new Date(), profile?.timezone ?? "UTC");
-    if (
-      new Date(`${today}T00:00:00.000Z`).getUTCDay() !== program.checkInWeekday
-    ) {
-      skipped += 1;
-      continue;
-    }
-    await db.transaction((tx) =>
-      issueTargetsInTransaction(tx, program.userId, program, "check_in", today),
+    if (!program) throw new NoProgramError();
+    const today = await todayFor(tx, userId);
+    await refreshEstimates(tx, userId, today);
+    const [resolved, last, week] = await Promise.all([
+      resolveEngineInputs(tx, userId, program, today),
+      lastCheckInOn(tx, userId),
+      weekRecap(tx, userId, today),
+    ]);
+    const schedule = checkInSchedule({
+      today,
+      checkInWeekday: program.checkInWeekday,
+      lastCheckInOn: last,
+    });
+    const { target } = resolved;
+    return {
+      scheduledOn: schedule.scheduledOn,
+      nextOn: schedule.nextOn,
+      lastCheckInOn: last,
+      due: schedule.due,
+      current: resolved.currentIssue ? mapIssue(resolved.currentIssue) : null,
+      week,
+      expenditure: {
+        tdeeKcal: resolved.engine.tdeeKcal,
+        varianceKcal2: resolved.engine.tdeeVarianceKcal2,
+        previousTdeeKcal: numberOrNull(
+          resolved.currentIssue?.tdeeAtIssue ?? null,
+        ),
+        method: resolved.expenditure?.method ?? null,
+      },
+      engine: resolved.engine,
+      proposal: {
+        calories: target.calories,
+        proteinGrams: target.proteinGrams,
+        carbsGrams: target.carbsGrams,
+        fatGrams: target.fatGrams,
+        clamps: target.clamps,
+      },
+    };
+  });
+}
+
+/**
+ * The goal is applied first and outside the transaction: `updateActiveGoal`
+ * owns its own writes, and going through the goal route instead would issue a
+ * `goal_change` target whose weekly clamp this check-in would then stack on.
+ */
+export async function checkIn(
+  userId: string,
+  body: MacrosCheckInBody,
+): Promise<{ program: MacrosProgram; issue: MacrosTargetIssue }> {
+  const existing = await getActiveProgram(userId);
+  if (!existing) throw new NoProgramError();
+  const goal = body.goal ? await updateActiveGoal(userId, body.goal) : null;
+  return db.transaction(async (tx) => {
+    const row = await tx.query.nutritionPrograms.findFirst({
+      where: eq(nutritionPrograms.id, existing.id),
+    });
+    const program = await saveProgramRow(tx, userId, row, {
+      ...body.program,
+      activeWeightGoalId:
+        goal?.id ??
+        body.program.activeWeightGoalId ??
+        existing.activeWeightGoalId,
+      goalType: goal?.goalType ?? body.program.goalType,
+    });
+    const today = await todayFor(tx, userId);
+    await refreshEstimates(tx, userId, today);
+    const issue = await issueTargetsInTransaction(
+      tx,
+      userId,
+      program,
+      "check_in",
+      today,
+      body.targets,
     );
-    issued += 1;
-  }
-  return { programsProcessed: programs.length, issued, skipped };
+    return { program: mapProgram(program), issue };
+  });
 }

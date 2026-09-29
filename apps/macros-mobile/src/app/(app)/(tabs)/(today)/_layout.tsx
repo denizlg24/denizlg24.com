@@ -8,6 +8,7 @@ export default function Layout() {
         name="index"
         options={{ ...tabRootOptions, title: "Today" }}
       />
+      <Stack.Screen name="strategy" options={{ title: "Strategy" }} />
     </Stack>
   );
 }

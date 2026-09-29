@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useActiveGoal } from "@/api/goals";
 import { useStatistics } from "@/api/statistics";
-import { useNutritionProgram } from "@/api/strategy";
+import { useCheckIn, useNutritionProgram } from "@/api/strategy";
 import {
   useDeleteWeighIn,
   useUpsertWeighIn,
@@ -80,6 +80,7 @@ export function ProgressScreen() {
   const goal = useActiveGoal();
   const statistics = useStatistics("28d");
   const program = useNutritionProgram();
+  const checkIn = useCheckIn({ enabled: program.data?.program != null });
   const [range, setRange] = useState<WeightRange>("3M");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const { refreshing, onRefresh } = useRefresh([
@@ -270,7 +271,11 @@ export function ProgressScreen() {
           <Row
             icon="sliders-horizontal"
             title="Strategy"
-            subtitle={strategySubtitle(program.data, energyUnit)}
+            subtitle={strategySubtitle(
+              program.data,
+              checkIn.data?.due ?? false,
+              energyUnit,
+            )}
             chevron
             onPress={() => router.push(progressPaths.strategy)}
           />
@@ -311,14 +316,19 @@ export function ProgressScreen() {
 
 function strategySubtitle(
   data: MacrosProgramsResponse | undefined,
+  due: boolean,
   unit: EnergyUnit,
 ): string {
   if (!data?.program) return "Set up your program";
+  if (due) return "Check-in due";
   if (data.issues.some((issue) => issue.status === "pending_acceptance")) {
     return "New targets are waiting for you";
   }
   const active = data.issues.find((issue) => issue.status === "active");
-  const mode = labelFor(programModeOptions, data.program.mode);
+  const mode = labelFor(
+    programModeOptions,
+    data.program.mode === "collaborative" ? "coached" : data.program.mode,
+  );
   return active
     ? `${formatEnergy(active.calorieTarget, unit)} ${energyLabel(unit)} · ${mode}`
     : mode;

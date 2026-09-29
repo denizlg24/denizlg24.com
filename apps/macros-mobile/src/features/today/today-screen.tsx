@@ -13,6 +13,7 @@ import { haptics } from "@/lib/haptics";
 import {
   Button,
   Flash,
+  HeaderIconButton,
   InlineNotice,
   PageHeader,
   Screen,
@@ -81,6 +82,13 @@ export function TodayScreen() {
   const openLog = () => router.push("/log");
   const openProgress = () => router.push("/progress");
   const openMore = () => router.push("/more");
+  const strategyButton = (
+    <HeaderIconButton
+      icon="target"
+      label="Strategy"
+      onPress={() => router.push("/strategy")}
+    />
+  );
 
   const data = dashboard.data;
   const dateLine = format(parseISO(data?.today ?? day), "EEEE d MMMM");
@@ -88,7 +96,9 @@ export function TodayScreen() {
   if (!data) {
     return (
       <Screen statusBarScrim>
-        <PageHeader title="Today" subtitle={dateLine} />
+        <PageHeader title="Today" subtitle={dateLine}>
+          {strategyButton}
+        </PageHeader>
         {dashboard.fetchStatus === "paused" ? (
           <View style={styles.firstLoad}>
             <InlineNotice
@@ -129,7 +139,9 @@ export function TodayScreen() {
     >
       <VStack>
         <View style={styles.top}>
-          <PageHeader title="Today" subtitle={dateLine} />
+          <PageHeader title="Today" subtitle={dateLine}>
+            {strategyButton}
+          </PageHeader>
           {stale ? (
             <InlineNotice
               tone={
