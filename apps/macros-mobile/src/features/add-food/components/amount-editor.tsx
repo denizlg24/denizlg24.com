@@ -1,4 +1,5 @@
 import { MenuView } from "@expo/ui/community/menu";
+import { useEffect, useRef } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import { haptics } from "@/lib/haptics";
 import {
@@ -46,6 +47,20 @@ export function AmountEditor({
 }) {
   const option = findOption(serving, value.optionId);
   const quantity = parseDecimal(value.text);
+  const input = useRef<TextInput>(null);
+  const initialLength = useRef(value.text.length);
+
+  // `autoFocus` fires while the sheet is still sliding up, which drops the
+  // selection; wait for it to settle, then select the amount so typing
+  // replaces it.
+  useEffect(() => {
+    if (!autoFocus) return;
+    const id = setTimeout(() => {
+      input.current?.focus();
+      input.current?.setSelection(0, initialLength.current);
+    }, SHEET_SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [autoFocus]);
 
   function switchUnit(nextId: string) {
     if (nextId === option.id) return;
@@ -62,11 +77,11 @@ export function AmountEditor({
     <View style={styles.container}>
       <View style={styles.inputRow}>
         <TextInput
+          ref={input}
           value={value.text}
           onChangeText={(text) => onChange({ optionId: option.id, text })}
           keyboardType="decimal-pad"
           selectTextOnFocus
-          autoFocus={autoFocus}
           placeholder="0"
           placeholderTextColor={colors.placeholder}
           accessibilityLabel={`Amount in ${option.title}`}
@@ -125,6 +140,8 @@ export function AmountEditor({
     </View>
   );
 }
+
+const SHEET_SETTLE_MS = 350;
 
 const styles = StyleSheet.create({
   container: {

@@ -14,10 +14,10 @@ import {
   Button,
   Flash,
   InlineNotice,
+  PageHeader,
   Screen,
   Section,
   spacing,
-  Text,
   VStack,
 } from "@/ui";
 import { EnergySection } from "./energy-section";
@@ -87,10 +87,8 @@ export function TodayScreen() {
 
   if (!data) {
     return (
-      <Screen>
-        <Text variant="subheadline" tone="secondary">
-          {dateLine}
-        </Text>
+      <Screen statusBarScrim>
+        <PageHeader title="Today" subtitle={dateLine} />
         {dashboard.fetchStatus === "paused" ? (
           <View style={styles.firstLoad}>
             <InlineNotice
@@ -124,12 +122,14 @@ export function TodayScreen() {
   const stale = dashboard.isError;
 
   return (
-    <Screen onRefresh={() => void refresh()} refreshing={refreshing}>
+    <Screen
+      statusBarScrim
+      onRefresh={() => void refresh()}
+      refreshing={refreshing}
+    >
       <VStack>
         <View style={styles.top}>
-          <Text variant="subheadline" tone="secondary">
-            {dateLine}
-          </Text>
+          <PageHeader title="Today" subtitle={dateLine} />
           {stale ? (
             <InlineNotice
               tone={

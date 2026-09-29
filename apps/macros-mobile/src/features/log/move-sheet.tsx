@@ -10,11 +10,11 @@ import { haptics } from "@/lib/haptics";
 import { clockOf, eatenAtFor, formatTimeOfDay } from "@/lib/log-time";
 import {
   colors,
-  gutter,
   Hairline,
   Icon,
   InlineNotice,
   Section,
+  sheetGutter,
   spacing,
   Text,
 } from "@/ui";
@@ -190,10 +190,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   notice: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
     gap: spacing.xxl,
   },

@@ -19,14 +19,14 @@ import { type LogTime, logPlacement, readLogTime } from "@/lib/log-time";
 import {
   Button,
   colors,
-  gutter,
   parseDecimal,
+  SheetHeader,
+  sheetGutter,
   spacing,
   TextField,
   typeScale,
 } from "@/ui";
 import { kcalFromMacros } from "./logic";
-import { SheetHeader } from "./sheet-header";
 
 const MAX_KCAL = 30_000;
 const MAX_MACRO_GRAMS = 5_000;
@@ -199,7 +199,7 @@ export function QuickAddSheet() {
 const styles = StyleSheet.create({
   container: {
     gap: spacing.xl,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     backgroundColor: colors.background,
   },

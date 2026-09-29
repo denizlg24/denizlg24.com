@@ -143,11 +143,14 @@ small differences are a `Platform.OS` check. The ones that exist:
 - iOS-only surfaces hide on Android: the Apple Health section (HealthKit
   and the Shortcuts import). Copy that names the device uses `DEVICE_NAME`.
 
-- Every tab screen is a `Screen` (a ScrollView with automatic content insets)
-  under a large title that collapses on scroll. Header buttons and menus are
-  `Stack.Toolbar` / `Stack.Toolbar.Menu` / `Stack.Toolbar.MenuAction`,
-  declared inside the screen via `<Stack.Screen options>` or
-  `<Stack.Toolbar placement="right">`.
+- A tab's root screen hides the native bar (`tabRootOptions`) and draws its
+  own `PageHeader`: the large title with the screen's actions
+  (`HeaderIconButton`, `HeaderTextButton`, an `@expo/ui` `MenuView`) on the
+  same row, inside a `Screen statusBarScrim`. A native large title leaves an
+  empty bar above it, which on a root is dead space. Pushed pages keep the
+  native header (back button, `Stack.Toolbar` buttons and menus). A bottom
+  `Stack.Toolbar` does not render under a hidden bar, so a root's modes
+  (Log's selection) put their actions in the `PageHeader` row too.
 - Icons are Lucide. In content, `<Icon name>` from `@/ui` (the registry is
   `ui/icons.ts`; add a name there first). Native chrome (the tab bar,
   toolbar buttons and their menus) takes images, not components: pass
@@ -164,7 +167,10 @@ small differences are a `Platform.OS` check. The ones that exist:
   that stages food is the one deliberate exception: tapping it twice adds
   twice.
 - Short tasks are sheets, not pages: `compactSheet` (fits content) or
-  `detentSheet` (0.6 → 1) from `features/shell/routes.ts`. Full forms with
+  `detentSheet` (0.6 → 1) from `features/shell/routes.ts`. A sheet without a
+  navigation bar opens with `SheetHeader` from `@/ui` (title, artwork,
+  actions, Close) and pads its content by `sheetGutter` with `spacing.xl`
+  above the header; edit sheets with Cancel / Save use the log's bar. Full forms with
   Cancel/Save are `formModal`. Camera surfaces are `cameraModal`. A modal
   route is registered by adding it to the feature's `routes.ts` array — the
   presentation must be known before the screen is pushed.
@@ -176,6 +182,9 @@ small differences are a `Platform.OS` check. The ones that exist:
   the header, a Scan / Search / Recipes / Library / Shop strip, and the search
   field with "Log Foods (N)" in the bottom toolbar. A row's "+" stages its
   amount on the plate; everything on it is logged together. Swipe logs at once.
+  The food and recipe sheets only add to the plate; opened from anywhere but
+  the hub (a scan, My foods, New food) they land in the hub afterwards
+  (`goToHub`), and a scanned food opens in the same sheet over the hub.
 - Lists: swipe actions via `SwipeRow`, long-press context menus, pull to
   refresh through `Screen onRefresh`. Search uses the native search bar
   (`headerSearchBarOptions`).

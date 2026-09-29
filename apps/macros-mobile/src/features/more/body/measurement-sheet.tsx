@@ -10,7 +10,15 @@ import { useToday } from "@/lib/day";
 import { formatDayLabel, formatDecimal } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { parseDecimal } from "@/lib/numbers";
-import { Button, colors, gutter, Icon, spacing, Text, TextField } from "@/ui";
+import {
+  Button,
+  colors,
+  Icon,
+  sheetGutter,
+  spacing,
+  Text,
+  TextField,
+} from "@/ui";
 import { DateTimePicker } from "@/ui/date-time-picker";
 import { SegmentedControl } from "@/ui/segmented-control";
 import { NoticeSlot, useNotice } from "../shared/notice";
@@ -160,7 +168,7 @@ export function MeasurementSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

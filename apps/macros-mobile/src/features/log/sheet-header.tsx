@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { colors, gutter, spacing, Text } from "@/ui";
+import { colors, sheetGutter, spacing, Text } from "@/ui";
 
 export interface SheetHeaderProps {
   title: string;
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
   },

@@ -13,12 +13,19 @@ import { FoodIcon } from "@/components/food-icon";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import { newClientMutationId } from "@/lib/ids";
-import { type LogTime, logPlacement, logTimeOf } from "@/lib/log-time";
+import {
+  type LogTime,
+  logPlacement,
+  logTimeOf,
+  logTimeParams,
+} from "@/lib/log-time";
 import {
   Button,
   InlineNotice,
   parseDecimal,
   Screen,
+  SheetHeader,
+  sheetGutter,
   spacing,
   VStack,
 } from "@/ui";
@@ -27,8 +34,7 @@ import {
   AmountNutrition,
   NutritionBreakdown,
 } from "./components/nutrition-panel";
-import { SheetHeader } from "./components/sheet-header";
-import { useLogActions } from "./log-actions";
+import { goToHub, useHubBelow } from "./hub-route";
 import {
   addToPlate,
   findPlateItem,
@@ -69,8 +75,11 @@ export function FoodDetailScreen() {
 
   if (!detail.data) {
     return (
-      <Screen>
-        <SheetHeader title={readParam(params.name) ?? "Food"} />
+      <Screen contentContainerStyle={styles.sheet}>
+        <SheetHeader
+          title={readParam(params.name) ?? "Food"}
+          onClose={() => router.back()}
+        />
         {detail.isError ? (
           <InlineNotice
             message={`Couldn’t load this food. ${errorMessage(detail.error)}`}
@@ -119,7 +128,7 @@ function FoodDetailBody({
   const { item, nutrition } = detail;
   const zone = useZone();
   const targets = useTargets(zone.today);
-  const { log } = useLogActions();
+  const hubBelow = useHubBelow();
   const favorites = useFavorites();
   const saveFavorite = useSaveFavorite();
   const removeFavorite = useRemoveFavorite();
@@ -219,20 +228,13 @@ function FoodDetailBody({
     };
   }
 
-  function logNow() {
-    const input = buildInput();
-    if (!input) return;
-    log({ kind: "food", input }, item.name, sourceItemId, macrosOf(scaled));
-    router.back();
-  }
-
   function stage() {
     const staged = stagedItem(plateItem?.uid ?? newClientMutationId());
     if (!staged) return;
     haptics.light();
     if (plateItem) replacePlateItem(staged);
     else addToPlate(staged);
-    router.back();
+    goToHub(hubBelow(), logTimeParams(when, zone.today));
   }
 
   const subtitle = [item.brand, item.isUserFood ? "Your food" : null]
@@ -240,10 +242,11 @@ function FoodDetailBody({
     .join(" · ");
 
   return (
-    <Screen>
+    <Screen contentContainerStyle={styles.sheet}>
       <VStack gap={spacing.xl}>
         <SheetHeader
           title={item.name}
+          onClose={() => router.back()}
           subtitle={subtitle || undefined}
           leading={
             <FoodIcon name={item.name} iconKey={item.iconKey} size={44} />
@@ -286,6 +289,7 @@ function FoodDetailBody({
           value={amount}
           presets={presets}
           onChange={setAmount}
+          autoFocus
         />
 
         <EatenAtPicker
@@ -316,16 +320,12 @@ function FoodDetailBody({
               />
             </>
           ) : (
-            <>
-              <Button label="Log" disabled={!valid} onPress={logNow} />
-              <Button
-                label="Add to plate"
-                variant="tinted"
-                icon="inbox"
-                disabled={!valid}
-                onPress={stage}
-              />
-            </>
+            <Button
+              label="Add to plate"
+              icon="plus"
+              disabled={!valid}
+              onPress={stage}
+            />
           )}
         </View>
 
@@ -336,6 +336,10 @@ function FoodDetailBody({
 }
 
 const styles = StyleSheet.create({
+  sheet: {
+    paddingTop: spacing.xl,
+    paddingHorizontal: sheetGutter,
+  },
   loading: {
     paddingVertical: spacing.xxxl,
   },

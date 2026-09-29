@@ -8,7 +8,7 @@ import { useProfile } from "@/api/profile";
 import { useRecipes } from "@/api/recipes";
 import { useShoppingList } from "@/api/shopping-list";
 import { formatInteger } from "@/lib/format";
-import { Row, Screen, Section, spacing, Text, VStack } from "@/ui";
+import { PageHeader, Row, Screen, Section, spacing, Text, VStack } from "@/ui";
 import { useRefresh } from "./shared/use-refresh";
 
 function count(value: number | undefined) {
@@ -46,8 +46,9 @@ export function MoreScreen() {
       : undefined;
 
   return (
-    <Screen onRefresh={onRefresh} refreshing={refreshing}>
+    <Screen statusBarScrim onRefresh={onRefresh} refreshing={refreshing}>
       <VStack>
+        <PageHeader title="More" />
         {profile.data ? (
           <View style={styles.account} accessible accessibilityRole="header">
             <Text variant="title2" numberOfLines={2}>

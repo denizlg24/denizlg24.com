@@ -3,7 +3,7 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useCreateHabit } from "@/api/habits";
 import { haptics } from "@/lib/haptics";
-import { Button, gutter, spacing, Text, TextField } from "@/ui";
+import { Button, sheetGutter, spacing, Text, TextField } from "@/ui";
 import { Stepper } from "@/ui/stepper";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
@@ -80,7 +80,7 @@ export function NewHabitSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

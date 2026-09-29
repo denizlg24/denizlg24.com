@@ -11,7 +11,7 @@ import { deviceTimeZone, useToday } from "@/lib/day";
 import { energyLabel, formatDecimal, formatEnergy } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { type LogTime, logPlacement } from "@/lib/log-time";
-import { Button, EmptyState, gutter, spacing, Text } from "@/ui";
+import { Button, EmptyState, sheetGutter, spacing, Text } from "@/ui";
 import { Stepper } from "@/ui/stepper";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
@@ -135,7 +135,7 @@ export function RecipeLogSheet() {
 
 const styles = StyleSheet.create({
   sheet: {
-    paddingHorizontal: gutter,
+    paddingHorizontal: sheetGutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xl,
     gap: spacing.lg,

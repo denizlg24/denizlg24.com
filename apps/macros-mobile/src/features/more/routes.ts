@@ -3,6 +3,7 @@ import {
   compactSheet,
   formModal,
   type ModalRoute,
+  tabRootOptions,
 } from "@/features/shell/routes";
 
 /** Nothing from More is presented over the whole app. */
@@ -36,7 +37,7 @@ const modalForm: NativeStackNavigationOptions = {
 export const moreStackRoutes: ModalRoute[] = [
   ...Object.entries(pageTitles).map(([name, title]) => ({
     name,
-    options: { title },
+    options: name === "index" ? { ...tabRootOptions, title } : { title },
   })),
   {
     name: "recipes/[id]",

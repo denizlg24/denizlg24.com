@@ -18,6 +18,15 @@ export const tabStackOptions: NativeStackNavigationOptions = {
 };
 
 /**
+ * A tab's root screen: it draws its own title and actions (`PageHeader`) on
+ * one row, so the native bar, which would sit empty above it, is hidden.
+ * Pushed pages keep the native header for the back button.
+ */
+export const tabRootOptions: NativeStackNavigationOptions = {
+  headerShown: false,
+};
+
+/**
  * A screen presented over the tabs. Presentation has to be declared on the
  * navigator before the screen is pushed, so each feature exports its modal
  * routes and `(app)/_layout.tsx` registers them all.

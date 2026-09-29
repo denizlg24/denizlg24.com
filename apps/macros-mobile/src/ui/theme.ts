@@ -153,6 +153,12 @@ export const spacing = {
 /** Standard iOS content margin. */
 export const gutter = spacing.lg;
 
+/**
+ * Sheets float inset from the screen with large corner radii, so their
+ * content sits further in than a page's.
+ */
+export const sheetGutter = spacing.xl;
+
 export const hairline = StyleSheet.hairlineWidth;
 
 export const radius = {

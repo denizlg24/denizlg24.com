@@ -2,7 +2,7 @@ import type {
   MacrosProgramsResponse,
   MacrosWeighInItem,
 } from "@repo/schemas/macros";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useActiveGoal } from "@/api/goals";
@@ -29,8 +29,10 @@ import {
   Button,
   EmptyState,
   Flash,
+  HeaderIconButton,
   InlineNotice,
   Meter,
+  PageHeader,
   Row,
   Screen,
   Section,
@@ -41,7 +43,6 @@ import {
   useResolvedColors,
   VStack,
 } from "@/ui";
-import { glyphs } from "@/ui/glyphs";
 import { ExpenditureChart, WeightTrendChart } from "./charts";
 import { Segmented } from "./controls";
 import {
@@ -100,221 +101,211 @@ export function ProgressScreen() {
   const logWeighIn = () => router.push(progressPaths.weighIn);
 
   return (
-    <>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={glyphs.plus}
-          iconRenderingMode="template"
-          accessibilityLabel="Log weigh-in"
-          onPress={logWeighIn}
-        />
-      </Stack.Toolbar>
-      <Screen onRefresh={onRefresh} refreshing={refreshing}>
-        <VStack>
-          {overview.isError && !overview.data ? (
-            <InlineNotice
-              message={errorMessage(overview.error)}
-              action={{
-                label: "Retry",
-                onPress: () => void overview.refetch(),
-              }}
-            />
-          ) : null}
+    <Screen statusBarScrim onRefresh={onRefresh} refreshing={refreshing}>
+      <VStack>
+        <PageHeader title="Progress">
+          <HeaderIconButton
+            icon="plus"
+            label="Log weigh-in"
+            onPress={logWeighIn}
+          />
+        </PageHeader>
+        {overview.isError && !overview.data ? (
+          <InlineNotice
+            message={errorMessage(overview.error)}
+            action={{
+              label: "Retry",
+              onPress: () => void overview.refetch(),
+            }}
+          />
+        ) : null}
 
-          <View style={styles.block}>
-            <Segmented
-              options={RANGE_OPTIONS}
-              value={range}
-              onChange={(next) => {
-                setSelectedDate(null);
-                setRange(next);
-              }}
-            />
-            <View style={styles.figures}>
-              {selected ? (
-                <>
-                  <Stat
-                    label={formatIsoDate(selected.date)}
-                    value={formatWeightNumber(
-                      selected.trendWeightKg,
-                      weightUnit,
-                    )}
-                    unit={weightUnit}
-                    detail="trend"
-                    size="large"
-                  />
-                  <Stat
-                    label="Scale"
-                    value={
-                      selected.scaleWeightKg == null
-                        ? "—"
-                        : formatWeightNumber(selected.scaleWeightKg, weightUnit)
-                    }
-                    unit={
-                      selected.scaleWeightKg == null ? undefined : weightUnit
-                    }
-                    detail={
-                      selected.scaleWeightKg == null ? "no weigh-in" : undefined
-                    }
-                  />
-                  <Stat
-                    label="Weekly"
-                    value={
-                      selected.slopeKgPerWeek == null
-                        ? "—"
-                        : formatWeeklyRate(selected.slopeKgPerWeek, weightUnit)
-                    }
-                  />
-                </>
-              ) : (
-                <>
-                  <Stat
-                    label="Trend"
-                    value={
-                      summary.trendKg == null
-                        ? "—"
-                        : formatWeightNumber(summary.trendKg, weightUnit)
-                    }
-                    unit={summary.trendKg == null ? undefined : weightUnit}
-                    size="large"
-                  />
-                  <Stat
-                    label="Weekly"
-                    value={
-                      summary.slopeKgPerWeek == null
-                        ? "—"
-                        : formatWeeklyRate(summary.slopeKgPerWeek, weightUnit)
-                    }
-                    detail={
-                      summary.slopeKgPerWeek == null && points.length > 0
-                        ? "needs more weigh-ins"
-                        : undefined
-                    }
-                  />
-                  <Stat
-                    label={`Change · ${range}`}
-                    value={
-                      summary.changeKg == null
-                        ? "—"
-                        : formatWeightDelta(summary.changeKg, weightUnit)
-                    }
-                  />
-                </>
-              )}
-            </View>
-
-            {overview.isPending ? (
-              <View style={styles.chartPlaceholder}>
-                <ActivityIndicator />
-              </View>
-            ) : points.length >= 2 ? (
+        <View style={styles.block}>
+          <Segmented
+            options={RANGE_OPTIONS}
+            value={range}
+            onChange={(next) => {
+              setSelectedDate(null);
+              setRange(next);
+            }}
+          />
+          <View style={styles.figures}>
+            {selected ? (
               <>
-                <WeightTrendChart
-                  points={points}
-                  goalKg={activeGoal?.targetWeightKg ?? null}
+                <Stat
+                  label={formatIsoDate(selected.date)}
+                  value={formatWeightNumber(selected.trendWeightKg, weightUnit)}
                   unit={weightUnit}
-                  selectedDate={selectedDate}
-                  onSelectDate={setSelectedDate}
+                  detail="trend"
+                  size="large"
                 />
-                <ChartLegend
-                  goalLabel={
-                    activeGoal?.targetWeightKg != null
-                      ? `Goal ${formatWeight(activeGoal.targetWeightKg, weightUnit)}`
-                      : null
+                <Stat
+                  label="Scale"
+                  value={
+                    selected.scaleWeightKg == null
+                      ? "—"
+                      : formatWeightNumber(selected.scaleWeightKg, weightUnit)
+                  }
+                  unit={selected.scaleWeightKg == null ? undefined : weightUnit}
+                  detail={
+                    selected.scaleWeightKg == null ? "no weigh-in" : undefined
+                  }
+                />
+                <Stat
+                  label="Weekly"
+                  value={
+                    selected.slopeKgPerWeek == null
+                      ? "—"
+                      : formatWeeklyRate(selected.slopeKgPerWeek, weightUnit)
                   }
                 />
               </>
-            ) : overview.data ? (
-              <View style={styles.chartPlaceholder}>
-                <Text variant="subheadline" tone="secondary" align="center">
-                  {points.length === 1
-                    ? "One more weigh-in in this range draws the trend."
-                    : "No weigh-ins in this range."}
-                </Text>
-              </View>
-            ) : null}
+            ) : (
+              <>
+                <Stat
+                  label="Trend"
+                  value={
+                    summary.trendKg == null
+                      ? "—"
+                      : formatWeightNumber(summary.trendKg, weightUnit)
+                  }
+                  unit={summary.trendKg == null ? undefined : weightUnit}
+                  size="large"
+                />
+                <Stat
+                  label="Weekly"
+                  value={
+                    summary.slopeKgPerWeek == null
+                      ? "—"
+                      : formatWeeklyRate(summary.slopeKgPerWeek, weightUnit)
+                  }
+                  detail={
+                    summary.slopeKgPerWeek == null && points.length > 0
+                      ? "needs more weigh-ins"
+                      : undefined
+                  }
+                />
+                <Stat
+                  label={`Change · ${range}`}
+                  value={
+                    summary.changeKg == null
+                      ? "—"
+                      : formatWeightDelta(summary.changeKg, weightUnit)
+                  }
+                />
+              </>
+            )}
           </View>
 
-          <ExpenditureSection
-            statistics={statistics.data}
-            loading={statistics.isPending}
-            energyUnit={energyUnit}
-            toEnergy={toEnergy}
-            onOpen={() => router.push(progressPaths.statistics)}
-          />
-
-          <Section
-            title="Goal"
-            action={{
-              label: activeGoal ? "Goals" : "Set",
-              onPress: () =>
-                activeGoal
-                  ? router.push(progressPaths.goals)
-                  : router.push({
-                      pathname: progressPaths.goal,
-                      params: { mode: "new" },
-                    }),
-            }}
-          >
-            {activeGoal ? (
-              <GoalSummary
-                goal={activeGoal}
-                currentKg={currentWeightKg(overview.data)}
-                projectionDate={
-                  statistics.data?.summary.projection?.date ?? null
-                }
-                projectionWeeks={
-                  statistics.data?.summary.projection?.uncertaintyWeeks ?? null
+          {overview.isPending ? (
+            <View style={styles.chartPlaceholder}>
+              <ActivityIndicator />
+            </View>
+          ) : points.length >= 2 ? (
+            <>
+              <WeightTrendChart
+                points={points}
+                goalKg={activeGoal?.targetWeightKg ?? null}
+                unit={weightUnit}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+              />
+              <ChartLegend
+                goalLabel={
+                  activeGoal?.targetWeightKg != null
+                    ? `Goal ${formatWeight(activeGoal.targetWeightKg, weightUnit)}`
+                    : null
                 }
               />
-            ) : goal.isPending ? null : (
-              <Text variant="subheadline" tone="secondary">
-                No weight goal yet. A goal sets the rate your targets aim for.
+            </>
+          ) : overview.data ? (
+            <View style={styles.chartPlaceholder}>
+              <Text variant="subheadline" tone="secondary" align="center">
+                {points.length === 1
+                  ? "One more weigh-in in this range draws the trend."
+                  : "No weigh-ins in this range."}
               </Text>
-            )}
-          </Section>
+            </View>
+          ) : null}
+        </View>
 
-          <Section title="Plan">
-            <Row
-              icon="sliders-horizontal"
-              title="Strategy"
-              subtitle={strategySubtitle(program.data, energyUnit)}
-              chevron
-              onPress={() => router.push(progressPaths.strategy)}
-            />
-            <Row
-              icon="flag"
-              title="Goals"
-              subtitle={
-                activeGoal?.targetWeightKg != null
-                  ? `Aiming for ${formatWeight(activeGoal.targetWeightKg, weightUnit)}`
-                  : "Current goal and history"
+        <ExpenditureSection
+          statistics={statistics.data}
+          loading={statistics.isPending}
+          energyUnit={energyUnit}
+          toEnergy={toEnergy}
+          onOpen={() => router.push(progressPaths.statistics)}
+        />
+
+        <Section
+          title="Goal"
+          action={{
+            label: activeGoal ? "Goals" : "Set",
+            onPress: () =>
+              activeGoal
+                ? router.push(progressPaths.goals)
+                : router.push({
+                    pathname: progressPaths.goal,
+                    params: { mode: "new" },
+                  }),
+          }}
+        >
+          {activeGoal ? (
+            <GoalSummary
+              goal={activeGoal}
+              currentKg={currentWeightKg(overview.data)}
+              projectionDate={statistics.data?.summary.projection?.date ?? null}
+              projectionWeeks={
+                statistics.data?.summary.projection?.uncertaintyWeeks ?? null
               }
-              chevron
-              onPress={() => router.push(progressPaths.goals)}
             />
-            <Row
-              icon="chart-column"
-              title="Statistics"
-              subtitle="Intake, adherence and export"
-              chevron
-              separator={false}
-              onPress={() => router.push(progressPaths.statistics)}
-            />
-          </Section>
+          ) : goal.isPending ? null : (
+            <Text variant="subheadline" tone="secondary">
+              No weight goal yet. A goal sets the rate your targets aim for.
+            </Text>
+          )}
+        </Section>
 
-          <WeighInList
-            entries={overview.data?.entries ?? []}
-            loaded={overview.data !== undefined}
-            today={today}
-            onAdd={logWeighIn}
-            onOpen={(date) =>
-              router.push({ pathname: progressPaths.weighIn, params: { date } })
-            }
+        <Section title="Plan">
+          <Row
+            icon="sliders-horizontal"
+            title="Strategy"
+            subtitle={strategySubtitle(program.data, energyUnit)}
+            chevron
+            onPress={() => router.push(progressPaths.strategy)}
           />
-        </VStack>
-      </Screen>
-    </>
+          <Row
+            icon="flag"
+            title="Goals"
+            subtitle={
+              activeGoal?.targetWeightKg != null
+                ? `Aiming for ${formatWeight(activeGoal.targetWeightKg, weightUnit)}`
+                : "Current goal and history"
+            }
+            chevron
+            onPress={() => router.push(progressPaths.goals)}
+          />
+          <Row
+            icon="chart-column"
+            title="Statistics"
+            subtitle="Intake, adherence and export"
+            chevron
+            separator={false}
+            onPress={() => router.push(progressPaths.statistics)}
+          />
+        </Section>
+
+        <WeighInList
+          entries={overview.data?.entries ?? []}
+          loaded={overview.data !== undefined}
+          today={today}
+          onAdd={logWeighIn}
+          onOpen={(date) =>
+            router.push({ pathname: progressPaths.weighIn, params: { date } })
+          }
+        />
+      </VStack>
+    </Screen>
   );
 }
 
