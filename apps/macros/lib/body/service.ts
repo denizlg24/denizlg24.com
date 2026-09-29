@@ -11,6 +11,7 @@ import type {
   MacrosHealthImportBody,
   MacrosHealthImportSource,
   MacrosHealthImportToken,
+  MacrosHealthSyncResult,
   MacrosHydrationBody,
   MacrosHydrationRow,
 } from "@repo/schemas/macros";
@@ -29,6 +30,8 @@ import {
 import { measuredAtForLogDate, toIsoDate } from "@/lib/weights/date-utils";
 import { recomputeEnergyExpenditureInTransaction } from "@/lib/weights/expenditure-service";
 import { recomputeWeightTrendInTransaction } from "@/lib/weights/trend-service";
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function daysAgo(isoDate: string, amount: number) {
   const date = new Date(`${isoDate}T00:00:00Z`);
@@ -295,70 +298,88 @@ export async function importHealthData(
   });
   if (!tokenRecord) return null;
 
-  const result = await db.transaction(async (tx) => {
-    const profile = await tx.query.userProfiles.findFirst({
-      where: eq(userProfiles.userId, tokenRecord.userId),
-      columns: { timezone: true },
-    });
-    const timezone = profile?.timezone ?? "UTC";
-    let weighInsCreated = 0;
-    let activitiesUpserted = 0;
-    for (const item of input.weighIns) {
-      const rows = await tx
-        .insert(weighIns)
-        .values({
-          userId: tokenRecord.userId,
-          logDate: item.logDate,
-          timezoneAtLog: timezone,
-          measuredAt: measuredAtForLogDate(item.logDate),
-          weightKg: item.weightKg.toFixed(3),
-          bodyFatPct: item.bodyFatPct?.toFixed(2),
-          source: "import",
-        })
-        .onConflictDoNothing()
-        .returning({ id: weighIns.id });
-      weighInsCreated += rows.length;
-    }
-    for (const item of input.activity) {
-      await tx
-        .insert(dailyActivity)
-        .values({
-          userId: tokenRecord.userId,
-          logDate: item.logDate,
-          steps: item.steps,
-          activeEnergyKcal: item.activeEnergyKcal?.toFixed(2),
-          source: "import",
-          sourceId: item.sourceId,
-        })
-        .onConflictDoUpdate({
-          target: [
-            dailyActivity.userId,
-            dailyActivity.logDate,
-            dailyActivity.source,
-          ],
-          set: {
-            steps: item.steps,
-            activeEnergyKcal: item.activeEnergyKcal?.toFixed(2),
-            sourceId: item.sourceId,
-            updatedAt: sql`now()`,
-          },
-        });
-      activitiesUpserted += 1;
-    }
-    if (weighInsCreated > 0) {
-      const today = toIsoDate(new Date(), timezone);
-      await recomputeWeightTrendInTransaction(tx, tokenRecord.userId, today);
-      await recomputeEnergyExpenditureInTransaction(
-        tx,
-        tokenRecord.userId,
-        today,
-      );
-    }
+  return db.transaction(async (tx) => {
+    const result = await importHealthDataInTransaction(
+      tx,
+      tokenRecord.userId,
+      input,
+    );
     await tx
       .update(healthImportTokens)
       .set({ lastUsedAt: new Date(), updatedAt: sql`now()` })
       .where(eq(healthImportTokens.id, tokenRecord.id));
-    return { weighInsCreated, activitiesUpserted };
+    return result;
   });
-  return result;
+}
+
+/** The phone's own HealthKit sync: the signed-in session stands in for a token. */
+export function importHealthDataForUser(
+  userId: string,
+  input: MacrosHealthImportBody,
+): Promise<MacrosHealthSyncResult> {
+  return db.transaction((tx) =>
+    importHealthDataInTransaction(tx, userId, input),
+  );
+}
+
+async function importHealthDataInTransaction(
+  tx: Transaction,
+  userId: string,
+  input: MacrosHealthImportBody,
+): Promise<MacrosHealthSyncResult> {
+  const profile = await tx.query.userProfiles.findFirst({
+    where: eq(userProfiles.userId, userId),
+    columns: { timezone: true },
+  });
+  const timezone = profile?.timezone ?? "UTC";
+  let weighInsCreated = 0;
+  let activitiesUpserted = 0;
+  for (const item of input.weighIns) {
+    const rows = await tx
+      .insert(weighIns)
+      .values({
+        userId: userId,
+        logDate: item.logDate,
+        timezoneAtLog: timezone,
+        measuredAt: measuredAtForLogDate(item.logDate),
+        weightKg: item.weightKg.toFixed(3),
+        bodyFatPct: item.bodyFatPct?.toFixed(2),
+        source: "import",
+      })
+      .onConflictDoNothing()
+      .returning({ id: weighIns.id });
+    weighInsCreated += rows.length;
+  }
+  for (const item of input.activity) {
+    await tx
+      .insert(dailyActivity)
+      .values({
+        userId: userId,
+        logDate: item.logDate,
+        steps: item.steps,
+        activeEnergyKcal: item.activeEnergyKcal?.toFixed(2),
+        source: "import",
+        sourceId: item.sourceId,
+      })
+      .onConflictDoUpdate({
+        target: [
+          dailyActivity.userId,
+          dailyActivity.logDate,
+          dailyActivity.source,
+        ],
+        set: {
+          steps: item.steps,
+          activeEnergyKcal: item.activeEnergyKcal?.toFixed(2),
+          sourceId: item.sourceId,
+          updatedAt: sql`now()`,
+        },
+      });
+    activitiesUpserted += 1;
+  }
+  if (weighInsCreated > 0) {
+    const today = toIsoDate(new Date(), timezone);
+    await recomputeWeightTrendInTransaction(tx, userId, today);
+    await recomputeEnergyExpenditureInTransaction(tx, userId, today);
+  }
+  return { weighInsCreated, activitiesUpserted };
 }

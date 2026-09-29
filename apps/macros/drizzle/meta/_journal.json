@@ -120,6 +120,13 @@
       "when": 1789194039654,
       "tag": "0016_shopping_list_and_recipe_icons",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790662133184,
+      "tag": "0017_native_capabilities",
+      "breakpoints": true
     }
   ]
 }
