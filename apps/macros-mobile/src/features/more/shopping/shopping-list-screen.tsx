@@ -1,9 +1,7 @@
-import { Host, List, Text as SwiftText } from "@expo/ui/swift-ui";
-import { environment, listStyle } from "@expo/ui/swift-ui/modifiers";
 import { useMutationState } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import {
   type ShoppingListItem,
   useAddShoppingListItem,
@@ -31,12 +29,15 @@ import {
   VStack,
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
+import { toolbarText } from "@/ui/toolbar";
 import { confirmDestructive, showActionSheet } from "../shared/action-sheet";
 import { useDeferredCommit } from "../shared/deferred-commit";
 import { ListSection, UndoRow } from "../shared/list-rows";
 import { NoticeSlot, useNotice } from "../shared/notice";
+import { promptText } from "../shared/prompt";
 import { useRefresh } from "../shared/use-refresh";
 import { moveOffsets } from "./move";
+import { ReorderList } from "./reorder-list";
 
 export function ShoppingListScreen() {
   const router = useRouter();
@@ -103,46 +104,31 @@ export function ShoppingListScreen() {
   }
 
   function rename(item: ShoppingListItem) {
-    Alert.prompt(
-      "Rename",
-      undefined,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Save",
-          onPress: (value?: string) => {
-            const label = value?.trim();
-            if (!label || label === item.label) return;
-            update.mutate(
-              { id: item.id, label: label.slice(0, 160) },
-              { onSuccess: () => flashRow(item.id), onError: showError },
-            );
-          },
-        },
-      ],
-      "plain-text",
-      item.label,
-    );
+    promptText({
+      title: "Rename",
+      defaultValue: item.label,
+      onSubmit: (value) => {
+        const label = value.trim();
+        if (!label || label === item.label) return;
+        update.mutate(
+          { id: item.id, label: label.slice(0, 160) },
+          { onSuccess: () => flashRow(item.id), onError: showError },
+        );
+      },
+    });
   }
 
   function editNote(item: ShoppingListItem) {
-    Alert.prompt(
-      "Note",
-      "A quantity or brand, e.g. “2 packs”.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Save",
-          onPress: (value?: string) =>
-            update.mutate(
-              { id: item.id, note: (value ?? "").slice(0, 80) },
-              { onSuccess: () => flashRow(item.id), onError: showError },
-            ),
-        },
-      ],
-      "plain-text",
-      item.note ?? "",
-    );
+    promptText({
+      title: "Note",
+      message: "A quantity or brand, e.g. “2 packs”.",
+      defaultValue: item.note ?? "",
+      onSubmit: (value) =>
+        update.mutate(
+          { id: item.id, note: value.slice(0, 80) },
+          { onSuccess: () => flashRow(item.id), onError: showError },
+        ),
+    });
   }
 
   function rowActions(item: ShoppingListItem) {
@@ -194,7 +180,6 @@ export function ShoppingListScreen() {
           key={item.id}
           label={`Deleted ${item.label}`}
           onUndo={() => {
-            haptics.selection();
             deferred.undo(item.id);
             flashRow(item.id);
           }}
@@ -226,9 +211,11 @@ export function ShoppingListScreen() {
 
   const toolbar = reordering ? (
     <Stack.Toolbar placement="right">
-      <Stack.Toolbar.Button variant="done" onPress={() => setReordering(false)}>
-        Done
-      </Stack.Toolbar.Button>
+      {toolbarText({
+        variant: "done",
+        onPress: () => setReordering(false),
+        children: "Done",
+      })}
     </Stack.Toolbar>
   ) : (
     <Stack.Toolbar placement="right">
@@ -276,22 +263,7 @@ export function ShoppingListScreen() {
     return (
       <>
         {toolbar}
-        <View style={styles.reorder}>
-          <Host style={styles.reorder}>
-            <List
-              modifiers={[
-                listStyle("plain"),
-                environment({ key: "editMode", value: "active" }),
-              ]}
-            >
-              <List.ForEach onMove={commitMove}>
-                {open.map((item) => (
-                  <SwiftText key={item.id}>{item.label}</SwiftText>
-                ))}
-              </List.ForEach>
-            </List>
-          </Host>
-        </View>
+        <ReorderList items={open} onMove={commitMove} />
       </>
     );
   }
@@ -430,9 +402,6 @@ export function ShoppingRow({
 }
 
 const styles = StyleSheet.create({
-  reorder: {
-    flex: 1,
-  },
   composer: {
     flexDirection: "row",
     alignItems: "center",

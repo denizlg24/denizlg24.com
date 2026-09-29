@@ -172,7 +172,7 @@ function RecipeLogBody({
       macros: macrosOf(scaled),
       input: { ...buildInput(), clientMutationId: uid },
     };
-    haptics.success();
+    haptics.light();
     if (plateItem) replacePlateItem(staged);
     else addToPlate(staged);
     router.back();
@@ -238,6 +238,7 @@ function RecipeLogBody({
                     { kind: "recipe", input: buildInput() },
                     recipe.name,
                     `recipe:${recipe.id}`,
+                    macrosOf(scaled),
                   );
                   router.back();
                 }}

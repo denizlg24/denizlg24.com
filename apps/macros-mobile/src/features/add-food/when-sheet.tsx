@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { router } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +11,7 @@ import {
   pinnedAt,
 } from "@/lib/log-time";
 import { Button, colors, gutter, spacing } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { SheetHeader } from "../today/sheet-header";
 import { hubTime, useHubTime } from "./hub-time";
 import { useZone } from "./target";

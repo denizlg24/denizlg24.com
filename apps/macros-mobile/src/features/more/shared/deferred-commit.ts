@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
+import { haptics } from "@/lib/haptics";
 
 const UNDO_WINDOW_MS = 4_800;
 
@@ -39,6 +40,7 @@ export function useDeferredCommit(commit: (id: string) => void) {
   const schedule = useCallback(
     (id: string) => {
       if (timers.current.has(id)) return;
+      haptics.warning();
       setPending((current) => new Set(current).add(id));
       timers.current.set(
         id,
@@ -67,5 +69,13 @@ export function useDeferredCommit(commit: (id: string) => void) {
     };
   }, []);
 
-  return { pending, schedule, undo: forget, flush };
+  const undo = useCallback(
+    (id: string) => {
+      forget(id);
+      haptics.selection();
+    },
+    [forget],
+  );
+
+  return { pending, schedule, undo, flush };
 }

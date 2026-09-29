@@ -1,15 +1,16 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import type { MacrosCaloriePreference } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { openBrowserAsync } from "expo-web-browser";
 import { useState } from "react";
+import { Platform } from "react-native";
 import { useProfile, useUpdateCaloriePreference } from "@/api/profile";
-import { API_URL, APP_VERSION } from "@/lib/config";
+import { API_URL, APP_VERSION, capabilities, DEVICE_NAME } from "@/lib/config";
 import { energyLabel } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { signOut } from "@/lib/session";
 import { Row, Screen, Section, VStack } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { confirmDestructive } from "../shared/action-sheet";
 import { NoticeSlot, useNotice } from "../shared/notice";
 
@@ -81,7 +82,7 @@ export function SettingsScreen() {
 
         <Section
           title="Time zone"
-          footer="Follows this iPhone, so each day starts at your local midnight — even when you travel."
+          footer={`Follows this ${DEVICE_NAME}, so each day starts at your local midnight — even when you travel.`}
         >
           <Row
             title="Current"
@@ -90,14 +91,36 @@ export function SettingsScreen() {
           />
         </Section>
 
-        <Section title="Apple Health">
+        {/* Both routes into Health are iOS only; Health Connect is not wired up. */}
+        {Platform.OS === "ios" ? (
+          <Section title="Apple Health">
+            {capabilities.healthKit ? (
+              <Row
+                icon="heart-pulse"
+                title="Sync with Health"
+                subtitle="Weight, steps and active energy in; what you eat out."
+                chevron
+                onPress={() => router.push("/more/apple-health")}
+              />
+            ) : null}
+            <Row
+              icon={capabilities.healthKit ? "workflow" : "heart-pulse"}
+              title="Import with Shortcuts"
+              subtitle="Send weight and steps from Health automatically."
+              chevron
+              separator={false}
+              onPress={() => router.push("/more/health-import")}
+            />
+          </Section>
+        ) : null}
+
+        <Section title="Notifications">
           <Row
-            icon="heart-pulse"
-            title="Import with Shortcuts"
-            subtitle="Send weight and steps from Health automatically."
+            icon="bell"
+            title="Reminders and summaries"
             chevron
             separator={false}
-            onPress={() => router.push("/more/health-import")}
+            onPress={() => router.push("/more/notifications")}
           />
         </Section>
 

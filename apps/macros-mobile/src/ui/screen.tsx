@@ -6,6 +6,8 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { haptics } from "@/lib/haptics";
+import { useAndroidKeyboardHeight } from "@/lib/keyboard";
 import { colors, gutter, spacing } from "./theme";
 
 export interface ScreenProps extends Omit<ScrollViewProps, "refreshControl"> {
@@ -34,6 +36,9 @@ export function Screen({
   style,
   ...rest
 }: ScreenProps) {
+  const keyboard = useAndroidKeyboardHeight(
+    rest.automaticallyAdjustKeyboardInsets === true,
+  );
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -47,6 +52,7 @@ export function Screen({
             : colors.background,
         },
         style,
+        keyboard > 0 && { marginBottom: keyboard },
       ]}
       contentContainerStyle={[
         styles.content,
@@ -55,7 +61,13 @@ export function Screen({
       ]}
       refreshControl={
         onRefresh ? (
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              haptics.light();
+              onRefresh();
+            }}
+          />
         ) : undefined
       }
     >

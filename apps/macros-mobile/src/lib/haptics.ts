@@ -6,6 +6,10 @@ function ignore(promise: Promise<void>) {
   promise.catch(() => undefined);
 }
 
+// Long enough that the success pattern has finished and the second tap reads
+// as its own beat.
+const GOAL_REACHED_GAP_MS = 260;
+
 export const haptics = {
   /** Something was logged or saved. */
   success: () =>
@@ -18,5 +22,14 @@ export const haptics = {
   selection: () => ignore(Haptics.selectionAsync()),
   /** A swipe action crossing its threshold, a barcode read. */
   impact: () => ignore(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)),
+  /** Staging on the plate, pull to refresh. */
   light: () => ignore(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+  /** In place of `success` for the log that first crosses a day's target. */
+  goalReached: () => {
+    ignore(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+    setTimeout(
+      () => ignore(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
+      GOAL_REACHED_GAP_MS,
+    );
+  },
 };

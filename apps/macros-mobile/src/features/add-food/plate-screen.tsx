@@ -15,6 +15,7 @@ import {
   useResolvedColors,
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
+import { toolbarText, useBottomToolbarInset } from "@/ui/toolbar";
 import { FoodRow } from "./components/food-row";
 import { PlateTotals } from "./components/plate-totals";
 import { useCommitPlate } from "./plate-commit";
@@ -40,6 +41,7 @@ export function PlateScreen() {
   const zone = useZone();
   const targets = useTargets(zone.today);
   const resolved = useResolvedColors();
+  const toolbarInset = useBottomToolbarInset();
   const { commit, committing, failure, clearFailure } =
     useCommitPlate(closeHub);
   const [removed, setRemoved] = useState<PlateItem[] | null>(null);
@@ -97,26 +99,30 @@ export function PlateScreen() {
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
       <Stack.Toolbar placement="bottom">
-        <Stack.Toolbar.Button
-          accessibilityLabel="Save the plate as a recipe"
-          disabled={!recipeReady || committing}
-          onPress={() => router.push("/add-food/save-recipe")}
-        >
-          Recipe
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          accessibilityLabel: "Save the plate as a recipe",
+          disabled: !recipeReady || committing,
+          onPress: () => router.push("/add-food/save-recipe"),
+          children: "Recipe",
+        })}
         <Stack.Toolbar.Spacer />
-        <Stack.Toolbar.Button
-          variant="prominent"
-          tintColor={resolved.label}
-          style={{ color: resolved.background, fontWeight: "600" }}
-          disabled={items.length === 0 || committing}
-          onPress={() => void commit(items)}
-        >
-          Log Plate
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "prominent",
+          tintColor: resolved.label,
+          style: { color: resolved.background, fontWeight: "600" },
+          disabled: items.length === 0 || committing,
+          onPress: () => void commit(items),
+          children: "Log Plate",
+        })}
       </Stack.Toolbar>
 
-      <Screen bleed contentContainerStyle={styles.content}>
+      <Screen
+        bleed
+        contentContainerStyle={[
+          styles.content,
+          toolbarInset > 0 && { paddingBottom: toolbarInset },
+        ]}
+      >
         {failure ? (
           <View style={styles.inset}>
             <InlineNotice

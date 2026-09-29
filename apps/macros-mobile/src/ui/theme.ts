@@ -4,11 +4,25 @@ import {
 } from "@repo/macros-core/macro-colors";
 import {
   type ColorValue,
+  type OpaqueColorValue,
+  Platform,
   PlatformColor,
   StyleSheet,
   type TextStyle,
   useColorScheme,
 } from "react-native";
+
+/**
+ * A semantic iOS colour, or on Android the resource of the same value that
+ * `plugins/with-android-colors.js` writes (iOS names do not exist there).
+ */
+function system(ios: string, android: string): OpaqueColorValue {
+  return Platform.OS === "ios"
+    ? PlatformColor(ios)
+    : PlatformColor(
+        `@color/macros_${android.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}`,
+      );
+}
 
 /**
  * Semantic iOS colours. They follow light/dark mode and Increase Contrast on
@@ -17,28 +31,34 @@ import {
  * the macro hues are the only colour in the interface.
  */
 export const colors = {
-  label: PlatformColor("label"),
-  secondaryLabel: PlatformColor("secondaryLabel"),
-  tertiaryLabel: PlatformColor("tertiaryLabel"),
-  quaternaryLabel: PlatformColor("quaternaryLabel"),
-  placeholder: PlatformColor("placeholderText"),
-  background: PlatformColor("systemBackground"),
-  secondaryBackground: PlatformColor("secondarySystemBackground"),
-  tertiaryBackground: PlatformColor("tertiarySystemBackground"),
-  groupedBackground: PlatformColor("systemGroupedBackground"),
-  secondaryGroupedBackground: PlatformColor("secondarySystemGroupedBackground"),
-  separator: PlatformColor("separator"),
-  opaqueSeparator: PlatformColor("opaqueSeparator"),
-  fill: PlatformColor("systemFill"),
-  secondaryFill: PlatformColor("secondarySystemFill"),
-  tertiaryFill: PlatformColor("tertiarySystemFill"),
-  quaternaryFill: PlatformColor("quaternarySystemFill"),
-  tint: PlatformColor("label"),
-  onTint: PlatformColor("systemBackground"),
-  link: PlatformColor("link"),
-  destructive: PlatformColor("systemRed"),
-  success: PlatformColor("systemGreen"),
-  warning: PlatformColor("systemOrange"),
+  label: system("label", "label"),
+  secondaryLabel: system("secondaryLabel", "secondaryLabel"),
+  tertiaryLabel: system("tertiaryLabel", "tertiaryLabel"),
+  quaternaryLabel: system("quaternaryLabel", "quaternaryLabel"),
+  placeholder: system("placeholderText", "placeholder"),
+  background: system("systemBackground", "background"),
+  secondaryBackground: system(
+    "secondarySystemBackground",
+    "secondaryBackground",
+  ),
+  tertiaryBackground: system("tertiarySystemBackground", "tertiaryBackground"),
+  groupedBackground: system("systemGroupedBackground", "groupedBackground"),
+  secondaryGroupedBackground: system(
+    "secondarySystemGroupedBackground",
+    "secondaryGroupedBackground",
+  ),
+  separator: system("separator", "separator"),
+  opaqueSeparator: system("opaqueSeparator", "opaqueSeparator"),
+  fill: system("systemFill", "fill"),
+  secondaryFill: system("secondarySystemFill", "secondaryFill"),
+  tertiaryFill: system("tertiarySystemFill", "tertiaryFill"),
+  quaternaryFill: system("quaternarySystemFill", "quaternaryFill"),
+  tint: system("label", "label"),
+  onTint: system("systemBackground", "background"),
+  link: system("link", "link"),
+  destructive: system("systemRed", "destructive"),
+  success: system("systemGreen", "success"),
+  warning: system("systemOrange", "warning"),
 } satisfies Record<string, ColorValue>;
 
 export const macroColors = {
@@ -110,9 +130,12 @@ export const typeScale = {
 
 export type TypeVariant = keyof typeof typeScale;
 
-/** Figures use SF Pro Rounded with tabular digits so columns line up. */
+/**
+ * Figures use SF Pro Rounded with tabular digits so columns line up. Android
+ * has no rounded system face and keeps Roboto's tabular digits.
+ */
 export const figureStyle: TextStyle = {
-  fontFamily: "ui-rounded",
+  fontFamily: Platform.OS === "ios" ? "ui-rounded" : undefined,
   fontVariant: ["tabular-nums"],
 };
 

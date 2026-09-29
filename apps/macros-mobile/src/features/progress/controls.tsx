@@ -1,8 +1,8 @@
 import { MenuView } from "@expo/ui/community/menu";
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import { haptics } from "@/lib/haptics";
 import { colors, Hairline, Icon, spacing, Text } from "@/ui";
+import { SegmentedControl } from "@/ui/segmented-control";
 
 export interface Option<T> {
   value: T;

@@ -1,5 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import { RefreshControl, ScrollView, StyleSheet } from "react-native";
+import { haptics } from "@/lib/haptics";
 import { colors, gutter, spacing } from "@/ui";
 
 /**
@@ -28,7 +29,13 @@ export function ScrollScreen({
       contentContainerStyle={styles.content}
       refreshControl={
         onRefresh ? (
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              haptics.light();
+              onRefresh();
+            }}
+          />
         ) : undefined
       }
     >

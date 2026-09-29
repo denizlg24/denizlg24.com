@@ -1,6 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { Keyboard, type TextInput } from "react-native";
+import { DEVICE_NAME } from "@/lib/config";
 import { haptics } from "@/lib/haptics";
 import { Button, InlineNotice, spacing, Text, TextField, VStack } from "@/ui";
 import { signInWithPassword } from "./actions";
@@ -86,7 +87,9 @@ export function SignInScreen({ notice }: { notice?: AuthNotice }) {
         : null));
 
   return (
-    <AuthScreen lead="Your food log, recipes and weight trend, on your iPhone.">
+    <AuthScreen
+      lead={`Your food log, recipes and weight trend, on your ${DEVICE_NAME}.`}
+    >
       <VStack gap={spacing.lg}>
         <TextField
           label="Email"

@@ -50,6 +50,7 @@ import {
   TextField,
   VStack,
 } from "@/ui";
+import { toolbarText } from "@/ui/toolbar";
 import { MenuRow, Segmented, WeekdayToggles } from "./controls";
 import {
   checkInWeekdayNames,
@@ -291,9 +292,10 @@ export function ProgramFormScreen() {
     return (
       <>
         <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button onPress={() => router.back()}>
-            Cancel
-          </Stack.Toolbar.Button>
+          {toolbarText({
+            onPress: () => router.back(),
+            children: "Cancel",
+          })}
         </Stack.Toolbar>
         <ActivityIndicator style={styles.spinner} />
       </>
@@ -431,18 +433,18 @@ function ProgramForm({
         }}
       />
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>
-          Cancel
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          onPress: () => router.back(),
+          children: "Cancel",
+        })}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          variant="done"
-          disabled={save.isPending}
-          onPress={saveOnce}
-        >
-          Save
-        </Stack.Toolbar.Button>
+        {toolbarText({
+          variant: "done",
+          disabled: save.isPending,
+          onPress: saveOnce,
+          children: "Save",
+        })}
       </Stack.Toolbar>
       <ScrollScreen ref={scrollRef}>
         <VStack>

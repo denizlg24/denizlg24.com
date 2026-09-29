@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { type LoggedAmount, reachesDayTarget } from "@/api/day-targets";
 import {
   type LogFoodInput,
   type LogRecipeInput,
@@ -49,6 +51,7 @@ function withIdempotencyKey(request: LogRequest): LogRequest {
  * reuses the same idempotency key.
  */
 export function useLogActions() {
+  const queryClient = useQueryClient();
   const logFood = useLogFood();
   const logRecipe = useLogRecipe();
   const logTemplate = useLogMealTemplate();
@@ -64,9 +67,20 @@ export function useLogActions() {
     }
   }
 
-  function log(request: LogRequest, name: string, flashKey?: string) {
+  function log(
+    request: LogRequest,
+    name: string,
+    flashKey?: string,
+    macros?: LoggedAmount["macros"],
+  ) {
     const stamped = withIdempotencyKey(request);
-    haptics.success();
+    const reached =
+      macros !== undefined &&
+      reachesDayTarget(queryClient, [
+        { logDate: stamped.input.logDate, macros },
+      ]);
+    if (reached) haptics.goalReached();
+    else haptics.success();
     if (flashKey) lastLogged.set({ key: flashKey, at: Date.now() });
     send(stamped).catch((error: unknown) => {
       haptics.error();

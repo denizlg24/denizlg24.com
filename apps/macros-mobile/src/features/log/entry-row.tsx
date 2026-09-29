@@ -2,9 +2,10 @@ import { formatLoggedAmount } from "@repo/macros-core/foods/display";
 import type { MacrosFoodLogEntry } from "@repo/schemas/macros";
 import { Link, useRouter } from "expo-router";
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { FoodIcon } from "@/components/food-icon";
 import { MacroInline } from "@/components/macro-bars";
+import { showActionSheet } from "@/features/more/shared/action-sheet";
 import { type EnergyUnit, energyLabel, formatEnergy } from "@/lib/format";
 import { formatTimeOfDay } from "@/lib/log-time";
 import { colors, Flash, Hairline, Icon, SwipeRow, spacing, Text } from "@/ui";
@@ -99,6 +100,33 @@ export function EntryRow({
   const flashToken = useEntryFlashToken(entry.id);
   const href = entryHref(entry);
 
+  // Link.Menu is iOS only; Android long-presses into the same actions.
+  const showMenu =
+    Platform.OS === "android"
+      ? () =>
+          showActionSheet({
+            title: entry.foodName,
+            actions: [
+              { label: "Edit", onPress: () => router.push(href) },
+              { label: "Duplicate", onPress: () => actions.onDuplicate(entry) },
+              { label: "Move…", onPress: () => actions.onMove(entry) },
+              ...(viewingToday
+                ? []
+                : [
+                    {
+                      label: "Copy to today",
+                      onPress: () => actions.onCopyToToday(entry),
+                    },
+                  ]),
+              {
+                label: "Delete",
+                destructive: true,
+                onPress: () => actions.onDelete(entry),
+              },
+            ],
+          })
+      : undefined;
+
   if (pending) {
     return (
       <View>
@@ -175,6 +203,7 @@ export function EntryRow({
         <Link href={href} asChild>
           <Link.Trigger>
             <Pressable
+              onLongPress={showMenu}
               accessibilityRole="button"
               accessibilityHint="Opens the entry. Long press for more actions."
               style={({ pressed }) => pressed && styles.pressed}

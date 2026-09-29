@@ -16,7 +16,10 @@ const pageTitles: Record<string, string> = {
   body: "Body",
   habits: "Habits",
   settings: "Settings",
-  "health-import": "Apple Health",
+  "health-import": "Health Shortcuts",
+  "apple-health": "Apple Health",
+  notifications: "Notifications",
+  "device-requests": "Device requests",
 };
 
 const modalForm: NativeStackNavigationOptions = {

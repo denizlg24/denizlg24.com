@@ -1,8 +1,25 @@
 import { router } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { Platform } from "react-native";
 import { haptics } from "@/lib/haptics";
 import { colors } from "@/ui";
 import { tabGlyphs } from "@/ui/glyphs";
+
+// Material's bottom navigation otherwise takes the wallpaper's colours.
+const androidBar =
+  Platform.OS === "android"
+    ? {
+        backgroundColor: colors.background,
+        indicatorColor: colors.fill,
+        rippleColor: colors.fill,
+        iconColor: { default: colors.secondaryLabel, selected: colors.label },
+        labelStyle: {
+          default: { color: colors.secondaryLabel },
+          selected: { color: colors.label },
+        },
+        labelVisibilityMode: "labeled" as const,
+      }
+    : {};
 
 /**
  * UITabBar via react-native-screens: Liquid Glass on iOS 26, the system bar
@@ -12,7 +29,11 @@ import { tabGlyphs } from "@/ui/glyphs";
  */
 export default function TabsLayout() {
   return (
-    <NativeTabs tintColor={colors.tint} minimizeBehavior="onScrollDown">
+    <NativeTabs
+      tintColor={colors.tint}
+      minimizeBehavior="onScrollDown"
+      {...androidBar}
+    >
       <NativeTabs.Trigger name="(today)">
         <NativeTabs.Trigger.Icon
           src={tabGlyphs.layoutTemplate}

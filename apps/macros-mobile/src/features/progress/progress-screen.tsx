@@ -568,10 +568,12 @@ function WeighInList({
 
   const onDelete = (entry: MacrosWeighInItem) => {
     setError(null);
+    haptics.warning();
     setHidden((current) => new Set(current).add(entry.id));
     remove.mutate(entry.id, {
       onSuccess: () => setRemoved(entry),
       onError: (cause) => {
+        haptics.error();
         unhide(entry.id);
         setError(errorMessage(cause));
       },
@@ -595,7 +597,10 @@ function WeighInList({
           haptics.success();
           setRestoredToken(Date.now());
         },
-        onError: (cause) => setError(errorMessage(cause)),
+        onError: (cause) => {
+          haptics.error();
+          setError(errorMessage(cause));
+        },
       },
     );
   };

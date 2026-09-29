@@ -1,5 +1,6 @@
-import { onlineManager } from "@tanstack/react-query";
+import { onlineManager, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { reachesDayTarget } from "@/api/day-targets";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import { type LogRequest, useLogActions } from "./log-actions";
@@ -17,6 +18,7 @@ function requestFor(item: PlateItem): LogRequest {
  * successful ones twice.
  */
 export function useCommitPlate(onLogged: () => void) {
+  const queryClient = useQueryClient();
   const { send } = useLogActions();
   const [committing, setCommitting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -37,6 +39,14 @@ export function useCommitPlate(onLogged: () => void) {
     setCommitting(true);
     setFailure(null);
 
+    const reached = reachesDayTarget(
+      queryClient,
+      items.map((item) => ({
+        logDate: item.input.logDate,
+        macros: item.macros,
+      })),
+    );
+    const feelLogged = reached ? haptics.goalReached : haptics.success;
     const outcomes = items.map((item) =>
       send(requestFor(item)).then(
         () => ({ item, error: null }),
@@ -53,7 +63,7 @@ export function useCommitPlate(onLogged: () => void) {
           if (error) addToPlate(item);
         });
       }
-      haptics.success();
+      feelLogged();
       inFlight.current = false;
       setCommitting(false);
       onLogged();
@@ -71,7 +81,7 @@ export function useCommitPlate(onLogged: () => void) {
     if (!mounted.current) return;
     setCommitting(false);
     if (failed.length === 0) {
-      haptics.success();
+      feelLogged();
       onLogged();
       return;
     }

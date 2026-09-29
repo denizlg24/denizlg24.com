@@ -179,13 +179,17 @@ function FoodDetailBody({
   function toggleFavorite() {
     if (favoritePending) return;
     haptics.selection();
+    const onError = () => haptics.error();
     if (favorite) {
-      removeFavorite.mutate(favorite.foodId);
+      removeFavorite.mutate(favorite.foodId, { onError });
     } else {
-      saveFavorite.mutate({
-        sourceItemId,
-        defaultServings: servings > 0 ? servings : 1,
-      });
+      saveFavorite.mutate(
+        {
+          sourceItemId,
+          defaultServings: servings > 0 ? servings : 1,
+        },
+        { onError },
+      );
     }
   }
 
@@ -218,14 +222,14 @@ function FoodDetailBody({
   function logNow() {
     const input = buildInput();
     if (!input) return;
-    log({ kind: "food", input }, item.name, sourceItemId);
+    log({ kind: "food", input }, item.name, sourceItemId, macrosOf(scaled));
     router.back();
   }
 
   function stage() {
     const staged = stagedItem(plateItem?.uid ?? newClientMutationId());
     if (!staged) return;
-    haptics.success();
+    haptics.light();
     if (plateItem) replacePlateItem(staged);
     else addToPlate(staged);
     router.back();

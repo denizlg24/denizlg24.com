@@ -1,4 +1,3 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -18,6 +17,7 @@ import {
   VStack,
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { NoticeSlot, useNotice } from "../shared/notice";
 import { useRefresh } from "../shared/use-refresh";
 import { doneThisWeek, habitStreak, trailingDays } from "./habit-dates";

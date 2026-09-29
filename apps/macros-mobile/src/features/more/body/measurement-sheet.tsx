@@ -1,6 +1,4 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { MenuView } from "@expo/ui/community/menu";
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import type { MacrosBodyMeasurementSite } from "@repo/schemas/macros";
 import { endOfDay, format, parseISO } from "date-fns";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -13,6 +11,8 @@ import { formatDayLabel, formatDecimal } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { parseDecimal } from "@/lib/numbers";
 import { Button, colors, gutter, Icon, spacing, Text, TextField } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
+import { SegmentedControl } from "@/ui/segmented-control";
 import { NoticeSlot, useNotice } from "../shared/notice";
 import {
   isMeasurementSite,

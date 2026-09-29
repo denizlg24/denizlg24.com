@@ -1,9 +1,9 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { format, parseISO } from "date-fns";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { haptics } from "@/lib/haptics";
 import { colors, Hairline, Icon, Row, spacing, Text } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 
 const ISO_DATE = "yyyy-MM-dd";
 

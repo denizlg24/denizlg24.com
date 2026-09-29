@@ -1,5 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
+import { unregisterFromRemotePush } from "@/features/notifications/push";
+import { cancelReminders } from "@/features/notifications/reminders";
 import { authClient } from "./auth-client";
 import { clearFailedWrites } from "./failed-writes";
 import { clearPersistedCaches } from "./query-client";
@@ -31,6 +33,9 @@ export async function clearSignedInDevice(queryClient: QueryClient) {
 }
 
 export async function signOut(queryClient: QueryClient) {
+  // Needs the session cookie, so it goes before the sign-out that clears it.
+  await unregisterFromRemotePush();
+  await cancelReminders().catch(() => undefined);
   await authClient.signOut().catch(() => undefined);
   await clearSignedInDevice(queryClient);
 }

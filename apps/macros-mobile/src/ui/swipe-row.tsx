@@ -71,7 +71,7 @@ export function SwipeRow({ children, actions, leadingActions }: SwipeRowProps) {
       leftThreshold={ACTION_WIDTH / 2}
       overshootRight={false}
       overshootLeft={false}
-      onSwipeableWillOpen={() => haptics.light()}
+      onSwipeableWillOpen={() => haptics.impact()}
       renderRightActions={(_progress, _translation, methods) => (
         <ActionButtons actions={actions} methods={methods} />
       )}

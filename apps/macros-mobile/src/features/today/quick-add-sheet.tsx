@@ -1,7 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { reachesDayTarget } from "@/api/day-targets";
 import { useQuickAdd } from "@/api/food-log";
 import { useProfile } from "@/api/profile";
 import { EatenAtPicker } from "@/components/eaten-at-picker";
@@ -53,6 +55,7 @@ export function QuickAddSheet() {
   const today = useToday(timeZone);
   const energyUnit = profile.data?.energyUnit ?? "kcal";
   const unit = energyLabel(energyUnit);
+  const queryClient = useQueryClient();
   const quickAdd = useQuickAdd();
 
   const [energy, setEnergy] = useState("");
@@ -98,15 +101,23 @@ export function QuickAddSheet() {
     if (!canSubmit || kcal === null) return;
     const grams = (value: number | null) =>
       value === null ? undefined : Math.round(value * 10) / 10;
-    quickAdd.mutate({
+    const input = {
       calories: Math.round(kcal * 10) / 10,
       protein: grams(amounts.protein),
       carbs: grams(amounts.carbs),
       fat: grams(amounts.fat),
       name: name.trim() || undefined,
       ...logPlacement(when, timeZone),
-    });
-    haptics.success();
+    };
+    const reached = reachesDayTarget(queryClient, [
+      {
+        logDate: input.logDate,
+        macros: { calories: input.calories, protein: input.protein ?? 0 },
+      },
+    ]);
+    quickAdd.mutate(input);
+    if (reached) haptics.goalReached();
+    else haptics.success();
     router.back();
   }
 

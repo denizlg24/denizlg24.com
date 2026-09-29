@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { endOfDay, format, parseISO } from "date-fns";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -32,6 +31,7 @@ import {
   typeScale,
   useResolvedColors,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { isIsoDate } from "./logic";
 import { SheetHeader } from "./sheet-header";
 

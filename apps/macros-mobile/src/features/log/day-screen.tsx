@@ -1,8 +1,10 @@
 import { weekDaysFor } from "@repo/macros-core/food-log/date-utils";
 import type { MacrosFoodLogEntry } from "@repo/schemas/macros";
+import { useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import { reachesDayTarget } from "@/api/day-targets";
 import {
   useBulkDeleteEntries,
   useCopyEntries,
@@ -28,6 +30,7 @@ import {
   VStack,
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
+import { toolbarText, useBottomToolbarInset } from "@/ui/toolbar";
 import { DayNoteRow } from "./day-note-row";
 import { DaySummary } from "./day-summary";
 import { useDeferredDelete } from "./deferred-delete";
@@ -48,6 +51,8 @@ import { WeekStrip } from "./week-strip";
 
 export function LogDayScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const toolbarInset = useBottomToolbarInset();
   const profile = useProfile();
   const timezone = profile.data?.timezone ?? deviceTimeZone();
   const energyUnit = profile.data?.energyUnit ?? "kcal";
@@ -142,25 +147,34 @@ export function LogDayScreen() {
     router.push({ pathname: "/day-note", params: { date } });
   }
 
+  function feelLoggedOn(logDate: string, entry: MacrosFoodLogEntry) {
+    return reachesDayTarget(queryClient, [{ logDate, macros: entry }])
+      ? haptics.goalReached
+      : haptics.success;
+  }
+
   function copyToToday(entry: MacrosFoodLogEntry) {
+    const feelLogged = feelLoggedOn(today, entry);
     copy.mutate(
       {
         sourceDate: entry.logDate,
         targetDate: today,
         entryIds: [entry.id],
       },
-      { onSuccess: () => haptics.success(), onError: showError },
+      { onSuccess: () => feelLogged(), onError: showError },
     );
   }
 
   const actions: EntryActions = {
     onDelete: (entry) => deferredDelete.schedule(entry.id),
     onUndo: (entry) => deferredDelete.undo(entry.id),
-    onDuplicate: (entry) =>
+    onDuplicate: (entry) => {
+      const feelLogged = feelLoggedOn(entry.logDate, entry);
       duplicate.mutate(entry.id, {
-        onSuccess: () => haptics.success(),
+        onSuccess: () => feelLogged(),
         onError: showError,
-      }),
+      });
+    },
     onMove: (entry) => openMove([entry.id]),
     onCopyToToday: copyToToday,
     onToggle: (entry) => {
@@ -213,45 +227,44 @@ export function LogDayScreen() {
       {selection.active ? (
         <>
           <Stack.Toolbar placement="left">
-            <Stack.Toolbar.Button
-              onPress={() =>
+            {toolbarText({
+              onPress: () =>
                 setSelected(
                   allSelected ? [] : (entries?.map((entry) => entry.id) ?? []),
-                )
-              }
-            >
-              {allSelected ? "Deselect All" : "Select All"}
-            </Stack.Toolbar.Button>
+                ),
+              children: allSelected ? "Deselect All" : "Select All",
+            })}
           </Stack.Toolbar>
           <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button variant="done" onPress={stopSelecting}>
-              Done
-            </Stack.Toolbar.Button>
+            {toolbarText({
+              variant: "done",
+              onPress: stopSelecting,
+              children: "Done",
+            })}
           </Stack.Toolbar>
           <Stack.Toolbar placement="bottom">
-            <Stack.Toolbar.Button
-              disabled={selectedCount === 0}
-              onPress={() => openMove([...selection.ids])}
-            >
-              Move…
-            </Stack.Toolbar.Button>
+            {toolbarText({
+              disabled: selectedCount === 0,
+              onPress: () => openMove([...selection.ids]),
+              children: "Move…",
+            })}
             <Stack.Toolbar.Spacer />
-            <Stack.Toolbar.Button
-              disabled={selectedCount === 0 || bulkDelete.isPending}
-              tintColor={colors.destructive}
-              onPress={confirmBulkDelete}
-            >
-              Delete
-            </Stack.Toolbar.Button>
+            {toolbarText({
+              disabled: selectedCount === 0 || bulkDelete.isPending,
+              tintColor: colors.destructive,
+              onPress: confirmBulkDelete,
+              children: "Delete",
+            })}
           </Stack.Toolbar>
         </>
       ) : (
         <Stack.Toolbar placement="right">
-          {viewingToday ? null : (
-            <Stack.Toolbar.Button onPress={() => changeDate(today)}>
-              Today
-            </Stack.Toolbar.Button>
-          )}
+          {viewingToday
+            ? null
+            : toolbarText({
+                onPress: () => changeDate(today),
+                children: "Today",
+              })}
           <Stack.Toolbar.Button
             icon={glyphs.calendar}
             iconRenderingMode="template"
@@ -309,6 +322,11 @@ export function LogDayScreen() {
         onRefresh={() => void refresh()}
         refreshing={refreshing}
         stickyHeaderIndices={[0]}
+        contentContainerStyle={
+          selection.active && toolbarInset > 0
+            ? { paddingBottom: toolbarInset }
+            : undefined
+        }
       >
         <View
           style={

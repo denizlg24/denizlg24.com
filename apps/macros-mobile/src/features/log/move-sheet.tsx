@@ -1,4 +1,3 @@
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { dateToIso, isoToDate } from "@repo/macros-core/food-log/date-utils";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -19,6 +18,7 @@ import {
   spacing,
   Text,
 } from "@/ui";
+import { DateTimePicker } from "@/ui/date-time-picker";
 import { flashEntries } from "./flash";
 import { isIsoDate } from "./selected-date";
 import { stopSelecting } from "./selection";

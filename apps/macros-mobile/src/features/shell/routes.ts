@@ -1,5 +1,13 @@
 import type { NativeStackNavigationOptions } from "expo-router";
+import { Platform } from "react-native";
 import { colors } from "@/ui/theme";
+
+// iOS gives a sheet the system background; Android's is otherwise bare, which
+// leaves dark-mode text on a light sheet.
+const androidSheetBackground: NativeStackNavigationOptions =
+  Platform.OS === "android"
+    ? { contentStyle: { backgroundColor: colors.background } }
+    : {};
 
 /** Every tab's own stack: large titles that collapse into the bar on scroll. */
 export const tabStackOptions: NativeStackNavigationOptions = {
@@ -26,6 +34,7 @@ export const compactSheet: NativeStackNavigationOptions = {
   sheetAllowedDetents: "fitToContents",
   sheetGrabberVisible: true,
   headerShown: false,
+  ...androidSheetBackground,
 };
 
 /** A sheet that opens at half height and can be pulled to full. */
@@ -35,6 +44,7 @@ export const detentSheet: NativeStackNavigationOptions = {
   sheetGrabberVisible: true,
   sheetExpandsWhenScrolledToEdge: true,
   headerShown: false,
+  ...androidSheetBackground,
 };
 
 /** A full form with its own header (Cancel / Save). */

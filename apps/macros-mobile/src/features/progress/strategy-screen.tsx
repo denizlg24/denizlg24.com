@@ -34,6 +34,7 @@ import {
   Text,
   VStack,
 } from "@/ui";
+import { toolbarText } from "@/ui/toolbar";
 import {
   checkInWeekdayNames,
   confidenceRadius,
@@ -84,7 +85,10 @@ export function StrategyScreen() {
     <>
       {program ? (
         <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button onPress={openEditor}>Edit</Stack.Toolbar.Button>
+          {toolbarText({
+            onPress: openEditor,
+            children: "Edit",
+          })}
         </Stack.Toolbar>
       ) : null}
       <Screen onRefresh={onRefresh} refreshing={refreshing}>
@@ -205,7 +209,10 @@ function PendingIssue({
           label="Accept new targets"
           loading={accept.isPending}
           onPress={() =>
-            accept.mutate(issue.id, { onSuccess: () => haptics.success() })
+            accept.mutate(issue.id, {
+              onSuccess: () => haptics.success(),
+              onError: () => haptics.error(),
+            })
           }
         />
       </View>

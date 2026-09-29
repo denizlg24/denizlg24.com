@@ -77,7 +77,10 @@ export function GoalsScreen() {
         {
           text: "Reopen",
           onPress: () =>
-            reopen.mutate(entry.id, { onSuccess: () => haptics.success() }),
+            reopen.mutate(entry.id, {
+              onSuccess: () => haptics.success(),
+              onError: () => haptics.error(),
+            }),
         },
       ],
     );
