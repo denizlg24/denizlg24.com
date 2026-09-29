@@ -97,7 +97,9 @@ function collapse(text: string): string {
 /**
  * Re-cuts arriving text (a whole note, pages of a PDF, a streamed reply) into
  * speech requests that grow along `SPEECH_CHUNK_TARGETS`, emitting each as
- * soon as enough text has arrived to fill it.
+ * soon as enough text has arrived to fill it. Parts are joined as-is, since a
+ * streamed reply can split mid-word; a producer of pages or paragraphs appends
+ * its own break.
  */
 export async function* speechChunks(
   parts: AsyncIterable<string> | Iterable<string>,
@@ -111,7 +113,7 @@ export async function* speechChunks(
       targets[Math.min(index, targets.length - 1)] ?? MAX_SPEECH_CHUNK,
     );
   for await (const part of parts) {
-    buffer += `${part.replace(/[ \t\r\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n")}\n`;
+    buffer += part.replace(/[ \t\r\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n");
     buffer = buffer.replace(/^\s+/, "");
     while (buffer.length > target()) {
       const cut = cutPoint(buffer, target());

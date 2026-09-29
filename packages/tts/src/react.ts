@@ -38,6 +38,8 @@ export class SpeechOutput implements SpeechSink<AudioBuffer> {
   private context: AudioContext | null = null;
   private readonly sources = new Set<AudioBufferSourceNode>();
   private endsAt = 0;
+  /** Bumped by `stop()`, so a `schedule()` still waiting on resume drops its clip. */
+  private generation = 0;
 
   private ensure(): AudioContext {
     if (!this.context || this.context.state === "closed") {
@@ -65,12 +67,14 @@ export class SpeechOutput implements SpeechSink<AudioBuffer> {
   /** Queues a clip after whatever is scheduled; resolves when it has finished (or was stopped). */
   async schedule(buffer: AudioBuffer): Promise<void> {
     const context = this.ensure();
+    const generation = this.generation;
     const running = () => context.state === "running";
     if (!running()) {
       await Promise.race([
         context.resume(),
         new Promise((resolve) => setTimeout(resolve, 1_000)),
       ]);
+      if (generation !== this.generation) return;
       if (!running()) {
         throw new Error("Audio is blocked until you interact with the page");
       }
@@ -92,6 +96,7 @@ export class SpeechOutput implements SpeechSink<AudioBuffer> {
   }
 
   stop() {
+    this.generation += 1;
     for (const source of this.sources) source.stop();
     this.sources.clear();
     this.endsAt = 0;

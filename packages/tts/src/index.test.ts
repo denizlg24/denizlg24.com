@@ -59,12 +59,18 @@ describe("speechChunks", () => {
 
   test("text arriving in parts is re-cut across part boundaries", async () => {
     const pages = [
-      sentences.slice(0, 7).join(" "),
+      `${sentences.slice(0, 7).join(" ")}\n\n`,
       sentences.slice(7, 30).join(" "),
     ];
     const chunks = await collect(pages);
     expect(chunks.join(" ")).toBe(sentences.slice(0, 30).join(" "));
     expect(chunks[0]?.length).toBeLessThanOrEqual(160);
+  });
+
+  test("joins streamed parts without inventing a break", async () => {
+    expect(await collect(["Hel", "lo there.", " How are", " you?"])).toEqual([
+      "Hello there. How are you?",
+    ]);
   });
 
   test("falls back to a clause, then a word, when a sentence is too long", async () => {
