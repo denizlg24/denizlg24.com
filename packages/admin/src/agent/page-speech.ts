@@ -1,10 +1,11 @@
 "use client";
 
-import { playSpeechSource } from "@repo/tts/react";
+import { playSpeechSource, SpeechOutput } from "@repo/tts/react";
 import { toast } from "sonner";
 import type { AdminClient } from "../client";
 
 let current: AbortController | null = null;
+let output: SpeechOutput | null = null;
 
 export function stopPageSpeech() {
   current?.abort();
@@ -27,6 +28,8 @@ export function readCurrentPageAloud(client: AdminClient) {
     .slice(0, 100_000);
   if (!text) throw new Error("There is no readable text on this page");
   stopPageSpeech();
+  output ??= new SpeechOutput();
+  output.unlock();
   const abort = new AbortController();
   current = abort;
   void playSpeechSource(
@@ -40,6 +43,8 @@ export function readCurrentPageAloud(client: AdminClient) {
       return { blob: await response.blob() };
     },
     abort.signal,
+    undefined,
+    output,
   )
     .catch((error: unknown) => {
       if (!abort.signal.aborted)
