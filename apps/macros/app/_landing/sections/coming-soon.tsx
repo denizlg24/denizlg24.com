@@ -3,48 +3,47 @@ import { RequestAccessForm } from "@/app/_landing/request-access-form";
 import { sectionLead, sectionTitle } from "@/app/_landing/sections/feature-row";
 import {
   AppIcon,
-  ComingSoonBadge,
   container,
+  GetTheApp,
+  primaryButton,
   SectionLabel,
 } from "@/app/_landing/site";
 
 export function ComingSoon() {
   return (
     <section
-      id="coming-soon"
-      aria-labelledby="coming-soon-title"
+      id="get-macros"
+      aria-labelledby="get-macros-title"
       className="border-t py-20 sm:py-24"
     >
       <div className={container}>
-        <SectionLabel>Availability</SectionLabel>
+        <SectionLabel>Get Macros</SectionLabel>
         <div className="mt-12 grid gap-6 lg:mt-16 lg:grid-cols-2 lg:items-end lg:gap-20">
           <h2
-            id="coming-soon-title"
+            id="get-macros-title"
             className={cn(sectionTitle, "reveal max-w-xl")}
           >
-            Coming soon to iPhone.
+            On Android today. On iPhone soon.
           </h2>
           <p className={cn(sectionLead, "reveal max-w-xl")}>
-            Macros isn’t available to download yet. It’s in daily use while the
-            last pieces come together, and it will open up to everyone once it’s
-            ready.
+            Android phones can install Macros right now, free. The iPhone app
+            opens to everyone once the last pieces are in place — or ask to try
+            it early below.
           </p>
         </div>
-        <p className="reveal mt-10 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          On Android, you can{" "}
-          <a
-            href="/android/Macros.apk"
-            className="font-medium text-foreground underline underline-offset-4"
-          >
-            download the APK
-          </a>{" "}
-          already. The first time, Android asks you to allow installs from your
-          browser; allow it, then open the file again.
-        </p>
+        <div className="reveal mt-10 flex max-w-xl flex-col gap-3">
+          <a href="/android/Macros.apk" className={cn(primaryButton, "w-fit")}>
+            Download for Android
+          </a>
+          <p className="text-[15px] leading-relaxed text-muted-foreground">
+            The first time, Android asks you to allow installs from your
+            browser. Allow it, then open the file again.
+          </p>
+        </div>
         <div className="mt-16 grid gap-12 lg:mt-20 lg:grid-cols-2 lg:gap-20">
           <div className="reveal max-w-xl">
             <h3 className="text-2xl font-semibold tracking-tight">
-              Request early access
+              Try it early on iPhone
             </h3>
             <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">
               A small number of iPhones can install Macros before it opens up.
@@ -108,9 +107,7 @@ export function ClosingCta() {
             Let the numbers settle.
           </span>
         </h2>
-        <div className="reveal mt-9 flex justify-center">
-          <ComingSoonBadge />
-        </div>
+        <GetTheApp className="reveal mt-9 justify-center" />
       </div>
     </section>
   );

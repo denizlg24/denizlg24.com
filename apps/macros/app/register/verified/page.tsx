@@ -28,7 +28,7 @@ export default async function EmailVerifiedPage({
           Email verified
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-          Go back to the Macros app on your iPhone and tap “I’ve verified” to
+          Go back to the Macros app on your phone and tap “I’ve verified” to
           finish setting up.
         </p>
       </div>

@@ -8,11 +8,11 @@ const shareImage = {
   url: "/opengraph-image",
   width: 1200,
   height: 630,
-  alt: "Macros — nutrition tracking for iPhone.",
+  alt: "Macros — nutrition tracking for iPhone and Android.",
 };
 
 const siteDescription =
-  "A nutrition tracker for iPhone. Log food in a few taps, follow a weight trend instead of daily noise, and get targets set from what you actually burn.";
+  "A nutrition tracker for iPhone and Android. Log food in a few taps, follow a weight trend instead of daily noise, and get targets set from what you actually burn.";
 
 export function pageMetadata(
   title: string,
@@ -43,7 +43,7 @@ export function pageMetadata(
 export const rootMetadata: Metadata = {
   metadataBase: new URL(getPublicAppOrigin()),
   title: {
-    default: "Macros — nutrition tracking for iPhone",
+    default: "Macros — nutrition tracking for iPhone and Android",
     template: `%s · ${appName}`,
   },
   description: siteDescription,
@@ -54,7 +54,7 @@ export const rootMetadata: Metadata = {
     address: false,
   },
   openGraph: {
-    title: "Macros — nutrition tracking for iPhone",
+    title: "Macros — nutrition tracking for iPhone and Android",
     description: siteDescription,
     siteName: appName,
     type: "website",
@@ -62,7 +62,7 @@ export const rootMetadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Macros — nutrition tracking for iPhone",
+    title: "Macros — nutrition tracking for iPhone and Android",
     description: siteDescription,
   },
   icons: {

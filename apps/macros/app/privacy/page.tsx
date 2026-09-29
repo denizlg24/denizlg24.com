@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="27 September 2026"
+      updated="29 September 2026"
       intro={
         <p>
           Macros is a nutrition tracker built and run by one developer (
@@ -124,12 +124,12 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="On your iPhone">
+      <LegalSection title="On your phone">
         <p>
-          The app keeps your sign-in in the iOS Keychain and a copy of your
-          recent data on the phone, so it opens quickly and keeps working
-          offline. Entries you make offline are held on the phone until they can
-          be sent.
+          The app keeps your sign-in in the phone’s secure storage (the iOS
+          Keychain, or the Android Keystore) and a copy of your recent data on
+          the phone, so it opens quickly and keeps working offline. Entries you
+          make offline are held on the phone until they can be sent.
         </p>
       </LegalSection>
 

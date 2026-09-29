@@ -1,4 +1,5 @@
 import { cn } from "@repo/ui/utils";
+import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { container, SectionLabel } from "@/app/_landing/site";
 
@@ -8,31 +9,34 @@ export const sectionTitle =
 export const sectionLead =
   "text-lg leading-relaxed text-muted-foreground text-pretty";
 
-function FeatureDetails({
+function FeatureHighlights({
   items,
 }: {
   items: ReadonlyArray<readonly [string, string]>;
 }) {
   return (
-    <dl className="border-b">
-      {items.map(([term, description]) => (
-        <div
-          key={term}
-          className="grid gap-1 border-t py-4 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-6"
-        >
-          <dt className="text-[15px] font-semibold">{term}</dt>
-          <dd className="text-[15px] leading-relaxed text-muted-foreground">
-            {description}
-          </dd>
-        </div>
+    <ul className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+      {items.map(([title, description]) => (
+        <li key={title} className="flex gap-3">
+          <Check
+            aria-hidden="true"
+            className="mt-[3px] size-4 flex-none"
+            strokeWidth={2.5}
+          />
+          <div>
+            <h3 className="text-[15px] font-semibold">{title}</h3>
+            <p className="mt-1 text-[15px] leading-relaxed text-muted-foreground">
+              {description}
+            </p>
+          </div>
+        </li>
       ))}
-    </dl>
+    </ul>
   );
 }
 
 export function FeatureRow({
   id,
-  index,
   label,
   title,
   lead,
@@ -41,7 +45,6 @@ export function FeatureRow({
   reverse = false,
 }: {
   id: string;
-  index: string;
   label: string;
   title: string;
   lead: ReactNode;
@@ -52,7 +55,7 @@ export function FeatureRow({
   return (
     <section aria-labelledby={`${id}-title`} className="py-20 sm:py-24">
       <div className={container}>
-        <SectionLabel index={index}>{label}</SectionLabel>
+        <SectionLabel>{label}</SectionLabel>
         <div className="mt-12 grid items-center gap-16 lg:mt-16 lg:grid-cols-2 lg:gap-20">
           <div className={cn("reveal max-w-xl", reverse && "lg:order-2")}>
             <h2 id={`${id}-title`} className={sectionTitle}>
@@ -60,7 +63,7 @@ export function FeatureRow({
             </h2>
             <div className={cn(sectionLead, "mt-5")}>{lead}</div>
             <div className="mt-10">
-              <FeatureDetails items={details} />
+              <FeatureHighlights items={details} />
             </div>
           </div>
           <div

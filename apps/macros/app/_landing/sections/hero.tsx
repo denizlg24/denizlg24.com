@@ -1,4 +1,5 @@
 import { cn } from "@repo/ui/utils";
+import { Check } from "lucide-react";
 import {
   demoTargets,
   formatNumber,
@@ -9,7 +10,13 @@ import { withVars } from "@/app/_landing/phone/ios";
 import { LogScreen } from "@/app/_landing/screens/log-screen";
 import { ProgressScreen } from "@/app/_landing/screens/progress-screen";
 import { TodayScreen } from "@/app/_landing/screens/today-screen";
-import { ComingSoonBadge, container } from "@/app/_landing/site";
+import { container, GetTheApp } from "@/app/_landing/site";
+
+const HIGHLIGHTS = [
+  "Free, with no ads",
+  "Scan barcodes and labels",
+  "Targets that adapt to you",
+] as const;
 
 const energySplit = [
   { key: "protein", kcal: todaysTotals.protein * 4 },
@@ -78,7 +85,7 @@ export function Hero() {
         )}
       >
         <div className="max-w-[40rem]">
-          <p className="eyebrow">Nutrition tracking for iPhone</p>
+          <p className="eyebrow">Nutrition tracking for iPhone and Android</p>
           <h1
             id="hero-title"
             className="mt-5 text-[clamp(2.1rem,9.4vw,4.1rem)] leading-[1.02] font-semibold tracking-[-0.045em] text-balance"
@@ -94,20 +101,20 @@ export function Hero() {
             own logs and weigh-ins — then sets next week’s targets from it.
           </p>
           <div className="mt-9">
-            <ComingSoonBadge />
+            <GetTheApp />
           </div>
-          <dl className="mt-10 grid max-w-md grid-cols-3 gap-4 border-t pt-5">
-            {[
-              ["Price", "Free"],
-              ["Needs", "iOS 17+"],
-              ["Availability", "Coming soon"],
-            ].map(([term, value]) => (
-              <div key={term} className="flex flex-col gap-1">
-                <dt className="text-xs text-muted-foreground">{term}</dt>
-                <dd className="text-[15px] font-semibold">{value}</dd>
-              </div>
+          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-[15px] font-medium">
+            {HIGHLIGHTS.map((highlight) => (
+              <li key={highlight} className="flex items-center gap-2">
+                <Check
+                  aria-hidden="true"
+                  className="size-4 text-muted-foreground"
+                  strokeWidth={2.5}
+                />
+                {highlight}
+              </li>
             ))}
-          </dl>
+          </ul>
         </div>
 
         <div className="flex justify-center lg:pr-2">

@@ -53,10 +53,10 @@ export function SiteHeader() {
             Features
           </Link>
           <Link
-            href="/#coming-soon"
+            href="/#get-macros"
             className="ml-1 inline-flex h-9 items-center rounded-full bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-85"
           >
-            Coming soon
+            Get Macros
           </Link>
         </nav>
       </div>
@@ -130,7 +130,19 @@ export function SectionLabel({
 export const primaryButton =
   "inline-flex h-12 items-center justify-center gap-2 rounded-[14px] bg-foreground px-6 text-[15px] font-semibold text-background transition-[opacity,scale] hover:opacity-85 active:scale-[0.98]";
 
-/** Where the download button will go once the app is out. */
+/** Android downloads today; iPhone waits for its public release. */
+export function GetTheApp({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-3", className)}>
+      <a href="/android/Macros.apk" className={primaryButton}>
+        Download for Android
+      </a>
+      <ComingSoonBadge />
+    </div>
+  );
+}
+
+/** Where the iPhone download button will go once it is out. */
 export function ComingSoonBadge({ className }: { className?: string }) {
   return (
     <p
