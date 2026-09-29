@@ -1,0 +1,902 @@
+name: Macros mobile
+
+# Builds and releases apps/macros-mobile for iOS and Android.
+#
+# Builds run on every trigger, reference no secret and prove the code:
+# - build-ios: the unsigned SideStore IPA (no entitlements);
+# - build-ios-adhoc: the entitled ad-hoc build, compiled unsigned;
+# - build-android: a release APK signed with the debug key.
+#
+# Releases run in the `macros-release` environment, which requires the owner's
+# approval. Every signing secret (APPLE_*, MACROS_IOS_DIST_CERT_*,
+# MACROS_DISTRIBUTION_SECRET, MACROS_API_URL, MACROS_ANDROID_*) belongs there
+# as an environment secret, never a repository one, so only an approved
+# release job can read it. A release job whose secrets are missing exits green
+# with a notice.
+# - release-ios-sidestore: `macros-ios-v<version>` with the IPA, and
+#   `source.json` on the rolling `macros-ios-source` release, regenerated from
+#   every published version. SideStore subscribes to it through
+#   https://macros.denizlg24.com/ios/source.json.
+# - release-ios-adhoc: signs for the iPhones registered on the paid team and
+#   uploads to the rolling `macros-ios-adhoc` release, served from
+#   https://macros.denizlg24.com/ios/adhoc/*. Every run registers every
+#   approved UDID and regenerates the "Macros Ad Hoc" profile, so it can be
+#   repeated at any time.
+# - release-android: re-signs the built APK with the release key and publishes
+#   `macros-android-v<version>`, which
+#   https://macros.denizlg24.com/android/Macros.apk streams.
+#
+# SideStore and Android release when `version` in apps/macros-mobile/package.json
+# changes on main. The ad-hoc release runs on that same change and when the
+# macros server dispatches this workflow with `adhoc: true` after the owner
+# approves a device request.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/macros-mobile/**"
+      - "packages/macros-core/**"
+      - "packages/schemas/src/macros/**"
+      - "bun.lock"
+      - ".github/workflows/macros-mobile.yml"
+  pull_request:
+    paths:
+      - "apps/macros-mobile/**"
+      - "packages/macros-core/**"
+      - "packages/schemas/src/macros/**"
+      - "bun.lock"
+      - ".github/workflows/macros-mobile.yml"
+  workflow_dispatch:
+    inputs:
+      adhoc:
+        description: Sign and publish the ad-hoc iOS build
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Pull requests share a group per ref and cancel superseded runs. Everything
+# else gets a group of its own: a shared group would let a newer push silently
+# replace a pending version-bump run, and one release waiting for approval
+# would hold every later run on main.
+concurrency:
+  group: macros-mobile-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prepare:
+    name: Detect release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+      release: ${{ steps.version.outputs.release }}
+      adhoc: ${{ steps.version.outputs.adhoc }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # publish: the version changed on a push to main (SideStore + Android).
+      # adhoc:   the ad-hoc build should be signed and published.
+      # release: either of the two.
+      - name: Detect version change
+        id: version
+        shell: bash
+        env:
+          ADHOC_INPUT: ${{ inputs.adhoc }}
+        run: |
+          current_version="$(jq -r '.version' apps/macros-mobile/package.json)"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+          publish=false
+          adhoc=false
+          case "${{ github.event_name }}" in
+            push)
+              previous_version="$(
+                git show "${{ github.event.before }}:apps/macros-mobile/package.json" 2>/dev/null |
+                  jq -r '.version' ||
+                  true
+              )"
+              if [[ "$current_version" != "$previous_version" ]]; then
+                # SideStore detects updates by version alone, so a version
+                # that was already published must never be published again
+                # with new bytes.
+                for tag in "macros-ios-v$current_version" "macros-android-v$current_version"; do
+                  if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+                    echo "::error::$tag already exists. Bump apps/macros-mobile/package.json."
+                    exit 1
+                  fi
+                done
+                publish=true
+                adhoc=true
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ "$ADHOC_INPUT" == "true" ]]; then
+                if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+                  adhoc=true
+                else
+                  echo "::notice::Ad-hoc builds publish from main only."
+                fi
+              fi
+              ;;
+          esac
+
+          release=false
+          if [[ "$publish" == "true" || "$adhoc" == "true" ]]; then
+            release=true
+          fi
+          {
+            echo "publish=$publish"
+            echo "adhoc=$adhoc"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+
+  build-ios:
+    name: Build unsigned IPA
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: macros-ios-v${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        working-directory: apps/macros-mobile
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Xcode's "Bundle React Native code and images" phase runs the Expo CLI
+      # under node, so the runner needs a node React Native 0.86 accepts.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Test shared domain logic
+        working-directory: packages/macros-core
+        run: bun test
+
+      - name: Generate the native project
+        run: bunx expo prebuild --platform ios --clean
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace ios/Macros.xcworkspace \
+            -scheme Macros \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Macros.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          app="$RUNNER_TEMP/Macros.xcarchive/Products/Applications/Macros.app"
+          if [[ ! -d "$app" ]]; then
+            echo "::error::The archive holds no Macros.app"
+            exit 1
+          fi
+          mkdir -p build/Payload
+          cp -R "$app" build/Payload/
+          (cd build && zip -qry "Macros-$VERSION.ipa" Payload)
+          ls -l build
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          previous_tag="$(
+            git tag --list 'macros-ios-v*' --sort=-v:refname |
+              grep -Fvx "$TAG" |
+              head -n 1 ||
+              true
+          )"
+          if [[ -n "$previous_tag" ]]; then
+            git log --format='- %s' "$previous_tag..HEAD" -- . ../../packages/macros-core > build/release-notes.md
+          else
+            git log --format='- %s' -n 30 HEAD -- . > build/release-notes.md
+          fi
+          if [[ ! -s build/release-notes.md ]]; then
+            echo "- Maintenance release." > build/release-notes.md
+          fi
+          cat build/release-notes.md
+
+      - name: Describe the build for SideStore
+        run: >
+          bun scripts/release-metadata.ts
+          --app build/Payload/Macros.app
+          --ipa "build/Macros-$VERSION.ipa"
+          --entitlements ios/Macros/Macros.entitlements
+          --download-url "https://github.com/${{ github.repository }}/releases/download/$TAG/Macros-$VERSION.ipa"
+          --notes build/release-notes.md
+          --out "build/macros-ios-$VERSION.json"
+
+      # A free Apple account, which is what most SideStore users sign with,
+      # cannot grant push, App Groups, HealthKit, associated domains or iCloud.
+      # An IPA that asks for any of them fails to install for those users.
+      - name: Refuse entitlements a free account cannot sign
+        shell: bash
+        run: |
+          entitlements="$(jq -r '.entitlements | join(", ")' "build/macros-ios-$VERSION.json")"
+          if [[ -n "$entitlements" ]]; then
+            echo "::error::The IPA requests entitlements: $entitlements"
+            exit 1
+          fi
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-ios-${{ needs.prepare.outputs.version }}
+          path: |
+            apps/macros-mobile/build/*.ipa
+            apps/macros-mobile/build/*.json
+            apps/macros-mobile/build/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-ios-xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-ios-adhoc:
+    name: Build ad-hoc iOS (unsigned)
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
+      MACROS_IOS_DISTRIBUTION: adhoc
+    defaults:
+      run:
+        working-directory: apps/macros-mobile
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Xcode's "Bundle React Native code and images" phase runs the Expo CLI
+      # under node, so the runner needs a node React Native 0.86 accepts.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Generate the native project
+        run: bunx expo prebuild --platform ios --clean
+
+      # codesign adds get-task-allow and the team identifiers at signing time;
+      # everything else the signed build will carry is already in this file.
+      - name: Check the generated entitlements
+        run: bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
+
+      - name: Compile the device build
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace ios/Macros.xcworkspace \
+            -scheme Macros \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-ios-adhoc-xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-android:
+    name: Build APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MACROS_ANDROID_VERSION_CODE: ${{ github.run_number }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: macros-android-v${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        working-directory: apps/macros-mobile
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Gradle's "bundle JS" task runs the Expo CLI under node.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Test shared domain logic
+        working-directory: packages/macros-core
+        run: bun test
+
+      # No MACROS_ANDROID_* variables here, so plugins/with-android-signing.js
+      # leaves the template alone and Gradle signs with the debug key.
+      # release-android replaces that signature.
+      - name: Generate the native project
+        run: bunx expo prebuild --platform android --clean --no-install
+
+      - name: Assemble
+        working-directory: apps/macros-mobile/android
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease \
+            --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+            -Dorg.gradle.jvmargs=-Xmx4g \
+            | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Package APK
+        shell: bash
+        run: |
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$apk" ]]; then
+            echo "::error::Gradle produced no app-release.apk"
+            exit 1
+          fi
+          if ! unzip -l "$apk" | grep -q 'assets/index.android.bundle'; then
+            echo "::error::The APK carries no embedded JS bundle"
+            exit 1
+          fi
+          mkdir -p build
+          cp "$apk" "build/Macros-$VERSION.apk"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --print-certs "build/Macros-$VERSION.apk"
+          ls -l build
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          previous_tag="$(
+            git tag --list 'macros-android-v*' --sort=-v:refname |
+              grep -Fvx "$TAG" |
+              head -n 1 ||
+              true
+          )"
+          if [[ -n "$previous_tag" ]]; then
+            git log --format='- %s' "$previous_tag..HEAD" -- . ../../packages/macros-core > build/release-notes.md
+          else
+            git log --format='- %s' -n 30 HEAD -- . > build/release-notes.md
+          fi
+          if [[ ! -s build/release-notes.md ]]; then
+            echo "- Maintenance release." > build/release-notes.md
+          fi
+          cat build/release-notes.md
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-android-${{ needs.prepare.outputs.version }}
+          path: |
+            apps/macros-mobile/build/*.apk
+            apps/macros-mobile/build/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-android-gradle-log
+          path: ${{ runner.temp }}/gradle.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release-ios-sidestore:
+    name: Publish to SideStore
+    needs: [prepare, build-ios]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: macros-release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: macros-ios-v${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Download build
+        uses: actions/download-artifact@v8
+        with:
+          name: macros-ios-${{ needs.prepare.outputs.version }}
+          path: dist
+
+      # Never "latest": the Envoy CLI's updater reads this repository's
+      # releases, and the repository's latest release must stay an Envoy one.
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: macros-ios-v${{ needs.prepare.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Macros iOS v${{ needs.prepare.outputs.version }}
+          body_path: dist/release-notes.md
+          make_latest: false
+          files: |
+            dist/Macros-${{ needs.prepare.outputs.version }}.ipa
+            dist/macros-ios-${{ needs.prepare.outputs.version }}.json
+
+      - name: Compose the SideStore source
+        shell: bash
+        run: |
+          mkdir -p sources
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName \
+            --jq '.[].tagName | select(startswith("macros-ios-v"))' > tags.txt
+          while read -r tag; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'macros-ios-*.json' --dir sources --clobber || true
+          done < tags.txt
+          # The listing API can lag the release just created.
+          cp "dist/macros-ios-$VERSION.json" sources/
+          bun apps/macros-mobile/scripts/compose-source.ts --releases sources --out source.json
+
+      - name: Publish the source
+        shell: bash
+        run: |
+          if ! gh release view macros-ios-source --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create macros-ios-source \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Macros iOS — SideStore source" \
+              --notes "The SideStore/AltStore source for Macros. Add https://macros.denizlg24.com/ios/source.json in SideStore; this release only hosts the file." \
+              --prerelease \
+              --latest=false
+          fi
+          gh release upload macros-ios-source source.json --repo "$GITHUB_REPOSITORY" --clobber
+
+  release-ios-adhoc:
+    name: Sign and publish ad hoc
+    needs: [prepare, build-ios-adhoc]
+    if: needs.prepare.outputs.adhoc == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: macros-release
+    permissions:
+      contents: write
+    # The rolling release and the device profile are rewritten whole by every
+    # run, so only the newest pending one needs to go through.
+    concurrency:
+      group: macros-mobile-release-ios-adhoc
+      cancel-in-progress: false
+    env:
+      MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
+      MACROS_IOS_DISTRIBUTION: adhoc
+      VERSION: ${{ needs.prepare.outputs.version }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MACROS_API_URL: ${{ secrets.MACROS_API_URL || 'https://macros.denizlg24.com' }}
+      PUBLIC_ORIGIN: https://macros.denizlg24.com
+    defaults:
+      run:
+        working-directory: apps/macros-mobile
+    steps:
+      - name: Check signing setup
+        id: signing
+        shell: bash
+        working-directory: .
+        env:
+          APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
+          MACROS_IOS_DIST_CERT_P12: ${{ secrets.MACROS_IOS_DIST_CERT_P12 }}
+          MACROS_IOS_DIST_CERT_PASSWORD: ${{ secrets.MACROS_IOS_DIST_CERT_PASSWORD }}
+          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
+        run: |
+          missing=()
+          for name in APPLE_TEAM_ID APPLE_ASC_KEY_ID APPLE_ASC_ISSUER_ID \
+            APPLE_ASC_PRIVATE_KEY MACROS_IOS_DIST_CERT_P12 \
+            MACROS_IOS_DIST_CERT_PASSWORD MACROS_DISTRIBUTION_SECRET; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::notice::Ad-hoc distribution is not set up (missing: ${missing[*]}). Nothing to do."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out code
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/checkout@v7
+
+      - name: Select Xcode
+        if: steps.signing.outputs.ready == 'true'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Xcode's "Bundle React Native code and images" phase runs the Expo CLI
+      # under node, so the runner needs a node React Native 0.86 accepts.
+      - name: Set up Node
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - if: steps.signing.outputs.ready == 'true'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        if: steps.signing.outputs.ready == 'true'
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Test release tooling
+        if: steps.signing.outputs.ready == 'true'
+        run: bun test scripts
+
+      - name: Import the distribution certificate
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        env:
+          P12_BASE64: ${{ secrets.MACROS_IOS_DIST_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACROS_IOS_DIST_CERT_PASSWORD }}
+        run: |
+          p12="$RUNNER_TEMP/distribution.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/macros-signing.keychain-db"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "$P12_BASE64" | base64 --decode > "$p12"
+          keychain_password="$(openssl rand -hex 24)"
+
+          security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security import "$p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$KEYCHAIN_PATH" >/dev/null
+          read -r -a existing_keychains <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
+
+          # The profile has to name this exact certificate. Keychain Access
+          # exports with legacy encryption, which OpenSSL 3 reads only with
+          # -legacy; LibreSSL refuses that flag.
+          /usr/bin/openssl pkcs12 -in "$p12" -clcerts -nokeys -passin env:P12_PASSWORD -out "$RUNNER_TEMP/distribution.pem" 2>/dev/null ||
+            openssl pkcs12 -legacy -in "$p12" -clcerts -nokeys -passin env:P12_PASSWORD -out "$RUNNER_TEMP/distribution.pem"
+          rm -f "$p12"
+
+      - name: Register devices and create the profile
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
+          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
+        run: >
+          bun scripts/adhoc-profile.ts
+          --certificate "$RUNNER_TEMP/distribution.pem"
+          --out build/Macros_Ad_Hoc.mobileprovision
+          --summary build/profile.json
+
+      - name: Install the profile
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          uuid="$(jq -r '.uuid' build/profile.json)"
+          # Xcode 16 reads the second location; older Xcodes the first.
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp build/Macros_Ad_Hoc.mobileprovision "$dir/$uuid.mobileprovision"
+          done
+
+      - name: Generate the native project
+        if: steps.signing.outputs.ready == 'true'
+        run: bunx expo prebuild --platform ios --clean
+
+      # Only the app target is signed with the profile. Passing the profile on
+      # the xcodebuild command line would apply it to every Pods target too,
+      # which refuse one.
+      - name: Sign the app target manually
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          # CocoaPods (which prebuild just ran) brings the gem; install it only
+          # if this Ruby cannot see it.
+          ruby -e 'require "xcodeproj"' 2>/dev/null || gem install xcodeproj --no-document
+          ruby -r xcodeproj -e '
+            project = Xcodeproj::Project.open("ios/Macros.xcodeproj")
+            target = project.targets.find { |t| t.name == "Macros" } or abort "No Macros target"
+            target.build_configurations.each do |config|
+              settings = config.build_settings
+              settings["CODE_SIGN_STYLE"] = "Manual"
+              settings["DEVELOPMENT_TEAM"] = ENV.fetch("APPLE_TEAM_ID")
+              settings["PROVISIONING_PROFILE_SPECIFIER"] = "Macros Ad Hoc"
+              settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+              settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
+            end
+            project.save
+          '
+
+      - name: Archive
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace ios/Macros.xcworkspace \
+            -scheme Macros \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Macros.xcarchive" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Export the IPA
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>release-testing</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.denizlg24.macros</key>
+              <string>Macros Ad Hoc</string>
+            </dict>
+            <key>thinning</key>
+            <string>&lt;none&gt;</string>
+            <key>manifest</key>
+            <dict>
+              <key>appURL</key>
+              <string>${PUBLIC_ORIGIN}/ios/adhoc/Macros.ipa</string>
+              <key>displayImageURL</key>
+              <string>${PUBLIC_ORIGIN}/apple-touch-icon.png</string>
+              <key>fullSizeImageURL</key>
+              <string>${PUBLIC_ORIGIN}/icon-512.png</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Macros.xcarchive" \
+            -exportPath build/export \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            | tee -a "$RUNNER_TEMP/xcodebuild.log" \
+            | xcbeautify --renderer github-actions
+          ls -l build/export
+          test -f build/export/Macros.ipa
+          test -f build/export/manifest.plist
+
+      - name: Check the signed entitlements
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          rm -rf build/unpacked
+          mkdir -p build/unpacked
+          unzip -q build/export/Macros.ipa -d build/unpacked
+          bun scripts/adhoc-entitlements.ts build/unpacked/Payload/Macros.app
+
+      # Never "latest": the Envoy CLI's updater reads this repository's
+      # releases, and the repository's latest release must stay an Envoy one.
+      - name: Publish to the rolling release
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view macros-ios-adhoc --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create macros-ios-adhoc \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Macros iOS — ad hoc" \
+              --notes "Ad-hoc build of Macros for registered iPhones. Install from ${PUBLIC_ORIGIN}/ios/install; this release only hosts the files." \
+              --prerelease \
+              --latest=false
+          fi
+          gh release upload macros-ios-adhoc \
+            build/export/Macros.ipa build/export/manifest.plist \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Tell the server which iPhones can install
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        env:
+          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
+        run: |
+          jq -n --arg version "$VERSION" --slurpfile profile build/profile.json \
+            '{version: $version, udids: $profile[0].udids}' > build/published.json
+          curl --fail-with-body --silent --show-error \
+            -X POST "${MACROS_API_URL%/}/api/distribution/published" \
+            -H "authorization: Bearer $MACROS_DISTRIBUTION_SECRET" \
+            -H "content-type: application/json" \
+            --data @build/published.json
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-ios-adhoc-signed-xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        working-directory: .
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          rm -f "$RUNNER_TEMP/distribution.pem" apps/macros-mobile/build/Macros_Ad_Hoc.mobileprovision
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
+          rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision
+
+  release-android:
+    name: Sign and publish APK
+    needs: [prepare, build-android]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: macros-release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: macros-android-v${{ needs.prepare.outputs.version }}
+      MACROS_ANDROID_KEYSTORE: ${{ secrets.MACROS_ANDROID_KEYSTORE }}
+      MACROS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.MACROS_ANDROID_KEYSTORE_PASSWORD }}
+      MACROS_ANDROID_KEY_ALIAS: ${{ secrets.MACROS_ANDROID_KEY_ALIAS }}
+      MACROS_ANDROID_KEY_PASSWORD: ${{ secrets.MACROS_ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Check signing secrets
+        id: signing
+        shell: bash
+        run: |
+          if [[ -n "$MACROS_ANDROID_KEYSTORE" && -n "$MACROS_ANDROID_KEYSTORE_PASSWORD" && -n "$MACROS_ANDROID_KEY_ALIAS" && -n "$MACROS_ANDROID_KEY_PASSWORD" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The MACROS_ANDROID_* signing secrets are not set, so $TAG was built but not published."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: macros-android-${{ needs.prepare.outputs.version }}
+          path: dist
+
+      # apksigner replaces the debug signature outright. zipalign runs first
+      # because rewriting the archive after signing would invalidate it; -P 16
+      # keeps native libraries on 16 KB pages.
+      - name: Sign with the release key
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          keystore="$RUNNER_TEMP/macros-release.keystore"
+          echo "$MACROS_ANDROID_KEYSTORE" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+
+          "$build_tools/zipalign" -f -P 16 4 "dist/Macros-$VERSION.apk" "$RUNNER_TEMP/aligned.apk"
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$MACROS_ANDROID_KEY_ALIAS" \
+            --ks-pass env:MACROS_ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:MACROS_ANDROID_KEY_PASSWORD \
+            --out "dist/Macros-$VERSION.apk" \
+            "$RUNNER_TEMP/aligned.apk"
+          rm -f "$keystore" "$RUNNER_TEMP/aligned.apk"
+
+          "$build_tools/apksigner" verify --print-certs "dist/Macros-$VERSION.apk" | tee "$RUNNER_TEMP/signature.txt"
+          if grep -q "CN=Android Debug" "$RUNNER_TEMP/signature.txt"; then
+            echo "::error::The release APK is still signed with the debug key."
+            exit 1
+          fi
+          signers="$(grep -c '^Signer #[0-9]* certificate DN:' "$RUNNER_TEMP/signature.txt" || true)"
+          if [[ "$signers" != "1" ]]; then
+            echo "::error::The release APK has $signers signers; expected exactly one."
+            exit 1
+          fi
+
+      # Never "latest": the Envoy CLI's updater reads this repository's
+      # releases, and the repository's latest release must stay an Envoy one.
+      - name: Create GitHub release
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Macros Android v$VERSION" \
+            --notes-file dist/release-notes.md \
+            --latest=false \
+            "dist/Macros-$VERSION.apk"
