@@ -1,0 +1,54 @@
+# CI and releases
+
+## Pull requests
+
+`.github/workflows/ci.yml` runs a small change selector on every pull request and
+push to `main`. It runs JavaScript build, typecheck, tests, and Biome only for
+JavaScript workspace changes; migration checks for Macros database changes;
+Python checks for `apps/macros-vision`; Rust checks for `apps/envoy-cli`; and
+`actionlint` for workflow changes. A missing diff base runs all checks.
+
+The selector also validates release workspace dependencies. When a new
+workspace dependency is added to the API or markets relay, update its Dockerfile
+manifest and source copies. All binary and container release path filters must
+cover their transitive runtime workspaces. The check fails CI if an input is
+missing.
+
+`macros-mobile.yml` builds native apps on relevant pull requests. On `main`, it
+runs for a version change in `apps/macros-mobile/package.json`; a device approval
+dispatch builds only the ad hoc iOS variant. Signing and publication remain in
+the `macros-release` environment.
+
+## Container releases
+
+`release-cloud.yml`, `release-markets-relay.yml`, and
+`release-sandbox-runtime.yml` call `build-image.yml`. The shared workflow builds
+amd64 and arm64 on native GitHub runners, pushes architecture tags, runs each
+image on its matching runner, and publishes the commit SHA manifest only after
+both checks pass. It then updates `latest`. Each image and architecture has a
+separate GHCR BuildKit cache tag (`buildcache-amd64` and `buildcache-arm64`).
+Cache export errors do not block a verified image release.
+
+The API and markets relay Dockerfiles install only their workspace dependency
+trees. Package manifests are copied before source files, so source-only edits
+reuse the dependency layer. The build still uses the committed `bun.lock` with
+`--frozen-lockfile`.
+
+To deploy a previous API or relay image, manually run its release workflow with
+the full 40-character commit SHA in `image_tag`. The shared build workflow
+validates the tag and skips the build. Set `mode` to `validate` to exercise the
+tailnet, asset copy, image pull, and Compose render without starting containers.
+
+## Local validation
+
+From the repository root:
+
+```sh
+python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+python3 scripts/ci/check_release_workspaces.py
+actionlint -shellcheck= .github/workflows/*.yml
+git diff --check
+```
+
+`actionlint` omits ShellCheck because existing release-note scripts contain
+style warnings; shell scripts in DR have a separate ShellCheck gate.

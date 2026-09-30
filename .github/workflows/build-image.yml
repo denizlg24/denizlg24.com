@@ -1,0 +1,176 @@
+name: Build and verify container image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: GHCR image name
+        required: true
+        type: string
+      dockerfile:
+        description: Dockerfile relative to the repository root
+        required: true
+        type: string
+      requested_tag:
+        description: Existing full commit SHA to deploy without rebuilding
+        required: false
+        default: ""
+        type: string
+      health_port:
+        description: Container health endpoint port; zero disables the smoke test
+        required: false
+        default: 0
+        type: number
+      smoke_env:
+        description: Newline-separated KEY=VALUE pairs for the smoke test
+        required: false
+        default: ""
+        type: string
+      smoke_command:
+        description: Command to run inside the image (for images without an HTTP health endpoint)
+        required: false
+        default: ""
+        type: string
+    outputs:
+      image_tag:
+        description: Immutable image tag to deploy
+        value: ${{ jobs.metadata.outputs.image_tag }}
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - name: Validate requested tag
+        id: tag
+        env:
+          REQUESTED_TAG: ${{ inputs.requested_tag }}
+        run: |
+          if [[ -n "$REQUESTED_TAG" && ! "$REQUESTED_TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'image_tag must be a full Git SHA' >&2
+            exit 1
+          fi
+          echo "image_tag=${REQUESTED_TAG:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and smoke test (${{ matrix.arch }})
+    needs: metadata
+    if: inputs.requested_tag == ''
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Native runners avoid QEMU's ~18-minute arm64 Bun install. Registry
+      # caches are separate per image and architecture, so concurrent builds
+      # cannot overwrite one another's intermediate layers.
+      - name: Build and push architecture image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ inputs.image }}:${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=registry,ref=${{ inputs.image }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ inputs.image }}:buildcache-${{ matrix.arch }},mode=max,ignore-error=true
+          provenance: mode=max
+          sbom: true
+
+      - name: Boot and health-check image
+        if: inputs.health_port != 0
+        env:
+          IMAGE: ${{ inputs.image }}
+          ARCH: ${{ matrix.arch }}
+          HEALTH_PORT: ${{ inputs.health_port }}
+          SMOKE_ENV: ${{ inputs.smoke_env }}
+        run: |
+          set -Eeuo pipefail
+          container="release-smoke-${ARCH}"
+          trap 'docker logs "$container" 2>/dev/null || true; docker rm --force "$container" 2>/dev/null || true' EXIT
+          extra_args=()
+          if [[ -n "$SMOKE_ENV" ]]; then
+            printf '%s\n' "$SMOKE_ENV" > smoke.env
+            extra_args=(--env-file smoke.env)
+          fi
+          docker run --detach --name "$container" \
+            --publish "127.0.0.1:33000:${HEALTH_PORT}" \
+            "${extra_args[@]}" "${IMAGE}:${GITHUB_SHA}-${ARCH}"
+          for _ in $(seq 1 60); do
+            if curl --fail --silent "http://127.0.0.1:33000/healthz" | jq -e '.status == "ok"' >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "${ARCH} image failed its health check" >&2
+          exit 1
+
+      - name: Check runtime commands
+        if: inputs.smoke_command != ''
+        env:
+          IMAGE: ${{ inputs.image }}
+          ARCH: ${{ matrix.arch }}
+          SMOKE_COMMAND: ${{ inputs.smoke_command }}
+        run: docker run --rm --entrypoint sh "${IMAGE}:${GITHUB_SHA}-${ARCH}" -ec "$SMOKE_COMMAND"
+
+  publish:
+    name: Publish multi-architecture manifest
+    needs: [metadata, build]
+    if: inputs.requested_tag == ''
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Assemble and verify manifest
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${GITHUB_SHA}" \
+            "${IMAGE}:${GITHUB_SHA}-amd64" \
+            "${IMAGE}:${GITHUB_SHA}-arm64"
+          docker buildx imagetools inspect "${IMAGE}:${GITHUB_SHA}" --raw > manifest.json
+          jq -e '[.manifests[].platform | select(.os == "linux") | (.os + "/" + .architecture)] | unique | sort == ["linux/amd64", "linux/arm64"]' manifest.json
+          # Move the mutable tag only after both native smoke tests pass.
+          docker buildx imagetools create \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}:${GITHUB_SHA}"

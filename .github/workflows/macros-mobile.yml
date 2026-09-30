@@ -2,7 +2,8 @@ name: Macros mobile
 
 # Builds and releases apps/macros-mobile for iOS and Android.
 #
-# Builds run on every trigger, reference no secret and prove the code:
+# Builds run for pull requests, release commits, and manual validation. They
+# reference no secret and prove the code:
 # - build-ios: the unsigned SideStore IPA (no entitlements);
 # - build-ios-adhoc: the entitled ad-hoc build, compiled unsigned;
 # - build-android: a release APK signed with the debug key.
@@ -35,10 +36,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "apps/macros-mobile/**"
-      - "packages/macros-core/**"
-      - "packages/schemas/src/macros/**"
-      - "bun.lock"
+      - "apps/macros-mobile/package.json"
       - ".github/workflows/macros-mobile.yml"
   pull_request:
     paths:
@@ -140,6 +138,7 @@ jobs:
   build-ios:
     name: Build unsigned IPA
     needs: prepare
+    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -153,6 +152,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Select Xcode
@@ -280,6 +280,7 @@ jobs:
   build-ios-adhoc:
     name: Build ad-hoc iOS (unsigned)
     needs: prepare
+    if: github.event_name == 'pull_request' || needs.prepare.outputs.adhoc == 'true'
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -291,6 +292,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -347,6 +350,7 @@ jobs:
   build-android:
     name: Build APK
     needs: prepare
+    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -360,6 +364,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Java
@@ -478,6 +483,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
 
@@ -584,6 +591,8 @@ jobs:
       - name: Check out code
         if: steps.signing.outputs.ready == 'true'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Select Xcode
         if: steps.signing.outputs.ready == 'true'

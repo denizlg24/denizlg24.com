@@ -26,6 +26,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect version change
@@ -107,6 +108,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'

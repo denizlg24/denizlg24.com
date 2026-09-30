@@ -4,11 +4,65 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Select relevant checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.select.outputs.build }}
+      macros_db: ${{ steps.select.outputs.macros_db }}
+      macros_vision: ${{ steps.select.outputs.macros_vision }}
+      envoy_cli: ${{ steps.select.outputs.envoy_cli }}
+      workflow_lint: ${{ steps.select.outputs.workflow_lint }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select checks from changed files
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+          python3 scripts/ci/check_release_workspaces.py
+          if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git diff --name-only -z "$BASE_SHA" HEAD | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
+          else
+            # A force push can make the previous SHA unreachable. Run all
+            # checks when there is no reliable diff to filter on.
+            printf '.github/workflows/ci.yml\0' | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
+          fi
+
+  workflow-lint:
+    name: Validate GitHub Actions workflows
+    needs: changes
+    if: needs.changes.outputs.workflow_lint == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color -shellcheck=
+
   build:
     name: Build, typecheck, test, lint
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     timeout-minutes: 15
     runs-on: ubuntu-latest
     services:
@@ -69,6 +123,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - uses: oven-sh/setup-bun@v2
@@ -127,7 +182,10 @@ jobs:
 
   macros-db:
     name: Macros migrations and schema drift
+    needs: changes
+    if: needs.changes.outputs.macros_db == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:17
@@ -147,6 +205,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
 
@@ -173,13 +233,18 @@ jobs:
 
   macros-vision:
     name: Macros vision parser
+    needs: changes
+    if: needs.changes.outputs.macros_vision == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/macros-vision
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -200,7 +265,10 @@ jobs:
 
   envoy-cli:
     name: Envoy CLI
+    needs: changes
+    if: needs.changes.outputs.envoy_cli == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/envoy-cli
@@ -209,6 +277,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

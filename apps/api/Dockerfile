@@ -4,12 +4,21 @@ FROM oven/bun:1.3.3-alpine AS dependencies
 WORKDIR /workspace
 
 COPY package.json bun.lock ./
-COPY apps apps
-COPY packages packages
+COPY apps/api/package.json apps/api/package.json
+COPY packages/cloud-auth-client/package.json packages/cloud-auth-client/package.json
+COPY packages/cloud-core/package.json packages/cloud-core/package.json
+COPY packages/markets/package.json packages/markets/package.json
+COPY packages/schemas/package.json packages/schemas/package.json
+COPY packages/typescript-config/package.json packages/typescript-config/package.json
 
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts --filter 'api...'
 
 FROM dependencies AS build
+COPY apps/api apps/api
+COPY packages/cloud-auth-client packages/cloud-auth-client
+COPY packages/cloud-core packages/cloud-core
+COPY packages/markets packages/markets
+COPY packages/schemas packages/schemas
 RUN bun run --cwd apps/api build
 
 FROM oven/bun:1.3.3-alpine AS runtime
