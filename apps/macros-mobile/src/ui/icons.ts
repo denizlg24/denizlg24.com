@@ -3,11 +3,16 @@
 // icons (`glyphs.ts`).
 
 import Apple from "lucide-react-native/icons/apple";
+import Archive from "lucide-react-native/icons/archive";
 import ArrowUpDown from "lucide-react-native/icons/arrow-up-down";
 import Barcode from "lucide-react-native/icons/barcode";
 import Bell from "lucide-react-native/icons/bell";
+import BellRing from "lucide-react-native/icons/bell-ring";
+import Bike from "lucide-react-native/icons/bike";
 import BookOpen from "lucide-react-native/icons/book-open";
+import BookmarkPlus from "lucide-react-native/icons/bookmark-plus";
 import Braces from "lucide-react-native/icons/braces";
+import Brain from "lucide-react-native/icons/brain";
 import Cake from "lucide-react-native/icons/cake";
 import Calendar from "lucide-react-native/icons/calendar";
 import Camera from "lucide-react-native/icons/camera";
@@ -21,6 +26,7 @@ import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ChevronUp from "lucide-react-native/icons/chevron-up";
 import ChevronsUpDown from "lucide-react-native/icons/chevrons-up-down";
+import CigaretteOff from "lucide-react-native/icons/cigarette-off";
 import Circle from "lucide-react-native/icons/circle";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
 import CircleCheck from "lucide-react-native/icons/circle-check";
@@ -35,6 +41,7 @@ import Coffee from "lucide-react-native/icons/coffee";
 import Copy from "lucide-react-native/icons/copy";
 import CopyPlus from "lucide-react-native/icons/copy-plus";
 import CupSoda from "lucide-react-native/icons/cup-soda";
+import Droplet from "lucide-react-native/icons/droplet";
 import Dumbbell from "lucide-react-native/icons/dumbbell";
 import Ellipsis from "lucide-react-native/icons/ellipsis";
 import FileText from "lucide-react-native/icons/file-text";
@@ -44,6 +51,7 @@ import Flame from "lucide-react-native/icons/flame";
 import Flashlight from "lucide-react-native/icons/flashlight";
 import FlashlightOff from "lucide-react-native/icons/flashlight-off";
 import FolderSearch from "lucide-react-native/icons/folder-search";
+import Footprints from "lucide-react-native/icons/footprints";
 import Hammer from "lucide-react-native/icons/hammer";
 import Hand from "lucide-react-native/icons/hand";
 import HeartPulse from "lucide-react-native/icons/heart-pulse";
@@ -52,6 +60,7 @@ import Inbox from "lucide-react-native/icons/inbox";
 import Info from "lucide-react-native/icons/info";
 import KeyRound from "lucide-react-native/icons/key-round";
 import LayoutTemplate from "lucide-react-native/icons/layout-template";
+import Leaf from "lucide-react-native/icons/leaf";
 import ListChecks from "lucide-react-native/icons/list-checks";
 import ListPlus from "lucide-react-native/icons/list-plus";
 import ListX from "lucide-react-native/icons/list-x";
@@ -60,12 +69,17 @@ import Mail from "lucide-react-native/icons/mail";
 import MailCheck from "lucide-react-native/icons/mail-check";
 import Milk from "lucide-react-native/icons/milk";
 import Minus from "lucide-react-native/icons/minus";
+import Moon from "lucide-react-native/icons/moon";
+import Music from "lucide-react-native/icons/music";
 import NotebookPen from "lucide-react-native/icons/notebook-pen";
+import PenLine from "lucide-react-native/icons/pen-line";
 import Pencil from "lucide-react-native/icons/pencil";
 import PersonStanding from "lucide-react-native/icons/person-standing";
+import Pill from "lucide-react-native/icons/pill";
 import Plus from "lucide-react-native/icons/plus";
 import Popcorn from "lucide-react-native/icons/popcorn";
 import RotateCcwClock from "lucide-react-native/icons/rotate-ccw-clock";
+import Salad from "lucide-react-native/icons/salad";
 import Scale from "lucide-react-native/icons/scale";
 import ScanBarcode from "lucide-react-native/icons/scan-barcode";
 import ScanText from "lucide-react-native/icons/scan-text";
@@ -75,6 +89,7 @@ import Share from "lucide-react-native/icons/share";
 import ShoppingBasket from "lucide-react-native/icons/shopping-basket";
 import ShoppingCart from "lucide-react-native/icons/shopping-cart";
 import SlidersHorizontal from "lucide-react-native/icons/sliders-horizontal";
+import Sparkles from "lucide-react-native/icons/sparkles";
 import SquarePen from "lucide-react-native/icons/square-pen";
 import Star from "lucide-react-native/icons/star";
 import StarOff from "lucide-react-native/icons/star-off";
@@ -88,15 +103,32 @@ import Utensils from "lucide-react-native/icons/utensils";
 import VideoOff from "lucide-react-native/icons/video-off";
 import WifiOff from "lucide-react-native/icons/wifi-off";
 import Wine from "lucide-react-native/icons/wine";
+import WineOff from "lucide-react-native/icons/wine-off";
 import Workflow from "lucide-react-native/icons/workflow";
 import X from "lucide-react-native/icons/x";
 import Zap from "lucide-react-native/icons/zap";
 
 export const icons = {
+  footprints: Footprints,
+  bike: Bike,
+  droplet: Droplet,
+  pill: Pill,
+  salad: Salad,
+  leaf: Leaf,
+  moon: Moon,
+  brain: Brain,
+  "pen-line": PenLine,
+  music: Music,
+  sparkles: Sparkles,
+  "cigarette-off": CigaretteOff,
+  "wine-off": WineOff,
+  archive: Archive,
+  "bell-ring": BellRing,
   apple: Apple,
   "arrow-up-down": ArrowUpDown,
   barcode: Barcode,
   "book-open": BookOpen,
+  "bookmark-plus": BookmarkPlus,
   braces: Braces,
   cake: Cake,
   calendar: Calendar,

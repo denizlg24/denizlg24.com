@@ -3,7 +3,7 @@ import type {
   MacrosFoodLogDayStatus,
   MacrosWeightTrendPoint,
 } from "@repo/schemas/macros";
-import { isValid, parseISO, startOfISOWeek } from "date-fns";
+import { isValid, parseISO } from "date-fns";
 
 export function isIsoDate(value: unknown): value is string {
   return (
@@ -92,17 +92,6 @@ export function summarizeEnergyBalance(
     ...bars.map((bar) => Math.max(bar.consumed, bar.expenditure ?? 0)),
   );
   return { bars, balance, scale };
-}
-
-/** Completions in the current Monday-to-Sunday week, up to and including today. */
-export function completionsThisWeek(
-  completedDates: readonly string[],
-  today: string,
-): number {
-  const weekStart = formatIso(startOfISOWeek(parseISO(today)));
-  return new Set(
-    completedDates.filter((date) => date >= weekStart && date <= today),
-  ).size;
 }
 
 function compareIso(a: string, b: string): number {

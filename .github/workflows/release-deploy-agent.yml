@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/deploy-agent/**"
       - "packages/cloud-core/**"
+      - "packages/markets/**"
       - "packages/schemas/**"
       - "infra/systemd/forge-agent.service"
       - "infra/systemd/forge-agent-install"
@@ -26,6 +27,7 @@ on:
       - "infra/systemd/forge-grub.cfg"
       - ".github/workflows/release-deploy-agent.yml"
       - "bun.lock"
+      - "package.json"
   workflow_dispatch:
     inputs:
       mode:
@@ -78,7 +80,7 @@ jobs:
           sha256sum forge-agent > forge-agent.sha256
           cat forge-agent.sha256
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: forge-agent
           path: |
@@ -104,7 +106,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: forge-agent
           path: dist

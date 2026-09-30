@@ -7,10 +7,16 @@ on:
       - "apps/terminal/**"
       - "apps/storage-metadata/**"
       - "packages/cloud-core/**"
+      - "packages/markets/**"
       - "packages/schemas/**"
       - ".github/workflows/release-cloud-terminal.yml"
       - "bun.lock"
+      - "package.json"
   workflow_dispatch:
+
+concurrency:
+  group: release-cloud-terminal-pi
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -88,7 +94,7 @@ jobs:
             sleep 1
           done
           exit 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cloud-terminal-${{ matrix.arch }}
           path: dist/${{ matrix.arch }}/
@@ -108,11 +114,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: cloud-terminal-amd64
           path: dist/amd64
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: cloud-terminal-arm64
           path: dist/arm64

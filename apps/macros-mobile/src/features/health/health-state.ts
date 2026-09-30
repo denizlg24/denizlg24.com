@@ -8,6 +8,14 @@ const healthStateSchema = z.object({
   importedThrough: z.string().nullable(),
   lastSyncedAt: z.number().nullable(),
   lastError: z.string().nullable(),
+  /**
+   * Weigh-ins deleted here that Health still holds. The import re-reads
+   * recent days, and would otherwise bring a deleted bad reading straight
+   * back; the weight is part of the key so a new reading that day imports.
+   */
+  dismissedWeighIns: z
+    .array(z.object({ logDate: z.string(), weightKg: z.number() }))
+    .default([]),
 });
 
 export type HealthState = z.infer<typeof healthStateSchema>;
@@ -17,6 +25,7 @@ const initial: HealthState = {
   importedThrough: null,
   lastSyncedAt: null,
   lastError: null,
+  dismissedWeighIns: [],
 };
 
 // Per user and per device: another phone on the same account has its own
@@ -50,6 +59,26 @@ export function updateHealthState(patch: Partial<HealthState>) {
     storageKey(userId),
     JSON.stringify(healthState.get()),
   ).catch(() => undefined);
+}
+
+/** Keeps only what the import window can still re-read. */
+export function dismissImportedWeighIn(
+  weighIn: { logDate: string; weightKg: number },
+  oldestReadable: string,
+) {
+  const kept = healthState
+    .get()
+    .dismissedWeighIns.filter((item) => item.logDate >= oldestReadable);
+  updateHealthState({ dismissedWeighIns: [...kept, weighIn] });
+}
+
+/** For a deleted account: its Health setup must not outlive it. */
+export async function forgetHealthState() {
+  const userId = activeUser;
+  healthState.set(initial);
+  if (userId) {
+    await AsyncStorage.removeItem(storageKey(userId)).catch(() => undefined);
+  }
 }
 
 export function getHealthState() {

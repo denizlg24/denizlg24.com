@@ -36,6 +36,7 @@ import {
   spacing,
   Text,
   TextField,
+  useSwipeAccessibility,
   VStack,
 } from "@/ui";
 import { toolbarText } from "@/ui/toolbar";
@@ -519,6 +520,7 @@ function IngredientRow({
   energyUnit: EnergyUnit;
   onPress: () => void;
 }) {
+  const swipeAccessibility = useSwipeAccessibility();
   const { food } = ingredient;
   const amount = parseDecimal(ingredient.servings) ?? 0;
   const serving = food.servingLabel
@@ -531,6 +533,7 @@ function IngredientRow({
           onPress={onPress}
           accessibilityRole="button"
           accessibilityHint="Move or remove this food"
+          {...swipeAccessibility}
           style={styles.ingredientMain}
         >
           <FoodIcon name={food.name} iconKey={food.iconKey} size={30} />

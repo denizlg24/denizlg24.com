@@ -5,6 +5,7 @@ import { parseDecimal } from "@/lib/numbers";
 import {
   buildRegistrationBody,
   caloriesKcalOf,
+  fitSplit,
   heightCmOf,
   initialDraft,
   type OnboardingDraft,
@@ -196,12 +197,36 @@ describe("suggestTargets", () => {
     );
   });
 
+  test("a keto loss plan still leaves carbs within the sliders", () => {
+    const { protein, carbs, fat } = suggestTargets(
+      draft({
+        proteinProfile: "keto",
+        activityLevel: "sedentary",
+        currentWeight: "100",
+      }),
+      now,
+    ).split;
+    expect(protein + carbs + fat).toBe(100);
+    expect(carbs).toBeGreaterThanOrEqual(10);
+    expect(fat).toBeGreaterThanOrEqual(10);
+  });
+
   test("states calories in kJ for kJ users", () => {
     const kcal = Number(suggestTargets(draft(), now).calories);
     const kj = Number(
       suggestTargets(draft({ energyUnit: "kj" }), now).calories,
     );
     expect(kj).toBeCloseTo(kcal * 4.184, -1);
+  });
+});
+
+describe("fitSplit", () => {
+  test("fat gives way when protein and fat exceed the day", () => {
+    expect(fitSplit(35, 70)).toEqual({ protein: 35, fat: 55, carbs: 10 });
+  });
+
+  test("leaves a split that already fits alone", () => {
+    expect(fitSplit(30, 25)).toEqual({ protein: 30, fat: 25, carbs: 45 });
   });
 });
 

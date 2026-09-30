@@ -22,9 +22,18 @@ export const queryKeys = {
   mealTemplates: ["meal-templates"] as const,
 } as const;
 
-/** Anything that changes what was eaten on a day. */
-export function invalidateAfterLogging(queryClient: QueryClient) {
-  emitFoodLogChanged();
+/**
+ * Anything that changes what was eaten on a day. `dates` names the days the
+ * write touched where it knows them, so Health rewrites more than the last
+ * two days.
+ */
+export function invalidateAfterLogging(
+  queryClient: QueryClient,
+  dates: readonly (string | undefined)[] = [],
+) {
+  emitFoodLogChanged(
+    dates.filter((date): date is string => date !== undefined),
+  );
   return Promise.all(
     [
       ["dashboard"],

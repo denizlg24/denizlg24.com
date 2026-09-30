@@ -20,6 +20,7 @@ import {
   SwipeRow,
   spacing,
   Text,
+  useSwipeAccessibility,
 } from "@/ui";
 import { confirmDestructive, showActionSheet } from "../shared/action-sheet";
 import { ListSection } from "../shared/list-rows";
@@ -164,11 +165,13 @@ function DeviceRequestRow({
   request: DeviceRequest;
   onLongPress: () => void;
 }) {
+  const swipeAccessibility = useSwipeAccessibility();
   return (
     <View>
       <Pressable
         onLongPress={onLongPress}
         accessibilityHint="Long press for actions"
+        {...swipeAccessibility}
         style={({ pressed }) => [
           styles.row,
           pressed && { backgroundColor: colors.fill },

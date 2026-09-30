@@ -1,4 +1,4 @@
-import { endOfDay, format, parseISO } from "date-fns";
+import { endOfDay, format, parseISO, subDays } from "date-fns";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
@@ -36,6 +36,8 @@ import { DateTimePicker } from "@/ui/date-time-picker";
 import { isIsoDate } from "./logic";
 
 const MAX_WEIGHT_KG = 999;
+// `GET /api/weights` reaches back this far (`lib/weights/queries.ts`).
+const OVERVIEW_DAYS_BACK = 365;
 
 // Grouping would turn 2,202.4 lb into something `parseDecimal` rejects.
 const inputNumber = new Intl.NumberFormat(undefined, {
@@ -140,7 +142,7 @@ export function WeighInSheet() {
           style: "destructive",
           onPress: () => {
             setDeleteError(null);
-            remove.mutate(entry.id, {
+            remove.mutate(entry, {
               onSuccess: () => {
                 haptics.success();
                 router.back();
@@ -177,6 +179,9 @@ export function WeighInSheet() {
             mode="date"
             display="compact"
             maximumDate={endOfDay(parseISO(today))}
+            // The overview holds a year of weigh-ins; an older day would be
+            // replaced without the "Replaces …" warning.
+            minimumDate={subDays(parseISO(today), OVERVIEW_DAYS_BACK)}
             accentColor={resolved.label}
             onValueChange={(_event, next) => {
               const picked = format(next, "yyyy-MM-dd");

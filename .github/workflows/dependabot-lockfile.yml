@@ -3,6 +3,12 @@ name: Dependabot lockfile repair
 on:
   pull_request:
     types: [opened, synchronize]
+    paths:
+      - "package.json"
+      - "apps/**/package.json"
+      - "packages/**/package.json"
+      - "bun.lock"
+      - ".github/workflows/dependabot-lockfile.yml"
 
 permissions:
   contents: write
@@ -21,7 +27,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Regenerate lockfile
-        run: bun install
+        run: bun install --lockfile-only --ignore-scripts
 
       - name: Commit updated lockfile if changed
         run: |

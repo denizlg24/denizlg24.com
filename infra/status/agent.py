@@ -153,7 +153,7 @@ class Agent:
         with self.opener.open(request, timeout=15) as response:
             return json.load(response)
 
-    def report_linux(self, job):
+    def read_linux_report(self, job):
         unit = f"deniz-dr-{job}@{self.profile}"
         service = properties(f"{unit}.service")
         timer = properties(f"{unit}.timer")
@@ -199,7 +199,7 @@ class Agent:
                 "The guarded job completed. Repository checking and signed publication are separate from a full recovery rehearsal." if succeeded else None,
         }
         atomic_json(self.state / f"{job}.json", {**data, "lastVerified": last_verified})
-        self.post({"type": "report", "report": data})
+        return data
 
     def execute_linux(self, data):
         unit = f"deniz-dr-{data['job']}@{self.profile}"
@@ -344,6 +344,7 @@ class Agent:
             except BlockingIOError:
                 return
             failures = []
+            reports = []
             for job in (("icloud",) if self.profile == "mac" else JOBS):
                 try:
                     if job == "icloud":
@@ -358,9 +359,11 @@ class Agent:
                                 report["enabled"] = bool(menu_state.get("scheduleEnabled", True))
                                 report["schedule"] = str(menu_state.get("intervalSeconds", 3600))
                                 report["nextRunAt"] = menu_state.get("nextRunAt")
-                            self.post({"type": "report", "report": report})
+                            reports.append(report)
                     else:
-                        self.report_linux(job)
+                        report = self.read_linux_report(job)
+                        if report:
+                            reports.append(report)
                 except Exception as error:
                     failures.append(f"{job}: {type(error).__name__}")
             # Retry acknowledgements, never the already executed operation.
@@ -368,7 +371,10 @@ class Agent:
             if pending:
                 self.post(pending)
                 (self.state / "pending-result.json").unlink()
-            claimed = self.post({"type": "claim"}).get("command")
+            # One request refreshes all backup observations and claims work.
+            # The server also accepts the old report/claim messages while hosts
+            # are upgraded after the status app deploys.
+            claimed = self.post({"type": "sync", "reports": reports}).get("command")
             if claimed:
                 try:
                     data = validate_command(claimed, self.profile)

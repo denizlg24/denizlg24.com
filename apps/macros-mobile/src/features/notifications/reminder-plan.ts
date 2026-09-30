@@ -1,9 +1,17 @@
 import { z } from "zod";
+import {
+  doneThisWeek,
+  isDueOn,
+  mondayFirstWeekday,
+  shiftIsoDate,
+} from "../more/habits/habit-dates";
 
 const clock = {
   hour: z.number().int().min(0).max(23),
   minute: z.number().int().min(0).max(59),
 };
+
+const habitReminderSchema = z.object({ enabled: z.boolean(), ...clock });
 
 // Device-local state, not a wire type: reminders are scheduled on the phone
 // and their settings never reach the server.
@@ -15,9 +23,12 @@ export const reminderSettingsSchema = z.object({
     /** 0 is Monday, 6 is Sunday. */
     weekdays: z.array(z.number().int().min(0).max(6)),
   }),
+  /** Keyed by habit id. Settings stored before habit reminders have none. */
+  habits: z.record(z.string(), habitReminderSchema).default({}),
 });
 
 export type ReminderSettings = z.infer<typeof reminderSettingsSchema>;
+export type HabitReminder = z.infer<typeof habitReminderSchema>;
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   log: { enabled: false, hour: 20, minute: 0 },
@@ -27,87 +38,135 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
     minute: 0,
     weekdays: [0, 1, 2, 3, 4, 5, 6],
   },
+  habits: {},
+};
+
+export const DEFAULT_HABIT_REMINDER: HabitReminder = {
+  enabled: false,
+  hour: 19,
+  minute: 0,
 };
 
 export const REMINDER_ID_PREFIX = "macros-reminder-";
 
 /**
- * How far ahead the log reminder is laid out as one-off dates once today is
- * already logged. Every launch and every log lays it out again, so this only
- * matters to someone who stops opening the app: they are reminded for this
- * long and then left alone. iOS keeps at most 64 pending requests; this plus
- * seven weigh-in days stays well under.
+ * Every reminder is a one-off on a date, never a repeating trigger: a
+ * repeating one cannot skip a day, so it would still fire after the food was
+ * logged, the weigh-in taken or the habit ticked. Each launch, log, weigh-in
+ * and tick lays the plan out again, so someone who stops opening the app is
+ * reminded for this long and then left alone.
  */
-export const LOG_REMINDER_DAYS_AHEAD = 28;
+export const MAX_DAYS_AHEAD = 14;
 
-export type PlannedTrigger =
-  | { type: "daily"; hour: number; minute: number }
-  | { type: "weekly"; weekday: number; hour: number; minute: number }
-  | { type: "date"; date: Date };
+/** iOS keeps at most 64 pending requests; leave headroom. */
+export const MAX_PENDING = 60;
 
-export type PlannedReminder = {
+export type ReminderHabit = {
   id: string;
-  kind: "log" | "weigh-in";
-  trigger: PlannedTrigger;
+  name: string;
+  targetPerWeek: number;
+  weekdays: readonly number[] | null;
+  completedDates: readonly string[];
 };
 
-/** Monday-first index to the 1 = Sunday numbering iOS calendar triggers use. */
-export function calendarWeekday(mondayFirst: number): number {
-  return ((mondayFirst + 1) % 7) + 1;
+export type ReminderContext = {
+  /** The device clock; triggers are wall-clock times on this phone. */
+  now: Date;
+  /** The profile's day, which is what "done today" is measured against. */
+  today: string;
+  loggedToday: boolean;
+  weighedInToday: boolean;
+  habits: readonly ReminderHabit[];
+};
+
+export type PlannedReminder =
+  | { id: string; kind: "log"; date: Date }
+  | { id: string; kind: "weigh-in"; date: Date }
+  | { id: string; kind: "habit"; date: Date; habitId: string; name: string };
+
+function at(isoDate: string, hour: number, minute: number): Date {
+  const [year = 0, month = 1, day = 1] = isoDate.split("-").map(Number);
+  return new Date(year, month - 1, day, hour, minute);
+}
+
+/**
+ * Whether a habit still wants doing on `isoDate`, from what is known now:
+ * not on a day it isn't due, not once ticked, and for a flexible habit not
+ * once its week (from Monday) already holds its target.
+ */
+export function habitWantsDoing(habit: ReminderHabit, isoDate: string) {
+  if (!isDueOn(habit.weekdays, isoDate)) return false;
+  const completed = new Set(habit.completedDates);
+  if (completed.has(isoDate)) return false;
+  if (habit.weekdays) return true;
+  return doneThisWeek(completed, isoDate) < habit.targetPerWeek;
 }
 
 export function planReminders(
   settings: ReminderSettings,
-  { now, loggedToday }: { now: Date; loggedToday: boolean },
+  context: ReminderContext,
 ): PlannedReminder[] {
-  const planned: PlannedReminder[] = [];
   const { log, weighIn } = settings;
+  const habits = context.habits.flatMap((habit) => {
+    const reminder = settings.habits[habit.id];
+    return reminder?.enabled ? [{ habit, reminder }] : [];
+  });
+  const streams =
+    (log.enabled ? 1 : 0) + (weighIn.enabled ? 1 : 0) + habits.length;
+  if (streams === 0) return [];
+  const days = Math.max(
+    1,
+    Math.min(MAX_DAYS_AHEAD, Math.floor(MAX_PENDING / streams)),
+  );
 
-  if (log.enabled) {
-    if (!loggedToday) {
-      planned.push({
-        id: `${REMINDER_ID_PREFIX}log`,
-        kind: "log",
-        trigger: { type: "daily", hour: log.hour, minute: log.minute },
-      });
-    } else {
-      for (let offset = 1; offset <= LOG_REMINDER_DAYS_AHEAD; offset += 1) {
+  const planned: PlannedReminder[] = [];
+  const future = (date: Date) => date.getTime() > context.now.getTime();
+
+  for (let offset = 0; offset < days; offset += 1) {
+    const iso = shiftIsoDate(context.today, offset);
+    const isToday = offset === 0;
+
+    if (log.enabled && !(isToday && context.loggedToday)) {
+      const date = at(iso, log.hour, log.minute);
+      if (future(date)) {
         planned.push({
-          id: `${REMINDER_ID_PREFIX}log-${offset}`,
+          id: `${REMINDER_ID_PREFIX}log-${iso}`,
           kind: "log",
-          trigger: {
-            type: "date",
-            date: new Date(
-              now.getFullYear(),
-              now.getMonth(),
-              now.getDate() + offset,
-              log.hour,
-              log.minute,
-            ),
-          },
+          date,
         });
       }
     }
-  }
 
-  if (weighIn.enabled) {
-    for (const weekday of [...new Set(weighIn.weekdays)].sort(
-      (a, b) => a - b,
-    )) {
+    if (
+      weighIn.enabled &&
+      weighIn.weekdays.includes(mondayFirstWeekday(iso)) &&
+      !(isToday && context.weighedInToday)
+    ) {
+      const date = at(iso, weighIn.hour, weighIn.minute);
+      if (future(date)) {
+        planned.push({
+          id: `${REMINDER_ID_PREFIX}weigh-in-${iso}`,
+          kind: "weigh-in",
+          date,
+        });
+      }
+    }
+
+    for (const { habit, reminder } of habits) {
+      if (!habitWantsDoing(habit, iso)) continue;
+      const date = at(iso, reminder.hour, reminder.minute);
+      if (!future(date)) continue;
       planned.push({
-        id: `${REMINDER_ID_PREFIX}weigh-in-${weekday}`,
-        kind: "weigh-in",
-        trigger: {
-          type: "weekly",
-          weekday: calendarWeekday(weekday),
-          hour: weighIn.hour,
-          minute: weighIn.minute,
-        },
+        id: `${REMINDER_ID_PREFIX}habit-${habit.id}-${iso}`,
+        kind: "habit",
+        date,
+        habitId: habit.id,
+        name: habit.name,
       });
     }
   }
 
-  return planned;
+  return planned.slice(0, MAX_PENDING);
 }
 
 export function readReminderSettings(raw: string | null): ReminderSettings {

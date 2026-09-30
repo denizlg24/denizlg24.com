@@ -28,6 +28,22 @@ describe("importWindow", () => {
 });
 
 describe("buildImportBody", () => {
+  test("skips a reading deleted in the app, not a new one that day", () => {
+    const dismissed = [{ logDate: "2026-09-29", weightKg: 81.23 }];
+    const same = buildImportBody(
+      [{ date: "2026-09-29", weightKg: 81.23456 }],
+      [],
+      dismissed,
+    );
+    expect(same.weighIns).toEqual([]);
+    const next = buildImportBody(
+      [{ date: "2026-09-29", weightKg: 80.9 }],
+      [],
+      dismissed,
+    );
+    expect(next.weighIns).toHaveLength(1);
+  });
+
   test("drops weights and nulls values the server would refuse", () => {
     const body = buildImportBody(
       [

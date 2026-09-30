@@ -1,5 +1,11 @@
-import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
+import {
+  type AccessibilityActionEvent,
+  Pressable,
+  type PressableProps,
+  StyleSheet,
+  View,
+} from "react-native";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -62,8 +68,47 @@ function ActionButtons({
   );
 }
 
+const SwipeActionsContext = createContext<readonly SwipeAction[]>([]);
+
+type SwipeAccessibilityProps = Pick<
+  PressableProps,
+  "accessibilityActions" | "onAccessibilityAction"
+>;
+
+/**
+ * A swipe cannot be made with VoiceOver or Switch Control, so the row's
+ * pressable offers the same actions from the rotor. Spread onto the element
+ * that takes focus inside a `SwipeRow`; outside one it adds nothing.
+ */
+export function useSwipeAccessibility(): SwipeAccessibilityProps {
+  const actions = useContext(SwipeActionsContext);
+  return useMemo(() => swipeAccessibilityProps(actions), [actions]);
+}
+
+/** The same, for a row that renders its own `SwipeRow` around its pressable. */
+export function swipeAccessibilityProps(
+  actions: readonly SwipeAction[],
+): SwipeAccessibilityProps {
+  if (actions.length === 0) return {};
+  return {
+    accessibilityActions: actions.map((action) => ({
+      name: action.label,
+      label: action.label,
+    })),
+    onAccessibilityAction: (event: AccessibilityActionEvent) => {
+      actions
+        .find((action) => action.label === event.nativeEvent.actionName)
+        ?.onPress();
+    },
+  };
+}
+
 /** Mail-style swipe actions for list rows (delete, duplicate, move). */
 export function SwipeRow({ children, actions, leadingActions }: SwipeRowProps) {
+  const allActions = useMemo(
+    () => [...(leadingActions ?? []), ...actions],
+    [leadingActions, actions],
+  );
   return (
     <ReanimatedSwipeable
       friction={1.6}
@@ -83,7 +128,11 @@ export function SwipeRow({ children, actions, leadingActions }: SwipeRowProps) {
           : undefined
       }
     >
-      <View style={{ backgroundColor: colors.background }}>{children}</View>
+      <View style={{ backgroundColor: colors.background }}>
+        <SwipeActionsContext.Provider value={allActions}>
+          {children}
+        </SwipeActionsContext.Provider>
+      </View>
     </ReanimatedSwipeable>
   );
 }

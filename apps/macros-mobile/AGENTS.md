@@ -28,7 +28,12 @@ verification and password-reset emails open.
   (dev only) renders them to PNGs for native chrome.
 
 - `expo-notifications`: local reminders in every build, APNs registration
-  only when `capabilities.push`.
+  only when `capabilities.push`. Every reminder (log, weigh-in, each habit)
+  is a dated one-off laid out by `planReminders` over at most 14 days within
+  iOS's 64-request cap — never a repeating trigger, which cannot skip a day
+  already done. `NotificationsSync` re-plans on launch, foreground, log
+  changes and every dashboard update (weigh-ins, habit ticks), and a tapped
+  reminder opens its screen.
 - `modules/macros-health`: our own Swift Expo module over HealthKit
   (`@modules/macros-health`). Null outside a native build; gate on
   `healthAvailable()` from `features/health/sync.ts`.
@@ -118,7 +123,10 @@ small differences are a `Platform.OS` check. The ones that exist:
 - `@/ui/date-time-picker`, `@/ui/segmented-control`, `@/ui/slider`,
   `@/ui/stepper`: import these, never `@expo/ui` directly. Android's
   community date picker opens a dialog the moment it mounts, and Compose
-  controls otherwise take the wallpaper's Material You colours.
+  controls otherwise take the wallpaper's Material You colours. The
+  community picker only sizes itself vertically, so in a row it stretches
+  and centres; a trailing time pill is `CompactTimePicker` from the same
+  wrapper.
 - `toolbarText({...})` from `@/ui/toolbar` for every text-only
   `Stack.Toolbar.Button`: Android silently drops a toolbar button without an
   image, so Save and Cancel vanish. It is a call, not a component, because
@@ -178,10 +186,15 @@ small differences are a `Platform.OS` check. The ones that exist:
   `keyboardType="decimal-pad"` and `parseDecimal` (accepts a comma).
 - Adding food follows the web app's model. The tab bar's middle "+" (a
   disabled trigger, so it never selects) opens the shortcuts sheet; Search
-  opens the add-food hub: a time chip, a calorie pill and the plate badge in
-  the header, a Scan / Search / Recipes / Library / Shop strip, and the search
-  field with "Log Foods (N)" in the bottom toolbar. A row's "+" stages its
-  amount on the plate; everything on it is logged together. Swipe logs at once.
+  opens the add-food hub: a time chip and a calorie pill in the header, a
+  Scan / Search / Recipes / Library / Shop strip with the plate bar under it
+  (sticky), and the search field alone in the bottom toolbar. A row's "+"
+  stages its amount on the plate; everything on it is logged together. Swipe
+  logs at once. The plate bar (`PlateBar`: count, energy, macros, Log) is in
+  content, not a toolbar, because iOS collapses the other toolbar items while
+  the search field is active; `PendingPlateBar` shows the same on Today and
+  the Log whenever the plate holds food. The sheets' buttons are Add / Update
+  / Remove.
   The food and recipe sheets only add to the plate; opened from anywhere but
   the hub (a scan, My foods, New food) they land in the hub afterwards
   (`goToHub`), and a scanned food opens in the same sheet over the hub.

@@ -47,9 +47,15 @@ export function HealthSync() {
     if (!enabled || !timeZone || !healthAvailable()) return;
     const zone = timeZone;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = onFoodLogChanged(() => {
+    let changed = new Set<string>();
+    const unsubscribe = onFoodLogChanged((dates) => {
+      for (const date of dates) changed.add(date);
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void syncNutrition(zone), LOG_DEBOUNCE_MS);
+      timer = setTimeout(() => {
+        const dates = [...changed];
+        changed = new Set();
+        void syncNutrition(zone, dates);
+      }, LOG_DEBOUNCE_MS);
     });
     return () => {
       unsubscribe();

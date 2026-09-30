@@ -12,7 +12,13 @@ import {
   VStack,
 } from "@/ui";
 import { Slider } from "@/ui/slider";
-import { caloriesKcalOf, macroGrams, toKg } from "../model";
+import {
+  caloriesKcalOf,
+  MAX_MACRO_PERCENT,
+  MIN_MACRO_PERCENT,
+  macroGrams,
+  toKg,
+} from "../model";
 import { StepScaffold } from "../step-scaffold";
 import { useStep } from "../use-step";
 
@@ -111,8 +117,8 @@ export function TargetsStep() {
                 </View>
                 <Slider
                   value={percent}
-                  minimumValue={10}
-                  maximumValue={70}
+                  minimumValue={MIN_MACRO_PERCENT}
+                  maximumValue={MAX_MACRO_PERCENT}
                   step={1}
                   minimumTrackTintColor={macro.color}
                   onValueChange={(value) => {

@@ -117,33 +117,42 @@ class AgentTests(unittest.TestCase):
             instance.state = root / "status"
             instance.state.mkdir()
             instance.config = {"drMenuStatePath": str(menu_state)}
-            instance.post = Mock(side_effect=[{}, {"command": None}])
+            instance.post = Mock(return_value={"command": None})
             instance.tick()
-            posted = instance.post.call_args_list[0].args[0]["report"]
+            instance.post.assert_called_once()
+            posted = instance.post.call_args.args[0]["reports"][0]
             self.assertFalse(posted["enabled"])
             self.assertEqual(posted["schedule"], "7200")
+
+    def test_linux_tick_sends_all_reports_and_claims_in_one_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = agent.Agent.__new__(agent.Agent)
+            instance.profile = "pi"
+            instance.state = Path(directory)
+            instance.post = Mock(return_value={"command": None})
+            reports = [{"job": job} for job in agent.JOBS]
+            with patch.object(instance, "read_linux_report", side_effect=reports) as read:
+                instance.tick()
+            self.assertEqual(read.call_count, len(agent.JOBS))
+            instance.post.assert_called_once_with({"type": "sync", "reports": reports})
 
     def test_never_executed_is_not_reported_as_completed(self):
         instance = agent.Agent.__new__(agent.Agent)
         instance.profile = "forge"
-        instance.post = Mock()
         with patch.object(agent, "properties", return_value={"LoadState": "loaded"}):
-            instance.report_linux("backup")
-        instance.post.assert_not_called()
+            self.assertIsNone(instance.read_linux_report("backup"))
 
     def test_failed_run_retains_last_success(self):
         with tempfile.TemporaryDirectory() as directory:
             instance = agent.Agent.__new__(agent.Agent)
             instance.profile = "pi"
             instance.state = Path(directory)
-            instance.post = Mock()
             agent.atomic_json(instance.state / "backup.json", {"lastSuccessAt": "2026-09-01T10:00:00Z"})
             service = {"LoadState": "loaded", "ActiveState": "failed", "Result": "exit-code", "ExecMainStatus": "1", "ExecMainStartTimestamp": "start", "ExecMainExitTimestamp": "end"}
             def to_time(value):
                 return {"start": "2026-09-02T10:00:00Z", "end": "2026-09-02T10:10:00Z"}.get(value)
             with patch.object(agent, "properties", return_value=service), patch.object(agent, "timestamp", side_effect=to_time), patch.object(agent, "job_evidence", return_value={}):
-                instance.report_linux("backup")
-            report = instance.post.call_args[0][0]["report"]
+                report = instance.read_linux_report("backup")
             self.assertEqual(report["status"], "failed")
             self.assertEqual(report["lastSuccessAt"], "2026-09-01T10:00:00Z")
             self.assertEqual(report["durationMs"], 600000)
@@ -163,15 +172,13 @@ class AgentTests(unittest.TestCase):
             instance = agent.Agent.__new__(agent.Agent)
             instance.profile = "forge"
             instance.state = Path(directory)
-            instance.post = Mock()
             previous = "2026-09-01T10:00:00Z"
             agent.atomic_json(instance.state / "r2-sync.json", {"lastSuccessAt": previous,
                 "lastVerified": {"capturedAt": previous, "snapshotCount": 4}})
             service = {"LoadState": "loaded", "ActiveState": "inactive", "Result": "success", "ExecMainStatus": "0", "ExecMainStartTimestamp": "start", "ExecMainExitTimestamp": "end"}
             times = {"start": "2026-09-02T10:00:00Z", "end": "2026-09-02T10:01:00Z"}
             with patch.object(agent, "properties", return_value=service), patch.object(agent, "timestamp", side_effect=times.get), patch.object(agent, "job_evidence", return_value={"phase": "skipped", "reason": "host-lock-held"}):
-                instance.report_linux("r2-sync")
-            report = instance.post.call_args[0][0]["report"]
+                report = instance.read_linux_report("r2-sync")
             self.assertEqual(report["lastSuccessAt"], previous)
             self.assertEqual(report["runId"], times["start"])
             self.assertIn('"snapshotCount":4', report["detail"])

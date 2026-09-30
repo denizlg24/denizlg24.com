@@ -7,6 +7,7 @@ import type {
   MacrosDuplicateLogEntryResponse,
   MacrosFoodLogActivityResponse,
   MacrosFoodLogDay,
+  MacrosFoodLogEntry,
   MacrosLogFoodResponse,
   MacrosLogQuickAddResponse,
   MacrosLogRecipeResponse,
@@ -31,7 +32,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { z } from "zod";
-import { api, errorMessage } from "@/lib/api";
+import { ApiError, api, errorMessage } from "@/lib/api";
+import { applyEntryEdit, withEntry, withoutEntry } from "@/lib/entry-edit";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { newClientMutationId } from "@/lib/ids";
 import { invalidateAfterLogging, queryKeys } from "./keys";
@@ -49,6 +51,10 @@ export const logMutationKeys = {
   logFood: ["food-log", "log-food"] as const,
   quickAdd: ["food-log", "quick-add"] as const,
   logRecipe: ["food-log", "log-recipe"] as const,
+  updateEntry: ["food-log", "update-entry"] as const,
+  deleteEntry: ["food-log", "delete-entry"] as const,
+  placeEntries: ["food-log", "place-entries"] as const,
+  bulkDelete: ["food-log", "bulk-delete"] as const,
 };
 
 // Standalone so paused mutations restored from disk after a relaunch can be
@@ -74,8 +80,18 @@ export function logRecipe(input: LogRecipeInput) {
   });
 }
 
+/**
+ * Paused writes resume all at once; one scope replays them in the order they
+ * were made, so an edit cannot land after the delete that followed it.
+ */
+const logScope = { id: "food-log" };
+
+const entryEditId = ({ id }: { id: string }) => `edit:${id}`;
+const entryDeleteId = (id: string) => `delete:${id}`;
+
 export function registerLogMutationDefaults(queryClient: QueryClient) {
-  const onSuccess = () => invalidateAfterLogging(queryClient);
+  const onSuccess = (_data: unknown, variables: { logDate?: string }) =>
+    invalidateAfterLogging(queryClient, [variables.logDate]);
   const onError =
     (description: string) =>
     (error: Error, variables: { clientMutationId?: string }) => {
@@ -85,19 +101,62 @@ export function registerLogMutationDefaults(queryClient: QueryClient) {
       return invalidateAfterLogging(queryClient);
     };
   queryClient.setMutationDefaults(logMutationKeys.logFood, {
+    scope: logScope,
     mutationFn: logFood,
     onSuccess,
     onError: onError("A logged food"),
   });
   queryClient.setMutationDefaults(logMutationKeys.quickAdd, {
+    scope: logScope,
     mutationFn: quickAdd,
     onSuccess,
     onError: onError("A quick add"),
   });
   queryClient.setMutationDefaults(logMutationKeys.logRecipe, {
+    scope: logScope,
     mutationFn: logRecipe,
     onSuccess,
     onError: onError("A logged recipe"),
+  });
+  // Keyed by what the write touches, so the screen and the default reporting
+  // one live failure make one notice.
+  const onEditError =
+    <T>(description: string, key: (variables: T) => string) =>
+    (error: Error, variables: T) => {
+      recordFailedWrite(description, errorMessage(error), {
+        id: key(variables),
+      });
+      return invalidateAfterLogging(queryClient);
+    };
+  queryClient.setMutationDefaults(logMutationKeys.updateEntry, {
+    mutationFn: updateEntry,
+    scope: logScope,
+    onSuccess,
+    onError: onEditError("An edited entry", entryEditId),
+  });
+  queryClient.setMutationDefaults(logMutationKeys.deleteEntry, {
+    mutationFn: deleteEntry,
+    scope: logScope,
+    onSuccess: () => invalidateAfterLogging(queryClient),
+    onError: onEditError("A deleted entry", entryDeleteId),
+  });
+  queryClient.setMutationDefaults(logMutationKeys.placeEntries, {
+    mutationFn: moveEntries,
+    scope: logScope,
+    onSuccess,
+    onError: onEditError(
+      "Moved entries",
+      (body: MoveEntriesInput) => `place:${body.entryIds.join(",")}`,
+    ),
+  });
+  queryClient.setMutationDefaults(logMutationKeys.bulkDelete, {
+    mutationFn: bulkDeleteEntries,
+    scope: logScope,
+    onSuccess: () => invalidateAfterLogging(queryClient),
+    onError: onEditError(
+      "Deleted entries",
+      (body: BulkDeleteInput) => `bulk-delete:${body.entryIds.join(",")}`,
+    ),
   });
 }
 
@@ -167,9 +226,29 @@ export function useLogRecipe() {
   };
 }
 
-function updateEntry(id: string, body: UpdateEntryInput) {
+type UpdateEntryVariables = UpdateEntryInput & { id: string };
+
+function updateEntry({ id, ...body }: UpdateEntryVariables) {
   return api<MacrosUpdateLogEntryResponse>(`/api/food-log/entries/${id}`, {
     method: "PATCH",
+    body,
+  });
+}
+
+/** A replayed delete finding the entry already gone has done its job. */
+async function deleteEntry(id: string) {
+  try {
+    await api<MacrosDeleteLogEntryResponse>(`/api/food-log/entries/${id}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
+}
+
+function bulkDeleteEntries(body: BulkDeleteInput) {
+  return api<MacrosBulkDeleteEntriesResponse>("/api/food-log/entries/actions", {
+    method: "DELETE",
     body,
   });
 }
@@ -191,10 +270,41 @@ function duplicateEntry(id: string) {
 export function useUpdateEntry() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: UpdateEntryInput & { id: string }) =>
-      updateEntry(id, body),
-    onSuccess: () => invalidateAfterLogging(queryClient),
+    mutationKey: logMutationKeys.updateEntry,
+    mutationFn: updateEntry,
+    onSuccess: (_data, { logDate }) =>
+      invalidateAfterLogging(queryClient, [logDate]),
   });
+}
+
+/**
+ * Offline, an edit is queued under its registered defaults instead of holding
+ * the sheet open until the network returns; a refusal then lands in the
+ * failed-writes notice like a queued log.
+ */
+export function queueEntryUpdate(
+  queryClient: QueryClient,
+  entry: MacrosFoodLogEntry,
+  edit: UpdateEntryInput,
+) {
+  // Show the edit now: the row keeping its old amount invites a second edit.
+  const edited = applyEntryEdit(entry, edit);
+  if (edited.logDate !== entry.logDate) {
+    queryClient.setQueryData<MacrosFoodLogDay>(
+      queryKeys.foodLogDay(entry.logDate),
+      (day) => (day ? withoutEntry(day, entry) : day),
+    );
+  }
+  queryClient.setQueryData<MacrosFoodLogDay>(
+    queryKeys.foodLogDay(edited.logDate),
+    (day) => (day ? withEntry(day, edited) : day),
+  );
+  const variables: UpdateEntryVariables = { id: entry.id, ...edit };
+  void queryClient
+    .getMutationCache()
+    .build(queryClient, { mutationKey: logMutationKeys.updateEntry })
+    .execute(variables)
+    .catch(() => undefined);
 }
 
 /** Removes the row from the cached day at once; restores it if the server refuses. */
@@ -202,10 +312,8 @@ export function useDeleteEntry(date: string) {
   const queryClient = useQueryClient();
   const key = queryKeys.foodLogDay(date);
   return useMutation({
-    mutationFn: (id: string) =>
-      api<MacrosDeleteLogEntryResponse>(`/api/food-log/entries/${id}`, {
-        method: "DELETE",
-      }),
+    mutationKey: logMutationKeys.deleteEntry,
+    mutationFn: deleteEntry,
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<MacrosFoodLogDay>(key);
@@ -217,10 +325,15 @@ export function useDeleteEntry(date: string) {
       }
       return { previous };
     },
-    onError: (_error, _id, context) => {
+    // Deletes commit after the row's undo window, often once the screen that
+    // scheduled them is gone, so the failure is recorded rather than shown.
+    onError: (error, id, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous);
+      recordFailedWrite("A deleted entry", errorMessage(error), {
+        id: entryDeleteId(id),
+      });
     },
-    onSettled: () => invalidateAfterLogging(queryClient),
+    onSettled: () => invalidateAfterLogging(queryClient, [date]),
   });
 }
 
@@ -228,6 +341,8 @@ export function useDeleteEntry(date: string) {
 export function useDuplicateEntry() {
   const queryClient = useQueryClient();
   return useMutation({
+    // Creates rows: a retry after a lost response would create them twice.
+    retry: false,
     mutationFn: async (id: string) => (await duplicateEntry(id)).entryId,
     onSettled: () => invalidateAfterLogging(queryClient),
   });
@@ -240,19 +355,18 @@ export function useDuplicateEntry() {
 export function usePlaceEntries() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: MoveEntriesInput) => moveEntries(body),
-    onSettled: () => invalidateAfterLogging(queryClient),
+    mutationKey: logMutationKeys.placeEntries,
+    mutationFn: moveEntries,
+    onSettled: (_data, _error, { logDate }) =>
+      invalidateAfterLogging(queryClient, [logDate]),
   });
 }
 
 export function useBulkDeleteEntries() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: BulkDeleteInput) =>
-      api<MacrosBulkDeleteEntriesResponse>("/api/food-log/entries/actions", {
-        method: "DELETE",
-        body,
-      }),
+    mutationKey: logMutationKeys.bulkDelete,
+    mutationFn: bulkDeleteEntries,
     onSuccess: () => invalidateAfterLogging(queryClient),
   });
 }
@@ -271,8 +385,11 @@ function copyEntries(body: CopyLogInput) {
 export function useCopyEntries() {
   const queryClient = useQueryClient();
   return useMutation({
+    // Creates rows: a retry after a lost response would create them twice.
+    retry: false,
     mutationFn: copyEntries,
-    onSettled: () => invalidateAfterLogging(queryClient),
+    onSettled: (_data, _error, { targetDate }) =>
+      invalidateAfterLogging(queryClient, [targetDate]),
   });
 }
 

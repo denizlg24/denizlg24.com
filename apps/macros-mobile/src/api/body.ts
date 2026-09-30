@@ -9,6 +9,7 @@ import type {
   MacrosBodyPhotoUploadResponse,
   MacrosDailyActivityResponse,
   MacrosHydrationResponse,
+  MacrosOkResponse,
   macrosBodyMeasurementBodySchema,
   macrosBodyPhotoCompleteBodySchema,
   macrosBodyPhotoUploadBodySchema,
@@ -42,7 +43,7 @@ export const bodyKeys = {
     [...queryKeys.body, "photos", angle] as const,
 };
 
-const ML_PER_OZ = 29.5735;
+export const ML_PER_OZ = 29.5735;
 
 /** Measurements, activity, hydration and habits for the last 90 days. */
 export function useBodyOverview() {
@@ -87,44 +88,87 @@ export function useUpsertActivity() {
 
 const hydrationKey = [...queryKeys.body, "hydration"] as const;
 
-/** Adds to the day's total at once so rapid taps on a quick-add button all count. */
-export function useAddHydration() {
+function withHydration(
+  overview: BodyOverview,
+  logDate: string,
+  deltaMl: number,
+): BodyOverview {
+  const hasDay = overview.hydration.some((entry) => entry.logDate === logDate);
+  return {
+    ...overview,
+    hydration: hasDay
+      ? overview.hydration.map((entry) =>
+          entry.logDate === logDate
+            ? { ...entry, volumeMl: Math.max(0, entry.volumeMl + deltaMl) }
+            : entry,
+        )
+      : [...overview.hydration, { logDate, volumeMl: Math.max(0, deltaMl) }],
+  };
+}
+
+const hydrationKeys = {
+  add: [...hydrationKey, "add"] as const,
+  remove: [...hydrationKey, "remove"] as const,
+};
+
+function addHydration(body: HydrationInput) {
+  return api<MacrosHydrationResponse>("/api/body/hydration", {
+    method: "POST",
+    body,
+  });
+}
+
+/** A replayed undo finding the drink already gone has done its job. */
+async function removeHydration({ id }: HydrationRemoval) {
+  try {
+    await api<MacrosOkResponse>(`/api/body/hydration/${id}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
+}
+
+/** So water drunk offline still counts after a relaunch. */
+export function registerHydrationMutationDefaults(queryClient: QueryClient) {
+  const scope = { id: "hydration" };
+  const onSettled = () => invalidateOverview(queryClient);
+  queryClient.setMutationDefaults(hydrationKeys.add, {
+    mutationFn: addHydration,
+    scope,
+    onSettled,
+  });
+  queryClient.setMutationDefaults(hydrationKeys.remove, {
+    mutationFn: removeHydration,
+    scope,
+    onSettled,
+  });
+}
+
+function useHydrationMutation<TInput, TResult>(
+  mutationKey: readonly string[],
+  mutationFn: (input: TInput) => Promise<TResult>,
+  change: (input: TInput) => { logDate: string; deltaMl: number },
+) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: hydrationKey,
-    mutationFn: (body: HydrationInput) =>
-      api<MacrosHydrationResponse>("/api/body/hydration", {
-        method: "POST",
-        body,
-      }),
-    onMutate: async (body) => {
+    mutationKey,
+    mutationFn,
+    onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: bodyKeys.overview });
       const previous = queryClient.getQueryData<BodyOverview>(
         bodyKeys.overview,
       );
       if (previous) {
-        const addedMl =
-          body.unit === "oz" ? body.volume * ML_PER_OZ : body.volume;
-        const hasDay = previous.hydration.some(
-          (entry) => entry.logDate === body.logDate,
+        const { logDate, deltaMl } = change(input);
+        queryClient.setQueryData<BodyOverview>(
+          bodyKeys.overview,
+          withHydration(previous, logDate, deltaMl),
         );
-        queryClient.setQueryData<BodyOverview>(bodyKeys.overview, {
-          ...previous,
-          hydration: hasDay
-            ? previous.hydration.map((entry) =>
-                entry.logDate === body.logDate
-                  ? { ...entry, volumeMl: entry.volumeMl + addedMl }
-                  : entry,
-              )
-            : [
-                ...previous.hydration,
-                { logDate: body.logDate, volumeMl: addedMl },
-              ],
-        });
       }
       return { previous };
     },
-    onError: (_error, _body, context) => {
+    onError: (_error, _input, context) => {
       if (context?.previous) {
         queryClient.setQueryData(bodyKeys.overview, context.previous);
       }
@@ -136,6 +180,33 @@ export function useAddHydration() {
       return undefined;
     },
   });
+}
+
+export function hydrationMl(volume: number, unit: "ml" | "oz") {
+  return unit === "oz" ? volume * ML_PER_OZ : volume;
+}
+
+/** Adds to the day's total at once so rapid taps on a quick-add button all count. */
+export function useAddHydration() {
+  return useHydrationMutation(hydrationKeys.add, addHydration, (body) => ({
+    logDate: body.logDate,
+    deltaMl: hydrationMl(body.volume, body.unit ?? "ml"),
+  }));
+}
+
+export type HydrationRemoval = {
+  id: string;
+  logDate: string;
+  volumeMl: number;
+};
+
+/** Takes one drink back off the day's total. */
+export function useRemoveHydration() {
+  return useHydrationMutation(
+    hydrationKeys.remove,
+    removeHydration,
+    ({ logDate, volumeMl }) => ({ logDate, deltaMl: -volumeMl }),
+  );
 }
 
 /** Newest weigh-in first; each photo belongs to the weigh-in it was taken with. */
@@ -211,6 +282,8 @@ export function useUploadBodyPhoto() {
     // The prepared file lives in the cache directory; a paused upload replayed
     // after a relaunch could find it gone, so an offline attempt fails at once.
     networkMode: "always",
+    // A retry after a lost response reserves a new key and saves it twice.
+    retry: false,
     mutationFn: uploadBodyPhoto,
     onSuccess: (_photo, { angle }) =>
       queryClient.invalidateQueries({ queryKey: bodyKeys.photosAt(angle) }),

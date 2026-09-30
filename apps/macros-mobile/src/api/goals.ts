@@ -55,6 +55,7 @@ export function invalidateAfterGoalChange(queryClient: QueryClient) {
       queryKeys.program,
       ["dashboard"],
       ["calorie-summary"],
+      queryKeys.foodLog,
       queryKeys.statistics,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
@@ -78,6 +79,8 @@ export function updateActiveGoal(body: GoalInput) {
 export function useCreateGoal() {
   const queryClient = useQueryClient();
   return useMutation({
+    // Creates rows: a retry after a lost response would create them twice.
+    retry: false,
     mutationFn: createGoal,
     onSuccess: () => invalidateAfterGoalChange(queryClient),
   });

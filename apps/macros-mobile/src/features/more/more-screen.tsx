@@ -7,6 +7,7 @@ import { useCustomFoods } from "@/api/foods";
 import { useProfile } from "@/api/profile";
 import { useRecipes } from "@/api/recipes";
 import { useShoppingList } from "@/api/shopping-list";
+import { deviceTimeZone, useToday } from "@/lib/day";
 import { formatInteger } from "@/lib/format";
 import { PageHeader, Row, Screen, Section, spacing, Text, VStack } from "@/ui";
 import { useRefresh } from "./shared/use-refresh";
@@ -39,11 +40,10 @@ export function MoreScreen() {
 
   const toGet = shopping.data?.filter((item) => !item.checked).length;
   const habits = body.data?.habits;
-  const today = body.data?.today;
-  const habitsDone =
-    habits && today
-      ? habits.filter((habit) => habit.completedDates.includes(today)).length
-      : undefined;
+  const today = useToday(profile.data?.timezone ?? deviceTimeZone());
+  const habitsDone = habits
+    ? habits.filter((habit) => habit.completedDates.includes(today)).length
+    : undefined;
 
   return (
     <Screen statusBarScrim onRefresh={onRefresh} refreshing={refreshing}>

@@ -12,10 +12,7 @@ const UNDO_WINDOW_MS = 4_800;
  * the day, the tab, or the app — commits what is pending rather than
  * dropping it, so a delete is never silently lost.
  */
-export function useDeferredDelete(
-  date: string,
-  onError: (error: Error) => void,
-) {
+export function useDeferredDelete(date: string) {
   const { mutate } = useDeleteEntry(date);
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -35,9 +32,9 @@ export function useDeferredDelete(
   const commit = useCallback(
     (id: string) => {
       forget(id);
-      mutate(id, { onError });
+      mutate(id);
     },
-    [forget, mutate, onError],
+    [forget, mutate],
   );
 
   const schedule = useCallback(

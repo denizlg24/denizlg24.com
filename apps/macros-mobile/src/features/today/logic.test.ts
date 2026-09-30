@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  completionsThisWeek,
   isIsoDate,
   kcalFromMacros,
   loggingStreak,
@@ -92,18 +91,6 @@ describe("summarizeEnergyBalance", () => {
     ]);
     expect(summary.balance).toBeNull();
     expect(summary.bars[0]?.over).toBe(false);
-  });
-});
-
-describe("completionsThisWeek", () => {
-  test("counts Monday through today, once per day", () => {
-    // 2026-09-26 is a Saturday; the week starts on Monday 2026-09-21.
-    expect(
-      completionsThisWeek(
-        ["2026-09-20", "2026-09-21", "2026-09-21", "2026-09-26", "2026-09-27"],
-        "2026-09-26",
-      ),
-    ).toBe(2);
   });
 });
 

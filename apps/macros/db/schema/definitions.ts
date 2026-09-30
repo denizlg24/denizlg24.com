@@ -1083,6 +1083,8 @@ export const habitDefinitions = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     targetPerWeek: integer("targetPerWeek").notNull().default(7),
+    icon: text("icon"),
+    weekdays: integer("weekdays").array(),
     isBuiltin: boolean("isBuiltin").notNull().default(false),
     builtinKey: text("builtinKey"),
     archivedAt: timestamp("archivedAt", { withTimezone: true }),

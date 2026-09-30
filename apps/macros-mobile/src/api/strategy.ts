@@ -52,6 +52,7 @@ export function invalidateAfterTargetChange(queryClient: QueryClient) {
       queryKeys.program,
       ["dashboard"],
       ["calorie-summary"],
+      queryKeys.foodLog,
       queryKeys.statistics,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );

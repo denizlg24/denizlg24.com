@@ -1,6 +1,8 @@
 import {
   computeNutritionScale,
   formatFoodQuantity,
+  GRAMS_PER_LB,
+  GRAMS_PER_OZ,
   getServingDisplay,
   getServingWeightGrams,
   quantityForScale,
@@ -50,16 +52,32 @@ export function quantityFor(
   );
 }
 
+const GRAMS_PER_UNIT = { g: 1, oz: GRAMS_PER_OZ, lb: GRAMS_PER_LB } as const;
+
+/**
+ * A serving with no weight of its own (ml, a slice) that was logged by mass
+ * still says what one serving weighed: the typed weight over the servings it
+ * came to. Without it an edit is read against a guessed 100 g.
+ */
+function impliedServingGrams(entry: MacrosFoodLogEntry): number | null {
+  const unit = entry.enteredUnit;
+  if (!unit || unit === "serving") return null;
+  const quantity = entry.enteredQuantity;
+  if (quantity == null || quantity <= 0 || entry.servingsConsumed <= 0) {
+    return null;
+  }
+  return (quantity * GRAMS_PER_UNIT[unit]) / entry.servingsConsumed;
+}
+
 export function amountModel(entry: MacrosFoodLogEntry): AmountModel {
   const display = getServingDisplay(
     entry.servingLabel,
     entry.servingQuantity,
     entry.servingUnit,
   );
-  const servingGrams = getServingWeightGrams(
-    entry.servingQuantity,
-    entry.servingUnit,
-  );
+  const servingGrams =
+    getServingWeightGrams(entry.servingQuantity, entry.servingUnit) ??
+    impliedServingGrams(entry);
   const servingUnitQuantity = display.servingUnitQuantity;
 
   // A quick add has no food behind it, so grams would be measured against a

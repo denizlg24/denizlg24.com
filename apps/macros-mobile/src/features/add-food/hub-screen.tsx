@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useCalorieSummary } from "@/api/dashboard";
 import { FailedWritesNotice } from "@/components/failed-writes-notice";
 import { useCurrentMinute } from "@/lib/day";
@@ -11,11 +11,12 @@ import {
   logPlacement,
   logTimeParams,
 } from "@/lib/log-time";
-import { gutter, InlineNotice, Screen, spacing, useResolvedColors } from "@/ui";
+import { colors, gutter, Screen, spacing } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
-import { toolbarText, useBottomToolbarInset } from "@/ui/toolbar";
+import { toolbarText } from "@/ui/toolbar";
 import { CaloriePill } from "./components/calorie-pill";
 import { type HubTab, HubTabs, isHubTab } from "./components/hub-tabs";
+import { PlateBar } from "./components/plate-bar";
 import type { QuickHandlers } from "./components/quick-section";
 import { LibraryBody, RecipesBody, ShopBody } from "./hub-lists";
 import { SearchBody } from "./hub-search";
@@ -41,8 +42,6 @@ export function HubScreen() {
   const paramDate = readParam(params.date);
   const paramTime = readParam(params.time);
   const zone = useZone();
-  const resolved = useResolvedColors();
-  const toolbarInset = useBottomToolbarInset();
 
   // Opened from a day or an hour of the Log tab it starts there; opened
   // plainly it starts at now, whatever was picked the last time.
@@ -127,53 +126,39 @@ export function HubScreen() {
           children: hubTimeLabel(when, zone.timeZone, zone.today, now),
         })}
       </Stack.Toolbar>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={glyphs.utensils}
-          iconRenderingMode="template"
-          accessibilityLabel={`Plate, ${plate.length} ${plate.length === 1 ? "food" : "foods"}`}
-          hidden={plate.length === 0}
-          onPress={() => router.push("/add-food/plate")}
-        >
-          <Stack.Toolbar.Badge>{String(plate.length)}</Stack.Toolbar.Badge>
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
-      <Stack.Toolbar placement="bottom">
-        <Stack.Toolbar.SearchBarSlot />
-        {toolbarText({
-          variant: "prominent",
-          tintColor: resolved.label,
-          style: { color: resolved.background, fontWeight: "600" },
-          disabled: plate.length === 0 || committing,
-          onPress: () => void commit(plate),
-          children:
-            plate.length > 0 ? `Log Foods (${plate.length})` : "Log Foods",
-        })}
-      </Stack.Toolbar>
+      {/* Android has no search slot; its search field stays in the header. */}
+      {Platform.OS === "ios" ? (
+        <Stack.Toolbar placement="bottom">
+          <Stack.Toolbar.SearchBarSlot />
+        </Stack.Toolbar>
+      ) : null}
 
       <Screen
         bleed
         stickyHeaderIndices={[0]}
-        contentContainerStyle={[
-          styles.content,
-          toolbarInset > 0 && { paddingBottom: toolbarInset },
-        ]}
+        contentContainerStyle={styles.content}
       >
-        <HubTabs
-          value={tab}
-          onChange={setTab}
-          onScan={() => router.push({ pathname: "/scan", params: whenParams })}
-        />
+        <View style={styles.header}>
+          <HubTabs
+            value={tab}
+            onChange={setTab}
+            onScan={() =>
+              router.push({ pathname: "/scan", params: whenParams })
+            }
+          />
+          <View style={styles.plate}>
+            <PlateBar
+              items={plate}
+              energyUnit={zone.energyUnit}
+              committing={committing}
+              failure={failure}
+              onOpen={() => router.push("/add-food/plate")}
+              onLog={() => void commit(plate)}
+              onClearFailure={clearFailure}
+            />
+          </View>
+        </View>
         <View>
-          {failure ? (
-            <View style={styles.inset}>
-              <InlineNotice
-                tone="error"
-                message={failure}
-                onDismiss={clearFailure}
-              />
-            </View>
-          ) : null}
           <View style={styles.inset}>
             <FailedWritesNotice />
           </View>
@@ -212,6 +197,12 @@ export function HubScreen() {
 const styles = StyleSheet.create({
   content: {
     paddingTop: 0,
+  },
+  header: {
+    backgroundColor: colors.background,
+  },
+  plate: {
+    paddingHorizontal: gutter,
   },
   inset: {
     paddingHorizontal: gutter,

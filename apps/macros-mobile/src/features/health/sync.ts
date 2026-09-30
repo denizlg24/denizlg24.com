@@ -34,7 +34,9 @@ async function importFromHealth(queryClient: QueryClient, timeZone: string) {
     MacrosHealth.readBodySamples(start, end, timeZone),
     MacrosHealth.readDailyActivity(start, end, timeZone),
   ]);
-  const result = await postHealthSync(buildImportBody(body, activity));
+  const result = await postHealthSync(
+    buildImportBody(body, activity, getHealthState().dismissedWeighIns),
+  );
   updateHealthState({ importedThrough: end });
   if (result.weighInsCreated > 0) await invalidateAfterWeighIn(queryClient);
   else if (result.activitiesUpserted > 0) {
@@ -96,11 +98,22 @@ export function syncHealth(
   );
 }
 
-/** After a log change only the eating side can have moved. */
-export function syncNutrition(timeZone: string) {
-  return serialize(() =>
-    record(writeNutrition(recentDates(timeZone, 2), timeZone)),
-  );
+/**
+ * After a log change only the eating side can have moved: today, yesterday
+ * and any earlier day the change named.
+ */
+export function syncNutrition(
+  timeZone: string,
+  changed: readonly string[] = [],
+) {
+  const today = isoToday(timeZone);
+  const dates = [
+    ...new Set([
+      ...recentDates(timeZone, 2),
+      ...changed.filter((date) => date <= today),
+    ]),
+  ];
+  return serialize(() => record(writeNutrition(dates, timeZone)));
 }
 
 export async function enableHealth(queryClient: QueryClient, timeZone: string) {

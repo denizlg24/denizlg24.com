@@ -11,6 +11,7 @@ import {
   type SectionProps,
   spacing,
   Text,
+  useSwipeAccessibility,
 } from "@/ui";
 
 export interface FoodListRowProps {
@@ -46,6 +47,7 @@ export function FoodListRow({
   onLongPress,
   accessibilityHint,
 }: FoodListRowProps) {
+  const swipeAccessibility = useSwipeAccessibility();
   const energy =
     calories === null
       ? "—"
@@ -59,6 +61,7 @@ export function FoodListRow({
         disabled={!onPress && !onLongPress}
         accessibilityRole={onPress ? "button" : undefined}
         accessibilityHint={accessibilityHint}
+        {...swipeAccessibility}
         style={({ pressed }) => [
           styles.row,
           pressed && { backgroundColor: colors.fill },

@@ -7,9 +7,11 @@ import {
 } from "@tanstack/react-query";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import { AppState, type AppStateStatus } from "react-native";
+import { registerHydrationMutationDefaults } from "@/api/body";
 import { registerLogMutationDefaults } from "@/api/food-log";
 import { registerHabitMutationDefaults } from "@/api/habits";
 import { registerMealTemplateMutationDefaults } from "@/api/meal-templates";
+import { registerShoppingListMutationDefaults } from "@/api/shopping-list";
 import { registerWeightMutationDefaults } from "@/api/weight";
 import { ApiError, isRetryable } from "./api";
 import { APP_VERSION } from "./config";
@@ -41,6 +43,8 @@ export function createQueryClient() {
   registerWeightMutationDefaults(queryClient);
   registerHabitMutationDefaults(queryClient);
   registerMealTemplateMutationDefaults(queryClient);
+  registerShoppingListMutationDefaults(queryClient);
+  registerHydrationMutationDefaults(queryClient);
   return queryClient;
 }
 

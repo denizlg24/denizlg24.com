@@ -112,7 +112,7 @@ export function PlateScreen() {
           style: { color: resolved.background, fontWeight: "600" },
           disabled: items.length === 0 || committing,
           onPress: () => void commit(items),
-          children: "Log Plate",
+          children: items.length > 0 ? `Log (${items.length})` : "Log",
         })}
       </Stack.Toolbar>
 

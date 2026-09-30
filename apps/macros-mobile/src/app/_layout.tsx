@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useProfile } from "@/api/profile";
+import { cancelReminders } from "@/features/notifications/reminders";
 import { ConnectionProblem } from "@/features/shell/connection-problem";
 import { setUnauthorizedHandler } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
@@ -71,7 +72,11 @@ function RootNavigator({
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      queryClient.clear();
+      // The session lapsed; nothing was signed out. The provider remounts per
+      // user, so this user's persisted cache — writes queued offline included
+      // — is left on disk and resumes when they sign back in.
+      void queryClient.cancelQueries();
+      void cancelReminders().catch(() => undefined);
       void forgetSessionLocally();
     });
     return () => setUnauthorizedHandler(null);

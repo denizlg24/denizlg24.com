@@ -7,6 +7,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Icon, type IconName } from "./icon";
+import { useSwipeAccessibility } from "./swipe-row";
 import { Text } from "./text";
 import { colors, hairline, spacing } from "./theme";
 
@@ -110,6 +111,7 @@ export function Row({
   onPress,
   ...rest
 }: RowProps) {
+  const swipeAccessibility = useSwipeAccessibility();
   const content = (
     <View style={styles.rowInner}>
       {leading ??
@@ -157,6 +159,7 @@ export function Row({
         <Pressable
           onPress={onPress}
           accessibilityRole="button"
+          {...swipeAccessibility}
           style={({ pressed }) => pressed && { backgroundColor: colors.fill }}
           {...rest}
         >

@@ -1,6 +1,7 @@
 import type { NativeStackNavigationOptions } from "expo-router";
 import {
   compactSheet,
+  detentSheet,
   formModal,
   type ModalRoute,
   tabRootOptions,
@@ -48,6 +49,6 @@ export const moreStackRoutes: ModalRoute[] = [
   { name: "recipe-log", options: compactSheet },
   { name: "measurement", options: compactSheet },
   { name: "activity", options: compactSheet },
-  { name: "new-habit", options: compactSheet },
+  { name: "habit", options: detentSheet },
   { name: "delete-account", options: compactSheet },
 ];

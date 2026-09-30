@@ -14,7 +14,9 @@ import type {
   MacrosHealthSyncResult,
   MacrosHydrationBody,
   MacrosHydrationRow,
+  MacrosUpdateHabitBody,
 } from "@repo/schemas/macros";
+import { macrosHabitIconSchema } from "@repo/schemas/macros";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
@@ -71,13 +73,18 @@ function toHydrationRow(
 }
 
 function toHabit(row: typeof habitDefinitions.$inferSelect): MacrosHabit {
+  const icon = macrosHabitIconSchema.safeParse(row.icon);
   return {
     ...row,
+    icon: icon.success ? icon.data : null,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
+
+// Matches the app's streak walk-back, so a streak is never capped by the payload.
+const STREAK_LOOKBACK_DAYS = 730;
 
 export async function getBodyOverview(
   userId: string,
@@ -117,7 +124,10 @@ export async function getBodyOverview(
       db.query.habitCompletions.findMany({
         where: and(
           eq(habitCompletions.userId, userId),
-          gte(habitCompletions.logDate, since),
+          gte(
+            habitCompletions.logDate,
+            daysAgo(today, STREAK_LOOKBACK_DAYS - 1),
+          ),
         ),
         orderBy: [asc(habitCompletions.logDate)],
       }),
@@ -221,16 +231,92 @@ export async function addHydration(
   return toHydrationRow(row);
 }
 
+export async function deleteHydration(
+  userId: string,
+  id: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(hydrationLogs)
+    .where(and(eq(hydrationLogs.id, id), eq(hydrationLogs.userId, userId)))
+    .returning({ id: hydrationLogs.id });
+  return rows.length > 0;
+}
+
+/** A habit due on set weekdays is due exactly that many days a week. */
+function scheduleFields(input: {
+  targetPerWeek?: number;
+  weekdays?: number[] | null;
+}) {
+  if (input.weekdays) {
+    return { weekdays: input.weekdays, targetPerWeek: input.weekdays.length };
+  }
+  return {
+    ...(input.weekdays === null ? { weekdays: null } : {}),
+    ...(input.targetPerWeek !== undefined
+      ? { targetPerWeek: input.targetPerWeek }
+      : {}),
+  };
+}
+
 export async function createHabit(
   userId: string,
   input: MacrosHabitBody,
 ): Promise<MacrosHabit> {
   const [row] = await db
     .insert(habitDefinitions)
-    .values({ ...input, userId })
+    .values({
+      userId,
+      name: input.name,
+      icon: input.icon ?? null,
+      targetPerWeek: input.targetPerWeek,
+      ...scheduleFields(input),
+    })
     .returning();
   if (!row) throw new Error("Failed to create habit");
   return toHabit(row);
+}
+
+export async function updateHabit(
+  userId: string,
+  habitId: string,
+  input: MacrosUpdateHabitBody,
+): Promise<MacrosHabit | null> {
+  const [row] = await db
+    .update(habitDefinitions)
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.icon !== undefined ? { icon: input.icon } : {}),
+      ...scheduleFields(input),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(habitDefinitions.id, habitId),
+        eq(habitDefinitions.userId, userId),
+        isNull(habitDefinitions.archivedAt),
+      ),
+    )
+    .returning();
+  return row ? toHabit(row) : null;
+}
+
+/** Archived, not deleted: its completions stay part of the history. */
+export async function archiveHabit(
+  userId: string,
+  habitId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(habitDefinitions)
+    .set({ archivedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(habitDefinitions.id, habitId),
+        eq(habitDefinitions.userId, userId),
+        isNull(habitDefinitions.archivedAt),
+      ),
+    )
+    .returning({ id: habitDefinitions.id });
+  return rows.length > 0;
 }
 
 export async function setHabitCompletion(

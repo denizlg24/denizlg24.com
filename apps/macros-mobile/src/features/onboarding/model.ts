@@ -448,18 +448,34 @@ export function suggestTargets(
     weeklyRateKg: weeklyRateKgOf(draft, now),
     proteinProfile: draft.proteinProfile,
   });
-  const proteinPct = Math.round(((calc.protein * 4) / calc.calories) * 100);
-  const fatPct = Math.round(((calc.fat * 9) / calc.calories) * 100);
   return {
     calories: String(
       Math.round(toDisplayEnergy(calc.calories, draft.energyUnit)),
     ),
-    split: {
-      protein: proteinPct,
-      fat: fatPct,
-      carbs: 100 - proteinPct - fatPct,
-    },
+    split: fitSplit(
+      Math.round(((calc.protein * 4) / calc.calories) * 100),
+      Math.round(((calc.fat * 9) / calc.calories) * 100),
+    ),
   };
+}
+
+/** The targets step's sliders run from here to `MAX_MACRO_PERCENT`. */
+export const MIN_MACRO_PERCENT = 10;
+export const MAX_MACRO_PERCENT = 70;
+
+function clampPercent(value: number) {
+  return Math.min(MAX_MACRO_PERCENT, Math.max(MIN_MACRO_PERCENT, value));
+}
+
+/**
+ * A split the targets step can show and the server accepts. Keto's fixed 70%
+ * fat plus the protein a loss goal asks for can exceed the whole day, leaving
+ * carbs negative; protein is the number the goal is built on, so fat gives way.
+ */
+export function fitSplit(proteinPct: number, fatPct: number): MacroSplit {
+  const protein = clampPercent(proteinPct);
+  const fat = clampPercent(Math.min(fatPct, 100 - protein - MIN_MACRO_PERCENT));
+  return { protein, fat, carbs: 100 - protein - fat };
 }
 
 export function withSuggestedTargets(
