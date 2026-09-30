@@ -5,17 +5,28 @@ import sys
 
 
 def select(paths: list[str]) -> dict[str, bool]:
-    checks = {"build": False, "macros_db": False, "macros_vision": False, "envoy_cli": False, "workflow_lint": False}
+    checks = {
+        "build": False,
+        "full_js": False,
+        "macros_db": False,
+        "macros_vision": False,
+        "envoy_cli": False,
+        "workflow_lint": False,
+    }
     for path in paths:
         if path.startswith((".github/workflows/", ".github/actions/")):
             checks["workflow_lint"] = True
         if path == ".github/workflows/ci.yml":
             for name in ("build", "macros_db", "macros_vision", "envoy_cli"):
                 checks[name] = True
+            checks["full_js"] = True
             continue
         if path in {"bun.lock", "package.json"}:
             checks["build"] = True
+            checks["full_js"] = True
             checks["macros_db"] = True
+            continue
+        if path.startswith("scripts/ci/"):
             continue
         if path.startswith("apps/macros-vision/"):
             checks["macros_vision"] = True
@@ -28,6 +39,7 @@ def select(paths: list[str]) -> dict[str, bool]:
             checks["macros_db"] = True
         if path.startswith("scripts/") or path in {"turbo.json", "biome.json", "biome.jsonc", "tsconfig.json"}:
             checks["build"] = True
+            checks["full_js"] = True
     return checks
 
 

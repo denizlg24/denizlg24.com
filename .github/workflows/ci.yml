@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       build: ${{ steps.select.outputs.build }}
+      full_js: ${{ steps.select.outputs.full_js }}
+      base_sha: ${{ steps.select.outputs.base_sha }}
       macros_db: ${{ steps.select.outputs.macros_db }}
       macros_vision: ${{ steps.select.outputs.macros_vision }}
       envoy_cli: ${{ steps.select.outputs.envoy_cli }}
@@ -37,10 +39,12 @@ jobs:
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
           python3 scripts/ci/check_release_workspaces.py
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
             git diff --no-renames --name-only -z "$BASE_SHA" HEAD | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
           else
             # A force push can make the previous SHA unreachable. Run all
             # checks when there is no reliable diff to filter on.
+            echo 'base_sha=' >> "$GITHUB_OUTPUT"
             printf '.github/workflows/ci.yml\0' | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
           fi
 
@@ -119,14 +123,35 @@ jobs:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: "denizlg24"
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      TURBO_SCM_BASE: ${{ needs.changes.outputs.base_sha }}
+      FULL_JS: ${{ needs.changes.outputs.full_js }}
     steps:
       - name: Check out code
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Select affected JavaScript packages
+        id: scope
+        run: |
+          if [[ "$FULL_JS" == true || -z "$TURBO_SCM_BASE" ]]; then
+            echo 'affected=false' >> "$GITHUB_OUTPUT"
+            echo 'web=true' >> "$GITHUB_OUTPUT"
+          else
+            bunx turbo ls --affected --output=json > "$RUNNER_TEMP/affected-packages.json"
+            echo 'affected=true' >> "$GITHUB_OUTPUT"
+            if jq -e '.packages.items[] | select(.name == "web")' "$RUNNER_TEMP/affected-packages.json" >/dev/null; then
+              echo 'web=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'web=false' >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       # Tectonic resolves .sty files on demand from a public bundle relay, so a
       # LaTeX compile test is a few dozen HTTP requests against a third party.
@@ -143,6 +168,7 @@ jobs:
       # stores nothing — the only sign is a Path Validation Error in the post
       # step, long after the check has already gone green.
       - name: Cache Tectonic bundle
+        if: steps.scope.outputs.web == 'true'
         uses: actions/cache@v6
         with:
           path: /tmp/deniz-tectonic-cache
@@ -150,14 +176,25 @@ jobs:
           restore-keys: |
             tectonic-${{ runner.os }}-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
       - name: Build
-        run: bunx turbo build
+        env:
+          RUN_AFFECTED: ${{ steps.scope.outputs.affected }}
+        run: |
+          if [[ "$RUN_AFFECTED" == true ]]; then
+            bunx turbo run build --affected
+          else
+            bunx turbo run build
+          fi
 
       - name: Typecheck
-        run: bunx turbo typecheck
+        env:
+          RUN_AFFECTED: ${{ steps.scope.outputs.affected }}
+        run: |
+          if [[ "$RUN_AFFECTED" == true ]]; then
+            bunx turbo run typecheck --affected
+          else
+            bunx turbo run typecheck
+          fi
 
       # Only for the run that fills the cache — a cold one, or the first after
       # a bundle version bump. Tectonic keeps every file it did manage to
@@ -165,6 +202,7 @@ jobs:
       # to ask for. Never fails the job: the Test step below is the gate, and
       # this exists so that step is not the one paying for a rate limit.
       - name: Warm the Tectonic cache
+        if: steps.scope.outputs.web == 'true'
         working-directory: apps/web
         run: |
           for attempt in 1 2 3; do
@@ -175,7 +213,14 @@ jobs:
           echo "::warning::Proceeding with a cold Tectonic cache"
 
       - name: Test
-        run: bunx turbo test
+        env:
+          RUN_AFFECTED: ${{ steps.scope.outputs.affected }}
+        run: |
+          if [[ "$RUN_AFFECTED" == true ]]; then
+            bunx turbo run test --affected
+          else
+            bunx turbo run test
+          fi
 
       - name: Lint (Biome)
         run: bun run format-and-lint
