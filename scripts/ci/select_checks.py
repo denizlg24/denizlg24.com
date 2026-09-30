@@ -17,6 +17,8 @@ def select(paths: list[str]) -> dict[str, bool]:
         "workflow_lint": False,
     }
     for path in paths:
+        if path.endswith(".md"):
+            continue
         if path.startswith((".github/workflows/", ".github/actions/")):
             checks["workflow_lint"] = True
         if path == ".github/workflows/ci.yml":

@@ -61,6 +61,8 @@ class SelectChecksTest(unittest.TestCase):
 
     def test_docs_only_runs_none(self):
         self.assertFalse(any(select(["docs/guide.md"]).values()))
+        self.assertFalse(any(select(["apps/ssh-server/README.md"]).values()))
+        self.assertFalse(any(select(["apps/macros-mobile/AGENTS.md"]).values()))
 
 
 if __name__ == "__main__":
