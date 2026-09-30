@@ -53,6 +53,9 @@ def check() -> list[str]:
     for workspace, workflow in RELEASES.items():
         name = json.loads((ROOT / workspace / "package.json").read_text())["name"]
         release = (ROOT / workflow).read_text()
+        for root_input in ("bun.lock", "package.json"):
+            if f'"{root_input}"' not in release:
+                errors.append(f"{workflow}: changes to {root_input} do not trigger a release")
         for dependency in sorted(closure(name, catalog, include_dev=False)):
             directory, _ = catalog[dependency]
             if f'"{directory}/**"' not in release:

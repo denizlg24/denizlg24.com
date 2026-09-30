@@ -27,6 +27,7 @@ on:
       - "infra/systemd/forge-grub.cfg"
       - ".github/workflows/release-deploy-agent.yml"
       - "bun.lock"
+      - "package.json"
   workflow_dispatch:
     inputs:
       mode:

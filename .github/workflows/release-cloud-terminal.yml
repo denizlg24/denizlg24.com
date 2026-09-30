@@ -11,6 +11,7 @@ on:
       - "packages/schemas/**"
       - ".github/workflows/release-cloud-terminal.yml"
       - "bun.lock"
+      - "package.json"
   workflow_dispatch:
 
 concurrency:
