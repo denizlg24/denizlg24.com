@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const backups = new Map<string, Record<string, unknown>>();
 const runs = new Map<string, Record<string, unknown>>();
@@ -41,12 +41,17 @@ const collections = mock(async () => ({
   },
 }));
 
-mock.module("next/cache", () => ({ revalidateTag }));
-mock.module("@/lib/db", () => ({ collections }));
-mock.module("@/lib/auth", () => ({
-  validBearer: (header: string | null, token: string | undefined) =>
-    !!token && header === `Bearer ${token}`,
-}));
+// Bun's module mocks are process-wide and outlive this file, so each one keeps
+// the real module's other exports and is put back once the suite is done.
+const realCache = { ...(await import("next/cache")) };
+const realDb = { ...(await import("@/lib/db")) };
+mock.module("server-only", () => ({}));
+mock.module("next/cache", () => ({ ...realCache, revalidateTag }));
+mock.module("@/lib/db", () => ({ ...realDb, collections }));
+afterAll(() => {
+  mock.module("next/cache", () => realCache);
+  mock.module("@/lib/db", () => realDb);
+});
 
 const { POST } = await import("../app/api/agent/[profile]/route");
 const token = "test-token-".repeat(4);
