@@ -7,7 +7,7 @@ class SelectChecksTest(unittest.TestCase):
     def test_python_only(self):
         self.assertEqual(
             select(["apps/macros-vision/service.py"]),
-            {"build": False, "full_js": False, "macros_db": False, "macros_vision": True, "envoy_cli": False, "workflow_lint": False},
+            {"build": False, "full_js": False, "macros_db": False, "macros_vision": True, "email_classifier": False, "sandbox_runtime": False, "envoy_cli": False, "ssh_server": False, "workflow_lint": False},
         )
 
     def test_database_and_javascript(self):
@@ -23,8 +23,25 @@ class SelectChecksTest(unittest.TestCase):
         self.assertTrue(checks["full_js"])
         self.assertTrue(checks["macros_db"])
         self.assertFalse(checks["macros_vision"])
+        self.assertFalse(checks["email_classifier"])
+        self.assertFalse(checks["sandbox_runtime"])
         self.assertFalse(checks["envoy_cli"])
+        self.assertFalse(checks["ssh_server"])
         self.assertFalse(checks["workflow_lint"])
+
+    def test_non_javascript_apps_use_their_own_checks(self):
+        cases = {
+            "apps/email-classifier/main.py": "email_classifier",
+            "apps/ssh-server/main.go": "ssh_server",
+            "apps/sandbox/runtime/sandbox-file.py": "sandbox_runtime",
+            "apps/sandbox/runtime.Dockerfile": "sandbox_runtime",
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                checks = select([path])
+                self.assertTrue(checks[expected])
+                self.assertFalse(checks["build"])
+                self.assertEqual(sum(checks.values()), 1)
 
     def test_ci_workflow_change_runs_all(self):
         self.assertTrue(all(select([".github/workflows/ci.yml"]).values()))

@@ -5,8 +5,10 @@
 `.github/workflows/ci.yml` runs a small change selector on every pull request and
 push to `main`. It runs JavaScript build, typecheck, tests, and Biome only for
 JavaScript workspace changes; migration checks for Macros database changes;
-Python checks for `apps/macros-vision`; Rust checks for `apps/envoy-cli`; and
-`actionlint` for workflow changes. A missing diff base runs all checks.
+Python checks for `apps/macros-vision` and `apps/email-classifier`; Rust checks
+for `apps/envoy-cli`; Go checks for `apps/ssh-server`; Python syntax checks for
+the sandbox runtime; and `actionlint` for workflow changes. A missing diff base
+runs all checks.
 JavaScript build, typecheck, and tests use Turborepo's affected-package scope;
 root configuration and lockfile changes run every package. The Tectonic cache
 and warmup run only when the web package is affected. Biome still checks the

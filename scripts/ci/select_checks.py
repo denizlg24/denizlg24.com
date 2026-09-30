@@ -10,14 +10,20 @@ def select(paths: list[str]) -> dict[str, bool]:
         "full_js": False,
         "macros_db": False,
         "macros_vision": False,
+        "email_classifier": False,
+        "sandbox_runtime": False,
         "envoy_cli": False,
+        "ssh_server": False,
         "workflow_lint": False,
     }
     for path in paths:
         if path.startswith((".github/workflows/", ".github/actions/")):
             checks["workflow_lint"] = True
         if path == ".github/workflows/ci.yml":
-            for name in ("build", "macros_db", "macros_vision", "envoy_cli"):
+            for name in (
+                "build", "macros_db", "macros_vision", "email_classifier",
+                "sandbox_runtime", "envoy_cli", "ssh_server",
+            ):
                 checks[name] = True
             checks["full_js"] = True
             continue
@@ -30,6 +36,12 @@ def select(paths: list[str]) -> dict[str, bool]:
             continue
         if path.startswith("apps/macros-vision/"):
             checks["macros_vision"] = True
+        elif path.startswith("apps/email-classifier/"):
+            checks["email_classifier"] = True
+        elif path.startswith("apps/ssh-server/"):
+            checks["ssh_server"] = True
+        elif path.startswith("apps/sandbox/runtime/") or path == "apps/sandbox/runtime.Dockerfile":
+            checks["sandbox_runtime"] = True
         elif path.startswith("apps/envoy-cli/"):
             checks["envoy_cli"] = True
         elif path.startswith("apps/") or path.startswith("packages/"):
