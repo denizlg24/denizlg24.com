@@ -11,6 +11,10 @@ const envelope = z.discriminatedUnion("type", [
   z.object({ type: z.literal("report"), report: backupReportSchema }),
   z.object({ type: z.literal("claim") }),
   z.object({
+    type: z.literal("sync"),
+    reports: z.array(backupReportSchema).max(3),
+  }),
+  z.object({
     type: z.literal("result"),
     id: z.uuid(),
     success: z.boolean(),
@@ -54,60 +58,94 @@ export async function POST(
   }
   const parsed = envelope.safeParse(body);
   if (!parsed.success) return new Response("Invalid report", { status: 400 });
-  const c = await collections();
+  const reports =
+    parsed.data.type === "sync"
+      ? parsed.data.reports
+      : parsed.data.type === "report"
+        ? [parsed.data.report]
+        : [];
+  const definitions = reports.map((report) =>
+    drJobs.find(
+      (job) => job.profile === profile.data && job.job === report.job,
+    ),
+  );
   const now = new Date();
-  if (parsed.data.type === "claim") {
-    // Expired/abandoned commands are never replayed automatically: a lost
-    // acknowledgement must not trigger the same backup or schedule twice.
-    await c.commands.updateMany(
-      {
-        profile: profile.data,
-        state: "queued",
-        createdAt: { $lt: new Date(Date.now() - 3600_000) },
-      },
+  if (
+    new Set(reports.map((report) => report.job)).size !== reports.length ||
+    reports.some(
+      (report, index) =>
+        !definitions[index] ||
+        Date.parse(report.startedAt) > now.getTime() + 60_000 ||
+        (report.completedAt &&
+          Date.parse(report.completedAt) > now.getTime() + 60_000),
+    )
+  )
+    return new Response("Invalid job or timestamp", { status: 400 });
+  const c = await collections();
+  const storeReport = async (
+    report: (typeof reports)[number],
+    definition: NonNullable<(typeof definitions)[number]>,
+  ) => {
+    const backup: Backup & { _id: string } = {
+      ...report,
+      ...definition,
+      _id: definition.id,
+      provider: "dr",
+      reportedAt: now.toISOString(),
+    };
+    // Only replace with an equally new or newer run; a delayed completion from
+    // the previous run cannot overwrite the currently running backup.
+    const previous = await c.backups.findOne({ _id: backup._id });
+    if (
+      !previous?.startedAt ||
+      Date.parse(previous.startedAt) <= Date.parse(report.startedAt)
+    ) {
+      if (
+        previous?.runId === report.runId &&
+        ["completed", "failed"].includes(previous.status) &&
+        report.status === "running"
+      )
+        return false;
+      backup.lastSuccessAt =
+        report.lastSuccessAt ?? previous?.lastSuccessAt ?? null;
+      // Compare-and-swap prevents a concurrent newer report from being replaced.
+      try {
+        const updated = await c.backups.replaceOne(
+          previous
+            ? {
+                _id: backup._id,
+                reportedAt: previous.reportedAt,
+                runId: previous.runId,
+              }
+            : { _id: backup._id },
+          backup,
+          { upsert: !previous },
+        );
+        if (previous && !updated.matchedCount) return false;
+      } catch (error) {
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === 11000
+        )
+          return false;
+        throw error;
+      }
+    }
+    await c.backupRuns.updateOne(
+      { _id: `${definition.id}:${report.runId}` },
       {
         $set: {
-          state: "failed",
-          completedAt: now,
-          detail: "Command expired before the host accepted it.",
+          ...backup,
+          _id: `${definition.id}:${report.runId}`,
+          expiresAt: new Date(Date.parse(report.startedAt) + 91 * 86400_000),
         },
       },
+      { upsert: true },
     );
-    await c.commands.updateMany(
-      {
-        profile: profile.data,
-        state: "claimed",
-        claimedAt: { $lt: new Date(Date.now() - 600_000) },
-      },
-      {
-        $set: {
-          state: "failed",
-          completedAt: now,
-          detail:
-            "Host acknowledgement timed out. Check the host before retrying.",
-        },
-      },
-    );
-    const command = await c.commands.findOneAndUpdate(
-      { profile: profile.data, state: "queued" },
-      { $set: { state: "claimed", claimedAt: now } },
-      { sort: { createdAt: 1 }, returnDocument: "after" },
-    );
-    return Response.json(
-      {
-        command: command
-          ? {
-              id: command._id,
-              job: command.job,
-              action: command.action,
-              schedule: command.schedule,
-              enabled: command.enabled,
-            }
-          : null,
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
-  }
+    return true;
+  };
   if (parsed.data.type === "result") {
     const result = await c.commands.updateOne(
       { _id: parsed.data.id, profile: profile.data, state: "claimed" },
@@ -121,76 +159,66 @@ export async function POST(
     );
     return Response.json({ accepted: result.matchedCount === 1 });
   }
-  const report = parsed.data.report;
-  const definition = drJobs.find(
-    (job) => job.profile === profile.data && job.job === report.job,
-  );
-  if (
-    !definition ||
-    Date.parse(report.startedAt) > now.getTime() + 60_000 ||
-    (report.completedAt &&
-      Date.parse(report.completedAt) > now.getTime() + 60_000)
-  )
-    return new Response("Invalid job or timestamp", { status: 400 });
-  const backup: Backup & { _id: string } = {
-    ...report,
-    ...definition,
-    _id: definition.id,
-    provider: "dr",
-    reportedAt: now.toISOString(),
-  };
-  // Only replace with an equally new or newer run; a delayed completion from
-  // the previous run cannot overwrite the currently running backup.
-  const previous = await c.backups.findOne({ _id: backup._id });
-  if (
-    !previous?.startedAt ||
-    Date.parse(previous.startedAt) <= Date.parse(report.startedAt)
-  ) {
-    if (
-      previous?.runId === report.runId &&
-      ["completed", "failed"].includes(previous.status) &&
-      report.status === "running"
-    )
-      return Response.json({ accepted: false });
-    backup.lastSuccessAt =
-      report.lastSuccessAt ?? previous?.lastSuccessAt ?? null;
-    // Compare-and-swap prevents a concurrent newer report from being replaced.
-    try {
-      const updated = await c.backups.replaceOne(
-        previous
-          ? {
-              _id: backup._id,
-              reportedAt: previous.reportedAt,
-              runId: previous.runId,
-            }
-          : { _id: backup._id },
-        backup,
-        { upsert: !previous },
-      );
-      if (previous && !updated.matchedCount)
-        return Response.json({ accepted: false });
-    } catch (error) {
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === 11000
-      )
-        return Response.json({ accepted: false });
-      throw error;
-    }
+  if (parsed.data.type === "report") {
+    const accepted = await storeReport(reports[0]!, definitions[0]!);
+    if (accepted) revalidateTag("status-public", { expire: 0 });
+    return Response.json({ accepted });
   }
-  await c.backupRuns.updateOne(
-    { _id: `${definition.id}:${report.runId}` },
+  if (parsed.data.type === "sync") {
+    let changed = false;
+    for (let index = 0; index < reports.length; index++)
+      changed =
+        (await storeReport(reports[index]!, definitions[index]!)) || changed;
+    if (changed) revalidateTag("status-public", { expire: 0 });
+  }
+  // Expired/abandoned commands are never replayed automatically: a lost
+  // acknowledgement must not trigger the same backup or schedule twice.
+  await c.commands.updateMany(
+    {
+      profile: profile.data,
+      state: "queued",
+      createdAt: { $lt: new Date(Date.now() - 3600_000) },
+    },
     {
       $set: {
-        ...backup,
-        _id: `${definition.id}:${report.runId}`,
-        expiresAt: new Date(Date.parse(report.startedAt) + 91 * 86400_000),
+        state: "failed",
+        completedAt: now,
+        detail: "Command expired before the host accepted it.",
       },
     },
-    { upsert: true },
   );
-  revalidateTag("status-public", { expire: 0 });
-  return Response.json({ accepted: true });
+  await c.commands.updateMany(
+    {
+      profile: profile.data,
+      state: "claimed",
+      claimedAt: { $lt: new Date(Date.now() - 600_000) },
+    },
+    {
+      $set: {
+        state: "failed",
+        completedAt: now,
+        detail:
+          "Host acknowledgement timed out. Check the host before retrying.",
+      },
+    },
+  );
+  const command = await c.commands.findOneAndUpdate(
+    { profile: profile.data, state: "queued" },
+    { $set: { state: "claimed", claimedAt: now } },
+    { sort: { createdAt: 1 }, returnDocument: "after" },
+  );
+  return Response.json(
+    {
+      command: command
+        ? {
+            id: command._id,
+            job: command.job,
+            action: command.action,
+            schedule: command.schedule,
+            enabled: command.enabled,
+          }
+        : null,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

@@ -41,7 +41,6 @@ import {
   statusWord,
   systemUpdate,
 } from "./incidents";
-import { preVerdict } from "./jev";
 import type {
   Backup,
   Evidence,
@@ -794,6 +793,9 @@ export async function collectStatus() {
     const agent = agentConfig();
     if (agent && opened?.length)
       await provider("Incident agent", async () => {
+        // The AI SDK is only needed when a new incident opens. Keep it out of
+        // the ordinary once-a-minute collection path.
+        const { preVerdict } = await import("./jev");
         const statusOrigin =
           process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com";
         for (const incident of opened) {
