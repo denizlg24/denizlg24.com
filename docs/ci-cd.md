@@ -41,8 +41,9 @@ The build still uses the committed `bun.lock` with `--frozen-lockfile`.
 
 To deploy a previous API or relay image, manually run its release workflow with
 the full 40-character commit SHA in `image_tag`. The shared build workflow
-validates the tag and skips the build. Set `mode` to `validate` to exercise the
-tailnet, asset copy, image pull, and Compose render without starting containers.
+checks that the existing tag has both release architectures before skipping the
+build. Set `mode` to `validate` to exercise the tailnet, asset copy, image pull,
+and Compose render without starting containers.
 
 ## Local validation
 
