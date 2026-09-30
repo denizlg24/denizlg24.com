@@ -14,9 +14,10 @@ whole repository when the JavaScript job runs.
 
 The selector also validates release workspace dependencies. When a new
 workspace dependency is added to the API or markets relay, update its Dockerfile
-manifest and source copies. All binary and container release path filters must
+manifest and source copies. Release path filters checked here must
 cover their transitive runtime workspaces, root `package.json`, and `bun.lock`.
-The check fails CI if an input is missing.
+The check covers the API, relay, terminal, storage metadata, and deploy-agent
+releases and fails CI if an input is missing.
 
 `macros-mobile.yml` builds native apps on relevant pull requests. On `main`, it
 runs for a version change in `apps/macros-mobile/package.json`; a device approval
