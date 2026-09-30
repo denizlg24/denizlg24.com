@@ -60,7 +60,9 @@ def check() -> list[str]:
     for workspace, (dockerfile, _) in SERVICES.items():
         name = json.loads((ROOT / workspace / "package.json").read_text())["name"]
         docker = (ROOT / dockerfile).read_text()
-        for dependency in sorted(closure(name, catalog, include_dev=True)):
+        # The pinned Bun 1.3.3 image cannot reliably do a frozen install with
+        # missing workspace manifests, even when --filter selects one app.
+        for dependency in sorted(catalog):
             directory, _ = catalog[dependency]
             copy = f"COPY {directory}/package.json {directory}/package.json"
             if copy not in docker:

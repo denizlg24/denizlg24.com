@@ -30,9 +30,9 @@ separate GHCR BuildKit cache tag (`buildcache-amd64` and `buildcache-arm64`).
 Cache export errors do not block a verified image release.
 
 The API and markets relay Dockerfiles install only their workspace dependency
-trees. Package manifests are copied before source files, so source-only edits
-reuse the dependency layer. The build still uses the committed `bun.lock` with
-`--frozen-lockfile`.
+trees. They copy all workspace manifests for Bun 1.3.3 compatibility before
+copying service source files, so source-only edits reuse the dependency layer.
+The build still uses the committed `bun.lock` with `--frozen-lockfile`.
 
 To deploy a previous API or relay image, manually run its release workflow with
 the full 40-character commit SHA in `image_tag`. The shared build workflow
