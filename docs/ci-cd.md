@@ -21,7 +21,8 @@ missing.
 `macros-mobile.yml` builds native apps on relevant pull requests. On `main`, it
 runs for a version change in `apps/macros-mobile/package.json`; a device approval
 dispatch builds only the ad hoc iOS variant. Signing and publication remain in
-the `macros-release` environment.
+the `macros-release` environment. One Linux job typechecks and tests the mobile
+code and shared domain logic before any native build starts.
 
 ## Container releases
 
