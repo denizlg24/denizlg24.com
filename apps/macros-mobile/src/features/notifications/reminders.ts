@@ -1,61 +1,60 @@
 import * as Notifications from "expo-notifications";
+import type { Href } from "expo-router";
 import { Platform } from "react-native";
 import { ensureReminderChannel, REMINDER_CHANNEL_ID } from "./channel";
 import { notificationPermission } from "./permissions";
 import {
   type PlannedReminder,
-  type PlannedTrigger,
   planReminders,
   REMINDER_ID_PREFIX,
+  type ReminderContext,
   type ReminderSettings,
 } from "./reminder-plan";
 
-const CONTENT: Record<
-  PlannedReminder["kind"],
-  Notifications.NotificationContentInput
-> = {
-  log: {
-    title: "Time to log",
-    body: "Add what you've eaten today.",
-    sound: "default",
-  },
-  "weigh-in": {
-    title: "Weigh in",
-    body: "Step on the scale and log today's weight.",
-    sound: "default",
-  },
+export type ReminderKind = PlannedReminder["kind"];
+
+/** Where tapping a reminder lands; read by `NotificationsSync`. */
+export const REMINDER_HREF: Record<ReminderKind, Href> = {
+  log: "/add-food",
+  "weigh-in": "/weigh-in",
+  habit: "/",
 };
 
-const channel =
-  Platform.OS === "android" ? { channelId: REMINDER_CHANNEL_ID } : {};
+export function isReminderKind(value: unknown): value is ReminderKind {
+  return typeof value === "string" && Object.hasOwn(REMINDER_HREF, value);
+}
 
-function toTrigger(
-  trigger: PlannedTrigger,
-): Notifications.NotificationTriggerInput {
-  switch (trigger.type) {
-    case "daily":
+function contentFor(
+  reminder: PlannedReminder,
+): Notifications.NotificationContentInput {
+  const data = { reminder: reminder.kind };
+  switch (reminder.kind) {
+    case "log":
       return {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour: trigger.hour,
-        minute: trigger.minute,
-        ...channel,
+        title: "Time to log",
+        body: "Nothing logged today yet.",
+        sound: "default",
+        data,
       };
-    case "weekly":
+    case "weigh-in":
       return {
-        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-        weekday: trigger.weekday,
-        hour: trigger.hour,
-        minute: trigger.minute,
-        ...channel,
+        title: "Weigh in",
+        body: "Step on the scale and log today's weight.",
+        sound: "default",
+        data,
       };
-    case "date":
+    case "habit":
       return {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: trigger.date,
-        ...channel,
+        title: reminder.name,
+        body: "Not ticked off today yet.",
+        sound: "default",
+        data,
       };
   }
 }
+
+const channel =
+  Platform.OS === "android" ? { channelId: REMINDER_CHANNEL_ID } : {};
 
 async function cancelOurs() {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
@@ -80,18 +79,21 @@ function enqueue(task: () => Promise<void>): Promise<void> {
 /** Replaces every reminder this app scheduled with the current plan. */
 export function applyReminders(
   settings: ReminderSettings,
-  loggedToday: boolean,
+  context: ReminderContext,
 ): Promise<void> {
   return enqueue(async () => {
     await cancelOurs();
     if ((await notificationPermission()) !== "granted") return;
     await ensureReminderChannel();
-    const plan = planReminders(settings, { now: new Date(), loggedToday });
-    for (const reminder of plan) {
+    for (const reminder of planReminders(settings, context)) {
       await Notifications.scheduleNotificationAsync({
         identifier: reminder.id,
-        content: CONTENT[reminder.kind],
-        trigger: toTrigger(reminder.trigger),
+        content: contentFor(reminder),
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: reminder.date,
+          ...channel,
+        },
       });
     }
   });

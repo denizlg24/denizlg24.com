@@ -4,7 +4,6 @@ import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCreateRecipe } from "@/api/recipes";
 import { errorMessage } from "@/lib/api";
-import { formatDecimal } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import {
   Button,
@@ -18,6 +17,7 @@ import {
   TextField,
 } from "@/ui";
 import { type PlateItem, removeFromPlate, usePlate } from "./plate-store";
+import { formatQuantityInput } from "./serving";
 
 type FoodPlateItem = Extract<PlateItem, { kind: "food" }>;
 
@@ -46,7 +46,7 @@ export function PlateRecipeSheet() {
   const [name, setName] = useState("");
   const [weight, setWeight] = useState(() => {
     const total = weighedTotal(foods);
-    return total === null ? "" : formatDecimal(total);
+    return total === null ? "" : formatQuantityInput(total);
   });
   const [servings, setServings] = useState("");
 

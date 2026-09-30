@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import { useProfile } from "@/api/profile";
 import { deleteAccount } from "@/features/auth/actions";
+import { forgetHealthState } from "@/features/health/health-state";
 import { haptics } from "@/lib/haptics";
 import { clearSignedInDevice } from "@/lib/session";
 import {
@@ -39,6 +40,7 @@ export function DeleteAccountSheet() {
       return;
     }
     haptics.success();
+    await forgetHealthState();
     // The auth gate swaps to the sign-in stack once the session is gone,
     // which also dismisses this sheet.
     await clearSignedInDevice(queryClient);

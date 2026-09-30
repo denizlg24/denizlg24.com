@@ -19,7 +19,13 @@ export {
 } from "./sheet-header";
 export { Skeleton, type SkeletonProps } from "./skeleton";
 export { Meter, type MeterProps, Stat, type StatProps } from "./stat";
-export { type SwipeAction, SwipeRow, type SwipeRowProps } from "./swipe-row";
+export {
+  type SwipeAction,
+  SwipeRow,
+  type SwipeRowProps,
+  swipeAccessibilityProps,
+  useSwipeAccessibility,
+} from "./swipe-row";
 export { Text, type TextProps, type TextTone } from "./text";
 export {
   colors,

@@ -11,6 +11,7 @@ import {
   type SwipeAction,
   SwipeRow,
   spacing,
+  swipeAccessibilityProps,
   Text,
 } from "@/ui";
 import { useLastLogged } from "../log-actions";
@@ -169,6 +170,7 @@ export function FoodRow({
       disabled={!onPress}
       accessibilityRole="button"
       accessibilityHint={onPress ? "Opens amount and nutrition" : undefined}
+      {...swipeAccessibilityProps(swipeActions ?? [])}
       style={({ pressed }) => [
         styles.row,
         pressed && onPress && styles.rowPressed,

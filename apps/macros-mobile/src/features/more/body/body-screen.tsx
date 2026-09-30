@@ -6,10 +6,12 @@ import { StyleSheet, View } from "react-native";
 import {
   type BodyOverview,
   bodyKeys,
+  ML_PER_OZ,
   useAddHydration,
   useBodyOverview,
 } from "@/api/body";
 import { useProfile } from "@/api/profile";
+import { deviceTimeZone, useToday } from "@/lib/day";
 import {
   energyLabel,
   formatDecimal,
@@ -34,8 +36,6 @@ import { useRefresh } from "../shared/use-refresh";
 import { MEASUREMENT_SITES } from "./measurement-sites";
 import { ProgressPhotos } from "./progress-photos";
 import { Sparkline } from "./sparkline";
-
-const ML_PER_OZ = 29.5735;
 
 type Measurement = BodyOverview["measurements"][number];
 
@@ -102,7 +102,7 @@ export function BodyScreen() {
   const { refreshing, onRefresh } = useRefresh(refetch);
 
   const data = overview.data;
-  const today = data?.today;
+  const today = useToday(profile.data?.timezone ?? deviceTimeZone());
   const trends = useMemo(() => trendsBySite(data?.measurements ?? []), [data]);
 
   const waterMl =
@@ -116,7 +116,6 @@ export function BodyScreen() {
   const volumeUnit = usesOunces ? "oz" : "ml";
 
   function drink(volume: number) {
-    if (!today) return;
     haptics.light();
     setWaterFlash(Date.now());
     addHydration.mutate(

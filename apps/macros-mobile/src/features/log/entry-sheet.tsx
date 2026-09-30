@@ -3,6 +3,7 @@ import type {
   MacrosEnteredUnit,
   MacrosFoodLogEntry,
 } from "@repo/schemas/macros";
+import { onlineManager, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
@@ -13,6 +14,7 @@ import {
   View,
 } from "react-native";
 import {
+  queueEntryUpdate,
   type UpdateEntryInput,
   useDeleteEntry,
   useFoodLogDay,
@@ -113,6 +115,7 @@ function EntryEditor({
   energyUnit: EnergyUnit;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const update = useUpdateEntry();
   const remove = useDeleteEntry(entry.logDate);
 
@@ -182,6 +185,12 @@ function EntryEditor({
           }
         : {}),
     };
+    if (Object.keys(body).length > 0 && !onlineManager.isOnline()) {
+      queueEntryUpdate(queryClient, entry, body);
+      haptics.success();
+      router.back();
+      return;
+    }
     setSaving(true);
     setNotice(null);
     try {

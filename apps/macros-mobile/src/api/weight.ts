@@ -1,6 +1,7 @@
 import type {
   MacrosOkResponse,
   MacrosUpsertWeighInBody,
+  MacrosWeighInItem,
   MacrosWeighInResponse,
   MacrosWeightOverviewResponse,
 } from "@repo/schemas/macros";
@@ -10,7 +11,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import {
+  dismissImportedWeighIn,
+  getHealthState,
+} from "@/features/health/health-state";
+import { oldestImportable } from "@/features/health/import-body";
 import { api, errorMessage } from "@/lib/api";
+import { deviceTimeZone, isoToday } from "@/lib/day";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { invalidateAfterWeighIn } from "./keys";
 
@@ -54,13 +61,23 @@ export function useUpsertWeighIn() {
   });
 }
 
+type DeletedWeighIn = Pick<MacrosWeighInItem, "id" | "logDate" | "weightKg">;
+
 export function useDeleteWeighIn() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id }: DeletedWeighIn) =>
       api<MacrosOkResponse>(`/api/weight/weigh-ins/${id}`, {
         method: "DELETE",
       }),
-    onSuccess: () => invalidateAfterWeighIn(queryClient),
+    onSuccess: (_response, weighIn) => {
+      if (getHealthState().enabled) {
+        dismissImportedWeighIn(
+          { logDate: weighIn.logDate, weightKg: weighIn.weightKg },
+          oldestImportable(isoToday(deviceTimeZone())),
+        );
+      }
+      return invalidateAfterWeighIn(queryClient);
+    },
   });
 }

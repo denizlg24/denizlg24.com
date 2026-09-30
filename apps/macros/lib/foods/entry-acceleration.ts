@@ -468,6 +468,24 @@ export async function createMealTemplate(
   });
 }
 
+export async function archiveMealTemplate(
+  userId: string,
+  templateId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(mealTemplates)
+    .set({ archivedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(mealTemplates.id, templateId),
+        eq(mealTemplates.userId, userId),
+        isNull(mealTemplates.archivedAt),
+      ),
+    )
+    .returning({ id: mealTemplates.id });
+  return rows.length > 0;
+}
+
 export async function listMealTemplates(
   userId: string,
 ): Promise<MacrosMealTemplateListItem[]> {

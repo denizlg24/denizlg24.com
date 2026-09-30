@@ -169,7 +169,11 @@ export function SearchBody({
 
   // The user's own history and foods answer from cache at once; the server
   // adds database results as they arrive, never above the user's own.
-  const results = search.data?.items ?? [];
+  // Offline, the request pauses rather than fails, and the previous query's
+  // results would stand in for this one's.
+  const paused = search.fetchStatus === "paused";
+  const results =
+    paused && search.isPlaceholderData ? [] : (search.data?.items ?? []);
   const seen = new Set<string>();
   const fromHistory: QuickItem[] = [];
   for (const item of history.data ?? []) {
@@ -193,7 +197,7 @@ export function SearchBody({
   const common = database.filter((item) => !item.brand).map(searchQuick);
   const branded = database.filter((item) => item.brand).map(searchQuick);
   const settled = search.data !== undefined && !search.isPlaceholderData;
-  const awaiting = debounced !== query.trim() || search.isFetching;
+  const awaiting = !paused && (debounced !== query.trim() || search.isFetching);
   const none =
     fromHistory.length === 0 &&
     yourFoods.length === 0 &&
@@ -207,6 +211,13 @@ export function SearchBody({
           <InlineNotice
             tone="offline"
             message="The food database can’t be reached. Your own foods and history still work."
+          />
+        </View>
+      ) : paused ? (
+        <View style={styles.inset}>
+          <InlineNotice
+            tone="offline"
+            message="You’re offline. Showing your own foods and history."
           />
         </View>
       ) : search.isError && !awaiting ? (

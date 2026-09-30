@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { macrosHabitIconSchema } from "./body";
 import {
   macrosCaloriePreferenceSchema,
   macrosDailyMacrosSchema,
@@ -35,6 +36,8 @@ export const macrosDashboardHabitSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   targetPerWeek: z.number(),
+  icon: macrosHabitIconSchema.nullable(),
+  weekdays: z.array(z.number().int()).nullable(),
   completedDates: z.array(z.string()),
 });
 

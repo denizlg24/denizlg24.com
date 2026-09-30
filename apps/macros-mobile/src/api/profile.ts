@@ -38,6 +38,7 @@ export function useUpdateTimezone() {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["food-log"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.body }),
       ]);
     },
   });

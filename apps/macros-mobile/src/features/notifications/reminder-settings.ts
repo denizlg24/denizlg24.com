@@ -3,7 +3,9 @@ import { useEffect } from "react";
 import { useProfile } from "@/api/profile";
 import { createStore, useStore } from "@/features/add-food/store";
 import {
+  DEFAULT_HABIT_REMINDER,
   DEFAULT_REMINDER_SETTINGS,
+  type HabitReminder,
   type ReminderSettings,
   readReminderSettings,
 } from "./reminder-plan";
@@ -48,4 +50,32 @@ export function updateReminderSettings(
   AsyncStorage.setItem(activeKey, JSON.stringify(settings)).catch(
     () => undefined,
   );
+}
+
+export function habitReminder(
+  settings: ReminderSettings,
+  habitId: string,
+): HabitReminder {
+  return settings.habits[habitId] ?? DEFAULT_HABIT_REMINDER;
+}
+
+export function updateHabitReminder(
+  habitId: string,
+  patch: Partial<HabitReminder>,
+) {
+  updateReminderSettings((current) => ({
+    ...current,
+    habits: {
+      ...current.habits,
+      [habitId]: { ...habitReminder(current, habitId), ...patch },
+    },
+  }));
+}
+
+/** An archived habit's reminder goes with it. */
+export function forgetHabitReminder(habitId: string) {
+  updateReminderSettings((current) => {
+    const { [habitId]: _gone, ...habits } = current.habits;
+    return { ...current, habits };
+  });
 }

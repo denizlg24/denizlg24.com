@@ -20,8 +20,12 @@ import {
   useFoodLogDay,
   useWeekTotals,
 } from "@/api/food-log";
+import { useCreateMealTemplate } from "@/api/meal-templates";
 import { useProfile } from "@/api/profile";
 import { FailedWritesNotice } from "@/components/failed-writes-notice";
+import { PendingPlateBar } from "@/features/add-food/components/plate-bar";
+import { usePlate } from "@/features/add-food/plate-store";
+import { promptText } from "@/features/more/shared/prompt";
 import { errorMessage } from "@/lib/api";
 import { deviceTimeZone, shiftIsoDate, useToday } from "@/lib/day";
 import { useFailedWrites } from "@/lib/failed-writes";
@@ -125,17 +129,19 @@ export function LogDayScreen() {
   const selection = useSelection();
   const [notice, setNotice] = useState<string | null>(null);
   const failedWrites = useFailedWrites();
+  const staged = usePlate().length;
   const [refreshing, setRefreshing] = useState(false);
   const showError = useCallback((error: unknown) => {
     haptics.error();
     setNotice(errorMessage(error));
   }, []);
 
-  const deferredDelete = useDeferredDelete(date, showError);
+  const deferredDelete = useDeferredDelete(date);
   const { flush: flushDeletes } = deferredDelete;
   const duplicate = useDuplicateEntry();
   const copy = useCopyEntries();
   const bulkDelete = useBulkDeleteEntries();
+  const createTemplate = useCreateMealTemplate();
 
   const entries = day.data?.entries;
   useFlashArrivals(date, entries);
@@ -262,6 +268,33 @@ export function LogDayScreen() {
     ]);
   }
 
+  function saveAsMeal() {
+    const ids = [...selection.ids];
+    if (ids.length === 0) return;
+    const names = (entries ?? [])
+      .filter((entry) => selection.ids.has(entry.id))
+      .map((entry) => entry.foodName);
+    promptText({
+      title: "Save as meal",
+      message: "Log these together again from Recipes.",
+      defaultValue: names.length <= 2 ? names.join(" and ") : "",
+      onSubmit: (value) => {
+        const name = value.trim();
+        if (!name) return;
+        createTemplate.mutate(
+          { name: name.slice(0, 120), entryIds: ids },
+          {
+            onSuccess: () => {
+              haptics.success();
+              stopSelecting();
+            },
+            onError: showError,
+          },
+        );
+      },
+    });
+  }
+
   const selectedCount = selection.ids.size;
   const allSelected =
     entries !== undefined &&
@@ -304,6 +337,12 @@ export function LogDayScreen() {
                 label="Move"
                 disabled={selectedCount === 0}
                 onPress={() => openMove([...selection.ids])}
+              />
+              <HeaderIconButton
+                icon="bookmark-plus"
+                label="Save as meal"
+                disabled={selectedCount === 0 || createTemplate.isPending}
+                onPress={saveAsMeal}
               />
               <HeaderIconButton
                 icon="trash"
@@ -355,11 +394,12 @@ export function LogDayScreen() {
         </PageHeader>
         <View
           style={
-            notice || day.isError || failedWrites.length > 0
+            notice || day.isError || failedWrites.length > 0 || staged > 0
               ? styles.notice
               : undefined
           }
         >
+          <PendingPlateBar />
           {notice ? (
             <InlineNotice message={notice} onDismiss={() => setNotice(null)} />
           ) : day.isError && !day.data ? (

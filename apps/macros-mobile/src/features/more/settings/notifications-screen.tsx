@@ -1,21 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
-import { AppState, Linking, StyleSheet, Switch, View } from "react-native";
+import { useState } from "react";
+import { Linking, StyleSheet, Switch, View } from "react-native";
+import { useBodyOverview } from "@/api/body";
 import {
   type UpdateNotificationPreferencesInput,
   useNotificationPreferences,
   useUpdateNotificationPreferences,
 } from "@/api/notifications";
-import {
-  type NotificationPermission,
-  notificationPermission,
-  requestNotificationPermission,
-} from "@/features/notifications/permissions";
-import { registerForRemotePush } from "@/features/notifications/push";
+import { HabitGlyph } from "@/features/more/habits/habit-glyph";
 import type { ReminderSettings } from "@/features/notifications/reminder-plan";
 import {
+  habitReminder,
+  updateHabitReminder,
   updateReminderSettings,
   useReminderSettings,
 } from "@/features/notifications/reminder-settings";
+import { ReminderTimeRow } from "@/features/notifications/reminder-time-row";
+import { useNotificationPermission } from "@/features/notifications/use-permission";
 import { MenuRow, WeekdayToggles } from "@/features/progress/controls";
 import { planWeekdayNames } from "@/features/progress/labels";
 import { errorMessage, NetworkError } from "@/lib/api";
@@ -23,7 +23,6 @@ import { capabilities, DEVICE_NAME } from "@/lib/config";
 import { haptics } from "@/lib/haptics";
 import { formatHour } from "@/lib/log-time";
 import { Row, Screen, Section, spacing, VStack } from "@/ui";
-import { DateTimePicker } from "@/ui/date-time-picker";
 import { type Notice, NoticeSlot, useNotice } from "../shared/notice";
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => ({
@@ -31,76 +30,10 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => ({
   label: formatHour(hour),
 }));
 
-function timeValue(hour: number, minute: number): Date {
-  return new Date(2000, 0, 1, hour, minute);
-}
-
-function usePermission() {
-  const [permission, setPermission] = useState<NotificationPermission | null>(
-    null,
-  );
-
-  const refresh = useCallback(() => {
-    notificationPermission()
-      .then(setPermission)
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    // Coming back from Settings is how a refusal gets undone.
-    const subscription = AppState.addEventListener("change", (status) => {
-      if (status === "active") refresh();
-    });
-    return () => subscription.remove();
-  }, [refresh]);
-
-  /** Asks the first time; resolves whether notifications can be shown. */
-  const ensure = useCallback(async () => {
-    const next = await requestNotificationPermission().catch(
-      (): NotificationPermission => "denied",
-    );
-    setPermission(next);
-    if (next === "granted") registerForRemotePush().catch(() => undefined);
-    return next === "granted";
-  }, []);
-
-  return { permission, ensure };
-}
-
-function TimeRow({
-  hour,
-  minute,
-  onChange,
-  separator = true,
-}: {
-  hour: number;
-  minute: number;
-  onChange: (hour: number, minute: number) => void;
-  separator?: boolean;
-}) {
-  return (
-    <Row
-      title="Time"
-      separator={separator}
-      trailing={
-        <DateTimePicker
-          value={timeValue(hour, minute)}
-          mode="time"
-          display="compact"
-          onValueChange={(_event, date) => {
-            haptics.selection();
-            onChange(date.getHours(), date.getMinutes());
-          }}
-        />
-      }
-    />
-  );
-}
-
 export function NotificationsScreen() {
-  const { permission, ensure } = usePermission();
+  const { permission, ensure } = useNotificationPermission();
   const reminders = useReminderSettings();
+  const habits = useBodyOverview().data?.habits ?? [];
   const preferences = useNotificationPreferences(capabilities.push);
   const updatePreferences = useUpdateNotificationPreferences();
   const { notice, showError, clear } = useNotice();
@@ -135,6 +68,12 @@ export function NotificationsScreen() {
   function patchPreferences(input: UpdateNotificationPreferencesInput) {
     clear();
     updatePreferences.mutate(input, { onError: showError });
+  }
+
+  async function toggleHabit(habitId: string, on: boolean) {
+    haptics.selection();
+    updateHabitReminder(habitId, { enabled: on });
+    if (on && !(await ensure())) setPermissionNoticeDismissed(false);
   }
 
   async function togglePreference(
@@ -184,7 +123,7 @@ export function NotificationsScreen() {
       <VStack>
         <Section
           title="Reminders"
-          footer={`Set on this ${DEVICE_NAME}. The log reminder skips days you've already logged.`}
+          footer={`Set on this ${DEVICE_NAME}. A reminder skips any day it's already done.`}
         >
           <Row
             icon="utensils"
@@ -199,7 +138,7 @@ export function NotificationsScreen() {
             }
           />
           {logOn ? (
-            <TimeRow
+            <ReminderTimeRow
               hour={settings.log.hour}
               minute={settings.log.minute}
               onChange={(hour, minute) =>
@@ -224,7 +163,7 @@ export function NotificationsScreen() {
           />
           {weighInOn ? (
             <>
-              <TimeRow
+              <ReminderTimeRow
                 hour={settings.weighIn.hour}
                 minute={settings.weighIn.minute}
                 separator={false}
@@ -242,6 +181,10 @@ export function NotificationsScreen() {
                   onToggle={(weekday) =>
                     setReminders((current) => {
                       const days = current.weighIn.weekdays;
+                      // With no day left the reminder would read on and never fire.
+                      if (days.length === 1 && days[0] === weekday) {
+                        return current;
+                      }
                       return {
                         ...current,
                         weighIn: {
@@ -258,6 +201,47 @@ export function NotificationsScreen() {
             </>
           ) : null}
         </Section>
+
+        {habits.length > 0 ? (
+          <Section
+            title="Habits"
+            footer="Only on days a habit is due and not yet ticked off."
+          >
+            {habits.map((habit, index) => {
+              const reminder = habitReminder(settings, habit.id);
+              const on = granted && reminder.enabled;
+              const last = index === habits.length - 1;
+              return (
+                <View key={habit.id}>
+                  <Row
+                    title={habit.name}
+                    leading={<HabitGlyph icon={habit.icon} size={20} />}
+                    separator={on || !last}
+                    trailing={
+                      <Switch
+                        value={on}
+                        disabled={!ready}
+                        onValueChange={(next) =>
+                          void toggleHabit(habit.id, next)
+                        }
+                      />
+                    }
+                  />
+                  {on ? (
+                    <ReminderTimeRow
+                      hour={reminder.hour}
+                      minute={reminder.minute}
+                      separator={!last}
+                      onChange={(hour, minute) =>
+                        updateHabitReminder(habit.id, { hour, minute })
+                      }
+                    />
+                  ) : null}
+                </View>
+              );
+            })}
+          </Section>
+        ) : null}
 
         {capabilities.push ? (
           <Section

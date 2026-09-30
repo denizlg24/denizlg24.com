@@ -29,10 +29,55 @@ export const macrosHydrationBodySchema = z.object({
   volume: z.number().positive().max(10_000),
   unit: z.enum(["ml", "oz"]).default("ml"),
 });
+export const macrosHabitIcons = [
+  "footprints",
+  "dumbbell",
+  "bike",
+  "droplet",
+  "pill",
+  "salad",
+  "apple",
+  "leaf",
+  "moon",
+  "sun",
+  "brain",
+  "book-open",
+  "pen-line",
+  "music",
+  "heart-pulse",
+  "sparkles",
+  "cigarette-off",
+  "wine-off",
+] as const;
+export const macrosHabitIconSchema = z.enum(macrosHabitIcons);
+
+/**
+ * The days a habit is due, Monday-first (0 is Monday, 6 is Sunday). Null is
+ * a flexible habit: any `targetPerWeek` days of the week count.
+ */
+export const macrosHabitWeekdaysSchema = z
+  .array(z.number().int().min(0).max(6))
+  .min(1)
+  .max(7)
+  .transform((days) => [...new Set(days)].sort((a, b) => a - b));
+
 export const macrosHabitBodySchema = z.object({
   name: z.string().trim().min(1).max(80),
   targetPerWeek: z.number().int().min(1).max(7).default(7),
+  icon: macrosHabitIconSchema.nullable().optional(),
+  weekdays: macrosHabitWeekdaysSchema.nullable().optional(),
 });
+export const macrosUpdateHabitBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    targetPerWeek: z.number().int().min(1).max(7),
+    icon: macrosHabitIconSchema.nullable(),
+    weekdays: macrosHabitWeekdaysSchema.nullable(),
+  })
+  .partial()
+  .refine((body) => Object.values(body).some((value) => value !== undefined), {
+    message: "Nothing to update",
+  });
 export const macrosHabitCompletionBodySchema = z.object({
   logDate: macrosIsoDateSchema,
   completed: z.boolean(),
@@ -76,6 +121,8 @@ export type MacrosDailyActivityBody = z.infer<
 >;
 export type MacrosHydrationBody = z.infer<typeof macrosHydrationBodySchema>;
 export type MacrosHabitBody = z.infer<typeof macrosHabitBodySchema>;
+export type MacrosUpdateHabitBody = z.infer<typeof macrosUpdateHabitBodySchema>;
+export type MacrosHabitIcon = z.infer<typeof macrosHabitIconSchema>;
 export type MacrosHabitCompletionBody = z.infer<
   typeof macrosHabitCompletionBodySchema
 >;
@@ -124,6 +171,8 @@ export const macrosHabitSchema = z.object({
   userId: z.string(),
   name: z.string(),
   targetPerWeek: z.number(),
+  icon: macrosHabitIconSchema.nullable(),
+  weekdays: z.array(z.number().int()).nullable(),
   isBuiltin: z.boolean(),
   builtinKey: z.string().nullable(),
   archivedAt: z.string().nullable(),

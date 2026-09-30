@@ -228,9 +228,9 @@ function RecipeLogBody({
         <View style={styles.actions}>
           {plateItem ? (
             <>
-              <Button label="Update plate" disabled={!valid} onPress={stage} />
+              <Button label="Update" disabled={!valid} onPress={stage} />
               <Button
-                label="Remove from plate"
+                label="Remove"
                 variant="destructive"
                 onPress={() => {
                   haptics.warning();
@@ -240,12 +240,7 @@ function RecipeLogBody({
               />
             </>
           ) : (
-            <Button
-              label="Add to plate"
-              icon="plus"
-              disabled={!valid}
-              onPress={stage}
-            />
+            <Button label="Add" icon="plus" disabled={!valid} onPress={stage} />
           )}
         </View>
 

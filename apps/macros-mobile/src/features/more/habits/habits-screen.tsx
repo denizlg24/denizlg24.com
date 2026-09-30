@@ -3,6 +3,9 @@ import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useBodyOverview } from "@/api/body";
 import { type Habit, useSetHabitCompletion } from "@/api/habits";
+import { useProfile } from "@/api/profile";
+import { deviceTimeZone, useToday } from "@/lib/day";
+import { formatDayLabel } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import {
   Button,
@@ -20,7 +23,13 @@ import { glyphs } from "@/ui/glyphs";
 import { SegmentedControl } from "@/ui/segmented-control";
 import { NoticeSlot, useNotice } from "../shared/notice";
 import { useRefresh } from "../shared/use-refresh";
-import { doneThisWeek, habitStreak, trailingDays } from "./habit-dates";
+import {
+  habitStatus,
+  isDueOn,
+  scheduleLabel,
+  trailingDays,
+} from "./habit-dates";
+import { HabitGlyph } from "./habit-glyph";
 
 const WINDOWS = [30, 90] as const;
 const CELLS_PER_ROW = 15;
@@ -35,19 +44,22 @@ export function HabitsScreen() {
   const [flash, setFlash] = useState<{ id: string; at: number } | null>(null);
 
   const habits = overview.data?.habits ?? [];
-  const today = overview.data?.today;
+  const today = useToday(useProfile().data?.timezone ?? deviceTimeZone());
 
   function openNew() {
-    router.push("/more/new-habit");
+    router.push("/more/habit");
   }
 
-  function toggle(habit: Habit, done: boolean) {
-    if (!today) return;
+  function openHabit(habit: Habit) {
+    router.push({ pathname: "/more/habit", params: { id: habit.id } });
+  }
+
+  function toggle(habit: Habit, done: boolean, logDate = today) {
     if (done) haptics.selection();
     else haptics.success();
     setFlash({ id: habit.id, at: Date.now() });
     setCompletion.mutate(
-      { habitId: habit.id, logDate: today, completed: !done },
+      { habitId: habit.id, logDate, completed: !done },
       { onError: showError },
     );
   }
@@ -106,11 +118,12 @@ export function HabitsScreen() {
                     flashToken={flash?.id === habit.id ? flash.at : null}
                     last={index === habits.length - 1}
                     onToggle={toggle}
+                    onOpen={openHabit}
                   />
                 ))}
               </View>
               <Text variant="footnote" tone="secondary">
-                Tap a habit to tick it off for today.
+                Tap a day in the grid to fill in or clear a missed tick.
               </Text>
             </>
           ) : null}
@@ -127,76 +140,104 @@ function HabitRow({
   flashToken,
   last,
   onToggle,
+  onOpen,
 }: {
   habit: Habit;
   today: string;
   days: number;
   flashToken: number | null;
   last: boolean;
-  onToggle: (habit: Habit, done: boolean) => void;
+  onToggle: (habit: Habit, done: boolean, logDate?: string) => void;
+  onOpen: (habit: Habit) => void;
 }) {
   const completed = new Set(habit.completedDates);
-  const done = completed.has(today);
-  const streak = habitStreak(completed, today);
-  const week = doneThisWeek(completed, today);
+  const status = habitStatus(habit, today);
   const dates = trailingDays(today, days);
-  const inWindow = dates.filter((date) => completed.has(date)).length;
+  const summary = [
+    scheduleLabel(habit.weekdays, habit.targetPerWeek),
+    status.streak > 0 ? `${status.streak}-day streak` : null,
+    status.best > status.streak ? `best ${status.best}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <Flash token={flashToken}>
-      <Pressable
-        onPress={() => onToggle(habit, done)}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: done }}
-        accessibilityLabel={habit.name}
-        accessibilityValue={{
-          text: `${streak} day streak, ${week} of ${habit.targetPerWeek} this week`,
-        }}
-        style={({ pressed }) => [
-          styles.row,
-          pressed && { backgroundColor: colors.fill },
-        ]}
-      >
+      <View style={styles.row}>
         <View style={styles.heading}>
-          <Icon
-            name={done ? "circle-check" : "circle"}
-            size={26}
-            color={done ? colors.label : colors.tertiaryLabel}
-          />
-          <View style={styles.text}>
-            <Text variant="body" weight="medium">
-              {habit.name}
-            </Text>
-            <Text variant="footnote" tone="secondary" figure>
-              {streak > 0 ? `${streak}-day streak · ` : ""}
-              {week} of {habit.targetPerWeek} this week
-            </Text>
-          </View>
-          <Text variant="footnote" tone="secondary" figure>
-            {inWindow}/{days}
-          </Text>
-        </View>
-        <View
-          style={styles.grid}
-          accessible={false}
-          importantForAccessibility="no-hide-descendants"
-        >
-          {dates.map((date) => (
-            <View key={date} style={styles.cell}>
-              <View
-                style={[
-                  styles.square,
-                  {
-                    backgroundColor: completed.has(date)
-                      ? colors.label
-                      : colors.fill,
-                  },
-                ]}
-              />
+          <Pressable
+            onPress={() => onOpen(habit)}
+            accessibilityRole="button"
+            accessibilityLabel={`${habit.name}, ${summary}`}
+            accessibilityHint="Edit the habit"
+            style={({ pressed }) => [styles.title, pressed && styles.pressed]}
+          >
+            <HabitGlyph icon={habit.icon} size={20} />
+            <View style={styles.text}>
+              <Text variant="body" weight="medium" numberOfLines={1}>
+                {habit.name}
+              </Text>
+              <Text variant="footnote" tone="secondary" figure>
+                {summary}
+              </Text>
             </View>
-          ))}
+            <Text variant="footnote" tone="secondary" figure>
+              {status.week}/{status.weekTarget}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onToggle(habit, status.done)}
+            hitSlop={10}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: status.done }}
+            accessibilityLabel={`${habit.name} today`}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <Icon
+              name={status.done ? "circle-check" : "circle"}
+              size={28}
+              color={
+                status.done
+                  ? colors.label
+                  : status.due
+                    ? colors.secondaryLabel
+                    : colors.tertiaryLabel
+              }
+            />
+          </Pressable>
         </View>
-      </Pressable>
+        <View style={styles.grid}>
+          {dates.map((date) => {
+            const done = completed.has(date);
+            const due = isDueOn(habit.weekdays, date);
+            return (
+              <Pressable
+                key={date}
+                onPress={() => onToggle(habit, done, date)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: done }}
+                accessibilityLabel={`${habit.name}, ${formatDayLabel(date, today)}${due ? "" : ", day off"}`}
+                style={({ pressed }) => [
+                  styles.cell,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.square,
+                    done
+                      ? { backgroundColor: colors.label }
+                      : due
+                        ? { backgroundColor: colors.fill }
+                        : styles.offDay,
+                    date === today && !done && styles.today,
+                  ]}
+                />
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
       {last ? null : <Hairline />}
     </Flash>
   );
@@ -210,7 +251,24 @@ const styles = StyleSheet.create({
   heading: {
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.lg,
+  },
+  title: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
+  },
+  pressed: {
+    opacity: 0.6,
+  },
+  offDay: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
+  },
+  today: {
+    borderWidth: 1,
+    borderColor: colors.secondaryLabel,
   },
   text: {
     flex: 1,

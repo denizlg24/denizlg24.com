@@ -8,7 +8,10 @@ import type * as Shared from "./date-time-picker";
 import { Text } from "./text";
 import { colors, radius, spacing, useResolvedColors } from "./theme";
 
-export type { DateTimePickerProps } from "./date-time-picker";
+export type {
+  CompactTimePickerProps,
+  DateTimePickerProps,
+} from "./date-time-picker";
 
 type Phase = "date" | "time" | null;
 
@@ -179,3 +182,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+
+/** The same field, time only; Android has no compact pill to size. */
+export const CompactTimePicker: typeof Shared.CompactTimePicker = ({
+  value,
+  onValueChange,
+  accentColor,
+  style,
+}) => (
+  <DateTimePicker
+    value={value}
+    mode="time"
+    accentColor={accentColor}
+    onValueChange={(_event, date) => onValueChange(date)}
+    style={style}
+  />
+);

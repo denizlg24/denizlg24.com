@@ -2,8 +2,10 @@ import type {
   MacrosDashboard,
   MacrosHabitCompletionResponse,
   MacrosHabitResponse,
+  MacrosOkResponse,
   macrosHabitBodySchema,
   macrosHabitCompletionBodySchema,
+  macrosUpdateHabitBodySchema,
 } from "@repo/schemas/macros";
 import {
   type QueryClient,
@@ -18,6 +20,7 @@ import { type BodyOverview, bodyKeys } from "./body";
 import { queryKeys } from "./keys";
 
 export type CreateHabitInput = z.input<typeof macrosHabitBodySchema>;
+export type UpdateHabitInput = z.input<typeof macrosUpdateHabitBodySchema>;
 export type Habit = BodyOverview["habits"][number];
 
 /** Habits and their completions arrive with the body overview (`useBodyOverview`). */
@@ -28,11 +31,36 @@ export function useCreateHabit() {
       api<MacrosHabitResponse>("/api/habits", { method: "POST", body }).then(
         (response) => response.habit,
       ),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: bodyKeys.overview }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]),
+    onSuccess: () => refreshHabits(queryClient),
+  });
+}
+
+function refreshHabits(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: bodyKeys.overview }),
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+  ]);
+}
+
+export function useUpdateHabit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: UpdateHabitInput & { id: string }) =>
+      api<MacrosHabitResponse>(`/api/habits/${id}`, {
+        method: "PATCH",
+        body,
+      }).then((response) => response.habit),
+    onSuccess: () => refreshHabits(queryClient),
+  });
+}
+
+/** Archives: the habit leaves every list, its history stays on the server. */
+export function useArchiveHabit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<MacrosOkResponse>(`/api/habits/${id}`, { method: "DELETE" }),
+    onSuccess: () => refreshHabits(queryClient),
   });
 }
 

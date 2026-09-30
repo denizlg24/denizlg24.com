@@ -103,10 +103,14 @@ function EnergyBars({
 }
 
 const RULE_LABEL: Record<MacrosAdherenceRule, string> = {
-  "at-most": "no more than 10% over",
-  "at-least": "no more than 10% under",
-  within: "within 10%",
+  "at-most": "up to 10% over counts",
+  "at-least": "up to 10% under counts",
+  within: "within 10% counts",
 };
+
+function days(count: number) {
+  return `${count} ${count === 1 ? "day" : "days"}`;
+}
 
 function adherenceCaption(
   { daysTracked, daysOnTarget, totalDays, rule }: MacrosGoalProgress,
@@ -114,9 +118,12 @@ function adherenceCaption(
 ): string {
   if (!hasPlan) return "Tracked while a nutrition plan is active.";
   if (totalDays === 0) return "Counts from the plan’s first finished day.";
-  const span = `last ${totalDays} ${totalDays === 1 ? "day" : "days"}`;
-  if (daysTracked === 0) return `No fully logged days · ${span}`;
-  return `${daysOnTarget} of ${daysTracked} full days ${RULE_LABEL[rule]} · ${span}`;
+  if (daysTracked === 0) {
+    return `No fully logged days in the past ${days(totalDays)}`;
+  }
+  const logged = `${daysOnTarget} of ${daysTracked} logged ${daysTracked === 1 ? "day" : "days"} on target`;
+  const span = totalDays > daysTracked ? ` · past ${days(totalDays)}` : "";
+  return `${logged}${span} · ${RULE_LABEL[rule]}`;
 }
 
 export interface EnergySectionProps {

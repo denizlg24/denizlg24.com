@@ -26,6 +26,8 @@ export async function forgetSessionLocally() {
 
 /** Drops everything this device holds for the signed-in user. */
 export async function clearSignedInDevice(queryClient: QueryClient) {
+  // Reminders are this user's; left scheduled they fire for nobody.
+  await cancelReminders().catch(() => undefined);
   await forgetSessionLocally();
   queryClient.clear();
   clearFailedWrites();
@@ -35,7 +37,6 @@ export async function clearSignedInDevice(queryClient: QueryClient) {
 export async function signOut(queryClient: QueryClient) {
   // Needs the session cookie, so it goes before the sign-out that clears it.
   await unregisterFromRemotePush();
-  await cancelReminders().catch(() => undefined);
   await authClient.signOut().catch(() => undefined);
   await clearSignedInDevice(queryClient);
 }

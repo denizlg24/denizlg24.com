@@ -8,7 +8,17 @@ import { MacroInline } from "@/components/macro-bars";
 import { showActionSheet } from "@/features/more/shared/action-sheet";
 import { type EnergyUnit, energyLabel, formatEnergy } from "@/lib/format";
 import { formatTimeOfDay } from "@/lib/log-time";
-import { colors, Flash, Hairline, Icon, SwipeRow, spacing, Text } from "@/ui";
+import {
+  colors,
+  Flash,
+  Hairline,
+  Icon,
+  type SwipeAction,
+  SwipeRow,
+  spacing,
+  swipeAccessibilityProps,
+  Text,
+} from "@/ui";
 import { useEntryFlashToken } from "./flash";
 
 export interface EntryActions {
@@ -183,27 +193,28 @@ export function EntryRow({
     );
   }
 
+  const swipeActions: SwipeAction[] = [
+    {
+      label: "Delete",
+      icon: "trash",
+      destructive: true,
+      onPress: () => actions.onDelete(entry),
+    },
+    {
+      label: "Duplicate",
+      icon: "copy-plus",
+      onPress: () => actions.onDuplicate(entry),
+    },
+  ];
+
   return (
-    <SwipeRow
-      actions={[
-        {
-          label: "Delete",
-          icon: "trash",
-          destructive: true,
-          onPress: () => actions.onDelete(entry),
-        },
-        {
-          label: "Duplicate",
-          icon: "copy-plus",
-          onPress: () => actions.onDuplicate(entry),
-        },
-      ]}
-    >
+    <SwipeRow actions={swipeActions}>
       <Flash token={flashToken}>
         <Link href={href} asChild>
           <Link.Trigger>
             <Pressable
               onLongPress={showMenu}
+              {...swipeAccessibilityProps(swipeActions)}
               accessibilityRole="button"
               accessibilityHint="Opens the entry. Long press for more actions."
               style={({ pressed }) => pressed && styles.pressed}

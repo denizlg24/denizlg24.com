@@ -571,7 +571,7 @@ function WeighInList({
     setError(null);
     haptics.warning();
     setHidden((current) => new Set(current).add(entry.id));
-    remove.mutate(entry.id, {
+    remove.mutate(entry, {
       onSuccess: () => setRemoved(entry),
       onError: (cause) => {
         haptics.error();

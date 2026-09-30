@@ -2,6 +2,7 @@ import type {
   MacrosCreateMealTemplateResponse,
   MacrosLogMealTemplateResponse,
   MacrosMealTemplatesResponse,
+  MacrosOkResponse,
   macrosCreateMealTemplateBodySchema,
   macrosLogMealTemplateBodySchema,
 } from "@repo/schemas/macros";
@@ -23,6 +24,8 @@ export type LogMealTemplateInput = z.input<
 export type CreateMealTemplateInput = z.input<
   typeof macrosCreateMealTemplateBodySchema
 >;
+
+type MealTemplate = MacrosMealTemplatesResponse["items"][number];
 
 export const mealTemplateKeys = {
   list: [...queryKeys.mealTemplates, "list"] as const,
@@ -53,7 +56,8 @@ export function logMealTemplate(input: LogMealTemplateInput) {
 export function registerMealTemplateMutationDefaults(queryClient: QueryClient) {
   queryClient.setMutationDefaults(mealTemplateMutationKeys.log, {
     mutationFn: logMealTemplate,
-    onSuccess: () => invalidateAfterLogging(queryClient),
+    onSuccess: (_data, variables: LogMealTemplateInput) =>
+      invalidateAfterLogging(queryClient, [variables.logDate]),
     onError: (error: Error, variables: LogMealTemplateInput) => {
       recordFailedWrite("A logged meal", errorMessage(error), {
         id: variables.clientMutationId,
@@ -86,12 +90,46 @@ export function useLogMealTemplate() {
 export function useCreateMealTemplate() {
   const queryClient = useQueryClient();
   return useMutation({
+    // Creates rows: a retry after a lost response would create them twice.
+    retry: false,
     mutationFn: (body: CreateMealTemplateInput) =>
       api<MacrosCreateMealTemplateResponse>("/api/meal-templates", {
         method: "POST",
         body,
       }),
     onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.mealTemplates }),
+  });
+}
+
+/** Takes a saved meal off the list; what was logged from it stays logged. */
+export function useDeleteMealTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<MacrosOkResponse>(`/api/meal-templates/${id}`, { method: "DELETE" }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: mealTemplateKeys.list });
+      const previous = queryClient.getQueryData<MealTemplate[]>(
+        mealTemplateKeys.list,
+      );
+      if (previous) {
+        queryClient.setQueryData<MealTemplate[]>(
+          mealTemplateKeys.list,
+          previous.filter((template) => template.id !== id),
+        );
+      }
+      return { previous };
+    },
+    onError: (error, id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(mealTemplateKeys.list, context.previous);
+      }
+      recordFailedWrite("A deleted meal", errorMessage(error), {
+        id: `delete-meal:${id}`,
+      });
+    },
+    onSettled: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.mealTemplates }),
   });
 }

@@ -1,12 +1,13 @@
 import { router } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCustomFoods } from "@/api/foods";
-import { useMealTemplates } from "@/api/meal-templates";
+import { useDeleteMealTemplate, useMealTemplates } from "@/api/meal-templates";
 import { useRecipes } from "@/api/recipes";
 import {
   useShoppingList,
   useUpdateShoppingListItem,
 } from "@/api/shopping-list";
+import { confirmDestructive } from "@/features/more/shared/action-sheet";
 import { errorMessage } from "@/lib/api";
 import type { EnergyUnit } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
@@ -50,6 +51,7 @@ export function RecipesBody({
   const needle = query.trim().toLocaleLowerCase();
   const recipes = useRecipes();
   const templates = useMealTemplates();
+  const deleteTemplate = useDeleteMealTemplate();
 
   const recipeRows = (recipes.data ?? [])
     .filter((recipe) => matches(recipe.name, needle))
@@ -76,7 +78,7 @@ export function RecipesBody({
       <EmptyState
         icon="chef-hat"
         title="No recipes yet"
-        message="Recipes and saved meals you make in More show up here, ready to add in one tap."
+        message="Recipes you make in More and meals you save from the Log show up here, ready to add in one tap."
       />
     );
   }
@@ -101,6 +103,20 @@ export function RecipesBody({
                   row={row}
                   energyUnit={energyUnit}
                   addLabel={`Log ${template.name}`}
+                  swipeActions={[
+                    {
+                      label: "Delete",
+                      icon: "trash",
+                      destructive: true,
+                      onPress: () =>
+                        confirmDestructive({
+                          title: `Delete “${template.name}”?`,
+                          message: "What you logged from it stays in your log.",
+                          confirmLabel: "Delete Meal",
+                          onConfirm: () => deleteTemplate.mutate(template.id),
+                        }),
+                    },
+                  ]}
                   onAdd={() =>
                     log(
                       {

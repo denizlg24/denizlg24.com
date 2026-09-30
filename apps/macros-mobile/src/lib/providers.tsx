@@ -35,6 +35,13 @@ export function QueryProviders({
         dehydrateOptions: {
           shouldDehydrateQuery: (query) =>
             userId !== null && query.state.status === "success",
+          // A restored write needs a registered function to resume; one
+          // without would be rejected on relaunch with nothing reported.
+          shouldDehydrateMutation: (mutation) =>
+            mutation.state.isPaused &&
+            mutation.options.mutationKey !== undefined &&
+            queryClient.getMutationDefaults(mutation.options.mutationKey)
+              .mutationFn !== undefined,
         },
       }}
       onSuccess={() => {

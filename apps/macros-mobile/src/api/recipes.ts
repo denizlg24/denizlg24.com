@@ -44,6 +44,8 @@ export function useRecipe(id: string | undefined) {
 export function useCreateRecipe() {
   const queryClient = useQueryClient();
   return useMutation({
+    // Creates rows: a retry after a lost response would create them twice.
+    retry: false,
     mutationFn: (body: CreateRecipeInput) =>
       api<MacrosCreateRecipeResponse>("/api/recipes", {
         method: "POST",

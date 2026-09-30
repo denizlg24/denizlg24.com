@@ -1,4 +1,5 @@
-type Listener = () => void;
+/** The days known to have changed; empty when the write did not say. */
+type Listener = (dates: readonly string[]) => void;
 
 const listeners = new Set<Listener>();
 
@@ -14,6 +15,6 @@ export function onFoodLogChanged(listener: Listener): () => void {
   };
 }
 
-export function emitFoodLogChanged() {
-  for (const listener of listeners) listener();
+export function emitFoodLogChanged(dates: readonly string[] = []) {
+  for (const listener of listeners) listener(dates);
 }

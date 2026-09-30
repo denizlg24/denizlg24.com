@@ -26,6 +26,7 @@ import {
   spacing,
   Text,
   typeScale,
+  useSwipeAccessibility,
   VStack,
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
@@ -352,12 +353,14 @@ export function ShoppingRow({
   onToggle: () => void;
   onLongPress?: () => void;
 }) {
+  const swipeAccessibility = useSwipeAccessibility();
   return (
     <View>
       <Pressable
         onPress={onToggle}
         onLongPress={onLongPress}
         accessibilityRole="checkbox"
+        {...swipeAccessibility}
         accessibilityState={{ checked: item.checked }}
         accessibilityHint={onLongPress ? "Touch and hold for more" : undefined}
         accessibilityActions={

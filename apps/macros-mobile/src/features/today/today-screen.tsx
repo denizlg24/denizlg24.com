@@ -3,10 +3,12 @@ import { format, parseISO } from "date-fns";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useBodyOverview } from "@/api/body";
 import { useDashboard } from "@/api/dashboard";
 import { useProfile, useUpdateCaloriePreference } from "@/api/profile";
 import { useWeightOverview } from "@/api/weight";
 import { FailedWritesNotice } from "@/components/failed-writes-notice";
+import { PendingPlateBar } from "@/features/add-food/components/plate-bar";
 import { errorMessage, NetworkError } from "@/lib/api";
 import { useToday } from "@/lib/day";
 import { haptics } from "@/lib/haptics";
@@ -27,6 +29,7 @@ import { weighInHref } from "./links";
 import { NutritionSummary } from "./nutrition-summary";
 import { PendingSyncNotice } from "./pending-sync-notice";
 import { StreaksSection } from "./streaks-section";
+import { WaterSection } from "./water-section";
 import { WeightSection } from "./weight-section";
 
 function useCaloriePreference(saved: MacrosCaloriePreference) {
@@ -63,6 +66,7 @@ export function TodayScreen() {
   const day = useToday(timeZone);
   const dashboard = useDashboard(day);
   const weight = useWeightOverview();
+  const body = useBodyOverview();
   const [refreshing, setRefreshing] = useState(false);
 
   const energyUnit = profile.data?.energyUnit ?? "kcal";
@@ -75,13 +79,15 @@ export function TodayScreen() {
 
   async function refresh() {
     setRefreshing(true);
-    await Promise.all([dashboard.refetch(), weight.refetch()]);
+    await Promise.all([dashboard.refetch(), weight.refetch(), body.refetch()]);
     setRefreshing(false);
   }
 
   const openLog = () => router.push("/log");
   const openProgress = () => router.push("/progress");
   const openMore = () => router.push("/more");
+  const openHabits = () => router.push("/more/habits");
+  const openBody = () => router.push("/more/body");
   const strategyButton = (
     <HeaderIconButton
       icon="target"
@@ -160,6 +166,7 @@ export function TodayScreen() {
           ) : null}
           <PendingSyncNotice />
           <FailedWritesNotice />
+          <PendingPlateBar />
         </View>
 
         <Section
@@ -194,8 +201,10 @@ export function TodayScreen() {
         <HabitsSection
           habits={data.habits}
           logDate={data.today}
-          onManage={openMore}
+          onManage={openHabits}
         />
+
+        <WaterSection logDate={data.today} onOpen={openBody} />
 
         <EnergySection
           energyBalance={data.energyBalance}
