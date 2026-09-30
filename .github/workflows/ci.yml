@@ -37,7 +37,7 @@ jobs:
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
           python3 scripts/ci/check_release_workspaces.py
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            git diff --name-only -z "$BASE_SHA" HEAD | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
+            git diff --no-renames --name-only -z "$BASE_SHA" HEAD | python3 scripts/ci/select_checks.py >> "$GITHUB_OUTPUT"
           else
             # A force push can make the previous SHA unreachable. Run all
             # checks when there is no reliable diff to filter on.

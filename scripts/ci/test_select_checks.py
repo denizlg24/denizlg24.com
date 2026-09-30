@@ -16,10 +16,16 @@ class SelectChecksTest(unittest.TestCase):
         self.assertTrue(checks["macros_db"])
         self.assertFalse(checks["macros_vision"])
 
-    def test_shared_lockfile_runs_all(self):
+    def test_bun_lockfile_skips_python_and_rust(self):
         checks = select(["bun.lock"])
-        self.assertTrue(all(checks[name] for name in ("build", "macros_db", "macros_vision", "envoy_cli")))
+        self.assertTrue(checks["build"])
+        self.assertTrue(checks["macros_db"])
+        self.assertFalse(checks["macros_vision"])
+        self.assertFalse(checks["envoy_cli"])
         self.assertFalse(checks["workflow_lint"])
+
+    def test_ci_workflow_change_runs_all(self):
+        self.assertTrue(all(select([".github/workflows/ci.yml"]).values()))
 
     def test_workflow_change_lints_workflows(self):
         checks = select([".github/workflows/release-cloud.yml"])

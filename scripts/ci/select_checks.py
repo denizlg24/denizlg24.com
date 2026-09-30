@@ -9,10 +9,13 @@ def select(paths: list[str]) -> dict[str, bool]:
     for path in paths:
         if path.startswith((".github/workflows/", ".github/actions/")):
             checks["workflow_lint"] = True
-        shared = path in {"bun.lock", "package.json", ".github/workflows/ci.yml"}
-        if shared:
+        if path == ".github/workflows/ci.yml":
             for name in ("build", "macros_db", "macros_vision", "envoy_cli"):
                 checks[name] = True
+            continue
+        if path in {"bun.lock", "package.json"}:
+            checks["build"] = True
+            checks["macros_db"] = True
             continue
         if path.startswith("apps/macros-vision/"):
             checks["macros_vision"] = True
