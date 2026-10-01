@@ -29,6 +29,8 @@ export const macrosProfileSchema = z.object({
   weightUnit: macrosWeightUnitSchema,
   energyUnit: macrosEnergyUnitSchema,
   caloriePreference: macrosCaloriePreferenceSchema,
+  sex: macrosSexSchema.nullable().optional(),
+  birthDate: z.iso.date().nullable().optional(),
 });
 
 export const macrosProfileResponseSchema = z.object({
