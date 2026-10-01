@@ -278,9 +278,10 @@ export function useUpdateEntry() {
 }
 
 /**
- * Offline, an edit is queued under its registered defaults instead of holding
- * the sheet open until the network returns; a refusal then lands in the
- * failed-writes notice like a queued log.
+ * An edit shown at once and run under its registered defaults: offline it
+ * waits for the network instead of holding a sheet open, and a refusal lands
+ * in the failed-writes notice like a queued log. The log's drag-to-retime
+ * goes through here too, so a dropped row never jumps back while it saves.
  */
 export function queueEntryUpdate(
   queryClient: QueryClient,

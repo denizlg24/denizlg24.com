@@ -20,6 +20,7 @@ import {
   Text,
 } from "@/ui";
 import { useEntryFlashToken } from "./flash";
+import { RetimeDrag } from "./retime-drag";
 
 export interface EntryActions {
   onDelete: (entry: MacrosFoodLogEntry) => void;
@@ -28,6 +29,9 @@ export interface EntryActions {
   onCopyToToday: (entry: MacrosFoodLogEntry) => void;
   onUndo: (entry: MacrosFoodLogEntry) => void;
   onToggle: (entry: MacrosFoodLogEntry) => void;
+  onRetime: (entry: MacrosFoodLogEntry, eatenAt: string) => void;
+  /** A row is being dragged through the day; the list must not scroll. */
+  onRetimeActive: (active: boolean) => void;
 }
 
 export interface EntryRowProps {
@@ -208,59 +212,66 @@ export function EntryRow({
   ];
 
   return (
-    <SwipeRow actions={swipeActions}>
-      <Flash token={flashToken}>
-        <Link href={href} asChild>
-          <Link.Trigger>
-            <Pressable
-              onLongPress={showMenu}
-              {...swipeAccessibilityProps(swipeActions)}
-              accessibilityRole="button"
-              accessibilityHint="Opens the entry. Long press for more actions."
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <EntryContent
-                entry={entry}
-                timezone={timezone}
-                energyUnit={energyUnit}
-              />
-            </Pressable>
-          </Link.Trigger>
-          <Link.Menu title={entry.foodName}>
-            <Link.MenuAction icon="pencil" onPress={() => router.push(href)}>
-              Edit
-            </Link.MenuAction>
-            <Link.MenuAction
-              icon="plus.square.on.square"
-              onPress={() => actions.onDuplicate(entry)}
-            >
-              Duplicate
-            </Link.MenuAction>
-            <Link.MenuAction
-              icon="clock.arrow.circlepath"
-              onPress={() => actions.onMove(entry)}
-            >
-              Move…
-            </Link.MenuAction>
-            <Link.MenuAction
-              icon="doc.on.doc"
-              hidden={viewingToday}
-              onPress={() => actions.onCopyToToday(entry)}
-            >
-              Copy to today
-            </Link.MenuAction>
-            <Link.MenuAction
-              icon="trash"
-              destructive
-              onPress={() => actions.onDelete(entry)}
-            >
-              Delete
-            </Link.MenuAction>
-          </Link.Menu>
-        </Link>
-        <Hairline inset={46} />
-      </Flash>
-    </SwipeRow>
+    <RetimeDrag
+      entry={entry}
+      timezone={timezone}
+      onRetime={actions.onRetime}
+      onActiveChange={actions.onRetimeActive}
+    >
+      <SwipeRow actions={swipeActions}>
+        <Flash token={flashToken}>
+          <Link href={href} asChild>
+            <Link.Trigger>
+              <Pressable
+                onLongPress={showMenu}
+                {...swipeAccessibilityProps(swipeActions)}
+                accessibilityRole="button"
+                accessibilityHint="Opens the entry. Long press for more actions."
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <EntryContent
+                  entry={entry}
+                  timezone={timezone}
+                  energyUnit={energyUnit}
+                />
+              </Pressable>
+            </Link.Trigger>
+            <Link.Menu title={entry.foodName}>
+              <Link.MenuAction icon="pencil" onPress={() => router.push(href)}>
+                Edit
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="plus.square.on.square"
+                onPress={() => actions.onDuplicate(entry)}
+              >
+                Duplicate
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="clock.arrow.circlepath"
+                onPress={() => actions.onMove(entry)}
+              >
+                Move…
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="doc.on.doc"
+                hidden={viewingToday}
+                onPress={() => actions.onCopyToToday(entry)}
+              >
+                Copy to today
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="trash"
+                destructive
+                onPress={() => actions.onDelete(entry)}
+              >
+                Delete
+              </Link.MenuAction>
+            </Link.Menu>
+          </Link>
+          <Hairline inset={46} />
+        </Flash>
+      </SwipeRow>
+    </RetimeDrag>
   );
 }
 

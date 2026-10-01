@@ -20,30 +20,30 @@ import {
   logTimeParams,
 } from "@/lib/log-time";
 import {
-  Button,
   InlineNotice,
-  parseDecimal,
   Screen,
   SheetHeader,
   sheetGutter,
   spacing,
   VStack,
 } from "@/ui";
-import { AmountEditor, type AmountValue } from "./components/amount-editor";
+import { parseAmount } from "./amount-input";
+import { AmountBar, type AmountValue } from "./components/amount-bar";
 import {
   AmountNutrition,
   NutritionBreakdown,
 } from "./components/nutrition-panel";
-import { goToHub, useHubBelow } from "./hub-route";
+import { goToHub, leaveAfterLogging, useHubBelow } from "./hub-route";
+import { useCommitPlate } from "./plate-commit";
 import {
   addToPlate,
   findPlateItem,
   type PlateItem,
   removeFromPlate,
   replacePlateItem,
+  usePlate,
 } from "./plate-store";
 import {
-  amountPresets,
   buildServingOptions,
   findOption,
   foodServingFrom,
@@ -137,7 +137,6 @@ function FoodDetailBody({
     () => buildServingOptions(foodServingFrom(nutrition)),
     [nutrition],
   );
-  const presets = useMemo(() => amountPresets(serving), [serving]);
 
   const [amount, setAmount] = useState<AmountValue>(() => {
     const start = initialAmount(
@@ -155,6 +154,11 @@ function FoodDetailBody({
       text: formatQuantityInput(start.quantity),
     };
   });
+  const [keypadOpen, setKeypadOpen] = useState(true);
+  const plate = usePlate();
+  const { commit, committing, failure, clearFailure } = useCommitPlate(() =>
+    leaveAfterLogging(hubBelow()),
+  );
   const [when, setWhen] = useState<LogTime>(() =>
     plateItem
       ? logTimeOf(
@@ -167,7 +171,7 @@ function FoodDetailBody({
   );
 
   const option = findOption(serving, amount.optionId);
-  const quantity = parseDecimal(amount.text);
+  const quantity = parseAmount(amount.text);
   const valid = quantity != null && quantity > 0;
   const servings = valid
     ? Math.round(servingsFor(quantity, option) * 1e4) / 1e4
@@ -237,108 +241,132 @@ function FoodDetailBody({
     goToHub(hubBelow(), logTimeParams(when, zone.today));
   }
 
+  /** Puts this food on the plate and logs everything on it at once. */
+  function logNow() {
+    const staged = stagedItem(newClientMutationId());
+    if (!staged) return;
+    addToPlate(staged);
+    void commit([...plate, staged]);
+  }
+
   const subtitle = [item.brand, item.isUserFood ? "Your food" : null]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <Screen contentContainerStyle={styles.sheet}>
-      <VStack gap={spacing.xl}>
-        <SheetHeader
-          title={item.name}
-          onClose={() => router.back()}
-          subtitle={subtitle || undefined}
-          leading={
-            <FoodIcon name={item.name} iconKey={item.iconKey} size={44} />
-          }
-          actions={[
-            ...(item.isUserFood
-              ? [
-                  {
-                    icon: "pencil" as const,
-                    label: "Edit food",
-                    onPress: () =>
-                      router.push({
-                        pathname: "/create-food",
-                        params: { id: detail.localFoodId },
-                      }),
-                  },
-                ]
-              : []),
-            {
-              icon: "star" as const,
-              label: favorite ? "Remove from favorites" : "Add to favorites",
-              onPress: toggleFavorite,
-              active: Boolean(favorite),
-            },
-          ]}
-        />
-
-        {favoriteError ? (
-          <InlineNotice
-            message={errorMessage(favoriteError)}
-            onDismiss={() => {
-              saveFavorite.reset();
-              removeFavorite.reset();
-            }}
+    <View style={styles.root}>
+      <Screen
+        contentContainerStyle={styles.sheet}
+        onScrollBeginDrag={() => setKeypadOpen(false)}
+      >
+        <VStack gap={spacing.xl}>
+          <SheetHeader
+            title={item.name}
+            onClose={() => router.back()}
+            subtitle={subtitle || undefined}
+            leading={
+              <FoodIcon name={item.name} iconKey={item.iconKey} size={44} />
+            }
+            actions={[
+              ...(item.isUserFood
+                ? [
+                    {
+                      icon: "pencil" as const,
+                      label: "Edit food",
+                      onPress: () =>
+                        router.push({
+                          pathname: "/create-food",
+                          params: { id: detail.localFoodId },
+                        }),
+                    },
+                  ]
+                : []),
+              {
+                icon: "star" as const,
+                label: favorite ? "Remove from favorites" : "Add to favorites",
+                onPress: toggleFavorite,
+                active: Boolean(favorite),
+              },
+            ]}
           />
-        ) : null}
 
-        <AmountEditor
-          serving={serving}
-          value={amount}
-          presets={presets}
-          onChange={setAmount}
-          autoFocus
-        />
+          {favoriteError ? (
+            <InlineNotice
+              message={errorMessage(favoriteError)}
+              onDismiss={() => {
+                saveFavorite.reset();
+                removeFavorite.reset();
+              }}
+            />
+          ) : null}
 
-        <EatenAtPicker
-          value={when}
-          timeZone={zone.timeZone}
-          today={zone.today}
-          onChange={setWhen}
-        />
+          <EatenAtPicker
+            value={when}
+            timeZone={zone.timeZone}
+            today={zone.today}
+            onChange={setWhen}
+          />
 
-        <AmountNutrition
-          nutrients={scaled}
-          targets={targets}
-          energyUnit={zone.energyUnit}
-        />
+          <AmountNutrition
+            nutrients={scaled}
+            targets={targets}
+            energyUnit={zone.energyUnit}
+          />
 
-        <View style={styles.actions}>
-          {plateItem ? (
-            <>
-              <Button label="Update" disabled={!valid} onPress={stage} />
-              <Button
-                label="Remove"
-                variant="destructive"
-                onPress={() => {
+          {failure ? (
+            <InlineNotice message={failure} onDismiss={clearFailure} />
+          ) : null}
+
+          <NutritionBreakdown
+            nutrients={scaled}
+            targets={targets}
+            today={zone.today}
+          />
+        </VStack>
+      </Screen>
+      <AmountBar
+        serving={serving}
+        value={amount}
+        onChange={setAmount}
+        open={keypadOpen}
+        onOpenChange={setKeypadOpen}
+        secondary={
+          plateItem
+            ? {
+                label: "Remove",
+                destructive: true,
+                onPress: () => {
                   haptics.warning();
                   removeFromPlate([plateItem.uid]);
                   router.back();
-                }}
-              />
-            </>
-          ) : (
-            <Button label="Add" icon="plus" disabled={!valid} onPress={stage} />
-          )}
-        </View>
-
-        <NutritionBreakdown nutrients={scaled} targets={targets} />
-      </VStack>
-    </Screen>
+                },
+              }
+            : {
+                label: "Log Foods",
+                onPress: logNow,
+                disabled: !valid,
+                busy: committing,
+              }
+        }
+        primary={{
+          label: plateItem ? "Update" : "Add",
+          onPress: stage,
+          disabled: !valid || committing,
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   sheet: {
     paddingTop: spacing.xl,
     paddingHorizontal: sheetGutter,
   },
   loading: {
     paddingVertical: spacing.xxxl,
-  },
-  actions: {
-    gap: spacing.sm,
   },
 });

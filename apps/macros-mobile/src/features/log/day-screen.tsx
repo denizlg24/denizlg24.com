@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { reachesDayTarget } from "@/api/day-targets";
 import {
+  queueEntryUpdate,
   useBulkDeleteEntries,
   useCopyEntries,
   useDuplicateEntry,
@@ -49,7 +50,7 @@ import { DayNoteRow } from "./day-note-row";
 import { DaySummary } from "./day-summary";
 import { useDeferredDelete } from "./deferred-delete";
 import type { EntryActions } from "./entry-row";
-import { useFlashArrivals } from "./flash";
+import { flashEntries, useFlashArrivals } from "./flash";
 import { HourSection } from "./hour-section";
 import { isIsoDate, selectDate, useSelectedDate } from "./selected-date";
 import {
@@ -128,6 +129,7 @@ export function LogDayScreen() {
 
   const selection = useSelection();
   const [notice, setNotice] = useState<string | null>(null);
+  const [retiming, setRetiming] = useState(false);
   const failedWrites = useFailedWrites();
   const staged = usePlate().length;
   const [refreshing, setRefreshing] = useState(false);
@@ -242,6 +244,12 @@ export function LogDayScreen() {
       haptics.selection();
       toggleSelected(entry.id);
     },
+    onRetime: (entry, eatenAt) => {
+      queueEntryUpdate(queryClient, entry, { eatenAt });
+      haptics.success();
+      flashEntries([entry.id]);
+    },
+    onRetimeActive: setRetiming,
   };
 
   function confirmBulkDelete() {
@@ -317,6 +325,7 @@ export function LogDayScreen() {
         onRefresh={() => void refresh()}
         refreshing={refreshing}
         stickyHeaderIndices={[1]}
+        scrollEnabled={!retiming}
       >
         <PageHeader title={title}>
           {selection.active ? (

@@ -26,3 +26,11 @@ export function goToHub(hubBelow: boolean, time: LogTimeParams, then?: Href) {
   else router.replace({ pathname: "/add-food", params: time });
   if (then) router.push(then);
 }
+
+/**
+ * After a sheet logs the plate itself: closes the sheet and, when it was
+ * opened from the hub, the hub too — the plate the hub was building is gone.
+ */
+export function leaveAfterLogging(hubBelow: boolean) {
+  router.dismiss(hubBelow ? 2 : 1);
+}

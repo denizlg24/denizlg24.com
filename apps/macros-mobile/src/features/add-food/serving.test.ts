@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isPlausibleBarcode } from "./barcode";
 import {
-  amountPresets,
   buildServingOptions,
   describeAmount,
   findOption,
@@ -115,20 +114,6 @@ describe("amounts", () => {
       findOption(slice, "g"),
     );
     expect(grams).toBeCloseTo(60);
-  });
-
-  test("presets are half, one and two servings plus 100 g", () => {
-    expect(amountPresets(slice).map((preset) => preset.label)).toEqual([
-      "½ slice",
-      "1 slice",
-      "2 slice",
-      "100 g",
-    ]);
-    expect(amountPresets(per100g).map((preset) => preset.label)).toEqual([
-      "50 g",
-      "100 g",
-      "200 g",
-    ]);
   });
 
   test("a typed weight is described as that weight", () => {

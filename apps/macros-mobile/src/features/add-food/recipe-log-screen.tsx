@@ -16,9 +16,7 @@ import {
   logTimeParams,
 } from "@/lib/log-time";
 import {
-  Button,
   InlineNotice,
-  parseDecimal,
   Row,
   Screen,
   Section,
@@ -27,21 +25,23 @@ import {
   spacing,
   VStack,
 } from "@/ui";
-import { AmountEditor, type AmountValue } from "./components/amount-editor";
+import { parseAmount } from "./amount-input";
+import { AmountBar, type AmountValue } from "./components/amount-bar";
 import {
   AmountNutrition,
   NutritionBreakdown,
 } from "./components/nutrition-panel";
-import { goToHub, useHubBelow } from "./hub-route";
+import { goToHub, leaveAfterLogging, useHubBelow } from "./hub-route";
+import { useCommitPlate } from "./plate-commit";
 import {
   addToPlate,
   findPlateItem,
   type PlateItem,
   removeFromPlate,
   replacePlateItem,
+  usePlate,
 } from "./plate-store";
 import {
-  amountPresets,
   buildServingOptions,
   findOption,
   formatQuantityInput,
@@ -128,7 +128,6 @@ function RecipeLogBody({
       }),
     [recipe.servingLabel, recipe.servings, recipe.totalWeightGrams],
   );
-  const presets = useMemo(() => amountPresets(serving), [serving]);
   const [amount, setAmount] = useState<AmountValue>(() => {
     const start = initialAmount(serving, {
       servings: plateItem?.input.servingsConsumed ?? priorServings,
@@ -138,6 +137,11 @@ function RecipeLogBody({
       text: formatQuantityInput(start.quantity),
     };
   });
+  const [keypadOpen, setKeypadOpen] = useState(true);
+  const plate = usePlate();
+  const { commit, committing, failure, clearFailure } = useCommitPlate(() =>
+    leaveAfterLogging(hubBelow()),
+  );
   const [when, setWhen] = useState<LogTime>(() =>
     plateItem
       ? logTimeOf(
@@ -150,7 +154,7 @@ function RecipeLogBody({
   );
 
   const option = findOption(serving, amount.optionId);
-  const quantity = parseDecimal(amount.text);
+  const quantity = parseAmount(amount.text);
   const valid = quantity != null && quantity > 0;
   const servings = valid
     ? Math.round(servingsFor(quantity, option) * 1e4) / 1e4
@@ -168,10 +172,9 @@ function RecipeLogBody({
     };
   }
 
-  function stage() {
-    if (!valid) return;
-    const uid = plateItem?.uid ?? newClientMutationId();
-    const staged: RecipePlateItem = {
+  function stagedItem(uid: string): RecipePlateItem | null {
+    if (!valid) return null;
+    return {
       kind: "recipe",
       uid,
       name: recipe.name,
@@ -181,103 +184,132 @@ function RecipeLogBody({
       macros: macrosOf(scaled),
       input: { ...buildInput(), clientMutationId: uid },
     };
+  }
+
+  function stage() {
+    const staged = stagedItem(plateItem?.uid ?? newClientMutationId());
+    if (!staged) return;
     haptics.light();
     if (plateItem) replacePlateItem(staged);
     else addToPlate(staged);
     goToHub(hubBelow(), logTimeParams(when, zone.today));
   }
 
+  /** Puts this recipe on the plate and logs everything on it at once. */
+  function logNow() {
+    const staged = stagedItem(newClientMutationId());
+    if (!staged) return;
+    addToPlate(staged);
+    void commit([...plate, staged]);
+  }
+
   return (
-    <Screen contentContainerStyle={styles.sheet}>
-      <VStack gap={spacing.xl}>
-        <SheetHeader
-          title={recipe.name}
-          onClose={() => router.back()}
-          subtitle={`Recipe · ${recipe.ingredientCount} ingredients`}
-          leading={
-            <FoodIcon
-              name={recipe.name}
-              iconKey={recipe.iconKey}
-              entryType={recipe.iconKey ? "food" : "recipe"}
-              size={44}
-            />
-          }
-        />
+    <View style={styles.root}>
+      <Screen
+        contentContainerStyle={styles.sheet}
+        onScrollBeginDrag={() => setKeypadOpen(false)}
+      >
+        <VStack gap={spacing.xl}>
+          <SheetHeader
+            title={recipe.name}
+            onClose={() => router.back()}
+            subtitle={`Recipe · ${recipe.ingredientCount} ingredients`}
+            leading={
+              <FoodIcon
+                name={recipe.name}
+                iconKey={recipe.iconKey}
+                entryType={recipe.iconKey ? "food" : "recipe"}
+                size={44}
+              />
+            }
+          />
 
-        <AmountEditor
-          serving={serving}
-          value={amount}
-          presets={presets}
-          onChange={setAmount}
-          autoFocus
-        />
+          <EatenAtPicker
+            value={when}
+            timeZone={zone.timeZone}
+            today={zone.today}
+            onChange={setWhen}
+          />
 
-        <EatenAtPicker
-          value={when}
-          timeZone={zone.timeZone}
-          today={zone.today}
-          onChange={setWhen}
-        />
+          <AmountNutrition
+            nutrients={scaled}
+            targets={targets}
+            energyUnit={zone.energyUnit}
+          />
 
-        <AmountNutrition
-          nutrients={scaled}
-          targets={targets}
-          energyUnit={zone.energyUnit}
-        />
+          {failure ? (
+            <InlineNotice message={failure} onDismiss={clearFailure} />
+          ) : null}
 
-        <View style={styles.actions}>
-          {plateItem ? (
-            <>
-              <Button label="Update" disabled={!valid} onPress={stage} />
-              <Button
-                label="Remove"
-                variant="destructive"
-                onPress={() => {
+          <NutritionBreakdown
+            nutrients={scaled}
+            targets={targets}
+            today={zone.today}
+          />
+
+          {recipe.ingredients.length > 0 ? (
+            <Section title="Ingredients, per serving">
+              {recipe.ingredients.map((ingredient, index) => (
+                <Row
+                  key={ingredient.id}
+                  title={ingredient.foodName}
+                  subtitle={ingredient.brand ?? undefined}
+                  value={`${formatEnergy(
+                    recipe.servings > 0
+                      ? ingredient.caloriesContribution / recipe.servings
+                      : ingredient.caloriesContribution,
+                    zone.energyUnit,
+                  )} ${energyLabel(zone.energyUnit)}`}
+                  separator={index < recipe.ingredients.length - 1}
+                />
+              ))}
+            </Section>
+          ) : null}
+        </VStack>
+      </Screen>
+      <AmountBar
+        serving={serving}
+        value={amount}
+        onChange={setAmount}
+        open={keypadOpen}
+        onOpenChange={setKeypadOpen}
+        secondary={
+          plateItem
+            ? {
+                label: "Remove",
+                destructive: true,
+                onPress: () => {
                   haptics.warning();
                   removeFromPlate([plateItem.uid]);
                   router.back();
-                }}
-              />
-            </>
-          ) : (
-            <Button label="Add" icon="plus" disabled={!valid} onPress={stage} />
-          )}
-        </View>
-
-        <NutritionBreakdown nutrients={scaled} targets={targets} />
-
-        {recipe.ingredients.length > 0 ? (
-          <Section title="Ingredients, per serving">
-            {recipe.ingredients.map((ingredient, index) => (
-              <Row
-                key={ingredient.id}
-                title={ingredient.foodName}
-                subtitle={ingredient.brand ?? undefined}
-                value={`${formatEnergy(
-                  recipe.servings > 0
-                    ? ingredient.caloriesContribution / recipe.servings
-                    : ingredient.caloriesContribution,
-                  zone.energyUnit,
-                )} ${energyLabel(zone.energyUnit)}`}
-                separator={index < recipe.ingredients.length - 1}
-              />
-            ))}
-          </Section>
-        ) : null}
-      </VStack>
-    </Screen>
+                },
+              }
+            : {
+                label: "Log Foods",
+                onPress: logNow,
+                disabled: !valid,
+                busy: committing,
+              }
+        }
+        primary={{
+          label: plateItem ? "Update" : "Add",
+          onPress: stage,
+          disabled: !valid || committing,
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   sheet: {
     paddingTop: spacing.xl,
     paddingHorizontal: sheetGutter,
   },
   loading: {
     paddingVertical: spacing.xxxl,
-  },
-  actions: {
-    gap: spacing.sm,
   },
 });

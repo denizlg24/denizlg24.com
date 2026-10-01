@@ -226,30 +226,34 @@ function EntryEditor({
   const unitLabels = model.units.map((option) => unitLabel(option, model));
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader
-        title="Edit entry"
-        onCancel={() => router.back()}
-        confirm={{
-          label: "Save",
-          onPress: () => void save(),
-          disabled: amountChanged && !amountValid,
-          busy: saving,
-        }}
-      />
-      {notice ? (
-        <InlineNotice
-          message={notice}
-          onDismiss={() => setNotice(null)}
-          style={styles.notice}
+    <ScrollView
+      style={styles.sheet}
+      contentContainerStyle={styles.content}
+      stickyHeaderIndices={[0]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+    >
+      <View style={styles.header}>
+        <SheetHeader
+          title="Edit entry"
+          onCancel={() => router.back()}
+          confirm={{
+            label: "Save",
+            onPress: () => void save(),
+            disabled: amountChanged && !amountValid,
+            busy: saving,
+          }}
         />
-      ) : null}
+        {notice ? (
+          <InlineNotice
+            message={notice}
+            onDismiss={() => setNotice(null)}
+            style={styles.notice}
+          />
+        ) : null}
+      </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-      >
+      <View style={styles.body}>
         <View style={styles.identity}>
           <FoodIcon
             name={entry.foodName}
@@ -359,8 +363,8 @@ function EntryEditor({
           block
           onPress={confirmDelete}
         />
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -407,8 +411,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
+  },
+  header: {
+    backgroundColor: colors.background,
+  },
+  body: {
+    paddingHorizontal: sheetGutter,
     gap: spacing.xxl,
   },
   identity: {

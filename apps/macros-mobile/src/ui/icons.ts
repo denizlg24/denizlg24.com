@@ -41,6 +41,7 @@ import Coffee from "lucide-react-native/icons/coffee";
 import Copy from "lucide-react-native/icons/copy";
 import CopyPlus from "lucide-react-native/icons/copy-plus";
 import CupSoda from "lucide-react-native/icons/cup-soda";
+import Delete from "lucide-react-native/icons/delete";
 import Droplet from "lucide-react-native/icons/droplet";
 import Dumbbell from "lucide-react-native/icons/dumbbell";
 import Ellipsis from "lucide-react-native/icons/ellipsis";
@@ -89,6 +90,7 @@ import Share from "lucide-react-native/icons/share";
 import ShoppingBasket from "lucide-react-native/icons/shopping-basket";
 import ShoppingCart from "lucide-react-native/icons/shopping-cart";
 import SlidersHorizontal from "lucide-react-native/icons/sliders-horizontal";
+import Space from "lucide-react-native/icons/space";
 import Sparkles from "lucide-react-native/icons/sparkles";
 import SquarePen from "lucide-react-native/icons/square-pen";
 import Star from "lucide-react-native/icons/star";
@@ -126,6 +128,8 @@ export const icons = {
   "bell-ring": BellRing,
   apple: Apple,
   "arrow-up-down": ArrowUpDown,
+  delete: Delete,
+  space: Space,
   barcode: Barcode,
   "book-open": BookOpen,
   "bookmark-plus": BookmarkPlus,
