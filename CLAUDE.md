@@ -329,6 +329,16 @@ hint, not a platform ceiling.
   the workflow, not `/healthz`. For a hotfix without a push: `bun run build:pi`,
   then `dd` the binary over (a shell `cat` corrupts it), `install -m 0755`,
   `systemctl restart`.
+- **Restarting the metadata service takes the whole storage boundary down.**
+  `deniz-cloud-storage.target` `Requires=` it, so a restart stops the target,
+  and a restart whose start fails leaves it stopped: `Restart=` brings metadata
+  back alone, and the watchdog only waits for the target, never starts it. On
+  2026-10-01 that left the API crash-looping on the broker witness for 2.5 h.
+  The workflow therefore installs and restarts only binaries whose bytes
+  changed (the build is reproducible), starts the target again whenever it was
+  up before, even when the metadata restart fails, and fails verification if
+  metadata runs under a stopped target. When restarting by hand, follow it with
+  `systemctl start deniz-cloud-storage.target`.
 - **Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
   anything written as root makes deletes, renames and uploads fail with EACCES
   while reads keep working.

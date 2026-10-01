@@ -192,11 +192,75 @@ jobs:
           scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes cloud-host-binaries.tgz \
             "denizlg24@${PI_ADDR}:/tmp/cloud-host-binaries.tgz"
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "sudo bash -ceu 'install -d -m 0755 /usr/local/lib/deniz-cloud; tar -xzf /tmp/cloud-host-binaries.tgz -C /usr/local/lib/deniz-cloud; rm -f /tmp/cloud-host-binaries.tgz; cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS; cd ../arm64 && sha256sum -c SHA256SUMS; test \"\$(uname -m)\" = aarch64; install -m 0755 cloud-terminal /usr/local/bin/cloud-terminal; install -m 0755 cloud-storage-metadata /usr/local/bin/cloud-storage-metadata; systemctl try-restart cloud-terminal.service; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then boundary=\$(systemctl is-active deniz-cloud-storage.target || true); systemctl stop deniz-cloud-storage-watchdog.service; systemctl restart deniz-cloud-storage-metadata.service; if [ \"\$boundary\" = active ]; then systemctl start deniz-cloud-storage.target; systemctl is-active --quiet deniz-cloud-storage.target; else systemctl start deniz-cloud-storage-watchdog.service; fi; fi'"
+            sudo bash -s <<'REMOTE'
+          set -euo pipefail
+          install -d -m 0755 /usr/local/lib/deniz-cloud
+          tar -xzf /tmp/cloud-host-binaries.tgz -C /usr/local/lib/deniz-cloud
+          rm -f /tmp/cloud-host-binaries.tgz
+          (cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS)
+          (cd /usr/local/lib/deniz-cloud/arm64 && sha256sum -c SHA256SUMS)
+          test "$(uname -m)" = aarch64
+          cd /usr/local/lib/deniz-cloud/arm64
+
+          # The build is reproducible, so most pushes that reach this workflow
+          # (root package.json, the lockfile, cloud-core) ship byte-identical
+          # binaries. Restarting the metadata service for those cycles the
+          # whole storage boundary and the API's storage with it, for nothing.
+          terminal_changed=false
+          metadata_changed=false
+          if ! cmp -s cloud-terminal /usr/local/bin/cloud-terminal; then
+            install -m 0755 cloud-terminal /usr/local/bin/cloud-terminal
+            terminal_changed=true
+          fi
+          if ! cmp -s cloud-storage-metadata /usr/local/bin/cloud-storage-metadata; then
+            install -m 0755 cloud-storage-metadata /usr/local/bin/cloud-storage-metadata
+            metadata_changed=true
+          fi
+          echo "cloud-terminal changed: $terminal_changed; cloud-storage-metadata changed: $metadata_changed"
+
+          if [ "$terminal_changed" = true ]; then
+            systemctl try-restart cloud-terminal.service
+          fi
+
+          if [ "$metadata_changed" = true ] && systemctl is-active --quiet deniz-cloud-storage-metadata.service; then
+            boundary=$(systemctl is-active deniz-cloud-storage.target || true)
+            systemctl stop deniz-cloud-storage-watchdog.service
+            # The target Requires= the metadata service, so this restart takes
+            # the whole boundary down with it. A failed start must not end the
+            # script here: Restart= brings metadata back on its own seconds
+            # later, but nothing brings the target back, and the API then
+            # crash-loops on a missing broker mount until someone notices.
+            restarted=true
+            systemctl restart deniz-cloud-storage-metadata.service || restarted=false
+            if [ "$boundary" = active ]; then
+              for attempt in 1 2 3; do
+                systemctl start deniz-cloud-storage.target && break
+                echo "storage boundary start attempt $attempt failed" >&2
+                sleep 5
+              done
+              systemctl is-active --quiet deniz-cloud-storage.target || {
+                echo "storage boundary was active before the release and did not come back" >&2
+                exit 1
+              }
+            else
+              systemctl start deniz-cloud-storage-watchdog.service
+            fi
+            [ "$restarted" = true ] || {
+              echo "metadata restart failed; the storage boundary was restored, but the failed start needs a look" >&2
+              exit 1
+            }
+          fi
+          REMOTE
       - name: Verify active host services
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "set -e; if systemctl is-active --quiet cloud-terminal.service; then curl -fsS 'http://${PI_ADDR}:3003/healthz' >/dev/null; fi; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then curl -fsS --unix-socket /run/deniz-cloud/storage-metadata.sock http://localhost/healthz >/dev/null; fi"
+          # A running metadata service under a stopped boundary is the state a
+          # half-finished release leaves behind: the watchdog only waits for the
+          # target, never starts it, so the API stays down while this job would
+          # otherwise report green.
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "if systemctl is-active --quiet deniz-cloud-storage-metadata.service && ! systemctl is-active --quiet deniz-cloud-storage.target; then echo 'storage boundary is down while its metadata service runs; start deniz-cloud-storage.target' >&2; exit 1; fi"
       - name: Release coordinated host lock
         if: always()
         run: |
