@@ -96,30 +96,36 @@ export function CopySheet() {
   const timeZoneOfDay = sourceDay.data?.timezone ?? timeZone;
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader
-        title={`Copy to ${formatDayLabel(target, today)}`}
-        onCancel={() => router.back()}
-        confirm={{
-          label:
-            chosen.length > 0 && !everything ? `Copy ${chosen.length}` : "Copy",
-          onPress: submit,
-          disabled: chosen.length === 0,
-          busy: copy.isPending,
-        }}
-      />
-      {notice ? (
-        <InlineNotice
-          message={notice}
-          onDismiss={() => setNotice(null)}
-          style={styles.notice}
+    <ScrollView
+      style={styles.sheet}
+      contentContainerStyle={styles.content}
+      stickyHeaderIndices={[0]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.header}>
+        <SheetHeader
+          title={`Copy to ${formatDayLabel(target, today)}`}
+          onCancel={() => router.back()}
+          confirm={{
+            label:
+              chosen.length > 0 && !everything
+                ? `Copy ${chosen.length}`
+                : "Copy",
+            onPress: submit,
+            disabled: chosen.length === 0,
+            busy: copy.isPending,
+          }}
         />
-      ) : null}
+        {notice ? (
+          <InlineNotice
+            message={notice}
+            onDismiss={() => setNotice(null)}
+            style={styles.notice}
+          />
+        ) : null}
+      </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
+      <View style={styles.body}>
         <View style={styles.dateRow}>
           <Text variant="body">From</Text>
           <DateTimePicker
@@ -206,8 +212,8 @@ export function CopySheet() {
             </View>
           )}
         </Section>
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -220,8 +226,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: sheetGutter,
   },
   content: {
-    paddingHorizontal: sheetGutter,
     paddingBottom: spacing.xxxl,
+  },
+  header: {
+    backgroundColor: colors.background,
+  },
+  body: {
+    paddingHorizontal: sheetGutter,
     gap: spacing.xxl,
   },
   dateRow: {

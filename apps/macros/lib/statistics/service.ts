@@ -1,7 +1,12 @@
 import {
+  ageOn,
+  nutrientReferences,
+} from "@repo/macros-core/foods/nutrient-references";
+import {
   type MacrosMealType,
   type MacrosStatistics,
   type MacrosStatisticsPeriod,
+  macrosSexSchema,
   macrosStatisticsPeriods,
 } from "@repo/schemas/macros";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
@@ -17,7 +22,7 @@ import {
   weightGoals,
   weightTrendPoints,
 } from "@/db/schema";
-import { WHO_DAILY_VALUES } from "@/lib/foods/who-guidelines";
+import { isNutrientKey } from "@/lib/foods/nutrients";
 import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
 
 export const statisticsPeriods = macrosStatisticsPeriods;
@@ -406,10 +411,16 @@ export async function getStatistics(
     average: value.days ? value.total / value.days : 0,
     daysWithData: value.days,
   }));
+  const references = nutrientReferences({
+    sex: macrosSexSchema.safeParse(profile?.sex).data,
+    ageYears: profile?.birthDate ? ageOn(profile.birthDate, today) : null,
+    weightKg: trends.at(-1) ? Number(trends.at(-1)?.trendWeightKg) : null,
+    calories: Number(targetForDate(today)?.calorieTarget ?? 0) || null,
+  });
   const nutrientShortfalls = nutrientAverages
     .flatMap((item) => {
-      const reference =
-        WHO_DAILY_VALUES[item.key as keyof typeof WHO_DAILY_VALUES];
+      const found = isNutrientKey(item.key) ? references[item.key] : undefined;
+      const reference = found?.kind === "target" ? found.value : null;
       return reference &&
         item.daysWithData >= 3 &&
         item.average < reference * 0.8

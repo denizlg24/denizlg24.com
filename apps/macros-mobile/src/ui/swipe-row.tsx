@@ -30,6 +30,7 @@ export interface SwipeRowProps {
 }
 
 const ACTION_WIDTH = 76;
+const NO_DRAG = Number.MAX_SAFE_INTEGER;
 
 function ActionButtons({
   actions,
@@ -114,6 +115,11 @@ export function SwipeRow({ children, actions, leadingActions }: SwipeRowProps) {
       friction={1.6}
       rightThreshold={ACTION_WIDTH / 2}
       leftThreshold={ACTION_WIDTH / 2}
+      // Without leading actions a rightward drag is left to whatever wraps
+      // the row (the log's retime drag) instead of being swallowed here.
+      dragOffsetFromLeftEdge={
+        leadingActions && leadingActions.length > 0 ? undefined : NO_DRAG
+      }
       overshootRight={false}
       overshootLeft={false}
       onSwipeableWillOpen={() => haptics.impact()}

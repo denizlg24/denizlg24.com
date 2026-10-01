@@ -1,10 +1,15 @@
+import {
+  ageOn,
+  nutrientReferences,
+  nutrientUpperLimits,
+} from "@repo/macros-core/foods/nutrient-references";
 import type {
   MacrosNutrientRow,
   MacrosNutritionOverview,
   MacrosNutritionOverviewRange,
 } from "@repo/schemas/macros";
+import { macrosSexSchema } from "@repo/schemas/macros";
 import { and, between, desc, eq, sql } from "drizzle-orm";
-
 import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
@@ -19,11 +24,6 @@ import {
   type NutrientKey,
   nutrientDefinitionsInput,
 } from "@/lib/foods/nutrients";
-import {
-  NUTRIENT_UPPER_LIMITS,
-  scaleWhoValue,
-  WHO_DAILY_VALUES,
-} from "@/lib/foods/who-guidelines";
 import { toIsoDate } from "./food-log-day";
 
 export type OverviewRange = MacrosNutritionOverviewRange;
@@ -97,7 +97,7 @@ export async function getNutritionOverview(
 ): Promise<NutritionOverviewPayload> {
   const profile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, userId),
-    columns: { timezone: true },
+    columns: { timezone: true, sex: true, birthDate: true },
   });
   const timezone = profile?.timezone ?? "UTC";
 
@@ -189,23 +189,28 @@ export async function getNutritionOverview(
     fat: plan?.fatTarget != null ? Number(plan.fatTarget) : null,
   };
 
+  const ageYears = profile?.birthDate ? ageOn(profile.birthDate, today) : null;
+  const references = nutrientReferences({
+    sex: macrosSexSchema.safeParse(profile?.sex).data,
+    ageYears,
+    weightKg: userWeightKg,
+    calories: macroTargets.calories,
+  });
+  const upperLimits = nutrientUpperLimits(ageYears);
+
   const nutrients: NutrientRow[] = nutrientDefinitionsInput.map((def) => {
     const total = totalsByKey[def.key] ?? 0;
     const consumed = isAggregate ? total / divisor : total;
-    let target: number | null = targetByKey.get(def.key) ?? null;
-    if (def.key === "calories" && macroTargets.calories != null)
-      target = macroTargets.calories;
-    if (def.key === "protein" && macroTargets.protein != null)
-      target = macroTargets.protein;
-    if (def.key === "carbs" && macroTargets.carbs != null)
-      target = macroTargets.carbs;
-    if (def.key === "fat" && macroTargets.fat != null)
-      target = macroTargets.fat;
-    if (target == null) {
-      const whoBase = WHO_DAILY_VALUES[def.key as NutrientKey];
-      target = scaleWhoValue(whoBase, userWeightKg);
-    }
-    const upperLimit = NUTRIENT_UPPER_LIMITS[def.key as NutrientKey] ?? null;
+    const key = def.key as NutrientKey;
+    const reference = references[key];
+    const planned =
+      targetByKey.get(key) ??
+      (key === "calories" ||
+      key === "protein" ||
+      key === "carbs" ||
+      key === "fat"
+        ? macroTargets[key]
+        : null);
     return {
       key: def.key,
       label: def.label,
@@ -213,8 +218,9 @@ export async function getNutritionOverview(
       unit: def.unit,
       sortOrder: def.sortOrder,
       consumed,
-      target,
-      upperLimit,
+      target: planned ?? reference?.value ?? null,
+      targetKind: planned == null ? (reference?.kind ?? "target") : "target",
+      upperLimit: upperLimits[key] ?? null,
     };
   });
 

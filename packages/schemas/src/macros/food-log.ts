@@ -129,6 +129,8 @@ export const macrosNutrientRowSchema = z.object({
   sortOrder: z.number(),
   consumed: z.number(),
   target: z.number().nullable(),
+  /** `limit` targets are ceilings (sodium, saturated fat, …), not goals. */
+  targetKind: z.enum(["target", "limit"]).default("target"),
   upperLimit: z.number().nullable(),
 });
 

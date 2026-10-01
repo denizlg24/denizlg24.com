@@ -285,48 +285,6 @@ export function initialAmount(
   return { optionId: option.id, quantity: quantityFor(servings, option) };
 }
 
-export interface AmountPreset {
-  key: string;
-  label: string;
-  optionId: string;
-  quantity: number;
-}
-
-function presetQuantityLabel(quantity: number): string {
-  if (Math.abs(quantity - 0.5) < 1e-9) return "½";
-  return formatFoodQuantity(quantity);
-}
-
-/** ½, 1 and 2 of the food's serving, plus 100 g when the food has a weight. */
-export function amountPresets(serving: ServingOptions): AmountPreset[] {
-  const primary = findOption(serving, serving.defaultId);
-  const presets: AmountPreset[] = [0.5, 1, 2].map((servings) => {
-    const quantity = quantityFor(servings, primary);
-    return {
-      key: `${primary.id}-${servings}`,
-      label: `${presetQuantityLabel(quantity)} ${primary.unit}`,
-      optionId: primary.id,
-      quantity,
-    };
-  });
-  const grams = serving.options.find((option) => option.id === "g");
-  if (
-    grams &&
-    !presets.some(
-      (preset) =>
-        preset.optionId === "g" && Math.abs(preset.quantity - 100) < 1e-6,
-    )
-  ) {
-    presets.push({
-      key: "g-100",
-      label: "100 g",
-      optionId: "g",
-      quantity: 100,
-    });
-  }
-  return presets;
-}
-
 export function formatQuantityInput(quantity: number): string {
   if (!Number.isFinite(quantity) || quantity <= 0) return "";
   return formatFoodQuantity(quantity);

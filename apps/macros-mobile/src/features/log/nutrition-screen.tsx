@@ -86,7 +86,10 @@ function NutrientLine({
 }) {
   const hasTarget = row.target !== null && row.target > 0;
   const progress = hasTarget && row.target ? row.consumed / row.target : 0;
-  const overLimit = row.upperLimit !== null && row.consumed > row.upperLimit;
+  const isLimit = row.targetKind === "limit";
+  const overLimit =
+    (isLimit && progress > 1) ||
+    (row.upperLimit !== null && row.consumed > row.upperLimit);
 
   return (
     <View style={styles.line}>
@@ -100,7 +103,7 @@ function NutrientLine({
           tone={overLimit ? "warning" : "primary"}
         >
           {hasTarget && row.target
-            ? `${formatAmount(row.consumed)} / ${formatAmount(row.target)} ${row.unit}`
+            ? `${formatAmount(row.consumed)} / ${isLimit ? "max " : ""}${formatAmount(row.target)} ${row.unit}`
             : `${formatAmount(row.consumed)} ${row.unit}`}
         </Text>
         <Text variant="footnote" tone="secondary" figure style={styles.percent}>
@@ -113,7 +116,7 @@ function NutrientLine({
           color={overLimit ? macroColors.overflow : color}
         />
       ) : null}
-      {overLimit && row.upperLimit !== null ? (
+      {!isLimit && overLimit && row.upperLimit !== null ? (
         <Text variant="caption1" tone="warning" figure>
           {`Above the ${formatAmount(row.upperLimit)} ${row.unit} upper limit`}
         </Text>

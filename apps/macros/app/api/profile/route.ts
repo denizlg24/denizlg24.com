@@ -1,4 +1,7 @@
-import type { MacrosProfileResponse } from "@repo/schemas/macros";
+import {
+  type MacrosProfileResponse,
+  macrosSexSchema,
+} from "@repo/schemas/macros";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -18,6 +21,8 @@ export async function GET() {
       energyUnit: true,
       caloriePreference: true,
       onboardingCompletedAt: true,
+      sex: true,
+      birthDate: true,
     },
   });
 
@@ -32,6 +37,8 @@ export async function GET() {
       weightUnit: profile?.weightUnit === "lb" ? "lb" : "kg",
       energyUnit: profile?.energyUnit === "kj" ? "kj" : "kcal",
       caloriePreference: profile?.caloriePreference ?? "consumed",
+      sex: macrosSexSchema.safeParse(profile?.sex).data ?? null,
+      birthDate: profile?.birthDate ?? null,
     },
   } satisfies MacrosProfileResponse);
 }

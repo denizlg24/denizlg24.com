@@ -183,7 +183,17 @@ small differences are a `Platform.OS` check. The ones that exist:
   route is registered by adding it to the feature's `routes.ts` array — the
   presentation must be known before the screen is pushed.
 - Sheets handle the keyboard natively. Numeric input uses
-  `keyboardType="decimal-pad"` and `parseDecimal` (accepts a comma).
+  `keyboardType="decimal-pad"` and `parseDecimal` (accepts a comma), except a
+  food amount, which is `AmountBar`'s keypad.
+- A formSheet that holds a ScrollView takes at most two subviews: the
+  ScrollView and one sibling with `collapsable={false}`. A header drawn as a
+  flattened sibling lands *under* the scroll content, which then swallows its
+  taps — the edit-entry sheet's Cancel/Save did nothing until the header moved
+  inside the ScrollView (`stickyHeaderIndices={[0]}`).
+- The log's rows: swipe left for Delete / Duplicate; drag right to pick the
+  row up, then up or down to move it through its day in 15-minute steps
+  (`features/log/retime*.ts`). It saves through `queueEntryUpdate`, so the
+  row lands at its new hour at once and the write survives being offline.
 - Adding food follows the web app's model. The tab bar's middle "+" (a
   disabled trigger, so it never selects) opens the shortcuts sheet; Search
   opens the add-food hub: a time chip and a calorie pill in the header, a
@@ -193,11 +203,16 @@ small differences are a `Platform.OS` check. The ones that exist:
   logs at once. The plate bar (`PlateBar`: count, energy, macros, Log) is in
   content, not a toolbar, because iOS collapses the other toolbar items while
   the search field is active; `PendingPlateBar` shows the same on Today and
-  the Log whenever the plate holds food. The sheets' buttons are Add / Update
-  / Remove.
-  The food and recipe sheets only add to the plate; opened from anywhere but
-  the hub (a scan, My foods, New food) they land in the hub afterwards
-  (`goToHub`), and a scanned food opens in the same sheet over the hub.
+  the Log whenever the plate holds food.
+  The food and recipe sheets dock `AmountBar` at the bottom: the amount, a
+  secondary action and the primary one; tapping the amount opens our own
+  keypad (fractions and mixed numbers, `features/add-food/amount-input.ts`)
+  with the units above it, and scrolling the sheet closes it. Add / Update
+  stage on the plate; opened from anywhere but the hub (a scan, My foods, New
+  food) they land in the hub afterwards (`goToHub`), and a scanned food opens
+  in the same sheet over the hub. Log Foods stages the food and logs the whole
+  plate at once, then closes the sheet and the hub (`leaveAfterLogging`).
+  Editing a staged item swaps them for Remove / Update.
 - Lists: swipe actions via `SwipeRow`, long-press context menus, pull to
   refresh through `Screen onRefresh`. Search uses the native search bar
   (`headerSearchBarOptions`).

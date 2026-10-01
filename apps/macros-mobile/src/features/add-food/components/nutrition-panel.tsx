@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { useProfile } from "@/api/profile";
 import { MacroBars } from "@/components/macro-bars";
 import {
   type EnergyUnit,
@@ -86,12 +87,19 @@ export function AmountNutrition({
 export function NutritionBreakdown({
   nutrients,
   targets,
+  today,
 }: {
   nutrients: Record<string, number>;
   targets: MacroTargets | null;
+  today: string;
 }) {
   const [open, setOpen] = useState(true);
-  const sections = nutritionBreakdown(nutrients, targets);
+  const profile = useProfile();
+  const sections = nutritionBreakdown(nutrients, targets, {
+    sex: profile.data?.sex,
+    birthDate: profile.data?.birthDate,
+    today,
+  });
   if (sections.length === 0) return null;
   const count = sections.reduce(
     (total, section) => total + section.rows.length,
@@ -134,7 +142,7 @@ export function NutritionBreakdown({
                   accessible
                   accessibilityLabel={`${row.label} ${row.amount} ${row.unit}${
                     row.progress != null
-                      ? `, ${formatInteger(row.progress * 100)}% of daily value`
+                      ? `, ${formatInteger(row.progress * 100)}% of daily ${row.isLimit ? "limit" : "value"}`
                       : ""
                   }`}
                 >
@@ -168,8 +176,8 @@ export function NutritionBreakdown({
             </Section>
           ))}
           <Text variant="footnote" tone="secondary">
-            Percentages use your targets for energy and macros, and WHO daily
-            values for everything else.
+            Percentages use your targets for energy and macros, and dietary
+            reference intakes for your sex and age for everything else.
           </Text>
         </View>
       ) : null}
