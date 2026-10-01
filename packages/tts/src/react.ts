@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { speechChunks } from "./index";
+import {
+  type NarratedKind,
+  type SpeechSegment,
+  speakableSegments,
+} from "./narrate";
 
 export interface SpeechAudio {
   blob: Blob;
@@ -13,6 +18,14 @@ type SpeechState = "idle" | "loading" | "playing";
 
 /** Requests in flight ahead of what is playing. */
 const LOOKAHEAD = 3;
+/** Segments resolved ahead of the chunker, so a block is narrated while earlier audio plays. */
+const NARRATION_LOOKAHEAD = 6;
+
+/** Turns code, a table or math into words; rejecting reads the block as written. */
+export type SpeechNarrator = (
+  segment: Extract<SpeechSegment, { kind: NarratedKind }>,
+  signal: AbortSignal,
+) => Promise<string>;
 
 declare global {
   interface Navigator {
@@ -168,14 +181,41 @@ async function* ahead<T, R>(
   }
 }
 
+/** The source with every narrated segment replaced by its spoken form, in order. */
+export function narratedSource(
+  source: SpeechSource,
+  narrate: SpeechNarrator,
+  signal: AbortSignal,
+): AsyncIterable<string> {
+  const parts = typeof source === "string" ? [source] : source;
+  return ahead(
+    speakableSegments(parts),
+    async (segment) => {
+      if (segment.kind === "text") return segment.text;
+      try {
+        const spoken = (await narrate(segment, signal)).trim();
+        return spoken ? `${spoken}\n\n` : "";
+      } catch {
+        return `${segment.text}\n\n`;
+      }
+    },
+    NARRATION_LOOKAHEAD,
+  );
+}
+
 export async function playSpeechSource<Clip = AudioBuffer>(
   source: SpeechSource,
   generate: (text: string, signal: AbortSignal) => Promise<SpeechAudio>,
   signal: AbortSignal,
   onState: ((state: "loading" | "playing") => void) | undefined,
   output: SpeechSink<Clip>,
+  narrate?: SpeechNarrator,
 ) {
-  const parts = typeof source === "string" ? [source] : source;
+  const parts = narrate
+    ? narratedSource(source, narrate, signal)
+    : typeof source === "string"
+      ? [source]
+      : source;
   const onAbort = () => output.stop();
   signal.addEventListener("abort", onAbort, { once: true });
   // Only one clip waits behind the playing one, so stopping a long reading
@@ -205,6 +245,7 @@ export async function playSpeechSource<Clip = AudioBuffer>(
 
 export function useSpeechPlayer(
   generate: (text: string, signal: AbortSignal) => Promise<SpeechAudio>,
+  narrate?: SpeechNarrator,
 ) {
   const [state, setState] = useState<SpeechState>("idle");
   const controller = useRef<AbortController | null>(null);
@@ -241,7 +282,14 @@ export function useSpeechPlayer(
       controller.current = abort;
       setState("loading");
       try {
-        await playSpeechSource(source, generate, abort.signal, setState, sink);
+        await playSpeechSource(
+          source,
+          generate,
+          abort.signal,
+          setState,
+          sink,
+          narrate,
+        );
       } catch (error) {
         if (!abort.signal.aborted) throw error;
       } finally {
@@ -251,7 +299,7 @@ export function useSpeechPlayer(
         }
       }
     },
-    [generate, prime, stop],
+    [generate, narrate, prime, stop],
   );
 
   return { state, play, stop, prime };

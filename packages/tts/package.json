@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./narrate": "./src/narrate.ts",
     "./react": "./src/react.ts"
   },
   "scripts": {

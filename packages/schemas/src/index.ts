@@ -33,6 +33,7 @@ export * from "./timetable";
 export * from "./tokens";
 export * from "./tool-labels";
 export * from "./triage";
+export * from "./tts";
 export * from "./voice-notes";
 export * from "./whiteboard";
 export * from "./work-hours";

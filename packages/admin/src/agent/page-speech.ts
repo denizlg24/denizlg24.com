@@ -3,6 +3,11 @@
 import { playSpeechSource, SpeechOutput } from "@repo/tts/react";
 import { toast } from "sonner";
 import type { AdminClient } from "../client";
+import {
+  adminSpeechGenerator,
+  adminSpeechNarrator,
+} from "../tts/use-admin-speech";
+import { speakablePageText } from "./page-text";
 
 let current: AbortController | null = null;
 let output: SpeechOutput | null = null;
@@ -23,7 +28,9 @@ export function readCurrentPageAloud(client: AdminClient) {
         .map((element) => element.value.trim())
         .filter(Boolean)
     : [];
-  const text = (selection || [main?.innerText ?? "", ...editors].join("\n\n"))
+  const text = (
+    selection || [main ? speakablePageText(main) : "", ...editors].join("\n\n")
+  )
     .trim()
     .slice(0, 100_000);
   if (!text) throw new Error("There is no readable text on this page");
@@ -34,17 +41,11 @@ export function readCurrentPageAloud(client: AdminClient) {
   current = abort;
   void playSpeechSource(
     text,
-    async (part, signal) => {
-      const response = await client.raw("tts", {
-        method: "POST",
-        body: { text: part },
-        signal,
-      });
-      return { blob: await response.blob() };
-    },
+    adminSpeechGenerator(client),
     abort.signal,
     undefined,
     output,
+    adminSpeechNarrator(client),
   )
     .catch((error: unknown) => {
       if (!abort.signal.aborted)

@@ -64,7 +64,8 @@ export type LlmPurpose =
   | "transcription"
   | "triage-adjudicate"
   | "agent-memory-evaluation"
-  | "incident-verdict";
+  | "incident-verdict"
+  | "speech-narrate";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -93,6 +94,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "triage-adjudicate": [],
   "agent-memory-evaluation": [],
   "incident-verdict": [],
+  "speech-narrate": [],
 };
 
 /**

@@ -84,7 +84,7 @@ export const NoteEditor = ({
 }) => {
   const { settings, setSettings } = useUserSettings();
   const speechClient = useMemo(() => createDesktopAdminClient(), []);
-  const speech = useAdminSpeech(speechClient);
+  const speech = useAdminSpeech(speechClient, { narrate: true });
   useEffect(() => speech.stop(), [note._id, speech.stop]);
 
   const [togglePreview, setTogglePreview] = useState(!startInEditMode);

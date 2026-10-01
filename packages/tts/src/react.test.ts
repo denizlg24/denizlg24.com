@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { playSpeechSource, type SpeechSink } from "./react";
+import { narratedSource, playSpeechSource, type SpeechSink } from "./react";
 
 class FakeOutput implements SpeechSink<string> {
   scheduled: string[] = [];
@@ -87,4 +87,24 @@ test("stopping ends playback without requesting the rest", async () => {
   abort.abort();
   await done;
   expect(requested.length).toBeLessThan(6);
+});
+
+test("narration replaces blocks in order and falls back to the raw block", async () => {
+  const narrated: string[] = [];
+  const parts = narratedSource(
+    "Before.\n\n```js\nx()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nAfter.",
+    async (segment) => {
+      narrated.push(segment.before);
+      if (segment.kind === "table") throw new Error("model unavailable");
+      await tick();
+      return "It calls x.";
+    },
+    new AbortController().signal,
+  );
+  let text = "";
+  for await (const part of parts) text += part;
+  expect(text).toBe(
+    "Before.\n\nIt calls x.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nAfter.\n\n",
+  );
+  expect(narrated).toEqual(["Before.", "Before."]);
 });
