@@ -57,7 +57,7 @@ src/api/<domain>.ts      TanStack Query hooks per API domain
 src/components/          nutrition pieces shared across features
 src/ui/                  design-system primitives (import from "@/ui")
 src/lib/                 api client, auth client, query client, dates, format
-scripts/                 release tooling for the SideStore source (bun, not RN)
+scripts/                 release tooling (bun, not RN)
 ```
 
 ## Contracts
@@ -282,7 +282,7 @@ a request that bypasses `api()` but carries the session calls
 
 `.github/workflows/macros-mobile.yml` does everything. Its build jobs run on
 every PR and push, reference no secret, and must pass: `build-ios` (the
-unsigned SideStore IPA, refused if it carries any entitlement),
+unsigned IPA, refused if it carries any entitlement; PRs and manual runs only),
 `build-ios-adhoc` (`MACROS_IOS_DISTRIBUTION=adhoc` compiled unsigned for a
 device, its generated entitlements checked against the ad-hoc allowlist with
 `scripts/adhoc-entitlements.ts --unsigned`) and `build-android` (a release
@@ -291,13 +291,12 @@ APK with the embedded bundle, debug-signed). The release jobs run in the
 signing secret lives there as an environment secret — never a repository
 one, or the ungated build jobs could read it.
 
-When `version` in `package.json` changes on `main`, `release-ios-sidestore`
-publishes the built IPA as `macros-ios-v<version>` and regenerates the
-SideStore source (`scripts/compose-source.ts`) on the rolling
-`macros-ios-source` release. SideStore re-signs the IPA with the user's
-Apple ID, which is why that build has no entitlements: a free account cannot
-grant push, App Groups, HealthKit or associated domains. Bump `version` for
-every release — SideStore detects updates by version alone.
+Nothing publishes to SideStore any more: `macros-ios-v*` releases and the
+`source.json` on the rolling `macros-ios-source` release are frozen at the
+last version the removed `release-ios-sidestore` job wrote. The default build
+still carries no entitlements, so a free Apple ID can sideload it. Bump
+`version` for every release — Android refuses an update at a version it
+already has.
 
 Entitled features exist only in the ad-hoc build (`MACROS_IOS_DISTRIBUTION=adhoc`),
 signed by the paid team in `release-ios-adhoc`, which runs on the same

@@ -84,8 +84,8 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client
   (also shipped as a sideloaded Android APK);
   `apps/macros` is now just the API, the marketing site and the auth-email
-  landing pages (`/register/*`). Not deployed by Forge: distributed through
-  SideStore. See
+  landing pages (`/register/*`). Not deployed by Forge: installed as an ad-hoc
+  build or from Xcode. See
   [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
 - `packages/macros-core/` — pure Macros domain logic (nutrients, serving
   display, wizard maths, weight trend, expenditure) shared by the web app and
@@ -123,18 +123,15 @@ Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=we
 Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
 
 - **One workflow, builds ungated, releases behind approval.**
-  `macros-mobile.yml` builds the unsigned SideStore IPA, the ad-hoc build
+  `macros-mobile.yml` builds the unsigned IPA, the ad-hoc build
   (compiled unsigned) and a debug-signed APK on every PR and push with no
   secret in reach. Its release jobs run in the `macros-release` environment
   (owner approval), which holds every signing secret as an *environment*
   secret — a repository secret would be readable by the ungated builds.
-- **Released by version bump, installed through SideStore.** When `version`
-  in `apps/macros-mobile/package.json` changes on `main`,
-  `release-ios-sidestore` publishes `macros-ios-v<version>` and regenerates
-  `source.json` on the rolling `macros-ios-source` release. People add
-  `https://macros.denizlg24.com/ios/source.json`, which `apps/macros` proxies.
-  SideStore detects updates by `version` alone, so a republished version with
-  new bytes is refused by the workflow.
+- **SideStore publishing is gone.** No job publishes `macros-ios-v*` or
+  rewrites `source.json` any more; `macros.denizlg24.com/ios/source.json`
+  still proxies the last file on the rolling `macros-ios-source` release, so
+  existing SideStore installs see no update past it.
 - **No entitlements, ever, without a plan.** SideStore signs with the user's
   own Apple ID, usually a free one, which cannot grant push, App Groups,
   HealthKit, iCloud or associated domains. The workflow fails the build if the
