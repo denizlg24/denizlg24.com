@@ -37,7 +37,10 @@ ExecStart=/usr/local/bin/cloud-storage-metadata
 # failed and took the API broker's job down with it as a dependency failure,
 # which no Restart= retries. ExecStartPost runs inside the start job, so waiting
 # here is what makes the ordering mean what the Before= says it means.
-ExecStartPost=/bin/sh -c 'for _ in $(seq 1 100); do [ -S /run/deniz-cloud/storage-metadata.sock ] && exit 0; sleep 0.1; done; echo "metadata socket did not appear" >&2; exit 1'
+# The socket usually appears within 3 s, but a start on a busy Pi took 13 s on
+# 2026-10-01 and the old 10 s budget failed a release's restart, taking the
+# boundary down with it. 60 s stays inside the default TimeoutStartSec.
+ExecStartPost=/bin/sh -c 'for _ in $(seq 1 600); do [ -S /run/deniz-cloud/storage-metadata.sock ] && exit 0; sleep 0.1; done; echo "metadata socket did not appear" >&2; exit 1'
 Restart=on-failure
 RestartSec=2
 UMask=0007
