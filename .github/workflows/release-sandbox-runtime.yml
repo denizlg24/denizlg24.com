@@ -27,4 +27,4 @@ jobs:
     with:
       image: ghcr.io/denizlg24/agent-sandbox-runtime
       dockerfile: apps/sandbox/runtime.Dockerfile
-      smoke_command: bun --version && python3 --version && test -x /usr/local/bin/sandbox-file && test -x /usr/local/bin/sandbox-http
+      verify_command: bun --version && python3 --version && test -x /usr/local/bin/sandbox-file && test -x /usr/local/bin/sandbox-http

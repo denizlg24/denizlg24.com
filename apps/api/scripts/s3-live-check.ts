@@ -10,7 +10,7 @@ import { runScript, ScriptError } from "./lib/runner";
 /**
  * Read-only liveness check for the S3 `/v2` surface against a running API.
  *
- * Unlike `s3-smoke.ts` this issues no writes — no bucket or object is created,
+ * Unlike `s3-e2e.ts` this issues no writes — no bucket or object is created,
  * modified or deleted — so it is safe to point at production during the cutover
  * window. It proves what invariant 4 actually requires: that the legacy keypair
  * still signs successfully against the new endpoint and resolves to the

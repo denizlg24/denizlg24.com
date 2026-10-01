@@ -99,6 +99,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
 
+"Smoke test" is banned vocabulary here — in code, scripts, env vars, workflows
+and docs. A harness against a running service is an `e2e`
+(`apps/api/scripts/*-e2e.ts`); a check on a built image is `verify`.
+
 Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy|auth|mcp]`; `bun run format-and-lint` at root. `bun run dev:auth` runs api, auth (3008) and mcp (3009) together.
 
 ### Envoy CLI release ownership

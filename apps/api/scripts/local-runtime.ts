@@ -1,12 +1,12 @@
 import { createRuntimeApp } from "../src/runtime";
 
-interface SmokeRuntime {
+interface LocalRuntime {
   stop(): Promise<void>;
 }
 
-export async function ensureLocalSmokeRuntime(
+export async function ensureLocalRuntime(
   targetUrl: string,
-): Promise<SmokeRuntime | null> {
+): Promise<LocalRuntime | null> {
   const url = new URL(targetUrl);
   if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
     return null;

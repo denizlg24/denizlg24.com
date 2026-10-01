@@ -63,6 +63,11 @@ def check() -> list[str]:
     for workspace, (dockerfile, _) in SERVICES.items():
         name = json.loads((ROOT / workspace / "package.json").read_text())["name"]
         docker = (ROOT / dockerfile).read_text()
+        # Bun's --filter has no pnpm `name...` closure syntax: the suffix
+        # matches no workspace, and the install silently links nothing.
+        install = f"bun install --frozen-lockfile --ignore-scripts --filter {name}\n"
+        if install not in docker:
+            errors.append(f"{dockerfile}: expected `{install.strip()}`")
         # The pinned Bun 1.3.3 image cannot reliably do a frozen install with
         # missing workspace manifests, even when --filter selects one app.
         for dependency in sorted(catalog):

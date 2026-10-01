@@ -82,5 +82,5 @@ SANDBOX_API_TOKEN=development-token-at-least-32-characters \
 SANDBOX_CONTAINER_RUNTIME=runc bun run --cwd apps/sandbox dev
 ```
 
-`runc` is accepted only outside production. A production smoke test must also
+`runc` is accepted only outside production. A production rollout must also
 verify that the daemon has `runsc` installed before enabling the tools.

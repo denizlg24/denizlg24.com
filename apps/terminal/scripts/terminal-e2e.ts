@@ -68,7 +68,7 @@ const first = await connect(firstTicket.ticket);
 const firstDone = waitForMarker(first, "FLOOD_COMPLETE");
 first.send(
   new TextEncoder().encode(
-    "export CLOUD_SMOKE_REATTACH=kept; yes | head -c 10000000; printf '\\nFLOOD_COMPLETE\\n'\n",
+    "export CLOUD_E2E_REATTACH=kept; yes | head -c 10000000; printf '\\nFLOOD_COMPLETE\\n'\n",
   ),
 );
 const bytes = await firstDone;
@@ -78,10 +78,8 @@ const secondTicket = await mint(firstTicket.sessionId);
 const second = await connect(secondTicket.ticket);
 const reattached = waitForMarker(second, "REATTACH:kept");
 second.send(
-  new TextEncoder().encode(
-    "printf 'REATTACH:%s\\n' \"$CLOUD_SMOKE_REATTACH\"\n",
-  ),
+  new TextEncoder().encode("printf 'REATTACH:%s\\n' \"$CLOUD_E2E_REATTACH\"\n"),
 );
 await reattached;
-second.close(1000, "smoke complete");
-console.log(`Terminal smoke passed (${bytes} bytes before reconnect)`);
+second.close(1000, "e2e complete");
+console.log(`Terminal e2e passed (${bytes} bytes before reconnect)`);

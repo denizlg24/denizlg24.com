@@ -17,16 +17,16 @@ on:
         default: ""
         type: string
       health_port:
-        description: Container health endpoint port; zero disables the smoke test
+        description: Container health endpoint port; zero disables the health check
         required: false
         default: 0
         type: number
-      smoke_env:
-        description: Newline-separated KEY=VALUE pairs for the smoke test
+      runtime_env:
+        description: Newline-separated KEY=VALUE pairs for the health-checked container
         required: false
         default: ""
         type: string
-      smoke_command:
+      verify_command:
         description: Command to run inside the image (for images without an HTTP health endpoint)
         required: false
         default: ""
@@ -82,7 +82,7 @@ jobs:
           jq -e '[.manifests[].platform | select(.os == "linux") | (.os + "/" + .architecture)] | unique | sort == ["linux/amd64", "linux/arm64"]' manifest.json
 
   build:
-    name: Build and smoke test (${{ matrix.arch }})
+    name: Build and verify (${{ matrix.arch }})
     needs: metadata
     if: inputs.requested_tag == ''
     permissions:
@@ -134,15 +134,15 @@ jobs:
           IMAGE: ${{ inputs.image }}
           ARCH: ${{ matrix.arch }}
           HEALTH_PORT: ${{ inputs.health_port }}
-          SMOKE_ENV: ${{ inputs.smoke_env }}
+          RUNTIME_ENV: ${{ inputs.runtime_env }}
         run: |
           set -Eeuo pipefail
-          container="release-smoke-${ARCH}"
+          container="release-verify-${ARCH}"
           trap 'docker logs "$container" 2>/dev/null || true; docker rm --force "$container" 2>/dev/null || true' EXIT
           extra_args=()
-          if [[ -n "$SMOKE_ENV" ]]; then
-            printf '%s\n' "$SMOKE_ENV" > smoke.env
-            extra_args=(--env-file smoke.env)
+          if [[ -n "$RUNTIME_ENV" ]]; then
+            printf '%s\n' "$RUNTIME_ENV" > runtime.env
+            extra_args=(--env-file runtime.env)
           fi
           docker run --detach --name "$container" \
             --publish "127.0.0.1:33000:${HEALTH_PORT}" \
@@ -157,12 +157,12 @@ jobs:
           exit 1
 
       - name: Check runtime commands
-        if: inputs.smoke_command != ''
+        if: inputs.verify_command != ''
         env:
           IMAGE: ${{ inputs.image }}
           ARCH: ${{ matrix.arch }}
-          SMOKE_COMMAND: ${{ inputs.smoke_command }}
-        run: docker run --rm --entrypoint sh "${IMAGE}:${GITHUB_SHA}-${ARCH}" -ec "$SMOKE_COMMAND"
+          VERIFY_COMMAND: ${{ inputs.verify_command }}
+        run: docker run --rm --entrypoint sh "${IMAGE}:${GITHUB_SHA}-${ARCH}" -ec "$VERIFY_COMMAND"
 
   publish:
     name: Publish multi-architecture manifest
@@ -194,7 +194,7 @@ jobs:
             "${IMAGE}:${GITHUB_SHA}-arm64"
           docker buildx imagetools inspect "${IMAGE}:${GITHUB_SHA}" --raw > manifest.json
           jq -e '[.manifests[].platform | select(.os == "linux") | (.os + "/" + .architecture)] | unique | sort == ["linux/amd64", "linux/arm64"]' manifest.json
-          # Move the mutable tag only after both native smoke tests pass.
+          # Move the mutable tag only after both native images pass verification.
           docker buildx imagetools create \
             --tag "${IMAGE}:latest" \
             "${IMAGE}:${GITHUB_SHA}"

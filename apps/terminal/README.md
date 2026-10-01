@@ -49,7 +49,7 @@ across daemon restarts, so sessions can be reattached after either a browser or
 service reconnect. Operators can also list and kill sessions through the
 superuser-only API endpoints.
 
-## Manual smoke
+## Manual end-to-end check
 
 Start the API and terminal service with the same ticket secret, authenticate a
 superuser, then pass the session cookie without printing or committing it:
@@ -57,8 +57,8 @@ superuser, then pass the session cookie without printing or committing it:
 ```sh
 TERMINAL_API_URL=http://127.0.0.1:3010 \
 TERMINAL_COOKIE='better-auth.session_token=...' \
-bun apps/terminal/scripts/terminal-smoke.ts
+bun apps/terminal/scripts/terminal-e2e.ts
 ```
 
-The smoke streams 10 MB through the PTY, disconnects, mints a fresh ticket for
+The check streams 10 MB through the PTY, disconnects, mints a fresh ticket for
 the same session, and verifies that shell state survives reattachment.

@@ -8,7 +8,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { ensureLocalSmokeRuntime } from "./smoke-runtime";
+import { ensureLocalRuntime } from "./local-runtime";
 
 function env(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
@@ -16,13 +16,13 @@ function env(name: string, fallback?: string): string {
   return value;
 }
 
-const endpoint = env("S3_SMOKE_ENDPOINT", "http://127.0.0.1:3000/v2");
-const region = env("S3_SMOKE_REGION", "eu-west-1");
-const bucket = env("S3_SMOKE_BUCKET");
-const projectBucket = env("S3_SMOKE_PROJECT_BUCKET");
-const forbiddenBucket = env("S3_SMOKE_FORBIDDEN_BUCKET");
-const shareUrl = env("S3_SMOKE_SHARE_URL");
-const runtime = await ensureLocalSmokeRuntime(endpoint);
+const endpoint = env("S3_E2E_ENDPOINT", "http://127.0.0.1:3000/v2");
+const region = env("S3_E2E_REGION", "eu-west-1");
+const bucket = env("S3_E2E_BUCKET");
+const projectBucket = env("S3_E2E_PROJECT_BUCKET");
+const forbiddenBucket = env("S3_E2E_FORBIDDEN_BUCKET");
+const shareUrl = env("S3_E2E_SHARE_URL");
+const runtime = await ensureLocalRuntime(endpoint);
 
 function s3Client(prefix: string): S3Client {
   return new S3Client({
@@ -37,10 +37,10 @@ function s3Client(prefix: string): S3Client {
   });
 }
 
-const legacy = s3Client("S3_SMOKE_LEGACY");
-const project = s3Client("S3_SMOKE_PROJECT");
-const key = `smoke/${crypto.randomUUID()}.txt`;
-const bytes = "deniz-cloud s3 smoke";
+const legacy = s3Client("S3_E2E_LEGACY");
+const project = s3Client("S3_E2E_PROJECT");
+const key = `e2e/${crypto.randomUUID()}.txt`;
+const bytes = "deniz-cloud s3 e2e";
 
 try {
   const buckets = await legacy.send(new ListBucketsCommand({}));
@@ -72,7 +72,7 @@ try {
     throw new Error("S3 range GET returned unexpected content");
   }
   const listed = await legacy.send(
-    new ListObjectsV2Command({ Bucket: bucket, Prefix: "smoke/" }),
+    new ListObjectsV2Command({ Bucket: bucket, Prefix: "e2e/" }),
   );
   if (!listed.Contents?.some((item) => item.Key === key)) {
     throw new Error("S3 list did not include the uploaded key");
@@ -107,10 +107,10 @@ try {
   }
 
   await legacy.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-  if (process.env.S3_SMOKE_DELETE_BUCKET === "true") {
+  if (process.env.S3_E2E_DELETE_BUCKET === "true") {
     await legacy.send(new DeleteBucketCommand({ Bucket: bucket }));
   }
-  console.log("S3 smoke passed: put/get/range/list/delete/share/isolation");
+  console.log("S3 e2e passed: put/get/range/list/delete/share/isolation");
 } finally {
   legacy.destroy();
   project.destroy();

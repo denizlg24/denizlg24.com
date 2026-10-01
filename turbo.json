@@ -226,9 +226,9 @@
         "CLOUD_TEST_MEILI_MASTER_KEY",
         "CLOUD_TEST_MONGODB_ADMIN_URI",
         "CLOUD_TEST_REDIS_ADMIN_URL",
-        "OPS_SMOKE_DATABASE_URL",
-        "OPS_SMOKE_PASSWORD",
-        "S3_SMOKE_DELETE_BUCKET"
+        "OPS_E2E_DATABASE_URL",
+        "OPS_E2E_PASSWORD",
+        "S3_E2E_DELETE_BUCKET"
       ]
     },
     "dev": {

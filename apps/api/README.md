@@ -73,5 +73,5 @@ Tests that need real infrastructure — provisioning, crash resume, sync,
 metrics, executors and the backup and rollup paths — are opt-in behind an
 environment flag so the default test run stays hermetic. The development
 compose file exposes only the constrained Docker proxy, on loopback. Separate
-smoke harnesses exercise the S3 and resumable-upload surfaces against a running
+end-to-end harnesses exercise the S3 and resumable-upload surfaces against a running
 instance and take their own configuration.

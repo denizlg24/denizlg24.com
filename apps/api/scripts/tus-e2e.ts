@@ -1,5 +1,5 @@
 import { Upload } from "tus-js-client";
-import { ensureLocalSmokeRuntime } from "./smoke-runtime";
+import { ensureLocalRuntime } from "./local-runtime";
 
 function env(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
@@ -8,14 +8,14 @@ function env(name: string, fallback?: string): string {
 }
 
 const endpoint = env(
-  "TUS_SMOKE_ENDPOINT",
+  "TUS_E2E_ENDPOINT",
   "http://127.0.0.1:3000/api/storage/uploads",
 );
-const apiKey = env("TUS_SMOKE_API_KEY");
-const targetFolder = env("TUS_SMOKE_TARGET_FOLDER");
-const runtime = await ensureLocalSmokeRuntime(endpoint);
+const apiKey = env("TUS_E2E_API_KEY");
+const targetFolder = env("TUS_E2E_TARGET_FOLDER");
+const runtime = await ensureLocalRuntime(endpoint);
 const payload = Buffer.from(
-  `deniz-cloud tus smoke ${crypto.randomUUID()} `.repeat(2_048),
+  `deniz-cloud tus e2e ${crypto.randomUUID()} `.repeat(2_048),
 );
 const chunkSize = Math.ceil(payload.byteLength / 3);
 
@@ -25,7 +25,7 @@ function uploadOptions() {
     chunkSize,
     headers: { "X-API-Key": apiKey },
     metadata: {
-      filename: `tus-smoke-${crypto.randomUUID()}.txt`,
+      filename: `tus-e2e-${crypto.randomUUID()}.txt`,
       filetype: "text/plain",
       targetFolder,
     },
@@ -83,7 +83,7 @@ try {
     );
   }
   console.log(
-    `TUS smoke passed: interrupted at ${offset}, resumed to ${payload.byteLength}`,
+    `TUS e2e passed: interrupted at ${offset}, resumed to ${payload.byteLength}`,
   );
 } finally {
   await runtime?.stop();

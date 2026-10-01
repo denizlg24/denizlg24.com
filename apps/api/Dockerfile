@@ -40,7 +40,7 @@ COPY packages/ui/package.json packages/ui/package.json
 COPY packages/utils/package.json packages/utils/package.json
 COPY packages/whiteboard-render/package.json packages/whiteboard-render/package.json
 
-RUN bun install --frozen-lockfile --ignore-scripts --filter 'api...'
+RUN bun install --frozen-lockfile --ignore-scripts --filter api
 
 FROM dependencies AS build
 COPY apps/api apps/api

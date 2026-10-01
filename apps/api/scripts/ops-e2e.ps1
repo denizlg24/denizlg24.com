@@ -1,10 +1,10 @@
 $ErrorActionPreference = "Stop"
 
 $workspace = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
-$smokeRoot = Join-Path $workspace ".tmp\ops-smoke"
-$ssdPath = Join-Path $smokeRoot "ssd"
-$hddPath = Join-Path $smokeRoot "hdd"
-$backupPath = Join-Path $smokeRoot "backups"
+$e2eRoot = Join-Path $workspace ".tmp\ops-e2e"
+$ssdPath = Join-Path $e2eRoot "ssd"
+$hddPath = Join-Path $e2eRoot "hdd"
+$backupPath = Join-Path $e2eRoot "backups"
 New-Item -ItemType Directory -Force -Path $ssdPath, $hddPath, $backupPath |
   Out-Null
 
@@ -30,12 +30,12 @@ $databaseUrl =
 $mongoUrl =
   "mongodb://${mongoUser}:${mongoPassword}@127.0.0.1:27018/?authSource=admin&directConnection=true"
 $redisUrl = "redis://default:${redisPassword}@127.0.0.1:6380"
-$smokePassword = "ops-smoke-password-006"
+$e2ePassword = "ops-e2e-password-006"
 
-$env:OPS_SMOKE_DATABASE_URL = $databaseUrl
-$env:OPS_SMOKE_PASSWORD = $smokePassword
+$env:OPS_E2E_DATABASE_URL = $databaseUrl
+$env:OPS_E2E_PASSWORD = $e2ePassword
 
-function Invoke-SmokeRequest {
+function Invoke-E2eRequest {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Uri,
@@ -65,16 +65,16 @@ function Invoke-SmokeRequest {
 
 $process = $null
 try {
-  & bun apps/api/scripts/ops-smoke-user.ts setup
+  & bun apps/api/scripts/ops-e2e-user.ts setup
   if ($LASTEXITCODE -ne 0) {
-    throw "ops-smoke-user.ts setup failed"
+    throw "ops-e2e-user.ts setup failed"
   }
 
   $env:DATABASE_URL = $databaseUrl
   $env:REDIS_ADMIN_URL = $redisUrl
   $env:MONGODB_URI = $mongoUrl
   $env:MONGODB_ADMIN_URI = $mongoUrl
-  $env:BETTER_AUTH_SECRET = "ops-smoke-better-auth-secret-000000000006"
+  $env:BETTER_AUTH_SECRET = "ops-e2e-better-auth-secret-000000000006"
   $env:BETTER_AUTH_URL = "http://127.0.0.1:13010"
   Remove-Item Env:COOKIE_DOMAIN -ErrorAction SilentlyContinue
   $env:MEILISEARCH_URL = "http://127.0.0.1:7700"
@@ -82,18 +82,18 @@ try {
   $env:SSD_STORAGE_PATH = $ssdPath
   $env:HDD_STORAGE_PATH = $hddPath
   $env:BACKUP_DIR = $backupPath
-  $env:JWT_SECRET = "ops-smoke-jwt-secret-000000000000000006"
+  $env:JWT_SECRET = "ops-e2e-jwt-secret-000000000000000006"
   $env:DATABASE_CREDENTIAL_ENCRYPTION_KEY =
-    "ops-smoke-database-key-000000000000006"
+    "ops-e2e-database-key-000000000000006"
   $env:S3_CREDENTIAL_ENCRYPTION_KEY =
-    "ops-smoke-s3-key-000000000000000000006"
+    "ops-e2e-s3-key-000000000000000000006"
   $env:DOCKER_HOST = "http://127.0.0.1:23750"
   $env:PORT = "13010"
   $env:NODE_ENV = "development"
   $env:MONGOT_HEALTH_URL = "http://127.0.0.1:18080"
 
-  $stdout = Join-Path $smokeRoot "api.stdout.log"
-  $stderr = Join-Path $smokeRoot "api.stderr.log"
+  $stdout = Join-Path $e2eRoot "api.stdout.log"
+  $stderr = Join-Path $e2eRoot "api.stderr.log"
   $bunCommand = (Get-Command bun.cmd).Source
   $bunExecutable = Join-Path (Split-Path $bunCommand) `
     "node_modules\bun\bin\bun.exe"
@@ -131,29 +131,29 @@ try {
 
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   $signIn = @{
-    username = "ops-smoke"
-    password = $smokePassword
+    username = "ops-e2e"
+    password = $e2ePassword
   } | ConvertTo-Json -Compress
-  Invoke-SmokeRequest `
+  Invoke-E2eRequest `
     -Uri "http://127.0.0.1:13010/api/auth/sign-in/username" `
     -Method Post `
     -Session $session `
     -Body $signIn |
     Out-Null
 
-  & bun apps/api/scripts/ops-smoke-user.ts activate
+  & bun apps/api/scripts/ops-e2e-user.ts activate
   if ($LASTEXITCODE -ne 0) {
-    throw "ops-smoke-user.ts activate failed"
+    throw "ops-e2e-user.ts activate failed"
   }
 
   $scheduledAt = (Get-Date).ToUniversalTime().AddHours(1).ToString("o")
   $taskBody = @{
-    name = "Ops smoke PostgreSQL backup"
+    name = "Ops e2e PostgreSQL backup"
     type = "backup_postgres"
     scheduledAt = $scheduledAt
     config = @{ retentionCount = 1 }
   } | ConvertTo-Json -Compress
-  $taskResponse = Invoke-SmokeRequest `
+  $taskResponse = Invoke-E2eRequest `
     -Uri "http://127.0.0.1:13010/api/ops/tasks" `
     -Method Post `
     -Session $session `
@@ -163,7 +163,7 @@ try {
     throw "Task creation failed: $($taskResponse.Content)"
   }
 
-  $triggerResponse = Invoke-SmokeRequest `
+  $triggerResponse = Invoke-E2eRequest `
     -Uri "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/run" `
     -Method Post `
     -Session $session
@@ -174,7 +174,7 @@ try {
 
   $completed = $false
   for ($attempt = 0; $attempt -lt 120; $attempt += 1) {
-    $runsResponse = Invoke-SmokeRequest `
+    $runsResponse = Invoke-E2eRequest `
       -Uri "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/runs" `
       -Session $session
     $runs = $runsResponse.Content | ConvertFrom-Json
@@ -199,7 +199,7 @@ try {
     throw "Backup artifact was not created"
   }
 
-  $metricsResponse = Invoke-SmokeRequest `
+  $metricsResponse = Invoke-E2eRequest `
     -Uri (
       "http://127.0.0.1:13010/api/ops/metrics" +
       "?series=host:cpu.usage_percent&step=30"
@@ -209,7 +209,7 @@ try {
   if ($null -eq $metrics.data.series) {
     throw "Metrics query failed: $($metricsResponse.Content)"
   }
-  $overviewResponse = Invoke-SmokeRequest `
+  $overviewResponse = Invoke-E2eRequest `
     -Uri "http://127.0.0.1:13010/api/ops/overview" `
     -Session $session
 
@@ -224,18 +224,18 @@ try {
     Stop-Process -Id $process.Id -Force
     $process.WaitForExit()
   }
-  & bun apps/api/scripts/ops-smoke-user.ts cleanup
+  & bun apps/api/scripts/ops-e2e-user.ts cleanup
   $cleanupExitCode = $LASTEXITCODE
 
-  if (Test-Path $smokeRoot) {
-    $resolvedSmoke = (Resolve-Path $smokeRoot).Path
+  if (Test-Path $e2eRoot) {
+    $resolvedE2e = (Resolve-Path $e2eRoot).Path
     $expectedPrefix = $workspace + [IO.Path]::DirectorySeparatorChar
-    if (-not $resolvedSmoke.StartsWith($expectedPrefix)) {
-      throw "Refusing to remove smoke directory outside workspace"
+    if (-not $resolvedE2e.StartsWith($expectedPrefix)) {
+      throw "Refusing to remove e2e directory outside workspace"
     }
-    Remove-Item -LiteralPath $resolvedSmoke -Recurse -Force
+    Remove-Item -LiteralPath $resolvedE2e -Recurse -Force
   }
   if ($cleanupExitCode -ne 0) {
-    throw "ops-smoke-user.ts cleanup failed"
+    throw "ops-e2e-user.ts cleanup failed"
   }
 }

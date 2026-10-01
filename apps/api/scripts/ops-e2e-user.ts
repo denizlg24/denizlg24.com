@@ -8,14 +8,14 @@ import {
 } from "@repo/cloud-core";
 import { eq } from "drizzle-orm";
 
-const databaseUrl = process.env.OPS_SMOKE_DATABASE_URL;
-const password = process.env.OPS_SMOKE_PASSWORD;
+const databaseUrl = process.env.OPS_E2E_DATABASE_URL;
+const password = process.env.OPS_E2E_PASSWORD;
 const action = process.argv[2];
 const userId = "00000000-0000-4000-8000-000000000006";
 
 if (!databaseUrl || (action !== "cleanup" && !password)) {
   throw new Error(
-    "OPS_SMOKE_DATABASE_URL is required, along with OPS_SMOKE_PASSWORD for setup and activation",
+    "OPS_E2E_DATABASE_URL is required, along with OPS_E2E_PASSWORD for setup and activation",
   );
 }
 const parsedUrl = new URL(databaseUrl);
@@ -23,7 +23,7 @@ if (
   !["127.0.0.1", "localhost"].includes(parsedUrl.hostname) ||
   parsedUrl.port !== "5433"
 ) {
-  throw new Error("The ops smoke user script only runs against localhost:5433");
+  throw new Error("The ops e2e user script only runs against localhost:5433");
 }
 
 const db = createDb(databaseUrl, { max: 1 });
@@ -43,16 +43,16 @@ try {
     await db.delete(users).where(eq(users.id, userId));
     await db.insert(authUser).values({
       id: userId,
-      name: "ops-smoke",
-      email: "ops-smoke@example.test",
+      name: "ops-e2e",
+      email: "ops-e2e@example.test",
       emailVerified: true,
       createdAt: now,
       updatedAt: now,
       role: "admin",
       status: "active",
       twoFactorEnabled: false,
-      username: "ops-smoke",
-      displayUsername: "ops-smoke",
+      username: "ops-e2e",
+      displayUsername: "ops-e2e",
     });
     await db.insert(authAccount).values({
       id: `credential:${userId}`,
@@ -66,8 +66,8 @@ try {
     });
     await db.insert(users).values({
       id: userId,
-      username: "ops-smoke",
-      email: "ops-smoke@example.test",
+      username: "ops-e2e",
+      email: "ops-e2e@example.test",
       passwordHash,
       role: "superuser",
       status: "active",
