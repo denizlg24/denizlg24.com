@@ -12,8 +12,7 @@
     "bundle": "expo export --platform ios --output-dir dist",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p scripts",
     "test": "bun test",
-    "release:metadata": "bun scripts/release-metadata.ts",
-    "release:source": "bun scripts/compose-source.ts"
+    "release:metadata": "bun scripts/release-metadata.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.5",

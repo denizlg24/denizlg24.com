@@ -4,7 +4,7 @@ name: Macros mobile
 #
 # Builds run for pull requests, release commits, and manual validation. They
 # reference no secret and prove the code:
-# - build-ios: the unsigned SideStore IPA (no entitlements);
+# - build-ios: the unsigned IPA, refused if it carries any entitlement;
 # - build-ios-adhoc: the entitled ad-hoc build, compiled unsigned;
 # - build-android: a release APK signed with the debug key.
 #
@@ -14,10 +14,6 @@ name: Macros mobile
 # as an environment secret, never a repository one, so only an approved
 # release job can read it. A release job whose secrets are missing exits green
 # with a notice.
-# - release-ios-sidestore: `macros-ios-v<version>` with the IPA, and
-#   `source.json` on the rolling `macros-ios-source` release, regenerated from
-#   every published version. SideStore subscribes to it through
-#   https://macros.denizlg24.com/ios/source.json.
 # - release-ios-adhoc: signs for the iPhones registered on the paid team and
 #   uploads to the rolling `macros-ios-adhoc` release, served from
 #   https://macros.denizlg24.com/ios/adhoc/*. Every run registers every
@@ -27,8 +23,8 @@ name: Macros mobile
 #   `macros-android-v<version>`, which
 #   https://macros.denizlg24.com/android/Macros.apk streams.
 #
-# SideStore and Android release when `version` in apps/macros-mobile/package.json
-# changes on main. The ad-hoc release runs on that same change and when the
+# Android releases when `version` in apps/macros-mobile/package.json changes
+# on main. The ad-hoc release runs on that same change and when the
 # macros server dispatches this workflow with `adhoc: true` after the owner
 # approves a device request.
 
@@ -79,7 +75,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # publish: the version changed on a push to main (SideStore + Android).
+      # publish: the version changed on a push to main (Android).
       # adhoc:   the ad-hoc build should be signed and published.
       # release: either of the two.
       - name: Detect version change
@@ -101,15 +97,14 @@ jobs:
                   true
               )"
               if [[ "$current_version" != "$previous_version" ]]; then
-                # SideStore detects updates by version alone, so a version
-                # that was already published must never be published again
-                # with new bytes.
-                for tag in "macros-ios-v$current_version" "macros-android-v$current_version"; do
-                  if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-                    echo "::error::$tag already exists. Bump apps/macros-mobile/package.json."
-                    exit 1
-                  fi
-                done
+                # Android refuses an update whose version it already has, so a
+                # published version must never be published again with new
+                # bytes.
+                tag="macros-android-v$current_version"
+                if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+                  echo "::error::$tag already exists. Bump apps/macros-mobile/package.json."
+                  exit 1
+                fi
                 publish=true
                 adhoc=true
               fi
@@ -161,7 +156,7 @@ jobs:
   build-ios:
     name: Build unsigned IPA
     needs: [prepare, verify]
-    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -248,7 +243,7 @@ jobs:
           fi
           cat build/release-notes.md
 
-      - name: Describe the build for SideStore
+      - name: Describe the build
         run: >
           bun scripts/release-metadata.ts
           --app build/Payload/Macros.app
@@ -258,7 +253,7 @@ jobs:
           --notes build/release-notes.md
           --out "build/macros-ios-$VERSION.json"
 
-      # A free Apple account, which is what most SideStore users sign with,
+      # A free Apple account, which is what a sideloader signs with,
       # cannot grant push, App Groups, HealthKit, associated domains or iCloud.
       # An IPA that asks for any of them fails to install for those users.
       - name: Refuse entitlements a free account cannot sign
@@ -470,74 +465,6 @@ jobs:
           path: ${{ runner.temp }}/gradle.log
           if-no-files-found: ignore
           retention-days: 7
-
-  release-ios-sidestore:
-    name: Publish to SideStore
-    needs: [prepare, build-ios]
-    if: needs.prepare.outputs.publish == 'true'
-    runs-on: ubuntu-latest
-    environment: macros-release
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ needs.prepare.outputs.version }}
-      TAG: macros-ios-v${{ needs.prepare.outputs.version }}
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Download build
-        uses: actions/download-artifact@v8
-        with:
-          name: macros-ios-${{ needs.prepare.outputs.version }}
-          path: dist
-
-      # Never "latest": the Envoy CLI's updater reads this repository's
-      # releases, and the repository's latest release must stay an Envoy one.
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: macros-ios-v${{ needs.prepare.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          name: Macros iOS v${{ needs.prepare.outputs.version }}
-          body_path: dist/release-notes.md
-          make_latest: false
-          files: |
-            dist/Macros-${{ needs.prepare.outputs.version }}.ipa
-            dist/macros-ios-${{ needs.prepare.outputs.version }}.json
-
-      - name: Compose the SideStore source
-        shell: bash
-        run: |
-          mkdir -p sources
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName \
-            --jq '.[].tagName | select(startswith("macros-ios-v"))' > tags.txt
-          while read -r tag; do
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'macros-ios-*.json' --dir sources --clobber || true
-          done < tags.txt
-          # The listing API can lag the release just created.
-          cp "dist/macros-ios-$VERSION.json" sources/
-          bun apps/macros-mobile/scripts/compose-source.ts --releases sources --out source.json
-
-      - name: Publish the source
-        shell: bash
-        run: |
-          if ! gh release view macros-ios-source --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create macros-ios-source \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Macros iOS — SideStore source" \
-              --notes "The SideStore/AltStore source for Macros. Add https://macros.denizlg24.com/ios/source.json in SideStore; this release only hosts the file." \
-              --prerelease \
-              --latest=false
-          fi
-          gh release upload macros-ios-source source.json --repo "$GITHUB_REPOSITORY" --clobber
 
   release-ios-adhoc:
     name: Sign and publish ad hoc
