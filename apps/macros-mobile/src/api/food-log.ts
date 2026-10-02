@@ -2,6 +2,9 @@ import type {
   MacrosBulkDeleteEntriesResponse,
   MacrosCalendarTotals,
   MacrosCopyLogResponse,
+  MacrosDailyCalorieSummary,
+  MacrosDailyMacros,
+  MacrosDashboard,
   MacrosDayNoteResponse,
   MacrosDeleteLogEntryResponse,
   MacrosDuplicateLogEntryResponse,
@@ -89,9 +92,80 @@ const logScope = { id: "food-log" };
 const entryEditId = ({ id }: { id: string }) => `edit:${id}`;
 const entryDeleteId = (id: string) => `delete:${id}`;
 
+const unsettledDates = new Set<string>();
+
+/**
+ * The scope runs log writes one at a time, so refetching after each one steps
+ * the totals through partial states underneath the optimistic ones. Only the
+ * last write still queued refetches, for every day the queue touched.
+ */
+function settleLogWrite(queryClient: QueryClient, logDate?: string) {
+  if (logDate) unsettledDates.add(logDate);
+  if (queryClient.isMutating({ mutationKey: queryKeys.foodLog }) > 1) return;
+  const dates = [...unsettledDates];
+  unsettledDates.clear();
+  return invalidateAfterLogging(queryClient, dates);
+}
+
+function addMacros(
+  totals: MacrosDailyMacros,
+  added: MacrosDailyMacros,
+): MacrosDailyMacros {
+  return {
+    calories: totals.calories + added.calories,
+    protein: totals.protein + added.protein,
+    carbs: totals.carbs + added.carbs,
+    fat: totals.fat + added.fat,
+  };
+}
+
+/**
+ * Counts a log in the cached totals before the server has it: the phone
+ * already knows what was eaten, and the ring, the pill and the day's totals
+ * waiting on a round trip read as the log not having worked. The refetch
+ * after the queue drains replaces these with the server's figures.
+ */
+export function showLogged(
+  queryClient: QueryClient,
+  logDate: string | undefined,
+  macros: MacrosDailyMacros,
+) {
+  if (!logDate) return;
+  // A refetch already in flight would land without this log. A first load is
+  // left alone: cancelling it would leave its screen with nothing to show.
+  for (const queryKey of [
+    ["calorie-summary"],
+    ["dashboard"],
+    queryKeys.foodLogDay(logDate),
+  ]) {
+    void queryClient.cancelQueries({
+      queryKey,
+      predicate: (query) => query.state.data !== undefined,
+    });
+  }
+  queryClient.setQueriesData<MacrosDailyCalorieSummary>(
+    { queryKey: ["calorie-summary"] },
+    (summary) =>
+      summary && summary.today === logDate
+        ? { ...summary, consumed: summary.consumed + macros.calories }
+        : summary,
+  );
+  queryClient.setQueriesData<MacrosDashboard>(
+    { queryKey: ["dashboard"] },
+    (dashboard) =>
+      dashboard && dashboard.today === logDate
+        ? { ...dashboard, consumed: addMacros(dashboard.consumed, macros) }
+        : dashboard,
+  );
+  queryClient.setQueryData<MacrosFoodLogDay>(
+    queryKeys.foodLogDay(logDate),
+    (day) => (day ? { ...day, totals: addMacros(day.totals, macros) } : day),
+  );
+}
+
 export function registerLogMutationDefaults(queryClient: QueryClient) {
   const onSuccess = (_data: unknown, variables: { logDate?: string }) =>
-    invalidateAfterLogging(queryClient, [variables.logDate]);
+    settleLogWrite(queryClient, variables.logDate);
   const onError =
     (description: string) =>
     (error: Error, variables: { clientMutationId?: string }) => {

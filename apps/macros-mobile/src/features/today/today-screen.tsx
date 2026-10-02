@@ -29,7 +29,6 @@ import { weighInHref } from "./links";
 import { NutritionSummary } from "./nutrition-summary";
 import { PendingSyncNotice } from "./pending-sync-notice";
 import { StreaksSection } from "./streaks-section";
-import { WaterSection } from "./water-section";
 import { WeightSection } from "./weight-section";
 
 function useCaloriePreference(saved: MacrosCaloriePreference) {
@@ -87,13 +86,19 @@ export function TodayScreen() {
   const openProgress = () => router.push("/progress");
   const openMore = () => router.push("/more");
   const openHabits = () => router.push("/more/habits");
-  const openBody = () => router.push("/more/body");
-  const strategyButton = (
-    <HeaderIconButton
-      icon="target"
-      label="Strategy"
-      onPress={() => router.push("/strategy")}
-    />
+  const headerButtons = (
+    <>
+      <HeaderIconButton
+        icon="droplet"
+        label="Water"
+        onPress={() => router.push("/water")}
+      />
+      <HeaderIconButton
+        icon="target"
+        label="Strategy"
+        onPress={() => router.push("/strategy")}
+      />
+    </>
   );
 
   const data = dashboard.data;
@@ -103,7 +108,7 @@ export function TodayScreen() {
     return (
       <Screen statusBarScrim>
         <PageHeader title="Today" subtitle={dateLine}>
-          {strategyButton}
+          {headerButtons}
         </PageHeader>
         {dashboard.fetchStatus === "paused" ? (
           <View style={styles.firstLoad}>
@@ -146,7 +151,7 @@ export function TodayScreen() {
       <VStack>
         <View style={styles.top}>
           <PageHeader title="Today" subtitle={dateLine}>
-            {strategyButton}
+            {headerButtons}
           </PageHeader>
           {stale ? (
             <InlineNotice
@@ -203,8 +208,6 @@ export function TodayScreen() {
           logDate={data.today}
           onManage={openHabits}
         />
-
-        <WaterSection logDate={data.today} onOpen={openBody} />
 
         <EnergySection
           energyBalance={data.energyBalance}

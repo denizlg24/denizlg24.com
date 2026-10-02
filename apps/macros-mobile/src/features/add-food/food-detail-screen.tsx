@@ -156,9 +156,7 @@ function FoodDetailBody({
   });
   const [keypadOpen, setKeypadOpen] = useState(true);
   const plate = usePlate();
-  const { commit, committing, failure, clearFailure } = useCommitPlate(() =>
-    leaveAfterLogging(hubBelow()),
-  );
+  const { commit } = useCommitPlate(() => leaveAfterLogging(hubBelow()));
   const [when, setWhen] = useState<LogTime>(() =>
     plateItem
       ? logTimeOf(
@@ -246,7 +244,7 @@ function FoodDetailBody({
     const staged = stagedItem(newClientMutationId());
     if (!staged) return;
     addToPlate(staged);
-    void commit([...plate, staged]);
+    commit([...plate, staged]);
   }
 
   const subtitle = [item.brand, item.isUserFood ? "Your food" : null]
@@ -313,10 +311,6 @@ function FoodDetailBody({
             energyUnit={zone.energyUnit}
           />
 
-          {failure ? (
-            <InlineNotice message={failure} onDismiss={clearFailure} />
-          ) : null}
-
           <NutritionBreakdown
             nutrients={scaled}
             targets={targets}
@@ -345,13 +339,12 @@ function FoodDetailBody({
                 label: "Log Foods",
                 onPress: logNow,
                 disabled: !valid,
-                busy: committing,
               }
         }
         primary={{
           label: plateItem ? "Update" : "Add",
           onPress: stage,
-          disabled: !valid || committing,
+          disabled: !valid,
         }}
       />
     </View>

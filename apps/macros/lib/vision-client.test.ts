@@ -14,77 +14,81 @@ function installFetchMock(
   });
 }
 
+const emptyLabel = {
+  version: "v1",
+  basis: "unknown",
+  servingQuantity: null,
+  servingUnit: null,
+  servingsPerContainer: null,
+  fields: {},
+  rawText: "",
+  warnings: [],
+};
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  delete process.env.MACROS_VISION_URL;
-  delete process.env.MACROS_VISION_API_TOKEN;
+  delete process.env.MACROS_LABEL_SERVICE_URL;
+  delete process.env.MACROS_LABEL_SERVICE_TOKEN;
 });
 
-describe("vision client", () => {
+describe("label client", () => {
   test("validates the shared response contract", async () => {
-    process.env.MACROS_VISION_URL = "http://vision:8090/";
-    process.env.MACROS_VISION_API_TOKEN = "secret";
+    process.env.MACROS_LABEL_SERVICE_TOKEN = "secret";
     installFetchMock(async () =>
       Response.json({
-        version: "v1",
+        ...emptyLabel,
         basis: "per_100g",
         servingQuantity: 100,
         servingUnit: "g",
-        servingsPerContainer: null,
         fields: { calories: { value: 200, unit: "kcal", confidence: 0.9 } },
-        rawText: "Energy 200 kcal",
-        warnings: [],
       }),
     );
     const result = await parseNutritionLabel(new Blob(["image"]));
     expect(result.fields.calories?.value).toBe(200);
   });
 
-  test("forwards the selected nutrition label format", async () => {
-    process.env.MACROS_VISION_URL = "http://vision:8090";
-    process.env.MACROS_VISION_API_TOKEN = "secret";
+  test("posts the image and format to the label route with the secret", async () => {
+    process.env.MACROS_LABEL_SERVICE_URL = "http://web:3000/";
+    process.env.MACROS_LABEL_SERVICE_TOKEN = "secret";
+    let url = "";
+    let authorization: string | null = null;
     let postedFormat: FormDataEntryValue | null = null;
-    installFetchMock(async (_input, init) => {
+    installFetchMock(async (input, init) => {
+      url = String(input);
+      authorization = new Headers(init?.headers).get("authorization");
       if (init?.body instanceof FormData) {
         postedFormat = init.body.get("labelFormat");
       }
-      return Response.json({
-        version: "v1",
-        basis: "per_100g",
-        servingQuantity: 100,
-        servingUnit: "g",
-        servingsPerContainer: null,
-        fields: {},
-        rawText: "",
-        warnings: [],
-      });
+      return Response.json(emptyLabel);
     });
 
     await parseNutritionLabel(new Blob(["image"]), "eu");
+    expect(url).toBe("http://web:3000/api/services/macros/nutrition-label");
+    expect(String(authorization)).toBe("Bearer secret");
     expect(String(postedFormat)).toBe("eu");
   });
 
-  test("retries one transient service failure", async () => {
-    process.env.MACROS_VISION_URL = "http://vision:8090";
-    process.env.MACROS_VISION_API_TOKEN = "secret";
+  test("does not retry a failed read", async () => {
+    process.env.MACROS_LABEL_SERVICE_TOKEN = "secret";
     let calls = 0;
     installFetchMock(async () => {
       calls += 1;
-      return calls === 1
-        ? new Response(null, { status: 503 })
-        : Response.json({
-            version: "v1",
-            basis: "unknown",
-            servingQuantity: null,
-            servingUnit: null,
-            servingsPerContainer: null,
-            fields: {},
-            rawText: "",
-            warnings: ["No label found"],
-          });
+      return new Response(null, { status: 502 });
     });
-    await parseNutritionLabel(new Blob(["image"]));
-    expect(calls).toBe(2);
+    await expect(parseNutritionLabel(new Blob(["image"]))).rejects.toThrow(
+      VisionServiceError,
+    );
+    expect(calls).toBe(1);
+  });
+
+  test("never passes a refused credential through as the caller's 401", async () => {
+    process.env.MACROS_LABEL_SERVICE_TOKEN = "wrong";
+    installFetchMock(async () => new Response(null, { status: 401 }));
+    const error = await parseNutritionLabel(new Blob(["image"])).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(VisionServiceError);
+    expect(error instanceof VisionServiceError ? error.status : 0).toBeNull();
   });
 
   test("fails clearly when it is not configured", async () => {

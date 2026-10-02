@@ -4,7 +4,7 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { reachesDayTarget } from "@/api/day-targets";
-import { useQuickAdd } from "@/api/food-log";
+import { showLogged, useQuickAdd } from "@/api/food-log";
 import { useProfile } from "@/api/profile";
 import { EatenAtPicker } from "@/components/eaten-at-picker";
 import { deviceTimeZone, useToday } from "@/lib/day";
@@ -109,12 +109,16 @@ export function QuickAddSheet() {
       name: name.trim() || undefined,
       ...logPlacement(when, timeZone),
     };
+    const macros = {
+      calories: input.calories,
+      protein: input.protein ?? 0,
+      carbs: input.carbs ?? 0,
+      fat: input.fat ?? 0,
+    };
     const reached = reachesDayTarget(queryClient, [
-      {
-        logDate: input.logDate,
-        macros: { calories: input.calories, protein: input.protein ?? 0 },
-      },
+      { logDate: input.logDate, macros },
     ]);
+    showLogged(queryClient, input.logDate, macros);
     quickAdd.mutate(input);
     if (reached) haptics.goalReached();
     else haptics.success();

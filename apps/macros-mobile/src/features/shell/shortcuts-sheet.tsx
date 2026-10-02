@@ -23,6 +23,7 @@ const ACTIONS: ReadonlyArray<{ label: string; icon: IconName; href: Href }> = [
   { label: "Search", icon: "search", href: hubHref() },
   { label: "Barcode", icon: "barcode", href: "/scan" },
   { label: "Quick Add", icon: "zap", href: quickAddHref() },
+  { label: "Water", icon: "droplet", href: "/water" },
 ];
 
 const LINKS: ReadonlyArray<{
@@ -158,19 +159,18 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    paddingHorizontal: sheetGutter,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.xl,
   },
   action: {
+    flex: 1,
     alignItems: "center",
     gap: spacing.sm,
-    minWidth: 72,
   },
   round: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.secondaryFill,

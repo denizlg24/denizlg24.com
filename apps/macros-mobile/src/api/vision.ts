@@ -71,8 +71,9 @@ export async function parseNutritionLabel(
 }
 
 /**
- * The vision service is a separate container that can be down while Macros is
- * up; the route answers 5xx then, and the caller falls back to manual entry.
+ * Label reading runs on another service that can be down, or fail to read,
+ * while Macros is up; the route answers 5xx then, and the caller falls back to
+ * manual entry.
  */
 export function isVisionUnavailable(error: unknown): boolean {
   return error instanceof ApiError && error.status >= 500;
