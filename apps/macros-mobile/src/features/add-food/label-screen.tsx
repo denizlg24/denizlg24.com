@@ -20,10 +20,11 @@ import { haptics } from "@/lib/haptics";
 import { Button, colors, Icon, type IconName, spacing, Text } from "@/ui";
 import { SegmentedControl } from "@/ui/segmented-control";
 import { CameraPermissionGate } from "./components/camera-permission";
+import { type CropRect, guideCrop, type Size } from "./label-crop";
 import { putLabelDraft } from "./label-draft";
 import { forwardedTimeParams, readParam, useZone } from "./target";
 
-/** Long edge sent to the parser; the web client captures at the same size. */
+/** Long edge sent to the label reader. */
 const MAX_EDGE = 1800;
 
 type LabelState =
@@ -31,19 +32,24 @@ type LabelState =
   | { kind: "reading"; uri: string }
   | { kind: "failed"; uri: string; message: string; unavailable: boolean };
 
+interface Photo {
+  uri: string;
+  width: number;
+  height: number;
+}
+
 function defaultLabelFormat(): MacrosVisionLabelFormat {
   return getLocales()[0]?.regionCode === "US" ? "us" : "eu";
 }
 
-async function downscale(photo: {
-  uri: string;
-  width: number;
-  height: number;
-}): Promise<string> {
+async function prepare(photo: Photo, crop: CropRect | null): Promise<string> {
   const context = ImageManipulator.manipulate(photo.uri);
-  if (Math.max(photo.width, photo.height) > MAX_EDGE) {
+  if (crop) context.crop(crop);
+  const width = crop?.width ?? photo.width;
+  const height = crop?.height ?? photo.height;
+  if (Math.max(width, height) > MAX_EDGE) {
     context.resize(
-      photo.width >= photo.height ? { width: MAX_EDGE } : { height: MAX_EDGE },
+      width >= height ? { width: MAX_EDGE } : { height: MAX_EDGE },
     );
   }
   const image = await context.renderAsync();
@@ -51,6 +57,8 @@ async function downscale(photo: {
     compress: 0.85,
     format: SaveFormat.JPEG,
   });
+  image.release();
+  context.release();
   return saved.uri;
 }
 
@@ -87,11 +95,16 @@ export function LabelScreen() {
     ...forwardedTimeParams(params, today),
   };
 
+  const regionWidth = Math.min(width - spacing.xxl * 2, 380);
+  const regionHeight = Math.min(Math.round(regionWidth * 1.25), height * 0.5);
+
   const [state, setState] = useState<LabelState>({ kind: "capture" });
   const [labelFormat, setLabelFormat] = useState(defaultLabelFormat);
   const [capturing, setCapturing] = useState(false);
   const camera = useRef<CameraView>(null);
   const request = useRef<AbortController | null>(null);
+  const viewSize = useRef<Size>({ width: 0, height: 0 });
+  const frameTop = useRef(0);
 
   useEffect(() => () => request.current?.abort(), []);
 
@@ -100,13 +113,13 @@ export function LabelScreen() {
     router.replace({ pathname: "/create-food", params: forward });
   }
 
-  async function read(photo: { uri: string; width: number; height: number }) {
+  async function read(photo: Photo, crop: CropRect | null) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     setState({ kind: "reading", uri: photo.uri });
     try {
-      const uri = await downscale(photo);
+      const uri = await prepare(photo, crop);
       const label = await parseNutritionLabel(
         { uri, labelFormat },
         controller.signal,
@@ -155,7 +168,13 @@ export function LabelScreen() {
     try {
       haptics.light();
       const photo = await camera.current.takePictureAsync({ quality: 0.9 });
-      await read(photo);
+      const frame = {
+        x: (viewSize.current.width - regionWidth) / 2,
+        y: frameTop.current,
+        width: regionWidth,
+        height: regionHeight,
+      };
+      await read(photo, guideCrop(photo, viewSize.current, frame));
     } catch (error) {
       haptics.error();
       setState({
@@ -175,7 +194,7 @@ export function LabelScreen() {
       quality: 1,
     });
     const asset = result.canceled ? undefined : result.assets[0];
-    if (asset) await read(asset);
+    if (asset) await read(asset, null);
   }
 
   if (state.kind !== "capture") {
@@ -236,9 +255,6 @@ export function LabelScreen() {
     );
   }
 
-  const regionWidth = Math.min(width - spacing.xxl * 2, 380);
-  const regionHeight = Math.min(Math.round(regionWidth * 1.25), height * 0.5);
-
   return (
     <CameraPermissionGate
       purpose="photograph nutrition labels"
@@ -248,7 +264,15 @@ export function LabelScreen() {
       }}
       onClose={() => router.back()}
     >
-      <View style={styles.container}>
+      <View
+        style={styles.container}
+        onLayout={({ nativeEvent }) => {
+          viewSize.current = {
+            width: nativeEvent.layout.width,
+            height: nativeEvent.layout.height,
+          };
+        }}
+      >
         <CameraView
           ref={camera}
           style={StyleSheet.absoluteFill}
@@ -257,7 +281,12 @@ export function LabelScreen() {
 
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <View style={styles.shade} />
-          <View style={{ flexDirection: "row", height: regionHeight }}>
+          <View
+            style={{ flexDirection: "row", height: regionHeight }}
+            onLayout={({ nativeEvent }) => {
+              frameTop.current = nativeEvent.layout.y;
+            }}
+          >
             <View style={styles.shade} />
             <View
               style={[

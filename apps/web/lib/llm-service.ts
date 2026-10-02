@@ -1,7 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
+  type FlexibleSchema,
+  generateText as generateTextOnce,
   type LanguageModelUsage,
   type ModelMessage,
+  Output,
   streamText as streamTextTurn,
   type ToolApprovalStatus,
   type ToolSet,
@@ -65,7 +68,8 @@ export type LlmPurpose =
   | "triage-adjudicate"
   | "agent-memory-evaluation"
   | "incident-verdict"
-  | "speech-narrate";
+  | "speech-narrate"
+  | "nutrition-label";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -95,6 +99,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-memory-evaluation": [],
   "incident-verdict": [],
   "speech-narrate": [],
+  "nutrition-label": ["vision", "structured-output"],
 };
 
 /**
@@ -1159,6 +1164,121 @@ export async function generateJson<T>({
     content: result.content,
     usage,
   };
+}
+
+export interface StructuredImage {
+  data: Uint8Array;
+  mediaType: string;
+}
+
+export interface GenerateStructuredRequest<T> extends LlmRequestContext {
+  model: string;
+  system: string;
+  prompt: string;
+  images?: readonly StructuredImage[];
+  schema: FlexibleSchema<T>;
+  /** Turns the provider's thinking down as far as the model allows. */
+  fast?: boolean;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export interface StructuredResult<T> {
+  output: T;
+  model: string;
+  usage: LlmUsageResult;
+}
+
+type ProviderOptions = NonNullable<
+  Parameters<typeof generateTextOnce>[0]["providerOptions"]
+>;
+
+/**
+ * Gemini 3 ignores the SDK's provider-neutral `reasoning` setting through the
+ * Gateway — `none` and `minimal` still produced ~1 400 thinking tokens and
+ * 13 s on a nutrition label — while its own `thinkingLevel` takes effect.
+ * `low` is the floor every Gemini 3 model accepts; Flash refuses `minimal`.
+ */
+function fastProviderOptions(modelId: string): ProviderOptions | undefined {
+  if (modelId.startsWith("google/gemini-3")) {
+    return { google: { thinkingConfig: { thinkingLevel: "low" } } };
+  }
+  if (modelId.startsWith("google/gemini-2.5-flash")) {
+    return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+  }
+  return undefined;
+}
+
+/**
+ * One structured answer from text and optional images, through the AI SDK.
+ * The output is validated against `schema`; a response that does not match
+ * throws, as do transport failures and the deadline.
+ */
+export async function generateStructured<T>({
+  purpose,
+  source,
+  model,
+  system,
+  prompt,
+  images = [],
+  schema,
+  fast = false,
+  timeoutMs,
+  signal,
+}: GenerateStructuredRequest<T>): Promise<StructuredResult<T>> {
+  const resolved = await resolveModel({
+    model,
+    purpose,
+    requiredTags: images.length > 0 ? ["vision"] : [],
+  });
+  const deadline = AbortSignal.timeout(timeoutMs);
+
+  const result = await generateTextOnce({
+    model: gatewayLanguageModel(resolved.id),
+    system,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          ...images.map((image) => ({
+            type: "file" as const,
+            data: image.data,
+            mediaType: image.mediaType,
+          })),
+        ],
+      },
+    ],
+    output: Output.object({ schema }),
+    providerOptions: fast ? fastProviderOptions(resolved.id) : undefined,
+    maxRetries: 1,
+    abortSignal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+  });
+
+  const inputTokens = result.usage.inputTokens ?? 0;
+  const outputTokens = result.usage.outputTokens ?? 0;
+  const usage = {
+    inputTokens,
+    outputTokens,
+    costUsd: estimateCost({
+      catalogModel: resolved.catalogModel,
+      inputTokens,
+      outputTokens,
+    }),
+  };
+
+  logLlmUsage({
+    llmModel: resolved.id,
+    inputTokens,
+    outputTokens,
+    costUsd: usage.costUsd,
+    systemPrompt: system,
+    userPrompt:
+      images.length > 0 ? `${prompt}\n[${images.length} image(s)]` : prompt,
+    source,
+  });
+
+  return { output: result.output, model: resolved.id, usage };
 }
 
 export interface CountTokensRequest {
