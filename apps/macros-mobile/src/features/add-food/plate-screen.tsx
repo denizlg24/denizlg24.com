@@ -42,8 +42,7 @@ export function PlateScreen() {
   const targets = useTargets(zone.today);
   const resolved = useResolvedColors();
   const toolbarInset = useBottomToolbarInset();
-  const { commit, committing, failure, clearFailure } =
-    useCommitPlate(closeHub);
+  const { commit } = useCommitPlate(closeHub);
   const [removed, setRemoved] = useState<PlateItem[] | null>(null);
 
   const days = new Set(items.map((item) => item.input.logDate ?? zone.today));
@@ -101,7 +100,7 @@ export function PlateScreen() {
       <Stack.Toolbar placement="bottom">
         {toolbarText({
           accessibilityLabel: "Save the plate as a recipe",
-          disabled: !recipeReady || committing,
+          disabled: !recipeReady,
           onPress: () => router.push("/add-food/save-recipe"),
           children: "Recipe",
         })}
@@ -110,8 +109,8 @@ export function PlateScreen() {
           variant: "prominent",
           tintColor: resolved.label,
           style: { color: resolved.background, fontWeight: "600" },
-          disabled: items.length === 0 || committing,
-          onPress: () => void commit(items),
+          disabled: items.length === 0,
+          onPress: () => commit(items),
           children: items.length > 0 ? `Log (${items.length})` : "Log",
         })}
       </Stack.Toolbar>
@@ -123,15 +122,6 @@ export function PlateScreen() {
           toolbarInset > 0 && { paddingBottom: toolbarInset },
         ]}
       >
-        {failure ? (
-          <View style={styles.inset}>
-            <InlineNotice
-              tone="error"
-              message={failure}
-              onDismiss={clearFailure}
-            />
-          </View>
-        ) : null}
         {removed ? (
           <View style={styles.inset}>
             <InlineNotice
@@ -197,8 +187,8 @@ export function PlateScreen() {
                       macros: item.macros,
                     }}
                     energyUnit={zone.energyUnit}
-                    onPress={committing ? undefined : () => edit(item)}
-                    onRemove={committing ? undefined : () => remove([item])}
+                    onPress={() => edit(item)}
+                    onRemove={() => remove([item])}
                     separator={index < items.length - 1}
                   />
                 );

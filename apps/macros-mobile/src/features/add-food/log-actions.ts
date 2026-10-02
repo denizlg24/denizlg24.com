@@ -1,8 +1,10 @@
+import type { MacrosDailyMacros } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
-import { type LoggedAmount, reachesDayTarget } from "@/api/day-targets";
+import { reachesDayTarget } from "@/api/day-targets";
 import {
   type LogFoodInput,
   type LogRecipeInput,
+  showLogged,
   useLogFood,
   useLogRecipe,
 } from "@/api/food-log";
@@ -71,7 +73,7 @@ export function useLogActions() {
     request: LogRequest,
     name: string,
     flashKey?: string,
-    macros?: LoggedAmount["macros"],
+    macros?: MacrosDailyMacros,
   ) {
     const stamped = withIdempotencyKey(request);
     const reached =
@@ -81,6 +83,7 @@ export function useLogActions() {
       ]);
     if (reached) haptics.goalReached();
     else haptics.success();
+    if (macros) showLogged(queryClient, stamped.input.logDate, macros);
     if (flashKey) lastLogged.set({ key: flashKey, at: Date.now() });
     send(stamped).catch((error: unknown) => {
       haptics.error();

@@ -1,8 +1,8 @@
 import type { NativeStackNavigationOptions } from "expo-router";
 import {
+  amountSheet,
   cameraModal,
   compactSheet,
-  detentSheet,
   formModal,
   type ModalRoute,
 } from "@/features/shell/routes";
@@ -11,8 +11,8 @@ import { colors } from "@/ui/theme";
 export const addFoodModalRoutes: ModalRoute[] = [
   // The hub runs its own stack, so the plate pushes inside the modal.
   { name: "add-food", options: { presentation: "modal", headerShown: false } },
-  { name: "food/[id]", options: detentSheet },
-  { name: "recipe-log/[id]", options: detentSheet },
+  { name: "food/[id]", options: amountSheet },
+  { name: "recipe-log/[id]", options: amountSheet },
   { name: "scan", options: cameraModal },
   { name: "label", options: cameraModal },
   { name: "create-food", options: { ...formModal, title: "New food" } },

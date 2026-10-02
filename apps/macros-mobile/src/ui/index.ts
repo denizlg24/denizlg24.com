@@ -41,4 +41,5 @@ export {
   type TypeVariant,
   typeScale,
   useResolvedColors,
+  waterColor,
 } from "./theme";

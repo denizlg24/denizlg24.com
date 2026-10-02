@@ -11,18 +11,16 @@ import {
   logPlacement,
   logTimeParams,
 } from "@/lib/log-time";
-import { colors, gutter, Screen, spacing } from "@/ui";
+import { gutter, Screen, spacing } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
 import { toolbarText } from "@/ui/toolbar";
 import { CaloriePill } from "./components/calorie-pill";
 import { type HubTab, HubTabs, isHubTab } from "./components/hub-tabs";
-import { PlateBar } from "./components/plate-bar";
 import type { QuickHandlers } from "./components/quick-section";
 import { LibraryBody, RecipesBody, ShopBody } from "./hub-lists";
 import { SearchBody } from "./hub-search";
 import { hubTime, hubTimeLabel, useHubTime } from "./hub-time";
 import { useLogActions } from "./log-actions";
-import { useCommitPlate } from "./plate-commit";
 import { addToPlate, plateTotals, usePlate } from "./plate-store";
 import {
   type Placement,
@@ -66,9 +64,6 @@ export function HubScreen() {
   const staged = plateTotals(plate).calories;
   const summary = useCalorieSummary(zone.today).data;
   const { log } = useLogActions();
-  const { commit, committing, failure, clearFailure } = useCommitPlate(() =>
-    router.back(),
-  );
 
   function placement(): Placement {
     return logPlacement(when, zone.timeZone);
@@ -126,6 +121,17 @@ export function HubScreen() {
           children: hubTimeLabel(when, zone.timeZone, zone.today, now),
         })}
       </Stack.Toolbar>
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon={glyphs.utensils}
+          iconRenderingMode="template"
+          accessibilityLabel={`Plate, ${plate.length} ${plate.length === 1 ? "food" : "foods"}`}
+          hidden={plate.length === 0}
+          onPress={() => router.push("/add-food/plate")}
+        >
+          <Stack.Toolbar.Badge>{String(plate.length)}</Stack.Toolbar.Badge>
+        </Stack.Toolbar.Button>
+      </Stack.Toolbar>
       {/* Android has no search slot; its search field stays in the header. */}
       {Platform.OS === "ios" ? (
         <Stack.Toolbar placement="bottom">
@@ -138,26 +144,11 @@ export function HubScreen() {
         stickyHeaderIndices={[0]}
         contentContainerStyle={styles.content}
       >
-        <View style={styles.header}>
-          <HubTabs
-            value={tab}
-            onChange={setTab}
-            onScan={() =>
-              router.push({ pathname: "/scan", params: whenParams })
-            }
-          />
-          <View style={styles.plate}>
-            <PlateBar
-              items={plate}
-              energyUnit={zone.energyUnit}
-              committing={committing}
-              failure={failure}
-              onOpen={() => router.push("/add-food/plate")}
-              onLog={() => void commit(plate)}
-              onClearFailure={clearFailure}
-            />
-          </View>
-        </View>
+        <HubTabs
+          value={tab}
+          onChange={setTab}
+          onScan={() => router.push({ pathname: "/scan", params: whenParams })}
+        />
         <View>
           <View style={styles.inset}>
             <FailedWritesNotice />
@@ -197,12 +188,6 @@ export function HubScreen() {
 const styles = StyleSheet.create({
   content: {
     paddingTop: 0,
-  },
-  header: {
-    backgroundColor: colors.background,
-  },
-  plate: {
-    paddingHorizontal: gutter,
   },
   inset: {
     paddingHorizontal: gutter,

@@ -72,6 +72,9 @@ export const macroColors = {
 
 export type MacroColorKey = keyof typeof macroColors;
 
+/** Water's one hue: the glass, the cups. */
+export const waterColor = "#4ba3e3";
+
 /**
  * Concrete hex values for surfaces that cannot resolve a PlatformColor —
  * react-native-svg paints and anything interpolated by Reanimated.

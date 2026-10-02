@@ -174,8 +174,12 @@ small differences are a `Platform.OS` check. The ones that exist:
   `Button` (a toolbar Save) wraps itself in `useSinglePress`. The row "+"
   that stages food is the one deliberate exception: tapping it twice adds
   twice.
-- Short tasks are sheets, not pages: `compactSheet` (fits content) or
-  `detentSheet` (0.6 → 1) from `features/shell/routes.ts`. A sheet without a
+- Short tasks are sheets, not pages: `compactSheet` (fits content),
+  `detentSheet` (0.6 → 1) or `amountSheet` (0.9 → 1, the food and recipe
+  sheets, so the keypad leaves the macros in view) from
+  `features/shell/routes.ts`. Every sheet sets `contentStyle.backgroundColor`:
+  on iOS that is the only thing that paints the strip under the bottom safe
+  area, which otherwise shows the bare, translucent sheet. A sheet without a
   navigation bar opens with `SheetHeader` from `@/ui` (title, artwork,
   actions, Close) and pads its content by `sheetGutter` with `spacing.xl`
   above the header; edit sheets with Cancel / Save use the log's bar. Full forms with
@@ -196,14 +200,18 @@ small differences are a `Platform.OS` check. The ones that exist:
   row lands at its new hour at once and the write survives being offline.
 - Adding food follows the web app's model. The tab bar's middle "+" (a
   disabled trigger, so it never selects) opens the shortcuts sheet; Search
-  opens the add-food hub: a time chip and a calorie pill in the header, a
-  Scan / Search / Recipes / Library / Shop strip with the plate bar under it
-  (sticky), and the search field alone in the bottom toolbar. A row's "+"
-  stages its amount on the plate; everything on it is logged together. Swipe
-  logs at once. The plate bar (`PlateBar`: count, energy, macros, Log) is in
-  content, not a toolbar, because iOS collapses the other toolbar items while
-  the search field is active; `PendingPlateBar` shows the same on Today and
-  the Log whenever the plate holds food.
+  opens the add-food hub: a time chip and a calorie pill in the header, the
+  plate as a top-right toolbar button with a count badge (hidden while
+  empty), a sticky Scan / Search / Recipes / Library / Shop strip, and the
+  search field alone in the bottom toolbar. A row's "+" stages its amount on
+  the plate; everything on it is logged together from the plate screen.
+  Swipe logs at once. `PendingPlateBar` (count, energy, macros, Log) shows on
+  Today and the Log whenever the plate holds food.
+  Logging is optimistic: `showLogged` adds the amounts to the cached
+  calorie summary, dashboard and day totals, the plate empties and the
+  screen closes before any request returns. Writes run serially in the
+  log scope and only the last one still queued refetches, so totals never
+  step through partial states; a refused plate item goes back on the plate.
   The food and recipe sheets dock `AmountBar` at the bottom: the amount, a
   secondary action and the primary one; tapping the amount opens our own
   keypad (fractions and mixed numbers, `features/add-food/amount-input.ts`)

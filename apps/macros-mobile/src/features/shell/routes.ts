@@ -1,13 +1,13 @@
 import type { NativeStackNavigationOptions } from "expo-router";
-import { Platform } from "react-native";
 import { colors } from "@/ui/theme";
 
-// iOS gives a sheet the system background; Android's is otherwise bare, which
-// leaves dark-mode text on a light sheet.
-const androidSheetBackground: NativeStackNavigationOptions =
-  Platform.OS === "android"
-    ? { contentStyle: { backgroundColor: colors.background } }
-    : {};
+// On iOS the sheet's content stops above the bottom safe area, and only a
+// background given here is painted on the screen beneath it — without it that
+// strip shows the bare sheet, translucent on iOS 26. Android's sheet is
+// otherwise bare, which leaves dark-mode text on a light sheet.
+const sheetBackground: NativeStackNavigationOptions = {
+  contentStyle: { backgroundColor: colors.background },
+};
 
 /** Every tab's own stack: large titles that collapse into the bar on scroll. */
 export const tabStackOptions: NativeStackNavigationOptions = {
@@ -43,7 +43,7 @@ export const compactSheet: NativeStackNavigationOptions = {
   sheetAllowedDetents: "fitToContents",
   sheetGrabberVisible: true,
   headerShown: false,
-  ...androidSheetBackground,
+  ...sheetBackground,
 };
 
 /** A sheet that opens at half height and can be pulled to full. */
@@ -53,7 +53,16 @@ export const detentSheet: NativeStackNavigationOptions = {
   sheetGrabberVisible: true,
   sheetExpandsWhenScrolledToEdge: true,
   headerShown: false,
-  ...androidSheetBackground,
+  ...sheetBackground,
+};
+
+/**
+ * The food and recipe sheets: tall enough that the amount keypad leaves the
+ * macros and the first nutrients in view.
+ */
+export const amountSheet: NativeStackNavigationOptions = {
+  ...detentSheet,
+  sheetAllowedDetents: [0.9, 1],
 };
 
 /** A full form with its own header (Cancel / Save). */

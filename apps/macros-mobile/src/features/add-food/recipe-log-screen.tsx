@@ -139,9 +139,7 @@ function RecipeLogBody({
   });
   const [keypadOpen, setKeypadOpen] = useState(true);
   const plate = usePlate();
-  const { commit, committing, failure, clearFailure } = useCommitPlate(() =>
-    leaveAfterLogging(hubBelow()),
-  );
+  const { commit } = useCommitPlate(() => leaveAfterLogging(hubBelow()));
   const [when, setWhen] = useState<LogTime>(() =>
     plateItem
       ? logTimeOf(
@@ -200,7 +198,7 @@ function RecipeLogBody({
     const staged = stagedItem(newClientMutationId());
     if (!staged) return;
     addToPlate(staged);
-    void commit([...plate, staged]);
+    commit([...plate, staged]);
   }
 
   return (
@@ -236,10 +234,6 @@ function RecipeLogBody({
             targets={targets}
             energyUnit={zone.energyUnit}
           />
-
-          {failure ? (
-            <InlineNotice message={failure} onDismiss={clearFailure} />
-          ) : null}
 
           <NutritionBreakdown
             nutrients={scaled}
@@ -288,13 +282,12 @@ function RecipeLogBody({
                 label: "Log Foods",
                 onPress: logNow,
                 disabled: !valid,
-                busy: committing,
               }
         }
         primary={{
           label: plateItem ? "Update" : "Add",
           onPress: stage,
-          disabled: !valid || committing,
+          disabled: !valid,
         }}
       />
     </View>
