@@ -820,7 +820,10 @@ jobs:
             echo "::error::The release APK is still signed with the debug key."
             exit 1
           fi
-          signers="$(grep -c '^Signer #[0-9]* certificate DN:' "$RUNNER_TEMP/signature.txt" || true)"
+          # apksigner prefixes each line with the scheme ("V3.0 Signer:") or the
+          # signer index ("Signer #1"), depending on its version and minSdk, and
+          # repeats a signer once per scheme; distinct digests are the signers.
+          signers="$(grep -E 'certificate SHA-256 digest:' "$RUNNER_TEMP/signature.txt" | awk '{print $NF}' | sort -u | wc -l | tr -d ' ')"
           if [[ "$signers" != "1" ]]; then
             echo "::error::The release APK has $signers signers; expected exactly one."
             exit 1
