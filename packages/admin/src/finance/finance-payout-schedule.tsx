@@ -190,7 +190,7 @@ function PeriodRow({
               <span className="text-[10px] text-muted-foreground">edited</span>
             )}
           </div>
-          <div className="mt-0.5 truncate text-[11px] tabular-nums text-muted-foreground">
+          <div className="mt-0.5 text-[11px] text-pretty tabular-nums text-muted-foreground">
             {shortDay(period.periodStart)} – {shortDay(period.periodEnd)} ·{" "}
             {formatMinutes(period.loggedMinutes)}
             {period.projectedMinutes !== period.loggedMinutes &&
