@@ -31,7 +31,7 @@ export function SectionHead({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+      <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </span>
       <span className="h-px flex-1 bg-border" />
