@@ -12,7 +12,7 @@
   "dependencies": {
     "@repo/cloud-core": "workspace:*",
     "@repo/schemas": "workspace:*",
-    "bun-pty": "^0.4.10"
+    "bun-pty": "^0.4.11"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
