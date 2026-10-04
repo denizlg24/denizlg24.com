@@ -1,0 +1,10 @@
+{
+  "defaultIconKey": "other-001",
+  "rules": [
+    {
+      "iconKey": "example-group-001",
+      "priority": 100,
+      "patterns": ["\\bexample food\\b"]
+    }
+  ]
+}

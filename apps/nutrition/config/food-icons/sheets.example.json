@@ -1,0 +1,28 @@
+{
+  "outputDirectory": "../../data/food-icons",
+  "backgroundTolerance": 24,
+  "sheets": [
+    {
+      "id": "other-1",
+      "input": "../../data/food-icons/screenshots/other-1.png",
+      "foodGroup": "other",
+      "crop": {
+        "left": 0,
+        "top": 0,
+        "width": 100,
+        "height": 100
+      },
+      "grid": {
+        "columns": 1,
+        "rows": 1,
+        "paddingLeft": 0,
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "gapX": 0,
+        "gapY": 0
+      },
+      "skipCells": []
+    }
+  ]
+}

@@ -19,6 +19,8 @@ COPY apps/macros-mobile/package.json apps/macros-mobile/package.json
 COPY apps/macros/package.json apps/macros/package.json
 COPY apps/markets-relay/package.json apps/markets-relay/package.json
 COPY apps/mcp/package.json apps/mcp/package.json
+COPY apps/nutrition/package.json apps/nutrition/package.json
+COPY apps/nutrition/frontend/package.json apps/nutrition/frontend/package.json
 COPY apps/sandbox/package.json apps/sandbox/package.json
 COPY apps/status/package.json apps/status/package.json
 COPY apps/storage-metadata/package.json apps/storage-metadata/package.json

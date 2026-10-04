@@ -1,3 +1,4 @@
+import { barcodeLookupKeys, normalizeBarcode } from "@repo/macros-core/barcode";
 import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/db/connection";
 import { foods, userCustomFoods } from "@/db/schema";
@@ -82,7 +83,8 @@ export async function refreshStaleIcons(
  * Editing a food the user did not create makes them their own copy, and the
  * copy keeps the barcode. Entries logged before the edit still point at the
  * original, so this is how the log and history learn the icon the user
- * picked for it.
+ * picked for it. Barcodes match on their normalized form: copies saved before
+ * the nutrition API stored GTIN-14 keep the spelling they were scanned with.
  */
 export async function ownIconsByBarcode(
   userId: string,
@@ -90,6 +92,9 @@ export async function ownIconsByBarcode(
 ): Promise<Map<string, string>> {
   const wanted = [...new Set(barcodes.filter((code) => code !== null))];
   if (wanted.length === 0) return new Map();
+  const spellings = [
+    ...new Set(wanted.flatMap((code) => barcodeLookupKeys(code))),
+  ];
   const rows = await db
     .select({ barcode: foods.barcode, iconKey: foods.iconKey })
     .from(userCustomFoods)
@@ -99,10 +104,18 @@ export async function ownIconsByBarcode(
         eq(userCustomFoods.userId, userId),
         isNull(userCustomFoods.deletedAt),
         eq(foods.ownerUserId, userId),
-        inArray(foods.barcode, wanted),
+        inArray(foods.barcode, spellings),
       ),
     );
+  const iconByKey = new Map(
+    rows.flatMap((row) =>
+      row.barcode ? [[normalizeBarcode(row.barcode), row.iconKey]] : [],
+    ),
+  );
   return new Map(
-    rows.flatMap((row) => (row.barcode ? [[row.barcode, row.iconKey]] : [])),
+    wanted.flatMap((code) => {
+      const iconKey = iconByKey.get(normalizeBarcode(code));
+      return iconKey ? [[code, iconKey]] : [];
+    }),
   );
 }

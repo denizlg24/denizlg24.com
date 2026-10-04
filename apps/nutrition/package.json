@@ -1,0 +1,50 @@
+{
+  "name": "nutrition",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env.nutrition --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run dist/index.js",
+    "test": "bun test src scripts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun --env-file=../../.env.nutrition run drizzle-kit migrate",
+    "db:backup": "bun --env-file=../../.env.nutrition scripts/backup-db.ts",
+    "api-key:generate": "bun --env-file=../../.env.nutrition scripts/generate-api-key.ts",
+    "sources:download": "bun scripts/sources/download.ts",
+    "import:openfoodfacts": "bun --env-file=../../.env.nutrition scripts/import-openfoodfacts.ts",
+    "import:usda": "bun --env-file=../../.env.nutrition scripts/import-usda.ts",
+    "import:branded": "bun --env-file=../../.env.nutrition scripts/import-usda-branded.ts",
+    "import:research": "bun --env-file=../../.env.nutrition scripts/import-research.ts",
+    "barcodes:normalize": "bun --env-file=../../.env.nutrition scripts/normalize-barcodes.ts",
+    "dedupe:openfoodfacts": "bun --env-file=../../.env.nutrition scripts/dedupe-openfoodfacts.ts",
+    "concepts:link": "bun --env-file=../../.env.nutrition scripts/link-concepts.ts",
+    "icons:process": "bun scripts/process-food-icons.ts",
+    "icons:import": "bun --env-file=../../.env.nutrition scripts/import-food-icons.ts",
+    "icons:assign": "bun --env-file=../../.env.nutrition scripts/assign-food-icons.ts",
+    "icons:classify": "bun --env-file=../../.env.nutrition scripts/classify-foods-llm.ts",
+    "quality:audit": "bun --env-file=../../.env.nutrition scripts/audit-food-quality.ts",
+    "search:sync": "bun --env-file=../../.env.nutrition scripts/sync-meilisearch.ts"
+  },
+  "dependencies": {
+    "@elysia/openapi": "^1.4.15",
+    "@repo/macros-core": "workspace:*",
+    "@sinclair/typebox": "^0.34.49",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "^1.4.28",
+    "ioredis": "^5.10.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/bun": "^1.4.2",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "fflate": "^0.8.3",
+    "sharp": "^0.34.3",
+    "typescript": "5.9.3",
+    "xlsx": "^0.18.5"
+  }
+}
