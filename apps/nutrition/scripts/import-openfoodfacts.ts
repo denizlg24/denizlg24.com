@@ -130,6 +130,7 @@ const main = async () => {
   let imported = 0;
   let skipped = 0;
   let failed = 0;
+  let lastReported = 0;
 
   const flush = async () => {
     if (batch.size === 0) return;
@@ -191,7 +192,8 @@ const main = async () => {
 
       if (batch.size >= args.batchSize) {
         await flush();
-        if (processed % 50_000 < args.batchSize) {
+        if (processed - lastReported >= 100_000) {
+          lastReported = processed;
           console.log(
             `  line=${index} processed=${processed} imported=${imported} skipped=${skipped} failed=${failed}`,
           );
