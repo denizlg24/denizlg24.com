@@ -28,6 +28,7 @@ const args = {
   source: readOption("--source", ""),
   dryRun: Bun.argv.includes("--dry-run"),
   redo: Bun.argv.includes("--redo"),
+  reasoning: readOption("--reasoning", "minimal"),
 };
 
 const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/chat/completions";
@@ -77,7 +78,7 @@ const describe = (item: Candidate, index: number) => {
   return `${index}. ${research.has(item.source) ? "[R] " : ""}${names}${extra ? ` (${extra})` : ""}`;
 };
 
-const responseFormat = {
+const responseFormat = (withConcepts: boolean) => ({
   type: "json_schema",
   json_schema: {
     name: "icon_assignments",
@@ -92,18 +93,22 @@ const responseFormat = {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["i", "key", "concept"],
+            required: withConcepts ? ["i", "key", "concept"] : ["i", "key"],
             properties: {
               i: { type: "integer" },
               key: { type: "string" },
-              concept: { type: ["string", "null"] },
+              // Product batches never carry concepts; leaving the field out
+              // saves a third of the output tokens, which bound throughput.
+              ...(withConcepts
+                ? { concept: { type: ["string", "null"] } }
+                : {}),
             },
           },
         },
       },
     },
   },
-};
+});
 
 const usage = { input: 0, cachedInput: 0, output: 0, calls: 0, failed: 0 };
 
@@ -131,7 +136,12 @@ const classifyBatch = async (
           { role: "system", content: system },
           { role: "user", content: batch.map(describe).join("\n") },
         ],
-        response_format: responseFormat,
+        // Matching a name to a catalog line needs no deliberation; hidden
+        // reasoning tokens were most of the output and all of the latency.
+        reasoning_effort: args.reasoning,
+        response_format: responseFormat(
+          batch.some((item) => research.has(item.source)),
+        ),
       }),
       signal: AbortSignal.timeout(120_000),
     }).catch((error: unknown) => error);
@@ -167,7 +177,12 @@ const classifyBatch = async (
     const content = isRecord(message) ? message.content : undefined;
     if (typeof content !== "string") return new Map();
 
-    const parsed: unknown = JSON.parse(content);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      continue;
+    }
     const entries =
       isRecord(parsed) && Array.isArray(parsed.items) ? parsed.items : [];
     const result = new Map<string, Assignment>();

@@ -52,4 +52,6 @@ export const env = {
     DEFAULT_RATE_LIMIT_WINDOW_MS,
   ),
   redisUrl: readRequiredString("REDIS_URL"),
+  /** Forge-provisioned Redis users may only touch keys under `<prefix>:`. */
+  redisKeyPrefix: readString("REDIS_KEY_PREFIX"),
 } as const;
