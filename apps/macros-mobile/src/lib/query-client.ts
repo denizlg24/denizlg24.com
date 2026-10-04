@@ -62,7 +62,14 @@ export function createPersister(userId: string) {
 }
 
 export const PERSIST_MAX_AGE = 7 * DAY_MS;
-export const PERSIST_BUSTER = APP_VERSION;
+
+/**
+ * Raise to drop every persisted cache on the next launch without a version
+ * change, when the server's data changed under it (the nutrition catalogue
+ * rebuild of 2026-10-04 reassigned most food icons).
+ */
+const CACHE_EPOCH = 1;
+export const PERSIST_BUSTER = `${APP_VERSION}:${CACHE_EPOCH}`;
 
 export async function clearPersistedCaches() {
   const keys = await AsyncStorage.getAllKeys();
