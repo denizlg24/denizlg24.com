@@ -11,11 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/hono": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/hono": "^2.0.1",
+    "@modelcontextprotocol/server": "^2.2.0",
     "@repo/cloud-auth-client": "workspace:*",
     "@repo/schemas": "workspace:*",
-    "hono": "^4.13.8",
+    "hono": "^4.13.12",
     "jose": "^6.2.12",
     "zod": "^4.6.5"
   },
