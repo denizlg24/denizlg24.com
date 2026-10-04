@@ -1,0 +1,3396 @@
+{
+  "icons": [
+    {
+      "key": "baked-goods-001",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-001.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-002",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-002.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-003",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-003.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-004",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-004.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-005",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-005.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-006",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-006.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "baked-goods-007",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-007.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-008",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-008.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-009",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-009.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-010",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-010.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-011",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-011.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-012",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-012.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "baked-goods-013",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-013.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-014",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-014.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-015",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-015.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-016",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-016.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-017",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-017.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-018",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-018.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "baked-goods-019",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-019.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-020",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-020.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-021",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-021.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-022",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-022.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-023",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-023.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-024",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-024.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "baked-goods-025",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-025.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-026",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-026.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-027",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-027.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-028",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-028.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-029",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-029.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-030",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-030.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "baked-goods-031",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-031.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "baked-goods-032",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-032.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "baked-goods-033",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-033.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "baked-goods-034",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-034.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "baked-goods-035",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-035.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "baked-goods-036",
+      "foodGroup": "baked-goods",
+      "file": "icons/baked-goods-036.png",
+      "sourceSheet": "baked-goods-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "meats-001",
+      "foodGroup": "meats",
+      "file": "icons/meats-001.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "meats-002",
+      "foodGroup": "meats",
+      "file": "icons/meats-002.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "meats-003",
+      "foodGroup": "meats",
+      "file": "icons/meats-003.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "meats-004",
+      "foodGroup": "meats",
+      "file": "icons/meats-004.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "meats-005",
+      "foodGroup": "meats",
+      "file": "icons/meats-005.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "meats-006",
+      "foodGroup": "meats",
+      "file": "icons/meats-006.png",
+      "sourceSheet": "meats-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "meats-007",
+      "foodGroup": "meats",
+      "file": "icons/meats-007.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "meats-008",
+      "foodGroup": "meats",
+      "file": "icons/meats-008.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "meats-009",
+      "foodGroup": "meats",
+      "file": "icons/meats-009.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "meats-010",
+      "foodGroup": "meats",
+      "file": "icons/meats-010.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "meats-011",
+      "foodGroup": "meats",
+      "file": "icons/meats-011.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "meats-012",
+      "foodGroup": "meats",
+      "file": "icons/meats-012.png",
+      "sourceSheet": "meats-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "meats-013",
+      "foodGroup": "meats",
+      "file": "icons/meats-013.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "meats-014",
+      "foodGroup": "meats",
+      "file": "icons/meats-014.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "meats-015",
+      "foodGroup": "meats",
+      "file": "icons/meats-015.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "meats-016",
+      "foodGroup": "meats",
+      "file": "icons/meats-016.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "meats-017",
+      "foodGroup": "meats",
+      "file": "icons/meats-017.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "meats-018",
+      "foodGroup": "meats",
+      "file": "icons/meats-018.png",
+      "sourceSheet": "meats-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "meats-019",
+      "foodGroup": "meats",
+      "file": "icons/meats-019.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "meats-020",
+      "foodGroup": "meats",
+      "file": "icons/meats-020.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "meats-021",
+      "foodGroup": "meats",
+      "file": "icons/meats-021.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "meats-022",
+      "foodGroup": "meats",
+      "file": "icons/meats-022.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "meats-023",
+      "foodGroup": "meats",
+      "file": "icons/meats-023.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "meats-024",
+      "foodGroup": "meats",
+      "file": "icons/meats-024.png",
+      "sourceSheet": "meats-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "meats-025",
+      "foodGroup": "meats",
+      "file": "icons/meats-025.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "meats-026",
+      "foodGroup": "meats",
+      "file": "icons/meats-026.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "meats-027",
+      "foodGroup": "meats",
+      "file": "icons/meats-027.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "meats-028",
+      "foodGroup": "meats",
+      "file": "icons/meats-028.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "meats-029",
+      "foodGroup": "meats",
+      "file": "icons/meats-029.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "meats-030",
+      "foodGroup": "meats",
+      "file": "icons/meats-030.png",
+      "sourceSheet": "meats-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "meats-031",
+      "foodGroup": "meats",
+      "file": "icons/meats-031.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "meats-032",
+      "foodGroup": "meats",
+      "file": "icons/meats-032.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "meats-033",
+      "foodGroup": "meats",
+      "file": "icons/meats-033.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "meats-034",
+      "foodGroup": "meats",
+      "file": "icons/meats-034.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "meats-035",
+      "foodGroup": "meats",
+      "file": "icons/meats-035.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "meats-036",
+      "foodGroup": "meats",
+      "file": "icons/meats-036.png",
+      "sourceSheet": "meats-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "meats-037",
+      "foodGroup": "meats",
+      "file": "icons/meats-037.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "key": "meats-038",
+      "foodGroup": "meats",
+      "file": "icons/meats-038.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 2
+    },
+    {
+      "key": "meats-039",
+      "foodGroup": "meats",
+      "file": "icons/meats-039.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 3
+    },
+    {
+      "key": "meats-040",
+      "foodGroup": "meats",
+      "file": "icons/meats-040.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 4
+    },
+    {
+      "key": "meats-041",
+      "foodGroup": "meats",
+      "file": "icons/meats-041.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 5
+    },
+    {
+      "key": "meats-042",
+      "foodGroup": "meats",
+      "file": "icons/meats-042.png",
+      "sourceSheet": "meats-1",
+      "row": 7,
+      "column": 6
+    },
+    {
+      "key": "meats-043",
+      "foodGroup": "meats",
+      "file": "icons/meats-043.png",
+      "sourceSheet": "meats-1",
+      "row": 8,
+      "column": 1
+    },
+    {
+      "key": "vegetables-001",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-001.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "vegetables-002",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-002.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "vegetables-003",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-003.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "vegetables-004",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-004.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "vegetables-005",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-005.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "vegetables-006",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-006.png",
+      "sourceSheet": "vegetables-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "vegetables-007",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-007.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "vegetables-008",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-008.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "vegetables-009",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-009.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "vegetables-010",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-010.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "vegetables-011",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-011.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "vegetables-012",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-012.png",
+      "sourceSheet": "vegetables-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "vegetables-013",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-013.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "vegetables-014",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-014.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "vegetables-015",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-015.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "vegetables-016",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-016.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "vegetables-017",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-017.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "vegetables-018",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-018.png",
+      "sourceSheet": "vegetables-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "vegetables-019",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-019.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "vegetables-020",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-020.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "vegetables-021",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-021.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "vegetables-022",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-022.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "vegetables-023",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-023.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "vegetables-024",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-024.png",
+      "sourceSheet": "vegetables-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "vegetables-025",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-025.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "vegetables-026",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-026.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "vegetables-027",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-027.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "vegetables-028",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-028.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "vegetables-029",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-029.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "vegetables-030",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-030.png",
+      "sourceSheet": "vegetables-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "vegetables-031",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-031.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "vegetables-032",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-032.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "vegetables-033",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-033.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "vegetables-034",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-034.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "vegetables-035",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-035.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "vegetables-036",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-036.png",
+      "sourceSheet": "vegetables-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "vegetables-037",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-037.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "key": "vegetables-038",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-038.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 2
+    },
+    {
+      "key": "vegetables-039",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-039.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 3
+    },
+    {
+      "key": "vegetables-040",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-040.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 4
+    },
+    {
+      "key": "vegetables-041",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-041.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 5
+    },
+    {
+      "key": "vegetables-042",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-042.png",
+      "sourceSheet": "vegetables-1",
+      "row": 7,
+      "column": 6
+    },
+    {
+      "key": "vegetables-043",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-043.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "vegetables-044",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-044.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "vegetables-045",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-045.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "vegetables-046",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-046.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "vegetables-047",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-047.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "vegetables-048",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-048.png",
+      "sourceSheet": "vegetables-2",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "vegetables-049",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-049.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "vegetables-050",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-050.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "vegetables-051",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-051.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "vegetables-052",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-052.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "vegetables-053",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-053.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "vegetables-054",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-054.png",
+      "sourceSheet": "vegetables-2",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "vegetables-055",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-055.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "vegetables-056",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-056.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "vegetables-057",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-057.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "vegetables-058",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-058.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "vegetables-059",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-059.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "vegetables-060",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-060.png",
+      "sourceSheet": "vegetables-2",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "vegetables-061",
+      "foodGroup": "vegetables",
+      "file": "icons/vegetables-061.png",
+      "sourceSheet": "vegetables-2",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "seafood-001",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-001.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "seafood-002",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-002.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "seafood-003",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-003.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "seafood-004",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-004.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "seafood-005",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-005.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "seafood-006",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-006.png",
+      "sourceSheet": "seafood-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "seafood-007",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-007.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "seafood-008",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-008.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "seafood-009",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-009.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "seafood-010",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-010.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "seafood-011",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-011.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "seafood-012",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-012.png",
+      "sourceSheet": "seafood-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "seafood-013",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-013.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "seafood-014",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-014.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "seafood-015",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-015.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "seafood-016",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-016.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "seafood-017",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-017.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "seafood-018",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-018.png",
+      "sourceSheet": "seafood-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "seafood-019",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-019.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "seafood-020",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-020.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "seafood-021",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-021.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "seafood-022",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-022.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "seafood-023",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-023.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "seafood-024",
+      "foodGroup": "seafood",
+      "file": "icons/seafood-024.png",
+      "sourceSheet": "seafood-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "fruit-001",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-001.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "fruit-002",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-002.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "fruit-003",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-003.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "fruit-004",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-004.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "fruit-005",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-005.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "fruit-006",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-006.png",
+      "sourceSheet": "fruit-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "fruit-007",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-007.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "fruit-008",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-008.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "fruit-009",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-009.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "fruit-010",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-010.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "fruit-011",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-011.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "fruit-012",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-012.png",
+      "sourceSheet": "fruit-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "fruit-013",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-013.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "fruit-014",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-014.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "fruit-015",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-015.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "fruit-016",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-016.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "fruit-017",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-017.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "fruit-018",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-018.png",
+      "sourceSheet": "fruit-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "fruit-019",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-019.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "fruit-020",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-020.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "fruit-021",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-021.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "fruit-022",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-022.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "fruit-023",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-023.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "fruit-024",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-024.png",
+      "sourceSheet": "fruit-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "fruit-025",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-025.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "fruit-026",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-026.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "fruit-027",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-027.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "fruit-028",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-028.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "fruit-029",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-029.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "fruit-030",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-030.png",
+      "sourceSheet": "fruit-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "fruit-031",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-031.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "fruit-032",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-032.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "fruit-033",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-033.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "fruit-034",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-034.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "fruit-035",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-035.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "fruit-036",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-036.png",
+      "sourceSheet": "fruit-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "fruit-037",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-037.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "key": "fruit-038",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-038.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 2
+    },
+    {
+      "key": "fruit-039",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-039.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 3
+    },
+    {
+      "key": "fruit-040",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-040.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 4
+    },
+    {
+      "key": "fruit-041",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-041.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 5
+    },
+    {
+      "key": "fruit-042",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-042.png",
+      "sourceSheet": "fruit-1",
+      "row": 7,
+      "column": 6
+    },
+    {
+      "key": "fruit-043",
+      "foodGroup": "fruit",
+      "file": "icons/fruit-043.png",
+      "sourceSheet": "fruit-1",
+      "row": 8,
+      "column": 1
+    },
+    {
+      "key": "nuts-and-seeds-001",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-001.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "nuts-and-seeds-002",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-002.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "nuts-and-seeds-003",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-003.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "nuts-and-seeds-004",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-004.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "nuts-and-seeds-005",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-005.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "nuts-and-seeds-006",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-006.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "nuts-and-seeds-007",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-007.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "nuts-and-seeds-008",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-008.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "nuts-and-seeds-009",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-009.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "nuts-and-seeds-010",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-010.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "nuts-and-seeds-011",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-011.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "nuts-and-seeds-012",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-012.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "nuts-and-seeds-013",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-013.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "nuts-and-seeds-014",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-014.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "nuts-and-seeds-015",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-015.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "nuts-and-seeds-016",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-016.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "nuts-and-seeds-017",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-017.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "nuts-and-seeds-018",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-018.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "nuts-and-seeds-019",
+      "foodGroup": "nuts-and-seeds",
+      "file": "icons/nuts-and-seeds-019.png",
+      "sourceSheet": "nuts-and-seeds-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "dairy-and-eggs-001",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-001.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "dairy-and-eggs-002",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-002.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "dairy-and-eggs-003",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-003.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "dairy-and-eggs-004",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-004.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "dairy-and-eggs-005",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-005.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "dairy-and-eggs-006",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-006.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "dairy-and-eggs-007",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-007.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "dairy-and-eggs-008",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-008.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "dairy-and-eggs-009",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-009.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "dairy-and-eggs-010",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-010.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "dairy-and-eggs-011",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-011.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "dairy-and-eggs-012",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-012.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "dairy-and-eggs-013",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-013.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "dairy-and-eggs-014",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-014.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "dairy-and-eggs-015",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-015.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "dairy-and-eggs-016",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-016.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "dairy-and-eggs-017",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-017.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "dairy-and-eggs-018",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-018.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "dairy-and-eggs-019",
+      "foodGroup": "dairy-and-eggs",
+      "file": "icons/dairy-and-eggs-019.png",
+      "sourceSheet": "dairy-and-eggs-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "drinks-001",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-001.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "drinks-002",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-002.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "drinks-003",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-003.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "drinks-004",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-004.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "drinks-005",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-005.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "drinks-006",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-006.png",
+      "sourceSheet": "drinks-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "drinks-007",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-007.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "drinks-008",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-008.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "drinks-009",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-009.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "drinks-010",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-010.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "drinks-011",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-011.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "drinks-012",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-012.png",
+      "sourceSheet": "drinks-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "drinks-013",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-013.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "drinks-014",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-014.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "drinks-015",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-015.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "drinks-016",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-016.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "drinks-017",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-017.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "drinks-018",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-018.png",
+      "sourceSheet": "drinks-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "drinks-019",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-019.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "drinks-020",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-020.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "drinks-021",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-021.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "drinks-022",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-022.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "drinks-023",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-023.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "drinks-024",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-024.png",
+      "sourceSheet": "drinks-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "drinks-025",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-025.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "drinks-026",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-026.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "drinks-027",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-027.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "drinks-028",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-028.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "drinks-029",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-029.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "drinks-030",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-030.png",
+      "sourceSheet": "drinks-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "drinks-031",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-031.png",
+      "sourceSheet": "drinks-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "drinks-032",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-032.png",
+      "sourceSheet": "drinks-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "drinks-033",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-033.png",
+      "sourceSheet": "drinks-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "drinks-034",
+      "foodGroup": "drinks",
+      "file": "icons/drinks-034.png",
+      "sourceSheet": "drinks-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "sweets-001",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-001.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "sweets-002",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-002.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "sweets-003",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-003.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "sweets-004",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-004.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "sweets-005",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-005.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "sweets-006",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-006.png",
+      "sourceSheet": "sweets-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "sweets-007",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-007.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "sweets-008",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-008.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "sweets-009",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-009.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "sweets-010",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-010.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "sweets-011",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-011.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "sweets-012",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-012.png",
+      "sourceSheet": "sweets-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "sweets-013",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-013.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "sweets-014",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-014.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "sweets-015",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-015.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "sweets-016",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-016.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "sweets-017",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-017.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "sweets-018",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-018.png",
+      "sourceSheet": "sweets-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "sweets-019",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-019.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "sweets-020",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-020.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "sweets-021",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-021.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "sweets-022",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-022.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "sweets-023",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-023.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "sweets-024",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-024.png",
+      "sourceSheet": "sweets-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "sweets-025",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-025.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "sweets-026",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-026.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "sweets-027",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-027.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "sweets-028",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-028.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "sweets-029",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-029.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "sweets-030",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-030.png",
+      "sourceSheet": "sweets-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "sweets-031",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-031.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "sweets-032",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-032.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "sweets-033",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-033.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "sweets-034",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-034.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "sweets-035",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-035.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "sweets-036",
+      "foodGroup": "sweets",
+      "file": "icons/sweets-036.png",
+      "sourceSheet": "sweets-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "other-001",
+      "foodGroup": "other",
+      "file": "icons/other-001.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "other-002",
+      "foodGroup": "other",
+      "file": "icons/other-002.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "other-003",
+      "foodGroup": "other",
+      "file": "icons/other-003.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "other-004",
+      "foodGroup": "other",
+      "file": "icons/other-004.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "other-005",
+      "foodGroup": "other",
+      "file": "icons/other-005.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "other-006",
+      "foodGroup": "other",
+      "file": "icons/other-006.png",
+      "sourceSheet": "other-1",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "other-007",
+      "foodGroup": "other",
+      "file": "icons/other-007.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "other-008",
+      "foodGroup": "other",
+      "file": "icons/other-008.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "other-009",
+      "foodGroup": "other",
+      "file": "icons/other-009.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "other-010",
+      "foodGroup": "other",
+      "file": "icons/other-010.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "other-011",
+      "foodGroup": "other",
+      "file": "icons/other-011.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "other-012",
+      "foodGroup": "other",
+      "file": "icons/other-012.png",
+      "sourceSheet": "other-1",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "other-013",
+      "foodGroup": "other",
+      "file": "icons/other-013.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "other-014",
+      "foodGroup": "other",
+      "file": "icons/other-014.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "other-015",
+      "foodGroup": "other",
+      "file": "icons/other-015.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "other-016",
+      "foodGroup": "other",
+      "file": "icons/other-016.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "other-017",
+      "foodGroup": "other",
+      "file": "icons/other-017.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "other-018",
+      "foodGroup": "other",
+      "file": "icons/other-018.png",
+      "sourceSheet": "other-1",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "other-019",
+      "foodGroup": "other",
+      "file": "icons/other-019.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "other-020",
+      "foodGroup": "other",
+      "file": "icons/other-020.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "other-021",
+      "foodGroup": "other",
+      "file": "icons/other-021.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "other-022",
+      "foodGroup": "other",
+      "file": "icons/other-022.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "other-023",
+      "foodGroup": "other",
+      "file": "icons/other-023.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "other-024",
+      "foodGroup": "other",
+      "file": "icons/other-024.png",
+      "sourceSheet": "other-1",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "other-025",
+      "foodGroup": "other",
+      "file": "icons/other-025.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "other-026",
+      "foodGroup": "other",
+      "file": "icons/other-026.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "other-027",
+      "foodGroup": "other",
+      "file": "icons/other-027.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "other-028",
+      "foodGroup": "other",
+      "file": "icons/other-028.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "other-029",
+      "foodGroup": "other",
+      "file": "icons/other-029.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "other-030",
+      "foodGroup": "other",
+      "file": "icons/other-030.png",
+      "sourceSheet": "other-1",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "other-031",
+      "foodGroup": "other",
+      "file": "icons/other-031.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "other-032",
+      "foodGroup": "other",
+      "file": "icons/other-032.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "other-033",
+      "foodGroup": "other",
+      "file": "icons/other-033.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "other-034",
+      "foodGroup": "other",
+      "file": "icons/other-034.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "other-035",
+      "foodGroup": "other",
+      "file": "icons/other-035.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "other-036",
+      "foodGroup": "other",
+      "file": "icons/other-036.png",
+      "sourceSheet": "other-1",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "other-037",
+      "foodGroup": "other",
+      "file": "icons/other-037.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "key": "other-038",
+      "foodGroup": "other",
+      "file": "icons/other-038.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 2
+    },
+    {
+      "key": "other-039",
+      "foodGroup": "other",
+      "file": "icons/other-039.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 3
+    },
+    {
+      "key": "other-040",
+      "foodGroup": "other",
+      "file": "icons/other-040.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 4
+    },
+    {
+      "key": "other-041",
+      "foodGroup": "other",
+      "file": "icons/other-041.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 5
+    },
+    {
+      "key": "other-042",
+      "foodGroup": "other",
+      "file": "icons/other-042.png",
+      "sourceSheet": "other-1",
+      "row": 7,
+      "column": 6
+    },
+    {
+      "key": "other-043",
+      "foodGroup": "other",
+      "file": "icons/other-043.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "other-044",
+      "foodGroup": "other",
+      "file": "icons/other-044.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "other-045",
+      "foodGroup": "other",
+      "file": "icons/other-045.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "other-046",
+      "foodGroup": "other",
+      "file": "icons/other-046.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "other-047",
+      "foodGroup": "other",
+      "file": "icons/other-047.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "other-048",
+      "foodGroup": "other",
+      "file": "icons/other-048.png",
+      "sourceSheet": "other-2",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "other-049",
+      "foodGroup": "other",
+      "file": "icons/other-049.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "other-050",
+      "foodGroup": "other",
+      "file": "icons/other-050.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "other-051",
+      "foodGroup": "other",
+      "file": "icons/other-051.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "other-052",
+      "foodGroup": "other",
+      "file": "icons/other-052.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "other-053",
+      "foodGroup": "other",
+      "file": "icons/other-053.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "other-054",
+      "foodGroup": "other",
+      "file": "icons/other-054.png",
+      "sourceSheet": "other-2",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "other-055",
+      "foodGroup": "other",
+      "file": "icons/other-055.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "other-056",
+      "foodGroup": "other",
+      "file": "icons/other-056.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "other-057",
+      "foodGroup": "other",
+      "file": "icons/other-057.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "other-058",
+      "foodGroup": "other",
+      "file": "icons/other-058.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "other-059",
+      "foodGroup": "other",
+      "file": "icons/other-059.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "other-060",
+      "foodGroup": "other",
+      "file": "icons/other-060.png",
+      "sourceSheet": "other-2",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "other-061",
+      "foodGroup": "other",
+      "file": "icons/other-061.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "key": "other-062",
+      "foodGroup": "other",
+      "file": "icons/other-062.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 2
+    },
+    {
+      "key": "other-063",
+      "foodGroup": "other",
+      "file": "icons/other-063.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 3
+    },
+    {
+      "key": "other-064",
+      "foodGroup": "other",
+      "file": "icons/other-064.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 4
+    },
+    {
+      "key": "other-065",
+      "foodGroup": "other",
+      "file": "icons/other-065.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 5
+    },
+    {
+      "key": "other-066",
+      "foodGroup": "other",
+      "file": "icons/other-066.png",
+      "sourceSheet": "other-2",
+      "row": 4,
+      "column": 6
+    },
+    {
+      "key": "other-067",
+      "foodGroup": "other",
+      "file": "icons/other-067.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 1
+    },
+    {
+      "key": "other-068",
+      "foodGroup": "other",
+      "file": "icons/other-068.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 2
+    },
+    {
+      "key": "other-069",
+      "foodGroup": "other",
+      "file": "icons/other-069.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 3
+    },
+    {
+      "key": "other-070",
+      "foodGroup": "other",
+      "file": "icons/other-070.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 4
+    },
+    {
+      "key": "other-071",
+      "foodGroup": "other",
+      "file": "icons/other-071.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 5
+    },
+    {
+      "key": "other-072",
+      "foodGroup": "other",
+      "file": "icons/other-072.png",
+      "sourceSheet": "other-2",
+      "row": 5,
+      "column": 6
+    },
+    {
+      "key": "other-073",
+      "foodGroup": "other",
+      "file": "icons/other-073.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 1
+    },
+    {
+      "key": "other-074",
+      "foodGroup": "other",
+      "file": "icons/other-074.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 2
+    },
+    {
+      "key": "other-075",
+      "foodGroup": "other",
+      "file": "icons/other-075.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 3
+    },
+    {
+      "key": "other-076",
+      "foodGroup": "other",
+      "file": "icons/other-076.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 4
+    },
+    {
+      "key": "other-077",
+      "foodGroup": "other",
+      "file": "icons/other-077.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "key": "other-078",
+      "foodGroup": "other",
+      "file": "icons/other-078.png",
+      "sourceSheet": "other-2",
+      "row": 6,
+      "column": 6
+    },
+    {
+      "key": "other-079",
+      "foodGroup": "other",
+      "file": "icons/other-079.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "key": "other-080",
+      "foodGroup": "other",
+      "file": "icons/other-080.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 2
+    },
+    {
+      "key": "other-081",
+      "foodGroup": "other",
+      "file": "icons/other-081.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 3
+    },
+    {
+      "key": "other-082",
+      "foodGroup": "other",
+      "file": "icons/other-082.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 4
+    },
+    {
+      "key": "other-083",
+      "foodGroup": "other",
+      "file": "icons/other-083.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 5
+    },
+    {
+      "key": "other-084",
+      "foodGroup": "other",
+      "file": "icons/other-084.png",
+      "sourceSheet": "other-2",
+      "row": 7,
+      "column": 6
+    },
+    {
+      "key": "other-085",
+      "foodGroup": "other",
+      "file": "icons/other-085.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 1
+    },
+    {
+      "key": "other-086",
+      "foodGroup": "other",
+      "file": "icons/other-086.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 2
+    },
+    {
+      "key": "other-087",
+      "foodGroup": "other",
+      "file": "icons/other-087.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 3
+    },
+    {
+      "key": "other-088",
+      "foodGroup": "other",
+      "file": "icons/other-088.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 4
+    },
+    {
+      "key": "other-089",
+      "foodGroup": "other",
+      "file": "icons/other-089.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 5
+    },
+    {
+      "key": "other-090",
+      "foodGroup": "other",
+      "file": "icons/other-090.png",
+      "sourceSheet": "other-2",
+      "row": 8,
+      "column": 6
+    },
+    {
+      "key": "other-091",
+      "foodGroup": "other",
+      "file": "icons/other-091.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "key": "other-092",
+      "foodGroup": "other",
+      "file": "icons/other-092.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 2
+    },
+    {
+      "key": "other-093",
+      "foodGroup": "other",
+      "file": "icons/other-093.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 3
+    },
+    {
+      "key": "other-094",
+      "foodGroup": "other",
+      "file": "icons/other-094.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 4
+    },
+    {
+      "key": "other-095",
+      "foodGroup": "other",
+      "file": "icons/other-095.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 5
+    },
+    {
+      "key": "other-096",
+      "foodGroup": "other",
+      "file": "icons/other-096.png",
+      "sourceSheet": "other-3",
+      "row": 1,
+      "column": 6
+    },
+    {
+      "key": "other-097",
+      "foodGroup": "other",
+      "file": "icons/other-097.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "key": "other-098",
+      "foodGroup": "other",
+      "file": "icons/other-098.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 2
+    },
+    {
+      "key": "other-099",
+      "foodGroup": "other",
+      "file": "icons/other-099.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 3
+    },
+    {
+      "key": "other-100",
+      "foodGroup": "other",
+      "file": "icons/other-100.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 4
+    },
+    {
+      "key": "other-101",
+      "foodGroup": "other",
+      "file": "icons/other-101.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 5
+    },
+    {
+      "key": "other-102",
+      "foodGroup": "other",
+      "file": "icons/other-102.png",
+      "sourceSheet": "other-3",
+      "row": 2,
+      "column": 6
+    },
+    {
+      "key": "other-103",
+      "foodGroup": "other",
+      "file": "icons/other-103.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 1
+    },
+    {
+      "key": "other-104",
+      "foodGroup": "other",
+      "file": "icons/other-104.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 2
+    },
+    {
+      "key": "other-105",
+      "foodGroup": "other",
+      "file": "icons/other-105.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 3
+    },
+    {
+      "key": "other-106",
+      "foodGroup": "other",
+      "file": "icons/other-106.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 4
+    },
+    {
+      "key": "other-107",
+      "foodGroup": "other",
+      "file": "icons/other-107.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 5
+    },
+    {
+      "key": "other-108",
+      "foodGroup": "other",
+      "file": "icons/other-108.png",
+      "sourceSheet": "other-3",
+      "row": 3,
+      "column": 6
+    },
+    {
+      "key": "other-109",
+      "foodGroup": "other",
+      "file": "icons/other-109.png",
+      "sourceSheet": "other-3",
+      "row": 4,
+      "column": 1
+    }
+  ]
+}

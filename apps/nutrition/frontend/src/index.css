@@ -1,0 +1,140 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;450;500&display=swap");
+
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.9793 0.0029 84.5589);
+  --foreground: oklch(0.325 0.0133 145.2614);
+  --card: oklch(0.9575 0.0251 111.745);
+  --card-foreground: oklch(0.325 0.0133 145.2614);
+  --popover: oklch(0.9793 0.0029 84.5589);
+  --popover-foreground: oklch(0.325 0.0133 145.2614);
+  --primary: oklch(0.325 0.0133 145.2614);
+  --primary-foreground: oklch(0.9793 0.0029 84.5589);
+  --secondary: oklch(0.877 0.0519 119.4556);
+  --secondary-foreground: oklch(0.325 0.0133 145.2614);
+  --muted: oklch(0.9575 0.0251 111.745);
+  --muted-foreground: oklch(0.6069 0.0369 139.7228);
+  --accent: oklch(0.7651 0.0583 137.906);
+  --accent-foreground: oklch(0.325 0.0133 145.2614);
+  --destructive: oklch(0.4708 0.1367 24.0033);
+  --destructive-foreground: oklch(0.9793 0.0029 84.5589);
+  --border: oklch(0.877 0.0519 119.4556);
+  --input: oklch(0.877 0.0519 119.4556);
+  --ring: oklch(0.6069 0.0369 139.7228);
+  --radius: 0.625rem;
+
+  --ni-bg: #f9f7f3;
+  --ni-text: #1a1916;
+  --ni-muted: #7c7872;
+  --ni-border: #ddd9d3;
+  --ni-accent: #bf5a25;
+  --ni-surface: #f2efe9;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Design tokens exposed as Tailwind utilities */
+  --color-ni-bg: var(--ni-bg);
+  --color-ni-text: var(--ni-text);
+  --color-ni-muted: var(--ni-muted);
+  --color-ni-border: var(--ni-border);
+  --color-ni-accent: var(--ni-accent);
+  --color-ni-surface: var(--ni-surface);
+
+  /* Font stacks */
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --font-display: "Playfair Display", serif;
+
+  /* Custom animations */
+  --animate-slide-down: slide-down 0.18s ease both;
+  --animate-fade-in: fade-in 0.15s ease both;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    font-family: var(--font-sans);
+  }
+  body {
+    @apply bg-ni-bg text-ni-text;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+  }
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--ni-surface) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}

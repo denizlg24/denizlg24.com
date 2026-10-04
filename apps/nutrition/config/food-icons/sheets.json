@@ -1,0 +1,164 @@
+{
+  "outputDirectory": "../../assets/food-icons",
+  "backgroundMode": "dark-neutral",
+  "backgroundMaxChannel": 48,
+  "backgroundMaxChroma": 6,
+  "iconCanvasSize": 128,
+  "iconPadding": 8,
+  "sheets": [
+    {
+      "id": "baked-goods-1",
+      "input": "../../data/food-icons/screenshots/IMG_8581.png",
+      "foodGroup": "baked-goods",
+      "crop": { "left": 11, "top": 584, "width": 1157, "height": 1158 },
+      "grid": { "columns": 6, "rows": 6 },
+      "skipCells": []
+    },
+    {
+      "id": "meats-1",
+      "input": "../../data/food-icons/screenshots/IMG_8583.png",
+      "foodGroup": "meats",
+      "crop": { "left": 11, "top": 531, "width": 1157, "height": 1544 },
+      "grid": { "columns": 6, "rows": 8 },
+      "eraseTopPixels": 45,
+      "skipCells": [
+        { "row": 8, "column": 2 },
+        { "row": 8, "column": 3 },
+        { "row": 8, "column": 4 },
+        { "row": 8, "column": 5 },
+        { "row": 8, "column": 6 }
+      ]
+    },
+    {
+      "id": "vegetables-1",
+      "input": "../../data/food-icons/screenshots/IMG_8584.png",
+      "foodGroup": "vegetables",
+      "crop": { "left": 11, "top": 693, "width": 1157, "height": 1351 },
+      "grid": { "columns": 6, "rows": 7 },
+      "skipCells": []
+    },
+    {
+      "id": "vegetables-2",
+      "input": "../../data/food-icons/screenshots/IMG_8585.png",
+      "foodGroup": "vegetables",
+      "crop": { "left": 11, "top": 578, "width": 1157, "height": 772 },
+      "grid": { "columns": 6, "rows": 4 },
+      "skipCells": [
+        { "row": 4, "column": 2 },
+        { "row": 4, "column": 3 },
+        { "row": 4, "column": 4 },
+        { "row": 4, "column": 5 },
+        { "row": 4, "column": 6 }
+      ]
+    },
+    {
+      "id": "seafood-1",
+      "input": "../../data/food-icons/screenshots/IMG_8586.png",
+      "foodGroup": "seafood",
+      "crop": { "left": 11, "top": 583, "width": 1157, "height": 772 },
+      "grid": { "columns": 6, "rows": 4 },
+      "skipCells": []
+    },
+    {
+      "id": "fruit-1",
+      "input": "../../data/food-icons/screenshots/IMG_8587.png",
+      "foodGroup": "fruit",
+      "crop": { "left": 11, "top": 538, "width": 1157, "height": 1536 },
+      "grid": { "columns": 6, "rows": 8 },
+      "eraseTopPixels": 40,
+      "skipCells": [
+        { "row": 8, "column": 2 },
+        { "row": 8, "column": 3 },
+        { "row": 8, "column": 4 },
+        { "row": 8, "column": 5 },
+        { "row": 8, "column": 6 }
+      ]
+    },
+    {
+      "id": "nuts-and-seeds-1",
+      "input": "../../data/food-icons/screenshots/IMG_8588.png",
+      "foodGroup": "nuts-and-seeds",
+      "crop": { "left": 11, "top": 583, "width": 1157, "height": 772 },
+      "grid": { "columns": 6, "rows": 4 },
+      "skipCells": [
+        { "row": 4, "column": 2 },
+        { "row": 4, "column": 3 },
+        { "row": 4, "column": 4 },
+        { "row": 4, "column": 5 },
+        { "row": 4, "column": 6 }
+      ]
+    },
+    {
+      "id": "dairy-and-eggs-1",
+      "input": "../../data/food-icons/screenshots/IMG_8589.png",
+      "foodGroup": "dairy-and-eggs",
+      "crop": { "left": 11, "top": 583, "width": 1157, "height": 772 },
+      "grid": { "columns": 6, "rows": 4 },
+      "skipCells": [
+        { "row": 4, "column": 2 },
+        { "row": 4, "column": 3 },
+        { "row": 4, "column": 4 },
+        { "row": 4, "column": 5 },
+        { "row": 4, "column": 6 }
+      ]
+    },
+    {
+      "id": "drinks-1",
+      "input": "../../data/food-icons/screenshots/IMG_8590.png",
+      "foodGroup": "drinks",
+      "crop": { "left": 11, "top": 584, "width": 1157, "height": 1158 },
+      "grid": { "columns": 6, "rows": 6 },
+      "skipCells": [{ "row": 6, "column": 5 }, { "row": 6, "column": 6 }]
+    },
+    {
+      "id": "sweets-1",
+      "input": "../../data/food-icons/screenshots/IMG_8591.png",
+      "foodGroup": "sweets",
+      "crop": { "left": 11, "top": 584, "width": 1157, "height": 1158 },
+      "grid": { "columns": 6, "rows": 6 },
+      "skipCells": []
+    },
+    {
+      "id": "other-1",
+      "input": "../../data/food-icons/screenshots/IMG_8592.png",
+      "foodGroup": "other",
+      "crop": { "left": 11, "top": 646, "width": 1157, "height": 1351 },
+      "grid": { "columns": 6, "rows": 7 },
+      "skipCells": [],
+      "eraseBorders": [
+        {
+          "row": 1,
+          "column": 1,
+          "left": 25,
+          "top": 25,
+          "right": 168,
+          "bottom": 168,
+          "thickness": 10
+        }
+      ]
+    },
+    {
+      "id": "other-2",
+      "input": "../../data/food-icons/screenshots/IMG_8593.png",
+      "foodGroup": "other",
+      "crop": { "left": 11, "top": 542, "width": 1157, "height": 1544 },
+      "grid": { "columns": 6, "rows": 8 },
+      "eraseTopPixels": 36,
+      "skipCells": []
+    },
+    {
+      "id": "other-3",
+      "input": "../../data/food-icons/screenshots/IMG_8594.png",
+      "foodGroup": "other",
+      "crop": { "left": 11, "top": 596, "width": 1157, "height": 772 },
+      "grid": { "columns": 6, "rows": 4 },
+      "skipCells": [
+        { "row": 4, "column": 2 },
+        { "row": 4, "column": 3 },
+        { "row": 4, "column": 4 },
+        { "row": 4, "column": 5 },
+        { "row": 4, "column": 6 }
+      ]
+    }
+  ]
+}

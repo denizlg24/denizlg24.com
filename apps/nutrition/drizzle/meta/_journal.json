@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777318977992,
+      "tag": "0000_chemical_dormammu",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777498166717,
+      "tag": "0001_common_sleepwalker",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777498557769,
+      "tag": "0002_fresh_james_howlett",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777499589199,
+      "tag": "0003_fat_jackal",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777500000000,
+      "tag": "0004_repair_items_search_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777911130988,
+      "tag": "0005_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787411652669,
+      "tag": "0006_faulty_greymalkin",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787918655586,
+      "tag": "0007_icy_blindfold",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787937565998,
+      "tag": "0008_handy_iron_fist",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791100408817,
+      "tag": "0009_sources_barcodes_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791101822087,
+      "tag": "0010_drop_unused_search_vectors",
+      "breakpoints": true
+    }
+  ]
+}

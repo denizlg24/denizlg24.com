@@ -1,0 +1,1915 @@
+{
+  "defaultIconKey": "other-001",
+  "rules": [
+    {
+      "iconKey": "other-089",
+      "priority": 500,
+      "patterns": [
+        "\\bbaby food\\b",
+        "\\binfant formula\\b",
+        "\\bformula infantil\\b"
+      ]
+    },
+    {
+      "iconKey": "other-109",
+      "priority": 500,
+      "patterns": ["\\bsushi\\b", "\\bsashimi\\b", "\\bnigiri\\b", "\\bmaki\\b"]
+    },
+    { "iconKey": "other-106", "priority": 500, "patterns": ["\\bramen\\b"] },
+    {
+      "iconKey": "other-107",
+      "priority": 500,
+      "patterns": ["\\budon\\b", "\\bsoba\\b"]
+    },
+    {
+      "iconKey": "other-108",
+      "priority": 500,
+      "patterns": ["\\bcup noodles?\\b", "\\binstant noodles?\\b"]
+    },
+    {
+      "iconKey": "other-105",
+      "priority": 500,
+      "patterns": [
+        "\\bdumplings?\\b",
+        "\\bgyoza\\b",
+        "\\bpotstickers?\\b",
+        "\\bwontons?\\b"
+      ]
+    },
+    { "iconKey": "other-103", "priority": 500, "patterns": ["\\btacos?\\b"] },
+    {
+      "iconKey": "other-104",
+      "priority": 500,
+      "patterns": [
+        "\\bburgers?\\b",
+        "\\bcheeseburgers?\\b",
+        "\\bhamburguesa\\b"
+      ]
+    },
+    {
+      "iconKey": "other-100",
+      "priority": 500,
+      "patterns": [
+        "\\bclub sandwich\\b",
+        "\\bsubmarine sandwich\\b",
+        "\\bsubs?\\b"
+      ]
+    },
+    {
+      "iconKey": "other-041",
+      "priority": 490,
+      "patterns": ["\\bsandwich(?:es)?\\b", "\\btoastie\\b", "\\bpanini\\b"]
+    },
+    {
+      "iconKey": "other-033",
+      "priority": 500,
+      "patterns": ["\\bburritos?\\b", "\\bbreakfast burrito\\b"]
+    },
+    {
+      "iconKey": "other-039",
+      "priority": 490,
+      "patterns": ["\\bwraps?\\b", "\\bsoft tacos?\\b"]
+    },
+    {
+      "iconKey": "other-009",
+      "priority": 500,
+      "patterns": ["\\bpizza\\b", "\\bpizzas\\b"]
+    },
+    {
+      "iconKey": "other-019",
+      "priority": 510,
+      "patterns": ["\\bmushroom pizza\\b"]
+    },
+    {
+      "iconKey": "other-036",
+      "priority": 510,
+      "patterns": ["\\bpepperoni pizza\\b"]
+    },
+    {
+      "iconKey": "other-035",
+      "priority": 500,
+      "patterns": [
+        "\\bspaghetti\\b",
+        "\\bpasta marinara\\b",
+        "\\bpasta bolognese\\b"
+      ]
+    },
+    {
+      "iconKey": "other-021",
+      "priority": 480,
+      "patterns": [
+        "\\bpasta\\b",
+        "\\bmacaroni\\b",
+        "\\bmac and cheese\\b",
+        "\\bmac & cheese\\b",
+        "\\bpenne(?: rigate)?\\b",
+        "\\bfusilli\\b",
+        "\\bfettuccine\\b",
+        "\\blasagn[ae]\\b",
+        "\\brigatoni\\b",
+        "\\bgnocchi\\b",
+        "\\bravioli\\b",
+        "\\btortellini\\b",
+        "\\btagliatelle\\b",
+        "\\blinguine\\b",
+        "\\borzo\\b",
+        "\\bvermicelli\\b"
+      ]
+    },
+    { "iconKey": "other-021", "priority": 390, "patterns": ["\\bnoodles?\\b"] },
+    {
+      "iconKey": "other-098",
+      "priority": 500,
+      "patterns": ["\\bnoodle box\\b", "\\bchow mein\\b", "\\blo mein\\b"]
+    },
+    {
+      "iconKey": "other-097",
+      "priority": 500,
+      "patterns": ["\\btakeout\\b", "\\btake-away\\b", "\\bchinese food\\b"]
+    },
+    {
+      "iconKey": "other-087",
+      "priority": 500,
+      "patterns": ["\\bempanadas?\\b", "\\bpierogi\\b", "\\bpastel(?:es)?\\b"]
+    },
+    { "iconKey": "other-085", "priority": 500, "patterns": ["\\brisotto\\b"] },
+    {
+      "iconKey": "other-071",
+      "priority": 480,
+      "patterns": ["\\bstew\\b", "\\bchili con carne\\b", "\\bgoulash\\b"]
+    },
+    {
+      "iconKey": "other-077",
+      "priority": 470,
+      "patterns": ["\\bguacamole\\b"]
+    },
+    {
+      "iconKey": "other-080",
+      "priority": 470,
+      "patterns": ["\\bhummus\\b", "\\btahini\\b"]
+    },
+    { "iconKey": "other-015", "priority": 490, "patterns": ["\\bfalafel\\b"] },
+    { "iconKey": "other-028", "priority": 480, "patterns": ["\\bpopcorn\\b"] },
+    {
+      "iconKey": "other-027",
+      "priority": 480,
+      "patterns": [
+        "\\btortilla chips?\\b",
+        "\\bnachos?\\b",
+        "\\bcorn chips?\\b"
+      ]
+    },
+    {
+      "iconKey": "other-049",
+      "priority": 480,
+      "patterns": [
+        "\\bfries\\b",
+        "\\bfrench fries\\b",
+        "\\bchips frites\\b",
+        "\\bbatatas fritas\\b",
+        "\\bpapas fritas\\b"
+      ]
+    },
+    { "iconKey": "other-010", "priority": 480, "patterns": ["\\bwaffles?\\b"] },
+    {
+      "iconKey": "other-040",
+      "priority": 480,
+      "patterns": ["\\bpancakes?\\b", "\\bhotcakes?\\b", "\\bcrepes?\\b"]
+    },
+    {
+      "iconKey": "other-037",
+      "priority": 470,
+      "patterns": ["\\btortillas?\\b", "\\bflatbreads?\\b"]
+    },
+    {
+      "iconKey": "other-038",
+      "priority": 480,
+      "patterns": ["\\bquesadillas?\\b"]
+    },
+    {
+      "iconKey": "other-092",
+      "priority": 480,
+      "patterns": [
+        "\\bgreen salad\\b",
+        "\\bgarden salad\\b",
+        "\\bmixed salad\\b"
+      ]
+    },
+    {
+      "iconKey": "other-050",
+      "priority": 470,
+      "patterns": ["\\bfruit salad\\b"]
+    },
+    {
+      "iconKey": "other-051",
+      "priority": 470,
+      "patterns": ["\\bvegetable salad\\b"]
+    },
+    {
+      "iconKey": "other-068",
+      "priority": 460,
+      "patterns": ["\\bsalad\\b", "\\bsalada\\b", "\\bensalada\\b"]
+    },
+    {
+      "iconKey": "other-102",
+      "priority": 500,
+      "patterns": ["\\bcurry rice\\b", "\\bkatsu curry\\b"]
+    },
+    {
+      "iconKey": "other-079",
+      "priority": 480,
+      "patterns": ["\\btomato soup\\b"]
+    },
+    { "iconKey": "other-079", "priority": 390, "patterns": ["\\bsoups?\\b"] },
+    {
+      "iconKey": "other-088",
+      "priority": 480,
+      "patterns": ["\\bporridge\\b", "\\bcongee\\b", "\\bcream of wheat\\b"]
+    },
+    {
+      "iconKey": "other-032",
+      "priority": 480,
+      "patterns": [
+        "\\boatmeal\\b",
+        "\\boats\\b",
+        "\\bgranola(?: bowl)?\\b",
+        "\\bcereal\\b",
+        "\\bmuesli\\b"
+      ]
+    },
+    {
+      "iconKey": "other-081",
+      "priority": 460,
+      "patterns": ["\\byogurt bowl\\b", "\\bcereal bowl\\b"]
+    },
+    {
+      "iconKey": "other-030",
+      "priority": 450,
+      "patterns": [
+        "\\bwhite rice\\b",
+        "\\bjasmine rice\\b",
+        "\\bbasmati rice\\b"
+      ]
+    },
+    {
+      "iconKey": "other-031",
+      "priority": 450,
+      "patterns": ["\\bbrown rice\\b", "\\bwild rice\\b"]
+    },
+    {
+      "iconKey": "other-075",
+      "priority": 440,
+      "patterns": ["\\bfried rice\\b"]
+    },
+    {
+      "iconKey": "other-078",
+      "priority": 430,
+      "patterns": ["\\brice bowl\\b", "\\brice dish\\b"]
+    },
+    {
+      "iconKey": "other-029",
+      "priority": 400,
+      "patterns": ["\\brice\\b", "\\barroz\\b", "\\briz\\b"]
+    },
+    {
+      "iconKey": "other-029",
+      "priority": 410,
+      "patterns": ["\\bquinoa\\b", "\\bcouscous\\b", "\\bbulgur\\b"]
+    },
+    {
+      "iconKey": "other-012",
+      "priority": 420,
+      "patterns": [
+        "\\bkidney beans?\\b",
+        "\\bpinto beans?\\b",
+        "\\bbaked beans?\\b"
+      ]
+    },
+    {
+      "iconKey": "other-013",
+      "priority": 420,
+      "patterns": ["\\bblack beans?\\b"]
+    },
+    {
+      "iconKey": "other-076",
+      "priority": 410,
+      "patterns": ["\\blentils?\\b", "\\blentilhas?\\b", "\\blentejas?\\b"]
+    },
+    {
+      "iconKey": "other-011",
+      "priority": 400,
+      "patterns": [
+        "\\bbeans?\\b",
+        "\\bfeij(?:ão|oes)\\b",
+        "\\bfrijoles?\\b",
+        "\\bharicots?\\b",
+        "\\bchickpeas?\\b",
+        "\\bgarbanzo(?: beans?)?\\b"
+      ]
+    },
+    {
+      "iconKey": "other-084",
+      "priority": 420,
+      "patterns": ["\\bpotato chips?\\b", "\\bcrisps?\\b"]
+    },
+    { "iconKey": "other-084", "priority": 390, "patterns": ["\\bchips\\b"] },
+    {
+      "iconKey": "other-023",
+      "priority": 420,
+      "patterns": ["\\bcookies?\\b", "\\bbiscuits?\\b"]
+    },
+    {
+      "iconKey": "other-018",
+      "priority": 420,
+      "patterns": ["\\bwheat\\b", "\\bwhole grain\\b", "\\bwholegrain\\b"]
+    },
+    {
+      "iconKey": "other-008",
+      "priority": 430,
+      "patterns": ["\\bsalt\\b", "\\bsodium chloride\\b", "\\bsal marinho\\b"]
+    },
+    {
+      "iconKey": "other-061",
+      "priority": 430,
+      "patterns": [
+        "\\bblack pepper\\b",
+        "\\bpimenta preta\\b",
+        "\\bpoivre noir\\b"
+      ]
+    },
+    {
+      "iconKey": "other-062",
+      "priority": 420,
+      "patterns": ["\\bparsley flakes\\b", "\\bdried herbs?\\b"]
+    },
+    {
+      "iconKey": "other-063",
+      "priority": 420,
+      "patterns": ["\\bpaprika\\b", "\\bcayenne\\b", "\\bchili powder\\b"]
+    },
+    {
+      "iconKey": "other-064",
+      "priority": 400,
+      "patterns": [
+        "\\bspices?\\b",
+        "\\bseasoning\\b",
+        "\\btempero\\b",
+        "\\bespecias?\\b"
+      ]
+    },
+    {
+      "iconKey": "other-065",
+      "priority": 420,
+      "patterns": ["\\bparsley\\b", "\\bsalsa herb\\b"]
+    },
+    {
+      "iconKey": "other-066",
+      "priority": 420,
+      "patterns": ["\\bcilantro\\b", "\\bcoriander\\b", "\\bcoentros?\\b"]
+    },
+    {
+      "iconKey": "other-058",
+      "priority": 450,
+      "patterns": [
+        "\\bketchup\\b",
+        "\\btomato sauce\\b",
+        "\\btomato paste\\b",
+        "\\bsalsa\\b",
+        "\\bhot sauce\\b",
+        "\\bbarbecue sauce\\b",
+        "\\bbbq sauce\\b",
+        "\\bteriyaki(?: sauce)?\\b",
+        "\\bpesto\\b"
+      ]
+    },
+    {
+      "iconKey": "other-069",
+      "priority": 450,
+      "patterns": ["\\bmayonnaise\\b", "\\bmayo\\b"]
+    },
+    {
+      "iconKey": "other-057",
+      "priority": 450,
+      "patterns": ["\\bmustard\\b", "\\bmostarda\\b", "\\bmoutarde\\b"]
+    },
+    {
+      "iconKey": "other-072",
+      "priority": 430,
+      "patterns": [
+        "\\bsalad dressing\\b",
+        "\\bvinaigrette\\b",
+        "\\bdressing\\b",
+        "\\bbalsamic(?: vinegar)?\\b",
+        "\\bvinegar\\b"
+      ]
+    },
+    {
+      "iconKey": "other-070",
+      "priority": 420,
+      "patterns": ["\\bsoy sauce\\b", "\\bshoyu\\b"]
+    },
+    {
+      "iconKey": "other-047",
+      "priority": 490,
+      "patterns": [
+        "\\bcooking oil\\b",
+        "\\bvegetable oil\\b",
+        "\\bolive oil\\b",
+        "\\bcanola oil\\b",
+        "\\bcoconut oil\\b",
+        "\\bsunflower oil\\b",
+        "\\bavocado oil\\b",
+        "\\bsesame oil\\b",
+        "\\brapeseed oil\\b"
+      ]
+    },
+    {
+      "iconKey": "other-094",
+      "priority": 450,
+      "patterns": ["\\bhoney\\b", "\\bmel\\b", "\\bmiel\\b"]
+    },
+
+    {
+      "iconKey": "sweets-004",
+      "priority": 500,
+      "patterns": ["\\bstrawberry cake\\b", "\\bbirthday cake\\b"]
+    },
+    {
+      "iconKey": "sweets-002",
+      "priority": 480,
+      "patterns": ["\\bice cream cake\\b"]
+    },
+    {
+      "iconKey": "sweets-007",
+      "priority": 470,
+      "patterns": ["\\bchocolate cake\\b"]
+    },
+    {
+      "iconKey": "sweets-008",
+      "priority": 460,
+      "patterns": ["\\bcheesecake\\b"]
+    },
+    {
+      "iconKey": "sweets-006",
+      "priority": 450,
+      "patterns": ["\\bcupcakes?\\b"]
+    },
+    {
+      "iconKey": "sweets-010",
+      "priority": 450,
+      "patterns": ["\\bcinnamon rolls?\\b", "\\bcinnamon buns?\\b"]
+    },
+    {
+      "iconKey": "sweets-009",
+      "priority": 440,
+      "patterns": ["\\bbrownies?\\b"]
+    },
+    {
+      "iconKey": "sweets-011",
+      "priority": 450,
+      "patterns": ["\\bchocolate pudding\\b", "\\bpudding cup\\b"]
+    },
+    {
+      "iconKey": "sweets-015",
+      "priority": 450,
+      "patterns": ["\\bmilkshake\\b", "\\bfrapp[eé]\\b"]
+    },
+    {
+      "iconKey": "sweets-016",
+      "priority": 450,
+      "patterns": ["\\bmarshmallows?\\b"]
+    },
+    {
+      "iconKey": "sweets-017",
+      "priority": 450,
+      "patterns": ["\\bsugar cubes?\\b"]
+    },
+    {
+      "iconKey": "sweets-018",
+      "priority": 450,
+      "patterns": ["\\bcandy\\b", "\\bbonbons?\\b", "\\bcaramelos?\\b"]
+    },
+    {
+      "iconKey": "sweets-019",
+      "priority": 450,
+      "patterns": [
+        "\\bchocolate bars?\\b",
+        "\\bdark chocolate\\b",
+        "\\bmilk chocolate\\b"
+      ]
+    },
+    {
+      "iconKey": "sweets-019",
+      "priority": 390,
+      "patterns": ["\\bchocolate\\b"]
+    },
+    {
+      "iconKey": "sweets-021",
+      "priority": 510,
+      "patterns": [
+        "\\bprotein bars?\\b",
+        "\\benergy bars?\\b",
+        "\\bgranola bars?\\b",
+        "\\bcereal bars?\\b"
+      ]
+    },
+    {
+      "iconKey": "sweets-020",
+      "priority": 450,
+      "patterns": ["\\bchocolate chips?\\b"]
+    },
+    {
+      "iconKey": "sweets-022",
+      "priority": 450,
+      "patterns": ["\\btruffles?\\b", "\\bchocolate balls?\\b"]
+    },
+    {
+      "iconKey": "sweets-024",
+      "priority": 450,
+      "patterns": ["\\bjell-?o\\b", "\\bgelatin dessert\\b", "\\bgelatina\\b"]
+    },
+    {
+      "iconKey": "sweets-023",
+      "priority": 440,
+      "patterns": [
+        "\\bjam\\b",
+        "\\bpreserves?\\b",
+        "\\bfruit spread\\b",
+        "\\bstrawberry jelly\\b",
+        "\\bnutella\\b"
+      ]
+    },
+    {
+      "iconKey": "sweets-027",
+      "priority": 450,
+      "patterns": ["\\bmeringues?\\b"]
+    },
+    {
+      "iconKey": "sweets-028",
+      "priority": 450,
+      "patterns": ["\\bgummy bears?\\b", "\\bgummies\\b"]
+    },
+    {
+      "iconKey": "sweets-030",
+      "priority": 450,
+      "patterns": ["\\bmacarons?\\b"]
+    },
+    {
+      "iconKey": "sweets-032",
+      "priority": 450,
+      "patterns": ["\\bcotton candy\\b", "\\bcandyfloss\\b"]
+    },
+    {
+      "iconKey": "sweets-034",
+      "priority": 450,
+      "patterns": ["\\blollipops?\\b", "\\bsuckers?\\b"]
+    },
+    {
+      "iconKey": "sweets-001",
+      "priority": 440,
+      "patterns": ["\\bchocolate ice cream\\b", "\\bfudge bar\\b"]
+    },
+    {
+      "iconKey": "sweets-005",
+      "priority": 440,
+      "patterns": [
+        "\\bpopsicles?\\b",
+        "\\bice pops?\\b",
+        "\\bgelados? de pau\\b"
+      ]
+    },
+    {
+      "iconKey": "sweets-025",
+      "priority": 430,
+      "patterns": ["\\bsyrup\\b", "\\bmaple syrup\\b"]
+    },
+    {
+      "iconKey": "sweets-029",
+      "priority": 420,
+      "patterns": ["\\bcustard\\b", "\\bcr[eè]me anglaise\\b"]
+    },
+    {
+      "iconKey": "baked-goods-035",
+      "priority": 450,
+      "patterns": ["\\bdonuts?\\b", "\\bdoughnuts?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-006",
+      "priority": 440,
+      "patterns": ["\\bmuffins?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-005",
+      "priority": 440,
+      "patterns": ["\\bcroissants?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-007",
+      "priority": 440,
+      "patterns": ["\\bbagels?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-023",
+      "priority": 440,
+      "patterns": ["\\bpretzels?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-012",
+      "priority": 440,
+      "patterns": ["\\bwafer waffles?\\b", "\\bwaffle cones?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-013",
+      "priority": 430,
+      "patterns": ["\\bcrackers?\\b", "\\bsaltines?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-018",
+      "priority": 430,
+      "patterns": ["\\bbreadsticks?\\b", "\\bgrissini\\b"]
+    },
+    {
+      "iconKey": "baked-goods-003",
+      "priority": 430,
+      "patterns": ["\\bbaguettes?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-019",
+      "priority": 430,
+      "patterns": [
+        "\\bwhole wheat bread\\b",
+        "\\bwholemeal bread\\b",
+        "\\bwhole grain bread\\b"
+      ]
+    },
+    {
+      "iconKey": "baked-goods-015",
+      "priority": 425,
+      "patterns": ["\\bbrown bread\\b", "\\brye bread\\b"]
+    },
+    {
+      "iconKey": "baked-goods-014",
+      "priority": 420,
+      "patterns": ["\\bwhite bread\\b", "\\bsandwich bread\\b"]
+    },
+    {
+      "iconKey": "baked-goods-011",
+      "priority": 420,
+      "patterns": ["\\btoast\\b", "\\btoasted bread\\b"]
+    },
+    {
+      "iconKey": "baked-goods-002",
+      "priority": 400,
+      "patterns": ["\\bbread\\b", "\\bp[aã]o\\b", "\\bpan\\b", "\\bpain\\b"]
+    },
+    {
+      "iconKey": "baked-goods-001",
+      "priority": 430,
+      "patterns": ["\\bpumpkin pie\\b", "\\bfruit pie\\b"]
+    },
+    {
+      "iconKey": "baked-goods-026",
+      "priority": 420,
+      "patterns": ["\\bpies?\\b", "\\btarts?\\b"]
+    },
+    {
+      "iconKey": "baked-goods-031",
+      "priority": 430,
+      "patterns": ["\\bfruit tart\\b"]
+    },
+    {
+      "iconKey": "baked-goods-020",
+      "priority": 430,
+      "patterns": ["\\bswiss roll\\b", "\\broulade\\b"]
+    },
+    {
+      "iconKey": "baked-goods-033",
+      "priority": 420,
+      "patterns": ["\\bbundt cake\\b"]
+    },
+    {
+      "iconKey": "baked-goods-036",
+      "priority": 420,
+      "patterns": ["\\bwafers?\\b"]
+    },
+
+    {
+      "iconKey": "drinks-032",
+      "priority": 500,
+      "patterns": ["\\bbubble tea\\b", "\\bboba\\b"]
+    },
+    {
+      "iconKey": "drinks-001",
+      "priority": 480,
+      "patterns": [
+        "\\borange juice\\b",
+        "\\bsumo de laranja\\b",
+        "\\bzumo de naranja\\b"
+      ]
+    },
+    {
+      "iconKey": "drinks-021",
+      "priority": 480,
+      "patterns": ["\\bapple juice\\b", "\\bsumo de ma[cç][aã]\\b"]
+    },
+    {
+      "iconKey": "drinks-022",
+      "priority": 480,
+      "patterns": ["\\bpomegranate juice\\b"]
+    },
+    {
+      "iconKey": "drinks-023",
+      "priority": 480,
+      "patterns": ["\\blemon juice\\b", "\\blemonade\\b", "\\blimonada\\b"]
+    },
+    {
+      "iconKey": "drinks-024",
+      "priority": 480,
+      "patterns": ["\\borange drink\\b", "\\borange soda\\b"]
+    },
+    {
+      "iconKey": "drinks-025",
+      "priority": 480,
+      "patterns": ["\\btomato juice\\b"]
+    },
+    {
+      "iconKey": "drinks-011",
+      "priority": 480,
+      "patterns": ["\\bcocktails?\\b", "\\bmocktails?\\b"]
+    },
+    {
+      "iconKey": "drinks-013",
+      "priority": 480,
+      "patterns": ["\\bred wine\\b", "\\bvinho tinto\\b", "\\bvin rouge\\b"]
+    },
+    {
+      "iconKey": "drinks-014",
+      "priority": 480,
+      "patterns": ["\\bwhite wine\\b", "\\bvinho branco\\b", "\\bvin blanc\\b"]
+    },
+    { "iconKey": "drinks-034", "priority": 480, "patterns": ["\\bsake\\b"] },
+    {
+      "iconKey": "drinks-002",
+      "priority": 470,
+      "patterns": [
+        "\\bbeer\\b",
+        "\\bcerveja\\b",
+        "\\bcerveza\\b",
+        "\\bbi[eè]re\\b"
+      ]
+    },
+    {
+      "iconKey": "drinks-004",
+      "priority": 470,
+      "patterns": [
+        "\\bcola\\b",
+        "\\bsoda\\b",
+        "\\bsoft drinks?\\b",
+        "\\brefrigerante\\b",
+        "\\bseltzer\\b",
+        "\\bsparkling water\\b",
+        "\\bginger ale\\b",
+        "\\bkombucha\\b"
+      ]
+    },
+    {
+      "iconKey": "drinks-005",
+      "priority": 470,
+      "patterns": ["\\bcoffee\\b", "\\bcaf[eé]\\b", "\\bespresso\\b"]
+    },
+    {
+      "iconKey": "drinks-008",
+      "priority": 475,
+      "patterns": ["\\blatte\\b", "\\bcappuccino\\b", "\\bcoffee with milk\\b"]
+    },
+    {
+      "iconKey": "drinks-009",
+      "priority": 470,
+      "patterns": ["\\btea\\b", "\\bch[aá]\\b", "\\bth[eé]\\b"]
+    },
+    {
+      "iconKey": "drinks-010",
+      "priority": 470,
+      "patterns": ["\\btropical juice\\b", "\\bfruit punch\\b"]
+    },
+    {
+      "iconKey": "drinks-016",
+      "priority": 460,
+      "patterns": ["\\bmilk carton\\b", "\\bwhole milk drink\\b"]
+    },
+    {
+      "iconKey": "drinks-017",
+      "priority": 460,
+      "patterns": ["\\bstrawberry milk\\b"]
+    },
+    {
+      "iconKey": "drinks-018",
+      "priority": 460,
+      "patterns": ["\\bgreen juice\\b", "\\bvegetable juice\\b"]
+    },
+    {
+      "iconKey": "drinks-020",
+      "priority": 460,
+      "patterns": ["\\bhot chocolate\\b", "\\bcocoa drink\\b"]
+    },
+    {
+      "iconKey": "drinks-029",
+      "priority": 460,
+      "patterns": [
+        "\\bprotein shake\\b",
+        "\\bmeal replacement shake\\b",
+        "\\bsmoothies?\\b",
+        "\\bwhey protein\\b",
+        "\\bprotein powder\\b",
+        "\\bcollagen powder\\b",
+        "\\bcreatine(?: powder| monohydrate)?\\b"
+      ]
+    },
+    {
+      "iconKey": "drinks-033",
+      "priority": 450,
+      "patterns": [
+        "\\bsports drink\\b",
+        "\\belectrolyte drink\\b",
+        "\\benergy drink\\b"
+      ]
+    },
+    {
+      "iconKey": "drinks-003",
+      "priority": 400,
+      "patterns": ["\\bwater\\b", "\\b[aá]gua\\b", "\\bagua\\b", "\\beau\\b"]
+    },
+    {
+      "iconKey": "drinks-027",
+      "priority": 390,
+      "patterns": [
+        "\\bdrink\\b",
+        "\\bbeverage\\b",
+        "\\bbebida\\b",
+        "\\bboisson\\b",
+        "\\bjuice\\b",
+        "\\bsumo\\b"
+      ]
+    },
+
+    {
+      "iconKey": "dairy-and-eggs-004",
+      "priority": 480,
+      "patterns": [
+        "\\bice cream\\b",
+        "\\bgelato\\b",
+        "\\bsorvete\\b",
+        "\\bhelado\\b",
+        "\\bcr[eè]me glac[eé]e\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-005",
+      "priority": 470,
+      "patterns": ["\\bswiss cheese\\b", "\\bemmental\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-002",
+      "priority": 460,
+      "patterns": ["\\bcheddar\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-007",
+      "priority": 460,
+      "patterns": ["\\bmozzarella\\b", "\\bfresh cheese\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-008",
+      "priority": 460,
+      "patterns": [
+        "\\byogurts?\\b",
+        "\\byoghurts?\\b",
+        "\\biogurte\\b",
+        "\\byogur\\b",
+        "\\byaourt\\b",
+        "\\bskyr\\b",
+        "\\bkefir\\b",
+        "\\bayran\\b",
+        "\\btzatziki\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-009",
+      "priority": 460,
+      "patterns": ["\\bchocolate milk\\b", "\\bchocolate dairy dessert\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-012",
+      "priority": 460,
+      "patterns": ["\\bcustard yogurt\\b", "\\bdairy pudding\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-014",
+      "priority": 470,
+      "patterns": [
+        "\\bscrambled eggs?\\b",
+        "\\bomelettes?\\b",
+        "\\bomelets?\\b",
+        "\\btortilla de huevo\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-015",
+      "priority": 465,
+      "patterns": ["\\bboiled eggs?\\b", "\\bpoached eggs?\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-018",
+      "priority": 465,
+      "patterns": ["\\bquail eggs?\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-013",
+      "priority": 430,
+      "patterns": [
+        "\\beggs?\\b",
+        "\\bovos?\\b",
+        "\\bhuevos?\\b",
+        "\\b[œo]ufs?\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-016",
+      "priority": 450,
+      "patterns": [
+        "\\bbutter\\b",
+        "\\bmanteiga\\b",
+        "\\bmantequilla\\b",
+        "\\bbeurre\\b",
+        "\\bghee\\b",
+        "\\bmargarine\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-019",
+      "priority": 450,
+      "patterns": ["\\bcottage cheese\\b", "\\bquark\\b", "\\bricotta\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-003",
+      "priority": 430,
+      "patterns": [
+        "\\bcream cheese\\b",
+        "\\bsour cream\\b",
+        "\\bcr[eè]me fra[iî]che\\b",
+        "\\bhalf(?: and| &) half\\b",
+        "\\bheavy (?:whipping )?cream\\b",
+        "\\bwhipping cream\\b"
+      ]
+    },
+    {
+      "iconKey": "dairy-and-eggs-001",
+      "priority": 410,
+      "patterns": ["\\bmilk\\b", "\\bleite\\b", "\\bleche\\b", "\\blait\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-002",
+      "priority": 400,
+      "patterns": [
+        "\\bcheese\\b",
+        "\\bqueijo\\b",
+        "\\bqueso\\b",
+        "\\bfromage\\b",
+        "\\bparm(?:esan|igiano(?: reggiano)?)\\b",
+        "\\bgouda\\b",
+        "\\bfeta\\b",
+        "\\bbrie\\b",
+        "\\bcamembert\\b",
+        "\\bburrata\\b",
+        "\\bpaneer\\b",
+        "\\bhalloumi\\b",
+        "\\bmascarpone\\b"
+      ]
+    },
+
+    {
+      "iconKey": "nuts-and-seeds-002",
+      "priority": 480,
+      "patterns": ["\\bpeanut butter\\b", "\\bcreme de amendoim\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-001",
+      "priority": 450,
+      "patterns": ["\\balmonds?\\b", "\\bam[eê]ndoas?\\b", "\\bamandes?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-003",
+      "priority": 450,
+      "patterns": [
+        "\\bchestnuts?\\b",
+        "\\bcastanhas?\\b",
+        "\\bch[aâ]taignes?\\b"
+      ]
+    },
+    {
+      "iconKey": "nuts-and-seeds-004",
+      "priority": 450,
+      "patterns": ["\\bhazelnuts?\\b", "\\bavel[aã]s?\\b", "\\bnoisettes?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-005",
+      "priority": 450,
+      "patterns": ["\\bmacadamia\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-006",
+      "priority": 450,
+      "patterns": ["\\bpecans?\\b", "\\bpec[aã]s?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-008",
+      "priority": 450,
+      "patterns": ["\\bpeanuts?\\b", "\\bamendoins?\\b", "\\bcacahuetes?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-010",
+      "priority": 450,
+      "patterns": ["\\bpistachios?\\b", "\\bpistaches?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-011",
+      "priority": 450,
+      "patterns": ["\\bcashews?\\b", "\\bcaju\\b", "\\bnoix de cajou\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-012",
+      "priority": 450,
+      "patterns": ["\\bsunflower seeds?\\b", "\\bsementes de girassol\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-013",
+      "priority": 450,
+      "patterns": ["\\bwalnuts?\\b", "\\bnozes?\\b", "\\bnoix\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-016",
+      "priority": 440,
+      "patterns": [
+        "\\bsesame seeds?\\b",
+        "\\bchia seeds?\\b",
+        "\\bflax seeds?\\b",
+        "\\bpumpkin seeds?\\b"
+      ]
+    },
+    {
+      "iconKey": "nuts-and-seeds-018",
+      "priority": 400,
+      "patterns": [
+        "\\bnuts?\\b",
+        "\\bseeds?\\b",
+        "\\bnozes e sementes\\b",
+        "\\bfrutos secos\\b"
+      ]
+    },
+
+    {
+      "iconKey": "seafood-001",
+      "priority": 470,
+      "patterns": [
+        "\\bclams?\\b",
+        "\\bmussels?\\b",
+        "\\bostras?\\b",
+        "\\bmejillones?\\b",
+        "\\bmoules?\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-002",
+      "priority": 450,
+      "patterns": ["\\bsardines?\\b", "\\bsardinhas?\\b"]
+    },
+    {
+      "iconKey": "seafood-003",
+      "priority": 470,
+      "patterns": ["\\blobsters?\\b", "\\blagosta\\b", "\\bhomard\\b"]
+    },
+    {
+      "iconKey": "seafood-004",
+      "priority": 470,
+      "patterns": [
+        "\\boctopus\\b",
+        "\\bpolvo\\b",
+        "\\bpulpo\\b",
+        "\\bpoulpe\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-005",
+      "priority": 470,
+      "patterns": [
+        "\\bshrimps?\\b",
+        "\\bprawns?\\b",
+        "\\bcamar[aã]o\\b",
+        "\\bcamarones?\\b",
+        "\\bcrevettes?\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-007",
+      "priority": 470,
+      "patterns": [
+        "\\bcrabs?\\b",
+        "\\bcaranguejos?\\b",
+        "\\bcangrejos?\\b",
+        "\\bcrabes?\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-008",
+      "priority": 470,
+      "patterns": [
+        "\\bsalmon\\b",
+        "\\bsalm[aã]o\\b",
+        "\\bsaumon\\b",
+        "\\bzalm(?:filet)?\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-009",
+      "priority": 470,
+      "patterns": ["\\bsquid\\b", "\\bcalamari\\b", "\\blulas?\\b"]
+    },
+    {
+      "iconKey": "seafood-015",
+      "priority": 470,
+      "patterns": ["\\btuna\\b", "\\batum\\b", "\\bat[uú]n\\b", "\\bthon\\b"]
+    },
+    {
+      "iconKey": "seafood-016",
+      "priority": 460,
+      "patterns": ["\\bswordfish\\b", "\\bmackerel\\b", "\\bmaquereau\\b"]
+    },
+    {
+      "iconKey": "seafood-021",
+      "priority": 470,
+      "patterns": ["\\bcaviar\\b", "\\bfish roe\\b", "\\bikura\\b"]
+    },
+    {
+      "iconKey": "seafood-019",
+      "priority": 460,
+      "patterns": ["\\bcrab sticks?\\b", "\\bsurimi\\b"]
+    },
+    {
+      "iconKey": "seafood-023",
+      "priority": 450,
+      "patterns": ["\\bfish pie\\b", "\\bseafood pie\\b"]
+    },
+    {
+      "iconKey": "seafood-018",
+      "priority": 400,
+      "patterns": [
+        "\\bfish\\b",
+        "\\bseafood\\b",
+        "\\bpeixe\\b",
+        "\\bpescado\\b",
+        "\\bpoisson\\b",
+        "\\bmarisco\\b"
+      ]
+    },
+    {
+      "iconKey": "seafood-018",
+      "priority": 440,
+      "patterns": ["\\btilapia\\b", "\\bcod(?:fish)?\\b", "\\bhaddock\\b"]
+    },
+
+    {
+      "iconKey": "meats-002",
+      "priority": 470,
+      "patterns": ["\\bbacon\\b", "\\bpancetta\\b"]
+    },
+    {
+      "iconKey": "meats-003",
+      "priority": 470,
+      "patterns": ["\\bwhole chicken\\b", "\\broast chicken\\b"]
+    },
+    {
+      "iconKey": "meats-028",
+      "priority": 460,
+      "patterns": ["\\bchicken leg\\b", "\\bdrumsticks?\\b"]
+    },
+    {
+      "iconKey": "meats-033",
+      "priority": 460,
+      "patterns": ["\\bchicken breast\\b"]
+    },
+    {
+      "iconKey": "meats-017",
+      "priority": 470,
+      "patterns": [
+        "\\bturkey\\b",
+        "\\bperu\\b",
+        "\\bpavo\\b",
+        "\\bdinde\\b",
+        "\\bkalkoen(?:filet)?\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-006",
+      "priority": 470,
+      "patterns": ["\\bduck\\b", "\\bpato\\b", "\\bcanard\\b"]
+    },
+    {
+      "iconKey": "meats-008",
+      "priority": 450,
+      "patterns": [
+        "\\bchicken\\b",
+        "\\bfrango\\b",
+        "\\bpollo\\b",
+        "\\bpoulet\\b",
+        "\\bkip(?:filet)?\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-007",
+      "priority": 470,
+      "patterns": ["\\bgoat\\b", "\\bcabra\\b", "\\bch[eè]vre\\b"]
+    },
+    {
+      "iconKey": "meats-038",
+      "priority": 470,
+      "patterns": [
+        "\\brabbit\\b",
+        "\\bcoelho\\b",
+        "\\bconejo\\b",
+        "\\blapin\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-037",
+      "priority": 470,
+      "patterns": ["\\bbison\\b", "\\bbuffalo meat\\b"]
+    },
+    {
+      "iconKey": "meats-025",
+      "priority": 470,
+      "patterns": ["\\blamb chops?\\b", "\\bpork chops?\\b", "\\bsteaks?\\b"]
+    },
+    {
+      "iconKey": "meats-013",
+      "priority": 450,
+      "patterns": [
+        "\\bbeef\\b",
+        "\\bcarne bovina\\b",
+        "\\bboeuf\\b",
+        "\\bb[œo]uf\\b",
+        "\\brund(?:er)?(?:gehakt)?\\b",
+        "\\bbiefstuk\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-032",
+      "priority": 470,
+      "patterns": ["\\bpork belly\\b"]
+    },
+    {
+      "iconKey": "meats-036",
+      "priority": 450,
+      "patterns": ["\\bpork\\b", "\\bporco\\b", "\\bcerdo\\b", "\\bporc\\b"]
+    },
+    {
+      "iconKey": "meats-012",
+      "priority": 460,
+      "patterns": [
+        "\\bham\\b",
+        "\\bpresunto\\b",
+        "\\bjam[oó]n\\b",
+        "\\bjambon\\b",
+        "\\bachterham\\b",
+        "\\bprosciutto\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-016",
+      "priority": 460,
+      "patterns": [
+        "\\bsausages?\\b",
+        "\\blingui[cç]a\\b",
+        "\\bsalchichas?\\b",
+        "\\bsaucisses?\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-029",
+      "priority": 470,
+      "patterns": ["\\bbratwurst\\b", "\\bchorizo\\b"]
+    },
+    {
+      "iconKey": "meats-023",
+      "priority": 470,
+      "patterns": ["\\bhot dogs?\\b"]
+    },
+    {
+      "iconKey": "meats-021",
+      "priority": 460,
+      "patterns": ["\\bbologna\\b", "\\bmortadella\\b"]
+    },
+    {
+      "iconKey": "meats-015",
+      "priority": 460,
+      "patterns": ["\\bsalami\\b", "\\bpepperoni\\b"]
+    },
+    {
+      "iconKey": "meats-011",
+      "priority": 460,
+      "patterns": ["\\bmeatballs?\\b", "\\balm[oô]ndegas?\\b"]
+    },
+    {
+      "iconKey": "meats-034",
+      "priority": 470,
+      "patterns": ["\\bliver\\b", "\\bf[ií]gado\\b", "\\bfoie\\b"]
+    },
+    {
+      "iconKey": "meats-035",
+      "priority": 470,
+      "patterns": ["\\bheart\\b", "\\bcora[cç][aã]o\\b"]
+    },
+    {
+      "iconKey": "meats-030",
+      "priority": 460,
+      "patterns": ["\\bbeef jerky\\b", "\\bjerky\\b"]
+    },
+    {
+      "iconKey": "meats-020",
+      "priority": 440,
+      "patterns": ["\\bmeat burger\\b", "\\bbeef burger\\b"]
+    },
+    {
+      "iconKey": "meats-001",
+      "priority": 380,
+      "patterns": ["\\bmeat\\b", "\\bcarne\\b", "\\bviande\\b"]
+    },
+
+    {
+      "iconKey": "vegetables-001",
+      "priority": 470,
+      "patterns": [
+        "\\bavocados?\\b",
+        "\\babacates?\\b",
+        "\\bpalta\\b",
+        "\\bavocat\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-002",
+      "priority": 450,
+      "patterns": [
+        "\\bpotatoes?\\b",
+        "\\bbatatas?\\b",
+        "\\bpapas?\\b",
+        "\\bpomme de terre\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-003",
+      "priority": 450,
+      "patterns": ["\\bbroccoli\\b", "\\bbr[oó]colis?\\b", "\\bbrocoli\\b"]
+    },
+    {
+      "iconKey": "vegetables-004",
+      "priority": 450,
+      "patterns": [
+        "\\bcarrots?\\b",
+        "\\bcenouras?\\b",
+        "\\bzanahorias?\\b",
+        "\\bcarottes?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-005",
+      "priority": 450,
+      "patterns": [
+        "\\bbeets?\\b",
+        "\\bbeetroot\\b",
+        "\\bbeterrabas?\\b",
+        "\\bbetteraves?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-006",
+      "priority": 450,
+      "patterns": [
+        "\\bcabbage\\b",
+        "\\brepolho\\b",
+        "\\bcol\\b",
+        "\\bchou\\b",
+        "\\bcoleslaw\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-008",
+      "priority": 450,
+      "patterns": [
+        "\\bcauliflower\\b",
+        "\\bcouve-flor\\b",
+        "\\bcoliflor\\b",
+        "\\bchou-fleur\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-009",
+      "priority": 450,
+      "patterns": ["\\bcelery\\b", "\\baipo\\b", "\\bc[eé]leri\\b"]
+    },
+    {
+      "iconKey": "vegetables-010",
+      "priority": 450,
+      "patterns": ["\\bgreen peppers?\\b", "\\bgreen bell peppers?\\b"]
+    },
+    {
+      "iconKey": "vegetables-011",
+      "priority": 450,
+      "patterns": ["\\bred peppers?\\b", "\\bred bell peppers?\\b"]
+    },
+    {
+      "iconKey": "vegetables-012",
+      "priority": 450,
+      "patterns": ["\\byellow peppers?\\b", "\\byellow bell peppers?\\b"]
+    },
+    {
+      "iconKey": "vegetables-013",
+      "priority": 450,
+      "patterns": [
+        "\\basparagus\\b",
+        "\\bespargos?\\b",
+        "\\besp[aá]rragos?\\b",
+        "\\basperges?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-014",
+      "priority": 450,
+      "patterns": [
+        "\\bgreen beans?\\b",
+        "\\bstring beans?\\b",
+        "\\bharicots verts?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-015",
+      "priority": 450,
+      "patterns": [
+        "\\bartichokes?\\b",
+        "\\balcachofras?\\b",
+        "\\bartichauts?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-016",
+      "priority": 450,
+      "patterns": [
+        "\\bchili peppers?\\b",
+        "\\bchillies\\b",
+        "\\bpiri-?piri\\b",
+        "\\bpimentas?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-017",
+      "priority": 450,
+      "patterns": ["\\bcucumbers?\\b", "\\bpepinos?\\b", "\\bconcombres?\\b"]
+    },
+    {
+      "iconKey": "vegetables-018",
+      "priority": 450,
+      "patterns": ["\\bradishes?\\b", "\\brabanetes?\\b", "\\bradis\\b"]
+    },
+    {
+      "iconKey": "vegetables-019",
+      "priority": 450,
+      "patterns": ["\\byams?\\b", "\\bsweet potatoes?\\b", "\\bbatata doce\\b"]
+    },
+    {
+      "iconKey": "vegetables-020",
+      "priority": 450,
+      "patterns": ["\\bgarlic\\b", "\\balho\\b", "\\bajo\\b", "\\bail\\b"]
+    },
+    {
+      "iconKey": "vegetables-023",
+      "priority": 450,
+      "patterns": [
+        "\\bcorn\\b",
+        "\\bmaize\\b",
+        "\\bmilho\\b",
+        "\\bma[ií]z\\b",
+        "\\bmaïs\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-024",
+      "priority": 450,
+      "patterns": [
+        "\\beggplants?\\b",
+        "\\baubergines?\\b",
+        "\\bberinjelas?\\b",
+        "\\bberenjenas?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-027",
+      "priority": 450,
+      "patterns": [
+        "\\bonions?\\b",
+        "\\bcebolas?\\b",
+        "\\bcebollas?\\b",
+        "\\boignons?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-028",
+      "priority": 450,
+      "patterns": [
+        "\\btaro\\b",
+        "\\bcassava\\b",
+        "\\bmandioca\\b",
+        "\\byuca\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-029",
+      "priority": 450,
+      "patterns": [
+        "\\bpeas?\\b",
+        "\\bervilhas?\\b",
+        "\\bguisantes?\\b",
+        "\\bpetits pois\\b",
+        "\\bedamame\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-031",
+      "priority": 450,
+      "patterns": [
+        "\\bpumpkins?\\b",
+        "\\bab[oó]boras?\\b",
+        "\\bcalabazas?\\b",
+        "\\bcitrouilles?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-032",
+      "priority": 450,
+      "patterns": ["\\bbok choy\\b", "\\bpak choi\\b"]
+    },
+    {
+      "iconKey": "vegetables-034",
+      "priority": 450,
+      "patterns": [
+        "\\bspinach\\b",
+        "\\bespinafres?\\b",
+        "\\bespinacas?\\b",
+        "\\b[eé]pinards?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-035",
+      "priority": 450,
+      "patterns": ["\\btomatoes?\\b", "\\btomates?\\b"]
+    },
+    {
+      "iconKey": "vegetables-037",
+      "priority": 450,
+      "patterns": [
+        "\\bzucchini\\b",
+        "\\bcourgettes?\\b",
+        "\\bcurgetes?\\b",
+        "\\bcalabac[ií]n\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-041",
+      "priority": 450,
+      "patterns": [
+        "\\bleeks?\\b",
+        "\\balho-por[oó]\\b",
+        "\\bpuerros?\\b",
+        "\\bpoireaux?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-043",
+      "priority": 450,
+      "patterns": [
+        "\\bmushrooms?\\b",
+        "\\bcogumelos?\\b",
+        "\\bchampi[nñ]ones?\\b",
+        "\\bchampignons?\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-047",
+      "priority": 450,
+      "patterns": ["\\bvegetable noodles?\\b", "\\bzoodles\\b"]
+    },
+    {
+      "iconKey": "vegetables-050",
+      "priority": 450,
+      "patterns": [
+        "\\bbasil\\b",
+        "\\bmanjeric[aã]o\\b",
+        "\\balbahaca\\b",
+        "\\bbasilic\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-051",
+      "priority": 450,
+      "patterns": ["\\bturnips?\\b", "\\bnabos?\\b", "\\bnavets?\\b"]
+    },
+    {
+      "iconKey": "vegetables-055",
+      "priority": 450,
+      "patterns": [
+        "\\bpickles?\\b",
+        "\\bgherkins?\\b",
+        "\\bcornichons?\\b",
+        "\\bsauerkraut\\b"
+      ]
+    },
+    {
+      "iconKey": "vegetables-058",
+      "priority": 450,
+      "patterns": ["\\bkimchi\\b"]
+    },
+    {
+      "iconKey": "vegetables-057",
+      "priority": 450,
+      "patterns": ["\\bokra\\b", "\\bquiabo\\b"]
+    },
+    {
+      "iconKey": "vegetables-038",
+      "priority": 350,
+      "patterns": [
+        "\\bvegetables?\\b",
+        "\\bvegetais\\b",
+        "\\bverduras?\\b",
+        "\\bl[eé]gumes?\\b"
+      ]
+    },
+
+    {
+      "iconKey": "fruit-003",
+      "priority": 450,
+      "patterns": ["\\bgreen apples?\\b", "\\bgranny smith\\b"]
+    },
+    {
+      "iconKey": "fruit-035",
+      "priority": 440,
+      "patterns": [
+        "\\bapples?\\b",
+        "\\bapplesauce\\b",
+        "\\bma[cç][aã]s?\\b",
+        "\\bmanzanas?\\b",
+        "\\bpommes?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-004",
+      "priority": 450,
+      "patterns": [
+        "\\bapricots?\\b",
+        "\\bdamascos?\\b",
+        "\\balbaricoques?\\b",
+        "\\babricots?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-005",
+      "priority": 450,
+      "patterns": [
+        "\\bcantaloupe\\b",
+        "\\bhoneydew\\b",
+        "\\bmelon\\b",
+        "\\bmel[aã]o\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-006",
+      "priority": 450,
+      "patterns": ["\\bblackberries?\\b", "\\bamoras?\\b", "\\bm[uû]res?\\b"]
+    },
+    {
+      "iconKey": "fruit-007",
+      "priority": 450,
+      "patterns": ["\\bblueberries?\\b", "\\bmirtilos?\\b", "\\bmyrtilles?\\b"]
+    },
+    {
+      "iconKey": "fruit-008",
+      "priority": 450,
+      "patterns": [
+        "\\bpineapples?\\b",
+        "\\babacaxis?\\b",
+        "\\bpi[nñ]as?\\b",
+        "\\bananas?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-010",
+      "priority": 450,
+      "patterns": [
+        "\\bpomegranates?\\b",
+        "\\brom[aã]s?\\b",
+        "\\bgranadas?\\b",
+        "\\bgrenades?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-011",
+      "priority": 450,
+      "patterns": ["\\bbananas?\\b", "\\bbananes?\\b"]
+    },
+    {
+      "iconKey": "fruit-012",
+      "priority": 450,
+      "patterns": [
+        "\\bcherries?\\b",
+        "\\bcerejas?\\b",
+        "\\bcerezas?\\b",
+        "\\bcerises?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-016",
+      "priority": 450,
+      "patterns": [
+        "\\bgrapefruits?\\b",
+        "\\btoranjas?\\b",
+        "\\bpomelo\\b",
+        "\\bpamplemousse\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-017",
+      "priority": 450,
+      "patterns": ["\\bgrapes?\\b", "\\buvas?\\b", "\\braisins?\\b"]
+    },
+    {
+      "iconKey": "fruit-018",
+      "priority": 450,
+      "patterns": ["\\bguavas?\\b", "\\bgoiabas?\\b", "\\bgoyaves?\\b"]
+    },
+    {
+      "iconKey": "fruit-019",
+      "priority": 450,
+      "patterns": ["\\bkiwis?\\b", "\\bkiwifruit\\b"]
+    },
+    {
+      "iconKey": "fruit-020",
+      "priority": 450,
+      "patterns": ["\\blemons?\\b", "\\blim[oõ]es?\\b", "\\bcitrons?\\b"]
+    },
+    {
+      "iconKey": "fruit-021",
+      "priority": 450,
+      "patterns": ["\\blimes?\\b", "\\blimas?\\b", "\\bcitron vert\\b"]
+    },
+    {
+      "iconKey": "fruit-022",
+      "priority": 450,
+      "patterns": ["\\bmangos?\\b", "\\bmangas?\\b", "\\bmangues?\\b"]
+    },
+    {
+      "iconKey": "fruit-024",
+      "priority": 450,
+      "patterns": ["\\boranges?\\b", "\\blaranjas?\\b", "\\bnaranjas?\\b"]
+    },
+    {
+      "iconKey": "fruit-025",
+      "priority": 450,
+      "patterns": [
+        "\\bpeaches?\\b",
+        "\\bp[eê]ssegos?\\b",
+        "\\bmelocotones?\\b",
+        "\\bp[eê]ches?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-026",
+      "priority": 450,
+      "patterns": ["\\bpears?\\b", "\\bperas?\\b", "\\bpoires?\\b"]
+    },
+    {
+      "iconKey": "fruit-027",
+      "priority": 450,
+      "patterns": [
+        "\\braspberries?\\b",
+        "\\bframboesas?\\b",
+        "\\bframboises?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-028",
+      "priority": 450,
+      "patterns": [
+        "\\bstrawberries?\\b",
+        "\\bmorangos?\\b",
+        "\\bfresas?\\b",
+        "\\bfraises?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-029",
+      "priority": 450,
+      "patterns": [
+        "\\bwatermelons?\\b",
+        "\\bmelancias?\\b",
+        "\\bsand[ií]as?\\b",
+        "\\bpast[eè]ques?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-030",
+      "priority": 450,
+      "patterns": ["\\bdates?\\b", "\\bt[âa]maras?\\b", "\\bdattes?\\b"]
+    },
+    {
+      "iconKey": "fruit-031",
+      "priority": 450,
+      "patterns": [
+        "\\bfigs?\\b",
+        "\\bfigos?\\b",
+        "\\bhigos?\\b",
+        "\\bfigues?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-032",
+      "priority": 450,
+      "patterns": ["\\bpersimmons?\\b", "\\bcaquis?\\b", "\\bkakis?\\b"]
+    },
+    {
+      "iconKey": "fruit-033",
+      "priority": 450,
+      "patterns": [
+        "\\bplums?\\b",
+        "\\bameixas?\\b",
+        "\\bciruelas?\\b",
+        "\\bprunes?\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-034",
+      "priority": 450,
+      "patterns": ["\\bstarfruit\\b", "\\bcarambola\\b"]
+    },
+    {
+      "iconKey": "fruit-042",
+      "priority": 450,
+      "patterns": [
+        "\\bpassion fruit\\b",
+        "\\bmaracuj[aá]\\b",
+        "\\bfruit de la passion\\b"
+      ]
+    },
+    {
+      "iconKey": "fruit-043",
+      "priority": 450,
+      "patterns": ["\\bpapayas?\\b", "\\bmam[aã]o\\b"]
+    },
+    {
+      "iconKey": "fruit-015",
+      "priority": 350,
+      "patterns": ["\\bfruit\\b", "\\bfrutas?\\b", "\\bfruits?\\b"]
+    },
+
+    {
+      "iconKey": "baked-goods-004",
+      "priority": 100,
+      "patterns": [
+        "\\bbaked goods?\\b",
+        "\\bbakery\\b",
+        "\\bpadaria\\b",
+        "\\bboulangerie\\b"
+      ]
+    },
+    {
+      "iconKey": "meats-001",
+      "priority": 100,
+      "patterns": ["\\bprotein foods?\\b"]
+    },
+    {
+      "iconKey": "seafood-018",
+      "priority": 100,
+      "patterns": ["\\bshellfish\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-001",
+      "priority": 100,
+      "patterns": ["\\bdairy\\b", "\\blatic[ií]nios?\\b", "\\blaitiers?\\b"]
+    },
+    {
+      "iconKey": "sweets-006",
+      "priority": 100,
+      "patterns": [
+        "\\bdesserts?\\b",
+        "\\bsweets?\\b",
+        "\\bdoces?\\b",
+        "\\bdulces?\\b"
+      ]
+    }
+  ]
+}

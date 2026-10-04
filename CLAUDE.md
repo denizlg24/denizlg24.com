@@ -87,6 +87,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   landing pages (`/register/*`). Not deployed by Forge: installed as an ad-hoc
   build or from Xcode. See
   [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
+- `apps/nutrition/` — Bun + Elysia nutrition API (Forge, `nutrition.denizlg24.com`),
+  the food catalogue Macros searches and scans: USDA, eleven national
+  composition tables, USDA Branded and OpenFoodFacts in one Postgres
+  (`proj_deniz_nutrition_api`), ranked by Meilisearch. See
+  [Nutrition API](#nutrition-api-appsnutrition).
 - `packages/macros-core/` — pure Macros domain logic (nutrients, serving
   display, wizard maths, weight trend, expenditure) shared by the web app and
   the iOS app. Wire contracts are `@repo/schemas/macros`.
@@ -220,6 +225,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | `storage.denizlg24.com` | Forge, `apps/storage` |
 | `auth.denizlg24.com` | Forge, `apps/auth` |
 | `mcp.denizlg24.com` | Forge, `apps/mcp` |
+| `nutrition.denizlg24.com` | Forge, `apps/nutrition` — DB, Redis and Meilisearch on the Pi |
 | `browser.denizlg24.com` | Forge, `apps/browser` — memory reservation matters: one Chromium plus ~100 MB per open context |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
@@ -661,6 +667,26 @@ seeds configured resources insert-only, so a hand-inserted row survives the
 next deploy. That is how the MCP client gained the status resource on
 2026-09-15 without rotating its secret — `docker exec -i
 deniz-cloud-postgres-1 psql -U admin -d denizcloud` on the Pi.
+
+## Nutrition API (apps/nutrition)
+
+Moved in from the standalone `deniz-nutrition-api` repo (formerly run by hand
+with docker compose on the Pi). Details in `apps/nutrition/README.md`.
+
+- **Barcodes are stored as GTIN-14** (`@repo/macros-core/barcode`). Anything
+  comparing a scanned code to a stored one goes through `barcodeLookupKeys` /
+  `normalizeBarcode`; Macros' own `foods.barcode` still holds legacy spellings.
+- **Imports upsert by barcode; never delete-and-reinsert.** Macros stores the
+  API's item ids and refetches nutrition through them. A row a source drops is
+  quarantined (`withdrawn_by_source`); a duplicate is `merged_into` its
+  survivor. Both stay readable by id.
+- **This API is the Meilisearch index's only writer.** The cloud collection
+  that synced `items` is disabled and its trigger dropped; re-enabling it
+  re-adds merged and quarantined rows. After any import: `search:sync --prune`.
+- **Forge never applies its migrations.** `bun run db:migrate` from
+  `apps/nutrition` (env `.env.nutrition`) before merging a schema change.
+- **NEVO and Fineli are deliberately absent**: NEVO's licence forbids altering
+  the data; Fineli's CDN refuses scripted downloads.
 
 ## Status page
 

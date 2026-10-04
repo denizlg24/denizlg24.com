@@ -1,3 +1,4 @@
+import { barcodeLookupKeys } from "@repo/macros-core/barcode";
 import {
   and,
   desc,
@@ -523,7 +524,7 @@ export async function getCustomFoodSnapshotByBarcode(
       and(
         eq(userCustomFoods.userId, userId),
         isNull(userCustomFoods.deletedAt),
-        eq(foods.barcode, barcode),
+        inArray(foods.barcode, barcodeLookupKeys(barcode)),
       ),
     )
     .orderBy(desc(userCustomFoods.createdAt))
