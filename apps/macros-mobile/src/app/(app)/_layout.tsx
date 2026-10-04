@@ -5,6 +5,7 @@ import { logModalRoutes } from "@/features/log/routes";
 import { moreModalRoutes } from "@/features/more/routes";
 import { NotificationsSync } from "@/features/notifications/notifications-sync";
 import { progressModalRoutes } from "@/features/progress/routes";
+import { QuickActions } from "@/features/shell/quick-actions";
 import { shellModalRoutes } from "@/features/shell/routes";
 import { TimezoneSync } from "@/features/shell/timezone-sync";
 import { todayModalRoutes } from "@/features/today/routes";
@@ -24,6 +25,7 @@ export default function AppLayout() {
       <TimezoneSync />
       <HealthSync />
       <NotificationsSync />
+      <QuickActions />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {modalRoutes.map((route) => (

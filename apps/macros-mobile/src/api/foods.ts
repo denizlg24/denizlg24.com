@@ -35,7 +35,7 @@ export const foodKeys = {
 };
 
 /**
- * Callers debounce `q`. The previous results stay on screen while the next
+ * Callers pace `q` (one request in flight). The previous results stay on screen while the next
  * query is in flight so the list does not blank on every keystroke.
  */
 export function useFoodSearch(q: string, limit = 25) {

@@ -4,14 +4,13 @@ import type { MacrosFoodLogEntry } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
 import {
-  ActivityIndicator,
-  Alert,
-  type ImageSourcePropType,
-  Platform,
-  StyleSheet,
-  View,
-} from "react-native";
+  Directions,
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { reachesDayTarget } from "@/api/day-targets";
 import {
   queueEntryUpdate,
@@ -37,6 +36,7 @@ import {
   Button,
   colors,
   EmptyState,
+  Hairline,
   HeaderIconButton,
   HeaderTextButton,
   InlineNotice,
@@ -47,30 +47,25 @@ import {
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
 import { DayNoteRow } from "./day-note-row";
-import { DaySummary } from "./day-summary";
+import { DaySummary, DayTotalsBar } from "./day-summary";
 import { useDeferredDelete } from "./deferred-delete";
 import type { EntryActions } from "./entry-row";
 import { flashEntries, useFlashArrivals } from "./flash";
-import { HourSection } from "./hour-section";
+import { type HourAction, HourSection } from "./hour-section";
+import { menuIcon } from "./menu-icon";
 import { isIsoDate, selectDate, useSelectedDate } from "./selected-date";
 import {
   keepSelected,
+  selectWith,
   setSelected,
   startSelecting,
   stopSelecting,
+  toggleGroup,
   toggleSelected,
   useSelection,
 } from "./selection";
 import { groupByHour } from "./timeline";
 import { WeekStrip } from "./week-strip";
-
-/** SF Symbols on iOS; Android's Compose menu takes images instead. */
-function menuIcon(
-  sfSymbol: Extract<MenuAction["image"], string>,
-  glyph: ImageSourcePropType,
-): MenuAction["image"] {
-  return Platform.OS === "ios" ? sfSymbol : glyph;
-}
 
 function dayMenu(hasEntries: boolean): MenuAction[] {
   return [
@@ -133,6 +128,13 @@ export function LogDayScreen() {
   const failedWrites = useFailedWrites();
   const staged = usePlate().length;
   const [refreshing, setRefreshing] = useState(false);
+  // Where the full summary ends inside the list, where the list starts in the
+  // scroll content, and whether the view has scrolled past the summary — then
+  // the one-line totals pin to the top.
+  const [summaryBottom, setSummaryBottom] = useState<number | null>(null);
+  const [pinTotals, setPinTotals] = useState(false);
+  const [listTop, setListTop] = useState(0);
+  const safeTop = useSafeAreaInsets().top;
   const showError = useCallback((error: unknown) => {
     haptics.error();
     setNotice(errorMessage(error));
@@ -199,6 +201,13 @@ export function LogDayScreen() {
     });
   }
 
+  function openCopyTo(ids: readonly string[]) {
+    router.push({
+      pathname: "/log-move",
+      params: { date, ids: ids.join(","), mode: "copy" },
+    });
+  }
+
   function openCopy(from?: string) {
     router.push({
       pathname: "/log-copy",
@@ -216,13 +225,20 @@ export function LogDayScreen() {
       : haptics.success;
   }
 
-  function copyToToday(entry: MacrosFoodLogEntry) {
-    const feelLogged = feelLoggedOn(today, entry);
+  function copyToToday(chosen: readonly MacrosFoodLogEntry[]) {
+    const first = chosen[0];
+    if (!first) return;
+    const feelLogged = reachesDayTarget(
+      queryClient,
+      chosen.map((entry) => ({ logDate: today, macros: entry })),
+    )
+      ? haptics.goalReached
+      : haptics.success;
     copy.mutate(
       {
-        sourceDate: entry.logDate,
+        sourceDate: first.logDate,
         targetDate: today,
-        entryIds: [entry.id],
+        entryIds: chosen.map((entry) => entry.id),
       },
       { onSuccess: () => feelLogged(), onError: showError },
     );
@@ -239,7 +255,12 @@ export function LogDayScreen() {
       });
     },
     onMove: (entry) => openMove([entry.id]),
-    onCopyToToday: copyToToday,
+    onCopyToToday: (entry) => copyToToday([entry]),
+    onCopyTo: (entry) => openCopyTo([entry.id]),
+    onSelect: (entry) => {
+      haptics.selection();
+      selectWith([entry.id]);
+    },
     onToggle: (entry) => {
       haptics.selection();
       toggleSelected(entry.id);
@@ -276,11 +297,11 @@ export function LogDayScreen() {
     ]);
   }
 
-  function saveAsMeal() {
-    const ids = [...selection.ids];
+  function saveAsMeal(ids: readonly string[]) {
     if (ids.length === 0) return;
+    const chosen = new Set(ids);
     const names = (entries ?? [])
-      .filter((entry) => selection.ids.has(entry.id))
+      .filter((entry) => chosen.has(entry.id))
       .map((entry) => entry.foodName);
     promptText({
       title: "Save as meal",
@@ -290,7 +311,7 @@ export function LogDayScreen() {
         const name = value.trim();
         if (!name) return;
         createTemplate.mutate(
-          { name: name.slice(0, 120), entryIds: ids },
+          { name: name.slice(0, 120), entryIds: [...ids] },
           {
             onSuccess: () => {
               haptics.success();
@@ -302,6 +323,40 @@ export function LogDayScreen() {
       },
     });
   }
+
+  function onHourAction(action: HourAction, ids: string[]) {
+    switch (action) {
+      case "select":
+        haptics.selection();
+        return selectWith(ids);
+      case "copy-today": {
+        const chosen = new Set(ids);
+        return copyToToday(
+          (entries ?? []).filter((entry) => chosen.has(entry.id)),
+        );
+      }
+      case "copy":
+        return openCopyTo(ids);
+      case "move":
+        return openMove(ids);
+      case "meal":
+        return saveAsMeal(ids);
+    }
+  }
+
+  // Swiping the day's totals steps a day back or forward, like turning a page.
+  const daySwipe = Gesture.Race(
+    Gesture.Fling()
+      .direction(Directions.RIGHT)
+      .runOnJS(true)
+      .onEnd(() => changeDate(shiftIsoDate(date, -1))),
+    Gesture.Fling()
+      .direction(Directions.LEFT)
+      .runOnJS(true)
+      .onEnd(() => {
+        if (!viewingToday) changeDate(shiftIsoDate(date, 1));
+      }),
+  );
 
   const selectedCount = selection.ids.size;
   const allSelected =
@@ -320,187 +375,258 @@ export function LogDayScreen() {
   return (
     <>
       <Stack.Screen options={{ title }} />
-      <Screen
-        statusBarScrim
-        onRefresh={() => void refresh()}
-        refreshing={refreshing}
-        stickyHeaderIndices={[1]}
-        scrollEnabled={!retiming}
-      >
-        <PageHeader title={title}>
-          {selection.active ? (
-            <>
-              <HeaderIconButton
-                icon={allSelected ? "list-x" : "list-checks"}
-                label={allSelected ? "Deselect all" : "Select all"}
-                onPress={() =>
-                  setSelected(
-                    allSelected
-                      ? []
-                      : (entries?.map((entry) => entry.id) ?? []),
-                  )
+      <View style={styles.fill}>
+        <Screen
+          statusBarScrim
+          onRefresh={() => void refresh()}
+          refreshing={refreshing}
+          stickyHeaderIndices={[1]}
+          scrollEnabled={!retiming}
+          scrollEventThrottle={32}
+          onScroll={({ nativeEvent }) => {
+            if (summaryBottom === null) return;
+            const top =
+              nativeEvent.contentOffset.y + nativeEvent.contentInset.top;
+            const next = top > listTop + summaryBottom;
+            if (next !== pinTotals) setPinTotals(next);
+          }}
+        >
+          <PageHeader
+            title={title}
+            onTitlePress={
+              selection.active ? undefined : () => router.push("/log/calendar")
+            }
+          >
+            {selection.active ? (
+              <>
+                <HeaderIconButton
+                  icon={allSelected ? "list-x" : "list-checks"}
+                  label={allSelected ? "Deselect all" : "Select all"}
+                  onPress={() =>
+                    setSelected(
+                      allSelected
+                        ? []
+                        : (entries?.map((entry) => entry.id) ?? []),
+                    )
+                  }
+                />
+                <HeaderIconButton
+                  icon="copy"
+                  label="Copy to…"
+                  disabled={selectedCount === 0}
+                  onPress={() => openCopyTo([...selection.ids])}
+                />
+                <HeaderIconButton
+                  icon="arrow-up-down"
+                  label="Move"
+                  disabled={selectedCount === 0}
+                  onPress={() => openMove([...selection.ids])}
+                />
+                <HeaderIconButton
+                  icon="bookmark-plus"
+                  label="Save as meal"
+                  disabled={selectedCount === 0 || createTemplate.isPending}
+                  onPress={() => saveAsMeal([...selection.ids])}
+                />
+                <HeaderIconButton
+                  icon="trash"
+                  label="Delete"
+                  destructive
+                  disabled={selectedCount === 0 || bulkDelete.isPending}
+                  onPress={confirmBulkDelete}
+                />
+                <HeaderTextButton
+                  label="Done"
+                  prominent
+                  onPress={stopSelecting}
+                />
+              </>
+            ) : (
+              <>
+                {viewingToday ? null : (
+                  <HeaderTextButton
+                    label="Today"
+                    onPress={() => changeDate(today)}
+                  />
+                )}
+                <HeaderIconButton
+                  icon="calendar"
+                  label="Calendar"
+                  onPress={() => router.push("/log/calendar")}
+                />
+                <MenuView
+                  actions={dayMenu(hasEntries)}
+                  onPressAction={({ nativeEvent }) => {
+                    switch (nativeEvent.event) {
+                      case "select":
+                        return startSelecting();
+                      case "copy":
+                        return openCopy();
+                      case "note":
+                        return openNote();
+                      case "nutrition":
+                        return router.push("/log/nutrition");
+                      case "streak":
+                        return router.push("/log/activity");
+                    }
+                  }}
+                >
+                  <HeaderIconButton icon="ellipsis" label="More" />
+                </MenuView>
+              </>
+            )}
+          </PageHeader>
+          <View
+            style={
+              notice || day.isError || failedWrites.length > 0 || staged > 0
+                ? styles.notice
+                : undefined
+            }
+          >
+            <PendingPlateBar />
+            {notice ? (
+              <InlineNotice
+                message={notice}
+                onDismiss={() => setNotice(null)}
+              />
+            ) : day.isError && !day.data ? (
+              <InlineNotice
+                message={errorMessage(day.error)}
+                action={{
+                  label: "Try again",
+                  onPress: () => void day.refetch(),
+                }}
+              />
+            ) : null}
+            <FailedWritesNotice />
+          </View>
+
+          <View
+            onLayout={({ nativeEvent }) => setListTop(nativeEvent.layout.y)}
+          >
+            <VStack gap={spacing.xl}>
+              <WeekStrip
+                selectedDate={date}
+                today={today}
+                totals={weekTotals.data}
+                energyUnit={energyUnit}
+                onSelect={changeDate}
+                onShiftWeek={(direction) =>
+                  changeDate(shiftIsoDate(date, direction * 7))
                 }
               />
-              <HeaderIconButton
-                icon="arrow-up-down"
-                label="Move"
-                disabled={selectedCount === 0}
-                onPress={() => openMove([...selection.ids])}
-              />
-              <HeaderIconButton
-                icon="bookmark-plus"
-                label="Save as meal"
-                disabled={selectedCount === 0 || createTemplate.isPending}
-                onPress={saveAsMeal}
-              />
-              <HeaderIconButton
-                icon="trash"
-                label="Delete"
-                destructive
-                disabled={selectedCount === 0 || bulkDelete.isPending}
-                onPress={confirmBulkDelete}
-              />
-              <HeaderTextButton
-                label="Done"
-                prominent
-                onPress={stopSelecting}
-              />
-            </>
-          ) : (
-            <>
-              {viewingToday ? null : (
-                <HeaderTextButton
-                  label="Today"
-                  onPress={() => changeDate(today)}
-                />
-              )}
-              <HeaderIconButton
-                icon="calendar"
-                label="Calendar"
-                onPress={() => router.push("/log/calendar")}
-              />
-              <MenuView
-                actions={dayMenu(hasEntries)}
-                onPressAction={({ nativeEvent }) => {
-                  switch (nativeEvent.event) {
-                    case "select":
-                      return startSelecting();
-                    case "copy":
-                      return openCopy();
-                    case "note":
-                      return openNote();
-                    case "nutrition":
-                      return router.push("/log/nutrition");
-                    case "streak":
-                      return router.push("/log/activity");
-                  }
-                }}
-              >
-                <HeaderIconButton icon="ellipsis" label="More" />
-              </MenuView>
-            </>
-          )}
-        </PageHeader>
-        <View
-          style={
-            notice || day.isError || failedWrites.length > 0 || staged > 0
-              ? styles.notice
-              : undefined
-          }
-        >
-          <PendingPlateBar />
-          {notice ? (
-            <InlineNotice message={notice} onDismiss={() => setNotice(null)} />
-          ) : day.isError && !day.data ? (
-            <InlineNotice
-              message={errorMessage(day.error)}
-              action={{ label: "Try again", onPress: () => void day.refetch() }}
-            />
-          ) : null}
-          <FailedWritesNotice />
-        </View>
 
-        <VStack gap={spacing.xl}>
-          <WeekStrip
-            selectedDate={date}
-            today={today}
-            totals={weekTotals.data}
-            energyUnit={energyUnit}
-            onSelect={changeDate}
-            onShiftWeek={(direction) =>
-              changeDate(shiftIsoDate(date, direction * 7))
-            }
-          />
+              {day.data ? (
+                <GestureDetector gesture={daySwipe}>
+                  <View
+                    collapsable={false}
+                    onLayout={({ nativeEvent }) =>
+                      setSummaryBottom(
+                        nativeEvent.layout.y + nativeEvent.layout.height,
+                      )
+                    }
+                  >
+                    <DaySummary day={day.data} energyUnit={energyUnit} />
+                  </View>
+                </GestureDetector>
+              ) : null}
 
-          {day.data ? (
-            <DaySummary day={day.data} energyUnit={energyUnit} />
-          ) : null}
+              {hasEntries ? (
+                <VStack gap={spacing.lg}>
+                  {hours.map((group) => (
+                    <HourSection
+                      key={group.hour}
+                      group={group}
+                      timezone={dayTimezone}
+                      energyUnit={energyUnit}
+                      selecting={selection.active}
+                      selectedIds={selection.ids}
+                      pendingIds={deferredDelete.pending}
+                      viewingToday={viewingToday}
+                      actions={actions}
+                      onAdd={openAdd}
+                      onHourAction={onHourAction}
+                      onToggleHour={(ids) => {
+                        haptics.selection();
+                        toggleGroup(ids);
+                      }}
+                    />
+                  ))}
+                  {selection.active ? null : (
+                    <Button
+                      label="Add food"
+                      icon="plus"
+                      variant="plain"
+                      size="regular"
+                      block={false}
+                      onPress={() => openAdd()}
+                      style={styles.addMore}
+                    />
+                  )}
+                </VStack>
+              ) : day.data ? (
+                <GestureDetector gesture={daySwipe}>
+                  <View collapsable={false}>
+                    <EmptyState
+                      icon="utensils"
+                      title={
+                        viewingToday ? "Nothing logged yet" : "Nothing logged"
+                      }
+                      message="Add what you ate, or copy from a day you’ve already logged."
+                    >
+                      <View style={styles.emptyActions}>
+                        <Button
+                          label="Add food"
+                          icon="plus"
+                          size="regular"
+                          block
+                          onPress={() => openAdd()}
+                        />
+                        <Button
+                          label="Copy from yesterday"
+                          variant="tinted"
+                          size="regular"
+                          block
+                          onPress={() => openCopy(shiftIsoDate(date, -1))}
+                        />
+                      </View>
+                    </EmptyState>
+                  </View>
+                </GestureDetector>
+              ) : day.isPending ? (
+                <ActivityIndicator style={styles.loading} />
+              ) : null}
 
-          {hasEntries ? (
-            <VStack gap={spacing.lg}>
-              {hours.map((group) => (
-                <HourSection
-                  key={group.hour}
-                  group={group}
-                  timezone={dayTimezone}
-                  energyUnit={energyUnit}
-                  selecting={selection.active}
-                  selectedIds={selection.ids}
-                  pendingIds={deferredDelete.pending}
-                  viewingToday={viewingToday}
-                  actions={actions}
-                  onAdd={openAdd}
+              {day.data ? (
+                <DayNoteRow
+                  date={date}
+                  note={day.data.note}
+                  onPress={openNote}
                 />
-              ))}
-              {selection.active ? null : (
-                <Button
-                  label="Add food"
-                  icon="plus"
-                  variant="plain"
-                  size="regular"
-                  block={false}
-                  onPress={() => openAdd()}
-                  style={styles.addMore}
-                />
-              )}
+              ) : null}
             </VStack>
-          ) : day.data ? (
-            <EmptyState
-              icon="utensils"
-              title={viewingToday ? "Nothing logged yet" : "Nothing logged"}
-              message="Add what you ate, or copy from a day you’ve already logged."
-            >
-              <View style={styles.emptyActions}>
-                <Button
-                  label="Add food"
-                  icon="plus"
-                  size="regular"
-                  block
-                  onPress={() => openAdd()}
-                />
-                <Button
-                  label="Copy from yesterday"
-                  variant="tinted"
-                  size="regular"
-                  block
-                  onPress={() => openCopy(shiftIsoDate(date, -1))}
-                />
-              </View>
-            </EmptyState>
-          ) : day.isPending ? (
-            <ActivityIndicator style={styles.loading} />
-          ) : null}
-
-          {day.data ? (
-            <DayNoteRow date={date} note={day.data.note} onPress={openNote} />
-          ) : null}
-        </VStack>
-      </Screen>
+          </View>
+        </Screen>
+        {pinTotals && day.data && !selection.active ? (
+          <View style={[styles.pinned, { top: safeTop }]}>
+            <DayTotalsBar day={day.data} energyUnit={energyUnit} />
+            <Hairline />
+          </View>
+        ) : null}
+      </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  fill: {
+    flex: 1,
+  },
+  pinned: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+  },
   notice: {
     backgroundColor: colors.background,
   },

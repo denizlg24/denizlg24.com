@@ -4,7 +4,7 @@ import type {
 } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   useCustomFoods,
@@ -35,15 +35,6 @@ function picksTitle(hour: number): string {
   return `${formatHour(hour).replace(/:00(?=\s*[^\d\s])/, "")} Picks`;
 }
 
-function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
 function matches(
   item: { name: string; brand?: string | null },
   needle: string,
@@ -65,12 +56,15 @@ function byRecency(
 
 export function SearchBody({
   query,
+  submitted,
   hour,
   energyUnit,
   handlers,
   createFoodParams,
 }: {
   query: string;
+  /** Bumped by the keyboard's Search key: send the field now. */
+  submitted: number;
   /** The hour the hub logs at, which ranks the picks. */
   hour: number;
   energyUnit: EnergyUnit;
@@ -78,11 +72,27 @@ export function SearchBody({
   createFoodParams: Record<string, string>;
 }) {
   const needle = query.trim().toLocaleLowerCase();
-  const debounced = useDebouncedValue(query.trim(), 250);
+  const latest = query.trim();
+  // What the server is asked for. No debounce timer: React Native's delayed
+  // timers can stall while the app is still taking input, which left the
+  // last keystrokes unsearched until the Search key was pressed. Instead at
+  // most one request is in flight, and when it lands the field as it stands
+  // then is sent next.
+  const [sent, setSent] = useState(latest);
   const typing = needle.length > 0;
 
   const history = useFoodHistory(hour);
-  const search = useFoodSearch(debounced, 50);
+  const search = useFoodSearch(sent, 50);
+  useEffect(() => {
+    if (!search.isFetching && sent !== latest) setSent(latest);
+  }, [search.isFetching, sent, latest]);
+  // The Search key sends at once, in flight or not.
+  const lastSubmit = useRef(submitted);
+  useEffect(() => {
+    if (lastSubmit.current === submitted) return;
+    lastSubmit.current = submitted;
+    setSent(latest);
+  }, [submitted, latest]);
   const favorites = useFavorites();
   const custom = useCustomFoods();
 
@@ -169,11 +179,12 @@ export function SearchBody({
 
   // The user's own history and foods answer from cache at once; the server
   // adds database results as they arrive, never above the user's own.
-  // Offline, the request pauses rather than fails, and the previous query's
-  // results would stand in for this one's.
+  // The previous query's results stand in only while this one is on its way.
+  // Paused offline or refused, they would read as this query's answer.
   const paused = search.fetchStatus === "paused";
+  const awaiting = !paused && (sent !== latest || search.isFetching);
   const results =
-    paused && search.isPlaceholderData ? [] : (search.data?.items ?? []);
+    search.isPlaceholderData && !awaiting ? [] : (search.data?.items ?? []);
   const seen = new Set<string>();
   const fromHistory: QuickItem[] = [];
   for (const item of history.data ?? []) {
@@ -197,7 +208,6 @@ export function SearchBody({
   const common = database.filter((item) => !item.brand).map(searchQuick);
   const branded = database.filter((item) => item.brand).map(searchQuick);
   const settled = search.data !== undefined && !search.isPlaceholderData;
-  const awaiting = !paused && (debounced !== query.trim() || search.isFetching);
   const none =
     fromHistory.length === 0 &&
     yourFoods.length === 0 &&

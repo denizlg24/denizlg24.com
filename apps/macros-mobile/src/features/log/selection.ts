@@ -18,6 +18,24 @@ export function startSelecting() {
   selection.set({ active: true, ids: new Set() });
 }
 
+/** Enters selection with these entries already ticked (a long press, an hour). */
+export function selectWith(ids: readonly string[]) {
+  selection.set({ active: true, ids: new Set(ids) });
+}
+
+/** Ticks every id when any is unticked, otherwise unticks them all. */
+export function toggleGroup(ids: readonly string[]) {
+  selection.set((current) => {
+    const next = new Set(current.ids);
+    const all = ids.every((id) => next.has(id));
+    for (const id of ids) {
+      if (all) next.delete(id);
+      else next.add(id);
+    }
+    return { ...current, ids: next };
+  });
+}
+
 export function stopSelecting() {
   selection.set({ active: false, ids: new Set() });
 }

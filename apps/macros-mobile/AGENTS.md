@@ -198,6 +198,26 @@ small differences are a `Platform.OS` check. The ones that exist:
   row up, then up or down to move it through its day in 15-minute steps
   (`features/log/retime*.ts`). It saves through `queueEntryUpdate`, so the
   row lands at its new hour at once and the write survives being offline.
+  Long press opens Edit / Duplicate / Move / Copy to today / Copy to… /
+  Select (enters selection with the row ticked). Tapping an hour's label
+  opens the same group actions for every entry of that hour; in selection,
+  tapping the hour header ticks or unticks it. Copy to… is the move sheet
+  with `mode=copy` (day only: the copy endpoint keeps each time of day).
+  Swiping the day's totals steps a day; the week strip steps a week; the
+  date title opens the calendar. Past the summary, `DayTotalsBar` pins.
+- Home Screen quick actions (long press the icon) are static
+  `UIApplicationShortcutItems` in `app.config.ts`, handled by the local
+  module `modules/macros-quick-actions` (an app delegate subscriber; Expo
+  forwards scene shortcut actions to subscribers, cold start included) and
+  routed by `features/shell/quick-actions.tsx`. A new action needs both.
+- Food search is paced, not debounced: at most one request in flight, and
+  when it lands the field as it stands is sent next (`hub-search.tsx`). A
+  `setTimeout` debounce stalled on the simulator while keystrokes still
+  arrived, so the last characters went unsearched until the Search key was
+  pressed. Keep delayed timers off any path that has to finish on its own.
+- `isPaused` on a mutation does not mean offline: a write queued behind
+  another in the same scope is paused too. "Will sync when you're back
+  online" also checks `useOnline()` (`lib/online.ts`).
 - Adding food follows the web app's model. The tab bar's middle "+" (a
   disabled trigger, so it never selects) opens the shortcuts sheet; Search
   opens the add-food hub: a time chip and a calorie pill in the header, the
