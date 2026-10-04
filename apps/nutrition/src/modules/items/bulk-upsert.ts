@@ -62,13 +62,37 @@ const mergedProvenance = (merge: NutritionMerge) => {
  * never touched here. Under `prefer-existing` the item's identity (name,
  * brand, source) is left alone too: the existing row owns it.
  */
+/**
+ * Postgres caps a statement at 65,535 bind parameters; a nutrition row binds
+ * about 85, so one statement must stay well under ~770 rows.
+ */
+const MAX_ROWS_PER_STATEMENT = 400;
+
 export const bulkUpsertProducts = async <
   TSchema extends Record<string, unknown>,
 >(
   database: NodePgDatabase<TSchema>,
   rows: ProductRow[],
   merge: NutritionMerge,
-) => {
+): Promise<Map<string, string>> => {
+  if (rows.length > MAX_ROWS_PER_STATEMENT) {
+    const merged = new Map<string, string>();
+    for (
+      let offset = 0;
+      offset < rows.length;
+      offset += MAX_ROWS_PER_STATEMENT
+    ) {
+      const chunk = rows.slice(offset, offset + MAX_ROWS_PER_STATEMENT);
+      for (const [barcode, id] of await bulkUpsertProducts(
+        database,
+        chunk,
+        merge,
+      )) {
+        merged.set(barcode, id);
+      }
+    }
+    return merged;
+  }
   if (rows.length === 0) return new Map<string, string>();
   const now = new Date();
 
