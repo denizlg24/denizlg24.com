@@ -176,5 +176,8 @@ export const refreshSummaries = async <TSchema extends Record<string, unknown>>(
            carbs_per_serving = coalesce(n.carbs, 0),
            fat_per_serving = coalesce(n.fat, 0)
       from nutrition_data n
-     where n.item_id = i.id and i.id = any(${itemIds}::uuid[])`);
+     where n.item_id = i.id and i.id in (${sql.join(
+       itemIds.map((id) => sql`${id}`),
+       sql`, `,
+     )})`);
 };

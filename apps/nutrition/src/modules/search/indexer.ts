@@ -23,7 +23,10 @@ export class SearchIndexer {
     if (itemIds.length === 0) return;
     const { rows } = await this.database.execute<SearchableRow>(
       sql`select ${sql.raw(searchableColumnsSql)} from items
-           where id = any(${itemIds}::uuid[]) and ${sql.raw(searchableWhereSql)}`,
+           where id in (${sql.join(
+             itemIds.map((id) => sql`${id}`),
+             sql`, `,
+           )}) and ${sql.raw(searchableWhereSql)}`,
     );
     await this.search.addDocuments(rows.map(buildSearchDocument));
   }
