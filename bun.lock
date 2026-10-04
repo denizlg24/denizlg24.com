@@ -357,7 +357,7 @@
     },
     "apps/macros-mobile": {
       "name": "macros-mobile",
-      "version": "0.0.7",
+      "version": "0.0.9",
       "dependencies": {
         "@better-auth/expo": "1.7.5",
         "@expo/ui": "~57.0.20",
