@@ -13,6 +13,7 @@ import {
 } from "@/api/shopping-list";
 import { FoodIcon } from "@/components/food-icon";
 import { haptics } from "@/lib/haptics";
+import { useOnline } from "@/lib/online";
 import {
   colors,
   EmptyState,
@@ -55,12 +56,14 @@ export function ShoppingListScreen() {
   const [flash, setFlash] = useState<{ id: string; at: number } | null>(null);
   const composer = useRef<TextInput>(null);
 
-  const waiting = useMutationState({
+  const online = useOnline();
+  const paused = useMutationState({
     filters: {
       mutationKey: ["shopping-list", "write"],
       predicate: (mutation) => mutation.state.isPaused,
     },
   }).length;
+  const waiting = online ? 0 : paused;
 
   const deferred = useDeferredCommit(
     useCallback(

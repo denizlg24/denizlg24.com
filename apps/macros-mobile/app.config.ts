@@ -43,6 +43,30 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     config: { usesNonExemptEncryption: false },
     infoPlist: {
       CFBundleAllowMixedLocalizations: true,
+      // Long press the icon. Handled by modules/macros-quick-actions and
+      // routed in src/features/shell/quick-actions.tsx.
+      UIApplicationShortcutItems: [
+        {
+          UIApplicationShortcutItemType: `${BUNDLE_IDENTIFIER}.search`,
+          UIApplicationShortcutItemTitle: "Search Food",
+          UIApplicationShortcutItemIconSymbolName: "magnifyingglass",
+        },
+        {
+          UIApplicationShortcutItemType: `${BUNDLE_IDENTIFIER}.scan`,
+          UIApplicationShortcutItemTitle: "Scan Barcode",
+          UIApplicationShortcutItemIconSymbolName: "barcode.viewfinder",
+        },
+        {
+          UIApplicationShortcutItemType: `${BUNDLE_IDENTIFIER}.quick-add`,
+          UIApplicationShortcutItemTitle: "Quick Add",
+          UIApplicationShortcutItemIconSymbolName: "bolt",
+        },
+        {
+          UIApplicationShortcutItemType: `${BUNDLE_IDENTIFIER}.weigh-in`,
+          UIApplicationShortcutItemTitle: "Log Weight",
+          UIApplicationShortcutItemIconSymbolName: "scalemass",
+        },
+      ],
     },
   },
   android: {

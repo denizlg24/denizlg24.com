@@ -1,8 +1,10 @@
 import { dateToIso, isoToDate } from "@repo/macros-core/food-log/date-utils";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useFoodLogDay, usePlaceEntries } from "@/api/food-log";
+import { reachesDayTarget } from "@/api/day-targets";
+import { useCopyEntries, useFoodLogDay, usePlaceEntries } from "@/api/food-log";
 import { useProfile } from "@/api/profile";
 import { errorMessage } from "@/lib/api";
 import { deviceTimeZone, useToday } from "@/lib/day";
@@ -26,10 +28,19 @@ import { SheetHeader } from "./sheet-header";
 
 const AFTER_DISMISS_MS = 420;
 
-/** Moves entries to another day, another time, or both. */
+/**
+ * Moves entries to another day, another time, or both. With `mode=copy` it
+ * copies them to another day instead, each copy keeping its time of day.
+ */
 export function MoveSheet() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ date?: string; ids?: string }>();
+  const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{
+    date?: string;
+    ids?: string;
+    mode?: string;
+  }>();
+  const copying = params.mode === "copy";
   const profile = useProfile();
   const timeZone = profile.data?.timezone ?? deviceTimeZone();
   const today = useToday(timeZone);
@@ -38,7 +49,9 @@ export function MoveSheet() {
 
   const day = useFoodLogDay(date);
   const place = usePlaceEntries();
-  const [targetDate, setTargetDate] = useState(date);
+  const copy = useCopyEntries();
+  // A copy is usually of an earlier day into today; a move starts in place.
+  const [targetDate, setTargetDate] = useState(copying ? today : date);
   // Null keeps each entry's own time of day.
   const [clock, setClock] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -57,7 +70,7 @@ export function MoveSheet() {
     { date: targetDate, clock: shownClock },
     timeZone,
   );
-  const nothingChanges = clock === null && targetDate === date;
+  const nothingChanges = !copying && clock === null && targetDate === date;
   const latest = targetDate > today ? targetDate : today;
 
   function chooseClock(next: string | null) {
@@ -65,9 +78,34 @@ export function MoveSheet() {
     setClock(next);
   }
 
+  function fail(error: unknown) {
+    haptics.error();
+    setNotice(errorMessage(error));
+  }
+
   function submit() {
     setNotice(null);
     const ids = selected.map((entry) => entry.id);
+    if (copying) {
+      const feelLogged = reachesDayTarget(
+        queryClient,
+        selected.map((entry) => ({ logDate: targetDate, macros: entry })),
+      )
+        ? haptics.goalReached
+        : haptics.success;
+      copy.mutate(
+        { sourceDate: date, targetDate, entryIds: ids },
+        {
+          onSuccess: () => {
+            feelLogged();
+            stopSelecting();
+            router.back();
+          },
+          onError: fail,
+        },
+      );
+      return;
+    }
     place.mutate(
       {
         entryIds: ids,
@@ -81,10 +119,7 @@ export function MoveSheet() {
           if (targetDate === date) flashEntries(ids, AFTER_DISMISS_MS);
           router.back();
         },
-        onError: (error) => {
-          haptics.error();
-          setNotice(errorMessage(error));
-        },
+        onError: fail,
       },
     );
   }
@@ -99,13 +134,13 @@ export function MoveSheet() {
   return (
     <View style={styles.sheet}>
       <SheetHeader
-        title={count === 1 ? "Move entry" : `Move ${count} entries`}
+        title={`${copying ? "Copy" : "Move"} ${count === 1 ? "entry" : `${count} entries`}`}
         onCancel={() => router.back()}
         confirm={{
-          label: "Move",
+          label: copying ? "Copy" : "Move",
           onPress: submit,
           disabled: count === 0 || nothingChanges,
-          busy: place.isPending,
+          busy: copying ? copy.isPending : place.isPending,
         }}
       />
       {notice ? (
@@ -119,7 +154,7 @@ export function MoveSheet() {
       <View style={styles.content}>
         <Section title="Day">
           <View style={styles.row}>
-            <Text variant="body">Log on</Text>
+            <Text variant="body">{copying ? "Copy to" : "Log on"}</Text>
             <DateTimePicker
               value={isoToDate(targetDate)}
               mode="date"
@@ -134,43 +169,51 @@ export function MoveSheet() {
           </View>
         </Section>
 
-        <Section title="Time">
-          <Pressable
-            onPress={() => chooseClock(null)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: clock === null }}
-            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-          >
-            <Text variant="body" style={styles.fill}>
-              {keepLabel}
-            </Text>
-            {clock === null ? <Checkmark /> : null}
-          </Pressable>
-          <Hairline />
-          <View style={styles.row}>
+        {copying ? (
+          <Text variant="footnote" tone="secondary">
+            {count === 1
+              ? "The copy keeps its time of day."
+              : "Each copy keeps its time of day."}
+          </Text>
+        ) : (
+          <Section title="Time">
             <Pressable
-              onPress={() => chooseClock(shownClock)}
+              onPress={() => chooseClock(null)}
               accessibilityRole="radio"
-              accessibilityState={{ checked: clock !== null }}
-              accessibilityLabel="Set a time"
-              hitSlop={8}
-              style={styles.label}
+              accessibilityState={{ checked: clock === null }}
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
             >
-              <Text variant="body">At</Text>
+              <Text variant="body" style={styles.fill}>
+                {keepLabel}
+              </Text>
+              {clock === null ? <Checkmark /> : null}
             </Pressable>
-            <DateTimePicker
-              value={shownTime}
-              mode="time"
-              display="compact"
-              timeZoneName={timeZone}
-              onValueChange={(_event, next) =>
-                chooseClock(clockOf(next, timeZone))
-              }
-              style={styles.picker}
-            />
-            {clock !== null ? <Checkmark /> : <View style={styles.check} />}
-          </View>
-        </Section>
+            <Hairline />
+            <View style={styles.row}>
+              <Pressable
+                onPress={() => chooseClock(shownClock)}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: clock !== null }}
+                accessibilityLabel="Set a time"
+                hitSlop={8}
+                style={styles.label}
+              >
+                <Text variant="body">At</Text>
+              </Pressable>
+              <DateTimePicker
+                value={shownTime}
+                mode="time"
+                display="compact"
+                timeZoneName={timeZone}
+                onValueChange={(_event, next) =>
+                  chooseClock(clockOf(next, timeZone))
+                }
+                style={styles.picker}
+              />
+              {clock !== null ? <Checkmark /> : <View style={styles.check} />}
+            </View>
+          </Section>
+        )}
       </View>
     </View>
   );

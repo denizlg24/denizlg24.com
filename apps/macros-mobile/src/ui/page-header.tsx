@@ -14,10 +14,13 @@ import { colors, radius, spacing } from "./theme";
 export function PageHeader({
   title,
   subtitle,
+  onTitlePress,
   children,
 }: {
   title: string;
   subtitle?: string;
+  /** Makes the title a button with a disclosure chevron (Log: the calendar). */
+  onTitlePress?: () => void;
   /** Trailing actions: `HeaderIconButton`, `HeaderTextButton` or a menu. */
   children?: ReactNode;
 }) {
@@ -31,16 +34,47 @@ export function PageHeader({
       ]}
     >
       <View style={styles.row}>
-        <Text
-          variant="largeTitle"
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.6}
-          accessibilityRole="header"
-          style={styles.title}
-        >
-          {title}
-        </Text>
+        {onTitlePress ? (
+          <Pressable
+            onPress={onTitlePress}
+            accessibilityRole="button"
+            accessibilityLabel={title}
+            accessibilityHint="Opens the calendar"
+            style={({ pressed }) => [
+              styles.title,
+              styles.titleButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              variant="largeTitle"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              accessibilityRole="header"
+              style={styles.titleText}
+            >
+              {title}
+            </Text>
+            <Icon
+              name="chevron-down"
+              size={18}
+              weight="semibold"
+              color={colors.secondaryLabel}
+            />
+          </Pressable>
+        ) : (
+          <Text
+            variant="largeTitle"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+            accessibilityRole="header"
+            style={styles.title}
+          >
+            {title}
+          </Text>
+        )}
         {children ? <View style={styles.actions}>{children}</View> : null}
       </View>
       {subtitle ? (
@@ -149,6 +183,14 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
+  },
+  titleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  titleText: {
+    flexShrink: 1,
   },
   actions: {
     flexDirection: "row",

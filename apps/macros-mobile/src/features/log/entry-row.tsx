@@ -27,6 +27,9 @@ export interface EntryActions {
   onDuplicate: (entry: MacrosFoodLogEntry) => void;
   onMove: (entry: MacrosFoodLogEntry) => void;
   onCopyToToday: (entry: MacrosFoodLogEntry) => void;
+  onCopyTo: (entry: MacrosFoodLogEntry) => void;
+  /** Enters selection with this entry ticked. */
+  onSelect: (entry: MacrosFoodLogEntry) => void;
   onUndo: (entry: MacrosFoodLogEntry) => void;
   onToggle: (entry: MacrosFoodLogEntry) => void;
   onRetime: (entry: MacrosFoodLogEntry, eatenAt: string) => void;
@@ -124,6 +127,7 @@ export function EntryRow({
               { label: "Edit", onPress: () => router.push(href) },
               { label: "Duplicate", onPress: () => actions.onDuplicate(entry) },
               { label: "Move…", onPress: () => actions.onMove(entry) },
+              { label: "Copy to…", onPress: () => actions.onCopyTo(entry) },
               ...(viewingToday
                 ? []
                 : [
@@ -132,6 +136,7 @@ export function EntryRow({
                       onPress: () => actions.onCopyToToday(entry),
                     },
                   ]),
+              { label: "Select", onPress: () => actions.onSelect(entry) },
               {
                 label: "Delete",
                 destructive: true,
@@ -258,6 +263,18 @@ export function EntryRow({
                 onPress={() => actions.onCopyToToday(entry)}
               >
                 Copy to today
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="calendar.badge.plus"
+                onPress={() => actions.onCopyTo(entry)}
+              >
+                Copy to…
+              </Link.MenuAction>
+              <Link.MenuAction
+                icon="checkmark.circle"
+                onPress={() => actions.onSelect(entry)}
+              >
+                Select
               </Link.MenuAction>
               <Link.MenuAction
                 icon="trash"
