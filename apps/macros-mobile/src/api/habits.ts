@@ -18,6 +18,7 @@ import { api, errorMessage } from "@/lib/api";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { type BodyOverview, bodyKeys } from "./body";
 import { queryKeys } from "./keys";
+import { carryFetchStamp } from "./pending-logs";
 
 export type CreateHabitInput = z.input<typeof macrosHabitBodySchema>;
 export type UpdateHabitInput = z.input<typeof macrosUpdateHabitBodySchema>;
@@ -149,7 +150,10 @@ export function useSetHabitCompletion() {
         { queryKey: ["dashboard"] },
         (dashboard) =>
           dashboard
-            ? { ...dashboard, habits: withCompletion(dashboard.habits, input) }
+            ? carryFetchStamp(dashboard, {
+                ...dashboard,
+                habits: withCompletion(dashboard.habits, input),
+              })
             : dashboard,
       );
       if (body) {

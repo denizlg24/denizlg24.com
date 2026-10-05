@@ -10,12 +10,12 @@ import { withVars } from "@/app/_landing/phone/ios";
 import { LogScreen } from "@/app/_landing/screens/log-screen";
 import { ProgressScreen } from "@/app/_landing/screens/progress-screen";
 import { TodayScreen } from "@/app/_landing/screens/today-screen";
-import { container, GetTheApp } from "@/app/_landing/site";
+import { container, GetTheApp, MacroRule } from "@/app/_landing/site";
 
 const HIGHLIGHTS = [
   "Free, with no ads",
   "Scan barcodes and labels",
-  "Targets that adapt to you",
+  "Targets that adapt every week",
 ] as const;
 
 const energySplit = [
@@ -81,14 +81,17 @@ export function Hero() {
       <div
         className={cn(
           container,
-          "grid items-center gap-14 pt-10 pb-20 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-16 lg:pt-14 lg:pb-24",
+          "grid items-center gap-14 pt-12 pb-20 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-16 lg:pt-16 lg:pb-28",
         )}
       >
-        <div className="max-w-[40rem]">
-          <p className="eyebrow">Nutrition tracking for iPhone and Android</p>
+        <div className="max-w-[44rem]">
+          <p className="eyebrow flex items-center gap-3">
+            <MacroRule />
+            Nutrition tracking for iPhone and Android
+          </p>
           <h1
             id="hero-title"
-            className="mt-5 text-[clamp(2.1rem,9.4vw,4.1rem)] leading-[1.02] font-semibold tracking-[-0.045em] text-balance"
+            className="mt-6 text-[clamp(2.3rem,10vw,4rem)] leading-[1] font-semibold tracking-[-0.05em] text-balance"
           >
             <span className="block">Know what you eat.</span>
             <span className="block text-muted-foreground">

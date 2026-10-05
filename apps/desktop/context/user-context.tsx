@@ -72,6 +72,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/settings/finance",
   "/dashboard/settings/tokens",
   "/dashboard/settings/device",
+  "/dashboard/settings/release-notes",
   "/dashboard/journal",
   "/dashboard/authenticator",
   "/dashboard/spreadsheets",

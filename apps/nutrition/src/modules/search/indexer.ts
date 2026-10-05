@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 
 import type { Database } from "../../db/client";
 import type { MeilisearchSearchClient } from "../../infra/meilisearch";
+import type { SearchCache } from "./cache";
 import {
   buildSearchDocument,
   type SearchableRow,
@@ -17,6 +18,7 @@ export class SearchIndexer {
   constructor(
     private readonly database: Database,
     private readonly search: MeilisearchSearchClient,
+    private readonly cache?: SearchCache,
   ) {}
 
   async index(itemIds: string[]) {
@@ -29,5 +31,6 @@ export class SearchIndexer {
            )}) and ${sql.raw(searchableWhereSql)}`,
     );
     await this.search.addDocuments(rows.map(buildSearchDocument));
+    await this.cache?.invalidate();
   }
 }

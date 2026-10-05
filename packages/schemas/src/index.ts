@@ -5,6 +5,7 @@ export * from "./authenticator";
 export * from "./background-agent";
 export * from "./blog";
 export * from "./calendar";
+export * from "./changelog";
 export * from "./connectors";
 export * from "./contact";
 export * from "./conversation";

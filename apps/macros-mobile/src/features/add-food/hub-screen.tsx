@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useCalorieSummary } from "@/api/dashboard";
 import { FailedWritesNotice } from "@/components/failed-writes-notice";
 import { useCurrentMinute } from "@/lib/day";
@@ -11,11 +11,14 @@ import {
   logPlacement,
   logTimeParams,
 } from "@/lib/log-time";
-import { colors, gutter, Screen, spacing } from "@/ui";
+import { createStore, useStore } from "@/lib/store";
+import { gutter, Screen, spacing } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
 import { toolbarText } from "@/ui/toolbar";
 import { CaloriePill } from "./components/calorie-pill";
 import { type HubTab, HubTabs, isHubTab } from "./components/hub-tabs";
+import { PlateHeaderButton } from "./components/plate-button";
+import { PLATE_DOCK_CLEARANCE, PlateDock } from "./components/plate-dock";
 import type { QuickHandlers } from "./components/quick-section";
 import { LibraryBody, RecipesBody, ShopBody } from "./hub-lists";
 import { SearchBody } from "./hub-search";
@@ -29,13 +32,12 @@ import {
   quickPlateItem,
   quickRequest,
 } from "./search-rows";
-import { createStore, useStore } from "./store";
 import { readParam, routedLogTime, useZone } from "./target";
 
 // The search text lives outside the hub's state: a keystroke that re-rendered
 // the hub rebuilt every header option (title, toolbars, the search bar
 // itself) while the native field was still delivering text.
-const hubQuery = createStore({ text: "", submitted: 0 });
+const hubQuery = createStore({ text: "" });
 
 function useHubQuery() {
   return useStore(hubQuery);
@@ -72,7 +74,7 @@ export function HubScreen() {
   });
   const plate = usePlate();
   useEffect(() => {
-    hubQuery.set({ text: "", submitted: 0 });
+    hubQuery.set({ text: "" });
   }, []);
   const staged = plateTotals(plate).calories;
   const summary = useCalorieSummary(zone.today).data;
@@ -110,31 +112,25 @@ export function HubScreen() {
               energyUnit={zone.energyUnit}
             />
           ),
+          headerRight: () => <PlateHeaderButton />,
         }}
       />
       <Stack.SearchBar
         placeholder="Search for a food"
         autoCapitalize="none"
+        // Under the bar, not in a bottom toolbar: there the focused field took
+        // the whole row and the Log button with it.
+        placement="stacked"
         hideWhenScrolling={false}
-        // The calorie pill and the plate stay in view while typing.
         hideNavigationBar={false}
         obscureBackground={false}
         onChangeText={(event) => {
           const text = event.nativeEvent.text;
           hubQuery.set((current) =>
-            current.text === text ? current : { ...current, text },
+            current.text === text ? current : { text },
           );
         }}
-        // Search runs as you type; the key sends the field as it stands now,
-        // even while an earlier request is still in flight.
-        onSearchButtonPress={(event) => {
-          const text = event.nativeEvent.text;
-          hubQuery.set((current) => ({
-            text,
-            submitted: current.submitted + 1,
-          }));
-        }}
-        onCancelButtonPress={() => hubQuery.set({ text: "", submitted: 0 })}
+        onCancelButtonPress={() => hubQuery.set({ text: "" })}
       />
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button
@@ -149,40 +145,14 @@ export function HubScreen() {
           children: hubTimeLabel(when, zone.timeZone, zone.today, now),
         })}
       </Stack.Toolbar>
-      {/* Always mounted: a header item that came and went with the plate
-          only sometimes reappeared. Empty, it is disabled and unbadged. */}
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={glyphs.utensils}
-          iconRenderingMode="template"
-          accessibilityLabel={`Plate, ${plate.length} ${plate.length === 1 ? "food" : "foods"}`}
-          disabled={plate.length === 0}
-          onPress={() => router.push("/add-food/plate")}
-        >
-          {plate.length > 0 ? (
-            <Stack.Toolbar.Badge>{String(plate.length)}</Stack.Toolbar.Badge>
-          ) : null}
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
-      {/* Android has no search slot; its search field stays in the header. */}
-      {Platform.OS === "ios" ? (
-        <Stack.Toolbar placement="bottom">
-          <Stack.Toolbar.SearchBarSlot />
-          {toolbarText({
-            accessibilityLabel: `Log ${plate.length} ${plate.length === 1 ? "food" : "foods"}`,
-            variant: "done",
-            tintColor: colors.tint,
-            hidden: plate.length === 0,
-            onPress: () => commit(plate),
-            children: "Log",
-          })}
-        </Stack.Toolbar>
-      ) : null}
 
       <Screen
         bleed
         stickyHeaderIndices={[0]}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          plate.length > 0 && { paddingBottom: PLATE_DOCK_CLEARANCE },
+        ]}
       >
         <HubTabs
           value={tab}
@@ -204,6 +174,12 @@ export function HubScreen() {
           />
         </View>
       </Screen>
+      <PlateDock
+        items={plate}
+        energyUnit={zone.energyUnit}
+        onOpen={() => router.push("/add-food/plate")}
+        onLog={() => commit(plate)}
+      />
     </>
   );
 }
@@ -226,11 +202,10 @@ function HubBody({
   createFoodParams: Record<string, string>;
 }) {
   const zone = useZone();
-  const { text: query, submitted } = useHubQuery();
+  const { text: query } = useHubQuery();
   return tab === "search" ? (
     <SearchBody
       query={query}
-      submitted={submitted}
       hour={hourOf(when, zone.timeZone, now)}
       energyUnit={zone.energyUnit}
       handlers={handlers}

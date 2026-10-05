@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect } from "react";
 import { useProfile } from "@/api/profile";
-import { createStore, useStore } from "@/features/add-food/store";
+import { createStore, useStore } from "@/lib/store";
 import {
   DEFAULT_HABIT_REMINDER,
   DEFAULT_REMINDER_SETTINGS,

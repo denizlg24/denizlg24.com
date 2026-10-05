@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { z } from "zod";
-import { createStore, useStore } from "@/features/add-food/store";
+import { createStore, useStore } from "@/lib/store";
 
 const healthStateSchema = z.object({
   enabled: z.boolean(),

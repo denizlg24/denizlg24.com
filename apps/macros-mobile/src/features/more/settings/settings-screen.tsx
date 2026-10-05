@@ -141,7 +141,13 @@ export function SettingsScreen() {
         </Section>
 
         <Section title="About">
-          <Row title="Version" value={APP_VERSION} separator={false} />
+          <Row title="Version" value={APP_VERSION} />
+          <Row
+            title="What’s new"
+            chevron
+            separator={false}
+            onPress={() => router.push("/more/changelog")}
+          />
         </Section>
 
         <Section>

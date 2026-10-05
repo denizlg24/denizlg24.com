@@ -1,6 +1,7 @@
 import type { MacrosDailyMacros, MacrosFoodLogDay } from "@repo/schemas/macros";
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./keys";
+import { withPendingDay } from "./pending-logs";
 
 export interface LoggedAmount {
   logDate: string | undefined;
@@ -33,10 +34,11 @@ export function reachesDayTarget(
     });
   }
   for (const [logDate, sum] of added) {
-    const day = queryClient.getQueryData<MacrosFoodLogDay>(
+    const cached = queryClient.getQueryData<MacrosFoodLogDay>(
       queryKeys.foodLogDay(logDate),
     );
-    if (!day) continue;
+    if (!cached) continue;
+    const day = withPendingDay(cached);
     if (
       crosses(day.totals.calories, sum.calories, day.targets.calories) ||
       crosses(day.totals.protein, sum.protein, day.targets.protein)

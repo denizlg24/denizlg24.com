@@ -7,6 +7,7 @@ import { isApiError } from "../../shared/errors";
 import { fail, ok } from "../../shared/http";
 import { getRequestContext } from "../../shared/request-context";
 import { OpenFoodFactsLiveLookup } from "../openfoodfacts/live";
+import { SearchCache } from "../search/cache";
 import { SearchIndexer } from "../search/indexer";
 import { ItemsRepository } from "./repository";
 import {
@@ -46,11 +47,13 @@ const toApiErrorResponse = (
 };
 
 const repository = new ItemsRepository(db, meilisearch);
-const indexer = new SearchIndexer(db, meilisearch);
+const searchCache = new SearchCache(redis);
+const indexer = new SearchIndexer(db, meilisearch, searchCache);
 const service = new ItemsService(
   repository,
   new OpenFoodFactsLiveLookup(db, indexer, redis),
   indexer,
+  searchCache,
 );
 
 export const itemsRoutes = new Elysia({ prefix: "/items" })

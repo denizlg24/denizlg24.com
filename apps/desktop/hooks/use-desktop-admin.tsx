@@ -1,7 +1,7 @@
 "use client";
 
 import type { AdminContextValue } from "@repo/admin/provider";
-import { Laptop } from "lucide-react";
+import { Laptop, ScrollText } from "lucide-react";
 import { useMemo } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
@@ -35,6 +35,12 @@ export function useDesktopAdmin(): {
             slug: "device",
             label: "Device",
             icon: <Laptop className="size-3.5" />,
+          },
+          // Read from CHANGELOG.md at build, which only this app's export does.
+          {
+            slug: "release-notes",
+            label: "Release notes",
+            icon: <ScrollText className="size-3.5" />,
           },
         ],
       },

@@ -16,7 +16,7 @@ import { errorMessage } from "@/lib/api";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { haptics } from "@/lib/haptics";
 import { newClientMutationId } from "@/lib/ids";
-import { createStore, useStore } from "./store";
+import { createStore, useStore } from "@/lib/store";
 
 export type LogRequest =
   | { kind: "food"; input: LogFoodInput }
@@ -52,6 +52,8 @@ function withIdempotencyKey(request: LogRequest): LogRequest {
  * lands in the failure list, which the search tab shows with a retry that
  * reuses the same idempotency key.
  */
+export { withIdempotencyKey };
+
 export function useLogActions() {
   const queryClient = useQueryClient();
   const logFood = useLogFood();
@@ -83,7 +85,9 @@ export function useLogActions() {
       ]);
     if (reached) haptics.goalReached();
     else haptics.success();
-    if (macros) showLogged(queryClient, stamped.input.logDate, macros);
+    if (macros) {
+      showLogged(stamped.input.clientMutationId, stamped.input.logDate, macros);
+    }
     if (flashKey) lastLogged.set({ key: flashKey, at: Date.now() });
     send(stamped).catch((error: unknown) => {
       haptics.error();
@@ -91,7 +95,7 @@ export function useLogActions() {
       // the server cannot log twice.
       recordFailedWrite(name, errorMessage(error), {
         id: stamped.input.clientMutationId,
-        retry: () => log(stamped, name),
+        retry: () => log(stamped, name, undefined, macros),
       });
     });
   }

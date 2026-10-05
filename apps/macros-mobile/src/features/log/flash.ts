@@ -1,6 +1,6 @@
 import type { MacrosFoodLogEntry } from "@repo/schemas/macros";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { createStore } from "./store";
+import { createStore } from "@/lib/store";
 
 const tokens = createStore<ReadonlyMap<string, number>>(new Map());
 let counter = 0;

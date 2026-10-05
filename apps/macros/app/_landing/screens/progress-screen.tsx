@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import {
   expenditureSeries,
+  expenditureStats,
   weightGoalKg,
   weightMonths,
   weightSeries,
@@ -279,13 +280,20 @@ export function ProgressScreen() {
           <div className="flex justify-between gap-[12px]">
             <IosStat
               label="Estimate"
-              value="2,720"
+              value={expenditureStats.estimate}
               unit="kcal"
               size="large"
-              detail="2,610–2,830"
+              detail={expenditureStats.range}
             />
-            <IosStat label="28 days" value="+60 kcal" />
-            <IosStat label="vs formula" value="+6%" detail="2,570 kcal" />
+            <IosStat
+              label="28 days"
+              value={`${expenditureStats.change} kcal`}
+            />
+            <IosStat
+              label="vs formula"
+              value={expenditureStats.versusFormula}
+              detail={`${expenditureStats.formula} kcal`}
+            />
           </div>
           <ExpenditureChart />
         </div>

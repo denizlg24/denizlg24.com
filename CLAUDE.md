@@ -110,6 +110,24 @@ and docs. A harness against a running service is an `e2e`
 
 Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy|auth|mcp]`; `bun run format-and-lint` at root. `bun run dev:auth` runs api, auth (3008) and mcp (3009) together.
 
+### Changelogs and version bumps
+
+- `bun run bump:desktop <patch|minor|major>` and `bun run bump:macros …` bump
+  the version that triggers each app's release and open a dated
+  `## <version>` entry in its `CHANGELOG.md` (`apps/desktop`,
+  `apps/macros-mobile`); an entry written beforehand is kept.
+- Both files are parsed by `@repo/utils/changelog` (a Markdown subset; types
+  in `@repo/schemas` `changelog`). Desktop reads its own at build into
+  Settings → Release notes; Macros' site serves its own at `/changelog` and
+  `/api/changelog`, which the app's Settings → What's new fetches.
+- The desktop GitHub release body is `scripts/ci/release-notes.ts`: the
+  changelog entry plus the first-parent merges since the previous `v*` tag
+  that touched the desktop's paths — never `--generate-notes`, which lists
+  every PR in the monorepo. A path the desktop starts bundling belongs in the
+  workflow's `--paths`.
+- `apps/macros-mobile/scripts/changelog.test.ts` fails when the app's version
+  has no changelog entry.
+
 ### Envoy CLI release ownership
 
 - Do not restore subtree sync. `apps/envoy-cli` is maintained directly here,
@@ -683,6 +701,10 @@ with docker compose on the Pi). Details in `apps/nutrition/README.md`.
 - **This API is the Meilisearch index's only writer.** The cloud collection
   that synced `items` is disabled and its trigger dropped; re-enabling it
   re-adds merged and quarantined rows. After any import: `search:sync --prune`.
+- **Search answers are cached in Redis for 10 minutes**, keyed by an index
+  generation that `SearchIndexer.index` and `search:sync` bump. A script that
+  edits Postgres without either (icon assignment) shows up in search only once
+  the TTL runs out — or run `search:sync` after it.
 - **Forge never applies its migrations.** `bun run db:migrate` from
   `apps/nutrition` (env `.env.nutrition`) before merging a schema change.
 - **NEVO and Fineli are deliberately absent**: NEVO's licence forbids altering

@@ -15,6 +15,8 @@ import { primaryButton } from "@/app/_landing/site";
 
 type Field = "name" | "email" | "udid" | "note";
 
+const field = "h-11 rounded-[12px] px-3.5";
+
 const fieldMessages: Record<Field, string> = {
   name: "Enter your name.",
   email: "Enter a valid email address.",
@@ -124,6 +126,7 @@ export function RequestAccessForm() {
           autoComplete="name"
           aria-invalid={Boolean(errors.name)}
           maxLength={120}
+          className={field}
         />
         <FieldError message={errors.name} />
       </div>
@@ -135,6 +138,7 @@ export function RequestAccessForm() {
           type="email"
           autoComplete="email"
           aria-invalid={Boolean(errors.email)}
+          className={field}
         />
         <FieldError message={errors.email} />
       </div>
@@ -148,7 +152,7 @@ export function RequestAccessForm() {
           spellCheck={false}
           placeholder="00008030-001A2B3C4D5E6F70"
           aria-invalid={Boolean(errors.udid)}
-          className="font-mono tabular-nums"
+          className={cn(field, "font-mono tabular-nums")}
         />
         <FieldError message={errors.udid} />
       </div>
@@ -162,6 +166,7 @@ export function RequestAccessForm() {
           rows={3}
           maxLength={1000}
           aria-invalid={Boolean(errors.note)}
+          className="rounded-[12px] px-3.5 py-2.5"
         />
         <FieldError message={errors.note} />
       </div>

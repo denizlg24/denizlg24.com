@@ -17,6 +17,7 @@ import { api, errorMessage } from "@/lib/api";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { newClientMutationId } from "@/lib/ids";
 import { invalidateAfterLogging, queryKeys } from "./keys";
+import { confirmPendingLog, dropPendingLog } from "./pending-logs";
 
 export type LogMealTemplateInput = z.input<
   typeof macrosLogMealTemplateBodySchema
@@ -56,9 +57,12 @@ export function logMealTemplate(input: LogMealTemplateInput) {
 export function registerMealTemplateMutationDefaults(queryClient: QueryClient) {
   queryClient.setMutationDefaults(mealTemplateMutationKeys.log, {
     mutationFn: logMealTemplate,
-    onSuccess: (_data, variables: LogMealTemplateInput) =>
-      invalidateAfterLogging(queryClient, [variables.logDate]),
+    onSuccess: (_data, variables: LogMealTemplateInput) => {
+      confirmPendingLog(variables.clientMutationId);
+      return invalidateAfterLogging(queryClient, [variables.logDate]);
+    },
     onError: (error: Error, variables: LogMealTemplateInput) => {
+      dropPendingLog(variables.clientMutationId);
       recordFailedWrite("A logged meal", errorMessage(error), {
         id: variables.clientMutationId,
       });

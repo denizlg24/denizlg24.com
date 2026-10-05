@@ -210,28 +210,51 @@ small differences are a `Platform.OS` check. The ones that exist:
   module `modules/macros-quick-actions` (an app delegate subscriber; Expo
   forwards scene shortcut actions to subscribers, cold start included) and
   routed by `features/shell/quick-actions.tsx`. A new action needs both.
-- Food search is paced, not debounced: at most one request in flight, and
-  when it lands the field as it stands is sent next (`hub-search.tsx`). A
-  `setTimeout` debounce stalled on the simulator while keystrokes still
-  arrived, so the last characters went unsearched until the Search key was
-  pressed. Keep delayed timers off any path that has to finish on its own.
+- Timers stall in the add-food hub until the next native event (a key, a
+  tap); cause unknown. React Query delivers results through
+  `setTimeout(cb, 0)` by default, so a food sheet spun on data the server had
+  sent in 200 ms and a paced search never sent its last keystrokes — Forge's
+  request log showed both. `lib/query-client.ts` sets
+  `notifyManager.setScheduler(queueMicrotask)`; do not remove it. Keep
+  delayed timers (a debounce included) off any path that has to finish on
+  its own.
+- Food search sends every keystroke (`hub-search.tsx`); the superseded query
+  loses its observer and React Query aborts it. The nutrition API caches
+  answers in Redis, so this is cheap. While a query is in flight the previous
+  results show only where they still match the field. Search is never
+  retried and never persisted.
 - `isPaused` on a mutation does not mean offline: a write queued behind
   another in the same scope is paused too. "Will sync when you're back
   online" also checks `useOnline()` (`lib/online.ts`).
 - Adding food follows the web app's model. The tab bar's middle "+" (a
   disabled trigger, so it never selects) opens the shortcuts sheet; Search
   opens the add-food hub: a time chip and a calorie pill in the header, the
-  plate as a top-right toolbar button with a count badge (hidden while
-  empty), a sticky Scan / Search / Recipes / Library / Shop strip, and the
-  search field alone in the bottom toolbar. A row's "+" stages its amount on
-  the plate; everything on it is logged together from the plate screen.
+  plate as a top-right header button with a count badge, a sticky Scan /
+  Search / Recipes / Library / Shop strip, and the native search field
+  stacked under the bar. The plate button is our own view
+  (`PlateHeaderButton`), not a `Stack.Toolbar.Button` with a
+  `Stack.Toolbar.Badge`: that native badge is rebuilt from header options on
+  every render and sometimes came back empty while the plate held food. The
+  search field used to sit in the bottom toolbar, where focusing it took the
+  whole row and hid Log; now `PlateDock` (count, energy, macros, Log) floats
+  at the bottom whenever the plate holds food and rides the keyboard up. A
+  row's "+" stages its amount on the plate; everything on it is logged
+  together from the dock or the plate screen.
   Swipe logs at once. `PendingPlateBar` (count, energy, macros, Log) shows on
   Today and the Log whenever the plate holds food.
-  Logging is optimistic: `showLogged` adds the amounts to the cached
-  calorie summary, dashboard and day totals, the plate empties and the
-  screen closes before any request returns. Writes run serially in the
-  log scope and only the last one still queued refetches, so totals never
-  step through partial states; a refused plate item goes back on the plate.
+  Logging is optimistic: `showLogged` records the write in the pending-log
+  ledger (`api/pending-logs.ts`), the plate empties and the screen closes
+  before any request returns. The ledger is never written into the cache:
+  `useDashboard`, `useCalorieSummary`, `useFoodLogDay` and the week/calendar
+  totals add it in `select`, counting an entry only against data fetched
+  before its write was confirmed (each fetcher stamps the object it returns,
+  so structural sharing is off for those keys). Any refetch landing mid-write
+  — a habit tick, a mount — therefore cannot flash the old figures back. A
+  cached object rebuilt from another goes through `carryFetchStamp`. Unsent
+  entries persist per user and are dropped at launch unless a restored paused
+  write still carries their id. Writes run serially in the log scope and only
+  the last one still queued refetches; a refused plate item goes back on the
+  plate and leaves the ledger.
   The food and recipe sheets dock `AmountBar` at the bottom: the amount, a
   secondary action and the primary one; tapping the amount opens our own
   keypad (fractions and mixed numbers, `features/add-food/amount-input.ts`)

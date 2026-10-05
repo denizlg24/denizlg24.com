@@ -1,7 +1,8 @@
 import { router, Stack } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { formatDayLabel } from "@/lib/format";
+import { useFoodLogDay } from "@/api/food-log";
+import { energyLabel, formatDayLabel, formatEnergy } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { formatTimeOfDay } from "@/lib/log-time";
 import {
@@ -30,6 +31,18 @@ import {
 import { describeAmount } from "./serving";
 import { useTargets, useZone } from "./target";
 
+function addTotals(
+  a: ReturnType<typeof plateTotals>,
+  b: ReturnType<typeof plateTotals>,
+) {
+  return {
+    calories: a.calories + b.calories,
+    protein: a.protein + b.protein,
+    carbs: a.carbs + b.carbs,
+    fat: a.fat + b.fat,
+  };
+}
+
 /** Leaves the whole add-food hub, from the plate pushed inside it. */
 function closeHub() {
   router.dismissAll();
@@ -47,6 +60,14 @@ export function PlateScreen() {
 
   const days = new Set(items.map((item) => item.input.logDate ?? zone.today));
   const mixed = days.size > 1;
+  const plateDay = [...days][0] ?? zone.today;
+  // Where the day lands once the plate is logged; only meaningful while the
+  // plate is staged for one day.
+  const dayLog = useFoodLogDay(plateDay);
+  const after =
+    !mixed && dayLog.data
+      ? addTotals(dayLog.data.totals, plateTotals(items))
+      : null;
   const recipeReady = items.some((item) => item.kind === "food");
 
   function placementOf(item: PlateItem): string | null {
@@ -157,6 +178,24 @@ export function PlateScreen() {
               targets={targets}
               energyUnit={zone.energyUnit}
             />
+            {after ? (
+              <Text
+                variant="footnote"
+                tone="secondary"
+                figure
+                style={styles.after}
+              >
+                {plateDay === zone.today
+                  ? "Today"
+                  : formatDayLabel(plateDay, zone.today)}{" "}
+                after logging: {formatEnergy(after.calories, zone.energyUnit)}
+                {targets?.calories != null
+                  ? ` / ${formatEnergy(targets.calories, zone.energyUnit)}`
+                  : ""}{" "}
+                {energyLabel(zone.energyUnit)} · {Math.round(after.protein)}P{" "}
+                {Math.round(after.fat)}F {Math.round(after.carbs)}C
+              </Text>
+            ) : null}
             <Hairline />
             {mixed ? (
               <Text variant="footnote" tone="secondary" style={styles.inset}>
@@ -209,6 +248,10 @@ const styles = StyleSheet.create({
   inset: {
     paddingHorizontal: gutter,
     paddingTop: spacing.md,
+  },
+  after: {
+    paddingHorizontal: gutter,
+    paddingBottom: spacing.md,
   },
   rows: {
     paddingHorizontal: gutter,

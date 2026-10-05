@@ -5,6 +5,7 @@ import {
   createQueryClient,
   PERSIST_BUSTER,
   PERSIST_MAX_AGE,
+  restorePendingLogsFor,
 } from "./query-client";
 
 /**
@@ -33,8 +34,12 @@ export function QueryProviders({
         maxAge: PERSIST_MAX_AGE,
         buster: PERSIST_BUSTER,
         dehydrateOptions: {
+          // Search results are not persisted: restored a week later they
+          // showed as the answer while the refetch was still on its way.
           shouldDehydrateQuery: (query) =>
-            userId !== null && query.state.status === "success",
+            userId !== null &&
+            query.state.status === "success" &&
+            !(query.queryKey[0] === "foods" && query.queryKey[1] === "search"),
           // A restored write needs a registered function to resume; one
           // without would be rejected on relaunch with nothing reported.
           shouldDehydrateMutation: (mutation) =>
@@ -45,7 +50,12 @@ export function QueryProviders({
         },
       }}
       onSuccess={() => {
-        void queryClient.resumePausedMutations();
+        // Restored first, so a resumed write that lands at once is confirmed
+        // rather than left counting.
+        const restored = userId
+          ? restorePendingLogsFor(queryClient, userId)
+          : Promise.resolve();
+        void restored.finally(() => queryClient.resumePausedMutations());
       }}
     >
       {children}

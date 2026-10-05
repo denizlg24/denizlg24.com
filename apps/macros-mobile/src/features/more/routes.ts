@@ -18,6 +18,7 @@ const pageTitles: Record<string, string> = {
   body: "Body",
   habits: "Habits",
   settings: "Settings",
+  changelog: "What’s new",
   "health-import": "Health Shortcuts",
   "apple-health": "Apple Health",
   notifications: "Notifications",

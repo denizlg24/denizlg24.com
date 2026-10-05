@@ -142,15 +142,187 @@ export const savedMeal: DemoFood = {
   fat: 17,
 };
 
+export interface DemoIngredient {
+  id: string;
+  name: string;
+  grams: number;
+  /** Calories and macros per 100 g. */
+  per100: MacroAmounts & { calories: number };
+}
+
+export const recipeServings = 4;
+
+export const recipeIngredients: DemoIngredient[] = [
+  {
+    id: "turkey",
+    name: "Turkey mince, 5% fat",
+    grams: 560,
+    per100: { calories: 130, protein: 21, carbs: 0, fat: 5 },
+  },
+  {
+    id: "beans",
+    name: "Kidney beans, drained",
+    grams: 480,
+    per100: { calories: 105, protein: 7, carbs: 14, fat: 0.5 },
+  },
+  {
+    id: "tomatoes",
+    name: "Chopped tomatoes",
+    grams: 800,
+    per100: { calories: 21, protein: 1, carbs: 3.5, fat: 0.1 },
+  },
+  {
+    id: "sweetcorn",
+    name: "Sweetcorn",
+    grams: 210,
+    per100: { calories: 80, protein: 2.6, carbs: 16, fat: 1.2 },
+  },
+  {
+    id: "onion",
+    name: "Onion and peppers",
+    grams: 250,
+    per100: { calories: 40, protein: 1.1, carbs: 9, fat: 0.1 },
+  },
+  {
+    id: "oil",
+    name: "Olive oil",
+    grams: 30,
+    per100: { calories: 884, protein: 0, carbs: 0, fat: 100 },
+  },
+];
+
+export function ingredientAmounts(ingredient: DemoIngredient) {
+  const scale = ingredient.grams / 100;
+  return {
+    calories: ingredient.per100.calories * scale,
+    protein: ingredient.per100.protein * scale,
+    carbs: ingredient.per100.carbs * scale,
+    fat: ingredient.per100.fat * scale,
+  };
+}
+
+const recipeTotals = recipeIngredients.reduce(
+  (total, ingredient) => {
+    const amounts = ingredientAmounts(ingredient);
+    return {
+      calories: total.calories + amounts.calories,
+      protein: total.protein + amounts.protein,
+      carbs: total.carbs + amounts.carbs,
+      fat: total.fat + amounts.fat,
+    };
+  },
+  { calories: 0, protein: 0, carbs: 0, fat: 0 },
+);
+
+export const recipeWeightGrams = recipeIngredients.reduce(
+  (total, ingredient) => total + ingredient.grams,
+  0,
+);
+
 export const recipe: DemoFood = {
   id: "turkey-chilli",
   name: "Turkey chilli",
   amount: "1 serving",
   iconKey: null,
-  calories: 480,
-  protein: 42,
-  carbs: 38,
-  fat: 16,
+  calories: Math.round(recipeTotals.calories / recipeServings),
+  protein: Math.round(recipeTotals.protein / recipeServings),
+  carbs: Math.round(recipeTotals.carbs / recipeServings),
+  fat: Math.round(recipeTotals.fat / recipeServings),
+};
+
+export const recipeTotalCalories = recipeTotals.calories;
+
+/** A packet of oats: what the label photo reads, per 100 g. */
+export const labelScan = {
+  barcode: "5012345678900",
+  product: "Rolled oats",
+  per: "per 100 g",
+  rows: [
+    { label: "Energy", value: "1,609 kJ / 382 kcal", macro: "calories" },
+    { label: "Fat", value: "8.0 g", macro: "fat" },
+    { label: "of which saturates", value: "1.4 g", sub: true },
+    { label: "Carbohydrate", value: "60 g", macro: "carbs" },
+    { label: "of which sugars", value: "1.1 g", sub: true },
+    { label: "Fibre", value: "9.0 g" },
+    { label: "Protein", value: "13 g", macro: "protein" },
+    { label: "Salt", value: "0.01 g" },
+  ],
+  read: { calories: 382, protein: 13, carbs: 60, fat: 8 },
+} as const;
+
+export interface DemoNutrient {
+  label: string;
+  consumed: number;
+  reference: number;
+  unit: string;
+  kind: "target" | "limit";
+  /** The macro hue the app draws this nutrient's group in, if any. */
+  macro?: "protein" | "carbs" | "fat";
+}
+
+/** A day's nutrients against reference intakes for a 34-year-old man. */
+export const demoNutrients: ReadonlyArray<DemoNutrient> = [
+  {
+    label: "Fiber",
+    consumed: 27,
+    reference: 32,
+    unit: "g",
+    kind: "target",
+    macro: "carbs",
+  },
+  {
+    label: "Omega-3",
+    consumed: 1.2,
+    reference: 1.6,
+    unit: "g",
+    kind: "target",
+    macro: "fat",
+  },
+  {
+    label: "Saturated fat",
+    consumed: 19,
+    reference: 26,
+    unit: "g",
+    kind: "limit",
+    macro: "fat",
+  },
+  {
+    label: "Vitamin C",
+    consumed: 112,
+    reference: 90,
+    unit: "mg",
+    kind: "target",
+  },
+  {
+    label: "Vitamin D",
+    consumed: 4.1,
+    reference: 15,
+    unit: "µg",
+    kind: "target",
+  },
+  { label: "Iron", consumed: 13.2, reference: 8, unit: "mg", kind: "target" },
+  {
+    label: "Potassium",
+    consumed: 2940,
+    reference: 3400,
+    unit: "mg",
+    kind: "target",
+  },
+  {
+    label: "Sodium",
+    consumed: 2520,
+    reference: 2300,
+    unit: "mg",
+    kind: "limit",
+  },
+];
+
+export const expenditureStats = {
+  estimate: "2,720",
+  range: "2,610–2,830",
+  change: "+60",
+  formula: "2,570",
+  versusFormula: "+6%",
 };
 
 export const demoHabits = [
