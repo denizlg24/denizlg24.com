@@ -169,7 +169,7 @@ export interface CloudApiOptions {
   deepHealth?: {
     token: string;
     check: () => Promise<{
-      status: "ok" | "down";
+      status: "ok" | "degraded" | "down";
       timestamp: string;
       checks: Record<string, unknown>;
     }>;
@@ -415,7 +415,10 @@ export function createCloudApiApp(options: CloudApiOptions) {
       timingSafeEqual(Buffer.from(supplied), Buffer.from(configured.token));
     if (!allowed || !configured) return context.notFound();
     const result = await configured.check();
-    return context.json(result, result.status === "ok" ? 200 : 503);
+    // Degraded is served as 200: the uptime monitor on this endpoint must not
+    // report an outage for a dependency that is slow but still serving. The
+    // body carries the per-check detail either way.
+    return context.json(result, result.status === "down" ? 503 : 200);
   });
   app.post("/healthz/recovery/rebuild-search", async (context) => {
     const configured = options.deepHealth;

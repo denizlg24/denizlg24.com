@@ -82,6 +82,7 @@ import {
 import {
   DeepSyntheticService,
   filesystemSyntheticProbe,
+  searchSyntheticProbe,
 } from "./ops/synthetic";
 import { projectRoutes } from "./projects/routes";
 import { ThumbnailWarmer } from "./storage/thumbnail-warmer";
@@ -537,27 +538,7 @@ export async function createRuntimeApp() {
           // which writes a real file through the broker.
           posix: filesystemSyntheticProbe(storageConfig.tempUploadPath),
           objectStorage: filesystemSyntheticProbe(storageConfig.s3.rootPath),
-          search: async (canary) => {
-            const index = meili.index("deniz_dr_synthetic");
-            try {
-              await index
-                .addDocuments([{ id: canary, value: canary }], {
-                  primaryKey: "id",
-                })
-                .waitTask();
-              const found = await index.getDocument<{
-                id: string;
-                value: string;
-              }>(canary);
-              if (found.value !== canary)
-                throw new Error("canary read did not match its write");
-            } finally {
-              await index
-                .deleteDocument(canary)
-                .waitTask()
-                .catch(() => undefined);
-            }
-          },
+          search: searchSyntheticProbe(meili),
           storageProtocol: async (canary) => {
             const operator = await db.query.users.findFirst({
               where: eq(users.role, "superuser"),
