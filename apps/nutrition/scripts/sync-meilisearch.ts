@@ -1,5 +1,7 @@
+import Redis from "ioredis";
 import { Pool } from "pg";
 
+import { SearchCache } from "../src/modules/search/cache";
 import {
   buildSearchDocument,
   type SearchableRow,
@@ -141,8 +143,32 @@ const main = async () => {
     console.log(
       "Meilisearch indexes asynchronously; check /tasks for completion.",
     );
+    if (!args.dryRun) await invalidateSearchCache();
   } finally {
     await pool.end();
+  }
+};
+
+/** Cached answers past this point would hide what the sync just indexed. */
+const invalidateSearchCache = async () => {
+  const url = Bun.env.REDIS_URL;
+  if (!url) {
+    console.warn("REDIS_URL unset; cached searches expire on their own");
+    return;
+  }
+  const prefix = Bun.env.REDIS_KEY_PREFIX;
+  const redis = new Redis(url, {
+    keyPrefix: prefix ? `${prefix}:` : undefined,
+    maxRetriesPerRequest: 1,
+  });
+  try {
+    if (await new SearchCache(redis).invalidate()) {
+      console.log("Search cache invalidated");
+    } else {
+      console.warn("Search cache not invalidated; entries expire on their own");
+    }
+  } finally {
+    redis.disconnect();
   }
 };
 

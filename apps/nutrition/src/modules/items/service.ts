@@ -81,11 +81,16 @@ export interface ItemIndexer {
   index(itemIds: string[]): Promise<void>;
 }
 
+export interface ItemSearchCache {
+  read<T>(params: unknown, load: () => Promise<T>): Promise<T>;
+}
+
 export class ItemsService {
   constructor(
     private readonly repository: ItemsRepositoryPort,
     private readonly fallback?: BarcodeFallback,
     private readonly indexer?: ItemIndexer,
+    private readonly searchCache?: ItemSearchCache,
   ) {}
 
   /** Search is a projection; a failed push is repaired by the next sync. */
@@ -104,7 +109,18 @@ export class ItemsService {
       throw new ApiError(400, "SEARCH_QUERY_REQUIRED", "Provide q or brand");
     }
 
-    return this.repository.search(input, language, limit, minScore);
+    const load = () => this.repository.search(input, language, limit, minScore);
+    if (!this.searchCache) return load();
+    return this.searchCache.read(
+      {
+        query: input.query?.trim().toLocaleLowerCase(),
+        brand: input.brand?.trim().toLocaleLowerCase(),
+        language,
+        limit,
+        minScore,
+      },
+      load,
+    );
   }
 
   async getById(id: string) {

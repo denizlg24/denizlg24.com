@@ -2,7 +2,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { reachesDayTarget } from "@/api/day-targets";
 import { showLogged } from "@/api/food-log";
 import { haptics } from "@/lib/haptics";
-import { type LogRequest, useLogActions } from "./log-actions";
+import {
+  type LogRequest,
+  useLogActions,
+  withIdempotencyKey,
+} from "./log-actions";
 import { addToPlate, type PlateItem, removeFromPlate } from "./plate-store";
 
 function requestFor(item: PlateItem): LogRequest {
@@ -32,8 +36,14 @@ export function useCommitPlate(onLogged: () => void) {
     );
     removeFromPlate(items.map((item) => item.uid));
     for (const item of items) {
-      showLogged(queryClient, item.input.logDate, item.macros);
-      send(requestFor(item)).catch(() => {
+      // Keyed before sending, so the totals follow this exact write.
+      const request = withIdempotencyKey(requestFor(item));
+      showLogged(
+        request.input.clientMutationId,
+        request.input.logDate,
+        item.macros,
+      );
+      send(request).catch(() => {
         haptics.error();
         addToPlate(item);
       });

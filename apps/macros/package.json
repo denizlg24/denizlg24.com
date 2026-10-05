@@ -20,6 +20,7 @@
     "@better-auth/expo": "1.7.5",
     "@repo/macros-core": "workspace:*",
     "@repo/schemas": "workspace:*",
+    "@repo/utils": "workspace:*",
     "@repo/ui": "workspace:*",
     "better-auth": "1.7.5",
     "date-fns": "^4.1.0",

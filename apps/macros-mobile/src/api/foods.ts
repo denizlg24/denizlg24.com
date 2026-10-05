@@ -35,8 +35,10 @@ export const foodKeys = {
 };
 
 /**
- * Callers pace `q` (one request in flight). The previous results stay on screen while the next
- * query is in flight so the list does not blank on every keystroke.
+ * Sent on every keystroke: a superseded query is aborted. The previous results
+ * stay available as placeholder data while the next one is in flight.
+ * Never retried — by the time a retry would land the field has moved on, and a
+ * retry in flight holds the spinner for a query nobody is waiting for.
  */
 export function useFoodSearch(q: string, limit = 25) {
   const query = q.trim();
@@ -50,6 +52,8 @@ export function useFoodSearch(q: string, limit = 25) {
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
+    gcTime: 5 * 60_000,
+    retry: false,
   });
 }
 

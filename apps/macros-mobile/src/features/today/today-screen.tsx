@@ -178,7 +178,7 @@ export function TodayScreen() {
           title="Nutrition"
           action={{ label: "Food log", onPress: openLog }}
         >
-          <Flash key={day} token={data.consumed.calories}>
+          <Flash key={day} token={Math.round(data.consumed.calories)}>
             <NutritionSummary
               consumed={data.consumed}
               targets={data.targets}

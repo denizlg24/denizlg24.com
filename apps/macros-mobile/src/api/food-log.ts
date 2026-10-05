@@ -2,9 +2,7 @@ import type {
   MacrosBulkDeleteEntriesResponse,
   MacrosCalendarTotals,
   MacrosCopyLogResponse,
-  MacrosDailyCalorieSummary,
   MacrosDailyMacros,
-  MacrosDashboard,
   MacrosDayNoteResponse,
   MacrosDeleteLogEntryResponse,
   MacrosDuplicateLogEntryResponse,
@@ -34,12 +32,23 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback } from "react";
 import type { z } from "zod";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { applyEntryEdit, withEntry, withoutEntry } from "@/lib/entry-edit";
 import { recordFailedWrite } from "@/lib/failed-writes";
 import { newClientMutationId } from "@/lib/ids";
 import { invalidateAfterLogging, queryKeys } from "./keys";
+import {
+  carryFetchStamp,
+  confirmPendingLog,
+  dropPendingLog,
+  fetchStamped,
+  recordPendingLog,
+  usePendingLogs,
+  withPendingCalendar,
+  withPendingDay,
+} from "./pending-logs";
 
 export type LogFoodInput = z.input<typeof macrosLogFoodBodySchema>;
 export type QuickAddInput = z.input<typeof macrosLogQuickAddBodySchema>;
@@ -107,68 +116,35 @@ function settleLogWrite(queryClient: QueryClient, logDate?: string) {
   return invalidateAfterLogging(queryClient, dates);
 }
 
-function addMacros(
-  totals: MacrosDailyMacros,
-  added: MacrosDailyMacros,
-): MacrosDailyMacros {
-  return {
-    calories: totals.calories + added.calories,
-    protein: totals.protein + added.protein,
-    carbs: totals.carbs + added.carbs,
-    fat: totals.fat + added.fat,
-  };
-}
-
 /**
- * Counts a log in the cached totals before the server has it: the phone
- * already knows what was eaten, and the ring, the pill and the day's totals
- * waiting on a round trip read as the log not having worked. The refetch
- * after the queue drains replaces these with the server's figures.
+ * Counts a log in the totals before the server has it: the phone already
+ * knows what was eaten, and the ring, the pill and the day's totals waiting
+ * on a round trip read as the log not having worked. The amounts are added
+ * where the totals are read, so no refetch landing mid-write can undo them.
  */
 export function showLogged(
-  queryClient: QueryClient,
+  clientMutationId: string | undefined,
   logDate: string | undefined,
   macros: MacrosDailyMacros,
 ) {
-  if (!logDate) return;
-  // A refetch already in flight would land without this log. A first load is
-  // left alone: cancelling it would leave its screen with nothing to show.
-  for (const queryKey of [
-    ["calorie-summary"],
-    ["dashboard"],
-    queryKeys.foodLogDay(logDate),
-  ]) {
-    void queryClient.cancelQueries({
-      queryKey,
-      predicate: (query) => query.state.data !== undefined,
-    });
-  }
-  queryClient.setQueriesData<MacrosDailyCalorieSummary>(
-    { queryKey: ["calorie-summary"] },
-    (summary) =>
-      summary && summary.today === logDate
-        ? { ...summary, consumed: summary.consumed + macros.calories }
-        : summary,
-  );
-  queryClient.setQueriesData<MacrosDashboard>(
-    { queryKey: ["dashboard"] },
-    (dashboard) =>
-      dashboard && dashboard.today === logDate
-        ? { ...dashboard, consumed: addMacros(dashboard.consumed, macros) }
-        : dashboard,
-  );
-  queryClient.setQueryData<MacrosFoodLogDay>(
-    queryKeys.foodLogDay(logDate),
-    (day) => (day ? { ...day, totals: addMacros(day.totals, macros) } : day),
-  );
+  if (!clientMutationId || !logDate) return;
+  recordPendingLog(clientMutationId, logDate, macros);
 }
 
 export function registerLogMutationDefaults(queryClient: QueryClient) {
   const onSuccess = (_data: unknown, variables: { logDate?: string }) =>
     settleLogWrite(queryClient, variables.logDate);
+  const onLogged = (
+    _data: unknown,
+    variables: { logDate?: string; clientMutationId?: string },
+  ) => {
+    confirmPendingLog(variables.clientMutationId);
+    return settleLogWrite(queryClient, variables.logDate);
+  };
   const onError =
     (description: string) =>
     (error: Error, variables: { clientMutationId?: string }) => {
+      dropPendingLog(variables.clientMutationId);
       recordFailedWrite(description, errorMessage(error), {
         id: variables.clientMutationId,
       });
@@ -177,19 +153,19 @@ export function registerLogMutationDefaults(queryClient: QueryClient) {
   queryClient.setMutationDefaults(logMutationKeys.logFood, {
     scope: logScope,
     mutationFn: logFood,
-    onSuccess,
+    onSuccess: onLogged,
     onError: onError("A logged food"),
   });
   queryClient.setMutationDefaults(logMutationKeys.quickAdd, {
     scope: logScope,
     mutationFn: quickAdd,
-    onSuccess,
+    onSuccess: onLogged,
     onError: onError("A quick add"),
   });
   queryClient.setMutationDefaults(logMutationKeys.logRecipe, {
     scope: logScope,
     mutationFn: logRecipe,
-    onSuccess,
+    onSuccess: onLogged,
     onError: onError("A logged recipe"),
   });
   // Keyed by what the write touches, so the screen and the default reporting
@@ -235,16 +211,23 @@ export function registerLogMutationDefaults(queryClient: QueryClient) {
 }
 
 export function fetchFoodLogDay(date: string, signal?: AbortSignal) {
-  return api<MacrosFoodLogDay>("/api/food-log/day", {
-    query: { date },
-    signal,
-  });
+  return fetchStamped(() =>
+    api<MacrosFoodLogDay>("/api/food-log/day", {
+      query: { date },
+      signal,
+    }),
+  );
 }
 
 export function useFoodLogDay(date: string) {
+  const pending = usePendingLogs();
   return useQuery({
     queryKey: queryKeys.foodLogDay(date),
     queryFn: ({ signal }) => fetchFoodLogDay(date, signal),
+    select: useCallback(
+      (day: MacrosFoodLogDay) => withPendingDay(day, pending),
+      [pending],
+    ),
   });
 }
 
@@ -367,12 +350,12 @@ export function queueEntryUpdate(
   if (edited.logDate !== entry.logDate) {
     queryClient.setQueryData<MacrosFoodLogDay>(
       queryKeys.foodLogDay(entry.logDate),
-      (day) => (day ? withoutEntry(day, entry) : day),
+      (day) => (day ? carryFetchStamp(day, withoutEntry(day, entry)) : day),
     );
   }
   queryClient.setQueryData<MacrosFoodLogDay>(
     queryKeys.foodLogDay(edited.logDate),
-    (day) => (day ? withEntry(day, edited) : day),
+    (day) => (day ? carryFetchStamp(day, withEntry(day, edited)) : day),
   );
   const variables: UpdateEntryVariables = { id: entry.id, ...edit };
   void queryClient
@@ -393,10 +376,13 @@ export function useDeleteEntry(date: string) {
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<MacrosFoodLogDay>(key);
       if (previous) {
-        queryClient.setQueryData<MacrosFoodLogDay>(key, {
-          ...previous,
-          entries: previous.entries.filter((entry) => entry.id !== id),
-        });
+        queryClient.setQueryData<MacrosFoodLogDay>(
+          key,
+          carryFetchStamp(previous, {
+            ...previous,
+            entries: previous.entries.filter((entry) => entry.id !== id),
+          }),
+        );
       }
       return { previous };
     },
@@ -479,20 +465,31 @@ export function useDayNote(date: string) {
     onSuccess: ({ note }) => {
       queryClient.setQueryData<MacrosFoodLogDay>(
         queryKeys.foodLogDay(date),
-        (day) => (day ? { ...day, note } : day),
+        (day) => (day ? carryFetchStamp(day, { ...day, note }) : day),
       );
     },
   });
+}
+
+function usePendingCalendar() {
+  const pending = usePendingLogs();
+  return useCallback(
+    (totals: MacrosCalendarTotals) => withPendingCalendar(totals, pending),
+    [pending],
+  );
 }
 
 export function useCalendarTotals(start: string, end: string) {
   return useQuery({
     queryKey: ["food-log", "calendar", start, end],
     queryFn: ({ signal }) =>
-      api<MacrosCalendarTotals>("/api/food-log/calendar-totals", {
-        query: { start, end },
-        signal,
-      }),
+      fetchStamped(() =>
+        api<MacrosCalendarTotals>("/api/food-log/calendar-totals", {
+          query: { start, end },
+          signal,
+        }),
+      ),
+    select: usePendingCalendar(),
   });
 }
 
@@ -500,10 +497,13 @@ export function useWeekTotals(start: string, end: string) {
   return useQuery({
     queryKey: ["food-log", "week", start, end],
     queryFn: ({ signal }) =>
-      api<MacrosWeekTotals>("/api/food-log/week-totals", {
-        query: { start, end },
-        signal,
-      }),
+      fetchStamped(() =>
+        api<MacrosWeekTotals>("/api/food-log/week-totals", {
+          query: { start, end },
+          signal,
+        }),
+      ),
+    select: usePendingCalendar(),
   });
 }
 

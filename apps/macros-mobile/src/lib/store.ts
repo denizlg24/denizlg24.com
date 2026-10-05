@@ -13,9 +13,9 @@ function isUpdater<T>(
 }
 
 /**
- * State shared between the search tab and the sheets it opens. Sheets are
- * separate routes, so anything they hand back has to live outside any one
- * screen's component tree.
+ * State shared between a screen and the sheets it opens. Sheets are separate
+ * routes, so anything they hand back has to live outside any one screen's
+ * component tree.
  */
 export function createStore<T>(initial: T): Store<T> {
   let value = initial;

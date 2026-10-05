@@ -1,4 +1,4 @@
-import { createStore, useStore } from "./store";
+import { createStore, useStore } from "@/lib/store";
 
 // `null` follows today, so a log left open overnight moves on with the clock
 // instead of staying pinned to the day it was opened on.

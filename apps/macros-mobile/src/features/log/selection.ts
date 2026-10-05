@@ -1,4 +1,4 @@
-import { createStore, useStore } from "./store";
+import { createStore, useStore } from "@/lib/store";
 
 interface SelectionState {
   active: boolean;

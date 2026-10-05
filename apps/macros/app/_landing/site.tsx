@@ -1,9 +1,20 @@
 import { cn } from "@repo/ui/utils";
+import { ArrowRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export const container = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
+export const container = "mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8";
+
+export const ANDROID_APK_HREF = "/android/Macros.apk";
+
+export const sitePages = [
+  { href: "/", label: "Overview" },
+  { href: "/features", label: "Features" },
+  { href: "/coach", label: "Coach" },
+  { href: "/download", label: "Download" },
+  { href: "/changelog", label: "Changelog" },
+] as const;
 
 export function AppIcon({
   size,
@@ -31,75 +42,103 @@ export function AppIcon({
   );
 }
 
-export function SiteHeader() {
+/** The protein, carbs and fat split from the app icon, as a short rule. */
+export function MacroRule({ className }: { className?: string }) {
   return (
-    <header className="site-header sticky top-0 z-50 bg-background/80 backdrop-blur-xl backdrop-saturate-150">
-      <div className={cn(container, "flex h-14 items-center justify-between")}>
-        <Link
-          href="/"
-          className="-m-1 flex items-center gap-2.5 rounded-lg p-1"
-          aria-label="Macros home"
-        >
-          <AppIcon size={28} eager />
-          <span className="text-[15px] font-semibold tracking-tight">
-            Macros
-          </span>
-        </Link>
-        <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2">
-          <Link
-            href="/#features"
-            className="hidden rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
-          >
-            Features
-          </Link>
-          <Link
-            href="/#get-macros"
-            className="ml-1 inline-flex h-9 items-center rounded-full bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-85"
-          >
-            Get Macros
-          </Link>
-        </nav>
-      </div>
-    </header>
+    <span
+      aria-hidden="true"
+      className={cn("flex h-[3px] w-9 flex-none gap-[3px]", className)}
+    >
+      <span className="flex-[23] rounded-full bg-macro-protein" />
+      <span className="flex-[55] rounded-full bg-macro-carbs" />
+      <span className="flex-[22] rounded-full bg-macro-fat" />
+    </span>
   );
 }
 
+const footerLink =
+  "text-muted-foreground transition-colors hover:text-foreground";
+
 export function SiteFooter() {
+  const columns = [
+    { title: "Macros", links: sitePages },
+    {
+      title: "Get the app",
+      links: [
+        { href: ANDROID_APK_HREF, label: "Android APK" },
+        { href: "/download#early-access", label: "iPhone early access" },
+        { href: "/download#faq", label: "Questions" },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { href: "/terms", label: "Terms" },
+        { href: "/privacy", label: "Privacy" },
+      ],
+    },
+  ] as const;
+
   return (
     <footer className="border-t">
-      <div
-        className={cn(
-          container,
-          "flex flex-col gap-6 py-10 text-sm sm:flex-row sm:items-center sm:justify-between",
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <AppIcon size={24} />
-          <p className="text-muted-foreground">
-            <span className="font-semibold text-foreground">Macros</span> ·
-            Built by{" "}
-            <a
-              href="https://denizlg24.com"
-              className="font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground"
+      <div className={cn(container, "pt-14 pb-10 sm:pt-16")}>
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
+          <div className="flex max-w-sm flex-col gap-5">
+            <Link
+              href="/"
+              className="-m-1 flex w-fit items-center gap-3 rounded-lg p-1"
+              aria-label="Macros home"
             >
-              denizlg24.com
-            </a>
-          </p>
+              <AppIcon size={36} />
+              <span className="text-lg font-semibold tracking-tight">
+                Macros
+              </span>
+            </Link>
+            <p className="text-[15px] leading-relaxed text-muted-foreground text-pretty">
+              Nutrition tracking for iPhone and Android. Know what you eat,
+              learn what you burn.
+            </p>
+            <p className="flex items-center gap-2.5 text-sm font-medium">
+              <MacroRule />
+              On Android now · iPhone soon
+            </p>
+          </div>
+          <nav
+            aria-label="Footer"
+            className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3"
+          >
+            {columns.map((column) => (
+              <div key={column.title}>
+                <h2 className="eyebrow">{column.title}</h2>
+                <ul className="mt-4 flex flex-col gap-3 text-[15px]">
+                  {column.links.map((link) => (
+                    <li key={link.href}>
+                      {/* The APK is a file stream; a prefetching Link would download it. */}
+                      {link.href === ANDROID_APK_HREF ? (
+                        <a href={link.href} className={footerLink}>
+                          {link.label}
+                        </a>
+                      ) : (
+                        <Link href={link.href} className={footerLink}>
+                          {link.label}
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
         </div>
-        <nav aria-label="Footer">
-          <ul className="flex flex-wrap gap-x-6 gap-y-2 text-muted-foreground">
-            <li>
-              <Link href="/terms" className="hover:text-foreground">
-                Terms
-              </Link>
-            </li>
-            <li>
-              <Link href="/privacy" className="hover:text-foreground">
-                Privacy
-              </Link>
-            </li>
-          </ul>
-        </nav>
+        <p className="mt-14 border-t pt-6 text-sm text-muted-foreground">
+          Built by{" "}
+          <a
+            href="https://denizlg24.com"
+            className="font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground"
+          >
+            denizlg24.com
+          </a>
+        </p>
       </div>
     </footer>
   );
@@ -130,32 +169,51 @@ export function SectionLabel({
 export const primaryButton =
   "inline-flex h-12 items-center justify-center gap-2 rounded-[14px] bg-foreground px-6 text-[15px] font-semibold text-background transition-[opacity,scale] hover:opacity-85 active:scale-[0.98]";
 
+export const secondaryButton =
+  "inline-flex h-12 items-center justify-center gap-2.5 rounded-[14px] px-5 text-[15px] font-semibold shadow-[inset_0_0_0_1px_var(--border)] transition-[background-color,scale] hover:bg-foreground/5 active:scale-[0.98]";
+
+/** A text link that leads somewhere deeper on the site. */
+export function MoreLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "group flex w-fit items-center gap-1.5 text-[15px] font-semibold underline decoration-border underline-offset-[6px] transition-colors hover:decoration-foreground",
+        className,
+      )}
+    >
+      {children}
+      <ArrowRight
+        aria-hidden="true"
+        className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+        strokeWidth={2.4}
+      />
+    </Link>
+  );
+}
+
 /** Android downloads today; iPhone waits for its public release. */
 export function GetTheApp({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-3", className)}>
-      <a href="/android/Macros.apk" className={primaryButton}>
+      <a href={ANDROID_APK_HREF} className={primaryButton}>
         Download for Android
       </a>
-      <ComingSoonBadge />
+      <Link href="/download#iphone" className={secondaryButton}>
+        <span
+          aria-hidden="true"
+          className="size-2 rounded-full bg-foreground/35"
+        />
+        Coming soon to iPhone
+      </Link>
     </div>
-  );
-}
-
-/** Where the iPhone download button will go once it is out. */
-export function ComingSoonBadge({ className }: { className?: string }) {
-  return (
-    <p
-      className={cn(
-        "inline-flex h-12 items-center gap-2.5 rounded-[14px] bg-foreground/6 px-5 text-[15px] font-semibold",
-        className,
-      )}
-    >
-      <span
-        aria-hidden="true"
-        className="size-2 rounded-full bg-foreground/40"
-      />
-      Coming soon to iPhone
-    </p>
   );
 }

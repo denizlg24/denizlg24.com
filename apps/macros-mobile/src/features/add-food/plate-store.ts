@@ -7,7 +7,7 @@ import {
 import { useEffect } from "react";
 import { z } from "zod";
 import { useProfile } from "@/api/profile";
-import { createStore, useStore } from "./store";
+import { createStore, useStore } from "@/lib/store";
 
 const staged = {
   uid: z.uuid(),

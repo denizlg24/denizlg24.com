@@ -5,7 +5,7 @@ import {
   formatTimeOfDay,
   type LogTime,
 } from "@/lib/log-time";
-import { createStore, useStore } from "./store";
+import { createStore, useStore } from "@/lib/store";
 
 /**
  * When the add-food hub logs. The time sheet is its own route, so the choice

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { addChangelogStub } from "./changelog-stub";
 
 const tauriConfFile = path.join(
   __dirname,
@@ -23,6 +24,14 @@ const cargoLockFile = path.join(
   "desktop",
   "src-tauri",
   "Cargo.lock",
+);
+
+const changelogFile = path.join(
+  __dirname,
+  "..",
+  "apps",
+  "desktop",
+  "CHANGELOG.md",
 );
 
 const cargoSearchString = 'name = "denizlg24"';
@@ -81,9 +90,14 @@ function main() {
   updateVersionInTauriConf(newVersion);
   updateVersionInCargo(newVersion, cargoTomlFile);
   updateVersionInCargo(newVersion, cargoLockFile);
+  const stubbed = addChangelogStub(changelogFile, newVersion);
 
   console.log(
-    `Updated version from ${prevVersion} to ${newVersion} in tauri.conf.json, Cargo.toml, and Cargo.lock`,
+    `Updated version from ${prevVersion} to ${newVersion} in tauri.conf.json, Cargo.toml, and Cargo.lock${
+      stubbed
+        ? "; describe it in CHANGELOG.md"
+        : "; CHANGELOG.md already has its entry"
+    }`,
   );
 }
 

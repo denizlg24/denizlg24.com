@@ -15,6 +15,7 @@ import {
   formatEnergy,
 } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
+import { newClientMutationId } from "@/lib/ids";
 import { type LogTime, logPlacement, readLogTime } from "@/lib/log-time";
 import {
   Button,
@@ -102,6 +103,7 @@ export function QuickAddSheet() {
     const grams = (value: number | null) =>
       value === null ? undefined : Math.round(value * 10) / 10;
     const input = {
+      clientMutationId: newClientMutationId(),
       calories: Math.round(kcal * 10) / 10,
       protein: grams(amounts.protein),
       carbs: grams(amounts.carbs),
@@ -118,7 +120,7 @@ export function QuickAddSheet() {
     const reached = reachesDayTarget(queryClient, [
       { logDate: input.logDate, macros },
     ]);
-    showLogged(queryClient, input.logDate, macros);
+    showLogged(input.clientMutationId, input.logDate, macros);
     quickAdd.mutate(input);
     if (reached) haptics.goalReached();
     else haptics.success();

@@ -7,8 +7,12 @@ import {
 } from "@/app/_landing/demo-data";
 import { InView } from "@/app/_landing/in-view";
 import { delay } from "@/app/_landing/phone/ios";
-import { sectionLead, sectionTitle } from "@/app/_landing/sections/feature-row";
-import { container, SectionLabel } from "@/app/_landing/site";
+import {
+  type SectionLink,
+  sectionLead,
+  sectionTitle,
+} from "@/app/_landing/sections/feature-row";
+import { container, MoreLink, SectionLabel } from "@/app/_landing/site";
 
 const DOMAIN: readonly [number, number] = [74.2, 84.8];
 const TICKS = [76, 78, 80, 82, 84];
@@ -154,14 +158,14 @@ function TrendChart() {
   );
 }
 
-function BigStat({
+export function BigStat({
   label,
   value,
   unit,
 }: {
   label: string;
   value: string;
-  unit: string;
+  unit?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -170,7 +174,9 @@ function BigStat({
         <span className="font-figure text-[clamp(1.6rem,6vw,3.25rem)] leading-none font-semibold tracking-tight">
           {value}
         </span>
-        <span className="text-sm text-muted-foreground">{unit}</span>
+        {unit ? (
+          <span className="text-sm text-muted-foreground">{unit}</span>
+        ) : null}
       </dd>
     </div>
   );
@@ -199,20 +205,33 @@ function Legend() {
   );
 }
 
-export function WeightTrendFeature() {
+export function WeightTrendFeature({
+  index,
+  more,
+}: {
+  index?: string;
+  more?: SectionLink;
+}) {
   return (
-    <section aria-labelledby="weight-title" className="py-20 sm:py-24">
+    <section
+      id="trend"
+      aria-labelledby="trend-title"
+      className="py-20 sm:py-28"
+    >
       <div className={container}>
-        <SectionLabel>Weight</SectionLabel>
+        <SectionLabel index={index}>Weight trend</SectionLabel>
         <div className="mt-12 grid gap-6 lg:mt-16 lg:grid-cols-2 lg:items-end lg:gap-20">
-          <h2 id="weight-title" className={cn(sectionTitle, "reveal max-w-xl")}>
+          <h2 id="trend-title" className={cn(sectionTitle, "reveal max-w-xl")}>
             A trend line, not a daily verdict.
           </h2>
-          <p className={cn(sectionLead, "reveal max-w-xl")}>
-            Scale weight swings with water, salt and timing. Macros draws a
-            smoothed trend through your weigh-ins, shades how sure it is, and
-            tells you the rate you’re really moving at.
-          </p>
+          <div className="reveal flex max-w-xl flex-col gap-6">
+            <p className={sectionLead}>
+              Scale weight swings with water, salt and timing. Macros draws a
+              smoothed trend through your weigh-ins, shades how sure it is, and
+              tells you the rate you’re really moving at.
+            </p>
+            {more ? <MoreLink href={more.href}>{more.label}</MoreLink> : null}
+          </div>
         </div>
 
         <InView className="mt-14 sm:mt-16" threshold={0.25}>
