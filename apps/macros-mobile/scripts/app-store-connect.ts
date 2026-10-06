@@ -1,15 +1,12 @@
 /**
- * Pure pieces of the ad-hoc profile tooling: the App Store Connect token, and
- * the decisions made over what the API and the Macros server return. No I/O,
- * so everything here is tested without a developer account.
+ * Pure pieces of the App Store profile tooling. No I/O, so signing checks
+ * can run without a developer account.
  */
 import { createPrivateKey, sign, X509Certificate } from "node:crypto";
 
 export const ASC_AUDIENCE = "appstoreconnect-v1";
 /** Apple refuses tokens that live longer than 20 minutes. */
 export const ASC_TOKEN_SECONDS = 15 * 60;
-/** iPhones per product family per membership year; deleting one frees nothing. */
-export const DEVICE_YEARLY_CAP = 100;
 
 function base64url(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
@@ -48,60 +45,6 @@ export function createAscToken({
   return `${signingInput}.${base64url(signature)}`;
 }
 
-export interface AscDevice {
-  id: string;
-  udid: string;
-  status: "ENABLED" | "DISABLED" | "PROCESSING";
-  platform: string;
-  deviceClass?: string;
-}
-
-export interface ApprovedDevice {
-  id: string;
-  udid: string;
-  name: string;
-}
-
-export function sameUdid(left: string, right: string): boolean {
-  return left.trim().toUpperCase() === right.trim().toUpperCase();
-}
-
-/**
- * Splits the server's approved list into devices Apple already knows (their
- * ids go straight back to the server) and devices still to register.
- */
-export function planRegistrations(
-  approved: readonly ApprovedDevice[],
-  existing: readonly AscDevice[],
-): {
-  known: { request: ApprovedDevice; device: AscDevice }[];
-  missing: ApprovedDevice[];
-} {
-  const known: { request: ApprovedDevice; device: AscDevice }[] = [];
-  const missing: ApprovedDevice[] = [];
-  for (const request of approved) {
-    const device = existing.find((candidate) =>
-      sameUdid(candidate.udid, request.udid),
-    );
-    if (device) known.push({ request, device });
-    else missing.push(request);
-  }
-  return { known, missing };
-}
-
-/** Every enabled iOS device goes into the profile, not only the approved ones. */
-export function profileDevices(devices: readonly AscDevice[]): AscDevice[] {
-  return devices.filter(
-    (device) => device.status === "ENABLED" && device.platform === "IOS",
-  );
-}
-
-/** Apple caps device names at 50 characters. */
-export function deviceName(name: string): string {
-  const cleaned = name.replace(/\s+/g, " ").trim() || "Macros tester";
-  return cleaned.length <= 50 ? cleaned : cleaned.slice(0, 50).trimEnd();
-}
-
 export interface AscCertificate {
   id: string;
   certificateType: string;
@@ -134,7 +77,7 @@ export function findCertificate(
 export const APP_GROUP = "group.com.denizlg24.macros";
 
 /**
- * Every target the ad-hoc build signs, each with its own bundle id and
+ * Every target the App Store build signs, each with its own bundle id and
  * profile. Apple's API can enable App Groups on a bundle id but cannot assign
  * a group to it: that stays a one-time step in the developer portal.
  */
@@ -143,7 +86,7 @@ export const SIGNING_TARGETS = [
     target: "Macros",
     bundleIdentifier: "com.denizlg24.macros",
     name: "Macros",
-    profileName: "Macros Ad Hoc",
+    profileName: "Macros App Store",
     capabilities: ["APP_GROUPS", "HEALTHKIT", "PUSH_NOTIFICATIONS"],
     entitlements: [
       "aps-environment",
@@ -161,7 +104,7 @@ export const SIGNING_TARGETS = [
     target: "MacrosWidgetExtension",
     bundleIdentifier: "com.denizlg24.macros.widgets",
     name: "Macros Widgets",
-    profileName: "Macros Widgets Ad Hoc",
+    profileName: "Macros Widgets App Store",
     capabilities: ["APP_GROUPS"],
     entitlements: ["com.apple.security.application-groups"],
     required: ["com.apple.security.application-groups"],
@@ -217,6 +160,14 @@ export function entitlementProblems(
     .map((key) => `unexpected entitlement ${key}`);
   if (signed && entitlements["get-task-allow"] !== false) {
     problems.push("get-task-allow must be false in a distribution build");
+  }
+  if (
+    signed &&
+    target.target === "Macros" &&
+    "aps-environment" in entitlements &&
+    entitlements["aps-environment"] !== "production"
+  ) {
+    problems.push("aps-environment must be production in an App Store build");
   }
   for (const key of target.required) {
     if (!(key in entitlements)) problems.push(`missing ${key}`);

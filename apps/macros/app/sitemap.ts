@@ -11,5 +11,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${origin}/changelog`, changeFrequency: "weekly", priority: 0.5 },
     { url: `${origin}/privacy`, changeFrequency: "yearly", priority: 0.3 },
     { url: `${origin}/terms`, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${origin}/support`, changeFrequency: "yearly", priority: 0.4 },
+    {
+      url: `${origin}/account/delete`,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
   ];
 }

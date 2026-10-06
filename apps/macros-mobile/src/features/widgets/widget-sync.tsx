@@ -34,10 +34,9 @@ function SnapshotWriter() {
 }
 
 /**
- * Keeps the Home Screen widgets' snapshot current. Only the ad-hoc build
- * carries the App Group they share, so elsewhere this renders nothing and
- * asks for nothing. The dashboard includes pending logs, so a widget moves
- * the moment something is logged, offline included.
+ * Keeps the Home Screen widgets' snapshot current. The dashboard includes
+ * pending logs, so a widget moves the moment something is logged, offline
+ * included.
  */
 export function WidgetSync() {
   if (!widgets) return null;

@@ -3,14 +3,10 @@ import { generateKeyPairSync, verify } from "node:crypto";
 import {
   ASC_AUDIENCE,
   ASC_TOKEN_SECONDS,
-  type AscDevice,
   createAscToken,
-  deviceName,
   entitlementProblems,
   findCertificate,
   missingCapabilities,
-  planRegistrations,
-  profileDevices,
   signingTarget,
 } from "./app-store-connect";
 
@@ -74,50 +70,6 @@ describe("createAscToken", () => {
   });
 });
 
-const device = (overrides: Partial<AscDevice>): AscDevice => ({
-  id: "D1",
-  udid: "00008030-001A2B3C4D5E6F70",
-  status: "ENABLED",
-  platform: "IOS",
-  ...overrides,
-});
-
-describe("planRegistrations", () => {
-  test("matches UDIDs case-insensitively and leaves the rest to register", () => {
-    const plan = planRegistrations(
-      [
-        { id: "r1", udid: "00008030-001A2B3C4D5E6F70", name: "Ana" },
-        { id: "r2", udid: "A".repeat(40), name: "Rui" },
-      ],
-      [device({ udid: "00008030-001a2b3c4d5e6f70" })],
-    );
-    expect(plan.known.map((item) => [item.request.id, item.device.id])).toEqual(
-      [["r1", "D1"]],
-    );
-    expect(plan.missing.map((item) => item.id)).toEqual(["r2"]);
-  });
-});
-
-describe("profileDevices", () => {
-  test("keeps enabled iOS devices only", () => {
-    const devices = [
-      device({ id: "a" }),
-      device({ id: "b", status: "DISABLED" }),
-      device({ id: "c", platform: "MAC_OS" }),
-      device({ id: "d", status: "PROCESSING" }),
-    ];
-    expect(profileDevices(devices).map((item) => item.id)).toEqual(["a"]);
-  });
-});
-
-describe("deviceName", () => {
-  test("collapses whitespace and stays within 50 characters", () => {
-    expect(deviceName("  Ana   Silva ")).toBe("Ana Silva");
-    expect(deviceName("x".repeat(80))).toHaveLength(50);
-    expect(deviceName("   ")).toBe("Macros tester");
-  });
-});
-
 describe("findCertificate", () => {
   test("matches on the certificate itself", () => {
     const match = findCertificate(
@@ -169,8 +121,12 @@ describe("entitlementProblems", () => {
     "com.apple.security.application-groups": ["group.com.denizlg24.macros"],
   };
 
-  test("accepts what an ad-hoc Macros build should carry", () => {
+  test("accepts what an App Store Macros build should carry", () => {
     expect(entitlementProblems(signed)).toEqual([]);
+    expect(signingTarget("Macros").profileName).toBe("Macros App Store");
+    expect(signingTarget("MacrosWidgetExtension").profileName).toBe(
+      "Macros Widgets App Store",
+    );
   });
 
   test("refuses anything else, a debuggable build, or a missing capability", () => {
@@ -188,6 +144,12 @@ describe("entitlementProblems", () => {
       "missing aps-environment",
       "the only App Group must be group.com.denizlg24.macros",
     ]);
+  });
+
+  test("requires production APNs in a signed App Store app", () => {
+    expect(
+      entitlementProblems({ ...signed, "aps-environment": "development" }),
+    ).toEqual(["aps-environment must be production in an App Store build"]);
   });
 
   test("holds the widget extension to the App Group alone", () => {

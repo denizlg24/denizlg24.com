@@ -54,19 +54,17 @@ export default function TermsPage() {
           password.
         </p>
         <p>
-          You can delete your account at any time in the app, under More ›
-          Settings › Delete Account. Everything in it is deleted with it; the{" "}
+          You can delete your account in the app under More › Settings › Delete
+          Account, or <Link href="/account/delete">on this website</Link>.
+          Everything in it is deleted with it; the{" "}
           <Link href="/privacy">privacy policy</Link> lists what that covers.
         </p>
       </LegalSection>
 
       <LegalSection title="Installing the app">
         <p>
-          The iPhone app is not distributed through the App Store. It installs
-          through SideStore, a third-party tool that signs apps with your own
-          Apple ID and is not part of Macros. With a free Apple ID, the app has
-          to be re-signed every 7 days; if that lapses, the app won’t open until
-          SideStore refreshes it.
+          The iPhone app is being prepared for TestFlight and the App Store. The
+          download page will link to it when testing opens.
         </p>
         <p>
           The Android app is not distributed through Google Play. It is

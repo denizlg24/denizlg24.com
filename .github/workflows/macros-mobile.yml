@@ -1,33 +1,9 @@
 name: Macros mobile
 
-# Builds and releases apps/macros-mobile for iOS and Android.
-#
-# Builds run for pull requests, release commits, and manual validation. They
-# reference no secret and prove the code:
-# - build-ios: the unsigned IPA, refused if it carries any entitlement;
-# - build-ios-adhoc: the entitled ad-hoc build, compiled unsigned;
-# - build-android: a release APK signed with the debug key.
-#
-# Releases run in the `macros-release` environment, which requires the owner's
-# approval. Every signing secret (APPLE_*, MACROS_IOS_DIST_CERT_*,
-# MACROS_DISTRIBUTION_SECRET, MACROS_API_URL, MACROS_ANDROID_*) belongs there
-# as an environment secret, never a repository one, so only an approved
-# release job can read it. A release job whose secrets are missing exits green
-# with a notice.
-# - release-ios-adhoc: signs for the iPhones registered on the paid team and
-#   uploads to the rolling `macros-ios-adhoc` release, served from
-#   https://macros.denizlg24.com/ios/adhoc/*. Every run registers every
-#   approved UDID and regenerates the app's and the widget extension's ad-hoc
-#   profiles ("Macros Ad Hoc", "Macros Widgets Ad Hoc"), so it can be
-#   repeated at any time.
-# - release-android: re-signs the built APK with the release key and publishes
-#   `macros-android-v<version>`, which
-#   https://macros.denizlg24.com/android/Macros.apk streams.
-#
-# Android releases when `version` in apps/macros-mobile/package.json changes
-# on main. The ad-hoc release runs on that same change and when the
-# macros server dispatches this workflow with `adhoc: true` after the owner
-# approves a device request.
+# Secret-free validation builds run on pull requests and manual dispatch.
+# A version bump on main uploads an iOS build to TestFlight and publishes the
+# signed Android APK. Release jobs alone use the approved `macros-release`
+# environment; signing credentials must be environment secrets.
 
 on:
   push:
@@ -43,12 +19,6 @@ on:
       - "bun.lock"
       - ".github/workflows/macros-mobile.yml"
   workflow_dispatch:
-    inputs:
-      adhoc:
-        description: Sign and publish the ad-hoc iOS build
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -68,73 +38,39 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.version.outputs.publish }}
-      release: ${{ steps.version.outputs.release }}
-      adhoc: ${{ steps.version.outputs.adhoc }}
     steps:
       - name: Check out code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      # publish: the version changed on a push to main (Android).
-      # adhoc:   the ad-hoc build should be signed and published.
-      # release: either of the two.
       - name: Detect version change
         id: version
         shell: bash
-        env:
-          ADHOC_INPUT: ${{ inputs.adhoc }}
         run: |
           current_version="$(jq -r '.version' apps/macros-mobile/package.json)"
           echo "version=$current_version" >> "$GITHUB_OUTPUT"
-
           publish=false
-          adhoc=false
-          case "${{ github.event_name }}" in
-            push)
-              previous_version="$(
-                git show "${{ github.event.before }}:apps/macros-mobile/package.json" 2>/dev/null |
-                  jq -r '.version' ||
-                  true
-              )"
-              if [[ "$current_version" != "$previous_version" ]]; then
-                # Android refuses an update whose version it already has, so a
-                # published version must never be published again with new
-                # bytes.
-                tag="macros-android-v$current_version"
-                if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-                  echo "::error::$tag already exists. Bump apps/macros-mobile/package.json."
-                  exit 1
-                fi
-                publish=true
-                adhoc=true
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            previous_version="$(
+              git show "${{ github.event.before }}:apps/macros-mobile/package.json" 2>/dev/null |
+                jq -r '.version' || true
+            )"
+            if [[ "$current_version" != "$previous_version" ]]; then
+              tag="macros-android-v$current_version"
+              if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+                echo "::error::$tag already exists. Bump apps/macros-mobile/package.json."
+                exit 1
               fi
-              ;;
-            workflow_dispatch)
-              if [[ "$ADHOC_INPUT" == "true" ]]; then
-                if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-                  adhoc=true
-                else
-                  echo "::notice::Ad-hoc builds publish from main only."
-                fi
-              fi
-              ;;
-          esac
-
-          release=false
-          if [[ "$publish" == "true" || "$adhoc" == "true" ]]; then
-            release=true
+              publish=true
+            fi
           fi
-          {
-            echo "publish=$publish"
-            echo "adhoc=$adhoc"
-            echo "release=$release"
-          } >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   verify:
     name: Typecheck and test mobile code
     needs: prepare
-    if: github.event_name == 'pull_request' || needs.prepare.outputs.release == 'true' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
+    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -155,15 +91,15 @@ jobs:
         run: bun test
 
   build-ios:
-    name: Build unsigned IPA
+    name: Build iOS (unsigned)
     needs: [prepare, verify]
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     timeout-minutes: 60
     env:
       MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
+      MACROS_IOS_APS_ENVIRONMENT: production
       VERSION: ${{ needs.prepare.outputs.version }}
-      TAG: macros-ios-v${{ needs.prepare.outputs.version }}
     defaults:
       run:
         working-directory: apps/macros-mobile
@@ -194,6 +130,12 @@ jobs:
 
       - name: Generate the native project
         run: bunx expo prebuild --platform ios --clean
+
+      - name: Check generated entitlements
+        run: |
+          bun scripts/ios-entitlements.ts --unsigned ios/Macros/Macros.entitlements
+          bun scripts/ios-entitlements.ts --target MacrosWidgetExtension \
+            --unsigned ios/MacrosWidgetExtension/MacrosWidgetExtension.entitlements
 
       - name: Archive
         shell: bash
@@ -225,55 +167,11 @@ jobs:
           (cd build && zip -qry "Macros-$VERSION.ipa" Payload)
           ls -l build
 
-      - name: Write release notes
-        shell: bash
-        run: |
-          previous_tag="$(
-            git tag --list 'macros-ios-v*' --sort=-v:refname |
-              grep -Fvx "$TAG" |
-              head -n 1 ||
-              true
-          )"
-          if [[ -n "$previous_tag" ]]; then
-            git log --format='- %s' "$previous_tag..HEAD" -- . ../../packages/macros-core > build/release-notes.md
-          else
-            git log --format='- %s' -n 30 HEAD -- . > build/release-notes.md
-          fi
-          if [[ ! -s build/release-notes.md ]]; then
-            echo "- Maintenance release." > build/release-notes.md
-          fi
-          cat build/release-notes.md
-
-      - name: Describe the build
-        run: >
-          bun scripts/release-metadata.ts
-          --app build/Payload/Macros.app
-          --ipa "build/Macros-$VERSION.ipa"
-          --entitlements ios/Macros/Macros.entitlements
-          --download-url "https://github.com/${{ github.repository }}/releases/download/$TAG/Macros-$VERSION.ipa"
-          --notes build/release-notes.md
-          --out "build/macros-ios-$VERSION.json"
-
-      # A free Apple account, which is what a sideloader signs with,
-      # cannot grant push, App Groups, HealthKit, associated domains or iCloud.
-      # An IPA that asks for any of them fails to install for those users.
-      - name: Refuse entitlements a free account cannot sign
-        shell: bash
-        run: |
-          entitlements="$(jq -r '.entitlements | join(", ")' "build/macros-ios-$VERSION.json")"
-          if [[ -n "$entitlements" ]]; then
-            echo "::error::The IPA requests entitlements: $entitlements"
-            exit 1
-          fi
-
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
           name: macros-ios-${{ needs.prepare.outputs.version }}
-          path: |
-            apps/macros-mobile/build/*.ipa
-            apps/macros-mobile/build/*.json
-            apps/macros-mobile/build/release-notes.md
+          path: apps/macros-mobile/build/*.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -286,83 +184,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  build-ios-adhoc:
-    name: Build ad-hoc iOS (unsigned)
-    needs: [prepare, verify]
-    if: github.event_name == 'pull_request' || needs.prepare.outputs.adhoc == 'true'
-    runs-on: macos-26
-    timeout-minutes: 60
-    env:
-      MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
-      MACROS_IOS_DISTRIBUTION: adhoc
-    defaults:
-      run:
-        working-directory: apps/macros-mobile
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
-      # Xcode's "Bundle React Native code and images" phase runs the Expo CLI
-      # under node, so the runner needs a node React Native 0.86 accepts.
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        working-directory: .
-        run: bun install --frozen-lockfile
-
-      - name: Generate the native project
-        run: bunx expo prebuild --platform ios --clean
-
-      # codesign adds get-task-allow and the team identifiers at signing time;
-      # everything else the signed build will carry is already in this file.
-      - name: Check the generated entitlements
-        run: |
-          bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
-          bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
-            --unsigned ios/MacrosWidgetExtension/MacrosWidgetExtension.entitlements
-
-      - name: Compile the device build
-        shell: bash
-        run: |
-          set -o pipefail
-          xcodebuild build \
-            -workspace ios/Macros.xcworkspace \
-            -scheme Macros \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            | tee "$RUNNER_TEMP/xcodebuild.log" \
-            | xcbeautify --renderer github-actions
-
-      - name: Upload build log
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: macros-ios-adhoc-xcodebuild-log
-          path: ${{ runner.temp }}/xcodebuild.log
-          if-no-files-found: ignore
-          retention-days: 7
-
   build-android:
     name: Build APK
     needs: [prepare, verify]
-    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.adhoc != true)
+    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -470,27 +295,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  release-ios-adhoc:
-    name: Sign and publish ad hoc
-    needs: [prepare, build-ios-adhoc]
-    if: needs.prepare.outputs.adhoc == 'true'
+  release-ios:
+    name: Upload to TestFlight
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.publish == 'true'
     runs-on: macos-26
     timeout-minutes: 60
     environment: macros-release
-    permissions:
-      contents: write
-    # The rolling release and the device profile are rewritten whole by every
-    # run, so only the newest pending one needs to go through.
+    # Profile names are reused, so releases must not recreate them concurrently.
     concurrency:
-      group: macros-mobile-release-ios-adhoc
+      group: macros-mobile-release-ios
       cancel-in-progress: false
     env:
       MACROS_IOS_BUILD_NUMBER: ${{ github.run_number }}
-      MACROS_IOS_DISTRIBUTION: adhoc
-      VERSION: ${{ needs.prepare.outputs.version }}
+      MACROS_IOS_APS_ENVIRONMENT: production
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      MACROS_API_URL: ${{ secrets.MACROS_API_URL || 'https://macros.denizlg24.com' }}
-      PUBLIC_ORIGIN: https://macros.denizlg24.com
     defaults:
       run:
         working-directory: apps/macros-mobile
@@ -505,18 +324,17 @@ jobs:
           APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
           MACROS_IOS_DIST_CERT_P12: ${{ secrets.MACROS_IOS_DIST_CERT_P12 }}
           MACROS_IOS_DIST_CERT_PASSWORD: ${{ secrets.MACROS_IOS_DIST_CERT_PASSWORD }}
-          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
         run: |
           missing=()
           for name in APPLE_TEAM_ID APPLE_ASC_KEY_ID APPLE_ASC_ISSUER_ID \
             APPLE_ASC_PRIVATE_KEY MACROS_IOS_DIST_CERT_P12 \
-            MACROS_IOS_DIST_CERT_PASSWORD MACROS_DISTRIBUTION_SECRET; do
+            MACROS_IOS_DIST_CERT_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               missing+=("$name")
             fi
           done
           if (( ${#missing[@]} > 0 )); then
-            echo "::notice::Ad-hoc distribution is not set up (missing: ${missing[*]}). Nothing to do."
+            echo "::notice::App Store distribution is not set up (missing: ${missing[*]}). Nothing to do."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -570,7 +388,7 @@ jobs:
           security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
-          security import "$p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$p12" -P "$P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$KEYCHAIN_PATH" >/dev/null
           read -r -a existing_keychains <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
           security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
@@ -582,15 +400,14 @@ jobs:
             openssl pkcs12 -legacy -in "$p12" -clcerts -nokeys -passin env:P12_PASSWORD -out "$RUNNER_TEMP/distribution.pem"
           rm -f "$p12"
 
-      - name: Register devices and create the profiles
+      - name: Create App Store profiles
         if: steps.signing.outputs.ready == 'true'
         env:
           APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
           APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
           APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
-          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
         run: >
-          bun scripts/adhoc-profile.ts
+          bun scripts/store-profile.ts
           --certificate "$RUNNER_TEMP/distribution.pem"
           --out-dir build/profiles
           --summary build/profile.json
@@ -654,38 +471,42 @@ jobs:
             | tee "$RUNNER_TEMP/xcodebuild.log" \
             | xcbeautify --renderer github-actions
 
-      - name: Export the IPA
+      - name: Check signed entitlements before upload
         if: steps.signing.outputs.ready == 'true'
         shell: bash
         run: |
+          app="$RUNNER_TEMP/Macros.xcarchive/Products/Applications/Macros.app"
+          bun scripts/ios-entitlements.ts "$app"
+          bun scripts/ios-entitlements.ts --target MacrosWidgetExtension \
+            "$app/PlugIns/MacrosWidgetExtension.appex"
+
+      - name: Upload archive to App Store Connect
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        env:
+          APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
+        run: |
           set -o pipefail
+          auth_key="$RUNNER_TEMP/AuthKey_$APPLE_ASC_KEY_ID.p8"
+          printf '%s\n' "$APPLE_ASC_PRIVATE_KEY" > "$auth_key"
+          chmod 600 "$auth_key"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>release-testing</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>${APPLE_TEAM_ID}</string>
-            <key>signingCertificate</key>
-            <string>Apple Distribution</string>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
             <key>provisioningProfiles</key>
             <dict>
           $(jq -r '.profiles[] | "    <key>\(.bundleIdentifier)</key>\n    <string>\(.name)</string>"' build/profile.json)
-            </dict>
-            <key>thinning</key>
-            <string>&lt;none&gt;</string>
-            <key>manifest</key>
-            <dict>
-              <key>appURL</key>
-              <string>${PUBLIC_ORIGIN}/ios/adhoc/Macros.ipa</string>
-              <key>displayImageURL</key>
-              <string>${PUBLIC_ORIGIN}/apple-touch-icon.png</string>
-              <key>fullSizeImageURL</key>
-              <string>${PUBLIC_ORIGIN}/icon-512.png</string>
             </dict>
           </dict>
           </plist>
@@ -694,63 +515,27 @@ jobs:
             -archivePath "$RUNNER_TEMP/Macros.xcarchive" \
             -exportPath build/export \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -authenticationKeyPath "$auth_key" \
+            -authenticationKeyID "$APPLE_ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_ASC_ISSUER_ID" \
             | tee -a "$RUNNER_TEMP/xcodebuild.log" \
             | xcbeautify --renderer github-actions
-          ls -l build/export
-          test -f build/export/Macros.ipa
-          test -f build/export/manifest.plist
+          rm -f "$auth_key"
 
-      - name: Check the signed entitlements
+      - name: Save debug symbols
         if: steps.signing.outputs.ready == 'true'
-        shell: bash
-        run: |
-          rm -rf build/unpacked
-          mkdir -p build/unpacked
-          unzip -q build/export/Macros.ipa -d build/unpacked
-          bun scripts/adhoc-entitlements.ts build/unpacked/Payload/Macros.app
-          bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
-            build/unpacked/Payload/Macros.app/PlugIns/MacrosWidgetExtension.appex
-
-      # Never "latest": the Envoy CLI's updater reads this repository's
-      # releases, and the repository's latest release must stay an Envoy one.
-      - name: Publish to the rolling release
-        if: steps.signing.outputs.ready == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if ! gh release view macros-ios-adhoc --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create macros-ios-adhoc \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Macros iOS — ad hoc" \
-              --notes "Ad-hoc build of Macros for registered iPhones. Install from ${PUBLIC_ORIGIN}/ios/install; this release only hosts the files." \
-              --prerelease \
-              --latest=false
-          fi
-          gh release upload macros-ios-adhoc \
-            build/export/Macros.ipa build/export/manifest.plist \
-            --repo "$GITHUB_REPOSITORY" --clobber
-
-      - name: Tell the server which iPhones can install
-        if: steps.signing.outputs.ready == 'true'
-        shell: bash
-        env:
-          MACROS_DISTRIBUTION_SECRET: ${{ secrets.MACROS_DISTRIBUTION_SECRET }}
-        run: |
-          jq -n --arg version "$VERSION" --slurpfile profile build/profile.json \
-            '{version: $version, udids: $profile[0].udids}' > build/published.json
-          curl --fail-with-body --silent --show-error \
-            -X POST "${MACROS_API_URL%/}/api/distribution/published" \
-            -H "authorization: Bearer $MACROS_DISTRIBUTION_SECRET" \
-            -H "content-type: application/json" \
-            --data @build/published.json
+        uses: actions/upload-artifact@v7
+        with:
+          name: macros-ios-dsyms-${{ needs.prepare.outputs.version }}
+          path: ${{ runner.temp }}/Macros.xcarchive/dSYMs/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload build log
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: macros-ios-adhoc-signed-xcodebuild-log
+          name: macros-ios-store-xcodebuild-log
           path: ${{ runner.temp }}/xcodebuild.log
           if-no-files-found: ignore
           retention-days: 7

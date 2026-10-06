@@ -19,24 +19,11 @@ export const PASSWORD_RESET_REDIRECT = `${API_URL}/register/reset-password`;
 
 type Capabilities = { healthKit: boolean; push: boolean };
 
-/**
- * What this build was signed to do. A SideStore build has no entitlements,
- * so HealthKit and remote push are off there and their UI stays hidden. The
- * Android APK is sideloaded with neither HealthKit nor FCM.
- */
-function readCapabilities(): Capabilities {
-  if (Platform.OS !== "ios") return { healthKit: false, push: false };
-  const configured = Constants.expoConfig?.extra?.capabilities;
-  if (!configured || typeof configured !== "object") {
-    return { healthKit: false, push: false };
-  }
-  return {
-    healthKit: configured.healthKit === true,
-    push: configured.push === true,
-  };
-}
-
-export const capabilities = readCapabilities();
+/** iOS has HealthKit and APNs; Android has neither yet. */
+export const capabilities = {
+  healthKit: Platform.OS === "ios",
+  push: Platform.OS === "ios",
+};
 
 /** What copy calls the device the app runs on. */
 export const DEVICE_NAME = Platform.OS === "ios" ? "iPhone" : "phone";

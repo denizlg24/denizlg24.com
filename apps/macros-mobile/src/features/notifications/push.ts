@@ -17,8 +17,8 @@ function tokenData(token: Notifications.DevicePushToken): string | null {
 }
 
 /**
- * A development build is signed for the APNs sandbox; everything we ship
- * (ad-hoc) is production.
+ * A local development build is signed for the APNs sandbox; TestFlight and
+ * App Store builds use production.
  */
 async function sendToken(token: string) {
   currentToken = token;

@@ -2,7 +2,6 @@ import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { useBodyOverview } from "@/api/body";
-import { useDistributionAccess } from "@/api/distribution";
 import { useCustomFoods } from "@/api/foods";
 import { useProfile } from "@/api/profile";
 import { useRecipes } from "@/api/recipes";
@@ -23,7 +22,6 @@ export function MoreScreen() {
   const recipes = useRecipes();
   const shopping = useShoppingList();
   const body = useBodyOverview();
-  const access = useDistributionAccess();
 
   const refetch = useCallback(
     () =>
@@ -105,18 +103,6 @@ export function MoreScreen() {
             onPress={() => router.push("/more/habits")}
           />
         </Section>
-
-        {access.data?.owner ? (
-          <Section title="Owner">
-            <Row
-              icon="inbox"
-              title="Device requests"
-              chevron
-              separator={false}
-              onPress={() => router.push("/more/device-requests")}
-            />
-          </Section>
-        ) : null}
 
         <Section>
           <Row

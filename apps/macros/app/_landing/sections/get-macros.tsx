@@ -1,9 +1,8 @@
 import { cn } from "@repo/ui/utils";
-import { ArrowDown, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, Suspense } from "react";
-import { RequestAccessForm } from "@/app/_landing/request-access-form";
-import { sectionLead, sectionTitle } from "@/app/_landing/sections/feature-row";
+import { sectionTitle } from "@/app/_landing/sections/feature-row";
 import {
   ANDROID_APK_HREF,
   AppIcon,
@@ -11,7 +10,6 @@ import {
   GetTheApp,
   primaryButton,
   SectionLabel,
-  secondaryButton,
 } from "@/app/_landing/site";
 import { latestAndroidRelease } from "@/app/android/release";
 
@@ -93,81 +91,16 @@ export function Platforms() {
 
         <div id="iphone" className="reveal flex flex-col gap-6 border-t pt-8">
           <PlatformStatus available={false}>
-            iPhone · Coming soon
+            iPhone · In preparation
           </PlatformStatus>
           <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
-            Early access, for now.
+            Coming to TestFlight.
           </h2>
           <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            The iPhone app opens to everyone once the last pieces are in place.
-            Until then, a small number of iPhones can install it early. Early
-            builds only install on iPhones registered in advance, so the request
-            asks for your iPhone’s UDID.
+            The iPhone build is being prepared for TestFlight and the App Store.
+            When testing opens, you’ll be able to install it through TestFlight
+            without registering your device.
           </p>
-          <a href="#early-access" className={cn(secondaryButton, "w-fit")}>
-            Request early access
-            <ArrowDown
-              aria-hidden="true"
-              className="size-4"
-              strokeWidth={2.4}
-            />
-          </a>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const UDID_STEPS = [
-  [
-    "On a Mac",
-    "Connect your iPhone with a cable and open Finder. Select your iPhone in the sidebar, then click the grey line of text under its name until it shows the UDID. Right-click it and choose Copy UDID.",
-  ],
-  [
-    "On Windows",
-    "Connect your iPhone and open the Apple Devices app (or iTunes on older Windows). Select your iPhone, then click the serial number on its summary until it changes to the UDID, and copy it.",
-  ],
-  [
-    "Then",
-    "Paste it below. It looks like 00008030-001A2B3C4D5E6F70. The serial number and the IMEI are different numbers and won’t work.",
-  ],
-] as const;
-
-export function EarlyAccess() {
-  return (
-    <section
-      id="early-access"
-      aria-labelledby="early-access-title"
-      className="border-t py-20 sm:py-28"
-    >
-      <div className={container}>
-        <SectionLabel>iPhone early access</SectionLabel>
-        <div className="mt-12 grid gap-12 lg:mt-16 lg:grid-cols-2 lg:gap-20">
-          <div className="reveal max-w-xl">
-            <h2 id="early-access-title" className={sectionTitle}>
-              Try it early on iPhone.
-            </h2>
-            <p className={cn(sectionLead, "mt-5")}>
-              Send your name, email and UDID. Once your iPhone has been added,
-              the install link arrives by email.
-            </p>
-            <dl className="mt-10 border-b">
-              {UDID_STEPS.map(([term, description]) => (
-                <div
-                  key={term}
-                  className="grid gap-1 border-t py-4 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-6"
-                >
-                  <dt className="text-[15px] font-semibold">{term}</dt>
-                  <dd className="text-[15px] leading-relaxed text-muted-foreground">
-                    {description}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <div className="reveal max-w-xl lg:pt-2">
-            <RequestAccessForm />
-          </div>
         </div>
       </div>
     </section>
@@ -198,11 +131,6 @@ const FAQ: ReadonlyArray<{ question: string; answer: ReactNode }> = [
         <Link href="/privacy">privacy policy</Link> has the details.
       </>
     ),
-  },
-  {
-    question: "Why does the iPhone request need my UDID?",
-    answer:
-      "Until the iPhone app is public, a build only installs on iPhones registered with Apple in advance, and the UDID is what registers one.",
   },
   {
     question: "How do I update on Android?",
