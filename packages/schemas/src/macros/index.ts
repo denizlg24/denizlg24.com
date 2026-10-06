@@ -1,7 +1,6 @@
 export * from "./body";
 export * from "./common";
 export * from "./dashboard";
-export * from "./distribution";
 export * from "./food-entry";
 export * from "./food-icons";
 export * from "./food-log";

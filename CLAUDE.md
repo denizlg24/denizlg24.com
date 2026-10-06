@@ -84,8 +84,8 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client
   (also shipped as a sideloaded Android APK);
   `apps/macros` is now just the API, the marketing site and the auth-email
-  landing pages (`/register/*`). Not deployed by Forge: installed as an ad-hoc
-  build or from Xcode. See
+  landing pages (`/register/*`). Not deployed by Forge: iOS builds upload to
+  TestFlight and the App Store; Android remains a sideloaded APK. See
   [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
 - `apps/nutrition/` — Bun + Elysia nutrition API (Forge, `nutrition.denizlg24.com`),
   the food catalogue Macros searches and scans: USDA, eleven national
@@ -146,38 +146,22 @@ Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=we
 Conventions live in `apps/macros-mobile/AGENTS.md`. What bites:
 
 - **One workflow, builds ungated, releases behind approval.**
-  `macros-mobile.yml` builds the unsigned IPA, the ad-hoc build
-  (compiled unsigned) and a debug-signed APK on every PR and push with no
-  secret in reach. Its release jobs run in the `macros-release` environment
+  `macros-mobile.yml` builds an unsigned iOS IPA and a debug-signed Android
+  APK on PRs and manual dispatch with no secret in reach. A version bump on
+  `main` starts release jobs in the `macros-release` environment
   (owner approval), which holds every signing secret as an *environment*
   secret — a repository secret would be readable by the ungated builds.
 - **SideStore publishing is gone.** No job publishes `macros-ios-v*` or
   rewrites `source.json` any more; `macros.denizlg24.com/ios/source.json`
   still proxies the last file on the rolling `macros-ios-source` release, so
   existing SideStore installs see no update past it.
-- **No entitlements, ever, without a plan.** SideStore signs with the user's
-  own Apple ID, usually a free one, which cannot grant push, App Groups,
-  HealthKit, iCloud or associated domains. The workflow fails the build if the
-  IPA asks for any. The source must also never carry `marketplaceID` or
-  `buildVersion`: SideStore reads either as an AltStore PAL source and
-  refuses to add it.
-- **Entitlements hang off `MACROS_IOS_DISTRIBUTION=adhoc`.** Unset, the
-  build is the SideStore one and carries none; `adhoc` adds HealthKit
-  (`plugins/with-healthkit.js`) and `aps-environment` and sets
-  `extra.capabilities`, which is what shows the Health and push UI.
-  Expo applies expo-notifications' plugin to every build merely because the
-  package is installed, so the SideStore build runs
-  `plugins/without-entitlements.js` to strip what it writes — drop that and
-  CI's entitlement check fails. HealthKit is a local Swift module,
-  `modules/macros-health`, not a dependency. Until the paid Apple team
-  exists, `adhoc` is only buildable for the simulator.
-- **Ad-hoc distribution runs through GitHub, not the server.** The App Store
-  Connect key lives only in the `macros-release` environment: approving a
-  request dispatches `macros-mobile.yml` with `adhoc: true`, and once the
-  environment is approved too, `release-ios-adhoc` registers approved UDIDs, rebuilds the
-  profile with every enabled device, and reports back to `/api/distribution/*`
-  under `MACROS_DISTRIBUTION_SECRET`. It exits green with a notice while any
-  secret is missing. Declining never frees a device slot (100 per year).
+- **iOS entitlements ship in every build.** HealthKit, APNs, and the App Group
+  for widgets are compiled in. The unsigned validation build checks them
+  against the allowlist with `scripts/ios-entitlements.ts --unsigned`.
+  `release-ios` creates App Store profiles for both targets, signs the archive,
+  and uploads it to App Store Connect. Local device builds need the paid Apple
+  team. The App Store Connect key lives only in `macros-release`; a missing
+  signing secret exits green with a notice.
 - **Macros releases are never "latest".** The Envoy CLI's updater reads this
   repository's releases.
 - **React is 19.2.7 here, Expo SDK 57 pins 19.2.3.** The root `overrides` win;

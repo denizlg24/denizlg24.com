@@ -66,7 +66,7 @@ export function SiteFooter() {
       title: "Get the app",
       links: [
         { href: ANDROID_APK_HREF, label: "Android APK" },
-        { href: "/download#early-access", label: "iPhone early access" },
+        { href: "/download#iphone", label: "iPhone availability" },
         { href: "/download#faq", label: "Questions" },
       ],
     },
@@ -75,6 +75,8 @@ export function SiteFooter() {
       links: [
         { href: "/terms", label: "Terms" },
         { href: "/privacy", label: "Privacy" },
+        { href: "/support", label: "Support" },
+        { href: "/account/delete", label: "Delete account" },
       ],
     },
   ] as const;
@@ -100,7 +102,7 @@ export function SiteFooter() {
             </p>
             <p className="flex items-center gap-2.5 text-sm font-medium">
               <MacroRule />
-              On Android now · iPhone soon
+              On Android now · iPhone in preparation
             </p>
           </div>
           <nav
@@ -212,7 +214,7 @@ export function GetTheApp({ className }: { className?: string }) {
           aria-hidden="true"
           className="size-2 rounded-full bg-foreground/35"
         />
-        Coming soon to iPhone
+        iPhone availability
       </Link>
     </div>
   );

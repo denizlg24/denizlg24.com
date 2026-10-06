@@ -219,8 +219,8 @@ small differences are a `Platform.OS` check. The ones that exist:
   (small/medium) and Shortcut (Lock Screen, configurable) only open routes
   through `macros://…` links, so they ship in every build; Today and Weight
   Trend read a snapshot through the App Group `group.com.denizlg24.macros`,
-  an entitlement, so they are compiled in (`MACROS_APP_GROUP`) only for the
-  ad-hoc build. The extension never talks to the API: `WidgetSync` (in
+  an entitlement, so they are compiled in (`MACROS_APP_GROUP`) for every iOS
+  build. The extension never talks to the API: `WidgetSync` (in
   `(app)/_layout.tsx`) builds a `WidgetSnapshot` (`features/widgets/snapshot.ts`,
   decoded by `widgets/ios/Snapshot.swift`) from the dashboard — pending logs
   included — and the weight overview, writes it through
@@ -361,38 +361,28 @@ a request that bypasses `api()` but carries the session calls
 
 ## Release
 
-`.github/workflows/macros-mobile.yml` does everything. Its build jobs run on
-every PR and push, reference no secret, and must pass: `build-ios` (the
-unsigned IPA, refused if it carries any entitlement; PRs and manual runs only),
-`build-ios-adhoc` (`MACROS_IOS_DISTRIBUTION=adhoc` compiled unsigned for a
-device, its generated entitlements checked against the ad-hoc allowlist with
-`scripts/adhoc-entitlements.ts --unsigned`) and `build-android` (a release
-APK with the embedded bundle, debug-signed). The release jobs run in the
+`.github/workflows/macros-mobile.yml` does everything. Its secret-free jobs
+run on PRs and manual dispatch: `build-ios` (unsigned IPA with generated
+entitlements checked by `scripts/ios-entitlements.ts --unsigned`) and
+`build-android` (release APK with the embedded bundle, debug-signed). A
+version bump on `main` triggers the release jobs. They run in the
 `macros-release` environment, which needs the owner's approval, and every
 signing secret lives there as an environment secret — never a repository
 one, or the ungated build jobs could read it.
 
-Nothing publishes to SideStore any more: `macros-ios-v*` releases and the
-`source.json` on the rolling `macros-ios-source` release are frozen at the
-last version the removed `release-ios-sidestore` job wrote. The default build
-still carries no entitlements, so a free Apple ID can sideload it. Bump
+The frozen `source.json` on the rolling `macros-ios-source` release still
+serves existing SideStore users. Nothing publishes a new SideStore IPA. Bump
 `version` for every release — Android refuses an update at a version it
 already has.
 
-Entitled features exist only in the ad-hoc build (`MACROS_IOS_DISTRIBUTION=adhoc`),
-signed by the paid team in `release-ios-adhoc`, which runs on the same
-version change and when the server dispatches the workflow with
-`adhoc: true` after the owner approves a device — so a device approval also
-needs a GitHub environment approval before it ships. `lib/config.ts`
-`capabilities` says which build is running; UI for HealthKit and remote push
-hides behind it. The ad-hoc build signs two targets, the app and the widget
-extension, each with its own bundle id and profile (`SIGNING_TARGETS` in
-`scripts/app-store-connect.ts`); both carry the App Group, which Apple's API
-can enable on a bundle id but not assign — the group is assigned to both ids
-once, by hand, in the developer portal. `plugins/without-entitlements.js` strips the
-`aps-environment` expo-notifications writes into every build. To exercise
-the ad-hoc build locally without a paid team, prebuild with the flag and run
-it in the simulator, which needs no provisioning.
+`release-ios` signs two targets, the app and widget extension, with separate
+App Store profiles (`SIGNING_TARGETS` in `scripts/app-store-connect.ts`) and
+uploads to App Store Connect. Both carry the App Group, assigned to both App
+IDs in the developer portal. HealthKit and APNs are always enabled on iOS;
+Android has neither yet. Local `expo run:ios --device` needs the paid Apple
+team. `MACROS_IOS_APS_ENVIRONMENT` is `development` locally and `production`
+in CI. The server stores the APNs environment with each token, so both builds
+can receive notifications.
 
 `release-android` takes the APK `build-android` produced, re-signs it with
 the release key (`zipalign`, then `apksigner`, refusing the debug

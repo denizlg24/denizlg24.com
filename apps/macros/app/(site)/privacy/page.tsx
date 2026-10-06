@@ -4,7 +4,7 @@ import { pageMetadata } from "@/app/metadata";
 
 export const metadata = pageMetadata(
   "Privacy policy",
-  "What Macros stores, where it goes, and what it never collects.",
+  "What Macros stores, how Apple Health works, and how to delete your data.",
   "/privacy",
 );
 
@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="29 September 2026"
+      updated="6 October 2026"
       intro={
         <p>
           Macros is a nutrition tracker built and run by one developer (
@@ -35,12 +35,13 @@ export default function PrivacyPage() {
             to an ad network or a data broker.
           </li>
           <li>
-            The only outside service that receives anything is the one that
-            sends account emails, and it only gets your email address.
+            Resend delivers account emails. On iPhone, Apple delivers push
+            notifications when you enable them.
           </li>
           <li>
-            Your data is kept while your account exists. Deleting your account
-            in the app deletes it.
+            Your data is kept while your account exists. You can delete the
+            account in the app or{" "}
+            <Link href="/account/delete">on this site</Link>.
           </li>
         </ul>
       </LegalSection>
@@ -117,10 +118,29 @@ export default function PrivacyPage() {
 
       <LegalSection title="Apple Health">
         <p>
-          Macros doesn’t read Apple Health directly. If you set up the Shortcut
-          described in the app, the Shortcut sends the weight, body fat, steps
-          and active energy you choose to Macros using an import token. Tokens
-          are stored only as hashes and are shown to you once.
+          With your permission, the iPhone app reads weight, body fat, steps and
+          active energy from Apple Health. It sends those readings to your
+          Macros account to update your trend and energy estimate. The app can
+          also write the calories and macros you log back to Apple Health.
+          Health access can be changed in the app or in iPhone Settings.
+        </p>
+        <p>
+          A separate Apple Health Shortcut can send the same kinds of readings
+          using an import token. Those tokens are stored only as hashes and
+          shown to you once.
+        </p>
+        <p>
+          Macros does not use Apple Health data for advertising and does not
+          send it to a third-party analytics service.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Notifications">
+        <p>
+          If you allow push notifications on iPhone, the app sends its device
+          token and the app’s push environment to the Macros server. The server
+          uses Apple Push Notification service to deliver notifications. You can
+          turn notifications off in the app or iPhone Settings.
         </p>
       </LegalSection>
 
@@ -146,9 +166,10 @@ export default function PrivacyPage() {
         </p>
         <p>
           You can delete your account in the app under More › Settings › Delete
-          Account. That immediately deletes your account, your sessions,
-          everything you logged, your own foods and recipes, and your progress
-          photos. It can’t be undone.
+          Account, or <Link href="/account/delete">on this website</Link>. That
+          immediately deletes your account, your sessions, everything you
+          logged, your own foods and recipes, and your progress photos. It can’t
+          be undone.
         </p>
         <p>
           Products you added with a barcode stay in the shared nutrition
@@ -164,7 +185,7 @@ export default function PrivacyPage() {
         </p>
         <p>
           The <Link href="/terms">terms of use</Link> cover how the service
-          itself works.
+          itself works. For help, <Link href="/support">contact support</Link>.
         </p>
       </LegalSection>
     </LegalPage>

@@ -1,13 +1,13 @@
 /**
- * Fails when a signed ad-hoc target carries an entitlement it should not, is
+ * Fails when a signed App Store target carries an entitlement it should not, is
  * debuggable, or lacks one it needs (push, HealthKit and the App Group on the
  * app; the App Group alone on the widget extension). macOS only (`codesign`,
  * `plutil`).
  *
- *   bun scripts/adhoc-entitlements.ts build/Payload/Macros.app
- *   bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
+ *   bun scripts/ios-entitlements.ts build/Payload/Macros.app
+ *   bun scripts/ios-entitlements.ts --target MacrosWidgetExtension \
  *     build/Payload/Macros.app/PlugIns/MacrosWidgetExtension.appex
- *   bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
+ *   bun scripts/ios-entitlements.ts --unsigned ios/Macros/Macros.entitlements
  *
  * `--unsigned` reads the file prebuild generated instead of the signature, so
  * the unsigned CI build checks the same allowlist before any secret is used.
@@ -27,7 +27,7 @@ const unsigned = values.unsigned;
 const target = positionals[0];
 if (!target) {
   throw new Error(
-    "Usage: adhoc-entitlements.ts [--target <name>] <path to .app or .appex> | [--target <name>] --unsigned <path to .entitlements>",
+    "Usage: ios-entitlements.ts [--target <name>] <path to .app or .appex> | [--target <name>] --unsigned <path to .entitlements>",
   );
 }
 

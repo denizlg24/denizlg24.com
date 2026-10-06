@@ -12,11 +12,8 @@ const {
 // The WidgetKit extension: sources live in widgets/ios and are copied into
 // the generated project, which never holds anything by hand.
 //
-// The action widgets only open routes and need nothing from the app, so the
-// extension ships in every build. The Today and Weight widgets read a snapshot
-// the app writes into an App Group — an entitlement, so they exist only when
-// `appGroup` is passed (the ad-hoc build): the group goes on both targets, its
-// name into both Info.plists, and `MACROS_APP_GROUP` compiles them in.
+// All widgets share a snapshot in the App Group. The group is installed on
+// both targets and compiled into the extension on every iOS build.
 
 // Not "MacrosWidgets": that is the Expo module's pod, and two Swift modules of one
 // name in the same build products collide.
@@ -50,7 +47,7 @@ ${encode(entries, "")}
 `;
 }
 
-/** @param {string | undefined} appGroup */
+/** @param {string} appGroup */
 function extensionInfoPlist(appGroup) {
   return plist({
     CFBundleDevelopmentRegion: "$(DEVELOPMENT_LANGUAGE)",
@@ -65,7 +62,7 @@ function extensionInfoPlist(appGroup) {
     NSExtension: {
       NSExtensionPointIdentifier: "com.apple.widgetkit-extension",
     },
-    ...(appGroup ? { MacrosAppGroup: appGroup } : {}),
+    MacrosAppGroup: appGroup,
   });
 }
 
@@ -89,7 +86,7 @@ const FILE_TYPES = {
 
 /**
  * @param {import("xcode").XcodeProject} project
- * @param {{ bundleIdentifier: string, version: string, buildNumber: string, appGroup?: string, sources: string[] }} options
+ * @param {{ bundleIdentifier: string, version: string, buildNumber: string, appGroup: string, sources: string[] }} options
  */
 function addWidgetTarget(project, options) {
   const objects = project.hash.project.objects;
@@ -110,11 +107,7 @@ function addWidgetTarget(project, options) {
     `${options.bundleIdentifier}.widgets`,
   );
 
-  const files = [
-    ...options.sources,
-    "Info.plist",
-    ...(options.appGroup ? [`${TARGET}.entitlements`] : []),
-  ];
+  const files = [...options.sources, "Info.plist", `${TARGET}.entitlements`];
   const references = files.map((name) => {
     const uuid = project.generateUuid();
     add(
@@ -202,15 +195,13 @@ function addWidgetTarget(project, options) {
     const conditions = [
       "$(inherited)",
       ...(debug ? ["DEBUG"] : []),
-      ...(options.appGroup ? ["MACROS_APP_GROUP"] : []),
+      "MACROS_APP_GROUP",
     ];
     configuration.buildSettings = {
       APPLICATION_EXTENSION_API_ONLY: "YES",
       ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: '""',
       CLANG_ENABLE_MODULES: "YES",
-      ...(options.appGroup
-        ? { CODE_SIGN_ENTITLEMENTS: `${TARGET}/${TARGET}.entitlements` }
-        : {}),
+      CODE_SIGN_ENTITLEMENTS: `${TARGET}/${TARGET}.entitlements`,
       CODE_SIGN_STYLE: "Automatic",
       CURRENT_PROJECT_VERSION: `"${options.buildNumber}"`,
       ...(debug ? { DEBUG_INFORMATION_FORMAT: "dwarf" } : {}),
@@ -233,14 +224,14 @@ function addWidgetTarget(project, options) {
 }
 
 /**
- * @type {import("expo/config-plugins").ConfigPlugin<{ appGroup?: string } | void>}
+ * @type {import("expo/config-plugins").ConfigPlugin}
  */
-const withWidgets = (config, props) => {
-  const appGroup = props?.appGroup;
+const withWidgets = (config) => {
   const bundleIdentifier = config.ios?.bundleIdentifier;
   if (!bundleIdentifier) {
     throw new Error("with-widgets: ios.bundleIdentifier is required.");
   }
+  const appGroup = `group.${bundleIdentifier}`;
 
   config = withXcodeProject(config, (mod) => {
     const project = mod.modResults;
@@ -272,17 +263,13 @@ const withWidgets = (config, props) => {
         path.join(destination, "Info.plist"),
         extensionInfoPlist(appGroup),
       );
-      if (appGroup) {
-        fs.writeFileSync(
-          path.join(destination, `${TARGET}.entitlements`),
-          extensionEntitlements(appGroup),
-        );
-      }
+      fs.writeFileSync(
+        path.join(destination, `${TARGET}.entitlements`),
+        extensionEntitlements(appGroup),
+      );
       return mod;
     },
   ]);
-
-  if (!appGroup) return config;
 
   config = withEntitlementsPlist(config, (mod) => {
     mod.modResults["com.apple.security.application-groups"] = [appGroup];

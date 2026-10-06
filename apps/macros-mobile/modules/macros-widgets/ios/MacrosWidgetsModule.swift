@@ -4,9 +4,8 @@ import WidgetKit
 /// Must match `SNAPSHOT_KEY` in widgets/ios/Snapshot.swift.
 private let snapshotKey = "snapshot"
 
-/// The App Group's defaults, or nil in a build without the group: the
-/// Info.plist names it only in the ad-hoc build, and the container exists
-/// only when the signature grants it.
+/// The App Group's defaults, or nil if the installed signature does not
+/// grant the group.
 private func sharedDefaults() -> UserDefaults? {
   guard
     let group = Bundle.main.object(forInfoDictionaryKey: "MacrosAppGroup") as? String,

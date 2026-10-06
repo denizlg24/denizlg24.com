@@ -1,9 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-/// `MACROS_APP_GROUP` is set by plugins/with-widgets.js only on a build that
-/// carries the App Group (the ad-hoc one). Without it there is no snapshot to
-/// read, so the data widgets are left out rather than shown empty forever.
+/// `MACROS_APP_GROUP` is set by plugins/with-widgets.js when the extension
+/// is compiled with the shared App Group snapshot.
 @main
 struct MacrosWidgetsBundle: WidgetBundle {
   var body: some Widget {
