@@ -100,6 +100,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `packages/cloud-auth-client/` — cloud auth clients, the post-login redirect
   allowlist (`./redirect`) and the access-token verifier every resource server
   uses (`./resource`).
+- `packages/auth-sdk/` — `@denizlg24/auth`, the public SDK for apps that
+  sign in with deniz auth (Next.js, resource servers, SPA/native, React).
+  Publishable: runtime dependency `jose` only and no `@repo/*` imports;
+  `release-auth-sdk.yml` publishes it on a version change, behind the
+  `npm-release` environment. Plan 027.
 - `packages/typescript-config/` — shared tsconfig presets.
 - `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
@@ -537,13 +542,42 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   browser against the API; web and mcp get server-verifiable identity from
   access tokens. status reads the cookie server-side only because it runs on
   Vercel.
-- **Every token is a superuser token, enforced at issuance and every refresh.**
-  `customAccessTokenClaims` in `apps/api/src/auth/better-auth.ts` throws for
-  anyone but an active, TOTP-enrolled, unbanned superuser, and a Hono gate
-  refuses non-superuser sessions at authorize/consent/continue. User tokens
-  carry `superuser: true`; machine tokens carry `scope superuser` and `owner`,
-  the superuser who created the service client. `isSuperuserToken` in
-  `@repo/cloud-auth-client/resource` is the one test resource servers apply.
+- **Every first-party token is a superuser token, enforced at issuance and
+  every refresh.** `customAccessTokenClaims` in `apps/api/src/auth/better-auth.ts`
+  throws for anyone but an active, TOTP-enrolled, unbanned, `cloud`-realm
+  superuser, and a Hono gate refuses non-superuser sessions at
+  authorize/consent/continue. User tokens carry `superuser: true`; machine
+  tokens carry `scope superuser` and `owner`, the superuser who created the
+  service client. `isSuperuserToken` in `@repo/cloud-auth-client/resource` is
+  the one test resource servers apply. Tenant clients are the exception below.
+- **Tenants: someone else's app signing people in with deniz auth.** Plan 027.
+  A client whose `metadata.tenant` is set (only our routes write it;
+  `/oauth2/register` refuses `metadata`, and a client with no creator is never
+  a tenant's) is held to `tenantAccess` in `auth/tenancy.ts` instead —
+  tenant enabled, account active, not blocked by that tenant, the tenant's
+  MFA and verified-email policy — and its tokens carry `tenant` and **never**
+  `superuser`, even when the owner signs in. Tenant resources live in
+  `auth_oauth_resource.tenant_id`; a first-party client may not bind one and
+  a tenant client may bind nothing else. `/api/oauth/clients` (the owner's
+  view) hides tenant clients; `/api/tenants/*` manages them.
+- **Two realms in `auth_user`: `cloud` (owner, family; has a `users` row) and
+  `public` (self-service sign-up for a tenant's app).** The column defaults to
+  `public`, so any new creation path that forgets to say `cloud` makes an
+  account that reaches nothing of the cloud's; `createPendingAuthUser` and the
+  cutover scripts set it. `resolveSession` refuses a non-cloud session even if
+  a `users` row exists for it, mandatory TOTP applies to `cloud` only, and
+  password reset by email mails `public` accounts only. `/api/account` and
+  `/api/tenants` serve both realms on cookie sessions (`auth/identity.ts`) and
+  refuse a mutation without a trusted `Origin`.
+- **Public sign-up is off unless explicitly configured**: both
+  `TURNSTILE_SECRET_KEY` and `RESEND_API_KEY` on the API, or
+  `AUTH_PUBLIC_ACCOUNTS_DEV=1` locally. Never key it on `NODE_ENV` (folded to
+  false in the production bundle). It answers identically for new and
+  existing addresses and never signs in; the verification link does.
+- **A refused browser authorization is a redirect, not JSON.** `GET
+  /oauth2/authorize` sends the browser to `<auth app>/login?reason=<CODE>`
+  with the original query, which the login page turns into the fix
+  (verify email, set up MFA, use another account) and then resumes.
 - **The API accepts its own `aud=api` tokens as a superuser session**
   (`apps/api/src/auth/oauth-bearer.ts`, `sessionId` prefixed `oauth:`), so
   `requireSession()` routes are open to the MCP server. It re-checks the owner
@@ -651,7 +685,8 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   `deniz-cloud.*`.
 
 Rollout order for anything touching this: apply cloud-core migrations (0043
-OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys, 0051 passkey offer) → roll the API (manual approval) → deploy auth and
+OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys, 0051 passkey offer,
+0053 realms and tenants) → roll the API (manual approval) → deploy auth and
 mcp on Forge → create the web and mcp clients on auth.denizlg24.com/clients →
 set `WEB_OAUTH_CLIENT_ID/SECRET` on web and `MCP_OAUTH_CLIENT_ID/SECRET` on mcp
 → deploy web. Web deployed before its client exists cannot sign in. Desktop
