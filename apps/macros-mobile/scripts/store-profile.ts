@@ -109,8 +109,9 @@ async function ensureBundleId(target: SigningTarget): Promise<string> {
     ).data.id;
   if (!bundle) console.log(`Created bundle id ${identifier}`);
 
+  // A relationship endpoint, unpaginated: App Store Connect refuses `limit` here.
   const present = await ascList(
-    `/v1/bundleIds/${bundleId}/bundleIdCapabilities?limit=200`,
+    `/v1/bundleIds/${bundleId}/bundleIdCapabilities`,
     z.object({ attributes: z.object({ capabilityType: z.string() }) }),
   );
   for (const capability of missingCapabilities(

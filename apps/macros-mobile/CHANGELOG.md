@@ -7,6 +7,12 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.13 — 2026-10-06
+
+### Changed
+- **Macros for iPhone installs through TestFlight.** Apple Health, reminders
+  and widgets work in every iPhone build.
+
 ## 0.0.12 — 2026-10-06
 
 ### Added
