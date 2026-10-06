@@ -102,6 +102,7 @@ export async function createPendingAuthUser(
         .update(authUser)
         .set({
           displayUsername: username,
+          realm: "cloud",
           status: "pending",
           username,
           updatedAt: now,

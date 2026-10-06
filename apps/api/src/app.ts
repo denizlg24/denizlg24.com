@@ -41,23 +41,36 @@ import {
   completeSignupInputSchema,
   createPendingUserInputSchema,
   createSmbCredentialInputSchema,
+  type PublicSignUpResult,
+  publicSignUpInputSchema,
 } from "@repo/schemas/cloud";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import pkg from "../package.json";
+import { accountRoutes } from "./auth/account";
 import {
   type CloudAuth,
   isActiveSuperuser,
   isCloudAuthTrustedOrigin,
 } from "./auth/better-auth";
+import { type AuthMailer, AuthMailUnavailableError } from "./auth/email";
+import { type IdentityVariables, requireIdentity } from "./auth/identity";
 import { createOAuthBearerResolver } from "./auth/oauth-bearer";
 import { oauthClientRoutes } from "./auth/oauth-clients";
+import { publicSignUp, SignUpRefusedError } from "./auth/public-signup";
 import { withOAuthRequestState } from "./auth/remember-me";
+import {
+  clientTenancy,
+  type TenantAccessDenial,
+  tenantAccess,
+} from "./auth/tenancy";
+import { publicTenantRoutes, tenantRoutes } from "./auth/tenants";
 import {
   revokeTrustedDevices,
   summarizeTrustedDevices,
 } from "./auth/trusted-devices";
+import { TURNSTILE_HEADER, type TurnstileVerifier } from "./auth/turnstile";
 import {
   completePendingSignup,
   createPendingAuthUser,
@@ -140,10 +153,26 @@ export interface CloudApiOptions {
   oauth?: {
     issuer: string;
     audience: string;
+    /**
+     * Where a browser refused at `/oauth2/authorize` is sent to be told why.
+     * Absent, the refusal is the JSON body every other caller gets.
+     */
+    authAppUrl?: string;
   };
   isProduction: boolean;
   rateLimitStore: PeekableRateLimitStore;
   trustedOrigins: readonly string[];
+  /**
+   * Self-service accounts for tenant apps. Absent, the sign-up route answers
+   * 404 and password reset stays reachable only through Better Auth's own
+   * checks (which mail nobody without a mailer).
+   */
+  publicAccounts?: {
+    mailer: AuthMailer;
+    turnstile: TurnstileVerifier;
+    authAppUrl: string;
+    apiUrl: string;
+  };
   storage?: {
     service: StorageService;
     s3: S3ApiConfig;
@@ -263,6 +292,47 @@ function nativeLoopbackRegistration(
   return { ...parsed.data, application_type: "native" };
 }
 
+/** The client an authorize, consent or continue request is about. */
+async function oauthRequestClientId(request: Request): Promise<string | null> {
+  const direct = new URL(request.url).searchParams.get("client_id");
+  if (direct) return direct;
+  if (request.method !== "POST") return null;
+  const body: unknown = await request
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("oauth_query" in body) ||
+    typeof body.oauth_query !== "string"
+  ) {
+    return null;
+  }
+  return new URLSearchParams(body.oauth_query).get("client_id");
+}
+
+function tenantDenialError(reason: TenantAccessDenial) {
+  switch (reason) {
+    case "mfa_required":
+      return mfaEnrollmentRequiredError();
+    case "email_unverified":
+      return dualShapeError(
+        "EMAIL_VERIFICATION_REQUIRED",
+        "Verify your email address before continuing",
+      );
+    case "blocked":
+      return dualShapeError(
+        "TENANT_ACCESS_BLOCKED",
+        "This account cannot use this app",
+      );
+    case "account_inactive":
+      return dualShapeError("FORBIDDEN", "This account is not active");
+    case "tenant_unavailable":
+      return dualShapeError("TENANT_UNAVAILABLE", "This app is unavailable");
+  }
+}
+
 function mfaEnrollmentRequiredError() {
   return dualShapeError(
     "MFA_ENROLLMENT_REQUIRED",
@@ -297,6 +367,10 @@ export function createCloudApiApp(options: CloudApiOptions) {
       if (!session) {
         return resolveOAuthBearer ? resolveOAuthBearer(headers) : null;
       }
+      // A public account is a deniz auth identity, never a cloud user. The
+      // missing `users` row already keeps it out; this keeps it out even if
+      // one is ever created for it.
+      if (session.user.realm !== "cloud") return null;
       const legacyUser = await options.db.query.users.findFirst({
         where: eq(users.id, session.user.id),
       });
@@ -461,11 +535,14 @@ export function createCloudApiApp(options: CloudApiOptions) {
       return next();
     }
     const enrollment = await options.db.query.authUser.findFirst({
-      columns: { status: true, twoFactorEnabled: true },
+      columns: { realm: true, status: true, twoFactorEnabled: true },
       where: eq(authUser.id, session.user.id),
     });
+    // Two factors are mandatory for the cloud's own accounts. A public
+    // account's second factor is each tenant's policy, enforced when it
+    // authorizes that tenant's app.
     if (
-      enrollment &&
+      enrollment?.realm === "cloud" &&
       (enrollment.status !== "active" || !enrollment.twoFactorEnabled) &&
       !allowedDuringMfaEnrollment(context.req.path)
     ) {
@@ -475,10 +552,34 @@ export function createCloudApiApp(options: CloudApiOptions) {
   });
   app.use("/api/auth/admin/*", authenticate, requireRole("superuser"));
 
+  // `/oauth2/authorize` is a top-level navigation: a JSON body would be the
+  // page. The auth app gets the refusal's code and the original request, so
+  // it can say what is missing and resume once it is fixed. Consent and
+  // continue are fetches from the auth app and keep the JSON.
+  const refuseAuthorization = (
+    request: Request,
+    error: ReturnType<typeof dualShapeError>,
+  ): Response => {
+    const authAppUrl = options.oauth?.authAppUrl;
+    if (request.method !== "GET" || !authAppUrl) {
+      return Response.json(error, { status: 403 });
+    }
+    const target = new URL("/login", authAppUrl);
+    for (const [key, value] of new URL(request.url).searchParams) {
+      target.searchParams.append(key, value);
+    }
+    target.searchParams.set("reason", error.code);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: target.toString(), "Cache-Control": "no-store" },
+    });
+  };
+
   // Left alone, the authorization server mints a code for any signed-in
-  // account, and storage has accounts that are not superusers. Issuance
-  // refuses them too; stopping them here keeps a consent row or a code from
-  // ever existing for one.
+  // account. A first-party client is the owner's alone; a tenant's client is
+  // open to whoever that tenant admits. Issuance applies the same rules, and
+  // stopping a refused account here keeps a consent row or a code from ever
+  // existing for it.
   for (const path of [
     "/api/auth/oauth2/authorize",
     "/api/auth/oauth2/consent",
@@ -488,10 +589,27 @@ export function createCloudApiApp(options: CloudApiOptions) {
       const session = await options.auth.api.getSession({
         headers: context.req.raw.headers,
       });
-      if (session && !(await isActiveSuperuser(options.db, session.user.id))) {
-        return context.json(
+      if (!session) return next();
+      const clientId = await oauthRequestClientId(context.req.raw);
+      const tenancy = clientId
+        ? await clientTenancy(options.db, clientId)
+        : null;
+      if (tenancy?.tenantId) {
+        const access = await tenantAccess(
+          options.db,
+          tenancy.tenantId,
+          session.user.id,
+        );
+        if (access.ok) return next();
+        return refuseAuthorization(
+          context.req.raw,
+          tenantDenialError(access.reason),
+        );
+      }
+      if (!(await isActiveSuperuser(options.db, session.user.id))) {
+        return refuseAuthorization(
+          context.req.raw,
           dualShapeError("FORBIDDEN", "Superuser required"),
-          403,
         );
       }
       return next();
@@ -542,6 +660,22 @@ export function createCloudApiApp(options: CloudApiOptions) {
       .clone()
       .json()
       .catch(() => null);
+    // Tenancy is read from client metadata, which only our own client routes
+    // may write. The plugin does not accept it here today; this keeps that
+    // true if it ever starts to.
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      ("metadata" in body || "reference_id" in body)
+    ) {
+      return context.json(
+        {
+          error: "invalid_client_metadata",
+          error_description: "metadata cannot be set during registration",
+        },
+        400,
+      );
+    }
     const registration = nativeLoopbackRegistration(body);
     if (!registration) return options.auth.handler(raw);
     const headers = new Headers(raw.headers);
@@ -559,6 +693,29 @@ export function createCloudApiApp(options: CloudApiOptions) {
   app.route(
     "/api/oauth",
     oauthClientRoutes({ auth: options.auth, db: options.db }),
+  );
+  // Every deniz account, cloud or public: the tenants it manages and the apps
+  // it has let in. Cookie sessions only — `authenticate` would refuse public
+  // accounts, which is exactly who most of this is for.
+  app.route(
+    "/api/tenants",
+    tenantRoutes({
+      auth: options.auth,
+      db: options.db,
+      trustedOrigins: options.trustedOrigins,
+    }),
+  );
+  app.route(
+    "/api/account",
+    accountRoutes({
+      auth: options.auth,
+      db: options.db,
+      trustedOrigins: options.trustedOrigins,
+    }),
+  );
+  app.route(
+    "/api/public/tenants",
+    publicTenantRoutes({ auth: options.auth, db: options.db }),
   );
 
   const loginRateLimit = rateLimit({
@@ -650,6 +807,92 @@ export function createCloudApiApp(options: CloudApiOptions) {
       }
       return context.json(genericSignupError(), 400);
     }
+  });
+
+  // Self-service sign-up, password reset and verification resends all mail
+  // someone, so each is held to the sign-up ceiling and a Turnstile check.
+  const publicAccounts = options.publicAccounts;
+  for (const path of [
+    "/api/auth/public/sign-up",
+    "/api/auth/request-password-reset",
+    "/api/auth/send-verification-email",
+  ]) {
+    app.use(
+      path,
+      rateLimit({
+        keyGenerator: (context) =>
+          `public-account:${clientIp(context, options.isProduction)}`,
+        max: options.isProduction
+          ? SIGNUP_MAX_REQUESTS
+          : DEV_SIGNUP_MAX_REQUESTS,
+        store: options.rateLimitStore,
+        windowMs: LOGIN_WINDOW_MS,
+      }),
+    );
+    app.use(path, async (context, next) => {
+      // Unconfigured, nothing that mails a public account exists at all.
+      if (!publicAccounts) return context.notFound();
+      const human = await publicAccounts.turnstile(
+        context.req.header(TURNSTILE_HEADER),
+        options.isProduction ? clientIp(context, true) : null,
+      );
+      if (!human) {
+        return context.json(
+          dualShapeError("CHALLENGE_FAILED", "Please try again"),
+          403,
+        );
+      }
+      return next();
+    });
+  }
+  app.post("/api/auth/public/sign-up", async (context) => {
+    if (!publicAccounts) return context.notFound();
+    const parsed = publicSignUpInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        dualShapeError("INVALID_INPUT", "Check the details and try again"),
+        400,
+      );
+    }
+    try {
+      await publicSignUp(
+        {
+          auth: options.auth,
+          db: options.db,
+          mailer: publicAccounts.mailer,
+          authAppUrl: publicAccounts.authAppUrl,
+          apiUrl: publicAccounts.apiUrl,
+        },
+        parsed.data,
+      );
+    } catch (error) {
+      if (error instanceof SignUpRefusedError) {
+        return context.json(
+          dualShapeError(
+            error.code,
+            error.code === "INVALID_CALLBACK"
+              ? "Invalid return address"
+              : "This app is not accepting new accounts",
+          ),
+          error.code === "INVALID_CALLBACK" ? 400 : 403,
+        );
+      }
+      if (error instanceof AuthMailUnavailableError) {
+        console.error("Public sign-up could not send mail", error);
+        return context.json(
+          dualShapeError(
+            "MAIL_UNAVAILABLE",
+            "We couldn't send the email. Try again in a few minutes.",
+          ),
+          503,
+        );
+      }
+      throw error;
+    }
+    const result: PublicSignUpResult = { verificationSent: true };
+    return context.json({ data: result }, 202);
   });
 
   app.post("/api/auth/admin/create-pending-user", async (context) => {
@@ -824,22 +1067,33 @@ export function createCloudApiApp(options: CloudApiOptions) {
   );
   // The twoFactor plugin issues device trust but never lists or revokes it.
   // Revoking only ever narrows access, so any session may do it.
-  for (const path of [
-    "/api/auth/trusted-devices",
-    "/api/auth/trusted-devices/*",
-  ]) {
-    app.use(path, authenticate, requireSession());
-  }
-  app.get("/api/auth/trusted-devices", async (context) =>
-    context.json({
-      data: await summarizeTrustedDevices(options.db, context.get("user").id),
+  // Every account, cloud or public, owns its device trust.
+  const trustedDevices = new Hono<{ Variables: IdentityVariables }>();
+  trustedDevices.use(
+    "*",
+    requireIdentity({
+      auth: options.auth,
+      db: options.db,
+      trustedOrigins: options.trustedOrigins,
     }),
   );
-  app.post("/api/auth/trusted-devices/revoke", async (context) =>
+  trustedDevices.get("/", async (context) =>
     context.json({
-      data: await revokeTrustedDevices(options.db, context.get("user").id),
+      data: await summarizeTrustedDevices(
+        options.db,
+        context.get("identity").userId,
+      ),
     }),
   );
+  trustedDevices.post("/revoke", async (context) =>
+    context.json({
+      data: await revokeTrustedDevices(
+        options.db,
+        context.get("identity").userId,
+      ),
+    }),
+  );
+  app.route("/api/auth/trusted-devices", trustedDevices);
 
   app.get("/api/me", authenticate, (context) =>
     context.json({ data: serializeSafeUser(context.get("user")) }),

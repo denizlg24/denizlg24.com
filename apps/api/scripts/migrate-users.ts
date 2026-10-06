@@ -243,6 +243,7 @@ async function applyUserMigration(
           twoFactorEnabled: false,
           username: user.username.toLowerCase(),
           displayUsername: user.username,
+          realm: "cloud",
           status: user.status,
         })
         .onConflictDoUpdate({
