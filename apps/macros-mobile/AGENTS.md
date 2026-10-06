@@ -218,6 +218,15 @@ small differences are a `Platform.OS` check. The ones that exist:
   `notifyManager.setScheduler(queueMicrotask)`; do not remove it. Keep
   delayed timers (a debounce included) off any path that has to finish on
   its own.
+  That scheduler moved React Query off timers; it did not fix the stall.
+  Re-tested on 2026-10-06 with a 250 ms `useEffect` debounce on the search
+  in the simulator: the first query after opening the hub was sent, the
+  next ("salmon" → "salmon fillet") never was — over a minute, and a tap
+  and a keystroke did not wake it either, so the stall can outlast native
+  events. The local API's request log is the evidence: `next dev` logs
+  every `/api/foods/search` it receives. A quick manual pass that only
+  checks the first query looks like it works. Don't retry the debounce
+  without first finding the cause.
 - Food search sends every keystroke (`hub-search.tsx`); the superseded query
   loses its observer and React Query aborts it. The nutrition API caches
   answers in Redis, so this is cheap. While a query is in flight the previous
