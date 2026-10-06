@@ -7,7 +7,7 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
-## 0.0.11 — 2026-10-06
+## 0.0.12 — 2026-10-06
 
 ### Added
 - **Widgets on iPhone.** Add **Quick Log** to your Home Screen to log food,
