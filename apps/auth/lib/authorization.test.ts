@@ -3,6 +3,7 @@ import {
   authorizeUrl,
   isAuthorizationRedirect,
   isProviderRedirect,
+  isRefusedAuthorization,
 } from "./authorization";
 
 const signed = new URLSearchParams([
@@ -65,5 +66,34 @@ describe("isProviderRedirect", () => {
     );
     expect(isProviderRedirect({ twoFactorRedirect: true })).toBe(false);
     expect(isProviderRedirect(null)).toBe(false);
+  });
+});
+
+describe("refused authorizations", () => {
+  const refused = new URLSearchParams([
+    ["response_type", "code"],
+    ["client_id", "acme-web"],
+    ["redirect_uri", "https://app.acme.example/auth/callback"],
+    ["scope", "openid offline_access"],
+    ["resource", "https://api.acme.example"],
+    ["state", "s1"],
+    ["reason", "EMAIL_VERIFICATION_REQUIRED"],
+  ]);
+
+  test("are recognised by the reason the API added, without a signature", () => {
+    expect(isRefusedAuthorization(refused)).toBe(true);
+    expect(isAuthorizationRedirect(refused)).toBe(false);
+    expect(isRefusedAuthorization(signed)).toBe(false);
+    expect(
+      isRefusedAuthorization(new URLSearchParams([["reason", "forbidden"]])),
+    ).toBe(false);
+  });
+
+  test("resume without the reason", () => {
+    const url = new URL(authorizeUrl(refused));
+    expect(url.pathname).toBe("/api/auth/oauth2/authorize");
+    expect(url.searchParams.has("reason")).toBe(false);
+    expect(url.searchParams.get("client_id")).toBe("acme-web");
+    expect(url.searchParams.get("resource")).toBe("https://api.acme.example");
   });
 });

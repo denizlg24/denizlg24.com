@@ -21,6 +21,8 @@ export function UsernameStep({
   onContinue,
   onPasskey,
   onInvitation,
+  acceptEmail = false,
+  onSignUp,
 }: {
   defaultUsername?: string;
   busy: boolean;
@@ -31,6 +33,10 @@ export function UsernameStep({
   /** The username field is marked for conditional mediation when this is set. */
   onPasskey?: () => void;
   onInvitation?: () => void;
+  /** Someone else's app: its people sign in with an email address. */
+  acceptEmail?: boolean;
+  /** Offered when the app lets new people create an account. */
+  onSignUp?: () => void;
 }) {
   const [username, setUsername] = useState(defaultUsername);
   const trimmed = username.trim();
@@ -44,11 +50,15 @@ export function UsernameStep({
         <StepAlert tone="notice">{notice}</StepAlert>
       ) : null}
       <StepForm onSubmit={() => onContinue(trimmed)}>
-        <FlowField id="username" label="Username">
+        <FlowField
+          id="username"
+          label={acceptEmail ? "Email or username" : "Username"}
+        >
           <Input
             id="username"
             name="username"
             autoComplete={onPasskey ? "username webauthn" : "username"}
+            inputMode={acceptEmail ? "email" : undefined}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
@@ -66,6 +76,11 @@ export function UsernameStep({
           {onPasskey ? (
             <TextAction disabled={busy} onClick={onPasskey}>
               Use a passkey instead
+            </TextAction>
+          ) : null}
+          {onSignUp ? (
+            <TextAction disabled={busy} onClick={onSignUp}>
+              New here? Create an account
             </TextAction>
           ) : null}
           {onInvitation ? (

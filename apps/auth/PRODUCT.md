@@ -16,9 +16,13 @@ web
   iPhones: sign in only to reach storage.denizlg24.com. They meet the
   sign-in, second-factor, enrollment and backup-code screens and nothing
   else; consent and management refuse non-superusers.
-- Later, explicitly out of scope today: other people's users, once the
-  service is offered through an SDK. The flow screens are designed so that
-  audience needs no redesign, only configuration.
+- Other people's users (plan 027): people signing in to a *tenant's* app —
+  someone else's product built on `@denizlg24/auth`. They have `public`
+  accounts made by self-service sign-up, sign in with an email address, see
+  the app's name and mark over each step, and manage their connected apps
+  at `/account`. They never reach the cloud.
+- Developers of those apps, invited by the owner: they manage their app's
+  clients, APIs, policies and users at `/apps`.
 
 ## Product Purpose
 
@@ -66,8 +70,10 @@ about who gets one and gentle with everyone else.
 - Terminology: "passkey", "authenticator app", "backup code" (the API calls
   the latter a recovery/backup code), "trusted device", "client" (OAuth
   client), "resource" (an OAuth resource server).
-- Undecided: the multi-user SDK, tenant branding, and any self-service
-  account creation beyond the signup-token redemption that exists today.
+- "app" in the UI is a tenant. Self-service sign-up exists only inside an
+  app whose policy allows it; cloud accounts are still created by the owner.
+- Undecided: invitations for invite-only apps, social sign-in, account
+  deletion for public accounts.
 
 ## Brand Commitments
 

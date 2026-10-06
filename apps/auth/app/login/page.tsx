@@ -8,19 +8,26 @@ import {
   destinationFromUrl,
 } from "@repo/auth-ui/destination";
 import { FlowFrame } from "@repo/auth-ui/flow-frame";
+import { StepActions, TextAction } from "@repo/auth-ui/flow-step";
 import { transitionStep } from "@repo/auth-ui/flow-transition";
 import { InvitationStep } from "@repo/auth-ui/invitation-step";
 import { PasskeyOfferStep } from "@repo/auth-ui/passkey-offer-step";
+import {
+  CheckEmailStep,
+  ForgotPasswordStep,
+} from "@repo/auth-ui/password-reset-steps";
 import { PasswordStep } from "@repo/auth-ui/password-step";
 import {
   type SecondFactorMode,
   SecondFactorStep,
 } from "@repo/auth-ui/second-factor-step";
+import { SignUpStep, type SignUpValues } from "@repo/auth-ui/sign-up-step";
 import { CheckingStep, FlowMessage } from "@repo/auth-ui/status-step";
 import { TotpEnrollment } from "@repo/auth-ui/totp-enrollment";
 import { UsernameStep } from "@repo/auth-ui/username-step";
 import { safeReturnTo } from "@repo/cloud-auth-client/redirect";
 import { ThemeToggle } from "@repo/cloud-ui/theme";
+import type { PublicTenant } from "@repo/schemas/cloud";
 import { useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -30,12 +37,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { Turnstile } from "@/components/turnstile";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient, enrollmentClient } from "@/lib/auth-client";
 import {
   authorizeUrl,
   isAuthorizationRedirect,
   isProviderRedirect,
+  isRefusedAuthorization,
 } from "@/lib/authorization";
 import {
   conditionalMediationAvailable,
@@ -64,6 +73,13 @@ type Step =
   | "enroll"
   | "backup-codes"
   | "passkey-offer"
+  | "sign-up"
+  | "sign-up-sent"
+  | "verify-email"
+  | "forgot"
+  | "reset-sent"
+  | "enroll-password"
+  | "refused"
   | "redirecting";
 
 /**
@@ -83,6 +99,51 @@ type PasskeyOutcome =
   | "failed";
 
 const ALLOW_LOOPBACK = process.env.NODE_ENV !== "production";
+
+/**
+ * The app behind the authorization, when it is someone else's: its name,
+ * mark and sign-up policy. `undefined` while asking, `null` for the owner's
+ * own clients (which answer 404) or when there is no client at all.
+ */
+function useTenant(clientId: string | null): PublicTenant | null | undefined {
+  const [tenant, setTenant] = useState<PublicTenant | null | undefined>(
+    clientId ? undefined : null,
+  );
+  useEffect(() => {
+    if (!clientId) return;
+    let active = true;
+    void api
+      .publicTenant(clientId)
+      .then((found) => {
+        if (active) setTenant(found);
+      })
+      .catch(() => {
+        if (active) setTenant(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+  return tenant;
+}
+
+/**
+ * Whether a session exists, for either kind of account. `/api/me` answers
+ * only for the cloud's own (and is what reports a cloud account that still
+ * owes its second factor); a public account is a 401 there and is found
+ * through `/api/account` instead.
+ */
+async function currentSession(): Promise<"cloud" | "public"> {
+  try {
+    await api.me();
+    return "cloud";
+  } catch (err) {
+    if (!isApiError(err) || err.status !== 401) throw err;
+    const account = await api.account();
+    if (account.realm !== "public") throw err;
+    return "public";
+  }
+}
 
 /** Resolves an OAuth client's public name for the destination line. */
 function useDestination(
@@ -123,16 +184,39 @@ function useDestination(
 function LoginFlow() {
   const searchParams = useSearchParams();
   const authorizing = isAuthorizationRedirect(searchParams);
+  // The API refused this browser's authorization and says why; the original
+  // request rides along, unsigned, to be started again once that is fixed.
+  const refused = isRefusedAuthorization(searchParams);
+  const inAuthorization = authorizing || refused;
   const reason = searchParams.get("reason");
   const enrollPending = searchParams.get("enroll") === "1";
   const tokenParam = searchParams.get("token");
   const returnTo = safeReturnTo(searchParams.get("returnTo"), {
     allowLoopback: ALLOW_LOOPBACK,
   });
+  // A `returnTo` that is itself an authorization (what "use a different
+  // account" sends) names the same app as a signed redirect would.
+  const clientId = inAuthorization
+    ? searchParams.get("client_id")
+    : (destinationFromUrl(returnTo)?.clientId ?? null);
+  const tenant = useTenant(clientId);
 
-  const [step, setStepState] = useState<Step>(
-    tokenParam ? "invitation" : authorizing || reason ? "username" : "checking",
-  );
+  const [step, setStepState] = useState<Step>(() => {
+    if (tokenParam) return "invitation";
+    if (refused) {
+      switch (reason) {
+        case "EMAIL_VERIFICATION_REQUIRED":
+          return "verify-email";
+        case "MFA_ENROLLMENT_REQUIRED":
+          return "enroll-password";
+        case "FORBIDDEN":
+          return "username";
+        default:
+          return "refused";
+      }
+    }
+    return authorizing || reason ? "username" : "checking";
+  });
   const [username, setUsername] = useState(searchParams.get("username") ?? "");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
@@ -140,16 +224,28 @@ function LoginFlow() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Where the last email went, as typed: the server never says whether an
+  // address has an account, so this is the only address the page can name.
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [challengeRound, setChallengeRound] = useState(0);
+  // The signed-in account's own address, for the steps that follow a refusal.
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
   // Whose offer the "passkey-offer" step is showing. Everything it writes is
   // scoped to this account, so a marker from the previous person on a shared
   // browser neither answers for nor is overwritten by this one.
   const offerUserId = useRef<string | null>(null);
 
-  const destinationInfo = useDestination(authorizing, searchParams, returnTo);
+  const destinationInfo = useDestination(
+    inAuthorization,
+    searchParams,
+    returnTo,
+  );
   const destinationName =
     destinationInfo && destinationInfo !== "pending"
       ? destinationInfo.name
-      : "this app";
+      : (tenant?.name ?? "this app");
 
   // A step and the message that goes with it commit together, inside the step
   // transition, so neither paints on the wrong screen.
@@ -158,13 +254,14 @@ function LoginFlow() {
       transitionStep(() => {
         setStepState(next);
         setError(options.error ?? null);
+        setNotice(null);
         if (options.busy !== undefined) setBusy(options.busy);
       });
     },
     [],
   );
 
-  const destination = authorizing
+  const destination = inAuthorization
     ? authorizeUrl(searchParams)
     : (returnTo ?? "/");
   const leave = useCallback(() => {
@@ -179,8 +276,7 @@ function LoginFlow() {
   useEffect(() => {
     if (step !== "checking") return;
     let active = true;
-    void api
-      .me()
+    void currentSession()
       .then(() => {
         if (active) leave();
       })
@@ -196,7 +292,7 @@ function LoginFlow() {
   // redirect is resumed by the provider itself the moment the session
   // exists, so there is no gap to put a screen in.
   const maybeOfferPasskey = async (): Promise<boolean> => {
-    if (authorizing) return false;
+    if (inAuthorization) return false;
     const [session, passkeys] = await Promise.all([
       authClient.getSession(),
       authClient.passkey.listUserPasskeys(),
@@ -220,7 +316,7 @@ function LoginFlow() {
   // created in, which on a first sign-in is still empty.
   const finish = async (knownPassword: string, via: SignInVia) => {
     try {
-      await api.me();
+      await currentSession();
       if (
         via === "password" &&
         (await maybeOfferPasskey().catch(() => false))
@@ -248,16 +344,25 @@ function LoginFlow() {
     setBusy(true);
     setError(null);
     setPassword(value);
-    const { data, error: signInError } = await authClient.signIn.username({
-      username,
-      password: value,
-      rememberMe,
-    });
+    // Someone else's app knows its people by email; the cloud's own accounts
+    // have usernames. Either field value works on either screen.
+    const byEmail = username.includes("@");
+    const { data, error: signInError } = byEmail
+      ? await authClient.signIn.email({
+          email: username,
+          password: value,
+          rememberMe,
+        })
+      : await authClient.signIn.username({
+          username,
+          password: value,
+          rememberMe,
+        });
     if (signInError) {
       setBusy(false);
       setError(
         signInError.message ??
-          "That didn't work. Check the username and password and try again.",
+          `That didn't work. Check the ${byEmail ? "email" : "username"} and password and try again.`,
       );
       return;
     }
@@ -459,15 +564,155 @@ function LoginFlow() {
     setBusy(false);
   };
 
-  const notice =
-    reason === "forbidden"
+  // The steps after a refusal speak to the account that was refused.
+  useEffect(() => {
+    if (step !== "verify-email" && step !== "enroll-password") return;
+    let active = true;
+    void api
+      .account()
+      .then((account) => {
+        if (!active) return;
+        setAccountEmail(account.email);
+        setUsername(account.username ?? account.email);
+      })
+      .catch(() => {
+        if (active) go("username");
+      });
+    return () => {
+      active = false;
+    };
+  }, [step, go]);
+
+  const nextChallenge = () => setChallengeRound((round) => round + 1);
+
+  const challengeMessage = (err: unknown): string => {
+    if (!isApiError(err)) return errorMessage(err);
+    switch (err.code) {
+      case "CHALLENGE_FAILED":
+        return "We couldn't check that you're not a bot. Try again.";
+      case "SIGNUP_CLOSED":
+        return `${destinationName} isn't taking new accounts right now.`;
+      case "SIGNUP_INVITE_ONLY":
+        return `${destinationName} only lets in people it has invited.`;
+      case "RATE_LIMITED":
+      case "TOO_MANY_REQUESTS":
+        return "That's a lot of attempts. Wait a few minutes and try again.";
+      default:
+        return err.message;
+    }
+  };
+
+  const submitSignUp = async (values: SignUpValues) => {
+    if (!clientId || !challengeToken) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.signUp(
+        { ...values, clientId, callbackURL: destination },
+        challengeToken,
+      );
+      setSentTo(values.email);
+      go("sign-up-sent", { busy: false });
+    } catch (err) {
+      setBusy(false);
+      setError(challengeMessage(err));
+    }
+    nextChallenge();
+  };
+
+  const resendVerification = async (email: string) => {
+    if (!challengeToken) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.resendVerification(
+        { email, callbackURL: destination },
+        challengeToken,
+      );
+      setNotice("Sent. The newest link is the one that works.");
+    } catch (err) {
+      setError(challengeMessage(err));
+    }
+    setBusy(false);
+    nextChallenge();
+  };
+
+  const requestReset = async (email: string) => {
+    if (!challengeToken) return;
+    setBusy(true);
+    setError(null);
+    const landing = new URL("/reset-password", window.location.origin);
+    landing.searchParams.set("returnTo", destination);
+    try {
+      await api.requestPasswordReset(
+        { email, redirectTo: landing.toString() },
+        challengeToken,
+      );
+      setSentTo(email);
+      if (step === "forgot") go("reset-sent", { busy: false });
+      else {
+        setNotice("Sent. The newest link is the one that works.");
+        setBusy(false);
+      }
+    } catch (err) {
+      setBusy(false);
+      setError(challengeMessage(err));
+    }
+    nextChallenge();
+  };
+
+  const challenge = (
+    <Turnstile onToken={setChallengeToken} resetKey={challengeRound} />
+  );
+  const legal =
+    tenant && (tenant.termsUrl || tenant.privacyUrl) ? (
+      <>
+        By creating an account you agree to {tenant.name}'s{" "}
+        {tenant.termsUrl ? (
+          <a
+            href={tenant.termsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4"
+          >
+            terms
+          </a>
+        ) : null}
+        {tenant.termsUrl && tenant.privacyUrl ? " and " : null}
+        {tenant.privacyUrl ? (
+          <a
+            href={tenant.privacyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4"
+          >
+            privacy policy
+          </a>
+        ) : null}
+        .
+      </>
+    ) : null;
+  // Signs this account out and starts the same request again, the way the
+  // consent page's "Not you?" does, so a different account can try it.
+  const switchAccount = () => {
+    window.location.assign(
+      `/logout?returnTo=${encodeURIComponent(destination)}`,
+    );
+  };
+
+  const pageNotice =
+    reason === "forbidden" || reason === "FORBIDDEN"
       ? `This account can't open ${destinationName}. Sign in with a different account.`
       : enrollPending
         ? "Your authenticator app isn't set up yet. Sign in again to finish."
         : null;
 
   return (
-    <FlowFrame destination={destinationInfo} themeToggle={<ThemeToggle />}>
+    <FlowFrame
+      destination={destinationInfo}
+      app={tenant ? { name: tenant.name, logoUrl: tenant.logoUrl } : null}
+      themeToggle={<ThemeToggle />}
+    >
       {step === "checking" ? <CheckingStep /> : null}
       {step === "redirecting" ? (
         <FlowMessage
@@ -480,7 +725,13 @@ function LoginFlow() {
           defaultUsername={username}
           busy={busy}
           error={error}
-          notice={notice}
+          notice={pageNotice}
+          acceptEmail={Boolean(tenant)}
+          onSignUp={
+            clientId && tenant?.signup === "open"
+              ? () => go("sign-up")
+              : undefined
+          }
           onContinue={(value) => {
             setUsername(value);
             go("password");
@@ -499,6 +750,120 @@ function LoginFlow() {
           onContinue={(value) => void submitCredentials(value)}
           onPasskey={() => void signInWithPasskey("button")}
           onBack={() => go("username")}
+          onForgotPassword={tenant ? () => go("forgot") : undefined}
+        />
+      ) : null}
+      {step === "sign-up" ? (
+        <SignUpStep
+          appName={destinationName}
+          defaultEmail={username.includes("@") ? username : ""}
+          busy={busy}
+          error={error}
+          challenge={challenge}
+          challengeReady={challengeToken !== null}
+          legal={legal}
+          onSubmit={(values) => void submitSignUp(values)}
+          onSignIn={() => go("username")}
+        />
+      ) : null}
+      {step === "sign-up-sent" ? (
+        <CheckEmailStep
+          title="Check your email"
+          email={sentTo}
+          detail={`Open the link in it on this device to confirm your address and continue to ${destinationName}. It works for one hour.`}
+          busy={busy}
+          error={error}
+          notice={notice}
+          challenge={challenge}
+          resendReady={challengeToken !== null}
+          onResend={sentTo ? () => void resendVerification(sentTo) : undefined}
+          onBack={() => go("username")}
+        />
+      ) : null}
+      {step === "verify-email" ? (
+        <CheckEmailStep
+          title="Confirm your email address"
+          email={accountEmail}
+          detail={`${destinationName} needs a confirmed email address. Open the link we sent you on this device, or send a new one.`}
+          busy={busy}
+          error={error}
+          notice={notice}
+          challenge={challenge}
+          resendReady={challengeToken !== null && accountEmail !== null}
+          onResend={
+            accountEmail
+              ? () => void resendVerification(accountEmail)
+              : undefined
+          }
+          onContinue={leave}
+          continueLabel="I've confirmed it"
+          onBack={switchAccount}
+          backLabel="Use a different account"
+        />
+      ) : null}
+      {step === "forgot" ? (
+        <ForgotPasswordStep
+          defaultEmail={username.includes("@") ? username : ""}
+          busy={busy}
+          error={error}
+          challenge={challenge}
+          challengeReady={challengeToken !== null}
+          onSubmit={(email) => void requestReset(email)}
+          onBack={() => go("username")}
+        />
+      ) : null}
+      {step === "reset-sent" ? (
+        <CheckEmailStep
+          title="Check your email"
+          email={sentTo}
+          detail="If there's an account for that address, the email has a link to choose a new password. It works for one hour."
+          busy={busy}
+          error={error}
+          notice={notice}
+          challenge={challenge}
+          resendReady={challengeToken !== null}
+          onResend={sentTo ? () => void requestReset(sentTo) : undefined}
+          onBack={() => go("username")}
+        />
+      ) : null}
+      {step === "enroll-password" ? (
+        <PasswordStep
+          username={username}
+          heading="Set up two-step sign-in"
+          notice={`${destinationName} asks for a code from an authenticator app as well as your password. Enter your password to set one up — it takes a minute.`}
+          busy={busy}
+          error={error}
+          rememberMe={{ checked: rememberMe, onChange: setRememberMe }}
+          onContinue={(value) => {
+            setPassword(value);
+            go("enroll");
+          }}
+          onBack={switchAccount}
+        />
+      ) : null}
+      {step === "refused" ? (
+        <FlowMessage
+          title={
+            reason === "TENANT_ACCESS_BLOCKED"
+              ? `You can't use ${destinationName} with this account`
+              : reason === "TENANT_UNAVAILABLE"
+                ? `${destinationName} isn't available right now`
+                : "This sign-in couldn't continue"
+          }
+          detail={
+            reason === "TENANT_ACCESS_BLOCKED"
+              ? `If you think that's a mistake, contact ${destinationName}.`
+              : reason === "TENANT_UNAVAILABLE"
+                ? "Try again later."
+                : "Your account isn't active. If you think that's a mistake, contact whoever runs this app."
+          }
+          action={
+            <StepActions>
+              <TextAction onClick={switchAccount}>
+                Use a different account
+              </TextAction>
+            </StepActions>
+          }
         />
       ) : null}
       {step === "invitation" ? (
@@ -532,7 +897,7 @@ function LoginFlow() {
           }}
           onFailed={(message) => {
             setPassword("");
-            go("username", { error: message });
+            go(refused ? "enroll-password" : "username", { error: message });
           }}
         />
       ) : null}

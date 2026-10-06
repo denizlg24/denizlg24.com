@@ -2,7 +2,7 @@
 
 import { BrandMark, Wordmark } from "@repo/auth-ui/brand";
 import { ThemeToggle } from "@repo/cloud-ui/theme";
-import type { SafeUser } from "@repo/schemas/cloud";
+import type { AccountSummary, SafeUser } from "@repo/schemas/cloud";
 import { Avatar, AvatarFallback } from "@repo/ui/avatar";
 import { Button } from "@repo/ui/button";
 import {
@@ -20,21 +20,56 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-const NAV = [
-  { href: "/", label: "Account" },
-  { href: "/security", label: "Security" },
-  { href: "/clients", label: "Clients" },
-] as const;
+/**
+ * Who the strip is drawn for: the owner as `SessionGate` reads him
+ * (`/api/me`), or any deniz account as `AccountGate` reads it (`/api/account`).
+ */
+export type ShellUser = SafeUser | AccountSummary;
 
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+interface NavItem {
+  href: string;
+  label: string;
 }
 
-function NavLinks({ className }: { className?: string }) {
+function isOwner(user: ShellUser): boolean {
+  return "role" in user ? user.role === "superuser" : user.superuser;
+}
+
+function navItems(user: ShellUser): NavItem[] {
+  const owner = isOwner(user);
+  const managesApps = owner || ("tenants" in user && user.tenants.length > 0);
+  return [
+    { href: "/account", label: "Account" },
+    ...(owner
+      ? [
+          { href: "/security", label: "Security" },
+          { href: "/clients", label: "Clients" },
+        ]
+      : []),
+    ...(managesApps ? [{ href: "/apps", label: "Apps" }] : []),
+  ];
+}
+
+function displayName(user: ShellUser): string {
+  if ("role" in user) return user.username;
+  return user.username ?? (user.name || user.email);
+}
+
+function isActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function NavLinks({
+  user,
+  className,
+}: {
+  user: ShellUser;
+  className?: string;
+}) {
   const pathname = usePathname();
   return (
     <nav aria-label="Sections" className={cn("flex items-center", className)}>
-      {NAV.map((item) => {
+      {navItems(user).map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link
@@ -56,8 +91,9 @@ function NavLinks({ className }: { className?: string }) {
   );
 }
 
-function UserMenu({ user }: { user: SafeUser }) {
-  const initial = user.username.slice(0, 1).toUpperCase();
+function UserMenu({ user }: { user: ShellUser }) {
+  const name = displayName(user);
+  const initial = name.slice(0, 1).toUpperCase();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -65,21 +101,23 @@ function UserMenu({ user }: { user: SafeUser }) {
           variant="ghost"
           size="sm"
           className="gap-2 px-1.5"
-          aria-label={`Account menu for ${user.username}`}
+          aria-label={`Account menu for ${name}`}
         >
           <Avatar size="sm">
             <AvatarFallback className="bg-surface text-accent-strong">
               {initial}
             </AvatarFallback>
           </Avatar>
-          <span className="hidden text-sm sm:inline">{user.username}</span>
+          <span className="hidden max-w-40 truncate text-sm sm:inline">
+            {name}
+          </span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
-          <span className="text-sm text-accent-strong">{user.username}</span>
-          {user.email ? (
+          <span className="truncate text-sm text-accent-strong">{name}</span>
+          {user.email && user.email !== name ? (
             <span className="truncate text-xs text-muted-foreground">
               {user.email}
             </span>
@@ -100,27 +138,34 @@ function UserMenu({ user }: { user: SafeUser }) {
 /**
  * The management shell: strip with brand, section nav, theme and account
  * menu; content in a column of at most 64rem. `user` is null while the
- * session is still being checked, which draws the strip without the menu.
+ * session is still being checked, which draws the strip with placeholders
+ * where the nav and the menu go — which sections exist depends on who it is.
  */
 export function ShellFrame({
   user,
   children,
 }: {
-  user: SafeUser | null;
+  user: ShellUser | null;
   children: ReactNode;
 }) {
+  // "/" is the owner's overview; everyone else's home is their account.
+  const home = user && isOwner(user) ? "/" : "/account";
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="border-b">
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-6 px-5 sm:px-8">
           <Link
-            href="/"
+            href={home}
             className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             <BrandMark />
             <Wordmark />
           </Link>
-          <NavLinks className="hidden gap-1 sm:flex" />
+          {user ? (
+            <NavLinks user={user} className="hidden gap-1 sm:flex" />
+          ) : (
+            <Skeleton className="hidden h-7 w-56 sm:block" />
+          )}
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
             {user ? (
@@ -131,7 +176,11 @@ export function ShellFrame({
           </div>
         </div>
         <div className="mx-auto w-full max-w-5xl overflow-x-auto px-5 pb-2 sm:hidden">
-          <NavLinks className="gap-1" />
+          {user ? (
+            <NavLinks user={user} className="gap-1" />
+          ) : (
+            <Skeleton className="h-7 w-48" />
+          )}
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-5 py-8 sm:px-8 sm:py-10">

@@ -10,7 +10,7 @@ import { FlowFrame } from "@repo/auth-ui/flow-frame";
 import { StepAlert, StepHeading } from "@repo/auth-ui/flow-step";
 import { CheckingStep } from "@repo/auth-ui/status-step";
 import { ThemeToggle } from "@repo/cloud-ui/theme";
-import type { OAuthClientList, SafeUser } from "@repo/schemas/cloud";
+import type { OAuthClientList, PublicTenant } from "@repo/schemas/cloud";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { loginHref } from "@/components/session-gate";
@@ -105,7 +105,8 @@ function ConsentFlow() {
   // whether the client registered itself. Consent already refuses anyone
   // else, so a failure here only costs the labels.
   const [known, setKnown] = useState<OAuthClientList | null>(null);
-  const [me, setMe] = useState<SafeUser | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [tenant, setTenant] = useState<PublicTenant | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -143,16 +144,35 @@ function ConsentFlow() {
         if (active) setKnown(list);
       })
       .catch(() => {});
+    // A public account has no `/api/me`; it is named by `/api/account`.
     void api
       .me()
-      .then((user) => {
-        if (active) setMe(user);
+      .then((user) => user.username)
+      .catch(() =>
+        api.account().then((account) => account.username ?? account.email),
+      )
+      .then((name) => {
+        if (active) setAccountName(name);
       })
       .catch(() => {});
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!clientId) return;
+    let active = true;
+    void api
+      .publicTenant(clientId)
+      .then((found) => {
+        if (active) setTenant(found);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
 
   const decide = async (accept: boolean) => {
     setBusy(true);
@@ -207,13 +227,14 @@ function ConsentFlow() {
             ? { name: clientId, host: null, clientId }
             : "pending"
       }
+      app={tenant ? { name: tenant.name, logoUrl: tenant.logoUrl } : null}
       themeToggle={<ThemeToggle />}
     >
       <ConsentStep
         client={consentClient}
         resources={resourceItems(resources, known)}
         scopes={scopeItems(scopes)}
-        account={me ? { username: me.username } : null}
+        account={accountName ? { username: accountName } : null}
         switchAccountHref={switchAccountHref}
         error={error}
         busy={busy}
