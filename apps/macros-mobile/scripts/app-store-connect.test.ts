@@ -112,6 +112,7 @@ describe("missingCapabilities", () => {
 describe("entitlementProblems", () => {
   const signed = {
     "application-identifier": "TEAM.com.denizlg24.macros",
+    "beta-reports-active": true,
     "com.apple.developer.team-identifier": "TEAM",
     "get-task-allow": false,
     "keychain-access-groups": ["TEAM.*"],

@@ -132,9 +132,13 @@ export function missingCapabilities(
   );
 }
 
-/** What codesign adds to every signed target. */
+/**
+ * What codesign adds to every signed target; `beta-reports-active` comes from
+ * the App Store profile and is what lets TestFlight take the build.
+ */
 const SIGNING_ENTITLEMENTS = [
   "application-identifier",
+  "beta-reports-active",
   "com.apple.developer.team-identifier",
   "get-task-allow",
   "keychain-access-groups",

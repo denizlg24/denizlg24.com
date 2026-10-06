@@ -7,6 +7,12 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.14 — 2026-10-06
+
+### Fixed
+- **Deleting your account works again**, along with progress photos. Both
+  were failing on the server.
+
 ## 0.0.13 — 2026-10-06
 
 ### Changed
