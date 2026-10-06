@@ -7,6 +7,13 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.11 — 2026-10-06
+
+### Changed
+- Food search waits until you pause typing before it asks the server, so
+  results stop flickering through every letter. Your history and own foods
+  still match instantly.
+
 ## 0.0.10 — 2026-10-05
 
 ### Added

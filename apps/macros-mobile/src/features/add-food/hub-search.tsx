@@ -17,6 +17,7 @@ import { errorMessage, NetworkError } from "@/lib/api";
 import type { EnergyUnit } from "@/lib/format";
 import { formatHour } from "@/lib/log-time";
 import { Button, EmptyState, gutter, InlineNotice, spacing } from "@/ui";
+import { useDebouncedValue } from "../more/shared/use-debounced";
 import { type QuickHandlers, QuickSection } from "./components/quick-section";
 import {
   favoriteQuick,
@@ -24,25 +25,17 @@ import {
   type QuickItem,
   searchQuick,
 } from "./search-rows";
+import { matches, serverResults } from "./search-state";
 
 const PICKS = 5;
 const FAVORITES_CAP = 4;
 const LATEST_CAP = 20;
 const MATCHES_CAP = 4;
+const SEARCH_DEBOUNCE_MS = 250;
 
 /** "7 PM Picks" where the clock has AM/PM, "19:00 Picks" where it doesn't. */
 function picksTitle(hour: number): string {
   return `${formatHour(hour).replace(/:00(?=\s*[^\d\s])/, "")} Picks`;
-}
-
-function matches(
-  item: { name: string; brand?: string | null },
-  needle: string,
-): boolean {
-  return (
-    item.name.toLocaleLowerCase().includes(needle) ||
-    (item.brand?.toLocaleLowerCase().includes(needle) ?? false)
-  );
 }
 
 function byRecency(
@@ -72,10 +65,8 @@ export function SearchBody({
   const typing = needle.length > 0;
 
   const history = useFoodHistory(hour);
-  // Every keystroke is sent; the query it supersedes loses its observer and
-  // React Query aborts it. Pacing one request at a time instead left the last
-  // keystrokes queued behind slow or retried requests until Search was pressed.
-  const search = useFoodSearch(query, 50);
+  const debounced = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+  const search = useFoodSearch(debounced, 50);
   const favorites = useFavorites();
   const custom = useCustomFoods();
 
@@ -162,16 +153,15 @@ export function SearchBody({
 
   // The user's own history and foods answer from cache at once; the server
   // adds database results as they arrive, never above the user's own.
-  // While this query is on its way, the previous one's results stand in only
-  // where they still match the field, so a row the new text rules out never
-  // shows. Paused offline or refused, they would read as this query's answer.
   const paused = search.fetchStatus === "paused";
-  const awaiting = !paused && search.isFetching;
-  const results = !search.isPlaceholderData
-    ? (search.data?.items ?? [])
-    : awaiting
-      ? (search.data?.items ?? []).filter((item) => matches(item, needle))
-      : [];
+  const { results, awaiting, settled } = serverResults({
+    query,
+    debounced,
+    items: search.data?.items,
+    isPlaceholderData: search.isPlaceholderData,
+    isFetching: search.isFetching,
+    paused,
+  });
   const seen = new Set<string>();
   const fromHistory: QuickItem[] = [];
   for (const item of history.data ?? []) {
@@ -194,7 +184,6 @@ export function SearchBody({
   const database = results.filter((item) => !seen.has(item.id));
   const common = database.filter((item) => !item.brand).map(searchQuick);
   const branded = database.filter((item) => item.brand).map(searchQuick);
-  const settled = search.data !== undefined && !search.isPlaceholderData;
   const none =
     fromHistory.length === 0 &&
     yourFoods.length === 0 &&

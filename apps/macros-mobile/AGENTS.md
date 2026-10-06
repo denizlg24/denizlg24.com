@@ -215,14 +215,15 @@ small differences are a `Platform.OS` check. The ones that exist:
   `setTimeout(cb, 0)` by default, so a food sheet spun on data the server had
   sent in 200 ms and a paced search never sent its last keystrokes — Forge's
   request log showed both. `lib/query-client.ts` sets
-  `notifyManager.setScheduler(queueMicrotask)`; do not remove it. Keep
-  delayed timers (a debounce included) off any path that has to finish on
-  its own.
-- Food search sends every keystroke (`hub-search.tsx`); the superseded query
-  loses its observer and React Query aborts it. The nutrition API caches
-  answers in Redis, so this is cheap. While a query is in flight the previous
-  results show only where they still match the field. Search is never
-  retried and never persisted.
+  `notifyManager.setScheduler(queueMicrotask)`; do not remove it.
+- Food search is debounced 250 ms (`hub-search.tsx`). It used to send every
+  keystroke because a debounce stalled; with the scheduler above in place a
+  plain `useEffect` timeout finished on its own when tested by hand on
+  2026-10-06. If the last characters of a search go unsent again, that
+  stall is back. A superseded query loses its observer and React Query
+  aborts it. While the field is ahead of the server — debouncing or in
+  flight — the previous results show only where they still match the field
+  (`search-state.ts`). Search is never retried and never persisted.
 - `isPaused` on a mutation does not mean offline: a write queued behind
   another in the same scope is paused too. "Will sync when you're back
   online" also checks `useOnline()` (`lib/online.ts`).
