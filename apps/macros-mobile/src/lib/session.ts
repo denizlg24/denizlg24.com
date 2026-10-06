@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import { unregisterFromRemotePush } from "@/features/notifications/push";
 import { cancelReminders } from "@/features/notifications/reminders";
+import { clearWidgets } from "@/features/widgets/widget-sync";
 import { authClient } from "./auth-client";
 import { clearFailedWrites } from "./failed-writes";
 import { clearPersistedCaches } from "./query-client";
@@ -28,6 +29,7 @@ export async function forgetSessionLocally() {
 export async function clearSignedInDevice(queryClient: QueryClient) {
   // Reminders are this user's; left scheduled they fire for nobody.
   await cancelReminders().catch(() => undefined);
+  clearWidgets();
   await forgetSessionLocally();
   queryClient.clear();
   clearFailedWrites();

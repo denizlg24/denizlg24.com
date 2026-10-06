@@ -210,6 +210,27 @@ small differences are a `Platform.OS` check. The ones that exist:
   module `modules/macros-quick-actions` (an app delegate subscriber; Expo
   forwards scene shortcut actions to subscribers, cold start included) and
   routed by `features/shell/quick-actions.tsx`. A new action needs both.
+- Home Screen and Lock Screen widgets are a WidgetKit extension,
+  `MacrosWidgetExtension` (bundle id `com.denizlg24.macros.widgets`), added to
+  the generated project by `plugins/with-widgets.js` from the Swift in
+  `widgets/ios`. Not `MacrosWidgets`: that is the Expo module's pod, and two
+  Swift modules of one name in one build collide (a stale one in derived data
+  fails the build with "cannot find 'MacrosWidgetsModule'"). Quick Log
+  (small/medium) and Shortcut (Lock Screen, configurable) only open routes
+  through `macros://…` links, so they ship in every build; Today and Weight
+  Trend read a snapshot through the App Group `group.com.denizlg24.macros`,
+  an entitlement, so they are compiled in (`MACROS_APP_GROUP`) only for the
+  ad-hoc build. The extension never talks to the API: `WidgetSync` (in
+  `(app)/_layout.tsx`) builds a `WidgetSnapshot` (`features/widgets/snapshot.ts`,
+  decoded by `widgets/ios/Snapshot.swift`) from the dashboard — pending logs
+  included — and the weight overview, writes it through
+  `modules/macros-widgets` and reloads every timeline when it changes; sign
+  out clears it. The widget turns the day over itself at midnight in the
+  profile's zone (nothing eaten, last targets). A link that opens a sheet
+  lands over the tabs because `(app)/_layout.tsx` sets
+  `initialRouteName: "(tabs)"`. Widgets cannot be added to the simulator's
+  Home Screen from a script; render the views with `ImageRenderer` from a
+  throwaway harness instead.
 - Timers stall in the add-food hub until the next native event (a key, a
   tap); cause unknown. React Query delivers results through
   `setTimeout(cb, 0)` by default, so a food sheet spun on data the server had
@@ -364,7 +385,11 @@ version change and when the server dispatches the workflow with
 `adhoc: true` after the owner approves a device — so a device approval also
 needs a GitHub environment approval before it ships. `lib/config.ts`
 `capabilities` says which build is running; UI for HealthKit and remote push
-hides behind it. `plugins/without-entitlements.js` strips the
+hides behind it. The ad-hoc build signs two targets, the app and the widget
+extension, each with its own bundle id and profile (`SIGNING_TARGETS` in
+`scripts/app-store-connect.ts`); both carry the App Group, which Apple's API
+can enable on a bundle id but not assign — the group is assigned to both ids
+once, by hand, in the developer portal. `plugins/without-entitlements.js` strips the
 `aps-environment` expo-notifications writes into every build. To exercise
 the ad-hoc build locally without a paid team, prebuild with the flag and run
 it in the simulator, which needs no provisioning.

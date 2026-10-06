@@ -11,6 +11,8 @@ const apiUrl =
   process.env.EXPO_PUBLIC_MACROS_API_URL ?? "https://macros.denizlg24.com";
 
 export const BUNDLE_IDENTIFIER = "com.denizlg24.macros";
+/** Shared by the app and its widget extension; ad-hoc builds only. */
+export const APP_GROUP = `group.${BUNDLE_IDENTIFIER}`;
 
 // SideStore re-signs with the installer's own Apple ID, usually a free one,
 // which cannot grant HealthKit or push. Only an ad-hoc build signed with the
@@ -123,6 +125,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "./plugins/without-script-sandboxing",
     "./plugins/with-android-colors",
     "./plugins/with-android-signing",
+    entitled
+      ? (["./plugins/with-widgets", { appGroup: APP_GROUP }] as [
+          string,
+          { appGroup: string },
+        ])
+      : "./plugins/with-widgets",
     ...(entitled
       ? [
           "./plugins/with-healthkit",

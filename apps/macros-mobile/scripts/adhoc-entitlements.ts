@@ -1,20 +1,33 @@
 /**
- * Fails when a signed ad-hoc Macros.app carries an entitlement it should not,
- * is debuggable, or lacks push or HealthKit. macOS only (`codesign`, `plutil`).
+ * Fails when a signed ad-hoc target carries an entitlement it should not, is
+ * debuggable, or lacks one it needs (push, HealthKit and the App Group on the
+ * app; the App Group alone on the widget extension). macOS only (`codesign`,
+ * `plutil`).
  *
  *   bun scripts/adhoc-entitlements.ts build/Payload/Macros.app
+ *   bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
+ *     build/Payload/Macros.app/PlugIns/MacrosWidgetExtension.appex
  *   bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
  *
  * `--unsigned` reads the file prebuild generated instead of the signature, so
  * the unsigned CI build checks the same allowlist before any secret is used.
+ * `--target` names the Xcode target; the app is the default.
  */
-import { entitlementProblems } from "./app-store-connect";
+import { parseArgs } from "node:util";
+import { entitlementProblems, signingTarget } from "./app-store-connect";
 
-const unsigned = process.argv[2] === "--unsigned";
-const target = unsigned ? process.argv[3] : process.argv[2];
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    unsigned: { type: "boolean", default: false },
+    target: { type: "string", default: "Macros" },
+  },
+});
+const unsigned = values.unsigned;
+const target = positionals[0];
 if (!target) {
   throw new Error(
-    "Usage: adhoc-entitlements.ts <path to .app> | --unsigned <path to .entitlements>",
+    "Usage: adhoc-entitlements.ts [--target <name>] <path to .app or .appex> | [--target <name>] --unsigned <path to .entitlements>",
   );
 }
 
@@ -41,6 +54,9 @@ const entitlements: Record<string, unknown> = Object.fromEntries(
 );
 
 console.log(JSON.stringify(entitlements, null, 2));
-const problems = entitlementProblems(entitlements, { signed: !unsigned });
+const problems = entitlementProblems(entitlements, {
+  signed: !unsigned,
+  target: signingTarget(values.target),
+});
 for (const problem of problems) console.log(`::error::${problem}`);
 if (problems.length > 0) process.exit(1);
