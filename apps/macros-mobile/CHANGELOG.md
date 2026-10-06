@@ -7,6 +7,19 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.11 — 2026-10-06
+
+### Added
+- **Widgets on iPhone.** Add **Quick Log** to your Home Screen to log food,
+  scan a barcode, quick add or weigh in with one tap, or put a **Shortcut**
+  on your Lock Screen for the one you use most.
+- **Today** and **Weight Trend** widgets show your calories, macros and
+  weight trend at a glance. They arrive with the App Store version of Macros.
+
+### Changed
+- Opening Macros from a widget or a link that goes straight to a sheet now
+  keeps your tabs underneath it.
+
 ## 0.0.10 — 2026-10-05
 
 ### Added

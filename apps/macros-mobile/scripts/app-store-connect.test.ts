@@ -11,6 +11,7 @@ import {
   missingCapabilities,
   planRegistrations,
   profileDevices,
+  signingTarget,
 } from "./app-store-connect";
 
 // A self-signed P-256 certificate, only ever used to exercise the matcher.
@@ -140,10 +141,19 @@ describe("findCertificate", () => {
 
 describe("missingCapabilities", () => {
   test("names what the bundle id still lacks", () => {
-    expect(missingCapabilities(["PUSH_NOTIFICATIONS"])).toEqual(["HEALTHKIT"]);
-    expect(missingCapabilities(["HEALTHKIT", "PUSH_NOTIFICATIONS"])).toEqual(
-      [],
-    );
+    expect(missingCapabilities(["PUSH_NOTIFICATIONS"])).toEqual([
+      "APP_GROUPS",
+      "HEALTHKIT",
+    ]);
+    expect(
+      missingCapabilities(["APP_GROUPS", "HEALTHKIT", "PUSH_NOTIFICATIONS"]),
+    ).toEqual([]);
+  });
+
+  test("asks only for an App Group on the widget extension", () => {
+    const widgets = signingTarget("MacrosWidgetExtension");
+    expect(missingCapabilities([], widgets)).toEqual(["APP_GROUPS"]);
+    expect(missingCapabilities(["APP_GROUPS"], widgets)).toEqual([]);
   });
 });
 
@@ -156,6 +166,7 @@ describe("entitlementProblems", () => {
     "aps-environment": "production",
     "com.apple.developer.healthkit": true,
     "com.apple.developer.healthkit.access": [],
+    "com.apple.security.application-groups": ["group.com.denizlg24.macros"],
   };
 
   test("accepts what an ad-hoc Macros build should carry", () => {
@@ -168,13 +179,32 @@ describe("entitlementProblems", () => {
       entitlementProblems({
         ...withoutPush,
         "get-task-allow": true,
+        "com.apple.developer.icloud-services": ["CloudKit"],
         "com.apple.security.application-groups": ["group.x"],
       }),
     ).toEqual([
-      "unexpected entitlement com.apple.security.application-groups",
+      "unexpected entitlement com.apple.developer.icloud-services",
       "get-task-allow must be false in a distribution build",
       "missing aps-environment",
+      "the only App Group must be group.com.denizlg24.macros",
     ]);
+  });
+
+  test("holds the widget extension to the App Group alone", () => {
+    const widgets = signingTarget("MacrosWidgetExtension");
+    const extension = {
+      "application-identifier": "TEAM.com.denizlg24.macros.widgets",
+      "com.apple.developer.team-identifier": "TEAM",
+      "get-task-allow": false,
+      "com.apple.security.application-groups": ["group.com.denizlg24.macros"],
+    };
+    expect(entitlementProblems(extension, { target: widgets })).toEqual([]);
+    expect(
+      entitlementProblems(
+        { ...extension, "com.apple.developer.healthkit": true },
+        { target: widgets },
+      ),
+    ).toEqual(["unexpected entitlement com.apple.developer.healthkit"]);
   });
 
   test("checks a generated entitlements file without get-task-allow", () => {
@@ -182,6 +212,7 @@ describe("entitlementProblems", () => {
       "aps-environment": "production",
       "com.apple.developer.healthkit": true,
       "com.apple.developer.healthkit.access": [],
+      "com.apple.security.application-groups": ["group.com.denizlg24.macros"],
     };
     expect(entitlementProblems(generated, { signed: false })).toEqual([]);
     expect(entitlementProblems(generated)).toEqual([

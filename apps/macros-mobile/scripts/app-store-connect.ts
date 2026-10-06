@@ -130,32 +130,72 @@ export function findCertificate(
   });
 }
 
-export const REQUIRED_CAPABILITIES = [
-  "HEALTHKIT",
-  "PUSH_NOTIFICATIONS",
+/** Shared by the app and its widget extension; `APP_GROUP` in app.config.ts. */
+export const APP_GROUP = "group.com.denizlg24.macros";
+
+/**
+ * Every target the ad-hoc build signs, each with its own bundle id and
+ * profile. Apple's API can enable App Groups on a bundle id but cannot assign
+ * a group to it: that stays a one-time step in the developer portal.
+ */
+export const SIGNING_TARGETS = [
+  {
+    target: "Macros",
+    bundleIdentifier: "com.denizlg24.macros",
+    name: "Macros",
+    profileName: "Macros Ad Hoc",
+    capabilities: ["APP_GROUPS", "HEALTHKIT", "PUSH_NOTIFICATIONS"],
+    entitlements: [
+      "aps-environment",
+      "com.apple.developer.healthkit",
+      "com.apple.developer.healthkit.access",
+      "com.apple.security.application-groups",
+    ],
+    required: [
+      "aps-environment",
+      "com.apple.developer.healthkit",
+      "com.apple.security.application-groups",
+    ],
+  },
+  {
+    target: "MacrosWidgetExtension",
+    bundleIdentifier: "com.denizlg24.macros.widgets",
+    name: "Macros Widgets",
+    profileName: "Macros Widgets Ad Hoc",
+    capabilities: ["APP_GROUPS"],
+    entitlements: ["com.apple.security.application-groups"],
+    required: ["com.apple.security.application-groups"],
+  },
 ] as const;
+
+export type SigningTarget = (typeof SIGNING_TARGETS)[number];
+
+export function signingTarget(name: string): SigningTarget {
+  const target = SIGNING_TARGETS.find((candidate) => candidate.target === name);
+  if (!target) {
+    throw new Error(
+      `Unknown target ${name}; expected ${SIGNING_TARGETS.map((candidate) => candidate.target).join(" or ")}`,
+    );
+  }
+  return target;
+}
 
 export function missingCapabilities(
   present: readonly string[],
-): (typeof REQUIRED_CAPABILITIES)[number][] {
-  return REQUIRED_CAPABILITIES.filter(
+  target: SigningTarget = SIGNING_TARGETS[0],
+): string[] {
+  return target.capabilities.filter(
     (capability) => !present.includes(capability),
   );
 }
 
-/**
- * Keys a signed ad-hoc IPA may carry: the two capabilities Macros uses plus
- * what codesign always adds.
- */
-export const ALLOWED_ENTITLEMENTS = new Set([
+/** What codesign adds to every signed target. */
+const SIGNING_ENTITLEMENTS = [
   "application-identifier",
   "com.apple.developer.team-identifier",
   "get-task-allow",
   "keychain-access-groups",
-  "aps-environment",
-  "com.apple.developer.healthkit",
-  "com.apple.developer.healthkit.access",
-]);
+];
 
 /**
  * `signed: false` checks the entitlements file prebuild generates, before
@@ -163,16 +203,30 @@ export const ALLOWED_ENTITLEMENTS = new Set([
  */
 export function entitlementProblems(
   entitlements: Record<string, unknown>,
-  { signed = true }: { signed?: boolean } = {},
+  {
+    signed = true,
+    target = SIGNING_TARGETS[0],
+  }: { signed?: boolean; target?: SigningTarget } = {},
 ): string[] {
+  const allowed = new Set<string>([
+    ...SIGNING_ENTITLEMENTS,
+    ...target.entitlements,
+  ]);
   const problems = Object.keys(entitlements)
-    .filter((key) => !ALLOWED_ENTITLEMENTS.has(key))
+    .filter((key) => !allowed.has(key))
     .map((key) => `unexpected entitlement ${key}`);
   if (signed && entitlements["get-task-allow"] !== false) {
     problems.push("get-task-allow must be false in a distribution build");
   }
-  for (const key of ["aps-environment", "com.apple.developer.healthkit"]) {
+  for (const key of target.required) {
     if (!(key in entitlements)) problems.push(`missing ${key}`);
+  }
+  const groups = entitlements["com.apple.security.application-groups"];
+  if (
+    groups !== undefined &&
+    !(Array.isArray(groups) && groups.length === 1 && groups[0] === APP_GROUP)
+  ) {
+    problems.push(`the only App Group must be ${APP_GROUP}`);
   }
   return problems;
 }

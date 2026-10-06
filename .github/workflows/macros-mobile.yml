@@ -17,7 +17,8 @@ name: Macros mobile
 # - release-ios-adhoc: signs for the iPhones registered on the paid team and
 #   uploads to the rolling `macros-ios-adhoc` release, served from
 #   https://macros.denizlg24.com/ios/adhoc/*. Every run registers every
-#   approved UDID and regenerates the "Macros Ad Hoc" profile, so it can be
+#   approved UDID and regenerates the app's and the widget extension's ad-hoc
+#   profiles ("Macros Ad Hoc", "Macros Widgets Ad Hoc"), so it can be
 #   repeated at any time.
 # - release-android: re-signs the built APK with the release key and publishes
 #   `macros-android-v<version>`, which
@@ -327,7 +328,10 @@ jobs:
       # codesign adds get-task-allow and the team identifiers at signing time;
       # everything else the signed build will carry is already in this file.
       - name: Check the generated entitlements
-        run: bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
+        run: |
+          bun scripts/adhoc-entitlements.ts --unsigned ios/Macros/Macros.entitlements
+          bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
+            --unsigned ios/MacrosWidgetExtension/MacrosWidgetExtension.entitlements
 
       - name: Compile the device build
         shell: bash
@@ -578,7 +582,7 @@ jobs:
             openssl pkcs12 -legacy -in "$p12" -clcerts -nokeys -passin env:P12_PASSWORD -out "$RUNNER_TEMP/distribution.pem"
           rm -f "$p12"
 
-      - name: Register devices and create the profile
+      - name: Register devices and create the profiles
         if: steps.signing.outputs.ready == 'true'
         env:
           APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
@@ -588,45 +592,49 @@ jobs:
         run: >
           bun scripts/adhoc-profile.ts
           --certificate "$RUNNER_TEMP/distribution.pem"
-          --out build/Macros_Ad_Hoc.mobileprovision
+          --out-dir build/profiles
           --summary build/profile.json
 
-      - name: Install the profile
+      - name: Install the profiles
         if: steps.signing.outputs.ready == 'true'
         shell: bash
         run: |
-          uuid="$(jq -r '.uuid' build/profile.json)"
           # Xcode 16 reads the second location; older Xcodes the first.
-          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
-            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
-            mkdir -p "$dir"
-            cp build/Macros_Ad_Hoc.mobileprovision "$dir/$uuid.mobileprovision"
-          done
+          jq -r '.profiles[] | "\(.uuid) \(.file)"' build/profile.json |
+            while read -r uuid file; do
+              for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+                mkdir -p "$dir"
+                cp "$file" "$dir/$uuid.mobileprovision"
+              done
+            done
 
       - name: Generate the native project
         if: steps.signing.outputs.ready == 'true'
         run: bunx expo prebuild --platform ios --clean
 
-      # Only the app target is signed with the profile. Passing the profile on
-      # the xcodebuild command line would apply it to every Pods target too,
-      # which refuse one.
-      - name: Sign the app target manually
+      # Only the app and widget targets are signed with their profiles.
+      # Passing a profile on the xcodebuild command line would apply it to
+      # every Pods target too, which refuse one.
+      - name: Sign the app and widget targets manually
         if: steps.signing.outputs.ready == 'true'
         shell: bash
         run: |
           # CocoaPods (which prebuild just ran) brings the gem; install it only
           # if this Ruby cannot see it.
           ruby -e 'require "xcodeproj"' 2>/dev/null || gem install xcodeproj --no-document
-          ruby -r xcodeproj -e '
+          ruby -r xcodeproj -r json -e '
             project = Xcodeproj::Project.open("ios/Macros.xcodeproj")
-            target = project.targets.find { |t| t.name == "Macros" } or abort "No Macros target"
-            target.build_configurations.each do |config|
-              settings = config.build_settings
-              settings["CODE_SIGN_STYLE"] = "Manual"
-              settings["DEVELOPMENT_TEAM"] = ENV.fetch("APPLE_TEAM_ID")
-              settings["PROVISIONING_PROFILE_SPECIFIER"] = "Macros Ad Hoc"
-              settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
-              settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
+            JSON.parse(File.read("build/profile.json"))["profiles"].each do |profile|
+              target = project.targets.find { |t| t.name == profile["target"] } or abort "No #{profile["target"]} target"
+              target.build_configurations.each do |config|
+                settings = config.build_settings
+                settings["CODE_SIGN_STYLE"] = "Manual"
+                settings["DEVELOPMENT_TEAM"] = ENV.fetch("APPLE_TEAM_ID")
+                settings["PROVISIONING_PROFILE_SPECIFIER"] = profile["name"]
+                settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+                settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
+              end
             end
             project.save
           '
@@ -666,8 +674,7 @@ jobs:
             <string>Apple Distribution</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.denizlg24.macros</key>
-              <string>Macros Ad Hoc</string>
+          $(jq -r '.profiles[] | "    <key>\(.bundleIdentifier)</key>\n    <string>\(.name)</string>"' build/profile.json)
             </dict>
             <key>thinning</key>
             <string>&lt;none&gt;</string>
@@ -701,6 +708,8 @@ jobs:
           mkdir -p build/unpacked
           unzip -q build/export/Macros.ipa -d build/unpacked
           bun scripts/adhoc-entitlements.ts build/unpacked/Payload/Macros.app
+          bun scripts/adhoc-entitlements.ts --target MacrosWidgetExtension \
+            build/unpacked/Payload/Macros.app/PlugIns/MacrosWidgetExtension.appex
 
       # Never "latest": the Envoy CLI's updater reads this repository's
       # releases, and the repository's latest release must stay an Envoy one.
@@ -754,7 +763,8 @@ jobs:
           if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
             security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           fi
-          rm -f "$RUNNER_TEMP/distribution.pem" apps/macros-mobile/build/Macros_Ad_Hoc.mobileprovision
+          rm -f "$RUNNER_TEMP/distribution.pem"
+          rm -rf apps/macros-mobile/build/profiles
           rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
           rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision
 

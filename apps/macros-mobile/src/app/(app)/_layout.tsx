@@ -9,6 +9,7 @@ import { QuickActions } from "@/features/shell/quick-actions";
 import { shellModalRoutes } from "@/features/shell/routes";
 import { TimezoneSync } from "@/features/shell/timezone-sync";
 import { todayModalRoutes } from "@/features/today/routes";
+import { WidgetSync } from "@/features/widgets/widget-sync";
 
 const modalRoutes = [
   ...shellModalRoutes,
@@ -19,6 +20,9 @@ const modalRoutes = [
   ...moreModalRoutes,
 ];
 
+// A widget or link that opens a sheet directly still leaves the tabs under it.
+export const unstable_settings = { initialRouteName: "(tabs)" };
+
 export default function AppLayout() {
   return (
     <>
@@ -26,6 +30,7 @@ export default function AppLayout() {
       <HealthSync />
       <NotificationsSync />
       <QuickActions />
+      <WidgetSync />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {modalRoutes.map((route) => (
