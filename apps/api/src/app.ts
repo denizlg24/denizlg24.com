@@ -294,9 +294,9 @@ function nativeLoopbackRegistration(
 
 /** The client an authorize, consent or continue request is about. */
 async function oauthRequestClientId(request: Request): Promise<string | null> {
-  const direct = new URL(request.url).searchParams.get("client_id");
-  if (direct) return direct;
-  if (request.method !== "POST") return null;
+  if (request.method !== "POST") {
+    return new URL(request.url).searchParams.get("client_id");
+  }
   const body: unknown = await request
     .clone()
     .json()

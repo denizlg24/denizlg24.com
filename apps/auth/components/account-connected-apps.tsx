@@ -90,9 +90,13 @@ export function ConnectedAppList({
       await accountApi.removeConnectedApp(app.clientId);
     } catch (error) {
       toast.error(errorMessage(error));
+    } finally {
+      try {
+        await onChanged();
+      } finally {
+        setBusyId(null);
+      }
     }
-    await onChanged();
-    setBusyId(null);
   };
 
   return (

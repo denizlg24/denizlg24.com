@@ -125,6 +125,16 @@ export interface CloudAuthOptions {
 const uuidSchema = z.uuid();
 
 /**
+ * Mail is sent only to public accounts, so awaiting it would let response
+ * time and delivery failures reveal which addresses hold one.
+ */
+function deliverInBackground(delivery: Promise<void>, kind: string): void {
+  delivery.catch((error: unknown) => {
+    console.error(`${kind} mail failed`, error);
+  });
+}
+
+/**
  * The one test every OAuth grant is held to, at issuance and again at every
  * refresh: the role lives on the legacy users row, enrollment and bans on the
  * auth row, and a grant must not outlive any of them changing.
@@ -314,8 +324,11 @@ export function createCloudAuth(options: CloudAuthOptions) {
           where: eq(schema.authUser.id, user.id),
         });
         if (account?.realm !== "public") return;
-        await mailer.send(
-          passwordResetEmail({ to: user.email, name: user.name, url }),
+        deliverInBackground(
+          mailer.send(
+            passwordResetEmail({ to: user.email, name: user.name, url }),
+          ),
+          "Password reset",
         );
       },
     },
@@ -335,8 +348,11 @@ export function createCloudAuth(options: CloudAuthOptions) {
         if (account?.realm !== "public" || account.twoFactorEnabled === true) {
           return;
         }
-        await mailer.send(
-          verificationEmail({ to: user.email, name: user.name, url }),
+        deliverInBackground(
+          mailer.send(
+            verificationEmail({ to: user.email, name: user.name, url }),
+          ),
+          "Verification",
         );
       },
     },

@@ -192,9 +192,16 @@ export function createTokenClient(options: TokenClientOptions): TokenClient {
         grant_type: "refresh_token",
         refresh_token: refreshToken,
         resource: options.resource,
-      }).finally(() => {
-        setTimeout(() => refreshing.delete(refreshToken), REFRESH_SHARE_MS);
-      });
+      }).then(
+        (result) => {
+          setTimeout(() => refreshing.delete(refreshToken), REFRESH_SHARE_MS);
+          return result;
+        },
+        (error: unknown) => {
+          refreshing.delete(refreshToken);
+          throw error;
+        },
+      );
       refreshing.set(refreshToken, request);
       return request;
     },

@@ -17,6 +17,10 @@ export interface SessionValue {
   status: AuthState["status"];
   user: AuthUser | null;
   error: string | null;
+  /**
+   * `returnTo` applies in server mode. A public client always lands on its
+   * registered `redirectUri`; keep the destination yourself if you need it.
+   */
   signIn(returnTo?: string): Promise<void>;
   signOut(returnTo?: string): Promise<void>;
   /** Public-client mode only; a Next app reads its token on the server. */
@@ -70,7 +74,10 @@ function useServerSession(
     if (initialUser !== undefined) return;
     let cancelled = false;
     fetch(`${basePath}/session`, { credentials: "same-origin" })
-      .then((response) => response.json() as Promise<{ user: AuthUser | null }>)
+      .then((response) => {
+        if (!response.ok) throw new Error(`session: HTTP ${response.status}`);
+        return response.json() as Promise<{ user: AuthUser | null }>;
+      })
       .then((body) => {
         if (cancelled) return;
         setState(

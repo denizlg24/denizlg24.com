@@ -34,7 +34,7 @@ export const auth = createDenizAuth(() => ({
   clientSecret: process.env.DENIZ_AUTH_CLIENT_SECRET!,
   secret: process.env.DENIZ_AUTH_SECRET!, // ≥ 32 random characters
   baseUrl: "https://app.example.com",
-  resource: "https://app.example.com",
+  resource: "https://api.example.com",
 }));
 ```
 
@@ -55,7 +55,7 @@ export function proxy(request: NextRequest) {
   return auth.proxy(request);
 }
 
-export const config = { matcher: ["/dashboard/:path*", "/api/:path*"] };
+export const config = { matcher: ["/dashboard/:path*", "/api/:path*", "/auth/session"] };
 ```
 
 ```tsx

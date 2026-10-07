@@ -199,6 +199,8 @@ export function createPublicClient(options: PublicClientOptions): PublicClient {
     }
     try {
       const next = await tokens.refresh(current.refreshToken);
+      // A sign-out or a new sign-in while this was in flight wins.
+      if (session !== current) return session?.accessToken ?? null;
       await persist({
         accessToken: next.accessToken,
         refreshToken: next.refreshToken ?? current.refreshToken,
@@ -207,6 +209,7 @@ export function createPublicClient(options: PublicClientOptions): PublicClient {
       return next.accessToken;
     } catch (error) {
       if (error instanceof OAuthGrantError && error.grantInvalid) {
+        if (session !== current) return session?.accessToken ?? null;
         await persist(null, "session_expired");
         return null;
       }

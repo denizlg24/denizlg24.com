@@ -28,6 +28,7 @@ COPY apps/storage/package.json apps/storage/package.json
 COPY apps/terminal/package.json apps/terminal/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/admin/package.json packages/admin/package.json
+COPY packages/auth-sdk/package.json packages/auth-sdk/package.json
 COPY packages/auth-ui/package.json packages/auth-ui/package.json
 COPY packages/cloud-auth-client/package.json packages/cloud-auth-client/package.json
 COPY packages/cloud-core/package.json packages/cloud-core/package.json
