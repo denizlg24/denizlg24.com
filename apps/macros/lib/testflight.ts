@@ -125,8 +125,8 @@ async function findTester(
 /**
  * Adds the address to the public TestFlight group. Apple emails the invite
  * itself, and holds it until the group has a build that passed beta review.
- * An address Apple already knows (409) is added to the group instead, so
- * signing up twice is harmless.
+ * An address Apple already knows (409) from another group is added to this
+ * one, and one already in it is left alone, so signing up twice is harmless.
  */
 export async function inviteToTestFlight(tester: {
   email: string;
@@ -172,5 +172,5 @@ export async function inviteToTestFlight(tester: {
     { data: [{ type: "betaTesters", id: testerId }] },
   );
   if (!added.ok) throw await failure(added, "Adding the tester to the group");
-  return { status: "already-invited" };
+  return { status: "invited" };
 }

@@ -1,9 +1,26 @@
-import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 
 const calls: Array<{ method: string; url: string; body: unknown }> = [];
 let responses: Response[] = [];
 const realFetch = globalThis.fetch;
+const ENV_KEYS = [
+  "MACROS_ASC_KEY_ID",
+  "MACROS_ASC_ISSUER_ID",
+  "MACROS_ASC_PRIVATE_KEY",
+  "MACROS_TESTFLIGHT_GROUP_ID",
+] as const;
+const savedEnv = Object.fromEntries(
+  ENV_KEYS.map((key) => [key, process.env[key]]),
+);
 
 beforeAll(() => {
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -27,6 +44,15 @@ beforeAll(() => {
     }),
     { preconnect: realFetch.preconnect },
   );
+});
+
+afterAll(() => {
+  globalThis.fetch = realFetch;
+  for (const key of ENV_KEYS) {
+    const value = savedEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 afterEach(() => {
@@ -62,7 +88,7 @@ describe("inviteToTestFlight", () => {
       new Response(null, { status: 204 }),
     ];
     expect(await inviteToTestFlight({ email: "b@example.com" })).toEqual({
-      status: "already-invited",
+      status: "invited",
     });
     expect(calls[1]?.url).toContain("filter[betaGroups]=group-1");
     expect(calls[2]?.url).toContain("filter[email]=b%40example.com");

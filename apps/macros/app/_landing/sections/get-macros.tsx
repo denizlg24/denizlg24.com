@@ -137,7 +137,7 @@ const FAQ: ReadonlyArray<{ question: string; answer: ReactNode }> = [
   {
     question: "How do I update on iPhone?",
     answer:
-      "TestFlight installs new versions for you, or shows an Update button when one is ready. Each build lasts 90 days, and a newer one always arrives before then.",
+      "TestFlight installs new versions for you, or shows an Update button when one is ready. Each beta build stops working after 90 days, so keep TestFlight updates on to move to the newest one when it’s out.",
   },
   {
     question: "How do I update on Android?",
