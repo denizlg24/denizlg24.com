@@ -20,6 +20,7 @@ import {
   CircleCheck,
   ListTodo,
   Loader2,
+  PencilLine,
   PenLine,
   Tag,
 } from "lucide-react";
@@ -98,9 +99,12 @@ export function TriageRow({
     "";
   const tasks = item.suggestedTasks.length;
   const events = item.suggestedEvents.length;
-  const accepted =
-    item.suggestedTasks.filter((task) => task.status === "accepted").length +
-    item.suggestedEvents.filter((event) => event.status === "accepted").length;
+  const changes = item.suggestedActions.length;
+  const accepted = [
+    ...item.suggestedTasks,
+    ...item.suggestedEvents,
+    ...item.suggestedActions,
+  ].filter((entry) => entry.status === "accepted").length;
 
   return (
     // A div, not a button: the row hosts its own controls, and a select inside
@@ -222,7 +226,7 @@ export function TriageRow({
           )}
         </div>
 
-        {(tasks > 0 || events > 0) && (
+        {(tasks > 0 || events > 0 || changes > 0) && (
           <span className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
             {tasks > 0 && (
               <span
@@ -240,6 +244,15 @@ export function TriageRow({
               >
                 <CalendarClock className="size-3" />
                 {events}
+              </span>
+            )}
+            {changes > 0 && (
+              <span
+                className="flex items-center gap-1"
+                title={`${changes} changes`}
+              >
+                <PencilLine className="size-3" />
+                {changes}
               </span>
             )}
             {accepted > 0 && (

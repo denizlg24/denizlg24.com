@@ -34,6 +34,7 @@ import {
   type TriageAcceptanceResponse,
   type TriageCategory,
   type TriageDetailResponse,
+  type TriageSuggestionType,
   triageDetailResponseSchema,
 } from "@/lib/data-types";
 import { TriageSuggestions } from "./triage-suggestions";
@@ -132,7 +133,7 @@ export function TriageDetail({
   const decide = useCallback(
     async (
       suggestionId: string,
-      type: "task" | "event",
+      type: TriageSuggestionType,
       action: "accept" | "dismiss",
     ) => {
       setPendingIds((prev) => new Set(prev).add(suggestionId));

@@ -3,6 +3,7 @@ import type {
   CourseAssignmentType,
   ICourseEmailRelinkResult,
   TriageAcceptanceResponse,
+  TriageSuggestionType,
 } from "@repo/schemas";
 import mongoose from "mongoose";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
@@ -26,6 +27,11 @@ import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
+import {
+  executeTriageAction,
+  type ProposedTriageAction,
+  proposeTriageActions,
+} from "@/lib/triage-actions";
 import { adjudicateTriage } from "@/lib/triage-adjudicator";
 import { EmailModel } from "@/models/Email";
 import {
@@ -1298,8 +1304,48 @@ export async function runExtraction(
   };
 }
 
+/** Categories whose mail can plausibly change a record elsewhere in the app. */
+const ACTION_PROPOSAL_CATEGORIES = new Set<TriageCategory>([
+  "action-needed",
+  "scheduled",
+  "purchases",
+  "fyi",
+]);
+
+function buildActionProposalPrompt(
+  email: TriageEmailContext,
+  body: FetchedEmailBody,
+): string {
+  const bodySnippet =
+    normalizeBodyForTriage(body.text, body.html, "extraction") ||
+    "(no usable body content)";
+  const sections = [
+    `<email_subject>${sanitizeUntrusted(email.subject)}</email_subject>`,
+    `<email_from>${sanitizeUntrusted(formatFrom(email.from))}</email_from>`,
+    `Date: ${email.date.toISOString()}`,
+    "",
+    "<email_body>",
+    sanitizeUntrusted(bodySnippet),
+    "</email_body>",
+  ];
+  const attachmentText = formatAttachmentTextForTriage(
+    body.attachmentText ?? [],
+  );
+  if (attachmentText) {
+    sections.push(
+      "",
+      "<email_attachments>",
+      attachmentText,
+      "</email_attachments>",
+    );
+  }
+  return sections.join("\n");
+}
+
 export interface DerivedTriageArtifacts {
   result: FullTriageResult;
+  /** Writes to the rest of the app; never auto-accepted. */
+  actions: ProposedTriageAction[];
   extractionModelUsed?: string;
   attachmentTextSources: string[];
   extractionFailed: boolean;
@@ -1317,6 +1363,7 @@ export async function deriveTriageArtifacts({
   kanbanTargets,
   courseTargets: allCourseTargets,
   limitExtraction = (task) => task(),
+  proposeActions = false,
 }: {
   email: TriageEmailContext;
   body: FetchedEmailBody;
@@ -1329,7 +1376,21 @@ export async function deriveTriageArtifacts({
    * that reaches here and finds nothing to extract never queues behind one.
    */
   limitExtraction?: <T>(task: () => Promise<T>) => Promise<T>;
+  /** Off for rows awaiting review: a label nobody trusts proposes no writes. */
+  proposeActions?: boolean;
 }): Promise<DerivedTriageArtifacts> {
+  const actionsPending: Promise<ProposedTriageAction[]> =
+    proposeActions &&
+    ACTION_PROPOSAL_CATEGORIES.has(initialClassification.category)
+      ? limitExtraction(() =>
+          proposeTriageActions({
+            model: settings.fullModel,
+            emailPrompt: buildActionProposalPrompt(email, body),
+            untrustedNotice: UNTRUSTED_CONTENT_NOTICE,
+          }),
+        )
+      : Promise.resolve([]);
+
   // Withholding the targets is what disables course routing, not a flag read
   // later: with an empty list the extraction tool carries no courseKey,
   // updatesDeadlineKey or assignmentType at all, so the model cannot name a
@@ -1388,6 +1449,7 @@ export async function deriveTriageArtifacts({
   ) {
     return {
       result,
+      actions: await actionsPending,
       attachmentTextSources: [],
       extractionFailed: false,
     };
@@ -1407,6 +1469,7 @@ export async function deriveTriageArtifacts({
   if (!extraction) {
     return {
       result,
+      actions: await actionsPending,
       extractionModelUsed: settings.fullModel,
       attachmentTextSources: [],
       extractionFailed: true,
@@ -1461,6 +1524,7 @@ export async function deriveTriageArtifacts({
 
   return {
     result,
+    actions: await actionsPending,
     extractionModelUsed: settings.fullModel,
     attachmentTextSources: result.matchedCourseId
       ? bodyForExtraction.attachmentText.map(
@@ -1737,12 +1801,15 @@ export function shouldRecomputeTriageDerivation(row: {
   category: TriageCategory;
   suggestedTasks?: Array<{ status: string }>;
   suggestedEvents?: Array<{ status: string }>;
+  suggestedActions?: Array<{ status: string }>;
 }): boolean {
   return (
     DERIVABLE_CATEGORIES.has(row.category) &&
-    ![...(row.suggestedTasks ?? []), ...(row.suggestedEvents ?? [])].some(
-      (suggestion) => suggestion.status === "accepted",
-    )
+    ![
+      ...(row.suggestedTasks ?? []),
+      ...(row.suggestedEvents ?? []),
+      ...(row.suggestedActions ?? []),
+    ].some((suggestion) => suggestion.status === "accepted")
   );
 }
 
@@ -1820,6 +1887,7 @@ export async function recomputeTriageDerivation(
       settings,
       kanbanTargets,
       courseTargets,
+      proposeActions: true,
     });
     if (artifacts.extractionFailed) {
       throw new Error("Triage extraction failed");
@@ -1861,6 +1929,10 @@ export async function recomputeTriageDerivation(
             courseId: event.courseId,
             courseName: event.courseName,
             updatesCalendarEventId: event.updatesCalendarEventId,
+            status: "pending",
+          })),
+          suggestedActions: artifacts.actions.map((action) => ({
+            ...action,
             status: "pending",
           })),
         },
@@ -2160,6 +2232,7 @@ export async function runTriage(
         kanbanTargets,
         courseTargets,
         limitExtraction,
+        proposeActions: !reviewRequired,
       });
       if (artifacts.extractionFailed) {
         stats.errors++;
@@ -2224,6 +2297,10 @@ export async function runTriage(
           courseId: event.courseId,
           courseName: event.courseName,
           updatesCalendarEventId: event.updatesCalendarEventId,
+          status: "pending",
+        })),
+        suggestedActions: artifacts.actions.map((action) => ({
+          ...action,
           status: "pending",
         })),
         modelUsed: `email-classifier:${prediction.modelVersion}`,
@@ -2375,15 +2452,64 @@ async function updateLastRunAt(
 export async function acceptSuggestion(
   triageId: string,
   suggestionId: string,
-  type: "task" | "event",
+  type: TriageSuggestionType,
   overrides?: Record<string, unknown>,
 ): Promise<TriageAcceptanceResponse> {
-  const result = await applyAcceptance(triageId, suggestionId, type, overrides);
+  const result =
+    type === "action"
+      ? await applyActionAcceptance(triageId, suggestionId)
+      : await applyAcceptance(triageId, suggestionId, type, overrides);
   if (result.ok) {
     const accepted = await EmailTriageModel.findById(triageId).lean();
     if (accepted) await observeDomainRecordSafely("email-triage", accepted);
   }
   return result;
+}
+
+/**
+ * Runs a proposed write on the primary connector. The suggestion is claimed
+ * first so a double click cannot run the same create twice; a refused call
+ * hands it back as pending with nothing written.
+ */
+async function applyActionAcceptance(
+  triageId: string,
+  suggestionId: string,
+): Promise<TriageAcceptanceResponse> {
+  await connectDB();
+  if (!mongoose.isValidObjectId(suggestionId)) {
+    return { ok: false, error: "Suggestion not found" };
+  }
+  const suggestionObjectId = new mongoose.Types.ObjectId(suggestionId);
+  const claimed = await EmailTriageModel.findOneAndUpdate(
+    {
+      _id: triageId,
+      suggestedActions: {
+        $elemMatch: { _id: suggestionObjectId, status: { $ne: "accepted" } },
+      },
+    },
+    { $set: { "suggestedActions.$.status": "accepted" } },
+    { projection: { suggestedActions: 1 } },
+  ).lean();
+  const action = claimed?.suggestedActions.find(
+    (entry) => entry._id.toString() === suggestionId,
+  );
+  if (!claimed || !action) {
+    return { ok: false, error: "Suggestion not found or already accepted" };
+  }
+
+  const outcome = await executeTriageAction({
+    tool: action.tool,
+    arguments: action.arguments,
+  });
+  await EmailTriageModel.updateOne(
+    { _id: triageId, "suggestedActions._id": suggestionObjectId },
+    outcome.ok
+      ? { $set: { "suggestedActions.$.result": outcome.result } }
+      : { $set: { "suggestedActions.$.status": action.status } },
+  );
+  return outcome.ok
+    ? { ok: true, acceptedId: suggestionId }
+    : { ok: false, error: outcome.error };
 }
 
 async function applyAcceptance(
@@ -2595,10 +2721,15 @@ async function applyAcceptance(
 export async function dismissSuggestion(
   triageId: string,
   suggestionId: string,
-  type: "task" | "event",
+  type: TriageSuggestionType,
 ): Promise<{ ok: boolean }> {
   await connectDB();
-  const key = type === "task" ? "suggestedTasks" : "suggestedEvents";
+  const key =
+    type === "task"
+      ? "suggestedTasks"
+      : type === "event"
+        ? "suggestedEvents"
+        : "suggestedActions";
   const result = await EmailTriageModel.updateOne(
     {
       _id: triageId,

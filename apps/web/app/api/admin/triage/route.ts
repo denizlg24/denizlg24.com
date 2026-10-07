@@ -176,6 +176,10 @@ export async function GET(request: NextRequest) {
           ? s.acceptedEventId.toString()
           : undefined,
       })),
+      suggestedActions: (t.suggestedActions ?? []).map((s) => ({
+        ...s,
+        _id: String(s._id),
+      })),
       userStatus: t.userStatus,
       modelUsed: t.modelUsed,
       extractionModelUsed: t.extractionModelUsed,

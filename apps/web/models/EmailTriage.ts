@@ -58,6 +58,23 @@ export interface ITriageEventSuggestion {
   acceptedEventId?: mongoose.Types.ObjectId;
 }
 
+export type TriageActionEffect = "create" | "update" | "delete";
+
+/**
+ * A write against the app proposed by triage, held as the MCP call that
+ * performs it. Nothing runs until the owner accepts it.
+ */
+export interface ITriageActionSuggestion {
+  _id: mongoose.Types.ObjectId;
+  tool: string;
+  action?: string;
+  arguments: Record<string, unknown>;
+  summary: string;
+  effect: TriageActionEffect;
+  status: TriageSuggestionStatus;
+  result?: string;
+}
+
 export interface IEmailTriage extends Document {
   emailId: mongoose.Types.ObjectId;
   accountId: mongoose.Types.ObjectId;
@@ -97,6 +114,7 @@ export interface IEmailTriage extends Document {
   attachmentTextSources: string[];
   suggestedTasks: ITriageTaskSuggestion[];
   suggestedEvents: ITriageEventSuggestion[];
+  suggestedActions: ITriageActionSuggestion[];
   userStatus: "pending" | "reviewed" | "archived";
   modelUsed: string;
   extractionModelUsed?: string;
@@ -160,6 +178,24 @@ const EventSuggestionSchema = new Schema<ITriageEventSuggestion>({
     default: "pending",
   },
   acceptedEventId: { type: Schema.Types.ObjectId, ref: "CalendarEvent" },
+});
+
+const ActionSuggestionSchema = new Schema<ITriageActionSuggestion>({
+  tool: { type: String, required: true },
+  action: { type: String },
+  arguments: { type: Schema.Types.Mixed, required: true, default: {} },
+  summary: { type: String, required: true },
+  effect: {
+    type: String,
+    enum: ["create", "update", "delete"],
+    required: true,
+  },
+  status: {
+    type: String,
+    enum: ["pending", "accepted", "dismissed"],
+    default: "pending",
+  },
+  result: { type: String },
 });
 
 const EmailTriageSchema = new Schema<IEmailTriage>(
@@ -231,6 +267,7 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
     attachmentTextSources: { type: [String], default: [] },
     suggestedTasks: { type: [TaskSuggestionSchema], default: [] },
     suggestedEvents: { type: [EventSuggestionSchema], default: [] },
+    suggestedActions: { type: [ActionSuggestionSchema], default: [] },
     userStatus: {
       type: String,
       enum: ["pending", "reviewed", "archived"],

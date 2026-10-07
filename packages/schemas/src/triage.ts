@@ -81,6 +81,31 @@ export type ITriageEventSuggestion = z.infer<
   typeof triageEventSuggestionSchema
 >;
 
+export const triageActionEffectSchema = z.enum(["create", "update", "delete"]);
+export type TriageActionEffect = z.infer<typeof triageActionEffectSchema>;
+
+/**
+ * A change to anything else in the app (a person, a finance rule, a note…)
+ * proposed by triage as the MCP call that makes it. Accepting runs the call
+ * on the primary connector; `result` is what it answered.
+ */
+export const triageActionSuggestionSchema = z.object({
+  _id: z.string(),
+  tool: z.string(),
+  action: z.string().optional(),
+  arguments: z.record(z.string(), z.unknown()),
+  summary: z.string(),
+  effect: triageActionEffectSchema,
+  status: triageSuggestionStatusSchema,
+  result: z.string().optional(),
+});
+export type ITriageActionSuggestion = z.infer<
+  typeof triageActionSuggestionSchema
+>;
+
+export const triageSuggestionTypeSchema = z.enum(["task", "event", "action"]);
+export type TriageSuggestionType = z.infer<typeof triageSuggestionTypeSchema>;
+
 export const emailTriageSchema = z.object({
   _id: z.string(),
   emailId: z.string(),
@@ -115,6 +140,7 @@ export const emailTriageSchema = z.object({
   attachmentTextSources: z.array(z.string()),
   suggestedTasks: z.array(triageTaskSuggestionSchema),
   suggestedEvents: z.array(triageEventSuggestionSchema),
+  suggestedActions: z.array(triageActionSuggestionSchema),
   userStatus: z.enum(["pending", "reviewed", "archived"]),
   modelUsed: z.string(),
   extractionModelUsed: z.string().optional(),

@@ -53,6 +53,7 @@ export type LlmPurpose =
   | "triage-prefilter"
   | "triage-classify"
   | "triage-extract"
+  | "triage-actions"
   | "note-categorize"
   | "semantic"
   | "topic-classify"
@@ -80,6 +81,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "triage-prefilter": ["tool-use"],
   "triage-classify": ["tool-use"],
   "triage-extract": ["tool-use"],
+  "triage-actions": ["tool-use"],
   "note-categorize": [],
   semantic: [],
   "topic-classify": [],
