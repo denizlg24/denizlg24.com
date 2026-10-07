@@ -21,7 +21,7 @@ export interface PublicAccountsRuntime {
 export function publicAccountsFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): PublicAccountsRuntime | null {
-  const from = env.AUTH_EMAIL_FROM ?? "deniz auth <auth@denizlg24.com>";
+  const from = env.AUTH_EMAIL_FROM || "deniz auth <auth@denizlg24.com>";
   if (env.TURNSTILE_SECRET_KEY && env.RESEND_API_KEY) {
     return {
       mailer: resendMailer({ apiKey: env.RESEND_API_KEY, from }),
