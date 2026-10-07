@@ -11,6 +11,7 @@ import {
   primaryButton,
   SectionLabel,
 } from "@/app/_landing/site";
+import { TestFlightForm } from "@/app/_landing/testflight-form";
 import { latestAndroidRelease } from "@/app/android/release";
 
 async function AndroidVersion() {
@@ -90,17 +91,18 @@ export function Platforms() {
         </div>
 
         <div id="iphone" className="reveal flex flex-col gap-6 border-t pt-8">
-          <PlatformStatus available={false}>
-            iPhone · In preparation
-          </PlatformStatus>
-          <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
-            Coming to TestFlight.
-          </h2>
-          <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            The iPhone build is being prepared for TestFlight and the App Store.
-            When testing opens, you’ll be able to install it through TestFlight
-            without registering your device.
-          </p>
+          <PlatformStatus available>iPhone · Public beta</PlatformStatus>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
+              Join on TestFlight.
+            </h2>
+            <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
+              TestFlight is Apple’s app for trying apps before they reach the
+              App Store. Leave your email and Apple sends you an invite — no
+              device registration, and you keep updates as they come out.
+            </p>
+          </div>
+          <TestFlightForm />
         </div>
       </div>
     </section>
@@ -131,6 +133,11 @@ const FAQ: ReadonlyArray<{ question: string; answer: ReactNode }> = [
         <Link href="/privacy">privacy policy</Link> has the details.
       </>
     ),
+  },
+  {
+    question: "How do I update on iPhone?",
+    answer:
+      "TestFlight installs new versions for you, or shows an Update button when one is ready. Each beta build stops working after 90 days, so keep TestFlight updates on to move to the newest one when it’s out.",
   },
   {
     question: "How do I update on Android?",

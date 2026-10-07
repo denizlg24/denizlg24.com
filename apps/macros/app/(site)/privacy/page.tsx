@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="6 October 2026"
+      updated="7 October 2026"
       intro={
         <p>
           Macros is a nutrition tracker built and run by one developer (
@@ -44,6 +44,16 @@ export default function PrivacyPage() {
             <Link href="/account/delete">on this site</Link>.
           </li>
         </ul>
+      </LegalSection>
+
+      <LegalSection title="The iPhone beta">
+        <p>
+          The TestFlight sign-up on the download page sends the email address
+          and any name you enter to Apple, which adds you as a tester and emails
+          the invite. Macros doesn’t keep a copy. Apple’s TestFlight terms cover
+          what it does with tester details, and you can leave the beta from the
+          TestFlight app.
+        </p>
       </LegalSection>
 
       <LegalSection title="Your account">
@@ -110,9 +120,9 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong>Label photos.</strong> When you photograph a nutrition label,
-          the photo is sent to an image-reading service the developer runs,
-          which extracts the values. It isn’t passed to any third party, and
-          Macros doesn’t keep the photo.
+          the photo is sent to an image-reading service the developer runs. That
+          service sends the image through Vercel AI Gateway to an AI model
+          provider to extract the values. Macros doesn’t save the label photo.
         </p>
       </LegalSection>
 

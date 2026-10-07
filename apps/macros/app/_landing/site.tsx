@@ -66,7 +66,7 @@ export function SiteFooter() {
       title: "Get the app",
       links: [
         { href: ANDROID_APK_HREF, label: "Android APK" },
-        { href: "/download#iphone", label: "iPhone availability" },
+        { href: "/download#iphone", label: "iPhone beta" },
         { href: "/download#faq", label: "Questions" },
       ],
     },
@@ -212,9 +212,9 @@ export function GetTheApp({ className }: { className?: string }) {
       <Link href="/download#iphone" className={secondaryButton}>
         <span
           aria-hidden="true"
-          className="size-2 rounded-full bg-foreground/35"
+          className="size-2 rounded-full bg-macro-carbs"
         />
-        iPhone availability
+        Join the iPhone beta
       </Link>
     </div>
   );

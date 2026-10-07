@@ -63,8 +63,10 @@ export default function TermsPage() {
 
       <LegalSection title="Installing the app">
         <p>
-          The iPhone app is being prepared for TestFlight and the App Store. The
-          download page will link to it when testing opens.
+          The iPhone app is in public beta on Apple’s TestFlight. Signing up on
+          the download page asks Apple to send you an invite; beta builds can
+          have bugs, and each one stops working after 90 days unless a newer one
+          replaces it.
         </p>
         <p>
           The Android app is not distributed through Google Play. It is
