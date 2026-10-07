@@ -16,5 +16,6 @@ export * from "./recipes";
 export * from "./shopping-list";
 export * from "./statistics";
 export * from "./strategy";
+export * from "./testflight";
 export * from "./vision";
 export * from "./weights";
