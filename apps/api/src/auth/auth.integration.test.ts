@@ -160,6 +160,7 @@ describe("Better Auth cloud flow", () => {
         email: "owner@example.com",
         emailVerified: false,
         name: "owner",
+        realm: "cloud",
         role: "admin",
         status: "active",
         twoFactorEnabled: false,

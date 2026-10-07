@@ -31,6 +31,13 @@ export const authUser = pgTable("auth_user", {
   username: text("username").unique(),
   displayUsername: text("display_username"),
   status: text("status", { enum: ["pending", "active"] }).default("active"),
+  // `cloud` is the owner and family, each with a `users` row; `public` is a
+  // self-service account that can only ever reach tenant apps. The default is
+  // the less privileged one, so a creation path that forgets to say which
+  // makes an account that can reach nothing of the cloud's.
+  realm: text("realm", { enum: ["cloud", "public"] })
+    .default("public")
+    .notNull(),
   // "Never ask again" on the auth app's post-sign-in passkey offer. Account
   // wide by decision: the label promises it, and a device marker would not
   // survive cleared storage.
@@ -232,6 +239,10 @@ export const authOauthResource = pgTable("auth_oauth_resource", {
   updatedAt: timestamp("updated_at"),
   policyVersion: integer("policy_version").default(1),
   metadata: jsonb("metadata"),
+  // Null for the owner's first-party resources. Not a foreign key: this file
+  // is regenerated from Better Auth, and the tenant routes delete a tenant's
+  // resources themselves.
+  tenantId: text("tenant_id"),
 });
 
 export const authOauthClientResource = pgTable(

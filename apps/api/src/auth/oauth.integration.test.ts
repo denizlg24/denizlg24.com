@@ -144,6 +144,7 @@ describe("cloud OAuth authorization server", () => {
           email: `${username}@example.com`,
           emailVerified: false,
           name: username,
+          realm: "cloud",
           role: role === "superuser" ? "admin" : "user",
           status: "active",
           twoFactorEnabled: false,

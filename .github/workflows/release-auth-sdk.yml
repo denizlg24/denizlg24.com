@@ -1,0 +1,133 @@
+name: Release auth SDK
+
+# Publishes packages/auth-sdk to npm as @denizlg24/auth when its version
+# changes on main. No GitHub release: the Envoy CLI's updater reads this
+# repository's releases, and npm is the SDK's release record.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/auth-sdk/package.json"
+      - ".github/workflows/release-auth-sdk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-auth-sdk
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Detect version change
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Compare versions
+        id: version
+        shell: bash
+        run: |
+          current_version="$(jq -r '.version' packages/auth-sdk/package.json)"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_version="$(
+            git show "${{ github.event.before }}:packages/auth-sdk/package.json" 2>/dev/null |
+              jq -r '.version' ||
+              true
+          )"
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The workflow changed, but the SDK version did not."
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Test and build
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck, test and build
+        working-directory: packages/auth-sdk
+        run: |
+          bun run typecheck
+          bun test
+          bun run build
+
+      - name: Refuse a package that imports the monorepo
+        working-directory: packages/auth-sdk
+        run: |
+          if grep -rE "from ['\"]@repo/" dist; then
+            echo "::error::dist imports a private @repo/* workspace package"
+            exit 1
+          fi
+
+  publish:
+    name: Publish to npm
+    needs: [prepare, verify]
+    runs-on: ubuntu-latest
+    # Owner approval, and the only place the npm token is in reach.
+    environment: npm-release
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Skip without a token
+        id: token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -z "$NPM_TOKEN" ]]; then
+            echo "::notice::NPM_TOKEN is not set on the npm-release environment; nothing was published."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # `prepublishOnly` typechecks, tests and builds again from this checkout.
+      - name: Publish @denizlg24/auth@${{ needs.prepare.outputs.version }}
+        if: steps.token.outputs.present == 'true'
+        working-directory: packages/auth-sdk
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun publish --access public

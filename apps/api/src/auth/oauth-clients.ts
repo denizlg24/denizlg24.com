@@ -8,6 +8,7 @@ import {
 import {
   type CreateOAuthClientInput,
   createOAuthClientInputSchema,
+  OAUTH_SERVICE_SCOPE,
   OAUTH_SUPERUSER_SCOPE,
   type OAuthClientKind,
   type OAuthClientList,
@@ -16,13 +17,14 @@ import {
 import { and, desc, eq, isNull, max, notInArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { CloudAuth } from "./better-auth";
+import { parseClientMetadata, tenantOfClientMetadata } from "./tenancy";
 
 export interface OAuthClientRouteOptions {
   auth: CloudAuth;
   db: Database;
 }
 
-function clientKind(row: {
+export function clientKind(row: {
   userId: string | null;
   grantTypes: string[] | null;
   tokenEndpointAuthMethod: string | null;
@@ -32,8 +34,15 @@ function clientKind(row: {
   return row.tokenEndpointAuthMethod === "none" ? "native" : "web";
 }
 
-export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
-  const [clients, links, grants, resources] = await Promise.all([
+/**
+ * `tenantId: null` is the owner's first-party view; a tenant id narrows both
+ * clients and resources to that tenant's. Neither view shows the other's.
+ */
+export async function listOAuthClients(
+  db: Database,
+  scope: { tenantId: string | null } = { tenantId: null },
+): Promise<OAuthClientList> {
+  const [allClients, links, grants, resources] = await Promise.all([
     db
       .select({
         clientId: authOauthClient.clientId,
@@ -44,6 +53,7 @@ export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
         redirectUris: authOauthClient.redirectUris,
         disabled: authOauthClient.disabled,
         createdAt: authOauthClient.createdAt,
+        metadata: authOauthClient.metadata,
       })
       .from(authOauthClient)
       .orderBy(desc(authOauthClient.createdAt)),
@@ -70,8 +80,22 @@ export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
         name: authOauthResource.name,
       })
       .from(authOauthResource)
-      .where(eq(authOauthResource.disabled, false)),
+      .where(
+        and(
+          eq(authOauthResource.disabled, false),
+          scope.tenantId === null
+            ? isNull(authOauthResource.tenantId)
+            : eq(authOauthResource.tenantId, scope.tenantId),
+        ),
+      ),
   ]);
+  const clients = allClients.filter(
+    (row) =>
+      (row.userId === null
+        ? null
+        : tenantOfClientMetadata(parseClientMetadata(row.metadata))) ===
+      scope.tenantId,
+  );
   const resourcesByClient = new Map<string, string[]>();
   for (const link of links) {
     const list = resourcesByClient.get(link.clientId) ?? [];
@@ -103,7 +127,26 @@ export async function listOAuthClients(db: Database): Promise<OAuthClientList> {
  * a first-party client is reset to exactly what it asked for — a web client
  * able to request MCP tokens is a capability nobody chose.
  */
-async function setClientResources(
+/** Resource identifiers a client in this scope may be bound to. */
+export async function assignableResources(
+  db: Database,
+  tenantId: string | null,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ identifier: authOauthResource.identifier })
+    .from(authOauthResource)
+    .where(
+      and(
+        eq(authOauthResource.disabled, false),
+        tenantId === null
+          ? isNull(authOauthResource.tenantId)
+          : eq(authOauthResource.tenantId, tenantId),
+      ),
+    );
+  return new Set(rows.map((row) => row.identifier));
+}
+
+export async function setClientResources(
   db: Database,
   clientId: string,
   resources: readonly string[],
@@ -131,8 +174,26 @@ async function setClientResources(
   });
 }
 
-function registrationBody(input: CreateOAuthClientInput, ownerId: string) {
-  const metadata = { owner: ownerId };
+export function registrationBody(
+  input: CreateOAuthClientInput,
+  ownerId: string,
+  tenantId: string | null = null,
+) {
+  const metadata = tenantId
+    ? { owner: ownerId, tenant: tenantId }
+    : { owner: ownerId };
+  if (input.kind === "service" && tenantId) {
+    // A tenant's service acts as the tenant, never as a person: no
+    // superuser scope, and the claims hook stamps only `tenant`.
+    return {
+      client_name: input.name,
+      grant_types: ["client_credentials"],
+      token_endpoint_auth_method: "client_secret_basic",
+      scope: OAUTH_SERVICE_SCOPE,
+      client_credentials_scopes: [OAUTH_SERVICE_SCOPE],
+      metadata,
+    };
+  }
   if (input.kind === "service") {
     return {
       client_name: input.name,
@@ -158,7 +219,8 @@ function registrationBody(input: CreateOAuthClientInput, ownerId: string) {
       input.kind === "native" ? "none" : "client_secret_basic",
     application_type: native ? ("native" as const) : ("web" as const),
     scope: "openid profile email offline_access",
-    skip_consent: true,
+    // The owner's own apps skip consent; someone else's app always asks.
+    skip_consent: tenantId === null,
     require_pkce: true,
     metadata,
   };
@@ -200,14 +262,7 @@ export function oauthClientRoutes(options: OAuthClientRouteOptions) {
     if (!parsed.success) {
       return context.json(badRequest("Invalid client"), 400);
     }
-    const configured = new Set(
-      (
-        await options.db
-          .select({ identifier: authOauthResource.identifier })
-          .from(authOauthResource)
-          .where(eq(authOauthResource.disabled, false))
-      ).map((row) => row.identifier),
-    );
+    const configured = await assignableResources(options.db, null);
     if (!parsed.data.resources.every((resource) => configured.has(resource))) {
       return context.json(badRequest("Unknown resource"), 400);
     }

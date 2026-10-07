@@ -1,7 +1,15 @@
 import { API_BASE_URL } from "@repo/cloud-ui/api-client";
 
 /** Parameters the authorization server adds when it signs a redirect. */
-const SIGNING_PARAMS = new Set(["sig", "exp", "ba_iat", "ba_pl", "ba_param"]);
+const SIGNING_PARAMS = new Set([
+  "sig",
+  "exp",
+  "ba_iat",
+  "ba_pl",
+  "ba_param",
+  // Not the server's: the reason the API refused a browser's authorization.
+  "reason",
+]);
 
 /**
  * The authorization server sends the browser here with its original request
@@ -37,6 +45,20 @@ export function authorizeUrl(params: URLSearchParams): string {
     `/api/auth/oauth2/authorize?${query.toString()}`,
     API_BASE_URL,
   ).toString();
+}
+
+/**
+ * The API refused an authorization and sent the browser here with the
+ * original request and a `reason`. Unsigned, so the provider cannot resume it
+ * by itself; `authorizeUrl` rebuilds it once the reason is dealt with.
+ */
+export function isRefusedAuthorization(params: URLSearchParams): boolean {
+  return (
+    !params.has("sig") &&
+    params.has("reason") &&
+    params.has("client_id") &&
+    params.get("response_type") === "code"
+  );
 }
 
 export function isProviderRedirect(

@@ -56,6 +56,7 @@ import {
   createCloudAuth,
 } from "./auth/better-auth";
 import { oauthConfigFromEnv } from "./auth/oauth-config";
+import { publicAccountsFromEnv } from "./auth/public-accounts-config";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
 import { GithubSurfaces } from "./deploy/github-surfaces";
@@ -169,10 +170,12 @@ export async function createRuntimeApp() {
     const baseURL = cloudEnv("BETTER_AUTH_URL");
     const sharedAuthSecret = authSecret();
     const oauthConfig = oauthConfigFromEnv(baseURL);
+    const publicAccounts = publicAccountsFromEnv();
     const auth = createCloudAuth({
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
       db,
+      mailer: publicAccounts?.mailer,
       oauth: oauthConfig,
       passkey: { rpId: process.env.PASSKEY_RP_ID || undefined },
       secret: sharedAuthSecret,
@@ -842,8 +845,16 @@ export async function createRuntimeApp() {
       oauth: {
         issuer: cloudAuthIssuer(baseURL),
         audience: oauthConfig.resources.api,
+        authAppUrl: oauthConfig.authAppUrl,
       },
       isProduction: process.env.NODE_ENV === "production",
+      publicAccounts: publicAccounts
+        ? {
+            ...publicAccounts,
+            authAppUrl: oauthConfig.authAppUrl,
+            apiUrl: baseURL,
+          }
+        : undefined,
       rateLimitStore: new RedisRateLimitStore(redis),
       storage: {
         service: storageService,

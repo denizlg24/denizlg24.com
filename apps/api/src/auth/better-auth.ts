@@ -5,9 +5,12 @@ import { type Database, hashPassword, verifyPassword } from "@repo/cloud-core";
 import * as schema from "@repo/cloud-core/db/schema";
 import {
   AUTH_APP_URL,
+  MIN_PASSWORD_LENGTH,
   OAUTH_RESOURCES,
+  OAUTH_SERVICE_SCOPE,
   OAUTH_SUPERUSER_CLAIM,
   OAUTH_SUPERUSER_SCOPE,
+  OAUTH_TENANT_CLAIM,
   type OAuthResourceKey,
 } from "@repo/schemas/cloud";
 import { betterAuth } from "better-auth";
@@ -17,11 +20,23 @@ import { admin, jwt, twoFactor, username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  type AuthMailer,
+  passwordResetEmail,
+  unavailableMailer,
+  verificationEmail,
+} from "./email";
+import {
   assertUserVerified,
   type PasskeyRelyingParty,
   passkeyRelyingParty,
 } from "./passkey";
 import { rememberMeGrants } from "./remember-me";
+import {
+  activeTenant,
+  currentTenantClientGrant,
+  tenantAccess,
+  tenantOfClientMetadata,
+} from "./tenancy";
 
 const SESSION_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
@@ -103,9 +118,21 @@ export interface CloudAuthOptions {
   oauth?: CloudOAuthConfig;
   /** Derived from `cookieDomain` and the auth app URL when omitted. */
   passkey?: Partial<PasskeyRelyingParty>;
+  /** Verification and password-reset mail. Omitted, every send fails. */
+  mailer?: AuthMailer;
 }
 
 const uuidSchema = z.uuid();
+
+/**
+ * Mail is sent only to public accounts, so awaiting it would let response
+ * time and delivery failures reveal which addresses hold one.
+ */
+function deliverInBackground(delivery: Promise<void>, kind: string): void {
+  delivery.catch((error: unknown) => {
+    console.error(`${kind} mail failed`, error);
+  });
+}
 
 /**
  * The one test every OAuth grant is held to, at issuance and again at every
@@ -125,13 +152,19 @@ export async function isActiveSuperuser(
       where: eq(schema.users.id, userId),
     }),
     db.query.authUser.findFirst({
-      columns: { banned: true, status: true, twoFactorEnabled: true },
+      columns: {
+        banned: true,
+        realm: true,
+        status: true,
+        twoFactorEnabled: true,
+      },
       where: eq(schema.authUser.id, userId),
     }),
   ]);
   return (
     legacy?.role === "superuser" &&
-    account?.status === "active" &&
+    account?.realm === "cloud" &&
+    account.status === "active" &&
     account.twoFactorEnabled === true &&
     account.banned !== true
   );
@@ -150,6 +183,7 @@ export function cloudAuthIssuer(baseURL: string): string {
 
 export function createCloudAuth(options: CloudAuthOptions) {
   const oauth = options.oauth ?? DEFAULT_CLOUD_OAUTH_CONFIG;
+  const mailer = options.mailer ?? unavailableMailer();
   const authAppUrl = oauth.authAppUrl.replace(/\/$/, "");
   const rememberMe = rememberMeGrants({
     db: options.db,
@@ -270,11 +304,56 @@ export function createCloudAuth(options: CloudAuthOptions) {
     },
     emailAndPassword: {
       autoSignIn: false,
+      // Public accounts are made by `/api/auth/public/sign-up`, which applies
+      // the tenant's policy and Turnstile first; the plugin's own route stays shut.
       disableSignUp: true,
       enabled: true,
+      minPasswordLength: MIN_PASSWORD_LENGTH,
       password: {
         hash: hashPassword,
         verify: verifyPassword,
+      },
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
+      // A cloud account's credentials are the owner's to manage; an email
+      // address must never be a way into storage or the superuser's account.
+      // Better Auth answers the request identically either way.
+      sendResetPassword: async ({ user, url }) => {
+        const account = await options.db.query.authUser.findFirst({
+          columns: { realm: true },
+          where: eq(schema.authUser.id, user.id),
+        });
+        if (account?.realm !== "public") return;
+        deliverInBackground(
+          mailer.send(
+            passwordResetEmail({ to: user.email, name: user.name, url }),
+          ),
+          "Password reset",
+        );
+      },
+    },
+    emailVerification: {
+      // Opening the link signs in, which is what lets a new account resume
+      // the authorization it signed up from. A sign-in that is one email
+      // away must never reach an account with a second factor: that would
+      // skip it, and for a cloud superuser it would skip the whole cloud's.
+      // So the link is only ever sent to a public account without one.
+      autoSignInAfterVerification: true,
+      expiresIn: 60 * 60,
+      sendVerificationEmail: async ({ user, url }) => {
+        const account = await options.db.query.authUser.findFirst({
+          columns: { realm: true, twoFactorEnabled: true },
+          where: eq(schema.authUser.id, user.id),
+        });
+        if (account?.realm !== "public" || account.twoFactorEnabled === true) {
+          return;
+        }
+        deliverInBackground(
+          mailer.send(
+            verificationEmail({ to: user.email, name: user.name, url }),
+          ),
+          "Verification",
+        );
       },
     },
     plugins: [
@@ -324,6 +403,7 @@ export function createCloudAuth(options: CloudAuthOptions) {
           "email",
           "offline_access",
           OAUTH_SUPERUSER_SCOPE,
+          OAUTH_SERVICE_SCOPE,
         ],
         // Registration is open because MCP clients register themselves, so a
         // registered client must never be able to hold the machine scope.
@@ -358,9 +438,27 @@ export function createCloudAuth(options: CloudAuthOptions) {
         storeTokens: rememberMe.storeTokens,
         customTokenResponseFields: rememberMe.customTokenResponseFields,
         formatRefreshToken: rememberMe.formatRefreshToken,
-        clientPrivileges: async ({ user }) =>
-          user ? isActiveSuperuser(options.db, user.id) : false,
+        clientPrivileges: async ({ user }) => {
+          if (!user) return false;
+          if (await isActiveSuperuser(options.db, user.id)) return true;
+          return currentTenantClientGrant()?.userId === user.id;
+        },
         customAccessTokenClaims: async ({ user, scopes, metadata }) => {
+          // A tenant's client never carries `superuser`, whoever signs in:
+          // the owner using someone's app is just another of its users.
+          const tenantId = tenantOfClientMetadata(metadata);
+          if (tenantId) {
+            if (user === undefined) {
+              if (!(await activeTenant(options.db, tenantId))) {
+                throw denied("tenant_unavailable");
+              }
+              return { [OAUTH_TENANT_CLAIM]: tenantId };
+            }
+            if (!user) throw denied("account_inactive");
+            const access = await tenantAccess(options.db, tenantId, user.id);
+            if (!access.ok) throw denied(access.reason);
+            return { [OAUTH_TENANT_CLAIM]: tenantId };
+          }
           if (user === undefined) {
             // client_credentials. The client acts as whoever created it, so the
             // grant is only as good as that account still is.
@@ -412,6 +510,12 @@ export function createCloudAuth(options: CloudAuthOptions) {
           input: false,
           required: false,
           type: ["pending", "active"],
+        },
+        realm: {
+          defaultValue: "public",
+          input: false,
+          required: false,
+          type: ["cloud", "public"],
         },
         // Settable by the signed-in user through `updateUser`: the auth app's
         // "Never ask again" on the post-sign-in passkey offer.

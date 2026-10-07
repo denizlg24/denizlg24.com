@@ -48,6 +48,7 @@ try {
       emailVerified: true,
       createdAt: now,
       updatedAt: now,
+      realm: "cloud",
       role: "admin",
       status: "active",
       twoFactorEnabled: false,

@@ -9,13 +9,25 @@ import type { Destination } from "./destination";
  * line pinned under it. Only the column carries the step transition name, so
  * the strip and the line stay put while a step changes.
  */
+export interface FlowApp {
+  name: string;
+  logoUrl: string | null;
+}
+
 export function FlowFrame({
   destination,
+  app,
   themeToggle,
   children,
 }: {
   /** `null` or omitted hides the line; `"pending"` holds its place while it resolves. */
   destination?: Destination | "pending" | null;
+  /**
+   * Someone else's app the visitor is signing in to. Its mark sits over the
+   * step so it is clear whose account screen this is not: deniz auth stays
+   * in the strip.
+   */
+  app?: FlowApp | null;
   themeToggle?: ReactNode;
   children: ReactNode;
 }) {
@@ -26,13 +38,44 @@ export function FlowFrame({
         {themeToggle}
       </header>
       <main className="flex flex-1 flex-col items-center justify-center px-5 py-8 sm:px-8">
-        <div className="auth-flow-step w-full max-w-[26rem]">{children}</div>
+        <div className="w-full max-w-[26rem]">
+          {app ? <AppMark app={app} /> : null}
+          <div className="auth-flow-step">{children}</div>
+        </div>
       </main>
       <footer className="px-5 pb-8 sm:px-8">
         <div className="mx-auto w-full max-w-[26rem] border-t pt-4">
           <DestinationLine destination={destination ?? null} />
         </div>
       </footer>
+    </div>
+  );
+}
+
+function AppMark({ app }: { app: FlowApp }) {
+  return (
+    <div className="mb-8 flex items-center gap-3">
+      {app.logoUrl ? (
+        // A tenant's logo is an arbitrary external URL; next/image would need
+        // every host allow-listed.
+        // biome-ignore lint/performance/noImgElement: see above
+        <img
+          src={app.logoUrl}
+          alt=""
+          width={32}
+          height={32}
+          referrerPolicy="no-referrer"
+          className="size-8 rounded-md object-cover"
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="flex size-8 items-center justify-center rounded-md bg-muted text-sm font-semibold text-accent-strong"
+        >
+          {app.name.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <span className="text-sm font-medium text-accent-strong">{app.name}</span>
     </div>
   );
 }
