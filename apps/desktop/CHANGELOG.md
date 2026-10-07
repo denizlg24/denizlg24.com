@@ -7,6 +7,14 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 2.4.0 — 2026-10-07
+
+### Added
+- Triage proposes changes to the rest of the app alongside tasks and events:
+  adding, updating or removing people, finance rules, notes and anything else
+  the denizlg24 MCP server exposes. Each proposal shows the exact call and its
+  arguments, and runs only when accepted; proposals are never auto-accepted.
+
 ## 2.3.3 — 2026-10-05
 
 ### Added

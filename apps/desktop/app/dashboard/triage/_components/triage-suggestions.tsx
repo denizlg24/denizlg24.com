@@ -8,11 +8,18 @@ import {
   ClipboardList,
   ListTodo,
   Loader2,
+  PencilLine,
+  Plus,
+  Trash2,
   Undo2,
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import type { IEmailTriage } from "@/lib/data-types";
+import type {
+  IEmailTriage,
+  ITriageActionSuggestion,
+  TriageSuggestionType,
+} from "@/lib/data-types";
 
 type SuggestionStatus = "pending" | "accepted" | "dismissed";
 
@@ -25,6 +32,7 @@ function SuggestionRow({
   title,
   detail,
   meta,
+  call,
   status,
   pending,
   onAccept,
@@ -34,6 +42,8 @@ function SuggestionRow({
   title: string;
   detail?: string;
   meta?: ReactNode;
+  /** The exact write an action runs, shown before it is accepted. */
+  call?: Record<string, unknown>;
   status: SuggestionStatus;
   pending: boolean;
   onAccept: () => void;
@@ -80,6 +90,14 @@ function SuggestionRow({
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] text-muted-foreground">
             {meta}
           </div>
+        )}
+        {call && (
+          <details className="mt-1.5 text-[10px] text-muted-foreground">
+            <summary className="cursor-pointer select-none">arguments</summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono leading-relaxed">
+              {JSON.stringify(call, null, 2)}
+            </pre>
+          </details>
         )}
       </div>
 
@@ -146,26 +164,41 @@ function SuggestionRow({
   );
 }
 
+const ACTION_ICONS: Record<ITriageActionSuggestion["effect"], ReactNode> = {
+  create: <Plus className="size-3.5" />,
+  update: <PencilLine className="size-3.5" />,
+  delete: <Trash2 className="size-3.5" />,
+};
+
+/** `web_finance_rules` → `finance rules`. */
+function resourceLabel(tool: string): string {
+  return tool.replace(/^web_/, "").replaceAll("_", " ");
+}
+
 export function TriageSuggestions({
   triage,
   pendingIds,
   onDecide,
 }: {
-  triage: Pick<IEmailTriage, "suggestedTasks" | "suggestedEvents">;
+  triage: Pick<
+    IEmailTriage,
+    "suggestedTasks" | "suggestedEvents" | "suggestedActions"
+  >;
   pendingIds: Set<string>;
   onDecide: (
     id: string,
-    type: "task" | "event",
+    type: TriageSuggestionType,
     action: "accept" | "dismiss",
   ) => void;
 }) {
   const tasks = triage.suggestedTasks;
   const events = triage.suggestedEvents;
-  const total = tasks.length + events.length;
+  const actions = triage.suggestedActions;
+  const total = tasks.length + events.length + actions.length;
 
   if (total === 0) return null;
 
-  const open = [...tasks, ...events].filter(
+  const open = [...tasks, ...events, ...actions].filter(
     (entry) => entry.status === "pending",
   ).length;
 
@@ -232,6 +265,36 @@ export function TriageSuggestions({
               <span className="tabular-nums">
                 {new Date(event.date).toLocaleString()}
               </span>
+            }
+          />
+        ))}
+
+        {actions.map((change) => (
+          <SuggestionRow
+            key={change._id}
+            icon={ACTION_ICONS[change.effect]}
+            title={change.summary}
+            detail={change.status === "accepted" ? change.result : undefined}
+            status={change.status}
+            pending={pendingIds.has(change._id)}
+            onAccept={() => onDecide(change._id, "action", "accept")}
+            onDismiss={() => onDecide(change._id, "action", "dismiss")}
+            call={change.status === "pending" ? change.arguments : undefined}
+            meta={
+              <>
+                <span
+                  className={cn(
+                    "uppercase tracking-[0.12em]",
+                    change.effect === "delete" && "text-destructive",
+                  )}
+                >
+                  {change.effect}
+                </span>
+                <span className="font-mono">
+                  {resourceLabel(change.tool)}
+                  {change.action ? ` · ${change.action}` : ""}
+                </span>
+              </>
             }
           />
         ))}

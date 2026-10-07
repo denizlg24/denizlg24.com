@@ -115,6 +115,10 @@ export async function GET(
           ? s.acceptedEventId.toString()
           : undefined,
       })),
+      suggestedActions: (triage.suggestedActions ?? []).map((s) => ({
+        ...s,
+        _id: String(s._id),
+      })),
     },
     email: {
       _id: email._id.toString(),

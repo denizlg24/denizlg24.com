@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import {
   triageCategoryRoutingSchema,
   triageCategorySchema,
+  triageSuggestionTypeSchema,
   triageUpdateInputSchema,
   triageWarmBodiesInputSchema,
 } from "@repo/schemas";
@@ -45,11 +46,12 @@ export function registerWebTriage(server: McpServer, api: Api) {
           api.web.patch(p`/api/admin/triage/${id}`, body),
       }),
       suggestion_update: action({
-        description: "Accepts or dismisses a task/event suggestion",
+        description:
+          "Accepts or dismisses a task, event or action suggestion; accepting an action runs its proposed write",
         input: z.object({
           id,
           suggestionId: z.string().min(1),
-          type: z.enum(["task", "event"]),
+          type: triageSuggestionTypeSchema,
           decision: z.enum(["accept", "dismiss"]),
           overrides: z
             .record(z.string(), z.unknown())

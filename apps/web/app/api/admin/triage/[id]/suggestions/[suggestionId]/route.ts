@@ -1,8 +1,9 @@
+import { triageSuggestionTypeSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
 import { acceptSuggestion, dismissSuggestion } from "@/lib/triage";
 
-const SUGGESTION_TYPES = ["task", "event"] as const;
+const SUGGESTION_TYPES = triageSuggestionTypeSchema.options;
 const SUGGESTION_ACTIONS = ["accept", "dismiss"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
