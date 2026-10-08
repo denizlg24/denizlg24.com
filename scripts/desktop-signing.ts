@@ -25,6 +25,13 @@ const CSR = join(DIR, "developer-id.csr");
 const CER = join(DIR, "developer-id.cer");
 const P12 = join(DIR, "developer-id.p12");
 const ENVIRONMENT = "desktop-release";
+// Bun loads the repo's .env, whose GITHUB_TOKEN is narrower than the owner's
+// gh login and cannot write environment secrets.
+const ghEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([key]) => key !== "GITHUB_TOKEN" && key !== "GH_TOKEN",
+  ),
+);
 const REPO = "denizlg24/denizlg24.com";
 
 function readEnvFile(path: string): Record<string, string> {
@@ -52,9 +59,9 @@ async function createCsr() {
 }
 
 async function setSecret(name: string, value: string) {
-  await $`gh secret set ${name} --env ${ENVIRONMENT} --repo ${REPO}`.stdin(
-    Buffer.from(value),
-  );
+  await $`gh secret set ${name} --env ${ENVIRONMENT} --repo ${REPO} < ${Buffer.from(value)}`
+    .env(ghEnv)
+    .quiet();
   console.log(`set ${name}`);
 }
 
@@ -91,7 +98,17 @@ async function uploadSecrets() {
     if (!ios[name]) throw new Error(`.env.ios has no ${name}`);
   }
 
-  await $`gh api --method PUT repos/${REPO}/environments/${ENVIRONMENT}`.quiet();
+  // A fine-grained token may write environment secrets yet not create the
+  // environment itself, so that one step is left to the settings page.
+  const environment = await $`gh api repos/${REPO}/environments/${ENVIRONMENT}`
+    .env(ghEnv)
+    .quiet()
+    .nothrow();
+  if (environment.exitCode !== 0) {
+    throw new Error(
+      `Create the "${ENVIRONMENT}" environment first (no protection rules): https://github.com/${REPO}/settings/environments/new`,
+    );
+  }
   await setSecret(
     "APPLE_DEVELOPER_ID_P12",
     readFileSync(P12).toString("base64"),
