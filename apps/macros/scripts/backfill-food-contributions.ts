@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db } from "@/db/connection";
 import { foodContributions, foods, userCustomFoods } from "@/db/schema";
@@ -25,7 +25,16 @@ const candidates = await db
   })
   .from(foods)
   .where(
-    and(eq(foods.source, "deniz_nutrition"), isNotNull(foods.externalItemId)),
+    and(
+      eq(foods.source, "deniz_nutrition"),
+      isNotNull(foods.externalItemId),
+      // Only a food someone saved as their own can have been contributed;
+      // the rest of the cache is search results and would cost an API call each.
+      inArray(
+        foods.id,
+        db.selectDistinct({ id: userCustomFoods.foodId }).from(userCustomFoods),
+      ),
+    ),
   );
 
 let recorded = 0;
