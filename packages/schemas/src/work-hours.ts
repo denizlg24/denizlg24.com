@@ -180,3 +180,33 @@ export const workHoursOverviewSchema = z.object({
   serverTime: isoDateTimeSchema,
 });
 export type WorkHoursOverview = z.infer<typeof workHoursOverviewSchema>;
+
+// ---------------------------------------------------------------------------
+// The open shift as a Live Activity
+//
+// The same shape is decoded by ActivityKit from an APNs push and encoded by
+// the Hours app when it starts an activity itself, so it is the Swift
+// `ShiftAttributes.ContentState` too. Instants are Unix seconds: ActivityKit's
+// push decoder reads a JSON date as seconds since 2001, which no ISO string
+// survives.
+// ---------------------------------------------------------------------------
+
+export const shiftActivityStateSchema = z.object({
+  sessionId: z.string().min(1),
+  /** `ended` is only ever sent with the activity's end, frozen at clock-out. */
+  status: z.enum(["working", "break", "ended"]),
+  /** Where a count-up timer of worked time starts: now − worked, unpaid breaks skipped. */
+  workedFrom: z.number(),
+  /** The open break's start; null while working. */
+  breakFrom: z.number().nullable(),
+  /** Worked seconds when the state was made, the frozen figure during a break. */
+  workedSeconds: z.number().int().nonnegative(),
+});
+export type ShiftActivityState = z.infer<typeof shiftActivityStateSchema>;
+
+export const shiftActivityAttributesSchema = z.object({
+  jobName: z.string(),
+});
+export type ShiftActivityAttributes = z.infer<
+  typeof shiftActivityAttributesSchema
+>;

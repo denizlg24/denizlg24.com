@@ -1,0 +1,10 @@
+.expo/
+dist/
+/ios/
+/android/
+expo-env.d.ts
+*.ipa
+*.apk
+*.aab
+*.keystore
+*.jks

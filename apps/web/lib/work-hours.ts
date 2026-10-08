@@ -21,6 +21,7 @@ import mongoose from "mongoose";
 import { after } from "next/server";
 import { estimatePayouts } from "@/lib/finance/payouts";
 import { refreshPayoutProjections } from "@/lib/finance/rules";
+import { scheduleShiftPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import { FinanceRecurringRule } from "@/models/Finance";
 import {
@@ -250,6 +251,7 @@ export async function createWorkSession(input: WorkSessionInput) {
       ...(end ? {} : { openKey: "open" }),
     });
     schedulePayoutRefresh(job._id.toString());
+    scheduleShiftPush();
     return serializeWorkSession(session, job.breaksPaid);
   } catch (error) {
     if ((error as { code?: number }).code === 11000) {
@@ -304,6 +306,7 @@ export async function updateWorkSession(id: string, input: WorkSessionUpdate) {
   if (previousJobId !== job._id.toString()) {
     schedulePayoutRefresh(previousJobId);
   }
+  scheduleShiftPush();
   return serializeWorkSession(session, job.breaksPaid);
 }
 
@@ -311,7 +314,10 @@ export async function deleteWorkSession(id: string) {
   await connectDB();
   if (!mongoose.isValidObjectId(id)) return null;
   const session = await WorkSession.findByIdAndDelete(id);
-  if (session) schedulePayoutRefresh(session.jobId.toString());
+  if (session) {
+    schedulePayoutRefresh(session.jobId.toString());
+    scheduleShiftPush();
+  }
   return session;
 }
 
@@ -383,6 +389,7 @@ export async function clockWorkSession(input: WorkClockAction) {
   if (input.action === "out") {
     schedulePayoutRefresh(job._id.toString());
   }
+  scheduleShiftPush();
   return serializeWorkSession(open, job.breaksPaid);
 }
 

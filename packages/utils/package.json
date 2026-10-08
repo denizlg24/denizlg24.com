@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./changelog": "./src/changelog.ts"
+    "./changelog": "./src/changelog.ts",
+    "./apns": "./src/apns.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

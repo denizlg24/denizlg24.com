@@ -123,7 +123,7 @@ export const POST = async (req: NextRequest) => {
       connectors: request.connectors,
       pageContext: request.pageContext,
       responseStyle: request.responseStyle,
-      pageTools: true,
+      pageTools: request.pageTools,
       memory,
       abortSignal: req.signal,
       onFinish: async ({ messages }) => {

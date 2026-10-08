@@ -1,0 +1,17 @@
+{
+  "name": "@repo/expo-ios-targets",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "expo": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "expo": "~57.0.25"
+  }
+}

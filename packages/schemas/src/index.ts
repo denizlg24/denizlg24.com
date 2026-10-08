@@ -23,6 +23,7 @@ export * from "./latex-project";
 export * from "./latex-research";
 export * from "./llm";
 export * from "./macros";
+export * from "./mobile";
 export * from "./notes";
 export * from "./paper";
 export * from "./people";
