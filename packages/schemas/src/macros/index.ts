@@ -7,6 +7,7 @@ export * from "./food-log";
 export * from "./foods";
 export * from "./goals";
 export * from "./health-sync";
+export * from "./moderation";
 export * from "./notifications";
 export * from "./nutrients";
 export * from "./plans";

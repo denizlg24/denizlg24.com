@@ -7,6 +7,19 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.15 — 2026-10-08
+
+### Added
+- **Report a shared food.** Foods other people added with a barcode now have
+  a flag button: report one and it disappears from your searches while it is
+  reviewed.
+- **Hide a contributor.** Stop seeing every food the same person added.
+  Undo it in Settings › Hidden Contributors.
+
+### Changed
+- Foods you share are checked before they join the database; one that can’t
+  be shared is saved to your foods only, and the app says why.
+
 ## 0.0.14 — 2026-10-06
 
 ### Fixed

@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="7 October 2026"
+      updated="8 October 2026"
       intro={
         <p>
           Macros is a nutrition tracker built and run by one developer (
@@ -100,6 +100,29 @@ export default function PrivacyPage() {
           run by the developer, not into the database. The app only reaches them
           through signed links that expire after 15 minutes. Deleting a photo in
           the app deletes the file from storage.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Shared foods, reports and hiding">
+        <p>
+          When a food you create is added to the shared database, Macros keeps a
+          private record that your account added it, so a report about it can be
+          acted on. Other people never see who added a food; the moderator sees
+          a code in place of your name, and looking up the email behind it is
+          logged.
+        </p>
+        <p>
+          If you report a food, Macros stores the food, the reason, any note you
+          write and when you sent it. Notes are shown to the moderator without
+          your name. If you hide a contributor, Macros stores that you did and
+          the name of the food you did it from. When a food is removed or an
+          account is restricted, the action and the moderator’s note are kept in
+          a moderation log.
+        </p>
+        <p>
+          Deleting your account deletes your reports, the people you hid, and
+          the record that you added any shared food. Foods you shared stay in
+          the database, with nothing that links them to you.
         </p>
       </LegalSection>
 

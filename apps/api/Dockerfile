@@ -16,6 +16,7 @@ COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/envoy/package.json apps/envoy/package.json
 COPY apps/forge/package.json apps/forge/package.json
 COPY apps/macros-mobile/package.json apps/macros-mobile/package.json
+COPY apps/macros-admin/package.json apps/macros-admin/package.json
 COPY apps/macros/package.json apps/macros/package.json
 COPY apps/markets-relay/package.json apps/markets-relay/package.json
 COPY apps/mcp/package.json apps/mcp/package.json

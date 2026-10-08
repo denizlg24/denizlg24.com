@@ -428,6 +428,7 @@ export function createCloudAuth(options: CloudAuthOptions) {
           },
           { identifier: oauth.resources.mcp, name: "MCP" },
           { identifier: oauth.resources.status, name: "Status page" },
+          { identifier: oauth.resources.macros, name: "Macros" },
         ],
         clientRegistrationDefaultResources: [oauth.resources.mcp],
         m2mAccessTokenExpiresIn: MACHINE_ACCESS_TOKEN_SECONDS,

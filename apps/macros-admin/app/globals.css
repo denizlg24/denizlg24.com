@@ -1,0 +1,50 @@
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "tw-animate-css";
+@import "@repo/ui/theme.css";
+@source "../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../../../packages/cloud-ui/src/**/*.{ts,tsx}";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-danger: var(--danger);
+}
+
+/* `--destructive` is a fill colour: as text on the dark background it reads
+   at 1.9:1. Text uses `text-danger`; buttons keep the shared fill. */
+:root {
+  --danger: var(--destructive);
+}
+
+.dark {
+  --danger: #f2a48f;
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  accent-color: var(--primary);
+  caret-color: var(--accent-strong);
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+::selection {
+  background-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.dark ::selection {
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}

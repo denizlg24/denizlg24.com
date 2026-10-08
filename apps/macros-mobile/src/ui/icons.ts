@@ -45,6 +45,8 @@ import Delete from "lucide-react-native/icons/delete";
 import Droplet from "lucide-react-native/icons/droplet";
 import Dumbbell from "lucide-react-native/icons/dumbbell";
 import Ellipsis from "lucide-react-native/icons/ellipsis";
+import Eye from "lucide-react-native/icons/eye";
+import EyeOff from "lucide-react-native/icons/eye-off";
 import FileText from "lucide-react-native/icons/file-text";
 import Fish from "lucide-react-native/icons/fish";
 import Flag from "lucide-react-native/icons/flag";
@@ -164,6 +166,8 @@ export const icons = {
   "cup-soda": CupSoda,
   dumbbell: Dumbbell,
   ellipsis: Ellipsis,
+  eye: Eye,
+  "eye-off": EyeOff,
   "file-text": FileText,
   fish: Fish,
   flag: Flag,

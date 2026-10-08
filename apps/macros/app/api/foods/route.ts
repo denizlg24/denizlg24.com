@@ -49,6 +49,8 @@ export async function POST(request: Request) {
       nutrition: result.nutrition,
       localFoodId: result.foodId,
       snapshotId: result.snapshotId,
+      shared: result.shared,
+      sharingWithheld: result.sharingWithheld,
       fetchedAt: new Date().toISOString(),
     } satisfies MacrosCreateFoodResponse,
     { status: 201 },

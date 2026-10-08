@@ -11,6 +11,7 @@ import {
   toFoodSearchItem,
 } from "@/lib/foods/service";
 import { getNutritionFoodByBarcode } from "@/lib/foods/source";
+import { hiddenItemIdsFor } from "@/lib/moderation/service";
 import { toNutritionSourceErrorResponse } from "../../_lib/source-error-response";
 
 const paramsSchema = macrosBarcodeParamsSchema;
@@ -49,6 +50,9 @@ export async function GET(
 
   try {
     const summary = await getNutritionFoodByBarcode(parsed.data.barcode);
+    if ((await hiddenItemIdsFor(session.user.id)).has(summary.id)) {
+      return NextResponse.json({ error: "Food not found" }, { status: 404 });
+    }
     const result = await ensureExternalFoodSnapshot(summary.id, summary);
 
     return NextResponse.json({

@@ -33,4 +33,10 @@ export class SearchIndexer {
     await this.search.addDocuments(rows.map(buildSearchDocument));
     await this.cache?.invalidate();
   }
+
+  async remove(itemIds: string[]) {
+    if (itemIds.length === 0) return;
+    await this.search.deleteDocuments(itemIds);
+    await this.cache?.invalidate();
+  }
 }

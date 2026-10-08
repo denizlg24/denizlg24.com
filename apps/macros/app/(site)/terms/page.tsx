@@ -12,7 +12,7 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of use"
-      updated="29 September 2026"
+      updated="8 October 2026"
       intro={
         <p>
           These terms cover the Macros apps for iPhone and Android and the
@@ -79,15 +79,65 @@ export default function TermsPage() {
         <p>
           Food search draws on a shared nutrition database. When you create a
           food with a barcode, its name, brand, serving and nutrition are added
-          to that database so others scanning the same barcode can find it. Only
-          add products you are describing honestly.
+          to that database so others scanning the same barcode can find it. Your
+          name and email are never attached to it. Only add products you are
+          describing honestly.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Shared foods: what is not allowed">
+        <p>
+          There is no tolerance for objectionable content or abusive behaviour.
+          A food you share must describe a real product. Its name and brand must
+          not contain:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            insults, slurs, harassment or hateful content about anyone, or
+            sexual or violent content;
+          </li>
+          <li>advertising, links, or anything meant to promote something;</li>
+          <li>
+            personal information such as names, phone numbers or email
+            addresses;
+          </li>
+          <li>
+            deliberately false nutrition meant to mislead the people who scan
+            it.
+          </li>
+        </ul>
+        <p>
+          Macros checks the text of every shared food before it is published,
+          and a food that fails the check stays private to you.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Reporting and hiding">
+        <p>
+          Any shared food can be reported from its screen in the app (the ⋯
+          menu, then Report). A reported food disappears from your searches
+          straight away. You can also hide every food added by the same person;
+          hidden people are listed under More › Settings › Hidden Contributors,
+          where you can undo it.
+        </p>
+        <p>
+          Reports are reviewed within 24 hours. A food that breaks these terms
+          is removed from the database. Its contributor can lose the ability to
+          share foods, or have their account suspended, without notice. A food
+          reported by several people is taken out of search until it has been
+          reviewed. To report something outside the app, email{" "}
+          <a href="mailto:geral@oceaninformatix.com">
+            geral@oceaninformatix.com
+          </a>
+          .
         </p>
       </LegalSection>
 
       <LegalSection title="Fair use">
         <p>
           Use Macros for your own tracking. Don’t try to access other people’s
-          data, overload the service, or use it to scrape the food database.
+          data, overload the service, use it to scrape the food database, or
+          create accounts to get around a suspension.
         </p>
       </LegalSection>
 

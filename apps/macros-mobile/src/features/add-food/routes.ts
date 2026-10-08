@@ -12,6 +12,7 @@ export const addFoodModalRoutes: ModalRoute[] = [
   // The hub runs its own stack, so the plate pushes inside the modal.
   { name: "add-food", options: { presentation: "modal", headerShown: false } },
   { name: "food/[id]", options: amountSheet },
+  { name: "report-food/[id]", options: compactSheet },
   { name: "recipe-log/[id]", options: amountSheet },
   { name: "scan", options: cameraModal },
   { name: "label", options: cameraModal },

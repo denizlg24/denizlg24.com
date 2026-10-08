@@ -17,7 +17,12 @@ import type {
   NutritionPayload,
   UpdateItemInput,
 } from "./schemas";
-import { type ItemsRepositoryPort, ItemsService } from "./service";
+import {
+  type ItemIndexer,
+  type ItemModeration,
+  type ItemsRepositoryPort,
+  ItemsService,
+} from "./service";
 
 const baseItem = {
   id: "3df21ba2-94ef-44fc-aed6-3593bb9ca001",
@@ -78,6 +83,27 @@ class FakeItemsRepository implements ItemsRepositoryPort {
 
   async findByBarcode(_barcode: string) {
     return this.existingByBarcode;
+  }
+
+  removedBarcode = false;
+  moderation?: ItemModeration;
+
+  async isBarcodeRemoved(_barcode: string) {
+    return this.removedBarcode;
+  }
+
+  async findModeration(_id: string) {
+    return this.moderation;
+  }
+
+  async setRemoved(id: string, removed: boolean, reason: string | null) {
+    this.moderation = {
+      id,
+      source: "user",
+      removedAt: removed ? new Date() : null,
+      removedReason: removed ? reason : null,
+    };
+    return this.moderation;
   }
 
   async findPortions(_itemId: string) {
@@ -361,5 +387,49 @@ describe("ItemsService", () => {
       code: "NUTRITION_NOT_FOUND",
       statusCode: 404,
     });
+  });
+
+  it("refuses a barcode a moderator took down, without the live fallback", async () => {
+    const repository = new FakeItemsRepository();
+    repository.removedBarcode = true;
+    let fallbackCalled = false;
+    const service = new ItemsService(repository, {
+      resolve: async () => {
+        fallbackCalled = true;
+        return baseItem.id;
+      },
+    });
+
+    await expect(service.getByBarcode("5601234567890")).rejects.toMatchObject({
+      code: "ITEM_NOT_FOUND",
+    });
+    expect(fallbackCalled).toBe(false);
+    await expect(
+      service.create({
+        barcode: "5601234567890",
+        name: "Bar",
+        nutrition: nutritionPayload,
+      }),
+    ).rejects.toMatchObject({ code: "BARCODE_REMOVED", statusCode: 409 });
+  });
+
+  it("drops a removed item from the index and re-adds a restored one", async () => {
+    const repository = new FakeItemsRepository();
+    const calls: string[] = [];
+    const indexer: ItemIndexer = {
+      index: async (ids) => {
+        calls.push(`index:${ids.join()}`);
+      },
+      remove: async (ids) => {
+        calls.push(`remove:${ids.join()}`);
+      },
+    };
+    const service = new ItemsService(repository, undefined, indexer);
+
+    const removed = await service.setRemoved(baseItem.id, true, "spam");
+    expect(removed.removedReason).toBe("spam");
+    await service.setRemoved(baseItem.id, false, "ignored");
+    expect(repository.moderation?.removedReason).toBeNull();
+    expect(calls).toEqual([`remove:${baseItem.id}`, `index:${baseItem.id}`]);
   });
 });

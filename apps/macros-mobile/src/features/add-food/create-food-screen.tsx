@@ -262,6 +262,9 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
         params: {
           id: created.item.id,
           name: created.item.name,
+          ...(created.sharingWithheld
+            ? { withheld: created.sharingWithheld }
+            : {}),
           ...forwardedTimeParams(params, zone.today),
         },
       });
@@ -387,7 +390,7 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
                   keyboardType="number-pad"
                   hint={
                     state.barcode.trim()
-                      ? "Shared to the food database, so the next scan finds it."
+                      ? "Shared with everyone who scans this barcode, without your name. Offensive or misleading foods are removed."
                       : undefined
                   }
                 />

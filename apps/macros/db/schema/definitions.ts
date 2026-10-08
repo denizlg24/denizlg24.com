@@ -1566,6 +1566,144 @@ export const energyExpenditureEstimateRelations = relations(
   }),
 );
 
+export const foodReportReasonEnum = pgEnum("food_report_reason", [
+  "offensive",
+  "spam",
+  "incorrect",
+  "personal_info",
+  "other",
+]);
+export const foodReportStatusEnum = pgEnum("food_report_status", [
+  "open",
+  "dismissed",
+  "actioned",
+]);
+
+/**
+ * Who put a food into the shared catalogue. The nutrition API holds the food
+ * but not the person; this row is the only link, and it goes with the account.
+ */
+export const foodContributions = pgTable(
+  "food_contributions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    externalItemId: uuid("externalItemId").notNull(),
+    barcode: text("barcode").notNull(),
+    name: text("name").notNull(),
+    brand: text("brand"),
+    removedAt: timestamp("removedAt", { withTimezone: true }),
+    removedReason: text("removedReason"),
+    /** `auto` when enough reports hid it; otherwise the moderator's subject. */
+    removedBy: text("removedBy"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("food_contributions_item_unique").on(table.externalItemId),
+    index("food_contributions_user_created_idx").on(
+      table.userId,
+      table.createdAt.desc(),
+    ),
+    index("food_contributions_created_idx").on(table.createdAt.desc()),
+  ],
+);
+
+/** One report per person per food; reporting again updates it. */
+export const foodReports = pgTable(
+  "food_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reporterUserId: text("reporterUserId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    externalItemId: uuid("externalItemId").notNull(),
+    reason: foodReportReasonEnum("reason").notNull(),
+    note: text("note"),
+    status: foodReportStatusEnum("status").notNull().default("open"),
+    resolvedAt: timestamp("resolvedAt", { withTimezone: true }),
+    resolvedBy: text("resolvedBy"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("food_reports_reporter_item_unique").on(
+      table.reporterUserId,
+      table.externalItemId,
+    ),
+    index("food_reports_status_item_idx").on(
+      table.status,
+      table.externalItemId,
+    ),
+    index("food_reports_item_idx").on(table.externalItemId),
+  ],
+);
+
+/** A person hiding everything another person contributed. */
+export const userBlocks = pgTable(
+  "user_blocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    blockedUserId: text("blockedUserId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** The food the block was made from: the only name the blocker ever saw. */
+    viaItemId: uuid("viaItemId"),
+    viaLabel: text("viaLabel").notNull(),
+    createdAt: timestamp("createdAt", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("user_blocks_pair_unique").on(
+      table.userId,
+      table.blockedUserId,
+    ),
+    check(
+      "user_blocks_not_self",
+      sql`${table.userId} <> ${table.blockedUserId}`,
+    ),
+  ],
+);
+
+export const userRestrictions = pgTable("user_restrictions", {
+  userId: text("userId")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** New barcoded foods stay private to their creator. */
+  sharingSuspendedAt: timestamp("sharingSuspendedAt", { withTimezone: true }),
+  /** No sign-in and no API access. */
+  suspendedAt: timestamp("suspendedAt", { withTimezone: true }),
+  reason: text("reason"),
+  ...timestamps,
+});
+
+/** Every moderator action. Subjects are opaque ids; never an email. */
+export const moderationEvents = pgTable(
+  "moderation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    subjectType: text("subjectType").notNull(),
+    subjectId: text("subjectId").notNull(),
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    createdAt: timestamp("createdAt", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("moderation_events_created_idx").on(table.createdAt.desc()),
+    index("moderation_events_subject_idx").on(
+      table.subjectType,
+      table.subjectId,
+    ),
+  ],
+);
+
 export const schema = {
   user,
   session,
@@ -1609,6 +1747,11 @@ export const schema = {
   pushDevices,
   notificationPreferences,
   distributionRequests,
+  foodContributions,
+  foodReports,
+  userBlocks,
+  userRestrictions,
+  moderationEvents,
   userRelations,
   sessionRelations,
   accountRelations,

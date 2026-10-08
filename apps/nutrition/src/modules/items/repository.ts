@@ -1,5 +1,5 @@
 import { barcodeLookupKeys } from "@repo/macros-core/barcode";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import type { Database } from "../../db/client";
 import {
@@ -254,7 +254,11 @@ export class ItemsRepository {
     if (results.length === 0) return results;
 
     const iconRows = await this.database
-      .select({ id: items.id, iconKey: items.iconKey })
+      .select({
+        id: items.id,
+        iconKey: items.iconKey,
+        removedAt: items.removedAt,
+      })
       .from(items)
       .where(
         inArray(
@@ -266,10 +270,17 @@ export class ItemsRepository {
       iconRows.map((item) => [item.id, item.iconKey]),
     );
 
-    return results.map((item) => ({
-      ...item,
-      iconKey: iconKeysByItemId.get(item.id) ?? item.iconKey,
-    }));
+    // The index drops a removed row asynchronously; never serve it meanwhile.
+    const removed = new Set(
+      iconRows.filter((item) => item.removedAt).map((item) => item.id),
+    );
+
+    return results
+      .filter((item) => !removed.has(item.id))
+      .map((item) => ({
+        ...item,
+        iconKey: iconKeysByItemId.get(item.id) ?? item.iconKey,
+      }));
   }
 
   async findById(id: string): Promise<ItemSummary | undefined> {
@@ -313,6 +324,49 @@ export class ItemsRepository {
     return this.resolveMerged(itemId);
   }
 
+  /** True when moderation took down the row a code resolves to. */
+  async isBarcodeRemoved(barcode: string): Promise<boolean> {
+    const keys = barcodeLookupKeys(barcode);
+    const [row] = await this.database
+      .select({ id: items.id })
+      .from(items)
+      .where(and(inArray(items.barcode, keys), isNotNull(items.removedAt)))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async findModeration(id: string) {
+    const [row] = await this.database
+      .select({
+        id: items.id,
+        source: items.source,
+        removedAt: items.removedAt,
+        removedReason: items.removedReason,
+      })
+      .from(items)
+      .where(eq(items.id, id))
+      .limit(1);
+    return row;
+  }
+
+  async setRemoved(id: string, removed: boolean, reason: string | null) {
+    const [row] = await this.database
+      .update(items)
+      .set({
+        removedAt: removed ? new Date() : null,
+        removedReason: removed ? reason : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, id))
+      .returning({
+        id: items.id,
+        source: items.source,
+        removedAt: items.removedAt,
+        removedReason: items.removedReason,
+      });
+    return row;
+  }
+
   /** Follows merged_into to the surviving row; bounded against cycles. */
   private async resolveMerged(
     itemId: string,
@@ -320,12 +374,16 @@ export class ItemsRepository {
     let currentId = itemId;
     for (let hop = 0; hop < 4; hop += 1) {
       const [row] = await this.database
-        .select({ ...itemSummarySelect, mergedInto: items.mergedInto })
+        .select({
+          ...itemSummarySelect,
+          mergedInto: items.mergedInto,
+          removedAt: items.removedAt,
+        })
         .from(items)
         .where(eq(items.id, currentId))
         .limit(1);
-      if (!row) return undefined;
-      const { mergedInto, ...summary } = row;
+      if (!row || row.removedAt) return undefined;
+      const { mergedInto, removedAt: _removedAt, ...summary } = row;
       if (!mergedInto || mergedInto === currentId) return summary;
       currentId = mergedInto;
     }

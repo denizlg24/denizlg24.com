@@ -1,4 +1,5 @@
 import { barcodeLookupKeys } from "@repo/macros-core/barcode";
+import type { MacrosSharingWithheld } from "@repo/schemas/macros";
 import {
   and,
   desc,
@@ -46,6 +47,11 @@ import {
   getNutritionFoodNutrition,
   getNutritionFoodSummary,
 } from "@/lib/foods/source";
+import {
+  hiddenItemIdsFor,
+  recordContribution,
+  sharingWithheldFor,
+} from "@/lib/moderation/service";
 
 const snapshotDriftTolerance = 0.0001;
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -355,15 +361,21 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
     primaryServing,
   );
 
-  if (input.barcode) {
-    const { summary, nutrition } = await createNutritionFood({
-      barcode: input.barcode,
-      name: input.name,
-      brand: input.brand,
-      iconKey: input.iconKey,
-      serving: primaryServing,
-      nutrients: nutrientsPerPrimaryServing,
-    });
+  // A barcoded food joins the shared catalogue unless something says it may
+  // not; then it is created privately, exactly like one without a barcode.
+  let sharingWithheld: MacrosSharingWithheld = null;
+  const shared = input.barcode
+    ? await shareCustomFood(
+        userId,
+        { ...input, barcode: input.barcode },
+        primaryServing,
+        nutrientsPerPrimaryServing,
+      )
+    : null;
+  if (shared && "withheld" in shared) sharingWithheld = shared.withheld;
+
+  if (shared && "summary" in shared) {
+    const { summary, nutrition } = shared;
     const foodId = await upsertExternalFood(summary);
     const snapshotId = await createFoodSnapshot(foodId, summary, nutrition);
 
@@ -382,6 +394,8 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       snapshotId,
       summary,
       nutrition,
+      shared: true,
+      sharingWithheld: null,
       item: toCustomFoodSearchItem(
         {
           id: foodId,
@@ -463,9 +477,48 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       snapshotId,
       summary,
       nutrition,
+      shared: false,
+      sharingWithheld,
       item: toCustomFoodSearchItem(food, nutrition),
     };
   });
+}
+
+async function shareCustomFood(
+  userId: string,
+  input: CreateFoodInput & { barcode: string },
+  serving: ReturnType<typeof getPrimaryServing>,
+  nutrients: Record<string, number>,
+): Promise<
+  | { withheld: MacrosSharingWithheld }
+  | { summary: ExternalFoodSummary; nutrition: ExternalFoodNutrition }
+> {
+  const withheld = await sharingWithheldFor(userId, input.name, input.brand);
+  if (withheld) return { withheld };
+
+  const result = await createNutritionFood({
+    barcode: input.barcode,
+    name: input.name,
+    brand: input.brand,
+    iconKey: input.iconKey,
+    serving,
+    nutrients,
+  });
+  if (!result) return { withheld: "removed" };
+
+  if (result.created) {
+    await recordContribution(userId, {
+      id: result.summary.id,
+      barcode: result.summary.barcode ?? input.barcode,
+      name: result.summary.name,
+      brand: result.summary.brand ?? null,
+    });
+  } else if ((await hiddenItemIdsFor(userId)).has(result.summary.id)) {
+    // The catalogue's food for this code is one they reported or hid.
+    return { withheld: null };
+  }
+
+  return { summary: result.summary, nutrition: result.nutrition };
 }
 
 export async function getCustomFoodSnapshot(userId: string, foodId: string) {

@@ -12,6 +12,7 @@ import {
   getPublicAppUrl,
   sendEmail,
 } from "@/lib/email";
+import { isSuspended } from "@/lib/moderation/service";
 
 // Verification links are opened in a browser, usually on the phone, and the
 // app picks up from there. Better Auth appends `?error=` to this path when the
@@ -67,6 +68,20 @@ export const auth = betterAuth({
       enabled: true,
       beforeDelete: async (user) => {
         await deleteAccountData(user.id);
+      },
+    },
+  },
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          if (await isSuspended(session.userId)) {
+            throw new APIError("FORBIDDEN", {
+              message:
+                "This account has been suspended. Contact geral@oceaninformatix.com.",
+            });
+          }
+        },
       },
     },
   },

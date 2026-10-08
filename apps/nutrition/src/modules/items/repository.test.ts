@@ -18,6 +18,8 @@ class FakeSearchClient implements MeilisearchSearchClient {
   }
 
   async addDocuments() {}
+
+  async deleteDocuments() {}
 }
 
 const database = {

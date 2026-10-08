@@ -1,9 +1,12 @@
+import { timingSafeEqual } from "node:crypto";
 import { Elysia } from "elysia";
+
+import { env } from "../../config/env";
 
 import { db } from "../../db/client";
 import { meilisearch } from "../../infra/meilisearch";
 import { redis } from "../../infra/redis";
-import { isApiError } from "../../shared/errors";
+import { ApiError, isApiError } from "../../shared/errors";
 import { fail, ok } from "../../shared/http";
 import { getRequestContext } from "../../shared/request-context";
 import { OpenFoodFactsLiveLookup } from "../openfoodfacts/live";
@@ -14,6 +17,7 @@ import {
   barcodeParamsSchema,
   createItemSchema,
   itemIdParamsSchema,
+  moderationSchema,
   nutritionPayloadSchema,
   searchQuerySchema,
   updateItemSchema,
@@ -44,6 +48,23 @@ const toApiErrorResponse = (
     },
     getRequestId(request),
   );
+};
+
+/**
+ * Any API key may contribute an item; only the holder of the moderation token
+ * (Macros' backend) may take one down.
+ */
+const requireModerationToken = (request: Request) => {
+  const expected = env.moderationToken;
+  const presented = request.headers.get("x-moderation-token");
+  if (
+    !expected ||
+    !presented ||
+    presented.length !== expected.length ||
+    !timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
+  ) {
+    throw new ApiError(403, "MODERATION_FORBIDDEN", "Moderation not allowed");
+  }
 };
 
 const repository = new ItemsRepository(db, meilisearch);
@@ -169,6 +190,55 @@ export const itemsRoutes = new Elysia({ prefix: "/items" })
         summary: "Update item core fields",
         description:
           "Updates mutable item identity fields. Nutrition summary fields are managed from nutrition data.",
+        tags: ["Items"],
+      },
+    },
+  )
+  .get(
+    "/:id/moderation",
+    async ({ params, request, set }) => {
+      try {
+        requireModerationToken(request);
+        return ok(
+          await service.getModeration(params.id),
+          getRequestId(request),
+        );
+      } catch (error) {
+        return toApiErrorResponse(error, request, set);
+      }
+    },
+    {
+      params: itemIdParamsSchema,
+      detail: {
+        summary: "Get item moderation state",
+        tags: ["Items"],
+      },
+    },
+  )
+  .put(
+    "/:id/moderation",
+    async ({ params, body, request, set }) => {
+      try {
+        requireModerationToken(request);
+        return ok(
+          await service.setRemoved(
+            params.id,
+            body.removed,
+            body.reason ?? null,
+          ),
+          getRequestId(request),
+        );
+      } catch (error) {
+        return toApiErrorResponse(error, request, set);
+      }
+    },
+    {
+      body: moderationSchema,
+      params: itemIdParamsSchema,
+      detail: {
+        summary: "Remove or restore an item",
+        description:
+          "Takes an item out of search and barcode lookup, or puts it back. Needs the moderation token.",
         tags: ["Items"],
       },
     },

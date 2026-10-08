@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   type CreateFoodInput,
   type ExternalFoodNutrition,
@@ -135,7 +137,9 @@ export async function createNutritionFood(input: {
 }): Promise<{
   summary: ExternalFoodSummary;
   nutrition: ExternalFoodNutrition;
-}> {
+  /** False when the barcode was already in the catalogue. */
+  created: boolean;
+} | null> {
   const payload = {
     barcode: input.barcode,
     name: input.name,
@@ -156,16 +160,85 @@ export async function createNutritionFood(input: {
     });
 
     const { item, nutrition } = externalCreateResponseSchema.parse(json).data;
-    return { summary: item, nutrition };
+    return { summary: item, nutrition, created: true };
   } catch (error) {
     if (error instanceof NutritionSourceError && error.status === 409) {
-      const summary = await getNutritionFoodByBarcode(input.barcode);
+      // A barcode moderation took down answers 409 here and 404 on lookup:
+      // null tells the caller to keep the food private.
+      let summary: ExternalFoodSummary;
+      try {
+        summary = await getNutritionFoodByBarcode(input.barcode);
+      } catch (lookupError) {
+        if (
+          lookupError instanceof NutritionSourceError &&
+          lookupError.status === 404
+        ) {
+          return null;
+        }
+        throw lookupError;
+      }
       const nutrition = await getNutritionFoodNutrition(summary.id);
-      return { summary, nutrition };
+      return { summary, nutrition, created: false };
     }
 
     throw error;
   }
+}
+
+const nutritionModerationSchema = z.object({
+  data: z.object({
+    id: z.uuid(),
+    source: z.string(),
+    removedAt: z.string().nullable(),
+    removedReason: z.string().nullable(),
+  }),
+});
+
+export type NutritionModeration = z.infer<
+  typeof nutritionModerationSchema
+>["data"];
+
+function moderationHeaders() {
+  return {
+    "x-moderation-token": process.env.NUTRITION_MODERATION_TOKEN ?? "",
+  };
+}
+
+export async function getNutritionModeration(
+  itemId: string,
+): Promise<NutritionModeration | null> {
+  const response = await fetch(buildUrl(`/api/items/${itemId}/moderation`), {
+    headers: {
+      accept: "application/json",
+      "x-api-key": process.env.NUTRITION_API_KEY ?? "",
+      ...moderationHeaders(),
+    },
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new NutritionSourceError(
+      `Nutrition API request failed with ${response.status}`,
+      response.status,
+    );
+  }
+  return nutritionModerationSchema.parse(await response.json()).data;
+}
+
+export async function setNutritionItemRemoved(
+  itemId: string,
+  removed: boolean,
+  reason: string | null,
+): Promise<NutritionModeration> {
+  const json = await sendSourceJson(
+    buildUrl(`/api/items/${itemId}/moderation`),
+    {
+      method: "PUT",
+      headers: moderationHeaders(),
+      body: JSON.stringify({ removed, reason }),
+    },
+  );
+  return nutritionModerationSchema.parse(json).data;
 }
 
 export function getNutritionSourceStatus(error: unknown) {
