@@ -100,6 +100,11 @@ export const updateItemSchema = t.Object({
   iconKey: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
 });
 
+export const moderationSchema = t.Object({
+  removed: t.Boolean(),
+  reason: t.Optional(t.Nullable(t.String({ maxLength: 500 }))),
+});
+
 export const itemIdParamsSchema = t.Object({
   id: t.String({ format: "uuid" }),
 });

@@ -18,11 +18,13 @@ export interface MeilisearchSearchClient {
   ): Promise<MeilisearchSearchResponse<THit>>;
   /** Queues an upsert; Meilisearch indexes asynchronously. */
   addDocuments(documents: object[]): Promise<void>;
+  deleteDocuments(ids: string[]): Promise<void>;
 }
 
 export class MeilisearchClient implements MeilisearchSearchClient {
   private readonly indexSearchUrl: string;
   private readonly indexDocumentsUrl: string;
+  private readonly indexDeleteUrl: string;
 
   constructor(
     host: string,
@@ -34,6 +36,28 @@ export class MeilisearchClient implements MeilisearchSearchClient {
     const indexUrl = `${normalizedHost}/indexes/${encodeURIComponent(index)}`;
     this.indexSearchUrl = `${indexUrl}/search`;
     this.indexDocumentsUrl = `${indexUrl}/documents?primaryKey=id`;
+    this.indexDeleteUrl = `${indexUrl}/documents/delete-batch`;
+  }
+
+  async deleteDocuments(ids: string[]) {
+    if (ids.length === 0) return;
+    const response = await fetch(this.indexDeleteUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(ids),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!response.ok) {
+      throw new ApiError(
+        502,
+        "SEARCH_PROVIDER_FAILED",
+        "Search provider rejected a delete",
+        { status: response.status, body: await response.text() },
+      );
+    }
   }
 
   async addDocuments(documents: object[]) {

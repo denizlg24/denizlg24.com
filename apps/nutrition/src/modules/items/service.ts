@@ -79,6 +79,14 @@ export interface BarcodeFallback {
 
 export interface ItemIndexer {
   index(itemIds: string[]): Promise<void>;
+  remove(itemIds: string[]): Promise<void>;
+}
+
+export interface ItemModeration {
+  id: string;
+  source: string;
+  removedAt: Date | null;
+  removedReason: string | null;
 }
 
 export interface ItemSearchCache {
@@ -137,6 +145,11 @@ export class ItemsService {
     const item = await this.repository.findByBarcode(barcode);
     if (item) return item;
 
+    // The live fallback would re-import the code a moderator took down.
+    if (await this.repository.isBarcodeRemoved(barcode)) {
+      throw new ApiError(404, "ITEM_NOT_FOUND", "Item not found");
+    }
+
     const fetchedId = await this.fallback
       ?.resolve(barcode)
       .catch(() => undefined);
@@ -179,12 +192,38 @@ export class ItemsService {
       );
     }
 
+    if (await this.repository.isBarcodeRemoved(input.barcode)) {
+      throw new ApiError(
+        409,
+        "BARCODE_REMOVED",
+        "The item with this barcode was removed by moderation",
+      );
+    }
+
     const created = await this.repository.create(
       normalizeItem(input),
       normalizeNutrition(input.nutrition),
     );
     await this.reindex(created.item.id);
     return created;
+  }
+
+  async getModeration(id: string) {
+    const row = await this.repository.findModeration(id);
+    if (!row) throw new ApiError(404, "ITEM_NOT_FOUND", "Item not found");
+    return row;
+  }
+
+  async setRemoved(id: string, removed: boolean, reason: string | null) {
+    const row = await this.repository.setRemoved(id, removed, reason);
+    if (!row) throw new ApiError(404, "ITEM_NOT_FOUND", "Item not found");
+    if (this.indexer) {
+      // Unlike an edit, a takedown that fails to reach the index must fail
+      // loudly: the row would keep showing up in search.
+      if (removed) await this.indexer.remove([id]);
+      else await this.indexer.index([id]);
+    }
+    return row;
   }
 
   async update(id: string, input: UpdateItemInput) {
@@ -225,6 +264,13 @@ export interface ItemsRepositoryPort {
   ): Promise<ItemSearchResult[]>;
   findById(id: string): Promise<ItemSummary | undefined>;
   findByBarcode(barcode: string): Promise<ItemSummary | undefined>;
+  isBarcodeRemoved(barcode: string): Promise<boolean>;
+  findModeration(id: string): Promise<ItemModeration | undefined>;
+  setRemoved(
+    id: string,
+    removed: boolean,
+    reason: string | null,
+  ): Promise<ItemModeration | undefined>;
   findPortions(itemId: string): Promise<{ label: string; grams: number }[]>;
   findNutritionByItemId(itemId: string): Promise<NutritionData | undefined>;
   create(

@@ -52,6 +52,8 @@ export const env = {
     DEFAULT_RATE_LIMIT_WINDOW_MS,
   ),
   redisUrl: readRequiredString("REDIS_URL"),
+  /** Unset, the moderation routes refuse every request. */
+  moderationToken: readString("NUTRITION_MODERATION_TOKEN"),
   /** Forge-provisioned Redis users may only touch keys under `<prefix>:`. */
   redisKeyPrefix: readString("REDIS_KEY_PREFIX"),
 } as const;

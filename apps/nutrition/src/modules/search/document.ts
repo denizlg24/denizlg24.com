@@ -120,5 +120,6 @@ export const searchableColumnsSql = `
   fat_per_serving::float as "fatPerServing",
   created_at as "createdAt", updated_at as "updatedAt"`;
 
-/** Rows search may return: not quarantined and not merged into another. */
-export const searchableWhereSql = "quarantined = false and merged_into is null";
+/** Rows search may return: not quarantined, not removed, not merged into another. */
+export const searchableWhereSql =
+  "quarantined = false and removed_at is null and merged_into is null";

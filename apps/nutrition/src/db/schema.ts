@@ -101,6 +101,14 @@ export const items = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     quarantined: boolean("quarantined").notNull().default(false),
+    /**
+     * Taken down by moderation. Unlike `quarantined` (a data-quality verdict
+     * an import makes), a removed row is gone from search and barcode lookup
+     * alike, and its barcode cannot be contributed again; it stays readable by
+     * id because Macros stores item ids.
+     */
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedReason: text("removed_reason"),
     /** English name for rows whose source names foods in another language. */
     nameEn: text("name_en"),
     /** ISO 3166-1 alpha-2 country a research table describes, lowercase. */
