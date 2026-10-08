@@ -22,6 +22,7 @@ const pageTitles: Record<string, string> = {
   "health-import": "Health Shortcuts",
   "apple-health": "Apple Health",
   notifications: "Notifications",
+  "hidden-contributors": "Hidden Contributors",
 };
 
 const modalForm: NativeStackNavigationOptions = {

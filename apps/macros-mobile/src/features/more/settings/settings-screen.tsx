@@ -124,6 +124,19 @@ export function SettingsScreen() {
           />
         </Section>
 
+        <Section
+          title="Shared foods"
+          footer="Foods with a barcode are shared with everyone who scans it, without your name."
+        >
+          <Row
+            icon="eye-off"
+            title="Hidden Contributors"
+            chevron
+            separator={false}
+            onPress={() => router.push("/more/hidden-contributors")}
+          />
+        </Section>
+
         <Section title="Legal">
           <Row
             icon="hand"

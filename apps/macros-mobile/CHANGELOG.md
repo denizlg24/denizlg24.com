@@ -9,9 +9,16 @@ are understood.
 
 ## 0.0.15 — 2026-10-08
 
+### Added
+- **Report a shared food.** Foods other people added with a barcode now have
+  a flag button: report one and it disappears from your searches while it is
+  reviewed.
+- **Hide a contributor.** Stop seeing every food the same person added.
+  Undo it in Settings › Hidden Contributors.
+
 ### Changed
-- **Submitted to the App Store.** Same app as 0.0.14, rebuilt for App
-  Review.
+- Foods you share are checked before they join the database; one that can’t
+  be shared is saved to your foods only, and the app says why.
 
 ## 0.0.14 — 2026-10-06
 

@@ -8,8 +8,13 @@ import {
   useRemoveFavorite,
   useSaveFavorite,
 } from "@/api/foods";
+import { useFoodSharing, useHideContributor } from "@/api/moderation";
 import { EatenAtPicker } from "@/components/eaten-at-picker";
 import { FoodIcon } from "@/components/food-icon";
+import {
+  confirmDestructive,
+  showActionSheet,
+} from "@/features/more/shared/action-sheet";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import { newClientMutationId } from "@/lib/ids";
@@ -104,6 +109,7 @@ export function FoodDetailScreen() {
         enteredUnit: readParam(params.unit),
       }}
       routed={params}
+      withheld={readParam(params.withheld)}
     />
   );
 }
@@ -114,7 +120,9 @@ function FoodDetailBody({
   plateItem,
   prior,
   routed,
+  withheld,
 }: {
+  withheld?: string;
   sourceItemId: string;
   detail: MacrosFoodDetailResponse;
   plateItem: FoodPlateItem | undefined;
@@ -132,6 +140,9 @@ function FoodDetailBody({
   const favorites = useFavorites();
   const saveFavorite = useSaveFavorite();
   const removeFavorite = useRemoveFavorite();
+  const sharing = useFoodSharing(sourceItemId, !item.isUserFood);
+  const hideContributor = useHideContributor();
+  const canReport = sharing.data?.shared && !sharing.data.ownContribution;
 
   const serving = useMemo(
     () => buildServingOptions(foodServingFrom(nutrition)),
@@ -247,6 +258,54 @@ function FoodDetailBody({
     commit([...plate, staged]);
   }
 
+  function openSafetyMenu() {
+    const canHide =
+      sharing.data?.contributed && !sharing.data.contributorHidden;
+    showActionSheet({
+      title: item.name,
+      message: sharing.data?.reported
+        ? "You reported this food. Reporting again replaces your report."
+        : undefined,
+      actions: [
+        {
+          label: "Report Food",
+          onPress: () =>
+            router.push({
+              pathname: "/report-food/[id]",
+              params: { id: sourceItemId, name: item.name },
+            }),
+        },
+        ...(canHide
+          ? [
+              {
+                label: "Hide Foods From This Contributor",
+                destructive: true,
+                onPress: confirmHide,
+              },
+            ]
+          : []),
+      ],
+    });
+  }
+
+  function confirmHide() {
+    confirmDestructive({
+      title: "Hide this contributor?",
+      message:
+        "You won’t see this food or anything else the same person added. Undo it in More › Settings › Hidden Contributors.",
+      confirmLabel: "Hide Foods",
+      onConfirm: () => {
+        hideContributor.mutate(sourceItemId, {
+          onSuccess: () => {
+            haptics.warning();
+            router.back();
+          },
+          onError: () => haptics.error(),
+        });
+      },
+    });
+  }
+
   const subtitle = [item.brand, item.isUserFood ? "Your food" : null]
     .filter(Boolean)
     .join(" · ");
@@ -285,8 +344,29 @@ function FoodDetailBody({
                 onPress: toggleFavorite,
                 active: Boolean(favorite),
               },
+              ...(canReport
+                ? [
+                    {
+                      icon: "flag" as const,
+                      label: "Report or hide",
+                      onPress: openSafetyMenu,
+                      active: sharing.data?.reported ?? false,
+                    },
+                  ]
+                : []),
             ]}
           />
+
+          {withheld ? (
+            <InlineNotice tone="info" message={withheldMessage(withheld)} />
+          ) : null}
+
+          {hideContributor.error ? (
+            <InlineNotice
+              message={errorMessage(hideContributor.error)}
+              onDismiss={() => hideContributor.reset()}
+            />
+          ) : null}
 
           {favoriteError ? (
             <InlineNotice
@@ -349,6 +429,18 @@ function FoodDetailBody({
       />
     </View>
   );
+}
+
+/** Why a food created with a barcode was saved for this user only. */
+function withheldMessage(reason: string) {
+  switch (reason) {
+    case "filtered":
+      return "Saved to your foods only. Its name or brand can’t be shared, so other people won’t see it.";
+    case "suspended":
+      return "Saved to your foods only. Sharing is turned off for your account.";
+    default:
+      return "Saved to your foods only. This barcode can’t be shared.";
+  }
 }
 
 const styles = StyleSheet.create({
