@@ -1,7 +1,9 @@
 export * from "./finance-recurrence";
 export * from "./group-forest";
+export * from "./models";
 export * from "./money";
 export * from "./payroll";
+export * from "./shift-activity";
 
 export function getAge(birthDate: string): number {
   const birth = new Date(birthDate);

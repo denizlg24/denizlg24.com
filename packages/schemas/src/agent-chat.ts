@@ -121,6 +121,8 @@ export const agentChatRequestSchema = z.object({
   executionMode: agentExecutionModeSchema.default("interactive"),
   pageContext: backgroundAgentPageContextSchema.optional(),
   responseStyle: z.enum(["voice"]).optional(),
+  /** False from a client with no page to read or navigate (the Voice app). */
+  pageTools: z.boolean().default(true),
 });
 export type AgentChatRequest = z.infer<typeof agentChatRequestSchema>;
 export type AgentChatRequestInput = z.input<typeof agentChatRequestSchema>;
