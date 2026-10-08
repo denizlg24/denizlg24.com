@@ -87,6 +87,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   landing pages (`/register/*`). Not deployed by Forge: iOS builds upload to
   TestFlight and the App Store; Android remains a sideloaded APK. See
   [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
+- `apps/macros-admin/` — Next.js moderation console for Macros' shared foods
+  (Forge, `macros-admin.denizlg24.com`). Owner-only: deniz auth sign-in, every
+  page server-rendered against the Macros API's `/api/admin/*` with a
+  superuser token. See [Macros moderation](#macros-moderation).
 - `apps/nutrition/` — Bun + Elysia nutrition API (Forge, `nutrition.denizlg24.com`),
   the food catalogue Macros searches and scans: USDA, eleven national
   composition tables, USDA Branded and OpenFoodFacts in one Postgres
@@ -233,6 +237,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | `auth.denizlg24.com` | Forge, `apps/auth` |
 | `mcp.denizlg24.com` | Forge, `apps/mcp` |
 | `nutrition.denizlg24.com` | Forge, `apps/nutrition` — DB, Redis and Meilisearch on the Pi |
+| `macros-admin.denizlg24.com` | Forge, `apps/macros-admin` — not `admin.macros.…`: Cloudflare's free edge certificate covers one subdomain level only |
 | `browser.denizlg24.com` | Forge, `apps/browser` — memory reservation matters: one Chromium plus ~100 MB per open context |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
@@ -704,6 +709,50 @@ seeds configured resources insert-only, so a hand-inserted row survives the
 next deploy. That is how the MCP client gained the status resource on
 2026-09-15 without rotating its secret — `docker exec -i
 deniz-cloud-postgres-1 psql -U admin -d denizcloud` on the Pi.
+
+## Macros moderation
+
+A food created in Macros with a barcode joins the shared nutrition catalogue,
+which makes it user-generated content under App Review guideline 1.2. The
+pieces, and what bites:
+
+- **Macros knows who contributed a food; the nutrition API never does.**
+  `food_contributions` is the only link, written when `POST /api/items/` answers
+  201 (not 409) and cascaded away with the account.
+  `bun run backfill:contributions` (dry run unless `--execute`) attributes
+  rows from before 0019 to the earliest `user_custom_foods` link.
+- **Sharing is a decision, not a side effect.** `createCustomFood` shares only
+  if the contributor is unrestricted and `screenSharedFoodText`
+  (`@repo/macros-core/content-filter`) passes; otherwise the food is created
+  privately and the response says `sharingWithheld`. A false positive costs
+  sharing, never the user's food.
+- **Removal lives in the nutrition API** (`items.removed_at`, migration 0011),
+  distinct from `quarantined`: a removed row leaves search *and* barcode lookup,
+  the OpenFoodFacts fallback refuses to re-import its code, and the barcode
+  cannot be contributed again (409 `BARCODE_REMOVED`). It stays readable by id.
+  Only the holder of `NUTRITION_MODERATION_TOKEN` (Macros' backend) may call
+  `PUT /api/items/:id/moderation`. Any API key can still create items.
+- **Three open reports for harm (offensive, spam, personal info) hide a food
+  for everyone** pending review (`removedBy: "auto"`); dismissing the case
+  restores it. A reporter stops seeing the food at once, and so does anyone
+  who hid its contributor (`hiddenItemIdsFor` filters search and barcode
+  results). The first report on a food emails `MACROS_MODERATION_EMAIL`.
+- **`/api/admin/*` on Macros accepts only deniz auth superuser user tokens**
+  for the `macros` resource (`https://macros.denizlg24.com`, seeded by the API
+  like the others). Macros' own Better Auth accounts never reach it, and
+  machine tokens are refused. The console shows contributors as an HMAC alias
+  (`C-XXXXXX`, keyed by `MACROS_BETTER_AUTH_SECRET`); the email appears only
+  through `POST …/contact`, which is audited in `moderation_events`.
+- **A suspended account cannot hold a session**: suspension deletes its
+  sessions, a `databaseHooks.session.create.before` refuses new ones, and
+  `getRequiredSession` answers 403 for one minted in between.
+- **Rollout order:** nutrition and Macros migrations (additive) → the API
+  release, which seeds the `macros` resource → a confidential client on
+  auth.denizlg24.com/clients holding only that resource, redirect
+  `https://macros-admin.denizlg24.com/auth/callback` → `DENIZ_AUTH_CLIENT_ID`,
+  `DENIZ_AUTH_CLIENT_SECRET`, `DENIZ_AUTH_SECRET` on the `macros-admin`
+  target. `NUTRITION_MODERATION_TOKEN` must be equal on `nutrition` and
+  `macros`, or every takedown fails with 403.
 
 ## Nutrition API (apps/nutrition)
 
