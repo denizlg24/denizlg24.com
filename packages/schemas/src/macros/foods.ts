@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { macrosDailyMacrosSchema, macrosMealTypeSchema } from "./common";
 import { macrosEnteredMeasureSchema } from "./food-entry";
+import { macrosSharingWithheldSchema } from "./moderation";
 import { macrosNutrientKeySchema } from "./nutrients";
 
 const numericValueSchema = z.union([z.number(), z.string()]).transform(Number);
@@ -250,6 +251,9 @@ export const macrosCreateFoodResponseSchema = z.object({
   nutrition: macrosExternalFoodNutritionSchema,
   localFoodId: z.uuid(),
   snapshotId: z.uuid(),
+  /** Only a barcoded food can be shared; see `sharingWithheld` for why not. */
+  shared: z.boolean().optional(),
+  sharingWithheld: macrosSharingWithheldSchema.optional(),
   fetchedAt: z.string(),
 });
 
