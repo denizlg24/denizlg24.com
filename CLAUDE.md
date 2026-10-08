@@ -96,6 +96,16 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   composition tables, USDA Branded and OpenFoodFacts in one Postgres
   (`proj_deniz_nutrition_api`), ranked by Meilisearch. See
   [Nutrition API](#nutrition-api-appsnutrition).
+- `apps/hours-mobile/`, `apps/voice-mobile/` — the Hours and Voice PWAs as
+  native iPhone apps (Expo SDK 57), owner-only and unpublished: installed from
+  the Mac with `bun run ios:device`, built unsigned by `personal-ios.yml`.
+  Widgets, Live Activities, Control Center, App Intents. See
+  [Hours and Voice for iPhone](#hours-and-voice-for-iphone).
+- `packages/native-auth/` — deniz auth sign-in (code + PKCE through
+  ASWebAuthenticationSession) and the admin API client for those apps.
+- `packages/expo-ios-targets/` — config plugins: a WidgetKit extension target,
+  Swift compiled into the app target (App Intents), and the iOS 27 scene
+  life cycle. Macros keeps its own older copies.
 - `packages/macros-core/` — pure Macros domain logic (nutrients, serving
   display, wizard maths, weight trend, expenditure) shared by the web app and
   the iOS app. Wire contracts are `@repo/schemas/macros`.
@@ -709,6 +719,34 @@ seeds configured resources insert-only, so a hand-inserted row survives the
 next deploy. That is how the MCP client gained the status resource on
 2026-09-15 without rotating its secret — `docker exec -i
 deniz-cloud-postgres-1 psql -U admin -d denizcloud` on the Pi.
+
+## Hours and Voice for iPhone
+
+Design: `docs/internal/plans/028-native-hours-and-voice.md`; each app's
+`AGENTS.md` has the detail.
+
+- **Sign-in is one `native` client, "iPhone apps (Hours, Voice)"**, holding
+  `com.denizlg24.hours:/oauth/callback` and `com.denizlg24.voice:/oauth/callback`
+  — one slash: the provider only accepts a reverse-domain private-use scheme
+  with no authority. Web serves it at `/api/public/mobile-auth` from
+  `MOBILE_OAUTH_CLIENT_ID`. It was created on 2026-10-08 by copying the
+  desktop client's row (`auth_oauth_client` + its `auth_oauth_client_resource`
+  binding) with new redirects, the same hand-row route as the MCP resource.
+- **Hours' widgets and intents call the API from Swift.** The session lives in
+  the App Group keychain; the remember-me handle is what keeps the app and the
+  extension refreshing without spending each other's tokens.
+- **Web pushes the Hours Live Activity** (`lib/mobile-push.ts`) whenever a
+  shift changes, with the team APNs key (`APNS_KEY_ID`, `APNS_TEAM_ID`,
+  `APNS_PRIVATE_KEY` — Macros' key; an auth key is team-wide). Devices and
+  their ActivityKit tokens are `MobileDevice` in Mongo. The phone that made a
+  change sends `x-mobile-installation` and is skipped for push-to-start.
+  Content-state instants are Unix seconds: ActivityKit decodes a pushed JSON
+  date as seconds since 2001.
+- **Xcode refuses the App Store Connect key for automatic provisioning**
+  ("Authentication failed"); device builds sign through the Apple account
+  signed in to Xcode.
+- **Every new Expo app here needs `withSceneLifecycle`.** Without it the iOS 27
+  SDK kills the app at launch in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`.
 
 ## Macros moderation
 

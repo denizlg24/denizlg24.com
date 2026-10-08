@@ -1,0 +1,111 @@
+name: Hours and Voice iOS
+
+# Secret-free validation builds of the two personal iPhone apps. They are not
+# published: the owner installs them from his Mac (`bun run ios:device`), so
+# there is no release job and nothing here ever signs.
+
+on:
+  pull_request:
+    paths:
+      - "apps/hours-mobile/**"
+      - "apps/voice-mobile/**"
+      - "packages/expo-ios-targets/**"
+      - "packages/native-auth/**"
+      - "packages/schemas/src/work-hours.ts"
+      - "packages/schemas/src/mobile.ts"
+      - "packages/utils/src/**"
+      - "packages/tts/**"
+      - "bun.lock"
+      - ".github/workflows/personal-ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.app }} (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: Hours
+            directory: apps/hours-mobile
+            extension: HoursWidgetExtension
+          - app: Voice
+            directory: apps/voice-mobile
+            extension: VoiceWidgetExtension
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Xcode's "Bundle React Native code and images" phase runs the Expo CLI
+      # under node, so the runner needs a node React Native 0.86 accepts.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun test
+
+      - name: Generate the native project
+        run: bunx expo prebuild --platform ios --clean
+
+      # The widget extension and the App Intents compiled into the app are
+      # what a JS-only check never sees.
+      - name: Archive
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace "ios/${{ matrix.app }}.xcworkspace" \
+            -scheme "${{ matrix.app }}" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Check the archive
+        shell: bash
+        run: |
+          app="$RUNNER_TEMP/app.xcarchive/Products/Applications/${{ matrix.app }}.app"
+          test -d "$app/PlugIns/${{ matrix.extension }}.appex"
+          test -d "$app/Metadata.appintents"
+          /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$app/Info.plist" >/dev/null
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.directory }}-xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
