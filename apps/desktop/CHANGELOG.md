@@ -7,6 +7,13 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 2.4.1 — 2026-10-08
+
+### Changed
+- The macOS app is signed with a Developer ID and notarized by Apple, so it
+  opens without a Gatekeeper warning. The first launch after updating asks
+  for microphone access again, because the signature changed.
+
 ## 2.4.0 — 2026-10-07
 
 ### Added
