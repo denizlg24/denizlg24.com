@@ -37,6 +37,7 @@ const AUTH_APP = "https://auth.denizlg24.com";
 const WEB = "https://denizlg24.com";
 const MCP = "https://mcp.denizlg24.com/mcp";
 const STATUS = "https://status.denizlg24.com";
+const MACROS = "https://macros.denizlg24.com";
 
 class MemoryRateLimitStore implements PeekableRateLimitStore {
   async consume(): Promise<RateLimitDecision> {
@@ -110,7 +111,13 @@ describe("cloud OAuth authorization server", () => {
         trustedOrigins: [AUTH_APP],
         oauth: {
           authAppUrl: AUTH_APP,
-          resources: { api: API, web: WEB, mcp: MCP, status: STATUS },
+          resources: {
+            api: API,
+            web: WEB,
+            mcp: MCP,
+            status: STATUS,
+            macros: MACROS,
+          },
         },
       });
       const app = createCloudApiApp({

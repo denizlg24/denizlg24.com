@@ -34,6 +34,7 @@ const AUTH_APP = "https://auth.denizlg24.com";
 const WEB = "https://denizlg24.com";
 const MCP = "https://mcp.denizlg24.com/mcp";
 const STATUS = "https://status.denizlg24.com";
+const MACROS = "https://macros.denizlg24.com";
 const ACME_API = "https://api.acme.example";
 const ACME_CALLBACK = "https://app.acme.example/auth/callback";
 
@@ -112,7 +113,13 @@ describe("deniz auth tenants", () => {
         trustedOrigins: [AUTH_APP],
         oauth: {
           authAppUrl: AUTH_APP,
-          resources: { api: API, web: WEB, mcp: MCP, status: STATUS },
+          resources: {
+            api: API,
+            web: WEB,
+            mcp: MCP,
+            status: STATUS,
+            macros: MACROS,
+          },
         },
       });
       const app = createCloudApiApp({
