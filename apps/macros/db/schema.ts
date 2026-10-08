@@ -3,6 +3,7 @@ export * from "./schema/distribution";
 export * from "./schema/foods";
 export * from "./schema/habits";
 export * from "./schema/log";
+export * from "./schema/moderation";
 export * from "./schema/notifications";
 export * from "./schema/recipes";
 export * from "./schema/shopping-list";

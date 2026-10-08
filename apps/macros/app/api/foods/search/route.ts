@@ -10,6 +10,7 @@ import {
   toFoodSearchItem,
 } from "@/lib/foods/service";
 import { searchNutritionFoods } from "@/lib/foods/source";
+import { hiddenItemIdsFor } from "@/lib/moderation/service";
 import { toNutritionSourceErrorResponse } from "../_lib/source-error-response";
 
 export async function GET(request: Request) {
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const [userItems, historyItems, sourceResult] = await Promise.all([
+  const [userItems, historyItems, sourceResult, hidden] = await Promise.all([
     searchUserCustomFoods(
       session.user.id,
       parsed.data.q,
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
     searchNutritionFoods(parsed.data)
       .then((items) => ({ ok: true as const, items }))
       .catch((error: unknown) => ({ ok: false as const, error })),
+    hiddenItemIdsFor(session.user.id),
   ]);
   const query = parsed.data.q?.toLocaleLowerCase() ?? "";
   const localHistory = historyItems.filter((item) => {
@@ -62,7 +64,9 @@ export async function GET(request: Request) {
   });
   // History rows come first, but their icons are stored copies: the source's
   // answer is the current one, and an icon the user picked beats both.
-  const sourceItems = sourceResult.ok ? sourceResult.items : [];
+  const sourceItems = sourceResult.ok
+    ? sourceResult.items.filter((summary) => !hidden.has(summary.id))
+    : [];
   const sourceIcons = new Map(
     sourceItems.map((summary) => [summary.id, summary.iconKey]),
   );

@@ -325,6 +325,7 @@
         "@aws-sdk/s3-request-presigner": "^3.1133.0",
         "@better-auth/drizzle-adapter": "1.7.5",
         "@better-auth/expo": "1.7.5",
+        "@repo/cloud-auth-client": "workspace:*",
         "@repo/macros-core": "workspace:*",
         "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",
@@ -358,7 +359,7 @@
     },
     "apps/macros-mobile": {
       "name": "macros-mobile",
-      "version": "0.0.14",
+      "version": "0.0.15",
       "dependencies": {
         "@better-auth/expo": "1.7.5",
         "@expo/ui": "~57.0.20",
