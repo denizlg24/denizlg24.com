@@ -6,3 +6,5 @@
 /etc/systemd/system/forge-caddy.service|required|caddy-unit
 /etc/cloudflared|required|cloudflared-state
 /usr/local/bin/forge-agent|required|forge-agent-binary
+/etc/systemd/system/forge-redis@.service|optional|redis-unit
+/srv/forge/redis/shortn-durable|optional|shortn-durable-redis

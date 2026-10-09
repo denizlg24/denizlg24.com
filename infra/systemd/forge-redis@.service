@@ -1,0 +1,32 @@
+[Unit]
+Description=Forge host Redis (%i)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+# Written by forge-redis-install: FORGE_REDIS_IMAGE, FORGE_REDIS_UID,
+# FORGE_REDIS_GID, FORGE_REDIS_MEMORY.
+EnvironmentFile=/etc/forge/redis/%i.env
+ExecStartPre=-/usr/bin/docker rm --force forge-redis-%i
+# Not a Forge deployment on purpose: those get no volumes and an HTTP health
+# check, and a redeploy would start from an empty dataset. Apps reach this by
+# name on forge-apps; nothing is published on the host.
+ExecStart=/usr/bin/docker run --rm --name forge-redis-%i \
+  --network forge-apps \
+  --user ${FORGE_REDIS_UID}:${FORGE_REDIS_GID} \
+  --memory ${FORGE_REDIS_MEMORY} --memory-swap ${FORGE_REDIS_MEMORY} \
+  --oom-score-adj -200 \
+  --security-opt no-new-privileges \
+  --log-opt max-size=10m --log-opt max-file=3 \
+  --volume /srv/forge/redis/%i:/data \
+  --volume /etc/forge/redis/%i.conf:/usr/local/etc/redis/redis.conf:ro \
+  ${FORGE_REDIS_IMAGE} redis-server /usr/local/etc/redis/redis.conf
+# Enough for a final RDB/AOF flush on the durable instances.
+ExecStop=/usr/bin/docker stop --time 30 forge-redis-%i
+Restart=always
+RestartSec=5s
+TimeoutStopSec=45s
+
+[Install]
+WantedBy=multi-user.target
