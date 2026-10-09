@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Provision or update one host Redis instance on the Forge box.
+#
+#   sudo forge-redis-install <instance> <cache|durable> <maxmemory-mb>
+#
+# cache:   allkeys-lru, no persistence. Contents are rebuildable.
+# durable: noeviction, AOF everysec + RDB. Streams and queues live here, and
+#          an evicting policy would drop unprocessed entries silently.
+#
+# The password is generated once and kept across re-runs; the app connection
+# URL is redis://default:<password>@forge-redis-<instance>:6379.
+set -euo pipefail
+
+image="redis:7.4.11-alpine"
+unit_source="$(dirname "$(readlink -f "$0")")/forge-redis@.service"
+
+die() { printf 'forge-redis-install: %s\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "run as root"
+[[ $# -eq 3 ]] || die "usage: forge-redis-install <instance> <cache|durable> <maxmemory-mb>"
+instance="$1" role="$2" maxmemory_mb="$3"
+[[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "invalid instance name: $instance"
+[[ "$role" == cache || "$role" == durable ]] || die "role must be cache or durable"
+[[ "$maxmemory_mb" =~ ^[0-9]+$ && "$maxmemory_mb" -ge 16 ]] || die "maxmemory must be >= 16 (MB)"
+
+if ! id forge-redis >/dev/null 2>&1; then
+  useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin forge-redis
+fi
+uid="$(id -u forge-redis)"
+gid="$(id -g forge-redis)"
+
+config_dir=/etc/forge/redis
+data_dir="/srv/forge/redis/${instance}"
+conf="${config_dir}/${instance}.conf"
+env_file="${config_dir}/${instance}.env"
+
+install -d -m 0750 -o root -g forge-redis "$config_dir"
+install -d -m 0755 -o root -g root /srv/forge/redis
+install -d -m 0700 -o forge-redis -g forge-redis "$data_dir"
+
+password=""
+if [[ -f "$conf" ]]; then
+  password="$(sed -n 's/^requirepass //p' "$conf")"
+fi
+if [[ -z "$password" ]]; then
+  password="$(openssl rand -hex 32)"
+fi
+
+# Headroom over maxmemory for the AOF-rewrite / BGSAVE fork's copy-on-write and
+# allocator overhead, so the kernel never kills the server mid-rewrite.
+container_mb=$(( maxmemory_mb * 3 / 2 + 64 ))
+
+{
+  printf 'port 6379\nbind 0.0.0.0\nprotected-mode yes\n'
+  printf 'requirepass %s\n' "$password"
+  printf 'maxmemory %dmb\n' "$maxmemory_mb"
+  printf 'dir /data\n'
+  if [[ "$role" == cache ]]; then
+    printf 'maxmemory-policy allkeys-lru\nappendonly no\nsave ""\n'
+  else
+    printf 'maxmemory-policy noeviction\nappendonly yes\nappendfsync everysec\n'
+    printf 'aof-use-rdb-preamble yes\nsave 3600 1 300 100 60 10000\n'
+  fi
+} > "${conf}.tmp"
+chown forge-redis:forge-redis "${conf}.tmp"
+chmod 0400 "${conf}.tmp"
+mv -f "${conf}.tmp" "$conf"
+
+cat > "$env_file" <<EOF
+FORGE_REDIS_IMAGE=${image}
+FORGE_REDIS_UID=${uid}
+FORGE_REDIS_GID=${gid}
+FORGE_REDIS_MEMORY=${container_mb}m
+EOF
+chmod 0644 "$env_file"
+
+install -m 0644 "$unit_source" /etc/systemd/system/forge-redis@.service
+docker pull -q "$image" >/dev/null
+systemctl daemon-reload
+systemctl enable "forge-redis@${instance}.service" >/dev/null
+systemctl restart "forge-redis@${instance}.service"
+
+for _ in $(seq 1 20); do
+  if docker exec forge-redis-"$instance" redis-cli --no-auth-warning -a "$password" ping 2>/dev/null | grep -q PONG; then
+    printf 'forge-redis-%s ready (%s, %dmb)\n' "$instance" "$role" "$maxmemory_mb"
+    exit 0
+  fi
+  sleep 1
+done
+die "forge-redis-${instance} did not answer PING"

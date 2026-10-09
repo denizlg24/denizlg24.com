@@ -251,6 +251,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | `browser.denizlg24.com` | Forge, `apps/browser` — memory reservation matters: one Chromium plus ~100 MB per open context |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
+| `forge-redis-<instance>` | Forge host, `forge-redis@<instance>.service` on the `forge-apps` network, not published. Shortn's cache and durable Redis (prod + staging) |
 
 Deploys: push to `main` → CI builds `ghcr.io/denizlg24/deniz-cloud-api` (arm64) →
 `docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml --profile tools up -d`
@@ -522,6 +523,19 @@ hint, not a platform ceiling.
   that record only an owner (the Mac bridge, release workflows) are still left
   alone. The Pi's copy of the tmpfiles rule is installed by `install-host`,
   which no release runs, so a change to it needs that run by hand.
+- **Stateful services on the Forge box are host units, never deployments.** A
+  Forge deployment gets no volume (old containers go with `--volumes`), an
+  HTTP-only health check and a new port and container name on every deploy, so
+  a Redis deployed as an app would come back empty. `forge-redis-install
+  <instance> <cache|durable> <maxmemory-mb>` (in `infra/systemd`, installed to
+  `/usr/local/sbin`, run by hand; no release ships it) writes
+  `/etc/forge/redis/<instance>.{conf,env}`, data under `/srv/forge/redis/<instance>`
+  owned by the `forge-redis` system user, and enables `forge-redis@<instance>`.
+  Re-running keeps the password. `durable` means `noeviction` + AOF everysec:
+  the Pi's shared Redis is `allkeys-lru`, which would silently drop stream
+  entries and queued jobs. Apps connect with
+  `redis://default:<requirepass>@forge-redis-<instance>:6379` from `forge-apps`.
+  Only `shortn-durable`'s data is in the DR allowlist; caches are rebuildable.
 
 ### Migration and cutover scripts
 
