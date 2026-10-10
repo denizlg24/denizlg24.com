@@ -11,13 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@playwright/mcp": "0.0.82",
-    "hono": "^4.13.4",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@playwright/mcp": "0.0.83",
+    "hono": "^4.13.13",
     "playwright": "1.64.0-alpha-1789764292000"
   },
   "devDependencies": {
-    "@ai-sdk/mcp": "2.0.49",
+    "@ai-sdk/mcp": "2.0.69",
     "@repo/typescript-config": "workspace:*",
     "@types/bun": "^1.4.0",
     "typescript": "^5.9.3"
