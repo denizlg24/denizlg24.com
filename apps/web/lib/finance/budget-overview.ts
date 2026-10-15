@@ -226,7 +226,12 @@ export async function getBudgetSnapshot(
     .map(serializeFinanceEnvelope)
     .flatMap((envelope) => rebaseEnvelope(envelope, ledger));
   const statuses = envelopes.map((envelope) =>
-    computeEnvelopeStatus({ envelope, ledger: ledger.rows, asOfDate }),
+    computeEnvelopeStatus({
+      envelope,
+      ledger: ledger.rows,
+      asOfDate,
+      recurringRowIds: ledger.recurringRowIds,
+    }),
   );
   const balanceMinor = await aggregateBalanceMinor(
     ledger.currency,

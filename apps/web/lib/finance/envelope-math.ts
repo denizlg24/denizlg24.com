@@ -207,6 +207,98 @@ export function isCountableSpendRow(row: FinanceLedgerEntry) {
   return true;
 }
 
+/**
+ * What the recurring rules say about the ledger, which no single row carries.
+ *
+ * A projection is created without a category, so an envelope claiming by
+ * category never saw a rule's upcoming charge as committed. It inherits the
+ * category of the latest bank row its rule matched. And the bank half of a
+ * match loses its projection in deduplication, so `recurringRowIds` is the only
+ * record that a charge was the rule paying out rather than discretionary spend
+ * — the difference between "transport card paid on the 13th" and "spending
+ * twice the limit by month end".
+ */
+export function annotateRecurringLedger(rows: FinanceLedgerEntry[]): {
+  rows: FinanceLedgerEntry[];
+  recurringRowIds: Set<string>;
+} {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const recurringRowIds = new Set<string>();
+  const ruleCategory = new Map<string, { date: string; category: string }>();
+  for (const row of rows) {
+    if (row.origin !== "projected" || !row.recurringRuleId) continue;
+    if (row.state !== "linked" || !row.linkedLedgerId) continue;
+    const paid = byId.get(row.linkedLedgerId);
+    if (!paid) continue;
+    recurringRowIds.add(paid.id);
+    if (!paid.category) continue;
+    const latest = ruleCategory.get(row.recurringRuleId);
+    if (!latest || paid.effectiveDate > latest.date) {
+      ruleCategory.set(row.recurringRuleId, {
+        date: paid.effectiveDate,
+        category: paid.category,
+      });
+    }
+  }
+  return {
+    recurringRowIds,
+    rows: rows.map((row) => {
+      if (row.origin !== "projected" || row.category || !row.recurringRuleId) {
+        return row;
+      }
+      const inherited = ruleCategory.get(row.recurringRuleId);
+      return inherited ? { ...row, category: inherited.category } : row;
+    }),
+  };
+}
+
+const REVERSAL_WINDOW_DAYS = 7;
+
+/**
+ * Bank rows cancelled by an equal and opposite row on the same account within
+ * a week: a benefit paid and repaid the next day, a charge reversed.
+ *
+ * Categories rarely agree across the pair (the payout is "Education", the
+ * repayment "Financial Services"), so per-category netting never sees it and
+ * one side reads as spend and the other as income. Compared in the row's own
+ * currency, before conversion, where equal really means equal.
+ */
+export function reversalPairIds(rows: FinanceLedgerEntry[]) {
+  const candidates = rows.filter(
+    (row) =>
+      row.origin === "bank" &&
+      row.state === "booked" &&
+      !row.transferId &&
+      !row.linkedLedgerId &&
+      row.amountMinor !== 0,
+  );
+  const paired = new Set<string>();
+  const outflows = candidates
+    .filter((row) => row.amountMinor < 0)
+    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+  for (const out of outflows) {
+    let best: FinanceLedgerEntry | undefined;
+    let bestGap = Number.POSITIVE_INFINITY;
+    for (const inflow of candidates) {
+      if (inflow.amountMinor !== -out.amountMinor) continue;
+      if (inflow.accountId !== out.accountId) continue;
+      if (inflow.currency !== out.currency) continue;
+      if (paired.has(inflow.id)) continue;
+      const gap = Math.abs(
+        daysBetween(out.effectiveDate, inflow.effectiveDate),
+      );
+      if (gap > REVERSAL_WINDOW_DAYS || gap >= bestGap) continue;
+      best = inflow;
+      bestGap = gap;
+    }
+    if (best) {
+      paired.add(out.id);
+      paired.add(best.id);
+    }
+  }
+  return paired;
+}
+
 /** Future spend already known about: an expected row inside the period. */
 export function isCommittedRow(row: FinanceLedgerEntry, asOfDate: string) {
   return (
@@ -364,10 +456,14 @@ function contributionTotal(
   );
 }
 
+const MIN_ENTRIES_FOR_RUN_RATE = 3;
+
 export function computeEnvelopeStatus(input: {
   envelope: FinanceEnvelope;
   ledger: FinanceLedgerEntry[];
   asOfDate: string;
+  /** Rows that paid a recurring rule, from `annotateRecurringLedger`. */
+  recurringRowIds?: ReadonlySet<string>;
 }): FinanceEnvelopeStatus {
   const { envelope, ledger, asOfDate } = input;
   const grid = {
@@ -381,6 +477,21 @@ export function computeEnvelopeStatus(input: {
     ledger,
     bounds,
   );
+  let recurringSpentMinor = 0;
+  let recurringEntryCount = 0;
+  if (input.recurringRowIds?.size) {
+    for (const row of ledger) {
+      if (!input.recurringRowIds.has(row.id)) continue;
+      if (row.effectiveDate < bounds.start || row.effectiveDate > bounds.end) {
+        continue;
+      }
+      if (!isCountableSpendRow(row) || !envelopeClaimsRow(envelope, row)) {
+        continue;
+      }
+      recurringSpentMinor += -row.amountMinor;
+      recurringEntryCount += 1;
+    }
+  }
 
   let committedMinor = 0;
   for (const row of ledger) {
@@ -399,13 +510,26 @@ export function computeEnvelopeStatus(input: {
   );
   const elapsedFraction = periodDays > 0 ? elapsedDays / periodDays : 1;
   const daysRemaining = Math.max(0, periodDays - elapsedDays);
+  // Only variable spend has a pace. A rule's charge lands once whatever the
+  // day, so extrapolating it doubled every subscription paid early in the
+  // month; it is counted as it stands, and upcoming ones as commitments.
+  const fixedMinor = Math.max(0, recurringSpentMinor) + committedMinor;
+  const variableSpentMinor = spentMinor - recurringSpentMinor;
+  const variableLimitMinor = envelope.limitMinor - fixedMinor;
   // A flat burn is the only pace assumption that needs no history; comparing
   // against it is what turns "spent 190" into "spending 27% too fast".
   const paceRatio =
-    elapsedFraction > 0 && envelope.limitMinor > 0
-      ? spentMinor / (envelope.limitMinor * elapsedFraction)
+    elapsedFraction > 0 && variableLimitMinor > 0
+      ? variableSpentMinor / (variableLimitMinor * elapsedFraction)
       : null;
-  const runRate = elapsedDays > 0 ? Math.max(0, spentMinor) / elapsedDays : 0;
+  // One or two purchases are not a rate: a single €48 buy on the 5th says
+  // nothing about the 25th.
+  const extrapolate =
+    entryCount - recurringEntryCount >= MIN_ENTRIES_FOR_RUN_RATE;
+  const runRate =
+    extrapolate && elapsedDays > 0
+      ? Math.max(0, variableSpentMinor) / elapsedDays
+      : 0;
   const projectedMinor = Math.max(
     0,
     Math.round(spentMinor + committedMinor + runRate * daysRemaining),
@@ -485,6 +609,7 @@ export function computeEnvelopeStatus(input: {
     spentMinor,
     refundedMinor,
     committedMinor,
+    fixedMinor,
     availableMinor: envelope.limitMinor + carry - spentMinor - committedMinor,
     projectedMinor,
     elapsedFraction,
