@@ -16,10 +16,12 @@ import {
 import { deduplicateLinkedLedger } from "./core";
 import { serializeFinanceLedgerEntry } from "./dashboard";
 import {
+  annotateRecurringLedger,
   isCountableSpendRow,
   type PeriodBounds,
   periodBounds,
   previousPeriod,
+  reversalPairIds,
 } from "./envelope-math";
 import { type FinanceFxConverter, loadFinanceFxConverter } from "./fx";
 import { getFinanceSettings } from "./settings";
@@ -290,6 +292,8 @@ export interface BudgetLedger {
    * says — need precisely those dropped rows, so they read this instead.
    */
   allRows: FinanceLedgerEntry[];
+  /** Bank rows that paid a recurring rule; see `annotateRecurringLedger`. */
+  recurringRowIds: Set<string>;
   /** What no rate could convert, kept out of the totals rather than at par. */
   unconvertedByCurrency: Array<{ currency: string; amountMinor: number }>;
   windowFrom: string;
@@ -326,8 +330,10 @@ export async function loadBudgetLedger(
     loadFinanceFxConverter(),
   ]);
 
+  const serialized = rows.map(serializeFinanceLedgerEntry);
+  const reversals = reversalPairIds(serialized);
   const unconverted = new Map<string, number>();
-  const converted = rows.map(serializeFinanceLedgerEntry).flatMap((row) => {
+  const converted = serialized.flatMap((row) => {
     const amountMinor = converter.convert(
       row.amountMinor,
       row.currency,
@@ -346,11 +352,15 @@ export async function loadBudgetLedger(
     return [{ ...row, amountMinor, currency: settings.baseCurrency }];
   });
 
+  const annotated = annotateRecurringLedger(converted);
   return {
     currency: settings.baseCurrency,
     converter,
-    rows: deduplicateLinkedLedger(converted),
-    allRows: converted,
+    rows: deduplicateLinkedLedger(annotated.rows).filter(
+      (row) => !reversals.has(row.id),
+    ),
+    allRows: annotated.rows,
+    recurringRowIds: annotated.recurringRowIds,
     unconvertedByCurrency: [...unconverted].map(([currency, amountMinor]) => ({
       currency,
       amountMinor,

@@ -280,6 +280,24 @@ export async function runFinanceEnrichment(
   });
 }
 
+const GENERIC_DESCRIPTOR_TOKENS = new Set([
+  "card",
+  "payment",
+  "transfer",
+  "monthly",
+  "number",
+  "plus",
+  "subscription",
+]);
+
+function descriptorTokens(normalized: string) {
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .filter(
+      (token) => token.length >= 4 && !GENERIC_DESCRIPTOR_TOKENS.has(token),
+    );
+}
+
 async function linkLedgerRows(
   source: IFinanceLedgerEntry,
   bank: IFinanceLedgerEntry,
@@ -319,6 +337,23 @@ async function linkLedgerRows(
   );
 
   if (result.modifiedCount === 2) {
+    // A link the owner made or confirmed is the one trustworthy statement of
+    // which merchant a rule bills as, so the rule keeps it and later matches
+    // stop guessing from amount and date.
+    if (
+      (method === "manual" || method === "llm") &&
+      source.recurringRuleId &&
+      bank.merchantFingerprint
+    ) {
+      await FinanceRecurringRule.updateOne(
+        {
+          _id: source.recurringRuleId,
+          merchantFingerprint: { $in: [null, ""] },
+        },
+        { $set: { merchantFingerprint: bank.merchantFingerprint } },
+        { session },
+      );
+    }
     source.set({
       linkedLedgerId: bank._id,
       state: "linked",
@@ -515,6 +550,32 @@ export async function reconcileFinanceLedger(
     );
   }
 
+  /**
+   * Whether the bank row can be the merchant a rule bills as.
+   *
+   * Amount and date alone are not identity: a €11.99 subscription on a DKK
+   * account sits within the FX spread of any ~89 DKK purchase that week, and
+   * Spotify was linked to a 7-Eleven receipt that way. A rule that has learned
+   * its fingerprint must match it; one that has not needs a word in common
+   * with the bank descriptor, or the pair goes to review instead.
+   */
+  function identifiesMerchant(
+    source: IFinanceLedgerEntry,
+    bank: IFinanceLedgerEntry,
+  ) {
+    const rule = source.recurringRuleId
+      ? rulesById.get(source.recurringRuleId.toString())
+      : undefined;
+    if (!rule) return true;
+    if (rule.merchantFingerprint) {
+      return rule.merchantFingerprint === bank.merchantFingerprint;
+    }
+    const bankTokens = new Set(descriptorTokens(bank.normalizedDescriptor));
+    return descriptorTokens(source.normalizedDescriptor).some((token) =>
+      bankTokens.has(token),
+    );
+  }
+
   for (const source of sources) {
     const exact = bankRows.filter((bank) => {
       if (!available(source, bank) || !sameDirection(source, bank))
@@ -529,7 +590,9 @@ export async function reconcileFinanceLedger(
         return source.amountMinor === bank.amountMinor;
       }
       // Converted amounts never land on the cent, so "exact" across currencies
-      // means within the FX spread — still requiring a single candidate.
+      // means within the FX spread — still requiring a single candidate, and
+      // a merchant that can be the one the rule bills as.
+      if (!identifiesMerchant(source, bank)) return false;
       const converted = comparableAmount(source, bank);
       return (
         converted !== undefined &&
@@ -560,12 +623,7 @@ export async function reconcileFinanceLedger(
         ) {
           return false;
         }
-        if (
-          rule.merchantFingerprint &&
-          rule.merchantFingerprint !== bank.merchantFingerprint
-        ) {
-          return false;
-        }
+        if (!identifiesMerchant(source, bank)) return false;
         const converted = comparableAmount(source, bank);
         return (
           converted !== undefined &&

@@ -38,6 +38,7 @@ export async function getFinanceEnvelopeDetail(
     envelope,
     ledger: ledger.rows,
     asOfDate,
+    recurringRowIds: ledger.recurringRowIds,
   });
   const bounds = periodBounds({
     period: envelope.period,

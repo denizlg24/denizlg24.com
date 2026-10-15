@@ -2,6 +2,7 @@ import type {
   FinanceBudgetAlertKind,
   FinanceBudgetAlertSeverity,
   FinanceBudgetAlert as FinanceBudgetAlertWire,
+  FinanceLedgerEntry,
 } from "@repo/schemas";
 import { formatMoney } from "@repo/utils";
 import mongoose from "mongoose";
@@ -16,7 +17,11 @@ import {
   currentMonthBounds,
   getBudgetSnapshot,
 } from "./budget-overview";
-import { describePeriod } from "./envelope-math";
+import {
+  daysBetween,
+  describePeriod,
+  isCountableSpendRow,
+} from "./envelope-math";
 
 /**
  * Budget alerts.
@@ -55,6 +60,15 @@ export interface FinanceBudgetThresholds {
   unbudgetedFloorMinor: number;
   /** A fixed recurring charge rising by more than this fraction. */
   subscriptionIncrease: number;
+  /** An overspend below this, in base minor units, is FX rounding on a limit
+   *  set to the cent of a foreign-currency charge, not news. */
+  exceededFloorMinor: number;
+  /** A missed income older than this is history; the next occurrence carries
+   *  the news if the payer has really stopped. */
+  incomeMissedMaxAgeDays: number;
+  /** Consecutive complete months a merchant must charge once, at a steady
+   *  amount, before it reads as a subscription nobody wrote a rule for. */
+  untrackedRecurringMonths: number;
 }
 
 export const DEFAULT_FINANCE_BUDGET_THRESHOLDS: FinanceBudgetThresholds = {
@@ -65,6 +79,9 @@ export const DEFAULT_FINANCE_BUDGET_THRESHOLDS: FinanceBudgetThresholds = {
   unbudgetedShare: 0.05,
   unbudgetedFloorMinor: 5_000,
   subscriptionIncrease: 0.1,
+  exceededFloorMinor: 100,
+  incomeMissedMaxAgeDays: 30,
+  untrackedRecurringMonths: 3,
 };
 
 interface DerivedAlert {
@@ -128,6 +145,7 @@ export function deriveFinanceBudgetAlerts(input: {
     toMinor: number;
     currency: string;
   }>;
+  untrackedRecurring?: UntrackedRecurringCharge[];
 }): DerivedAlert[] {
   const thresholds = input.thresholds ?? DEFAULT_FINANCE_BUDGET_THRESHOLDS;
   const { snapshot } = input;
@@ -171,7 +189,37 @@ export function deriveFinanceBudgetAlerts(input: {
       continue;
     }
 
-    if (allowance > 0 && status.spentMinor > allowance) {
+    // When the rules charged to an envelope alone exceed its limit, the limit
+    // is wrong, not the month. Said once per envelope so acknowledging it
+    // holds until the limit or the rules change, instead of a fresh critical
+    // "over by" every period for a charge that was always going to land.
+    const fixedMinor = status.fixedMinor ?? 0;
+    if (
+      allowance > 0 &&
+      fixedMinor - allowance > thresholds.exceededFloorMinor &&
+      fixedMinor > allowance * (1 + thresholds.projectedOverspendMargin)
+    ) {
+      alerts.push({
+        key: `envelope_limit_below_fixed:${status.envelopeId}:${status.limitMinor}`,
+        kind: "envelope_limit_below_fixed",
+        severity: "warning",
+        title: `${status.name} limit is below its fixed charges`,
+        detail: `${money(fixedMinor)} of recurring charges per ${describePeriod(status.period)} against a ${money(status.limitMinor)} limit.`,
+        envelopeId: status.envelopeId,
+        currency: status.currency,
+        metrics: {
+          fixedMinor,
+          limitMinor: status.limitMinor,
+          shortMinor: fixedMinor - allowance,
+        },
+      });
+      continue;
+    }
+
+    if (
+      allowance > 0 &&
+      status.spentMinor - allowance > thresholds.exceededFloorMinor
+    ) {
       const overMinor = status.spentMinor - allowance;
       alerts.push({
         key: `envelope_exceeded:${scope}`,
@@ -197,6 +245,7 @@ export function deriveFinanceBudgetAlerts(input: {
       allowance > 0 &&
       status.projectedMinor >
         allowance * (1 + thresholds.projectedOverspendMargin) &&
+      status.projectedMinor - allowance > thresholds.exceededFloorMinor &&
       status.elapsedFraction >= thresholds.paceMinElapsed
     ) {
       const overMinor = status.projectedMinor - allowance;
@@ -302,21 +351,53 @@ export function deriveFinanceBudgetAlerts(input: {
   // The salary not arriving is worth knowing before the direct debits fail.
   // Reads `allRows`: a `missed` projection is dropped by deduplication, and it
   // is the clearest case of exactly what this alert is for.
+  //
+  // A miss followed by a later occurrence of the same rule that did land is
+  // not a payer who stopped: it is a projection that could never match (the
+  // rule moved account, the amount was re-estimated) and nothing is owed.
+  const latestLandedByRule = new Map<string, string>();
+  for (const row of snapshot.ledger.allRows) {
+    if (row.origin !== "projected" || row.state !== "linked") continue;
+    if (!row.recurringRuleId) continue;
+    const latest = latestLandedByRule.get(row.recurringRuleId);
+    if (!latest || row.effectiveDate > latest) {
+      latestLandedByRule.set(row.recurringRuleId, row.effectiveDate);
+    }
+  }
   for (const row of snapshot.ledger.allRows) {
     if (row.origin !== "projected") continue;
     if (row.state !== "expected" && row.state !== "missed") continue;
     if (row.amountMinor <= 0) continue;
     if (row.expectedWindowEnd >= snapshot.asOfDate) continue;
+    const daysLate = daysBetween(row.expectedWindowEnd, snapshot.asOfDate);
+    if (daysLate > thresholds.incomeMissedMaxAgeDays) continue;
+    const landedLater = row.recurringRuleId
+      ? latestLandedByRule.get(row.recurringRuleId)
+      : undefined;
+    if (landedLater && landedLater > row.effectiveDate) continue;
     alerts.push({
       key: `income_missed:${row.id}`,
       kind: "income_missed",
       severity: "warning",
-      title: `${money(row.amountMinor)} expected income has not landed`,
-      detail: `${row.descriptor} was due by ${row.expectedWindowEnd} and no matching transaction has been seen.`,
+      title: `${row.descriptor}: ${money(row.amountMinor)} not received`,
+      detail: `Due ${row.expectedWindowStart} – ${row.expectedWindowEnd}, ${daysLate} ${daysLate === 1 ? "day" : "days"} late, no matching transaction.`,
       currency: snapshot.currency,
       periodStart: row.expectedWindowStart,
       periodEnd: row.expectedWindowEnd,
-      metrics: { amountMinor: row.amountMinor },
+      metrics: { amountMinor: row.amountMinor, daysLate },
+    });
+  }
+
+  for (const charge of input.untrackedRecurring ?? []) {
+    alerts.push({
+      key: `recurring_untracked:${charge.merchantFingerprint}`,
+      kind: "recurring_untracked",
+      severity: "info",
+      title: `${charge.descriptor} charges ~${money(charge.amountMinor)} monthly with no rule`,
+      detail: `Charged ${charge.dates.join(", ")}. Not in the forecast or any envelope's commitments.`,
+      category: charge.category,
+      currency: snapshot.currency,
+      metrics: { amountMinor: charge.amountMinor, months: charge.dates.length },
     });
   }
 
@@ -399,6 +480,85 @@ export async function detectSubscriptionDrift(snapshot: BudgetSnapshot) {
   return drift;
 }
 
+export interface UntrackedRecurringCharge {
+  merchantFingerprint: string;
+  descriptor: string;
+  category?: string;
+  /** Median of the monthly charges, base currency. */
+  amountMinor: number;
+  dates: string[];
+}
+
+function previousMonths(asOfDate: string, count: number) {
+  const months: string[] = [];
+  const cursor = new Date(`${asOfDate.slice(0, 7)}-01T00:00:00.000Z`);
+  for (let index = 0; index < count; index += 1) {
+    cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+    months.push(cursor.toISOString().slice(0, 7));
+  }
+  return months;
+}
+
+/**
+ * Merchants that charged exactly once in each of the last N complete months,
+ * at a steady amount, with no rule behind them.
+ *
+ * Without a rule a subscription is invisible to the forecast and to every
+ * envelope's commitments, and a price rise on it can never be noticed. Bank
+ * fees and forgotten trials are the usual finds. Steady means every charge
+ * within 10% of the median — a supermarket visited monthly is not a bill.
+ */
+export function detectUntrackedRecurring(input: {
+  snapshot: BudgetSnapshot;
+  ruleFingerprints: ReadonlySet<string>;
+  months: number;
+}): UntrackedRecurringCharge[] {
+  const { snapshot } = input;
+  const months = previousMonths(snapshot.asOfDate, input.months);
+  const monthSet = new Set(months);
+  const byMerchant = new Map<string, FinanceLedgerEntry[]>();
+  const ruleBacked = new Set<string>();
+  for (const row of snapshot.ledger.rows) {
+    if (row.origin !== "bank" || !row.merchantFingerprint) continue;
+    if (!isCountableSpendRow(row) || row.amountMinor >= 0) continue;
+    if (snapshot.ledger.recurringRowIds.has(row.id)) {
+      ruleBacked.add(row.merchantFingerprint);
+      continue;
+    }
+    if (!monthSet.has(row.effectiveDate.slice(0, 7))) continue;
+    const rows = byMerchant.get(row.merchantFingerprint) ?? [];
+    rows.push(row);
+    byMerchant.set(row.merchantFingerprint, rows);
+  }
+
+  const found: UntrackedRecurringCharge[] = [];
+  for (const [fingerprint, rows] of byMerchant) {
+    if (ruleBacked.has(fingerprint)) continue;
+    if (input.ruleFingerprints.has(fingerprint)) continue;
+    if (rows.length !== months.length) continue;
+    const perMonth = new Set(rows.map((row) => row.effectiveDate.slice(0, 7)));
+    if (perMonth.size !== months.length) continue;
+    const amounts = rows.map((row) => -row.amountMinor).sort((a, b) => a - b);
+    const median = amounts[Math.floor(amounts.length / 2)] ?? 0;
+    if (median <= 0) continue;
+    if (amounts.some((amount) => Math.abs(amount - median) > median * 0.1)) {
+      continue;
+    }
+    const sorted = [...rows].sort((a, b) =>
+      a.effectiveDate.localeCompare(b.effectiveDate),
+    );
+    const latest = sorted[sorted.length - 1];
+    found.push({
+      merchantFingerprint: fingerprint,
+      descriptor: latest.descriptor,
+      category: latest.category,
+      amountMinor: median,
+      dates: sorted.map((row) => row.effectiveDate),
+    });
+  }
+  return found;
+}
+
 export interface FinanceBudgetAlertEvaluation {
   evaluatedAt: string;
   opened: number;
@@ -422,7 +582,23 @@ export async function evaluateFinanceBudgetAlerts(
   await connectDB();
   const snapshot = await getBudgetSnapshot(now);
   const subscriptionDrift = await detectSubscriptionDrift(snapshot);
-  const derived = deriveFinanceBudgetAlerts({ snapshot, subscriptionDrift });
+  const rules = await FinanceRecurringRule.find({
+    merchantFingerprint: { $exists: true, $ne: "" },
+  }).select({ merchantFingerprint: 1 });
+  const untrackedRecurring = detectUntrackedRecurring({
+    snapshot,
+    ruleFingerprints: new Set(
+      rules.flatMap((rule) =>
+        rule.merchantFingerprint ? [rule.merchantFingerprint] : [],
+      ),
+    ),
+    months: DEFAULT_FINANCE_BUDGET_THRESHOLDS.untrackedRecurringMonths,
+  });
+  const derived = deriveFinanceBudgetAlerts({
+    snapshot,
+    subscriptionDrift,
+    untrackedRecurring,
+  });
 
   const existing = await FinanceBudgetAlert.find({
     status: { $in: ["open", "acknowledged"] },

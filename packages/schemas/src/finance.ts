@@ -854,9 +854,12 @@ export const financeEnvelopeStatusSchema = z.object({
   refundedMinor: z.number().int().nonnegative(),
   /** Already-known future spend in this period, from projected entries. */
   committedMinor: z.number().int().nonnegative(),
+  /** Spend this period that paid a recurring rule, plus every commitment.
+   *  Known in advance, so it is never extrapolated or paced. */
+  fixedMinor: z.number().int().nonnegative().optional(),
   /** limit + carryIn − spent − committed. Negative means overspent. */
   availableMinor: z.number().int(),
-  /** Spend + commitments + the current run rate over the days that remain. */
+  /** Spend + commitments + the variable run rate over the days that remain. */
   projectedMinor: z.number().int().nonnegative(),
   /** How far through the period we are, 0–1. */
   elapsedFraction: z.number().min(0).max(1),
@@ -905,6 +908,8 @@ export const financeBudgetAlertKindSchema = z.enum([
   "runway_low",
   "income_missed",
   "subscription_increase",
+  "envelope_limit_below_fixed",
+  "recurring_untracked",
 ]);
 export type FinanceBudgetAlertKind = z.infer<
   typeof financeBudgetAlertKindSchema

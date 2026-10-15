@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { FinanceEnvelope, FinanceLedgerEntry } from "@repo/schemas";
 import {
+  annotateRecurringLedger,
   carryInMinor,
   computeEnvelopeStatus,
   periodBounds,
   periodsBetween,
+  reversalPairIds,
   unbudgetedSpend,
 } from "./envelope-math";
 
@@ -416,5 +418,106 @@ describe("unbudgetedSpend", () => {
         bounds: { start: "2026-08-01", end: "2026-08-31" },
       }),
     ).toEqual([]);
+  });
+});
+
+describe("fixed charges", () => {
+  type BankLedgerEntry = Extract<FinanceLedgerEntry, { origin: "bank" }>;
+
+  function bank(
+    id: string,
+    amountMinor: number,
+    effectiveDate: string,
+    overrides: Partial<BankLedgerEntry> = {},
+  ): BankLedgerEntry {
+    return {
+      id,
+      origin: "bank",
+      state: "booked",
+      identityKind: "provider",
+      accountId: "account-1",
+      amountMinor,
+      currency: "EUR",
+      effectiveDate,
+      valueDate: effectiveDate,
+      descriptor: id,
+      normalizedDescriptor: id,
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ...overrides,
+    };
+  }
+
+  function ruleProjection(
+    id: string,
+    amountMinor: number,
+    effectiveDate: string,
+    linkedLedgerId?: string,
+  ): ProjectedLedgerEntry {
+    return {
+      ...projected(id, amountMinor, effectiveDate),
+      recurringRuleId: "rule-1",
+      state: linkedLedgerId ? "linked" : "expected",
+      linkedLedgerId,
+    };
+  }
+
+  test("a subscription paid early is not extrapolated", () => {
+    const ledger = annotateRecurringLedger([
+      bank("card", -9_605, "2026-10-13", {
+        category: "Transport",
+        linkedLedgerId: "proj-oct",
+      }),
+      ruleProjection("proj-oct", -9_605, "2026-10-13", "card"),
+    ]);
+    const status = computeEnvelopeStatus({
+      envelope: envelope({ categories: ["Transport"], limitMinor: 9_605 }),
+      ledger: ledger.rows.filter((row) => row.origin !== "projected"),
+      asOfDate: "2026-10-15",
+      recurringRowIds: ledger.recurringRowIds,
+    });
+    expect(status.projectedMinor).toBe(9_605);
+    expect(status.fixedMinor).toBe(9_605);
+    expect(status.paceRatio).toBeNull();
+  });
+
+  test("an upcoming rule charge is committed under the rule's category", () => {
+    const ledger = annotateRecurringLedger([
+      bank("sep", -1_199, "2026-09-09", {
+        category: "Entertainment",
+        linkedLedgerId: "proj-sep",
+      }),
+      ruleProjection("proj-sep", -1_199, "2026-09-09", "sep"),
+      ruleProjection("proj-oct", -1_199, "2026-10-20"),
+    ]);
+    const status = computeEnvelopeStatus({
+      envelope: envelope({ categories: ["Entertainment"], limitMinor: 500 }),
+      ledger: ledger.rows,
+      asOfDate: "2026-10-15",
+      recurringRowIds: ledger.recurringRowIds,
+    });
+    expect(status.committedMinor).toBe(1_199);
+    expect(status.fixedMinor).toBe(1_199);
+  });
+
+  test("one or two purchases do not set a run rate", () => {
+    const status = computeEnvelopeStatus({
+      envelope: envelope({ categories: ["Gym"], limitMinor: 6_100 }),
+      ledger: [manual("shoes", -4_808, "2026-10-05", "Gym")],
+      asOfDate: "2026-10-15",
+    });
+    expect(status.projectedMinor).toBe(4_808);
+  });
+
+  test("a payout repaid the next day is a reversal pair", () => {
+    const pairs = reversalPairIds([
+      bank("su-in", 759_800, "2026-10-08", { currency: "DKK" }),
+      bank("su-out", -759_800, "2026-10-09", { currency: "DKK" }),
+      bank("coffee", -450, "2026-10-09"),
+      bank("other-account", 450, "2026-10-09", { accountId: "account-2" }),
+    ]);
+    expect([...pairs].sort()).toEqual(["su-in", "su-out"]);
   });
 });
