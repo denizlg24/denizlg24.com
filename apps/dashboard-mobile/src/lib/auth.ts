@@ -1,6 +1,7 @@
 import { DashboardNative } from "@modules/dashboard-native";
 import { createNativeAuth, type SessionStore } from "@repo/native-auth";
 import { expoAuthPlatform } from "@repo/native-auth/expo";
+import { clearLocal } from "@/features/notifications/schedule";
 import { REDIRECT_URI, SITE } from "./config";
 
 let memory: string | null = null;
@@ -24,5 +25,6 @@ export const auth = createNativeAuth({
   platform: expoAuthPlatform((input, init) => fetch(input, init)),
   onSignedOut: () => {
     void DashboardNative?.clear();
+    void clearLocal().catch(() => undefined);
   },
 });

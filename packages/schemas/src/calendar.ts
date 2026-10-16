@@ -116,3 +116,32 @@ export const calendarGoogleIntegrationStatusSchema = z.object({
 export type ICalendarGoogleIntegrationStatus = z.infer<
   typeof calendarGoogleIntegrationStatusSchema
 >;
+
+/** `GET /calendar?date=` or `?start=&end=`. */
+export const calendarEventsResponseSchema = z.object({
+  events: z.array(calendarEventSchema),
+});
+export type CalendarEventsResponse = z.infer<
+  typeof calendarEventsResponseSchema
+>;
+
+/**
+ * The fields a client sets on `POST /calendar` and `PATCH /calendar/{id}`.
+ * An all-day event is keyed by `calendarDate`; a timed one by `date`.
+ */
+export const calendarEventWriteSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  date: z.string().optional(),
+  endDate: z.string().nullable().optional(),
+  calendarDate: z.string().optional(),
+  isAllDay: z.boolean().optional(),
+  place: z.string().max(300).optional(),
+  status: z.enum(["scheduled", "completed", "canceled"]).optional(),
+});
+export type CalendarEventWrite = z.infer<typeof calendarEventWriteSchema>;
+
+/** `POST /calendar` and `PATCH /calendar/{id}`. */
+export const calendarEventResponseSchema = z.object({
+  event: calendarEventSchema,
+});
+export type CalendarEventResponse = z.infer<typeof calendarEventResponseSchema>;

@@ -12,6 +12,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { NotificationsSync } from "@/features/notifications/notifications-sync";
 import { SignIn } from "@/features/shell/sign-in";
 import { auth } from "@/lib/auth";
 import { queryClient, wireFocus } from "@/lib/query";
@@ -46,32 +47,39 @@ export default function RootLayout() {
       <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
         <QueryClientProvider client={queryClient}>
           {state.status === "signed-in" ? (
-            <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="chat"
-                options={{ presentation: "modal", headerShown: false }}
-              />
-              <Stack.Screen
-                name="board-picture"
-                options={{
-                  presentation: "fullScreenModal",
-                  headerShown: false,
-                }}
-              />
-              <Stack.Screen
-                name="compose"
-                options={{ presentation: "modal", headerShown: true }}
-              />
-              <Stack.Screen
-                name="board-note"
-                options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }}
-              />
-              <Stack.Screen
-                name="oauth/callback"
-                options={{ headerShown: false }}
-              />
-            </Stack>
+            <>
+              <NotificationsSync />
+              <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="chat"
+                  options={{ presentation: "modal", headerShown: false }}
+                />
+                <Stack.Screen
+                  name="board-picture"
+                  options={{
+                    presentation: "fullScreenModal",
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="compose"
+                  options={{ presentation: "modal", headerShown: true }}
+                />
+                <Stack.Screen
+                  name="event"
+                  options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }}
+                />
+                <Stack.Screen
+                  name="board-note"
+                  options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }}
+                />
+                <Stack.Screen
+                  name="oauth/callback"
+                  options={{ headerShown: false }}
+                />
+              </Stack>
+            </>
           ) : (
             <SignIn />
           )}

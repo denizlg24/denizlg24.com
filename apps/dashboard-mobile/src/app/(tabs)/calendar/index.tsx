@@ -1,9 +1,3 @@
-import { Dash, TabPage } from "@/features/shell/tab-page";
+import { CalendarScreen } from "@/features/calendar/calendar-screen";
 
-export default function CalendarTab() {
-  return (
-    <TabPage title="Calendar">
-      <Dash />
-    </TabPage>
-  );
-}
+export default CalendarScreen;

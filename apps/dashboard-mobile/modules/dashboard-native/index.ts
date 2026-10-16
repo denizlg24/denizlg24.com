@@ -14,6 +14,8 @@ type DashboardNativeModule = {
   getSession(): string | null;
   setSession(json: string | null): void;
   installationId(): string;
+  getSettings(): string | null;
+  setSettings(json: string): void;
   /** A `DashboardToday` as JSON: stored for the widgets, which redraw from it. */
   setToday(json: string): void;
   /** A `MarketQuote[]` the app already paid for; the widget never fetches quotes. */

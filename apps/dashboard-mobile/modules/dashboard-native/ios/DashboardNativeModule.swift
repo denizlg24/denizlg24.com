@@ -19,6 +19,15 @@ public class DashboardNativeModule: Module {
       DashboardShared.installationId
     }
 
+    /// Notification toggles and lead times, a small JSON blob in the App Group.
+    Function("getSettings") { () -> String? in
+      DashboardShared.defaults?.string(forKey: "settings")
+    }
+
+    Function("setSettings") { (json: String) in
+      DashboardShared.defaults?.set(json, forKey: "settings")
+    }
+
     Function("setToday") { (json: String) in
       guard let data = json.data(using: .utf8) else { return }
       SnapshotStore.save(.today, data)

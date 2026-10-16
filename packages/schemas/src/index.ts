@@ -11,6 +11,7 @@ export * from "./contact";
 export * from "./conversation";
 export * from "./course";
 export * from "./dashboard";
+export * from "./dashboard-notifications";
 export * from "./email";
 export * from "./finance";
 export * from "./jev";
