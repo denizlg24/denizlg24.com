@@ -10,11 +10,14 @@ on:
       - "apps/hours-mobile/**"
       - "apps/voice-mobile/**"
       - "apps/location-mobile/**"
+      - "apps/dashboard-mobile/**"
       - "packages/expo-ios-targets/**"
       - "packages/native-auth/**"
+      - "packages/native-ui/**"
       - "packages/schemas/src/work-hours.ts"
       - "packages/schemas/src/mobile.ts"
       - "packages/schemas/src/location.ts"
+      - "packages/schemas/src/dashboard*.ts"
       - "packages/utils/src/**"
       - "packages/tts/**"
       - "bun.lock"
@@ -46,6 +49,10 @@ jobs:
           - app: Location
             directory: apps/location-mobile
             extension: ""
+          - app: Dashboard
+            directory: apps/dashboard-mobile
+            extension: DashboardWidgetExtension
+            share: DashboardShareExtension
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -105,6 +112,9 @@ jobs:
           if [ -n "${{ matrix.extension }}" ]; then
             test -d "$app/PlugIns/${{ matrix.extension }}.appex"
             test -d "$app/Metadata.appintents"
+          fi
+          if [ -n "${{ matrix.share }}" ]; then
+            test -d "$app/PlugIns/${{ matrix.share }}.appex"
           fi
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$app/Info.plist" >/dev/null
 
