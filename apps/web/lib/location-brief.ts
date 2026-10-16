@@ -7,7 +7,7 @@ import type { BudgetSnapshot } from "@/lib/finance/budget-overview";
 import {
   commonDescriptorTokens,
   descriptorTokens,
-  normalizeFinanceDescriptor,
+  identityDescriptor,
   sharesIdentity,
 } from "@/lib/finance/core";
 import {
@@ -105,21 +105,27 @@ export function buildStoreBrief(input: {
       row.effectiveDate >= from &&
       isCountableSpendRow(row),
   );
-  const common = commonDescriptorTokens(
-    snapshot.ledger.rows
-      .filter((row) => row.origin === "bank")
-      .map((row) => row.normalizedDescriptor),
-  );
+  // Commonness is counted over distinct names, not rows: a bank code sits on
+  // every kind of counterparty, while the shop he goes to most sits on a
+  // fifth of his rows and is exactly the one this has to recognise.
+  const common = commonDescriptorTokens([
+    ...new Set(
+      snapshot.ledger.rows
+        .filter((row) => row.origin === "bank")
+        .map((row) => descriptorTokens(identityDescriptor(row.descriptor)))
+        .map((tokens) => [...new Set(tokens)].sort().join(" ")),
+    ),
+  ]);
 
   // A shop the owner has bought from beats a nearer one he never has: the
   // nearest pin in a mall is as likely to be the shop next door.
   let chosen: { place: LocationPlace; rows: FinanceLedgerEntry[] } | null =
     null;
   for (const place of nearby) {
-    const tokens = descriptorTokens(normalizeFinanceDescriptor(place.name));
+    const tokens = descriptorTokens(identityDescriptor(place.name));
     if (!tokens.length) continue;
     const rows = purchases.filter((row) =>
-      sharesIdentity(tokens, row.normalizedDescriptor, common),
+      sharesIdentity(tokens, identityDescriptor(row.descriptor), common),
     );
     if (rows.length) {
       chosen = { place, rows };

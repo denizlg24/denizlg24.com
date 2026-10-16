@@ -135,3 +135,48 @@ export const locationCurrentSchema = z.object({
   visit: locationVisitSchema.nullable(),
 });
 export type LocationCurrent = z.infer<typeof locationCurrentSchema>;
+
+/**
+ * Ground covered by accurate fixes, for the explored map. Tracks are flat
+ * `[lon, lat, lon, lat, …]` runs, and only segments that reached ground no
+ * earlier segment had are sent, so walking the same street again adds
+ * nothing to the payload.
+ */
+export const locationExploredSchema = z.object({
+  tracks: z.array(z.array(z.number())),
+  /** Fixes with no neighbour close enough in time to draw a line to. */
+  spots: z.array(z.tuple([longitudeSchema, latitudeSchema])),
+  /** [west, south, east, north]; null before the first accurate fix. */
+  bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable(),
+  areaSquareMetres: z.object({ r5: z.number(), r10: z.number() }),
+  distanceMetres: z.number().nonnegative(),
+  points: z.number().int().nonnegative(),
+  firstAt: z.iso.datetime({ offset: true }).nullable(),
+  lastAt: z.iso.datetime({ offset: true }).nullable(),
+});
+export type LocationExplored = z.infer<typeof locationExploredSchema>;
+
+/** The basemap layers a street-level tile is drawn with, bottom to top. */
+export const mapTileLayerSchema = z.enum([
+  "wood",
+  "park",
+  "water",
+  "waterway",
+  "building",
+  "path",
+  "rail",
+  "minor",
+  "street",
+  "major",
+]);
+export type MapTileLayer = z.infer<typeof mapTileLayerSchema>;
+
+/**
+ * One OpenStreetMap vector tile, decoded on the server into SVG path data in
+ * tile units (`0..extent`, with a buffer either side), one path per layer.
+ */
+export const mapTileSchema = z.object({
+  extent: z.number().int().positive(),
+  layers: z.partialRecord(mapTileLayerSchema, z.string()),
+});
+export type MapTile = z.infer<typeof mapTileSchema>;

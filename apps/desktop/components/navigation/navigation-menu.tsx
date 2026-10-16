@@ -19,6 +19,7 @@ import {
   CircleDollarSign,
   Clock,
   DollarSign,
+  Earth,
   FileCode2,
   FileText,
   FileUser,
@@ -203,6 +204,11 @@ export const GROUPS: NavGroup[] = [
         label: "Hours",
         href: "/hours",
         icon: Timer,
+      },
+      {
+        label: "Explored",
+        href: "/explored",
+        icon: Earth,
       },
       {
         label: "Markets",

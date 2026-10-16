@@ -7,6 +7,19 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 2.5.0 — 2026-10-16
+
+### Added
+- **Explored**: a world map of the ground actually walked or ridden, swept
+  5 or 10 m either side of every accurate location fix, with area explored,
+  distance tracked and fix count. Pans and zooms from the whole world, with
+  country borders, down to street level, where OpenStreetMap streets, paths,
+  water, parks and buildings are drawn in the app's theme.
+
+### Fixed
+- In-store budget messages recognise shops whose names use Danish letters.
+  Føtex was never matched to its purchases, so walking in sent nothing.
+
 ## 2.4.1 — 2026-10-08
 
 ### Changed

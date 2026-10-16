@@ -40,6 +40,33 @@ export function normalizeFinanceDescriptor(value: string) {
     .replace(/\s+/g, " ");
 }
 
+/** Letters NFKD leaves whole, so `normalizeFinanceDescriptor` drops them. */
+const UNDECOMPOSED_LETTERS: Record<string, string> = {
+  ø: "o",
+  æ: "ae",
+  œ: "oe",
+  ß: "ss",
+  ł: "l",
+  đ: "d",
+  ð: "d",
+  þ: "th",
+  ı: "i",
+};
+
+/**
+ * A descriptor normalized for telling who a counterparty is. Not the stored
+ * `normalizedDescriptor`: that one keys fingerprints and synthetic ids, so it
+ * cannot change, and it turns `Føtex` into `f tex`, which has no word long
+ * enough to name anyone.
+ */
+export function identityDescriptor(value: string) {
+  return normalizeFinanceDescriptor(
+    value
+      .toLowerCase()
+      .replace(/[øæœßłđðþı]/g, (letter) => UNDECOMPOSED_LETTERS[letter] ?? ""),
+  );
+}
+
 const GENERIC_DESCRIPTOR_TOKENS = new Set([
   "card",
   "payment",

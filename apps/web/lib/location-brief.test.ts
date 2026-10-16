@@ -133,6 +133,31 @@ describe("buildStoreBrief", () => {
     expect(brief).toEqual({ skip: "nothing named within 75 m" });
   });
 
+  test("a Danish name with ø matches the bank's mangled descriptor", () => {
+    const foetex = Array.from({ length: 12 }, (_, index) =>
+      purchase(
+        `f${index}`,
+        -(1_000 + index * 100),
+        `2026-10-${String(index + 1).padStart(2, "0")}`,
+        index % 2 ? "Føtex · F?TEX LYNGBY" : "Føtex · F?TEX FISKETORV",
+      ),
+    );
+    const brief = buildStoreBrief({
+      places: [
+        place("Frisør Stella", 5, "MKPOICategoryBeauty"),
+        place("Føtex", 13, "MKPOICategoryFoodMarket"),
+      ],
+      snapshot: {
+        ...snapshot,
+        ledger: { rows: [...snapshot.ledger.rows, ...foetex] },
+      },
+    });
+    if ("skip" in brief) throw new Error(brief.skip);
+    expect(brief.place.name).toBe("Føtex");
+    expect(brief.merchant?.purchases).toBe(12);
+    expect(brief.envelope?.name).toBe("Groceries");
+  });
+
   test("a park is not a shop", () => {
     const brief = buildStoreBrief({
       places: [place("Kongens Have", 10, "MKPOICategoryPark")],

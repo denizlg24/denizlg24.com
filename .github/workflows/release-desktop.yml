@@ -75,7 +75,7 @@ jobs:
             --version "$VERSION" \
             --tag-prefix v \
             --changelog apps/desktop/CHANGELOG.md \
-            --paths apps/desktop,apps/web,packages/admin,packages/ui,packages/tts,packages/whiteboard-render \
+            --paths apps/desktop,apps/web,packages/admin,packages/ui,packages/tts,packages/whiteboard-render,packages/schemas,packages/utils,packages/latex-editor,packages/markets \
             --head "${{ github.sha }}" \
             --repo "${{ github.repository }}" > "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md"
