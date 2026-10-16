@@ -180,7 +180,7 @@ export async function judgeVisitArrivals(ids: string[]) {
           },
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     );
     if (!claimed) continue;
     try {

@@ -12,6 +12,7 @@ import {
   Clock,
   Contact,
   DollarSign,
+  Earth,
   FileCode2,
   FileText,
   FileUser,
@@ -152,6 +153,11 @@ const items = [
     title: "Hours",
     url: "/admin/dashboard/hours",
     icon: Timer,
+  },
+  {
+    title: "Explored",
+    url: "/admin/dashboard/explored",
+    icon: Earth,
   },
   {
     title: "Markets",

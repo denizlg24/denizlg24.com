@@ -1238,6 +1238,13 @@ Things worth knowing before touching this:
   matched before, ignoring words holding digits (transfer references change
   every time, and so does the fingerprint) and words common across the
   account (`imed`, `compra`). The reconciler uses the same test.
+- **`normalizedDescriptor` cannot spell Danish.** NFKD leaves `ø`/`æ` whole,
+  so `Føtex` normalizes to `f tex` — no word long enough to name anyone — and
+  the in-store messages never recognised his most-used shop. Match names
+  through `identityDescriptor` (folds those letters) on the raw `descriptor`;
+  never change `normalizeFinanceDescriptor` itself, which keys fingerprints
+  and synthetic ids. The store brief also counts "common" words over distinct
+  names, not rows: a fifth of his rows are Føtex.
 - **Income that pays a rule has no category in the budget ledger.** The
   categorizer files a parent's transfer under "Health" happily, and an
   envelope then reads it as a refund cancelling real spend.

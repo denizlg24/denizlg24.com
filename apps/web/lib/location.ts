@@ -2,11 +2,16 @@ import type {
   LocationBatchInput,
   LocationBatchResult,
   LocationCurrent,
+  LocationExplored,
   LocationPoint as LocationPointWire,
   LocationRangeQuery,
   LocationVisit as LocationVisitWire,
 } from "@repo/schemas";
 import { locationBatchInputSchema } from "@repo/schemas";
+import {
+  EXPLORED_MAX_ACCURACY_METRES,
+  ExploredAccumulator,
+} from "@/lib/location-explored";
 import { connectDB } from "@/lib/mongodb";
 import {
   type ILocationPoint,
@@ -224,4 +229,46 @@ export async function listLocationVisits(query: LocationRangeQuery) {
     visits: rows.slice(0, query.limit).map(serializeLocationVisit),
     truncated: rows.length > query.limit,
   };
+}
+
+let exploredCache: { key: string; value: LocationExplored } | null = null;
+
+/**
+ * The whole history swept into explored ground. Rebuilt only when a fix or a
+ * stay has landed since the last build: the history is append-only, so the
+ * collection sizes (metadata, no scan) and the newest fix are enough to tell.
+ */
+export async function getExploredGround(): Promise<LocationExplored> {
+  await connectDB();
+  const accurate = {
+    horizontalAccuracy: { $lte: EXPLORED_MAX_ACCURACY_METRES },
+  };
+  const [points, visits, newest] = await Promise.all([
+    LocationPoint.estimatedDocumentCount(),
+    LocationVisit.estimatedDocumentCount(),
+    LocationPoint.findOne().sort({ recordedAt: -1 }).select("_id").lean(),
+  ]);
+  const key = `${points}:${visits}:${newest?._id ?? ""}`;
+  if (exploredCache?.key === key) return exploredCache.value;
+
+  const accumulator = new ExploredAccumulator();
+  const cursor = LocationPoint.find(accurate)
+    .sort({ recordedAt: 1 })
+    .select("latitude longitude recordedAt")
+    .lean()
+    .cursor({ batchSize: 2_000 });
+  for await (const point of cursor) accumulator.add(point);
+  const stays = await LocationVisit.find(accurate)
+    .select("latitude longitude arrivedAt")
+    .lean();
+  for (const stay of stays) {
+    accumulator.addStay({
+      latitude: stay.latitude,
+      longitude: stay.longitude,
+      recordedAt: stay.arrivedAt,
+    });
+  }
+  const value = accumulator.finish();
+  exploredCache = { key, value };
+  return value;
 }
