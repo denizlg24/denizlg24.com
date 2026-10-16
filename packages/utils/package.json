@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./changelog": "./src/changelog.ts",
-    "./apns": "./src/apns.ts"
+    "./apns": "./src/apns.ts",
+    "./agent-stream": "./src/agent-stream.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

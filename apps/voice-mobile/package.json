@@ -9,7 +9,6 @@
     "ios:device": "expo run:ios --device --configuration Release",
     "prebuild": "expo prebuild --platform ios --clean",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "test": "bun test",
     "icons": "bun scripts/render-icons.ts"
   },
   "dependencies": {

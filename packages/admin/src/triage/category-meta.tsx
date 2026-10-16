@@ -1,26 +1,13 @@
-import type { TriageCategory } from "@repo/schemas";
+import {
+  TRIAGE_ATTENTION_ORDER,
+  TRIAGE_CATEGORY_LABELS,
+  type TriageCategory,
+} from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { cn } from "@repo/ui/utils";
 
-export const TRIAGE_CATEGORIES: TriageCategory[] = [
-  "action-needed",
-  "purchases",
-  "scheduled",
-  "fyi",
-  "newsletter",
-  "promo",
-  "spam",
-];
-
-export const CATEGORY_LABELS: Record<TriageCategory, string> = {
-  spam: "Spam",
-  newsletter: "Newsletter",
-  promo: "Promo",
-  purchases: "Purchases",
-  fyi: "FYI",
-  "action-needed": "Action Needed",
-  scheduled: "Scheduled",
-};
+export const TRIAGE_CATEGORIES = TRIAGE_ATTENTION_ORDER;
+export const CATEGORY_LABELS = TRIAGE_CATEGORY_LABELS;
 
 /**
  * Per-category accent, ordered loosely by how much attention the category wants.
