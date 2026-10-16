@@ -1,6 +1,6 @@
-name: Hours and Voice iOS
+name: Personal iOS apps
 
-# Secret-free validation builds of the two personal iPhone apps. They are not
+# Secret-free validation builds of the personal iPhone apps. They are not
 # published: the owner installs them from his Mac (`bun run ios:device`), so
 # there is no release job and nothing here ever signs.
 
@@ -9,10 +9,12 @@ on:
     paths:
       - "apps/hours-mobile/**"
       - "apps/voice-mobile/**"
+      - "apps/location-mobile/**"
       - "packages/expo-ios-targets/**"
       - "packages/native-auth/**"
       - "packages/schemas/src/work-hours.ts"
       - "packages/schemas/src/mobile.ts"
+      - "packages/schemas/src/location.ts"
       - "packages/utils/src/**"
       - "packages/tts/**"
       - "bun.lock"
@@ -41,6 +43,9 @@ jobs:
           - app: Voice
             directory: apps/voice-mobile
             extension: VoiceWidgetExtension
+          - app: Location
+            directory: apps/location-mobile
+            extension: ""
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -97,8 +102,10 @@ jobs:
         shell: bash
         run: |
           app="$RUNNER_TEMP/app.xcarchive/Products/Applications/${{ matrix.app }}.app"
-          test -d "$app/PlugIns/${{ matrix.extension }}.appex"
-          test -d "$app/Metadata.appintents"
+          if [ -n "${{ matrix.extension }}" ]; then
+            test -d "$app/PlugIns/${{ matrix.extension }}.appex"
+            test -d "$app/Metadata.appintents"
+          fi
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$app/Info.plist" >/dev/null
 
       - name: Upload build log

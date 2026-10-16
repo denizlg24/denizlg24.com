@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** The iPhone apps that sign in to the admin API. */
-export const mobileAppSchema = z.enum(["hours", "voice"]);
+export const mobileAppSchema = z.enum(["hours", "voice", "location"]);
 export type MobileApp = z.infer<typeof mobileAppSchema>;
 
 /** Development builds (Xcode, `expo run:ios`) register with sandbox APNs. */

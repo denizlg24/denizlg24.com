@@ -258,3 +258,63 @@ export async function pushShiftState(origin: string | null) {
     }),
   );
 }
+
+const LOCATION_BUNDLE_ID = "com.denizlg24.location";
+
+/**
+ * A plain alert on every Location install that registered a push token.
+ * True when at least one phone accepted it.
+ */
+export async function pushLocationAlert(alert: {
+  title: string;
+  body: string;
+}) {
+  const sender = apns();
+  if (!sender) return false;
+  await connectDB();
+  const devices = await MobileDevice.find({
+    app: "location",
+    pushToken: { $exists: true, $ne: null },
+  });
+  let sent = false;
+  for (const device of devices) {
+    if (!device.pushToken) continue;
+    try {
+      const result = await sender.send({
+        environment: device.environment,
+        token: device.pushToken,
+        topic: LOCATION_BUNDLE_ID,
+        pushType: "alert",
+        priority: 10,
+        // A message about the shop he is standing in is worthless an hour later.
+        expiresInSeconds: 900,
+        payload: {
+          aps: {
+            alert: { title: alert.title, body: alert.body },
+            sound: "default",
+            "interruption-level": "time-sensitive",
+          },
+        },
+      });
+      if (result.outcome === "sent") {
+        sent = true;
+        continue;
+      }
+      console.warn(
+        `[mobile-push] APNs ${result.status} ${result.reason ?? ""} for ${device.installationId}`,
+      );
+      if (result.outcome === "disable") {
+        await MobileDevice.updateOne(
+          { _id: device._id },
+          { $unset: { pushToken: "" } },
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[mobile-push] sending to ${device.installationId} failed`,
+        error,
+      );
+    }
+  }
+  return sent;
+}

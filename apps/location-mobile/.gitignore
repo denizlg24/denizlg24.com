@@ -1,0 +1,13 @@
+.expo/
+dist/
+/ios/
+/android/
+expo-env.d.ts
+*.ipa
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

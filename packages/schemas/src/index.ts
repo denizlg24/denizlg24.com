@@ -22,6 +22,7 @@ export * from "./latex-history";
 export * from "./latex-project";
 export * from "./latex-research";
 export * from "./llm";
+export * from "./location";
 export * from "./macros";
 export * from "./mobile";
 export * from "./notes";

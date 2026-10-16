@@ -358,6 +358,44 @@
         "typescript": "5.9.3",
       },
     },
+    "apps/location-mobile": {
+      "name": "location-mobile",
+      "version": "1.0.0",
+      "dependencies": {
+        "@repo/native-auth": "workspace:*",
+        "@repo/schemas": "workspace:*",
+        "@tanstack/react-query": "^5.102.8",
+        "expo": "~57.0.25",
+        "expo-build-properties": "~57.0.22",
+        "expo-constants": "~57.0.19",
+        "expo-crypto": "~57.0.3",
+        "expo-haptics": "~57.0.3",
+        "expo-linking": "~57.0.11",
+        "expo-notifications": "~57.0.21",
+        "expo-router": "~57.0.23",
+        "expo-splash-screen": "~57.0.9",
+        "expo-status-bar": "~57.0.1",
+        "expo-symbols": "~57.0.3",
+        "expo-system-ui": "~57.0.4",
+        "expo-web-browser": "~57.0.3",
+        "react": "19.2.7",
+        "react-native": "0.86.3",
+        "react-native-gesture-handler": "~2.32.0",
+        "react-native-reanimated": "4.5.1",
+        "react-native-safe-area-context": "~5.7.0",
+        "react-native-screens": "~4.26.0",
+        "react-native-worklets": "0.10.1",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@repo/expo-ios-targets": "workspace:*",
+        "@repo/typescript-config": "workspace:*",
+        "@resvg/resvg-js": "2.6.2",
+        "@types/bun": "^1.4.2",
+        "@types/react": "19.2.18",
+        "typescript": "5.9.3",
+      },
+    },
     "apps/macros": {
       "name": "macros",
       "version": "0.0.1",
@@ -3509,6 +3547,8 @@
     "lint-staged": ["lint-staged@17.5.1", "", { "dependencies": { "picomatch": "^4.0.7", "string-argv": "^0.3.2", "tinyexec": "^1.3.1" }, "optionalDependencies": { "yaml": "^2.9.0" }, "bin": { "lint-staged": "bin/lint-staged.js" } }, "sha512-7EDuco1xnBMeVpvAbeMq1U5KXwJGLmY8q6l+Ye78r36C4mPc+Vg1Z2SK8gHyRTyvPro90A0q5/FAZ+Au23d6QQ=="],
 
     "locate-path": ["locate-path@5.0.0", "", { "dependencies": { "p-locate": "^4.1.0" } }, "sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g=="],
+
+    "location-mobile": ["location-mobile@workspace:apps/location-mobile"],
 
     "lodash": ["lodash@4.18.1", "", {}, "sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q=="],
 

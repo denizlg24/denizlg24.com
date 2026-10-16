@@ -20,6 +20,7 @@ import {
   isCountableSpendRow,
   type PeriodBounds,
   periodBounds,
+  prepaidCoverage,
   previousPeriod,
   reversalPairIds,
 } from "./envelope-math";
@@ -294,6 +295,12 @@ export interface BudgetLedger {
   allRows: FinanceLedgerEntry[];
   /** Bank rows that paid a recurring rule; see `annotateRecurringLedger`. */
   recurringRowIds: Set<string>;
+  /**
+   * Occurrences already paid by a lump (three rents in one transfer), to the
+   * bank row that paid them. They are left out of `rows` — the money was
+   * counted when it landed — and kept in `allRows`.
+   */
+  prepaid: Map<string, string>;
   /** What no rate could convert, kept out of the totals rather than at par. */
   unconvertedByCurrency: Array<{ currency: string; amountMinor: number }>;
   windowFrom: string;
@@ -332,6 +339,7 @@ export async function loadBudgetLedger(
 
   const serialized = rows.map(serializeFinanceLedgerEntry);
   const reversals = reversalPairIds(serialized);
+  const prepaid = prepaidCoverage(serialized);
   const unconverted = new Map<string, number>();
   const converted = serialized.flatMap((row) => {
     const amountMinor = converter.convert(
@@ -352,15 +360,16 @@ export async function loadBudgetLedger(
     return [{ ...row, amountMinor, currency: settings.baseCurrency }];
   });
 
-  const annotated = annotateRecurringLedger(converted);
+  const annotated = annotateRecurringLedger(converted, prepaid);
   return {
     currency: settings.baseCurrency,
     converter,
     rows: deduplicateLinkedLedger(annotated.rows).filter(
-      (row) => !reversals.has(row.id),
+      (row) => !reversals.has(row.id) && !prepaid.has(row.id),
     ),
     allRows: annotated.rows,
     recurringRowIds: annotated.recurringRowIds,
+    prepaid,
     unconvertedByCurrency: [...unconverted].map(([currency, amountMinor]) => ({
       currency,
       amountMinor,

@@ -40,6 +40,67 @@ export function normalizeFinanceDescriptor(value: string) {
     .replace(/\s+/g, " ");
 }
 
+const GENERIC_DESCRIPTOR_TOKENS = new Set([
+  "card",
+  "payment",
+  "transfer",
+  "monthly",
+  "number",
+  "plus",
+  "subscription",
+]);
+
+/**
+ * The words in a normalized descriptor that can say who a counterparty is.
+ *
+ * Anything holding a digit is a reference, not a name — a bank transfer
+ * reads `trf imed de serafettin gunes r07807718` with a new reference every
+ * time, which is also why its fingerprint changes on every transfer.
+ */
+export function descriptorTokens(normalized: string) {
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .filter(
+      (token) =>
+        token.length >= 4 &&
+        !/[0-9]/.test(token) &&
+        !GENERIC_DESCRIPTOR_TOKENS.has(token),
+    );
+}
+
+/**
+ * Words too common in an account's history to identify anyone: the bank's
+ * own codes (`imed`, `compra`, `estrang`) appear on every row of their kind,
+ * so sharing one says nothing about who the counterparty is.
+ */
+export function commonDescriptorTokens(descriptors: string[], share = 0.05) {
+  const counts = new Map<string, number>();
+  for (const descriptor of descriptors) {
+    for (const token of new Set(descriptorTokens(descriptor))) {
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+  }
+  const threshold = Math.max(3, descriptors.length * share);
+  return new Set(
+    [...counts]
+      .filter(([, count]) => count > threshold)
+      .map(([token]) => token),
+  );
+}
+
+/** Whether two descriptors share a word that names someone. */
+export function sharesIdentity(
+  known: Iterable<string>,
+  normalized: string,
+  common: ReadonlySet<string>,
+) {
+  const tokens = new Set(descriptorTokens(normalized));
+  for (const token of known) {
+    if (!common.has(token) && tokens.has(token)) return true;
+  }
+  return false;
+}
+
 export function merchantFingerprint(value: string) {
   const normalized = normalizeFinanceDescriptor(value);
   return createHash("sha256").update(normalized).digest("hex");

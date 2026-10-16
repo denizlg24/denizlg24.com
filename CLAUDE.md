@@ -101,6 +101,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   the Mac with `bun run ios:device`, built unsigned by `personal-ios.yml`.
   Widgets, Live Activities, Control Center, App Intents. See
   [Hours and Voice for iPhone](#hours-and-voice-for-iphone).
+- `apps/location-mobile/` — owner-only location recorder (Expo SDK 57,
+  installed like Hours). Visits and significant changes always on, a GPS
+  trail while moving; captured and uploaded in Swift because a location
+  relaunch runs no JavaScript. History lives in web's Mongo, kept
+  indefinitely, under `/api/admin/location`. See its `AGENTS.md`.
 - `packages/native-auth/` — deniz auth sign-in (code + PKCE through
   ASWebAuthenticationSession) and the admin API client for those apps.
 - `packages/expo-ios-targets/` — config plugins: a WidgetKit extension target,
@@ -1223,6 +1228,19 @@ Things worth knowing before touching this:
   different things. The input schema has no currency field, the sheet shows the
   base rather than offering a choice, and `rebaseEnvelope` converts any older
   row left behind by a change to the base setting.
+- **A lump can prepay a rule.** `prepaidCoverage` (envelope-math) treats an
+  unmatched bank row from the rule's counterparty for k × its amount (k ≥ 2,
+  within 3%) as paying the next k open occurrences — three rents in one
+  transfer. Matching is one-to-one, so this is derived on every read, never
+  a link: covered occurrences leave `ledger.rows` (no forecast income, no
+  `income_missed`) and stay in `allRows`. Counterparty identity is
+  `sharesIdentity` in `core.ts`: a word of the rule's name or of anything it
+  matched before, ignoring words holding digits (transfer references change
+  every time, and so does the fingerprint) and words common across the
+  account (`imed`, `compra`). The reconciler uses the same test.
+- **Income that pays a rule has no category in the budget ledger.** The
+  categorizer files a parent's transfer under "Health" happily, and an
+  envelope then reads it as a refund cancelling real spend.
 - **The alert pass runs at the end of `runFinanceCron` and cannot fail it.**
   The syncs already succeeded by then, and the next run re-derives the same
   alerts from the same ledger. As with markets, nothing in this repo drives
