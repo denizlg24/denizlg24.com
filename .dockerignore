@@ -19,6 +19,8 @@
 **/*.bun-build
 **/*.pyc
 _archive
+apps/*/android
+apps/*/ios
 coverage
 # Forge's scoped Nixpacks install layer copies every scripts directory it finds,
 # including infra/scripts and infra/compose/scripts. Keep those paths in the

@@ -69,12 +69,11 @@ def check() -> list[str]:
         if install not in docker:
             errors.append(f"{dockerfile}: expected `{install.strip()}`")
         # The pinned Bun 1.3.3 image cannot reliably do a frozen install with
-        # missing workspace manifests, even when --filter selects one app.
-        for dependency in sorted(catalog):
-            directory, _ = catalog[dependency]
-            copy = f"COPY {directory}/package.json {directory}/package.json"
-            if copy not in docker:
-                errors.append(f"{dockerfile}: missing {copy}")
+        # missing workspace manifests, even when --filter selects one app, so
+        # every manifest the root `workspaces` globs match is staged.
+        for line in ('require("./package.json").workspaces', "COPY --from=manifests /manifests/ ./"):
+            if line not in docker:
+                errors.append(f"{dockerfile}: the manifests stage is missing `{line}`")
         for dependency in sorted(closure(name, catalog, include_dev=False)):
             directory, _ = catalog[dependency]
             copy = f"COPY {directory} {directory}"
