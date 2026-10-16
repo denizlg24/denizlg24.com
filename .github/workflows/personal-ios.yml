@@ -80,8 +80,14 @@ jobs:
         working-directory: .
         run: bun install --frozen-lockfile
 
+      # The app's own script: Voice has no tests of its own (its stream
+      # reducer is tested in @repo/utils), and a bare `bun test` fails on none.
       - name: Test
-        run: bun test
+        shell: bash
+        run: |
+          if jq -e '.scripts.test' package.json >/dev/null; then
+            bun run test
+          fi
 
       - name: Generate the native project
         run: bunx expo prebuild --platform ios --clean
