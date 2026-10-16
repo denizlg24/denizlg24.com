@@ -1,7 +1,13 @@
 import { z } from "zod";
+import { dashboardNotificationPrefsSchema } from "./dashboard-notifications";
 
 /** The iPhone apps that sign in to the admin API. */
-export const mobileAppSchema = z.enum(["hours", "voice", "location"]);
+export const mobileAppSchema = z.enum([
+  "hours",
+  "voice",
+  "location",
+  "dashboard",
+]);
 export type MobileApp = z.infer<typeof mobileAppSchema>;
 
 /** Development builds (Xcode, `expo run:ios`) register with sandbox APNs. */
@@ -30,6 +36,12 @@ export const mobileDeviceInputSchema = z.object({
   /** ActivityKit's push-to-start token (iOS 17.2+). */
   liveActivityStartToken: apnsTokenSchema.nullable().default(null),
   liveActivities: z.array(mobileLiveActivitySchema).max(10).default([]),
+  /**
+   * The dashboard app's per-kind toggles. Pushes are filtered on the server
+   * because iOS shows an alert before any app code can run. Absent leaves
+   * whatever is stored.
+   */
+  notifications: dashboardNotificationPrefsSchema.optional(),
 });
 export type MobileDeviceInput = z.input<typeof mobileDeviceInputSchema>;
 

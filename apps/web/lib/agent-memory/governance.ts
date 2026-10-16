@@ -11,6 +11,7 @@ import type {
   AgentTrust,
 } from "@repo/schemas";
 import mongoose, { type ClientSession, Types } from "mongoose";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import { AgentAuditEvent } from "@/models/AgentAuditEvent";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
@@ -315,7 +316,17 @@ export async function createMemoryCandidate(options: {
     await session.endSession();
   }
   if (!result) throw new Error("Candidate proposal did not complete");
-  return result;
+  const proposed: IAgentMemoryCandidate = result;
+  if (options.candidate.conflictingMemoryIds.length > 0) {
+    // What the memory says stays off the lock screen.
+    scheduleDashboardPush({
+      kind: "memory_contradiction",
+      title: "Memory contradiction",
+      subject: proposed._id.toString(),
+      url: "dashboard://more/memory",
+    });
+  }
+  return proposed;
 }
 
 export async function rejectFormationCandidate(options: {

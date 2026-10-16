@@ -1,4 +1,5 @@
 import type {
+  DashboardNotificationKind,
   FinanceBudgetAlertKind,
   FinanceBudgetAlertSeverity,
   FinanceBudgetAlert as FinanceBudgetAlertWire,
@@ -6,6 +7,7 @@ import type {
 } from "@repo/schemas";
 import { formatMoney } from "@repo/utils";
 import mongoose from "mongoose";
+import { type DashboardPush, scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import {
   FinanceBudgetAlert,
@@ -577,6 +579,45 @@ export interface FinanceBudgetAlertEvaluation {
  * gone resolves, and a condition that got worse reopens an acknowledgement
  * that was only ever about the milder version.
  */
+const PUSH_KIND: Partial<
+  Record<FinanceBudgetAlertKind, DashboardNotificationKind>
+> = {
+  envelope_exceeded: "budget_overspent",
+  envelope_projected_overspend: "budget_projected",
+  envelope_pace: "budget_projected",
+  runway_low: "budget_projected",
+  income_missed: "income_missed",
+  subscription_increase: "subscription_changed",
+};
+
+/**
+ * The phone alert for a budget alert entering a state; null for kinds that
+ * would only be noise on a lock screen. The headline is the alert's own
+ * title, which is all the amount a notification carries.
+ */
+export function budgetAlertPush(alert: {
+  key: string;
+  kind: FinanceBudgetAlertKind;
+  title: string;
+  envelopeId?: string;
+}): DashboardPush | null {
+  const kind = PUSH_KIND[alert.kind];
+  if (!kind) return null;
+  return {
+    kind,
+    title: alert.title,
+    subject: alert.key,
+    url: alert.envelopeId
+      ? `dashboard://money/envelope/${alert.envelopeId}`
+      : "dashboard://money?view=budget",
+  };
+}
+
+function announceBudgetAlert(alert: Parameters<typeof budgetAlertPush>[0]) {
+  const push = budgetAlertPush(alert);
+  if (push) scheduleDashboardPush(push);
+}
+
 export async function evaluateFinanceBudgetAlerts(
   now = new Date(),
 ): Promise<FinanceBudgetAlertEvaluation> {
@@ -637,6 +678,7 @@ export async function evaluateFinanceBudgetAlerts(
         },
         { upsert: true },
       );
+      announceBudgetAlert(alert);
       opened += 1;
       continue;
     }
@@ -645,6 +687,10 @@ export async function evaluateFinanceBudgetAlerts(
       stored.status === "acknowledged" &&
       SEVERITY_RANK[alert.severity] >
         SEVERITY_RANK[stored.acknowledgedSeverity ?? stored.severity];
+    const worsened =
+      escalated ||
+      SEVERITY_RANK[alert.severity] > SEVERITY_RANK[stored.severity];
+    if (worsened) announceBudgetAlert(alert);
     stored.severity = alert.severity;
     stored.title = alert.title;
     stored.detail = alert.detail;

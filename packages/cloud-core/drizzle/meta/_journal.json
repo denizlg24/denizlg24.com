@@ -379,6 +379,13 @@
       "when": 1791306784491,
       "tag": "0053_auth_realm_and_tenants",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792156254284,
+      "tag": "0054_dashboard_notification_types",
+      "breakpoints": true
     }
   ]
 }

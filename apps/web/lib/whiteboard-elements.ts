@@ -61,16 +61,39 @@ export function maxZIndex(elements: IWhiteboardElement[]): number {
   return elements.reduce((max, el) => Math.max(max, el.zIndex), 0);
 }
 
+/** Space left between a placed element and what is above it. */
+const PLACEMENT_GAP = 40;
+
+/** Where an element with no coordinates goes: under everything, left-aligned. */
+function freeSpot(elements: IWhiteboardElement[]) {
+  if (elements.length === 0) return { x: 0, y: 0 };
+  let left = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (const element of elements) {
+    const bounds = elementBounds(element);
+    left = Math.min(left, bounds.x);
+    bottom = Math.max(bottom, bounds.y + bounds.height);
+  }
+  return { x: Math.round(left), y: Math.round(bottom + PLACEMENT_GAP) };
+}
+
 export function buildNewElements(
   items: WhiteboardNewElement[],
-  maxZ: number,
+  existing: IWhiteboardElement[],
 ): { ok: true; elements: IWhiteboardElement[] } | { ok: false; error: string } {
+  const maxZ = maxZIndex(existing);
   const elements: IWhiteboardElement[] = [];
   for (const [index, item] of items.entries()) {
+    const placed =
+      item.x === undefined || item.y === undefined
+        ? freeSpot([...existing, ...elements])
+        : null;
     const element: IWhiteboardElement = {
       id: randomUUID(),
       zIndex: maxZ + index + 1,
       ...item,
+      x: item.x ?? placed?.x ?? 0,
+      y: item.y ?? placed?.y ?? 0,
       data: withGeneratedItemIds(item.componentType, item.data),
     };
 
@@ -326,7 +349,7 @@ export async function addBoardElements(
 ): Promise<BoardMutation> {
   const board = await store.load();
   if (!board) return NOT_FOUND;
-  const built = buildNewElements(items, maxZIndex(board.elements));
+  const built = buildNewElements(items, board.elements);
   if (!built.ok) return { status: 400, body: { error: built.error } };
   const updated = await store.save([...board.elements, ...built.elements]);
   if (!updated) return SAVE_FAILED;

@@ -26,6 +26,7 @@ import { readEmailBody, saveEmailBodies } from "@/lib/email-body-store";
 import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import {
   executeTriageAction,
@@ -2129,6 +2130,44 @@ export async function runTriage(
     boundedInteger(options.extractionConcurrency, 2, 8),
   );
 
+  // Rows worth an alert of their own are pushed as they land; the rest are
+  // counted into one digest at the end of the run.
+  let digestCount = 0;
+  function announceTriage(row: {
+    id: string;
+    email: (typeof candidates)[number];
+    category: TriageCategory;
+    reviewRequired: boolean;
+    urgentTask: boolean;
+    pending: number;
+    courseName: string | undefined;
+  }) {
+    const subject = row.email.subject || "(no subject)";
+    const sender = row.email.from[0]?.name || row.email.from[0]?.address || "";
+    const url = `dashboard://inbox/triage/${row.id}`;
+    if (row.courseName) {
+      scheduleDashboardPush({
+        kind: "course_email",
+        title: row.courseName,
+        body: subject,
+        subject: row.id,
+        url,
+      });
+    }
+    if (row.reviewRequired || row.pending <= 0) return;
+    if (row.urgentTask || row.category === "action-needed") {
+      scheduleDashboardPush({
+        kind: "triage_urgent",
+        title: subject,
+        body: sender,
+        subject: row.id,
+        url,
+      });
+      return;
+    }
+    digestCount += row.pending;
+  }
+
   async function processCandidate(
     email: (typeof candidates)[number],
     prefetchedBody: FetchedEmailBody | undefined,
@@ -2315,6 +2354,7 @@ export async function runTriage(
         stats.prefilteredSpam++;
       }
 
+      let acceptedCount = 0;
       if (!reviewRequired && options.autoAccept !== false) {
         const accepted = await autoAccept(
           doc._id,
@@ -2323,7 +2363,23 @@ export async function runTriage(
         );
         stats.autoAcceptedTasks += accepted.tasks;
         stats.autoAcceptedEvents += accepted.events;
+        acceptedCount = accepted.tasks + accepted.events;
       }
+      announceTriage({
+        id: doc._id.toString(),
+        email,
+        category: fullResult.category,
+        reviewRequired,
+        urgentTask: fullResult.tasks.some((task) => task.priority === "urgent"),
+        pending:
+          fullResult.tasks.length +
+          fullResult.events.length +
+          artifacts.actions.length -
+          acceptedCount,
+        courseName: fullResult.matchedCourseId
+          ? fullResult.matchedCourseName
+          : undefined,
+      });
     } catch (err) {
       console.error("full triage failed for", email._id, err);
       stats.errors++;
@@ -2419,6 +2475,15 @@ export async function runTriage(
     await Promise.all(
       Array.from({ length: Math.min(concurrency, batch.length) }, () => work()),
     );
+  }
+
+  if (digestCount > 0) {
+    scheduleDashboardPush({
+      kind: "triage_digest",
+      title: `${digestCount} new ${digestCount === 1 ? "suggestion" : "suggestions"}`,
+      subject: "digest",
+      url: "dashboard://inbox?view=triage",
+    });
   }
 
   stats.remaining = Math.max(

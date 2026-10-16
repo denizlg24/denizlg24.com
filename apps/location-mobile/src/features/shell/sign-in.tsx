@@ -1,8 +1,8 @@
 import { useAuthState } from "@repo/native-auth/react";
+import { Button, colors, Notice, spacing, Text } from "@repo/native-ui";
 import { SymbolView } from "expo-symbols";
 import { StyleSheet, View } from "react-native";
 import { auth } from "@/lib/auth";
-import { Button, colors, Notice, spacing, Text } from "@/ui";
 
 export function SignIn() {
   const state = useAuthState(auth);

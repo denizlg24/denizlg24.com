@@ -498,3 +498,17 @@ export const courseDeadlinePatchSchema = z.object({
   completed: z.boolean().optional(),
 });
 export type CourseDeadlinePatch = z.infer<typeof courseDeadlinePatchSchema>;
+
+/** `GET /courses/overview`. */
+export const semesterOverviewResponseSchema = z.object({
+  overview: semesterOverviewSchema,
+});
+export type SemesterOverviewResponse = z.infer<
+  typeof semesterOverviewResponseSchema
+>;
+
+/** `GET /courses/{id}`. */
+export const courseDetailResponseSchema = z.object({
+  detail: courseDetailSchema,
+});
+export type CourseDetailResponse = z.infer<typeof courseDetailResponseSchema>;

@@ -208,27 +208,11 @@ export function awaitsClient(messages: AgentUIMessage[]): boolean {
     );
 }
 
-export function messageText(message: Pick<AgentUIMessage, "parts">): string {
-  return message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n\n")
-    .trim();
-}
-
-/** The words to synthesize after tools finish, excluding earlier progress text. */
-export function spokenReplyText(
-  message: Pick<AgentUIMessage, "parts">,
-): string {
-  let lastToolIndex = -1;
-  message.parts.forEach((part, index) => {
-    if (isAgentToolPart(part)) lastToolIndex = index;
-  });
-  return message.parts
-    .slice(lastToolIndex + 1)
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n\n")
-    .trim();
-}
+/** One reading of a message's words, shared with the iPhone apps. */
+export {
+  messageText,
+  replyText as spokenReplyText,
+} from "@repo/utils/agent-stream";
 
 export type AgentBlock =
   | { kind: "text"; key: string; text: string; streaming: boolean }

@@ -1,9 +1,19 @@
 import { VoiceNative, type VoicePhase } from "@modules/voice-native";
+import { haptics } from "@repo/native-ui";
 import {
   type LlmModelsResponse,
   voiceTranscriptionResponseSchema,
 } from "@repo/schemas";
 import { pickDefaultModel } from "@repo/utils";
+import {
+  type AgentTurn,
+  applyChunk,
+  createEventParser,
+  emptyTurn,
+  messageText,
+  replyText,
+  runningTool,
+} from "@repo/utils/agent-stream";
 import {
   AudioModule,
   RecordingPresets,
@@ -25,16 +35,7 @@ import {
 import { AppState } from "react-native";
 import { type SharedValue, useSharedValue } from "react-native-reanimated";
 import { getJson, postJson, send, uploadAudio } from "@/lib/api";
-import { haptics } from "@/lib/haptics";
 import { createSpeaker } from "./speech";
-import {
-  applyChunk,
-  createEventParser,
-  emptyTurn,
-  fullText,
-  spokenText,
-  type TurnState,
-} from "./stream";
 
 export type VoiceState =
   | "idle"
@@ -201,7 +202,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       if (!reader) throw new Error("The reply was empty");
       const decoder = new TextDecoder();
       const parse = createEventParser();
-      let turn: TurnState = emptyTurn;
+      let turn: AgentTurn = emptyTurn();
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -213,24 +214,25 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
           turn = applyChunk(turn, chunk);
         }
         if (turn.error) throw new Error(turn.error);
-        if (turn.runningTool) {
-          setTicker(turn.runningTool);
+        const tool = runningTool(turn.message);
+        if (tool) {
+          setTicker(tool);
         } else {
-          const text = fullText(turn);
+          const text = messageText(turn.message);
           if (text) {
             pulse.value += 1;
             setTicker(text.split(/(?<=[.!?])\s+/).at(-1) ?? text);
           }
         }
       }
-      const reply = spokenText(turn);
+      const reply = replyText(turn.message);
       if (!reply) {
         phase("idle", "");
         return;
       }
       setExchanges((current) => [
         ...current,
-        { id: Crypto.randomUUID(), question, reply: fullText(turn) },
+        { id: Crypto.randomUUID(), question, reply: messageText(turn.message) },
       ]);
       VoiceNative?.saveExchange(question, reply);
       if (AppState.currentState !== "active") {

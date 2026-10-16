@@ -2,13 +2,6 @@ import {
   type LocationAuthorization,
   LocationNative,
 } from "@modules/location-native";
-import type { LocationVisit } from "@repo/schemas";
-import { Stack as RouterStack } from "expo-router";
-import { Linking, View } from "react-native";
-import { useCurrentLocation, useTodayVisits } from "@/api/location";
-import { forgetPush } from "@/features/push/push";
-import { auth } from "@/lib/auth";
-import { accuracy, ago, clock, coordinates, duration } from "@/lib/format";
 import {
   Button,
   Notice,
@@ -18,7 +11,14 @@ import {
   Stack,
   spacing,
   Text,
-} from "@/ui";
+} from "@repo/native-ui";
+import type { LocationVisit } from "@repo/schemas";
+import { Stack as RouterStack } from "expo-router";
+import { Linking, View } from "react-native";
+import { useCurrentLocation, useTodayVisits } from "@/api/location";
+import { forgetPush } from "@/features/push/push";
+import { auth } from "@/lib/auth";
+import { accuracy, ago, clock, coordinates, duration } from "@/lib/format";
 import { LiveModePicker } from "./live-mode-picker";
 import { useTracker } from "./use-tracker";
 

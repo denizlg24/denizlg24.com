@@ -13,6 +13,27 @@ export type TriageCategory = z.infer<typeof triageCategorySchema>;
 /** The same seven labels as an array, for mongoose enums and runtime guards. */
 export const TRIAGE_CATEGORIES = triageCategorySchema.options;
 
+/** Most attention first: how every triage list orders and groups its rows. */
+export const TRIAGE_ATTENTION_ORDER: readonly TriageCategory[] = [
+  "action-needed",
+  "purchases",
+  "scheduled",
+  "fyi",
+  "newsletter",
+  "promo",
+  "spam",
+];
+
+export const TRIAGE_CATEGORY_LABELS: Record<TriageCategory, string> = {
+  spam: "Spam",
+  newsletter: "Newsletter",
+  promo: "Promo",
+  purchases: "Purchases",
+  fyi: "FYI",
+  "action-needed": "Action Needed",
+  scheduled: "Scheduled",
+};
+
 export const triageSuggestionStatusSchema = z.enum([
   "pending",
   "accepted",

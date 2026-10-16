@@ -11,6 +11,7 @@ import {
   serializeGroup,
   serializeNote,
 } from "@/lib/note-route-utils";
+import { summarizeNote } from "@/lib/note-summary";
 import {
   normalizeArxivId,
   normalizeDoi,
@@ -49,6 +50,20 @@ export async function GET(request: NextRequest) {
 
   try {
     await connectDB();
+
+    // The phone and Spotlight want the newest notes, not the whole graph.
+    if (request.nextUrl.searchParams.get("summary") === "1") {
+      const limit = Math.min(
+        200,
+        Math.max(1, Number(request.nextUrl.searchParams.get("limit")) || 50),
+      );
+      const recent = await Note.find()
+        .sort({ updatedAt: -1 })
+        .limit(limit)
+        .select("title content url status paperId updatedAt")
+        .lean();
+      return NextResponse.json({ notes: recent.map(summarizeNote) });
+    }
 
     const [notes, groups, edges] = await Promise.all([
       Note.find().sort({ createdAt: -1 }).lean<ILeanNote[]>().exec(),

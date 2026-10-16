@@ -40,3 +40,19 @@ export const authenticatorExportSchema = z.object({
   exportedAt: z.string(),
 });
 export type IAuthenticatorExport = z.infer<typeof authenticatorExportSchema>;
+
+/** `GET /authenticator/codes`: computed on the server; no secret ever leaves it. */
+export const authenticatorCodesResponseSchema = z.object({
+  codes: z.array(authenticatorCodeSchema),
+});
+export type AuthenticatorCodesResponse = z.infer<
+  typeof authenticatorCodesResponseSchema
+>;
+
+/** `GET /authenticator`: labels only. */
+export const authenticatorAccountsResponseSchema = z.object({
+  accounts: z.array(authenticatorAccountSchema),
+});
+export type AuthenticatorAccountsResponse = z.infer<
+  typeof authenticatorAccountsResponseSchema
+>;

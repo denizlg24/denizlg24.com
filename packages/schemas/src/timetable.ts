@@ -34,3 +34,9 @@ export const timetableEntrySchema = z.object({
   updatedAt: z.string(),
 });
 export type ITimetableEntry = z.infer<typeof timetableEntrySchema>;
+
+/** `GET /timetable`. */
+export const timetableResponseSchema = z.object({
+  entries: z.array(timetableEntrySchema),
+});
+export type TimetableResponse = z.infer<typeof timetableResponseSchema>;

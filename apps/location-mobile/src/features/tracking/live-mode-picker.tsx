@@ -1,7 +1,6 @@
 import type { LiveMode } from "@modules/location-native";
+import { colors, haptics, radius, spacing, Text } from "@repo/native-ui";
 import { Pressable, StyleSheet, View } from "react-native";
-import { haptics } from "@/lib/haptics";
-import { colors, radius, spacing, Text } from "@/ui";
 
 const MODES: { value: LiveMode; label: string }[] = [
   { value: "off", label: "Off" },

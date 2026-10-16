@@ -31,12 +31,18 @@ export const NOTIFICATION_TYPES = [
   "forge_disk_low",
   "metric_rule",
   "metric_rule_resolved",
+  // A Forge deployment that failed to build or start. The site keeps serving
+  // the previous one, so nothing else would say so.
+  "forge_deploy_failed",
+  // Security events from the auth hooks, for the owner's phone.
+  "auth_sign_in",
+  "auth_credential_changed",
   "test",
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
 
-export const notificationChannelSchema = z.enum(["email", "webhook"]);
+export const notificationChannelSchema = z.enum(["email", "webhook", "mobile"]);
 export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
 
 /**
@@ -114,5 +120,9 @@ export const NOTIFICATION_COOLDOWN_MINUTES: Record<NotificationType, number> = {
   // fallback for a dispatch that somehow arrives without one.
   metric_rule: 60,
   metric_rule_resolved: 0,
+  // One per deployment, keyed by it; a repeat would be the same failure.
+  forge_deploy_failed: 0,
+  auth_sign_in: 0,
+  auth_credential_changed: 0,
   test: 0,
 };

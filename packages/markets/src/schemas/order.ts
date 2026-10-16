@@ -206,3 +206,9 @@ export const orderAmendSchema = z.object({
   note: z.string().max(500).optional(),
 });
 export type OrderAmend = z.infer<typeof orderAmendSchema>;
+
+/** `GET` and `POST /markets/portfolios/{id}/orders`. */
+export const ordersResponseSchema = z.object({
+  orders: z.array(orderSchema),
+});
+export type OrdersResponse = z.infer<typeof ordersResponseSchema>;

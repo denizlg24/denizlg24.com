@@ -1,10 +1,17 @@
+import {
+  Button,
+  colors,
+  haptics,
+  Notice,
+  spacing,
+  Text,
+} from "@repo/native-ui";
+import { WheelTimePicker } from "@repo/native-ui/time-picker";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useClock, useOverview } from "@/api/hours";
-import { haptics } from "@/lib/haptics";
 import { localDay, localTime } from "@/lib/time";
-import { Button, colors, Notice, spacing, Text, WheelTimePicker } from "@/ui";
 
 type ClockAction = "in" | "out" | "break" | "resume";
 

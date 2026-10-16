@@ -122,3 +122,37 @@ export const emailQuerySchema = z
     { message: "endDate must be after startDate", path: ["endDate"] },
   );
 export type EmailQuery = z.infer<typeof emailQuerySchema>;
+
+/** `GET /email-accounts`. */
+export const emailAccountsResponseSchema = z.object({
+  accounts: z.array(emailAccountSchema),
+});
+export type EmailAccountsResponse = z.infer<typeof emailAccountsResponseSchema>;
+
+/** `GET /email-accounts/{id}/emails`: the stored inbox, newest first. */
+export const emailListResponseSchema = z.object({
+  emails: z.array(emailSchema),
+  total: z.number(),
+  page: z.number(),
+  limit: z.number(),
+  totalPages: z.number(),
+});
+export type EmailListResponse = z.infer<typeof emailListResponseSchema>;
+
+/** `GET /email-accounts/{accountId}/emails/{emailId}`. */
+export const emailDetailResponseSchema = z.object({
+  email: fullEmailSchema,
+});
+export type EmailDetailResponse = z.infer<typeof emailDetailResponseSchema>;
+
+/** `POST /email-accounts/{id}/send` as JSON. */
+export const emailSendInputSchema = z.object({
+  to: z.array(z.email()).min(1),
+  cc: z.array(z.email()).optional(),
+  bcc: z.array(z.email()).optional(),
+  subject: z.string().trim().max(300).default(""),
+  text: z.string().min(1).max(100_000),
+  html: z.string().max(200_000).optional(),
+  replyToMessageId: z.string().trim().max(500).optional(),
+});
+export type EmailSendInput = z.input<typeof emailSendInputSchema>;

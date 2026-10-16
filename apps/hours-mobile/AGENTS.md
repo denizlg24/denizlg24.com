@@ -11,9 +11,9 @@ App Store Connect key is refused by Xcode for this). CI
 
 Expo SDK 57 like Macros: expo-router (`src/app`), native tabs (Clock,
 History, Pay), formSheets, TanStack Query, `@expo/ui` SwiftUI pickers,
-SF Symbols (`expo-symbols`). UI primitives are a trimmed copy of Macros'
-(`src/ui`): hairlines and typography, never cards; errors inline, never
-toasts. Contracts are `@repo/schemas` work-hours; pure maths is `@repo/utils`.
+SF Symbols (`expo-symbols`). UI primitives are `@repo/native-ui`, shared
+with Voice, Location and the dashboard (a trimmed copy of Macros'):
+hairlines and typography, never cards; errors inline, never toasts. Contracts are `@repo/schemas` work-hours; pure maths is `@repo/utils`.
 
 ## Sign-in
 

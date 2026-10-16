@@ -53,6 +53,7 @@ import {
   type CloudAuth,
   isActiveSuperuser,
   isCloudAuthTrustedOrigin,
+  type SecurityEvent,
 } from "./auth/better-auth";
 import { type AuthMailer, AuthMailUnavailableError } from "./auth/email";
 import { type IdentityVariables, requireIdentity } from "./auth/identity";
@@ -145,6 +146,8 @@ const adminUsersQuerySchema = z.object({
 export interface CloudApiOptions {
   auth: CloudAuth;
   db: Database;
+  /** The same reporter the auth hooks use, for an MFA reset done here. */
+  onSecurityEvent?: (event: SecurityEvent) => void;
   /**
    * Accept access tokens from this API's own authorization server, issued for
    * `audience`, as superuser sessions. Absent in tests that exercise only
@@ -1045,6 +1048,16 @@ export function createCloudApiApp(options: CloudApiOptions) {
     }
     try {
       await resetUserMfa(options.db, parsed.data.userId);
+      const user = await options.db.query.authUser.findFirst({
+        columns: { name: true },
+        where: eq(authUser.id, parsed.data.userId),
+      });
+      options.onSecurityEvent?.({
+        type: "auth_credential_changed",
+        subjectKey: `mfa:${parsed.data.userId}:${Date.now()}`,
+        title: "MFA reset",
+        message: user?.name ?? parsed.data.userId,
+      });
       return context.json({ success: true });
     } catch (error) {
       if (error instanceof CloudCoreError) {

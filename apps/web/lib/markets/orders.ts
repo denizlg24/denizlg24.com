@@ -17,6 +17,7 @@ import type {
   Trade,
 } from "@repo/markets/schemas";
 import { Types } from "mongoose";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import {
   type IMarketOrder,
@@ -609,6 +610,15 @@ export async function runOrderEngine(
           }
           if (decision.stopTriggeredAt !== undefined) {
             patch.stopTriggeredAt = new Date(decision.stopTriggeredAt);
+            if (!doc.stopTriggeredAt) {
+              scheduleDashboardPush({
+                kind: "stop_triggered",
+                title: `${order.ticker} stop triggered`,
+                body: portfolio.name,
+                subject: order.id,
+                url: `dashboard://money/portfolio/${portfolioId}`,
+              });
+            }
           }
           if (Object.keys(patch).length > 0) {
             await MarketOrder.updateOne({ _id: doc._id }, { $set: patch });
@@ -640,6 +650,13 @@ export async function runOrderEngine(
 
         if (await bookFill(order, decision.price, sizing.quantity, now)) {
           result.filled++;
+          scheduleDashboardPush({
+            kind: "order_filled",
+            title: `${order.side === "buy" ? "Bought" : "Sold"} ${sizing.quantity} ${order.ticker}`,
+            body: portfolio.name,
+            subject: order.id,
+            url: `dashboard://money/portfolio/${portfolioId}`,
+          });
           // The book moved, so every later order in this pass must be sized
           // against the new positions rather than the stale snapshot — but only
           // a reduce-only order reads positions at all, and `getPerformance`
@@ -698,6 +715,24 @@ export async function runOrderEngine(
       if (performance.margin.marginCall) {
         result.marginCalls.push(
           `${portfolio.name}: ${performance.margin.marginCallAmount.toFixed(2)} short`,
+        );
+      }
+      // Pushed once on entering a call, and re-armed once it is cured.
+      if (
+        performance.margin.marginCall !==
+        (portfolio.marginCallNotified ?? false)
+      ) {
+        if (performance.margin.marginCall) {
+          scheduleDashboardPush({
+            kind: "margin_call",
+            title: `Margin call · ${portfolio.name}`,
+            subject: portfolioId,
+            url: `dashboard://money/portfolio/${portfolioId}`,
+          });
+        }
+        await MarketPortfolio.updateOne(
+          { _id: portfolio._id },
+          { $set: { marginCallNotified: performance.margin.marginCall } },
         );
       }
     }

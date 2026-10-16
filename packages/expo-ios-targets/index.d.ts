@@ -3,6 +3,10 @@ import type { ConfigPlugin } from "expo/config-plugins";
 export interface ExtensionTargetOptions {
   /** Xcode target name; must not equal any pod's module name. */
   name: string;
+  /** What the extension is; WidgetKit unless said otherwise. */
+  kind?: "widgetkit" | "share";
+  /** The view controller iOS creates for a share extension. */
+  principalClass?: string;
   /** Appended to the app's bundle id: `<app>.<bundleSuffix>`. */
   bundleSuffix: string;
   displayName: string;
@@ -22,6 +26,10 @@ export const withAppCapabilities: ConfigPlugin<{
 }>;
 export const withoutScriptSandboxing: ConfigPlugin;
 export function plist(entries: Record<string, unknown>): string;
+export function extensionPoint(options: {
+  kind?: "widgetkit" | "share";
+  principalClass?: string;
+}): Record<string, unknown>;
 export function swiftSources(
   projectRoot: string,
   dirs: string[],

@@ -1,6 +1,7 @@
 import { ipAddress } from "@vercel/functions";
 import { type NextRequest, NextResponse } from "next/server";
 import { sendToSlack } from "@/lib/comments";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { Blog } from "@/models/Blog";
@@ -209,6 +210,13 @@ export async function POST(request: NextRequest) {
       },
       blogTitle: blog?.title,
       blogSlug: blog?.slug,
+    });
+    scheduleDashboardPush({
+      kind: "comment_pending",
+      title: sanitizedAuthorName,
+      body: blog?.title,
+      subject: comment._id.toString(),
+      url: "dashboard://inbox?view=comments",
     });
 
     return NextResponse.json(

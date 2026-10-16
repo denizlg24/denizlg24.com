@@ -1,0 +1,46 @@
+import { useAuthState } from "@repo/native-auth/react";
+import { Button, colors, Notice, spacing, Text } from "@repo/native-ui";
+import { SymbolView } from "expo-symbols";
+import { StyleSheet, View } from "react-native";
+import { auth } from "@/lib/auth";
+
+export function SignIn() {
+  const state = useAuthState(auth);
+  return (
+    <View style={styles.screen}>
+      <View style={styles.mark}>
+        <SymbolView
+          name="square.grid.2x2"
+          size={56}
+          tintColor={colors.label}
+          weight="light"
+        />
+        <Text variant="largeTitle">Dashboard</Text>
+      </View>
+      <View style={styles.actions}>
+        {state.error ? <Notice message={state.error} /> : null}
+        <Button
+          label="Sign in"
+          loading={state.signingIn}
+          onPress={() => void auth.signIn()}
+        />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+    padding: spacing.xl,
+    justifyContent: "space-between",
+  },
+  mark: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.md,
+  },
+  actions: { gap: spacing.md, paddingBottom: spacing.xxxl },
+});

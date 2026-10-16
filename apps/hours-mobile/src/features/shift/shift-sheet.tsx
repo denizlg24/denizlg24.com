@@ -1,3 +1,15 @@
+import {
+  Button,
+  colors,
+  Hairline,
+  haptics,
+  Notice,
+  Section,
+  spacing,
+  Text,
+  typeScale,
+} from "@repo/native-ui";
+import { CompactPicker } from "@repo/native-ui/time-picker";
 import type { WorkSession } from "@repo/schemas";
 import { formatMinutes, formatMoney, sessionMinutes } from "@repo/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,19 +27,7 @@ import {
   View,
 } from "react-native";
 import { useDeleteSession, useOverview, useSaveSession } from "@/api/hours";
-import { haptics } from "@/lib/haptics";
 import { combine, localDay, onShift } from "@/lib/time";
-import {
-  Button,
-  CompactPicker,
-  colors,
-  Hairline,
-  Notice,
-  Section,
-  spacing,
-  Text,
-  typeScale,
-} from "@/ui";
 
 interface BreakDraft {
   key: string;

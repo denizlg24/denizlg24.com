@@ -26,3 +26,16 @@ export const contactReplySchema = z.object({
   message: z.string().trim().min(1).max(20_000),
 });
 export type ContactReply = z.infer<typeof contactReplySchema>;
+
+/** `GET /contacts`. */
+export const contactListResponseSchema = z.object({
+  contacts: z.array(contactSchema),
+  stats: z.object({
+    pending: z.number(),
+    read: z.number(),
+    responded: z.number(),
+    archived: z.number(),
+    total: z.number(),
+  }),
+});
+export type ContactListResponse = z.infer<typeof contactListResponseSchema>;

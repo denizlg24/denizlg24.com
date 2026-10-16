@@ -1,4 +1,5 @@
 import { useAuthState } from "@repo/native-auth/react";
+import { colors } from "@repo/native-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   DarkTheme,
@@ -15,7 +16,6 @@ import { HoursSync } from "@/features/native/hours-sync";
 import { SignIn } from "@/features/shell/sign-in";
 import { auth } from "@/lib/auth";
 import { queryClient, wireFocus } from "@/lib/query";
-import { colors } from "@/ui";
 
 void SplashScreen.preventAutoHideAsync();
 void auth.hydrate();

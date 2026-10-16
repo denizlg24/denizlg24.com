@@ -209,12 +209,16 @@ export const whiteboardMetaSchema = z.object({
 });
 export type IWhiteboardMeta = z.infer<typeof whiteboardMetaSchema>;
 
-/** A new element as the agent describes it: id and zIndex are assigned on the server. */
+/**
+ * A new element as the agent or the phone describes it: id and zIndex are
+ * assigned on the server, and so is any coordinate left out — the element
+ * goes in free space below everything already on the board.
+ */
 export const whiteboardNewElementSchema = z.object({
   type: z.enum(["drawing", "component"]),
   componentType: componentTypeSchema.optional(),
-  x: z.number(),
-  y: z.number(),
+  x: z.number().optional().describe("Omit to align with the board's left edge"),
+  y: z.number().optional().describe("Omit to place below the lowest element"),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   rotation: z.number().optional(),

@@ -1,4 +1,9 @@
-import { type AgentUIMessage, agentChatRequestSchema } from "@repo/schemas";
+import {
+  type AgentUIMessage,
+  agentChatRequestSchema,
+  MOBILE_INSTALLATION_HEADER,
+} from "@repo/schemas";
+import { pendingApprovals, replyText } from "@repo/utils/agent-stream";
 import { createUIMessageStreamResponse } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
 import { recallForTurn } from "@/lib/agent/memory";
@@ -18,6 +23,7 @@ import {
   LlmConfigurationError,
   LlmModelError,
 } from "@/lib/llm-errors";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -59,6 +65,27 @@ function resolveHistory(
   }
   const user = sanitizeUserMessage(request.message);
   return { history: [...stored, user], newUserText: messageText(user) };
+}
+
+function announceReply(
+  conversationId: string,
+  title: string,
+  messages: AgentUIMessage[],
+) {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant") return;
+  const waiting = pendingApprovals(last).length > 0;
+  const line = replyText(last)
+    .split("\n")
+    .find((row) => row.trim())
+    ?.trim();
+  scheduleDashboardPush({
+    kind: "chat_reply",
+    title: waiting ? `${title} · approval needed` : title,
+    ...(line && !waiting ? { body: line.slice(0, 140) } : {}),
+    subject: conversationId,
+    url: `dashboard://chat/${conversationId}`,
+  });
 }
 
 export const POST = async (req: NextRequest) => {
@@ -109,6 +136,9 @@ export const POST = async (req: NextRequest) => {
       history,
     });
 
+    // A turn the dashboard app started can finish after it was put away; the
+    // app hides the banner itself while it is in the foreground.
+    const fromPhone = req.headers.has(MOBILE_INSTALLATION_HEADER);
     const stream = await startAgentTurn({
       purpose: "chat",
       source: "dashboard-chat",
@@ -130,6 +160,13 @@ export const POST = async (req: NextRequest) => {
         await saveConversationMessages(conversation._id, messages, {
           llmModel: request.model,
         });
+        if (fromPhone) {
+          announceReply(
+            conversation._id.toString(),
+            conversation.title,
+            messages,
+          );
+        }
         if (newUserText === null) return;
         try {
           await updateConversationRetrievalSummary({

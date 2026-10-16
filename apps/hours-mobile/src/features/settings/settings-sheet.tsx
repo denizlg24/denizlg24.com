@@ -1,4 +1,14 @@
 import { HoursNative } from "@modules/hours-native";
+import {
+  Button,
+  colors,
+  Hairline,
+  haptics,
+  Row,
+  Section,
+  spacing,
+  Text,
+} from "@repo/native-ui";
 import { formatMinutes } from "@repo/utils";
 import { router } from "expo-router";
 import {
@@ -10,8 +20,6 @@ import {
   View,
 } from "react-native";
 import { signOut } from "@/lib/auth";
-import { haptics } from "@/lib/haptics";
-import { Button, colors, Hairline, Row, Section, spacing, Text } from "@/ui";
 import type { ReminderSettings } from "../reminders/plan";
 import {
   setReminderSettings,

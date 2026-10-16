@@ -54,6 +54,7 @@ import {
   CLOUD_AUTH_TRUSTED_ORIGINS,
   cloudAuthIssuer,
   createCloudAuth,
+  type SecurityEvent,
 } from "./auth/better-auth";
 import { oauthConfigFromEnv } from "./auth/oauth-config";
 import { publicAccountsFromEnv } from "./auth/public-accounts-config";
@@ -70,6 +71,7 @@ import type { DiskDevice } from "./ops/host";
 import {
   databaseClaimStore,
   EmailNotifier,
+  MobileNotifier,
   NotificationDispatcher,
   WebhookNotifier,
 } from "./ops/notifications";
@@ -171,7 +173,10 @@ export async function createRuntimeApp() {
     const sharedAuthSecret = authSecret();
     const oauthConfig = oauthConfigFromEnv(baseURL);
     const publicAccounts = publicAccountsFromEnv();
+    // Auth is built before the ops dispatcher exists; events reach it once it does.
+    let reportSecurityEvent: ((event: SecurityEvent) => void) | null = null;
     const auth = createCloudAuth({
+      onSecurityEvent: (event) => reportSecurityEvent?.(event),
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
       db,
@@ -708,6 +713,12 @@ export async function createRuntimeApp() {
           from: process.env.OPS_ALERT_EMAIL_FROM || undefined,
           to: process.env.OPS_ALERT_EMAIL_TO || undefined,
         }),
+        new MobileNotifier({
+          url:
+            process.env.MOBILE_NOTIFY_URL ||
+            "https://denizlg24.com/api/mobile/notify",
+          token: process.env.MOBILE_NOTIFY_TOKEN || undefined,
+        }),
       ],
     });
     // The same privileged socket the namespace uses. Only present in broker
@@ -718,6 +729,13 @@ export async function createRuntimeApp() {
         ? new NamespaceMetadataClient(storageConfig.namespace.metadata)
         : null;
 
+    reportSecurityEvent = (event) => {
+      void notifications
+        .dispatch({ ...event, severity: "warn" })
+        .catch((error) =>
+          console.error("[auth] security notification failed", error),
+        );
+    };
     const scheduler = new OpsScheduler({
       db,
       notifications,
@@ -824,6 +842,7 @@ export async function createRuntimeApp() {
             // No decrypt exists yet, so a linked target pulls nothing.
             envoyEnv: null,
             agentToken: deployAgentToken,
+            notifications,
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
             databaseEncryptionSecret,
             databaseHosts,
@@ -840,6 +859,7 @@ export async function createRuntimeApp() {
         : undefined;
 
     const app = createCloudApiApp({
+      onSecurityEvent: (event) => reportSecurityEvent?.(event),
       auth,
       db,
       oauth: {

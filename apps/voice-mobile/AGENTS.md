@@ -12,8 +12,8 @@ install story and CI as Hours (`apps/hours-mobile/AGENTS.md`).
 2. `voice-notes/transcribe` (multipart through `File#upload`).
 3. `chat` with `responseStyle: "voice"`, `executionMode: "yolo"` and
    `pageTools: false` — there is no page here. The UI message stream is read
-   with `expo/fetch` and reduced by `features/voice/stream.ts`; no AI SDK
-   client.
+   with `expo/fetch` and reduced by `@repo/utils/agent-stream` (shared with
+   the dashboard app); no AI SDK client.
 4. The text after the last tool call is spoken through `tts`, cut by
    `@repo/tts` `speechChunks`, the next chunk fetched while one plays.
 

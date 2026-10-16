@@ -106,6 +106,12 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   trail while moving; captured and uploaded in Swift because a location
   relaunch runs no JavaScript. History lives in web's Mongo, kept
   indefinitely, under `/api/admin/location`. See its `AGENTS.md`.
+- `apps/dashboard-mobile/` — the `/admin/dashboard` cockpit as a native
+  iPhone app (Expo SDK 57, installed like Hours): Today, Inbox, Calendar,
+  Money and More tabs, widgets, a Share extension, Spotlight and pushes. See
+  [Dashboard for iPhone](#dashboard-for-iphone).
+- `packages/native-ui/` — the UI primitives Hours, Voice, Location and the
+  dashboard share (Macros keeps its own Android-aware copy).
 - `packages/native-auth/` — deniz auth sign-in (code + PKCE through
   ASWebAuthenticationSession) and the admin API client for those apps.
 - `packages/expo-ios-targets/` — config plugins: a WidgetKit extension target,
@@ -766,6 +772,41 @@ Design: `docs/internal/plans/028-native-hours-and-voice.md`; each app's
   signed in to Xcode.
 - **Every new Expo app here needs `withSceneLifecycle`.** Without it the iOS 27
   SDK kills the app at launch in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`.
+
+## Dashboard for iPhone
+
+Design: `docs/internal/plans/029-native-dashboard-ios.md`; the app's
+`AGENTS.md` has the detail. The `/admin/dashboard` PWA install surface is
+gone (no manifest, no home-screen metadata); the page itself stays.
+
+- **Sign-in is the "iPhone apps" native client** with a third redirect,
+  `com.denizlg24.dashboard:/oauth/callback` — a hand row on
+  `auth_oauth_client.redirect_uris`, like Location's.
+- **Today is one request.** `GET /api/admin/dashboard/today`
+  (`lib/dashboard-today.ts`) feeds the tab and every widget; each source fails
+  open. Widgets draw the App Group snapshot and refetch only Today, never
+  quotes.
+- **Pushes are filtered on the server.** iOS shows an alert before app code
+  runs, so `MobileDevice.notifications` holds the phone's toggles and
+  `notifyDashboard` (`lib/mobile-push.ts`) skips devices with a kind off. The
+  kind table is `@repo/schemas` `dashboard-notifications`. Send on a
+  transition into a state, never on every re-evaluation; the collapse id is
+  per (kind, subject). Lock-screen text is sender, subject or a headline —
+  never a body, an amount or a code.
+- **Three ways in.** Web call sites call `scheduleDashboardPush`; the cloud
+  API's `MobileNotifier` and the status page post to `/api/mobile/notify`
+  (bearer `MOBILE_NOTIFY_TOKEN`, equal on api and web, or status's service
+  token). Cloud notification types map through `CLOUD_NOTIFICATION_KINDS`;
+  migration 0054 added `forge_deploy_failed`, `auth_sign_in` and
+  `auth_credential_changed`.
+- **The morning brief is `/api/jobs/morning-brief`**, idempotent per day via
+  `AppSettings.morningBriefSentOn`. Nothing in this repo calls it: point the
+  external scheduler at it at the hour it should arrive.
+- **Chat YOLO is per conversation**, off whenever a thread opens. Approvals
+  are answered against the stored conversation, never the streamed copy
+  (`@repo/utils/agent-stream`).
+- **The authenticator shows server-computed codes.** No code path to
+  `/authenticator/export` exists in the app.
 
 ## Macros moderation
 
