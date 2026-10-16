@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
+import { summarizeNote } from "@/lib/note-summary";
 import { requireAdmin } from "@/lib/require-admin";
 import { Note } from "@/models/Note";
 
@@ -29,17 +30,7 @@ export async function GET(request: NextRequest) {
       .sort({ score: { $meta: "textScore" } })
       .limit(limit)
       .lean();
-    return NextResponse.json({
-      notes: notes.map((note) => ({
-        _id: note._id.toString(),
-        title: note.title,
-        preview: note.content.slice(0, 200),
-        url: note.url,
-        status: note.status,
-        paperId: note.paperId ? String(note.paperId) : undefined,
-        updatedAt: note.updatedAt,
-      })),
-    });
+    return NextResponse.json({ notes: notes.map(summarizeNote) });
   } catch (error) {
     console.error("Error searching notes:", error);
     return NextResponse.json(

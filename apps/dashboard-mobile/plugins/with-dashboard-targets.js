@@ -13,8 +13,8 @@ const INTENTS = "modules/dashboard-native/ios/Intents";
 
 /**
  * The widget extension (Today, board todos, next class, budget headroom,
- * watchlist) and the App Intents behind the interactive todo widget, Siri
- * and Shortcuts.
+ * watchlist), the share extension that saves notes, and the App Intents
+ * behind the interactive todo widget, Siri and Shortcuts.
  *
  * As in Hours, the intents are compiled into the app too, because Xcode
  * extracts App Shortcuts metadata from the app's own sources only; there they
@@ -42,6 +42,19 @@ module.exports = (config) => {
     sources: ["targets/widgets", SHARED, INTENTS],
     deploymentTarget: "18.0",
     swiftConditions: ["DASHBOARD_WIDGET_EXTENSION"],
+    entitlements: { "com.apple.security.application-groups": [appGroup] },
+    infoPlist: shared,
+  });
+  // URL, text or image from any app's share sheet becomes a note.
+  config = withExtensionTarget(config, {
+    name: "DashboardShareExtension",
+    kind: "share",
+    principalClass: "ShareViewController",
+    bundleSuffix: "share",
+    displayName: "Dashboard",
+    sources: ["targets/share", SHARED],
+    deploymentTarget: "18.0",
+    swiftConditions: ["DASHBOARD_SHARE_EXTENSION"],
     entitlements: { "com.apple.security.application-groups": [appGroup] },
     infoPlist: shared,
   });

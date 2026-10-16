@@ -20,6 +20,8 @@ type DashboardNativeModule = {
   setToday(json: string): void;
   /** A `MarketQuote[]` the app already paid for; the widget never fetches quotes. */
   setWatchlist(json: string): void;
+  /** The link of a Spotlight result opened since the last call, once. */
+  takePendingUrl(): string | null;
   /** Replaces one domain's items in the Spotlight index. */
   indexSpotlight(
     domain: SpotlightItem["domain"],

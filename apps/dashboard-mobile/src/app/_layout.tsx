@@ -14,6 +14,7 @@ import { useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NotificationsSync } from "@/features/notifications/notifications-sync";
 import { SignIn } from "@/features/shell/sign-in";
+import { SpotlightSync } from "@/features/spotlight/spotlight-sync";
 import { auth } from "@/lib/auth";
 import { queryClient, wireFocus } from "@/lib/query";
 
@@ -49,6 +50,7 @@ export default function RootLayout() {
           {state.status === "signed-in" ? (
             <>
               <NotificationsSync />
+              <SpotlightSync />
               <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
@@ -73,6 +75,10 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="order"
                   options={{ ...sheet, sheetAllowedDetents: [0.7, 1] }}
+                />
+                <Stack.Screen
+                  name="note-new"
+                  options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }}
                 />
                 <Stack.Screen
                   name="board-note"

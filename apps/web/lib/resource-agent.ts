@@ -6,6 +6,7 @@ import {
   type IPingAgentService,
 } from "@/models/resource-db/PingResource";
 import { getSubResourceModel } from "@/models/resource-db/SubResource";
+import { scheduleDashboardPush } from "./mobile-push";
 import { connectResourceDB } from "./mongodb-resource";
 import { decryptPassword } from "./safe-email-password";
 import { runSubResourceCheck } from "./sub-resource-check";
@@ -351,6 +352,28 @@ export async function getServicesList(resource: PingableResource): Promise<{
   return { services: result.services ?? [] };
 }
 
+/**
+ * Down and recovered on the phone, on the transition only: the cron re-checks
+ * every five minutes and a standing outage must not page each time. A first
+ * check ever is not a transition.
+ */
+function announceHealth(
+  id: string,
+  name: string,
+  wasDown: boolean,
+  isDown: boolean,
+  firstCheck: boolean,
+) {
+  if (firstCheck || wasDown === isDown) return;
+  scheduleDashboardPush({
+    kind: "resource_down",
+    title: isDown ? `${name} is down` : `${name} recovered`,
+    subject: id,
+    url: "dashboard://more/resources",
+    ...(isDown ? {} : { level: "passive" as const }),
+  });
+}
+
 export async function runAllHealthChecks(
   force = false,
 ): Promise<AgentCheckResult[]> {
@@ -374,6 +397,14 @@ export async function runAllHealthChecks(
 
     const result = await checkResourceHealth(resource);
     const checkedAt = new Date();
+    announceHealth(
+      resource._id.toString(),
+      resource.name,
+      resource.agentService.lastStatus === "unreachable",
+      result.status === "unreachable",
+      resource.agentService.lastStatus === null ||
+        resource.agentService.lastStatus === undefined,
+    );
 
     await PingResource.updateOne(
       { _id: resource._id },
@@ -429,6 +460,13 @@ export async function runAllSubResourceChecks(
 
     const result = await runSubResourceCheck(sub.check, responses);
     const checkedAt = new Date();
+    announceHealth(
+      sub._id.toString(),
+      sub.name,
+      sub.lastStatus === "unhealthy",
+      !result.isHealthy,
+      sub.lastStatus === null || sub.lastStatus === undefined,
+    );
 
     await SubResource.updateOne(
       { _id: sub._id },

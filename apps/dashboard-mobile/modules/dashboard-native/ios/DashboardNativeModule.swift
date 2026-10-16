@@ -40,6 +40,13 @@ public class DashboardNativeModule: Module {
       SnapshotStore.reloadWidgets()
     }
 
+    /// The link of a Spotlight result opened since the last call, once.
+    Function("takePendingUrl") { () -> String? in
+      let link = UserDefaults.standard.string(forKey: DashboardAppDelegate.pendingKey)
+      UserDefaults.standard.removeObject(forKey: DashboardAppDelegate.pendingKey)
+      return link
+    }
+
     AsyncFunction("indexSpotlight") { (domain: String, itemsJson: String) in
       try await Spotlight.replace(domain: domain, json: itemsJson)
     }

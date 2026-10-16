@@ -20,6 +20,7 @@ import { buildRetrievalQuery } from "@/lib/agent-memory/query-context";
 import { retrieveMemoriesForChat } from "@/lib/agent-memory/retrieval";
 import { findDeniedContent } from "@/lib/agent-memory/security";
 import { consumeUIMessageStream } from "@/lib/background-agent/consume-stream";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import type { AgentRunSurface } from "@/lib/tools/types";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -135,6 +136,26 @@ function taskMessage(task: IAgentTask): AgentUIMessage {
   };
 }
 
+/** A run's end on the phone: the first line of what it said, never more. */
+function announceRun(
+  taskName: string,
+  runId: string,
+  kind: "task_finished" | "task_failed",
+  text: string | undefined,
+) {
+  const line = text
+    ?.split("\n")
+    .find((row) => row.trim())
+    ?.trim();
+  scheduleDashboardPush({
+    kind,
+    title: kind === "task_failed" ? `${taskName} failed` : taskName,
+    ...(line ? { body: line.slice(0, 140) } : {}),
+    subject: runId,
+    url: `dashboard://more/run/${runId}`,
+  });
+}
+
 export async function processAgentTaskJob(job: IAgentMemoryJob) {
   const runId =
     typeof job.checkpoint?.agentTaskRunId === "string"
@@ -175,6 +196,7 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
     run.completedAt = now;
     run.executionLeaseExpiresAt = undefined;
     await run.save();
+    announceRun(task.name, run._id.toString(), "task_failed", run.error);
     return { failed: true, runId: run._id.toString(), error: run.error };
   }
 
@@ -318,6 +340,7 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       run.completedAt = new Date();
       run.executionLeaseExpiresAt = undefined;
       await run.save();
+      announceRun(task.name, run._id.toString(), "task_finished", run.output);
       return {
         runId: run._id.toString(),
         status: run.status,
@@ -337,6 +360,7 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       run.completedAt = new Date();
       run.executionLeaseExpiresAt = undefined;
       await run.save();
+      announceRun(task.name, run._id.toString(), "task_failed", run.error);
       // Do not throw: a full-run retry could duplicate already-completed writes.
       return { runId: run._id.toString(), failed: true, error: run.error };
     }

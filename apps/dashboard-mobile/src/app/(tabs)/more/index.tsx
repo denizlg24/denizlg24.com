@@ -1,9 +1,3 @@
-import { Dash, TabPage } from "@/features/shell/tab-page";
+import { MoreScreen } from "@/features/more/more-screen";
 
-export default function MoreTab() {
-  return (
-    <TabPage title="More">
-      <Dash />
-    </TabPage>
-  );
-}
+export default MoreScreen;

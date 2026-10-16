@@ -3,6 +3,7 @@ import type { NotificationPayload } from "@repo/schemas/cloud";
 
 import {
   EmailNotifier,
+  MobileNotifier,
   type NotificationClaimStore,
   NotificationDispatcher,
   type Notifier,
@@ -263,5 +264,51 @@ describe("EmailNotifier", () => {
     await expect(notifier.send(payload())).rejects.toThrow(
       "domain not verified",
     );
+  });
+});
+
+describe("MobileNotifier", () => {
+  it("is off without both the URL and the token", () => {
+    expect(
+      new MobileNotifier({ url: "https://x", token: undefined }).enabled,
+    ).toBe(false);
+  });
+
+  it("sends the type, title and headline only, with the bearer", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const notifier = new MobileNotifier({
+      url: "https://denizlg24.com/api/mobile/notify",
+      token: "secret",
+      fetchImplementation: async (url, init) => {
+        requests.push({ url, init });
+        return Response.json({ sent: 1 });
+      },
+    });
+    const sent = await notifier.send(
+      payload({
+        message: "/dev/nvme0n1p1 at 91.2%\nmore detail",
+        details: { host: "pi" },
+      }),
+    );
+    expect(sent).toBe(true);
+    const request = requests[0];
+    expect(new Headers(request?.init?.headers).get("authorization")).toBe(
+      "Bearer secret",
+    );
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      cloudType: "disk_usage_high",
+      title: "Disk filling",
+      body: "/dev/nvme0n1p1 at 91.2%",
+      dedupeKey: "disk_usage_high:/dev/nvme0n1p1",
+    });
+  });
+
+  it("reports not sent when no phone took it", async () => {
+    const notifier = new MobileNotifier({
+      url: "https://x",
+      token: "t",
+      fetchImplementation: async () => Response.json({ sent: 0 }),
+    });
+    expect(await notifier.send(payload())).toBe(false);
   });
 });

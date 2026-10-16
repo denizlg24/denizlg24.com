@@ -120,6 +120,44 @@ export interface CloudAuthOptions {
   passkey?: Partial<PasskeyRelyingParty>;
   /** Verification and password-reset mail. Omitted, every send fails. */
   mailer?: AuthMailer;
+  /** Sign-ins and credential changes on cloud accounts, for the owner's phone. */
+  onSecurityEvent?: (event: SecurityEvent) => void;
+}
+
+export interface SecurityEvent {
+  type: "auth_sign_in" | "auth_credential_changed";
+  subjectKey: string;
+  title: string;
+  message: string;
+}
+
+/** "Safari on iPhone"-ish, from a user agent, for a one-line headline. */
+export function describeUserAgent(userAgent: string | null | undefined) {
+  if (!userAgent) return "Unknown device";
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /Firefox\//.test(userAgent)
+      ? "Firefox"
+      : /Chrome\//.test(userAgent)
+        ? "Chrome"
+        : /Safari\//.test(userAgent)
+          ? "Safari"
+          : null;
+  const device = /iPhone/.test(userAgent)
+    ? "iPhone"
+    : /iPad/.test(userAgent)
+      ? "iPad"
+      : /Android/.test(userAgent)
+        ? "Android"
+        : /Mac OS X/.test(userAgent)
+          ? "Mac"
+          : /Windows/.test(userAgent)
+            ? "Windows"
+            : /Linux/.test(userAgent)
+              ? "Linux"
+              : null;
+  if (browser && device) return `${browser} on ${device}`;
+  return browser ?? device ?? "Unknown device";
 }
 
 const uuidSchema = z.uuid();
@@ -239,6 +277,19 @@ export function createCloudAuth(options: CloudAuthOptions) {
         if (ctx.body?.rememberMe === false) return;
         expireCookie(ctx, ctx.context.authCookies.dontRememberToken);
       }),
+      // A passkey is both factors, so adding one is worth knowing about.
+      after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/passkey/verify-registration") return;
+        const report = options.onSecurityEvent;
+        const user = ctx.context.session?.user;
+        if (!report || !user || ctx.context.returned instanceof Error) return;
+        report({
+          type: "auth_credential_changed",
+          subjectKey: `passkey:${user.id}:${Date.now()}`,
+          title: "Passkey added",
+          message: user.name,
+        });
+      }),
     },
     databaseHooks: {
       session: {
@@ -256,6 +307,23 @@ export function createCloudAuth(options: CloudAuthOptions) {
                   context.context.secret,
                 ));
             return { data: { ...session, rememberMe } };
+          },
+          after: async (session) => {
+            const report = options.onSecurityEvent;
+            if (!report) return;
+            const account = await options.db.query.authUser.findFirst({
+              columns: { name: true, realm: true },
+              where: eq(schema.authUser.id, session.userId),
+            });
+            if (account?.realm !== "cloud") return;
+            report({
+              type: "auth_sign_in",
+              subjectKey: session.id,
+              title: `New sign-in · ${account.name}`,
+              message: [describeUserAgent(session.userAgent), session.ipAddress]
+                .filter(Boolean)
+                .join(" · "),
+            });
           },
         },
       },

@@ -169,9 +169,40 @@ function applicationTarget(project) {
 }
 
 /**
+ * The `NSExtension` entry for a target kind. A WidgetKit extension names only
+ * its point; a share extension also names the view controller iOS creates and
+ * what it accepts — one web URL, text, or one image.
+ *
+ * @param {{ kind?: "widgetkit" | "share", principalClass?: string }} options
+ */
+function extensionPoint(options) {
+  if (options.kind === "share") {
+    if (!options.principalClass) {
+      throw new Error(
+        "expo-ios-targets: a share extension needs principalClass.",
+      );
+    }
+    return {
+      NSExtensionPointIdentifier: "com.apple.share-services",
+      NSExtensionPrincipalClass: `$(PRODUCT_MODULE_NAME).${options.principalClass}`,
+      NSExtensionAttributes: {
+        NSExtensionActivationRule: {
+          NSExtensionActivationSupportsWebURLWithMaxCount: 1,
+          NSExtensionActivationSupportsText: true,
+          NSExtensionActivationSupportsImageWithMaxCount: 1,
+        },
+      },
+    };
+  }
+  return { NSExtensionPointIdentifier: "com.apple.widgetkit-extension" };
+}
+
+/**
  * @param {import("expo/config-plugins").ExpoConfig} config
  * @param {{
  *   name: string,
+ *   kind?: "widgetkit" | "share",
+ *   principalClass?: string,
  *   bundleSuffix: string,
  *   displayName: string,
  *   sources: string[],
@@ -307,9 +338,7 @@ function withExtensionTarget(config, options) {
           CFBundlePackageType: "$(PRODUCT_BUNDLE_PACKAGE_TYPE)",
           CFBundleShortVersionString: "$(MARKETING_VERSION)",
           CFBundleVersion: "$(CURRENT_PROJECT_VERSION)",
-          NSExtension: {
-            NSExtensionPointIdentifier: "com.apple.widgetkit-extension",
-          },
+          NSExtension: extensionPoint(options),
           ...options.infoPlist,
         }),
       );
@@ -403,6 +432,7 @@ function withoutScriptSandboxing(config) {
 const withSceneLifecycle = require("./scene-lifecycle");
 
 module.exports = {
+  extensionPoint,
   plist,
   withSceneLifecycle,
   swiftSources,

@@ -20,6 +20,8 @@ export interface IAppSettings extends Document<string> {
   cv: IStoredCv | null;
   cvDraft: IStoredCv | null;
   cvProject: ILatexProject | null;
+  /** `yyyy-MM-dd` of the last morning brief pushed, claimed atomically. */
+  morningBriefSentOn?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,6 +64,7 @@ const AppSettingsSchema = new Schema<IAppSettings>(
     cv: { type: StoredCvSchema, default: null },
     cvDraft: { type: StoredCvSchema, default: null },
     cvProject: { type: Schema.Types.Mixed, default: null },
+    morningBriefSentOn: { type: String },
   },
   { timestamps: true },
 );

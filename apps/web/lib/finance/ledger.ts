@@ -8,6 +8,7 @@ import type {
 import mongoose from "mongoose";
 import { z } from "zod";
 import { generateJson, getSemanticModel } from "@/lib/llm-service";
+import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import {
   FinanceLedgerEntry,
@@ -737,7 +738,7 @@ export async function reconcileFinanceLedger(
     console.warn("[finance] Ambiguous match review deferred", error);
   }
   if (suggestions.length > 0) {
-    await FinanceMatchReview.bulkWrite(
+    const written = await FinanceMatchReview.bulkWrite(
       suggestions.map((suggestion) => ({
         updateOne: {
           filter: {
@@ -754,6 +755,14 @@ export async function reconcileFinanceLedger(
         },
       })),
     );
+    if (written.upsertedCount > 0) {
+      scheduleDashboardPush({
+        kind: "match_review",
+        title: `${written.upsertedCount} ${written.upsertedCount === 1 ? "match" : "matches"} to review`,
+        subject: "pending",
+        url: "dashboard://money",
+      });
+    }
   }
 }
 

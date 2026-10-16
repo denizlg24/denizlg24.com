@@ -1,5 +1,9 @@
-import type { ApnsEnvironment, MobileApp } from "@repo/schemas";
-import mongoose from "mongoose";
+import type {
+  ApnsEnvironment,
+  DashboardNotificationPrefs,
+  MobileApp,
+} from "@repo/schemas";
+import mongoose, { Schema } from "mongoose";
 
 export interface IMobileDevice extends mongoose.Document {
   /** Minted by the app on first launch; one per install. */
@@ -10,6 +14,8 @@ export interface IMobileDevice extends mongoose.Document {
   pushToken?: string;
   liveActivityStartToken?: string;
   liveActivities: { activityId: string; token: string }[];
+  /** Dashboard only: per-kind toggles; a missing kind means its default. */
+  notifications?: DashboardNotificationPrefs;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,7 +23,11 @@ export interface IMobileDevice extends mongoose.Document {
 const mobileDeviceSchema = new mongoose.Schema<IMobileDevice>(
   {
     installationId: { type: String, required: true, unique: true },
-    app: { type: String, required: true, enum: ["hours", "voice", "location"] },
+    app: {
+      type: String,
+      required: true,
+      enum: ["hours", "voice", "location", "dashboard"],
+    },
     environment: {
       type: String,
       required: true,
@@ -36,6 +46,7 @@ const mobileDeviceSchema = new mongoose.Schema<IMobileDevice>(
       ],
       default: [],
     },
+    notifications: { type: Schema.Types.Mixed },
   },
   { timestamps: true },
 );

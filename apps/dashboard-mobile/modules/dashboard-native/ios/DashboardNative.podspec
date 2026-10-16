@@ -16,7 +16,7 @@ Pod::Spec.new do |s|
 
   # Intents/ is compiled into the app target and the widget extension by the
   # config plugin, never into this pod.
-  s.source_files = 'DashboardNativeModule.swift', 'Spotlight.swift', 'Shared/*.swift'
+  s.source_files = 'DashboardNativeModule.swift', 'DashboardAppDelegate.swift', 'Spotlight.swift', 'Shared/*.swift'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'SWIFT_COMPILATION_MODE' => 'wholemodule'

@@ -160,8 +160,8 @@ import {
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-
 import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
+import type { NotificationDispatcher } from "../ops/notifications";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
 import {
@@ -210,6 +210,8 @@ export interface DeployRouteOptions {
    */
   provisioners: ReadonlyMap<DbType, Provisioner>;
   meili: SearchKeyClient;
+  /** Ops notifications, for a deployment that failed. Absent in tests. */
+  notifications?: Pick<NotificationDispatcher, "dispatch">;
 }
 
 /**
@@ -4639,6 +4641,23 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (updated.kind !== "preview") await forge.publishRoutes(updated);
     } else if (isTerminalDeploymentStatus(updated.status)) {
       await forge.releaseDeployment(updated);
+    }
+    if (updated.status === "failed" && options.notifications) {
+      const failedTarget = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.id, updated.targetId),
+      });
+      // The live deployment keeps serving, so nothing else would say so.
+      await options.notifications
+        .dispatch({
+          type: "forge_deploy_failed",
+          severity: "error",
+          subjectKey: updated.id,
+          title: `${failedTarget?.name ?? "Deployment"} failed`,
+          message: (updated.error ?? "The deployment failed").slice(0, 4_000),
+        })
+        .catch((error) => {
+          console.error("[deploy] failure notification failed", error);
+        });
     }
     // Best-effort and last, so nothing GitHub does can hold up the agent's
     // status write or the route publish it depends on.

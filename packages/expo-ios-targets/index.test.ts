@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { plist, swiftSources } from "./index.js";
+import { extensionPoint, plist, swiftSources } from "./index.js";
 
 describe("plist", () => {
   test("encodes booleans, numbers and escapes text", () => {
@@ -21,5 +21,19 @@ describe("swiftSources", () => {
       writeFileSync(join(root, dir, "Shared.swift"), "");
     }
     expect(() => swiftSources(root, ["a", "b"])).toThrow(/both a and b/);
+  });
+});
+
+describe("extensionPoint", () => {
+  test("widgets by default; a share extension names its controller", () => {
+    expect(extensionPoint({})).toEqual({
+      NSExtensionPointIdentifier: "com.apple.widgetkit-extension",
+    });
+    const share = extensionPoint({ kind: "share", principalClass: "Share" });
+    expect(share.NSExtensionPointIdentifier).toBe("com.apple.share-services");
+    expect(share.NSExtensionPrincipalClass).toBe(
+      "$(PRODUCT_MODULE_NAME).Share",
+    );
+    expect(() => extensionPoint({ kind: "share" })).toThrow(/principalClass/);
   });
 });

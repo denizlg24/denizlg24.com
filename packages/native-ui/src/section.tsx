@@ -51,7 +51,7 @@ export interface RowProps extends Omit<PressableProps, "children" | "style"> {
   title: string;
   subtitle?: string;
   value?: string;
-  valueTone?: "primary" | "secondary" | "working";
+  valueTone?: "primary" | "secondary" | "tertiary" | "working" | "destructive";
   trailing?: ReactNode;
   chevron?: boolean;
   destructive?: boolean;

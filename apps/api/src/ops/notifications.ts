@@ -66,6 +66,59 @@ export class WebhookNotifier implements Notifier {
   }
 }
 
+export interface MobileNotifierOptions {
+  /** web's `POST /api/mobile/notify`. */
+  url: string | undefined;
+  /** `MOBILE_NOTIFY_TOKEN`, equal on api and web. */
+  token: string | undefined;
+  fetchImplementation?: FetchLike;
+}
+
+/**
+ * The dashboard iPhone app, through web, which holds the APNs key and each
+ * phone's toggles. Only the title and a one-line headline travel: the
+ * message and details are for email, not a lock screen.
+ */
+export class MobileNotifier implements Notifier {
+  readonly channel = "mobile" as const;
+  private readonly fetchImplementation: FetchLike;
+
+  constructor(private readonly options: MobileNotifierOptions) {
+    this.fetchImplementation = options.fetchImplementation ?? fetch;
+  }
+
+  get enabled(): boolean {
+    return Boolean(this.options.url && this.options.token);
+  }
+
+  async send(payload: NotificationPayload): Promise<boolean> {
+    const { url, token } = this.options;
+    if (!url || !token) return false;
+    const headline = payload.message.split("\n").find((line) => line.trim());
+    const response = await this.fetchImplementation(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        cloudType: payload.type,
+        title: payload.title.slice(0, 200),
+        ...(headline ? { body: headline.trim().slice(0, 300) } : {}),
+        dedupeKey: `${payload.type}:${payload.subjectKey}`.slice(0, 255),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Mobile notify returned HTTP ${response.status}`);
+    }
+    const result = (await response.json().catch(() => null)) as {
+      sent?: unknown;
+    } | null;
+    return typeof result?.sent === "number" ? result.sent > 0 : true;
+  }
+}
+
 export interface EmailNotifierOptions {
   apiKey: string | undefined;
   from: string | undefined;

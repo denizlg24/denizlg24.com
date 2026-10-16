@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["DashboardNativeModule"]
+    "modules": ["DashboardNativeModule"],
+    "appDelegateSubscribers": ["DashboardAppDelegate"]
   }
 }

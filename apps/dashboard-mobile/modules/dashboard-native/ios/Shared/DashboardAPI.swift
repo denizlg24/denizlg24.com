@@ -35,4 +35,41 @@ public enum DashboardAPI {
     }
     return data
   }
+
+  /// One file as the multipart `file` field `/upload` reads; returns its URL.
+  public static func upload(_ data: Data, filename: String, mimeType: String) async throws
+    -> String
+  {
+    let boundary = "dashboard-\(UUID().uuidString)"
+    var body = Data()
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append(
+      "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+        .data(using: .utf8)!)
+    body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+    body.append(data)
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+    func send(_ token: String) async throws -> (Data, Int) {
+      var request = URLRequest(url: DashboardShared.site.appendingPathComponent("api/admin/upload"))
+      request.httpMethod = "POST"
+      request.timeoutInterval = 120
+      request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+      request.setValue(
+        "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
+      let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+      return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    let token = try await SessionTokens.shared.accessToken()
+    var (data, status) = try await send(token)
+    if status == 401 {
+      (data, status) = try await send(try await SessionTokens.shared.accessToken(rejected: token))
+    }
+    guard (200..<300).contains(status),
+      let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+      let url = object["url"] as? String
+    else { throw DashboardError.server(status, "Upload failed (\(status))") }
+    return url
+  }
 }

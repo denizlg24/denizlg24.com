@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
 import {
+  DASHBOARD_NOTIFICATIONS,
+  type DashboardNotificationKind,
   MOBILE_INSTALLATION_HEADER,
   type MobileDeviceRegistration,
+  type NotificationLevel,
+  notificationEnabled,
   type ShiftActivityState,
 } from "@repo/schemas";
 import { shiftActivityState } from "@repo/utils";
@@ -77,6 +82,7 @@ export async function registerMobileDevice(
         ...(input.liveActivityStartToken
           ? { liveActivityStartToken: input.liveActivityStartToken }
           : {}),
+        ...(input.notifications ? { notifications: input.notifications } : {}),
       },
       ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
     },
@@ -317,4 +323,117 @@ export async function pushLocationAlert(alert: {
     }
   }
   return sent;
+}
+
+const DASHBOARD_BUNDLE_ID = "com.denizlg24.dashboard";
+/** APNs refuses a collapse id over 64 bytes. */
+const MAX_COLLAPSE_ID = 64;
+
+export interface DashboardPush {
+  kind: DashboardNotificationKind;
+  title: string;
+  /** Sender and subject, a headline: never a body, an amount or a code. */
+  body?: string;
+  /**
+   * Stable per (kind, subject), so a condition that repeats replaces its own
+   * banner instead of stacking another.
+   */
+  subject: string;
+  /** `dashboard://…`: the screen a tap opens. */
+  url?: string;
+  /** Overrides the kind's own level, e.g. a resolved incident is passive. */
+  level?: NotificationLevel;
+}
+
+const APNS_LEVEL = {
+  passive: "passive",
+  active: "active",
+  "time-sensitive": "time-sensitive",
+} as const satisfies Record<NotificationLevel, string>;
+
+export function dashboardCollapseId(kind: string, subject: string) {
+  const id = `${kind}:${subject}`;
+  if (Buffer.byteLength(id) <= MAX_COLLAPSE_ID) return id;
+  return `${kind}:${createHash("sha256").update(subject).digest("hex")}`.slice(
+    0,
+    MAX_COLLAPSE_ID,
+  );
+}
+
+/**
+ * An alert on every dashboard install that has the kind on. Returns how many
+ * phones accepted it. Callers fire this on a transition into a state — a new
+ * alert key, a worsened severity — never on every re-evaluation.
+ */
+export async function notifyDashboard(push: DashboardPush): Promise<number> {
+  const sender = apns();
+  if (!sender) return 0;
+  await connectDB();
+  const devices = await MobileDevice.find({
+    app: "dashboard",
+    pushToken: { $exists: true, $ne: null },
+  });
+  const spec = DASHBOARD_NOTIFICATIONS[push.kind];
+  const level = push.level ?? spec.level;
+  let sent = 0;
+  for (const device of devices) {
+    if (!device.pushToken) continue;
+    if (!notificationEnabled(device.notifications, push.kind)) continue;
+    try {
+      const result = await sender.send({
+        environment: device.environment,
+        token: device.pushToken,
+        topic: DASHBOARD_BUNDLE_ID,
+        pushType: "alert",
+        priority: level === "passive" ? 5 : 10,
+        collapseId: dashboardCollapseId(push.kind, push.subject),
+        payload: {
+          aps: {
+            alert: {
+              title: push.title,
+              ...(push.body ? { body: push.body } : {}),
+            },
+            ...(level === "passive" ? {} : { sound: "default" }),
+            "interruption-level": APNS_LEVEL[level],
+            "thread-id": spec.group,
+          },
+          kind: push.kind,
+          ...(push.url ? { url: push.url } : {}),
+        },
+      });
+      if (result.outcome === "sent") {
+        sent += 1;
+        continue;
+      }
+      console.warn(
+        `[mobile-push] APNs ${result.status} ${result.reason ?? ""} for ${device.installationId}`,
+      );
+      if (result.outcome === "disable") {
+        await MobileDevice.updateOne(
+          { _id: device._id },
+          { $unset: { pushToken: "" } },
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[mobile-push] sending to ${device.installationId} failed`,
+        error,
+      );
+    }
+  }
+  return sent;
+}
+
+/** After the response where there is one; a lost push costs nothing else. */
+export function scheduleDashboardPush(push: DashboardPush) {
+  if (!apns()) return;
+  const send = () =>
+    notifyDashboard(push).catch((error) => {
+      console.error(`[mobile-push] ${push.kind} failed`, error);
+    });
+  try {
+    after(send);
+  } catch {
+    void send();
+  }
 }

@@ -175,3 +175,15 @@ export const piCronHistoryEntrySchema = z.object({
   started_at: z.string(),
 });
 export type PiCronHistoryEntry = z.infer<typeof piCronHistoryEntrySchema>;
+
+/** `GET /resources`. */
+export const resourcesResponseSchema = z.object({
+  resources: z.array(resourceSchema),
+});
+export type ResourcesResponse = z.infer<typeof resourcesResponseSchema>;
+
+/** `GET /resources/{id}/sub-resources`. */
+export const subResourcesResponseSchema = z.object({
+  subResources: z.array(subResourceSchema),
+});
+export type SubResourcesResponse = z.infer<typeof subResourcesResponseSchema>;

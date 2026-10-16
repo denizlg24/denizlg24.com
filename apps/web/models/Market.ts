@@ -374,6 +374,8 @@ export interface IMarketPortfolio extends Document {
   margin: IMarketMarginConfig;
   /** Last day borrow was charged for, so a gap is caught up rather than lost. */
   borrowAccruedThrough?: string;
+  /** A margin call is reported on every pass; this marks the one already pushed. */
+  marginCallNotified?: boolean;
   inceptionDate: string;
   createdAt: Date;
   updatedAt: Date;
@@ -410,6 +412,7 @@ const marketPortfolioSchema = new Schema<IMarketPortfolio>(
       default: () => ({}),
     },
     borrowAccruedThrough: String,
+    marginCallNotified: Boolean,
     inceptionDate: { type: String, required: true },
   },
   { timestamps: true },

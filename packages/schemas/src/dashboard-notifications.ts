@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  type NotificationType,
+  notificationTypeSchema,
+} from "./cloud/notifications";
 
 /**
  * Every notification the dashboard iPhone app can show. One table read by the
@@ -357,3 +361,84 @@ export const dashboardLocalNotificationSettingsSchema = z.object({
 export type DashboardLocalNotificationSettings = z.infer<
   typeof dashboardLocalNotificationSettingsSchema
 >;
+
+/**
+ * Where a cloud ops notification lands on the phone; null for the ones that
+ * would only be noise there (a backup that worked, a file that moved tier,
+ * the test message).
+ */
+export const CLOUD_NOTIFICATION_KINDS: Record<
+  NotificationType,
+  { kind: DashboardNotificationKind; level?: NotificationLevel } | null
+> = {
+  task_failed: { kind: "cloud_task_failed" },
+  task_recovered: { kind: "cloud_task_failed", level: "passive" },
+  backup_completed: null,
+  backup_failed: { kind: "backup_failed" },
+  disk_usage_high: { kind: "host_pressure" },
+  disk_critical: { kind: "host_pressure", level: "time-sensitive" },
+  memory_high: { kind: "host_pressure" },
+  temperature_high: { kind: "host_pressure" },
+  service_down: { kind: "resource_down" },
+  service_recovered: { kind: "resource_down", level: "passive" },
+  container_oom: { kind: "container_unhealthy" },
+  container_crash_loop: { kind: "container_unhealthy" },
+  api_error_rate: { kind: "metric_alert" },
+  auth_failure_burst: { kind: "auth_failure_burst" },
+  tiering_moved: null,
+  tiering_orphaned: { kind: "tiering_problem" },
+  tiering_quarantined: { kind: "tiering_problem" },
+  forge_disk_low: { kind: "forge_disk_low" },
+  metric_rule: { kind: "metric_alert" },
+  metric_rule_resolved: { kind: "metric_alert", level: "passive" },
+  forge_deploy_failed: { kind: "forge_deploy_failed" },
+  auth_sign_in: { kind: "new_sign_in" },
+  auth_credential_changed: { kind: "credential_changed" },
+  test: null,
+};
+
+/**
+ * `POST /api/mobile/notify`: a push from the cloud API or the status page.
+ * Either names a dashboard kind outright or a cloud type mapped through
+ * `CLOUD_NOTIFICATION_KINDS`. `dedupeKey` collapses repeats on the phone.
+ */
+export const mobileNotifyInputSchema = z
+  .object({
+    kind: dashboardNotificationKindSchema.optional(),
+    cloudType: notificationTypeSchema.optional(),
+    title: z.string().trim().min(1).max(200),
+    body: z.string().trim().max(300).optional(),
+    dedupeKey: z.string().trim().min(1).max(255),
+    url: z
+      .string()
+      .regex(/^dashboard:\/\//, "A dashboard:// link")
+      .max(500)
+      .optional(),
+    level: notificationLevelSchema.optional(),
+  })
+  .refine(
+    (value) => value.kind !== undefined || value.cloudType !== undefined,
+    {
+      message: "kind or cloudType is required",
+    },
+  );
+export type MobileNotifyInput = z.infer<typeof mobileNotifyInputSchema>;
+
+export type ResolvedMobileNotify = {
+  kind: DashboardNotificationKind;
+  level?: NotificationLevel;
+};
+
+/** The kind and level a notify request resolves to; null when it is not for the phone. */
+export function resolveMobileNotify(
+  input: Pick<MobileNotifyInput, "kind" | "cloudType" | "level">,
+): ResolvedMobileNotify | null {
+  if (input.kind) {
+    return { kind: input.kind, ...(input.level ? { level: input.level } : {}) };
+  }
+  if (!input.cloudType) return null;
+  const mapped = CLOUD_NOTIFICATION_KINDS[input.cloudType];
+  if (!mapped) return null;
+  const level = input.level ?? mapped.level;
+  return { kind: mapped.kind, ...(level ? { level } : {}) };
+}

@@ -1,4 +1,5 @@
 import { Contact, type ILeanContact } from "@/models/Contact";
+import { scheduleDashboardPush } from "./mobile-push";
 import { connectDB } from "./mongodb";
 
 export async function createContact(data: {
@@ -21,8 +22,16 @@ export async function createContact(data: {
   });
 
   await contact.save();
+  const saved = contact.toObject() as ILeanContact;
+  scheduleDashboardPush({
+    kind: "contact_new",
+    title: data.name,
+    body: data.email,
+    subject: saved.ticketId,
+    url: `dashboard://inbox/contact/${saved.ticketId}`,
+  });
 
-  return contact.toObject() as ILeanContact;
+  return saved;
 }
 
 export async function getContactByTicketId(

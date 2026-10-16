@@ -150,3 +150,27 @@ export const semanticSuggestionSchema = z.object({
   updatedAt: z.string(),
 });
 export type ISemanticSuggestion = z.infer<typeof semanticSuggestionSchema>;
+
+/** A note as lists show it: no body, a 200-character preview. */
+export const noteSummarySchema = z.object({
+  _id: z.string(),
+  title: z.string(),
+  preview: z.string(),
+  url: z.string().optional(),
+  status: z.string().optional(),
+  paperId: z.string().optional(),
+  updatedAt: z.string(),
+});
+export type NoteSummary = z.infer<typeof noteSummarySchema>;
+
+/** `GET /notes/search?q=` and `GET /notes?summary=1`. */
+export const noteSummaryListResponseSchema = z.object({
+  notes: z.array(noteSummarySchema),
+});
+export type NoteSummaryListResponse = z.infer<
+  typeof noteSummaryListResponseSchema
+>;
+
+/** `GET /notes/{id}`. */
+export const noteResponseSchema = z.object({ note: noteSchema });
+export type NoteResponse = z.infer<typeof noteResponseSchema>;
