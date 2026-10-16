@@ -315,3 +315,15 @@ export const watchlistInputSchema = watchlistSchema
   .pick({ name: true })
   .extend({ tickers: z.array(tickerSchema).max(200).optional() });
 export type WatchlistInput = z.infer<typeof watchlistInputSchema>;
+
+/** `GET /markets/watchlists`. */
+export const watchlistsResponseSchema = z.object({
+  watchlists: z.array(watchlistSchema),
+});
+export type WatchlistsResponse = z.infer<typeof watchlistsResponseSchema>;
+
+/** `GET /markets/portfolios`. */
+export const portfoliosResponseSchema = z.object({
+  portfolios: z.array(portfolioSchema),
+});
+export type PortfoliosResponse = z.infer<typeof portfoliosResponseSchema>;

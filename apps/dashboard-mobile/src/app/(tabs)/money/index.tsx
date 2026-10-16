@@ -1,9 +1,3 @@
-import { Dash, TabPage } from "@/features/shell/tab-page";
+import { MoneyScreen } from "@/features/money/money-screen";
 
-export default function MoneyTab() {
-  return (
-    <TabPage title="Money">
-      <Dash />
-    </TabPage>
-  );
-}
+export default MoneyScreen;

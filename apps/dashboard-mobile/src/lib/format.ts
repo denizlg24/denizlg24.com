@@ -2,9 +2,17 @@
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
+/** A bare `yyyy-MM-dd` is a local calendar day, never UTC midnight. */
+export function toDate(value: string | Date): Date {
+  if (typeof value !== "string") return value;
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (day) return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
+  return new Date(value);
+}
+
 /** `09:05`, local time. */
 export function clock(value: string | Date) {
-  const date = typeof value === "string" ? new Date(value) : value;
+  const date = toDate(value);
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
@@ -16,7 +24,7 @@ const DAY_MS = 86_400_000;
 
 /** Whole local days from `now` to `value`; negative in the past. */
 export function daysFrom(value: string | Date, now = new Date()) {
-  const date = typeof value === "string" ? new Date(value) : value;
+  const date = toDate(value);
   return Math.round(
     (startOfDay(date).getTime() - startOfDay(now).getTime()) / DAY_MS,
   );
@@ -40,7 +48,7 @@ const MONTHS = [
 
 /** "Today", "Tomorrow", "Yesterday", "Thu" within a week, else "14 Oct". */
 export function dayLabel(value: string | Date, now = new Date()) {
-  const date = typeof value === "string" ? new Date(value) : value;
+  const date = toDate(value);
   const days = daysFrom(date, now);
   if (days === 0) return "Today";
   if (days === 1) return "Tomorrow";

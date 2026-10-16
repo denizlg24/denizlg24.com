@@ -173,3 +173,14 @@ export const dashboardTodaySchema = z.object({
   llm: z.object({ todayUsd: z.number(), monthUsd: z.number() }),
 });
 export type DashboardToday = z.infer<typeof dashboardTodaySchema>;
+
+/** A quote as the phone hands it to the watchlist widget, which never fetches. */
+export const dashboardWatchlistQuoteSchema = z.object({
+  symbol: z.string(),
+  price: z.number().nullable(),
+  changePercent: z.number().nullable(),
+  currency: z.string().nullable(),
+});
+export type DashboardWatchlistQuote = z.infer<
+  typeof dashboardWatchlistQuoteSchema
+>;

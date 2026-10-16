@@ -112,3 +112,10 @@ export const providerBudgetSchema = z.object({
   dayResetsAt: isoDateTimeSchema,
 });
 export type ProviderBudget = z.infer<typeof providerBudgetSchema>;
+
+/** `GET /markets/quotes?tickers=`: `stale` when the provider could not refresh. */
+export const quotesResponseSchema = z.object({
+  quotes: z.array(quoteSchema),
+  stale: z.boolean(),
+});
+export type QuotesResponse = z.infer<typeof quotesResponseSchema>;

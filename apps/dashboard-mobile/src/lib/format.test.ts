@@ -35,6 +35,11 @@ describe("format", () => {
     expect(ago(new Date(at - 10_000).toISOString(), at)).toBe("now");
   });
 
+  test("a bare date is a local day", () => {
+    expect(dayLabel("2026-10-17", now)).toBe("Tomorrow");
+    expect(daysFrom("2026-10-16", now)).toBe(0);
+  });
+
   test("isoDay is the local calendar day", () => {
     expect(isoDay(new Date(2026, 0, 5, 23, 30))).toBe("2026-01-05");
   });
