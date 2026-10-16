@@ -138,3 +138,36 @@ export async function startTriageRun(
     throw new Error(`Agent run refused (HTTP ${response.status})`);
   return runSchema.parse(await response.json()).run.id;
 }
+
+/**
+ * The dashboard phone app, through web's `/api/mobile/notify`, with the same
+ * service-client token the triage run uses. Opening is time-sensitive;
+ * resolving is passive.
+ */
+export async function notifyPhone(
+  config: AgentConfig,
+  incident: Pick<Incident, "_id" | "title">,
+  state: "opened" | "resolved",
+): Promise<void> {
+  const token = await webToken(config);
+  const response = await fetch(`${config.web}/api/mobile/notify`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "incident",
+      title:
+        state === "opened" ? incident.title : `Resolved · ${incident.title}`,
+      dedupeKey: incident._id,
+      url: "dashboard://more/resources",
+      ...(state === "resolved" ? { level: "passive" } : {}),
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`Phone notify refused (HTTP ${response.status})`);
+  }
+}

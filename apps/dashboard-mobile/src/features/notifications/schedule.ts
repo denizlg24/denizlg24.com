@@ -5,12 +5,17 @@ import type { PlannedNotification } from "./local-plan";
 const PREFIX = "local.";
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  // A chat reply is only news when the app was put away; open, the thread
+  // already shows it.
+  handleNotification: async (notification) => {
+    const quiet = notification.request.content.data?.kind === "chat_reply";
+    return {
+      shouldShowBanner: !quiet,
+      shouldShowList: !quiet,
+      shouldPlaySound: !quiet,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 const LEVEL = {

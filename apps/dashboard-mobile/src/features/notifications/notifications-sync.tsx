@@ -11,6 +11,7 @@ import {
 import { buildAgendaDays } from "@/features/calendar/agenda";
 import { useSettings } from "@/lib/settings";
 import { planLocalNotifications } from "./local-plan";
+import { registerForPush } from "./push";
 import { pathFromUrl } from "./routing";
 import { notificationsAllowed, scheduleLocal } from "./schedule";
 
@@ -30,6 +31,10 @@ export function NotificationsSync() {
     const path = pathFromUrl(response?.notification.request.content.data?.url);
     if (path) router.push(path);
   }, [response, router]);
+
+  useEffect(() => {
+    void registerForPush(settings.notifications).catch(() => undefined);
+  }, [settings.notifications]);
 
   useEffect(() => {
     if (!events.data || !timetable.data) return;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AGENT_COOLDOWN_MS,
   agentConfig,
+  notifyPhone,
   startTriageRun,
   triagePrompt,
 } from "./agent";
@@ -645,6 +646,7 @@ export async function collectStatus() {
     // only as evidence. A Better Stack incident that coincides with one of
     // ours is linked so acknowledge, resolve and the enrichment comment reach
     // it.
+    const resolvedIncidents: Incident[] = [];
     const opened = await provider("Incident reconciliation", async () => {
       const open = await c.incidents.find({ resolvedAt: null }).toArray();
       const plan = planIncidents({ services: observed, open, now });
@@ -713,6 +715,7 @@ export async function collectStatus() {
         );
       for (const incidentId of plan.resolve) {
         const incident = open.find((item) => item._id === incidentId);
+        if (incident) resolvedIncidents.push(incident);
         await c.incidents.updateOne(
           { _id: incidentId },
           {
@@ -787,6 +790,19 @@ export async function collectStatus() {
         );
       }
     });
+    // Incidents with a service, as the page shows them, reach the phone.
+    const phone = agentConfig();
+    if (phone && (opened?.length || resolvedIncidents.length))
+      await provider("Phone notifications", async () => {
+        for (const incident of opened ?? []) {
+          if (incident.serviceIds.length > 0)
+            await notifyPhone(phone, incident, "opened");
+        }
+        for (const incident of resolvedIncidents) {
+          if (incident.serviceIds.length > 0)
+            await notifyPhone(phone, incident, "resolved");
+        }
+      });
     // Every automatic incident starts one triage run on denizlg24.com, unless
     // one of its services had a run in the last hour — the hysteresis removes
     // most flapping and this catches the rest.

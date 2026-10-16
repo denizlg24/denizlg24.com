@@ -859,6 +859,7 @@ export async function createRuntimeApp() {
         : undefined;
 
     const app = createCloudApiApp({
+      onSecurityEvent: (event) => reportSecurityEvent?.(event),
       auth,
       db,
       oauth: {
