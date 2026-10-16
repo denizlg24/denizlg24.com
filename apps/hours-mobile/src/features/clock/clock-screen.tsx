@@ -1,3 +1,17 @@
+import {
+  Button,
+  colors,
+  Hairline,
+  HeaderButton,
+  haptics,
+  Notice,
+  PageHeader,
+  Screen,
+  Section,
+  Stat,
+  spacing,
+  Text,
+} from "@repo/native-ui";
 import type { WorkHoursOverview, WorkPayPeriod } from "@repo/schemas";
 import { formatMinutes, formatMoney } from "@repo/utils";
 import { format } from "date-fns";
@@ -12,21 +26,7 @@ import {
   View,
 } from "react-native";
 import { useClock, useOverview } from "@/api/hours";
-import { haptics } from "@/lib/haptics";
 import { clockface, localTime } from "@/lib/time";
-import {
-  Button,
-  colors,
-  Hairline,
-  HeaderButton,
-  Notice,
-  PageHeader,
-  Screen,
-  Section,
-  Stat,
-  spacing,
-  Text,
-} from "@/ui";
 import { JobForm } from "../jobs/job-form";
 import { useNow } from "./use-now";
 

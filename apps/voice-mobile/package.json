@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@repo/native-auth": "workspace:*",
+    "@repo/native-ui": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/tts": "workspace:*",
     "@repo/utils": "workspace:*",

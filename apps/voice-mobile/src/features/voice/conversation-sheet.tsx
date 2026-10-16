@@ -1,3 +1,4 @@
+import { haptics } from "@repo/native-ui";
 import { router } from "expo-router";
 import {
   Pressable,
@@ -8,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { auth } from "@/lib/auth";
-import { haptics } from "@/lib/haptics";
 import { useVoice } from "./voice-controller";
 
 /** This session's turns, newest last, with the two things a session needs. */

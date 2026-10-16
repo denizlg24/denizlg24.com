@@ -15,6 +15,7 @@
   "dependencies": {
     "@expo/ui": "~57.0.20",
     "@repo/native-auth": "workspace:*",
+    "@repo/native-ui": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-query": "^5.102.8",

@@ -1,19 +1,19 @@
-import type { WorkJob } from "@repo/schemas";
-import { majorToMinor, minorToMajor } from "@repo/utils";
-import { useState } from "react";
-import { StyleSheet, Switch, View } from "react-native";
-import { useSaveJob } from "@/api/hours";
-import { haptics } from "@/lib/haptics";
 import {
   Button,
   colors,
   Field,
   Hairline,
+  haptics,
   Notice,
   parseDecimal,
   spacing,
   Text,
-} from "@/ui";
+} from "@repo/native-ui";
+import type { WorkJob } from "@repo/schemas";
+import { majorToMinor, minorToMajor } from "@repo/utils";
+import { useState } from "react";
+import { StyleSheet, Switch, View } from "react-native";
+import { useSaveJob } from "@/api/hours";
 
 function deviceTimezone() {
   return (

@@ -7,9 +7,9 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { useSinglePress } from "@/lib/use-single-press";
 import { Text } from "./text";
 import { colors, radius, spacing } from "./theme";
+import { useSinglePress } from "./use-single-press";
 
 export type ButtonVariant = "filled" | "tinted" | "plain" | "destructive";
 

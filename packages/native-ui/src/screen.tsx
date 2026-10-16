@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { haptics } from "@/lib/haptics";
+import { haptics } from "./haptics";
 import { colors, gutter, spacing } from "./theme";
 
 export interface ScreenProps extends Omit<ScrollViewProps, "refreshControl"> {

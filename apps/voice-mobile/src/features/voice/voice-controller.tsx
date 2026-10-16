@@ -1,4 +1,5 @@
 import { VoiceNative, type VoicePhase } from "@modules/voice-native";
+import { haptics } from "@repo/native-ui";
 import {
   type LlmModelsResponse,
   voiceTranscriptionResponseSchema,
@@ -25,7 +26,6 @@ import {
 import { AppState } from "react-native";
 import { type SharedValue, useSharedValue } from "react-native-reanimated";
 import { getJson, postJson, send, uploadAudio } from "@/lib/api";
-import { haptics } from "@/lib/haptics";
 import { createSpeaker } from "./speech";
 import {
   applyChunk,

@@ -1,10 +1,3 @@
-import { formatMinutes } from "@repo/utils";
-import { format } from "date-fns";
-import { router } from "expo-router";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useOverview, useSessions } from "@/api/hours";
-import { combine, daysAgo, localTime } from "@/lib/time";
 import {
   Button,
   Hairline,
@@ -16,7 +9,14 @@ import {
   Section,
   spacing,
   Text,
-} from "@/ui";
+} from "@repo/native-ui";
+import { formatMinutes } from "@repo/utils";
+import { format } from "date-fns";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useOverview, useSessions } from "@/api/hours";
+import { combine, daysAgo, localTime } from "@/lib/time";
 import { groupHistory } from "./group";
 
 const PAGE_WEEKS = 8;

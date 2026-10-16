@@ -1,10 +1,10 @@
 import { HoursNative } from "@modules/hours-native";
+import { haptics } from "@repo/native-ui";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
 import { hoursKeys, useOverview } from "@/api/hours";
 import { api } from "@/lib/api";
-import { haptics } from "@/lib/haptics";
 import {
   registerCategories,
   requestPermission,

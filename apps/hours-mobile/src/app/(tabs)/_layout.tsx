@@ -1,5 +1,5 @@
+import { colors } from "@repo/native-ui";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { colors } from "@/ui";
 
 /** UITabBar: Liquid Glass on iOS 26, minimised while scrolling. */
 export default function TabsLayout() {
