@@ -369,6 +369,7 @@ export function deriveFinanceBudgetAlerts(input: {
     if (row.state !== "expected" && row.state !== "missed") continue;
     if (row.amountMinor <= 0) continue;
     if (row.expectedWindowEnd >= snapshot.asOfDate) continue;
+    if (snapshot.ledger.prepaid.has(row.id)) continue;
     const daysLate = daysBetween(row.expectedWindowEnd, snapshot.asOfDate);
     if (daysLate > thresholds.incomeMissedMaxAgeDays) continue;
     const landedLater = row.recurringRuleId

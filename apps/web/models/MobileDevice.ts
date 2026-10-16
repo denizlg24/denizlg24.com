@@ -17,7 +17,7 @@ export interface IMobileDevice extends mongoose.Document {
 const mobileDeviceSchema = new mongoose.Schema<IMobileDevice>(
   {
     installationId: { type: String, required: true, unique: true },
-    app: { type: String, required: true, enum: ["hours", "voice"] },
+    app: { type: String, required: true, enum: ["hours", "voice", "location"] },
     environment: {
       type: String,
       required: true,

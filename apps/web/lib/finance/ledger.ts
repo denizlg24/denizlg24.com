@@ -20,13 +20,16 @@ import {
 import { ensureFinanceCategories, listFinanceCategories } from "./categories";
 import {
   amountWithinPercent,
+  commonDescriptorTokens,
   dateDistanceDays,
+  descriptorTokens,
   detectTransferPairs,
   findPendingPromotion,
   merchantFingerprint,
   normalizeFinanceDescriptor,
   recurringOccurrences,
   resolveProviderTransactionId,
+  sharesIdentity,
   transactionSyntheticKey,
 } from "./core";
 import { loadFinanceFxConverter } from "./fx";
@@ -280,22 +283,60 @@ export async function runFinanceEnrichment(
   });
 }
 
-const GENERIC_DESCRIPTOR_TOKENS = new Set([
-  "card",
-  "payment",
-  "transfer",
-  "monthly",
-  "number",
-  "plus",
-  "subscription",
-]);
-
-function descriptorTokens(normalized: string) {
-  return normalized
-    .split(/[^a-z0-9]+/)
-    .filter(
-      (token) => token.length >= 4 && !GENERIC_DESCRIPTOR_TOKENS.has(token),
+/**
+ * What each rule's counterparty is called, learned from its own name and from
+ * every bank row it was ever linked to — a rule named "Father (Seref) Rent"
+ * learns "serafettin" from the transfer it matched — plus the words too
+ * common on the account to identify anyone.
+ */
+async function ruleIdentities(
+  accountId: string | mongoose.Types.ObjectId,
+  rules: Array<{ _id: mongoose.Types.ObjectId; name: string }>,
+  session?: mongoose.ClientSession,
+) {
+  const [history, linked] = await Promise.all([
+    FinanceLedgerEntry.find({ accountId, origin: "bank" })
+      .sort({ effectiveDate: -1 })
+      .limit(2_000)
+      .select({ normalizedDescriptor: 1 })
+      .session(session ?? null)
+      .lean(),
+    FinanceLedgerEntry.find({
+      accountId,
+      origin: "projected",
+      state: "linked",
+      recurringRuleId: { $in: rules.map((rule) => rule._id) },
+    })
+      .select({ recurringRuleId: 1, linkedLedgerId: 1 })
+      .session(session ?? null)
+      .lean(),
+  ]);
+  const descriptorById = new Map(
+    history.map((row) => [row._id.toString(), row.normalizedDescriptor]),
+  );
+  const ruleTokens = new Map<string, Set<string>>();
+  for (const rule of rules) {
+    ruleTokens.set(
+      rule._id.toString(),
+      new Set(descriptorTokens(normalizeFinanceDescriptor(rule.name))),
     );
+  }
+  for (const row of linked) {
+    const descriptor = row.linkedLedgerId
+      ? descriptorById.get(row.linkedLedgerId.toString())
+      : undefined;
+    const tokens = row.recurringRuleId
+      ? ruleTokens.get(row.recurringRuleId.toString())
+      : undefined;
+    if (!descriptor || !tokens) continue;
+    for (const token of descriptorTokens(descriptor)) tokens.add(token);
+  }
+  return {
+    ruleTokens,
+    commonTokens: commonDescriptorTokens(
+      history.map((row) => row.normalizedDescriptor),
+    ),
+  };
 }
 
 async function linkLedgerRows(
@@ -496,6 +537,11 @@ export async function reconcileFinanceLedger(
     loadFinanceFxConverter(session),
   ]);
   const rulesById = new Map(rules.map((rule) => [rule._id.toString(), rule]));
+  const { ruleTokens, commonTokens } = await ruleIdentities(
+    accountId,
+    rules,
+    session,
+  );
   const ambiguousSources: IFinanceLedgerEntry[] = [];
   const ambiguousCandidates = new Map<string, IFinanceLedgerEntry>();
 
@@ -555,24 +601,28 @@ export async function reconcileFinanceLedger(
    *
    * Amount and date alone are not identity: a €11.99 subscription on a DKK
    * account sits within the FX spread of any ~89 DKK purchase that week, and
-   * Spotify was linked to a 7-Eleven receipt that way. A rule that has learned
-   * its fingerprint must match it; one that has not needs a word in common
-   * with the bank descriptor, or the pair goes to review instead.
+   * Spotify was linked to a 7-Eleven receipt that way. The bank row must carry
+   * the rule's learned fingerprint or share a distinctive word with the rule's
+   * name or anything it was linked to before; otherwise the pair goes to
+   * review instead.
    */
   function identifiesMerchant(
     source: IFinanceLedgerEntry,
     bank: IFinanceLedgerEntry,
   ) {
-    const rule = source.recurringRuleId
-      ? rulesById.get(source.recurringRuleId.toString())
-      : undefined;
-    if (!rule) return true;
-    if (rule.merchantFingerprint) {
-      return rule.merchantFingerprint === bank.merchantFingerprint;
+    const ruleId = source.recurringRuleId?.toString();
+    const rule = ruleId ? rulesById.get(ruleId) : undefined;
+    if (!rule || !ruleId) return true;
+    if (
+      rule.merchantFingerprint &&
+      rule.merchantFingerprint === bank.merchantFingerprint
+    ) {
+      return true;
     }
-    const bankTokens = new Set(descriptorTokens(bank.normalizedDescriptor));
-    return descriptorTokens(source.normalizedDescriptor).some((token) =>
-      bankTokens.has(token),
+    return sharesIdentity(
+      ruleTokens.get(ruleId) ?? descriptorTokens(source.normalizedDescriptor),
+      bank.normalizedDescriptor,
+      commonTokens,
     );
   }
 

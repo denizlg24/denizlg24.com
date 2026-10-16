@@ -4,6 +4,11 @@ import type {
   FinanceEnvelopeStatus,
   FinanceLedgerEntry,
 } from "@repo/schemas";
+import {
+  commonDescriptorTokens,
+  descriptorTokens,
+  sharesIdentity,
+} from "./core";
 
 /**
  * Pure budgeting arithmetic: the period grid, which ledger rows an envelope
@@ -217,13 +222,21 @@ export function isCountableSpendRow(row: FinanceLedgerEntry) {
  * record that a charge was the rule paying out rather than discretionary spend
  * — the difference between "transport card paid on the 13th" and "spending
  * twice the limit by month end".
+ *
+ * Income that pays a rule (and a prepayment lump) loses its category here:
+ * the categorizer files a parent's rent transfer under "Health" as readily as
+ * anything, and an envelope then reads it as a refund that cancels real spend.
+ * Income totals do not read the category, so nothing else changes.
  */
-export function annotateRecurringLedger(rows: FinanceLedgerEntry[]): {
+export function annotateRecurringLedger(
+  rows: FinanceLedgerEntry[],
+  prepaid: ReadonlyMap<string, string> = new Map(),
+): {
   rows: FinanceLedgerEntry[];
   recurringRowIds: Set<string>;
 } {
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const recurringRowIds = new Set<string>();
+  const recurringRowIds = new Set<string>(prepaid.values());
   const ruleCategory = new Map<string, { date: string; category: string }>();
   for (const row of rows) {
     if (row.origin !== "projected" || !row.recurringRuleId) continue;
@@ -231,7 +244,7 @@ export function annotateRecurringLedger(rows: FinanceLedgerEntry[]): {
     const paid = byId.get(row.linkedLedgerId);
     if (!paid) continue;
     recurringRowIds.add(paid.id);
-    if (!paid.category) continue;
+    if (!paid.category || paid.amountMinor > 0) continue;
     const latest = ruleCategory.get(row.recurringRuleId);
     if (!latest || paid.effectiveDate > latest.date) {
       ruleCategory.set(row.recurringRuleId, {
@@ -243,13 +256,115 @@ export function annotateRecurringLedger(rows: FinanceLedgerEntry[]): {
   return {
     recurringRowIds,
     rows: rows.map((row) => {
-      if (row.origin !== "projected" || row.category || !row.recurringRuleId) {
+      if (row.origin !== "projected") {
+        return recurringRowIds.has(row.id) &&
+          row.amountMinor > 0 &&
+          row.category
+          ? { ...row, category: undefined }
+          : row;
+      }
+      if (row.category || !row.recurringRuleId || row.amountMinor > 0) {
         return row;
       }
       const inherited = ruleCategory.get(row.recurringRuleId);
       return inherited ? { ...row, category: inherited.category } : row;
     }),
   };
+}
+
+const PREPAID_TOLERANCE = 0.03;
+const MAX_PREPAID_OCCURRENCES = 12;
+
+/**
+ * Occurrences of a rule already paid by one lump: three months' rent sent in
+ * one transfer, a year of a subscription bought at once.
+ *
+ * A lump is an unmatched bank row on the rule's account, in its currency and
+ * direction, from a counterparty that shares a distinctive word with the
+ * rule's name or with anything the rule matched before, for k × the rule's
+ * amount (k ≥ 2, within 3%). It covers the k open occurrences whose window
+ * had not closed when it arrived, earliest first. Matching is one-to-one, so
+ * this cannot be a link; it is derived on every read instead, which also lets
+ * a lump cover an occurrence materialized after it landed.
+ *
+ * Compared in each row's own currency, before conversion.
+ *
+ * @returns projection id → the bank row that paid it
+ */
+export function prepaidCoverage(rows: FinanceLedgerEntry[]) {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const bankRows = rows.filter((row) => row.origin === "bank");
+  const common = commonDescriptorTokens(
+    bankRows.map((row) => row.normalizedDescriptor),
+  );
+
+  const occurrencesByRule = new Map<string, FinanceLedgerEntry[]>();
+  for (const row of rows) {
+    if (row.origin !== "projected" || !row.recurringRuleId) continue;
+    if (row.state === "void") continue;
+    const list = occurrencesByRule.get(row.recurringRuleId) ?? [];
+    list.push(row);
+    occurrencesByRule.set(row.recurringRuleId, list);
+  }
+
+  const covered = new Map<string, string>();
+  const spent = new Set<string>();
+  for (const occurrences of occurrencesByRule.values()) {
+    occurrences.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    const latest = occurrences[occurrences.length - 1];
+    if (!latest || latest.amountMinor === 0) continue;
+    const amount = Math.abs(latest.amountMinor);
+    const tokens = new Set(descriptorTokens(latest.normalizedDescriptor));
+    for (const occurrence of occurrences) {
+      const paid = occurrence.linkedLedgerId
+        ? byId.get(occurrence.linkedLedgerId)
+        : undefined;
+      if (!paid) continue;
+      for (const token of descriptorTokens(paid.normalizedDescriptor)) {
+        tokens.add(token);
+      }
+    }
+
+    const lumps = bankRows
+      .filter((row) => {
+        if (row.state !== "booked" || row.linkedLedgerId || row.transferId) {
+          return false;
+        }
+        if (spent.has(row.id)) return false;
+        if (row.accountId !== latest.accountId) return false;
+        if (row.currency !== latest.currency) return false;
+        if (Math.sign(row.amountMinor) !== Math.sign(latest.amountMinor)) {
+          return false;
+        }
+        return sharesIdentity(tokens, row.normalizedDescriptor, common);
+      })
+      .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+
+    for (const lump of lumps) {
+      const value = Math.abs(lump.amountMinor);
+      const times = Math.round(value / amount);
+      if (times < 2 || times > MAX_PREPAID_OCCURRENCES) continue;
+      if (
+        Math.abs(value - times * amount) >
+        times * amount * PREPAID_TOLERANCE
+      ) {
+        continue;
+      }
+      const open = occurrences.filter(
+        (occurrence) =>
+          (occurrence.state === "expected" || occurrence.state === "missed") &&
+          occurrence.origin === "projected" &&
+          occurrence.expectedWindowEnd >= lump.effectiveDate &&
+          !covered.has(occurrence.id),
+      );
+      if (open.length === 0) continue;
+      spent.add(lump.id);
+      for (const occurrence of open.slice(0, times)) {
+        covered.set(occurrence.id, lump.id);
+      }
+    }
+  }
+  return covered;
 }
 
 const REVERSAL_WINDOW_DAYS = 7;

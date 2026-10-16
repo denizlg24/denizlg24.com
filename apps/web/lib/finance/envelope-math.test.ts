@@ -6,6 +6,7 @@ import {
   computeEnvelopeStatus,
   periodBounds,
   periodsBetween,
+  prepaidCoverage,
   reversalPairIds,
   unbudgetedSpend,
 } from "./envelope-math";
@@ -519,5 +520,119 @@ describe("fixed charges", () => {
       bank("other-account", 450, "2026-10-09", { accountId: "account-2" }),
     ]);
     expect([...pairs].sort()).toEqual(["su-in", "su-out"]);
+  });
+});
+
+describe("prepaidCoverage", () => {
+  type BankLedgerEntry = Extract<FinanceLedgerEntry, { origin: "bank" }>;
+
+  function transfer(
+    id: string,
+    amountMinor: number,
+    effectiveDate: string,
+    descriptor: string,
+    linkedLedgerId?: string,
+  ): BankLedgerEntry {
+    return {
+      id,
+      origin: "bank",
+      state: "booked",
+      identityKind: "provider",
+      accountId: "account-1",
+      amountMinor,
+      currency: "EUR",
+      effectiveDate,
+      valueDate: effectiveDate,
+      descriptor,
+      normalizedDescriptor: descriptor.toLowerCase(),
+      linkedLedgerId,
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+
+  function rent(
+    id: string,
+    effectiveDate: string,
+    windowEnd: string,
+    state: ProjectedLedgerEntry["state"],
+    linkedLedgerId?: string,
+  ): ProjectedLedgerEntry {
+    return {
+      ...projected(id, 100_000, effectiveDate),
+      descriptor: "Father (Seref) Rent Transfer",
+      normalizedDescriptor: "father seref rent transfer",
+      recurringRuleId: "rent",
+      state,
+      linkedLedgerId,
+      expectedWindowEnd: windowEnd,
+    };
+  }
+
+  // The bank's own code is on every incoming transfer, so it names no one.
+  const noise = Array.from({ length: 30 }, (_, index) =>
+    transfer(`noise-${index}`, -500, "2026-07-01", `trf imed de shop ${index}`),
+  );
+
+  const ledger = [
+    ...noise,
+    transfer(
+      "aug",
+      100_000,
+      "2026-08-28",
+      "trf imed de serafettin gunes r02195435",
+      "rent-sep",
+    ),
+    rent("rent-sep", "2026-09-01", "2026-09-04", "linked", "aug"),
+    transfer(
+      "lump",
+      300_000,
+      "2026-09-28",
+      "trf imed de serafettin gunes r07807718",
+    ),
+    rent("rent-oct", "2026-10-01", "2026-10-04", "missed"),
+    rent("rent-nov", "2026-11-01", "2026-11-04", "expected"),
+    rent("rent-dec", "2026-12-01", "2026-12-04", "expected"),
+    rent("rent-jan", "2027-01-01", "2027-01-04", "expected"),
+  ];
+
+  test("three rents in one transfer cover the next three occurrences", () => {
+    const covered = prepaidCoverage(ledger);
+    expect([...covered.keys()].sort()).toEqual([
+      "rent-dec",
+      "rent-nov",
+      "rent-oct",
+    ]);
+    expect(covered.get("rent-oct")).toBe("lump");
+  });
+
+  test("a stranger's transfer of the same amount covers nothing", () => {
+    const stranger = ledger.map((row) =>
+      row.id === "lump"
+        ? { ...row, normalizedDescriptor: "trf imed de john doe r1" }
+        : row,
+    );
+    expect(prepaidCoverage(stranger).size).toBe(0);
+  });
+
+  test("an amount that is not a whole number of rents covers nothing", () => {
+    const partial = ledger.map((row) =>
+      row.id === "lump" ? { ...row, amountMinor: 50_000 } : row,
+    );
+    expect(prepaidCoverage(partial).size).toBe(0);
+  });
+
+  test("the lump is income, not a refund against an envelope", () => {
+    const annotated = annotateRecurringLedger(
+      ledger.map((row) =>
+        row.id === "lump" ? { ...row, category: "Health" } : row,
+      ),
+      prepaidCoverage(ledger),
+    );
+    expect(annotated.rows.find((row) => row.id === "lump")?.category).toBe(
+      undefined,
+    );
   });
 });
