@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
         {
           $facet: {
             total: [{ $count: "n" }],
-            unread: [{ $match: { status: "new" } }, { $count: "n" }],
+            unread: [{ $match: { status: "pending" } }, { $count: "n" }],
             recent: [
               { $sort: { createdAt: -1 } },
               { $limit: 5 },

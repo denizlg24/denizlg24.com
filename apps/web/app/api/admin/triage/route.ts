@@ -2,7 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { EmailModel } from "@/models/Email";
-import { EmailTriageModel } from "@/models/EmailTriage";
+import {
+  EmailTriageModel,
+  PENDING_SUGGESTION_FILTER,
+} from "@/models/EmailTriage";
 
 const TRIAGE_CATEGORIES = [
   "spam",
@@ -79,7 +82,9 @@ export async function GET(request: NextRequest) {
     query.category = category;
     query.reviewRequired = { $ne: true };
   }
-  if (status === "open") {
+  if (searchParams.get("suggestions") === "pending") {
+    Object.assign(query, PENDING_SUGGESTION_FILTER);
+  } else if (status === "open") {
     query.userStatus = { $ne: "archived" };
   } else if (status !== "all" && isTriageUserStatus(status)) {
     query.userStatus = status;

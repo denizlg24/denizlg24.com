@@ -1,5 +1,5 @@
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@repo/schemas";
-import mongoose, { type Document, Schema } from "mongoose";
+import mongoose, { type Document, type QueryFilter, Schema } from "mongoose";
 
 export type { TriageCategory };
 
@@ -301,3 +301,13 @@ EmailTriageSchema.index({ matchedCourseId: 1, category: 1, triagedAt: -1 });
 export const EmailTriageModel: mongoose.Model<IEmailTriage> =
   mongoose.models.EmailTriage ||
   mongoose.model<IEmailTriage>("EmailTriage", EmailTriageSchema);
+
+/** A row still waiting on a decision: some suggestion neither accepted nor dismissed. */
+export const PENDING_SUGGESTION_FILTER: QueryFilter<IEmailTriage> = {
+  userStatus: { $ne: "archived" },
+  $or: [
+    { "suggestedTasks.status": "pending" },
+    { "suggestedEvents.status": "pending" },
+    { "suggestedActions.status": "pending" },
+  ],
+};

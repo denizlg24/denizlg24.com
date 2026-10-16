@@ -65,3 +65,21 @@ export const blogUpdateSchema = z
   })
   .strict();
 export type BlogUpdateInput = z.infer<typeof blogUpdateSchema>;
+
+export const commentWithBlogSchema = blogCommentSchema.extend({
+  blogTitle: z.string().optional(),
+  blogSlug: z.string().optional(),
+});
+export type CommentWithBlog = z.infer<typeof commentWithBlogSchema>;
+
+/** `GET /comments`. */
+export const commentListResponseSchema = z.object({
+  comments: z.array(commentWithBlogSchema),
+  stats: z.object({
+    total: z.number(),
+    pending: z.number(),
+    approved: z.number(),
+    deleted: z.number(),
+  }),
+});
+export type CommentListResponse = z.infer<typeof commentListResponseSchema>;

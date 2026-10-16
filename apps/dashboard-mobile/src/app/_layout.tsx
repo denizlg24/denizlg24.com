@@ -21,7 +21,7 @@ void auth.hydrate();
 
 export const unstable_settings = { initialRouteName: "(tabs)" };
 
-export const sheet = {
+const sheet = {
   presentation: "formSheet",
   sheetGrabberVisible: true,
   headerShown: true,
@@ -51,6 +51,21 @@ export default function RootLayout() {
               <Stack.Screen
                 name="chat"
                 options={{ presentation: "modal", headerShown: false }}
+              />
+              <Stack.Screen
+                name="board-picture"
+                options={{
+                  presentation: "fullScreenModal",
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="compose"
+                options={{ presentation: "modal", headerShown: true }}
+              />
+              <Stack.Screen
+                name="board-note"
+                options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }}
               />
               <Stack.Screen
                 name="oauth/callback"

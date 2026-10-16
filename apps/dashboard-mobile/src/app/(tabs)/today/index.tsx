@@ -1,9 +1,3 @@
-import { Dash, TabPage } from "@/features/shell/tab-page";
+import { TodayScreen } from "@/features/today/today-screen";
 
-export default function TodayTab() {
-  return (
-    <TabPage title="Today">
-      <Dash />
-    </TabPage>
-  );
-}
+export default TodayScreen;

@@ -1,9 +1,3 @@
-import { Dash, TabPage } from "@/features/shell/tab-page";
+import { InboxScreen } from "@/features/inbox/inbox-screen";
 
-export default function InboxTab() {
-  return (
-    <TabPage title="Inbox">
-      <Dash />
-    </TabPage>
-  );
-}
+export default InboxScreen;
