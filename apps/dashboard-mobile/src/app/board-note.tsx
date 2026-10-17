@@ -3,7 +3,8 @@ import { markdownNoteDataSchema, stickyNoteDataSchema } from "@repo/schemas";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Button, StyleSheet, TextInput, View } from "react-native";
-import { useBoard, usePatchBoardElement } from "@/api/today";
+import { useBoard, usePatchBoardElement } from "@/api/board";
+import { KeyboardDock } from "@/features/shell/keyboard-dock";
 
 /** A sticky or Markdown note's text; `data` is shallow-merged on the server. */
 export default function BoardNote() {
@@ -36,33 +37,32 @@ export default function BoardNote() {
   };
 
   return (
-    <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: element?.componentType === "markdown-note" ? "Note" : "Sticky",
-          headerRight: () => (
-            <Button title="Done" disabled={patch.isPending} onPress={save} />
-          ),
-        }}
-      />
-      {patch.error ? <Notice message={patch.error.message} /> : null}
-      <TextInput
-        value={content ?? ""}
-        onChangeText={setContent}
-        multiline
-        autoFocus
-        placeholderTextColor={colors.placeholder}
-        style={[typeScale.body, styles.input, { color: colors.label }]}
-      />
-    </View>
+    <KeyboardDock>
+      <View style={styles.screen}>
+        <Stack.Screen
+          options={{
+            title:
+              element?.componentType === "markdown-note" ? "Note" : "Sticky",
+            headerRight: () => (
+              <Button title="Done" disabled={patch.isPending} onPress={save} />
+            ),
+          }}
+        />
+        {patch.error ? <Notice message={patch.error.message} /> : null}
+        <TextInput
+          value={content ?? ""}
+          onChangeText={setContent}
+          multiline
+          autoFocus
+          placeholderTextColor={colors.placeholder}
+          style={[typeScale.body, styles.input, { color: colors.label }]}
+        />
+      </View>
+    </KeyboardDock>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    padding: spacing.lg,
-    backgroundColor: colors.background,
-  },
+  screen: { flex: 1, padding: spacing.lg },
   input: { flex: 1, textAlignVertical: "top" },
 });

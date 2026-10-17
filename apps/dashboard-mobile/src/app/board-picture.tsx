@@ -7,7 +7,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useBoard, useBoardPicture } from "@/api/today";
+import { useBoard, useBoardPicture } from "@/api/board";
 import { Dash } from "@/features/shell/tab-page";
 
 /** The rendered board at full size; UIScrollView does the pinch. */

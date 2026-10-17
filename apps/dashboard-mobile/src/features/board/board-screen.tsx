@@ -5,7 +5,7 @@ import {
   haptics,
   Notice,
   Row,
-  Section,
+  Screen,
   spacing,
   Text,
   typeScale,
@@ -21,7 +21,7 @@ import {
   whiteboardElementKind,
 } from "@repo/schemas";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
@@ -40,8 +40,8 @@ import {
   useBoardPicture,
   useClearDay,
   useRemoveBoardElement,
-} from "@/api/today";
-import { Dash } from "@/features/shell/tab-page";
+} from "@/api/board";
+import { Dash, QueryState } from "@/features/shell/tab-page";
 
 function openUrl(url: string) {
   void WebBrowser.openBrowserAsync(url, {
@@ -66,7 +66,8 @@ function menu(
   );
 }
 
-export function BoardSection() {
+/** Today's whiteboard: the rendered board, then each component as rows. */
+export function BoardScreen() {
   const board = useBoard();
   const picture = useBoardPicture(board.data?.updatedAt);
   const add = useAddBoardElement();
@@ -122,16 +123,26 @@ export function BoardSection() {
     ]);
 
   return (
-    <Section
-      title="Board"
-      style={styles.section}
-      trailing={
-        <Pressable hitSlop={10} onPress={addComponent}>
-          <SymbolView name="plus" size={16} tintColor={colors.label} />
-        </Pressable>
-      }
+    <Screen
+      onRefresh={() => void board.refetch()}
+      refreshing={board.isRefetching}
     >
-      {board.error ? <Notice message={board.error.message} /> : null}
+      <Stack.Screen
+        options={{
+          title: "Board",
+          headerRight: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add"
+              hitSlop={10}
+              onPress={addComponent}
+            >
+              <SymbolView name="plus" size={18} tintColor={colors.label} />
+            </Pressable>
+          ),
+        }}
+      />
+      <QueryState error={board.error} loading={!board.data} />
       {add.error ? <Notice message={add.error.message} /> : null}
       {picture.data ? (
         <Pressable onPress={() => router.push("/board-picture")}>
@@ -167,7 +178,7 @@ export function BoardSection() {
           style={styles.clear}
         />
       ) : null}
-    </Section>
+    </Screen>
   );
 }
 
@@ -406,7 +417,6 @@ function QuickLinks({
 }
 
 const styles = StyleSheet.create({
-  section: { marginTop: spacing.xxl },
   picture: {
     width: "100%",
     maxHeight: 420,

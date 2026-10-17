@@ -29,6 +29,7 @@ export function Screen({
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       {...rest}

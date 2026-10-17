@@ -5,7 +5,8 @@ struct WeekWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "HoursWeek", provider: HoursProvider()) { entry in
       WeekWidgetView(snapshot: entry.snapshot)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "hours://pay"))
     }
     .configurationDisplayName("Week")
@@ -79,7 +80,7 @@ struct WeekWidgetView: View {
         Eyebrow(text: snapshot.payoutDate.map { "Pays " + $0.formatted(.dateTime.day().month()) } ?? "Payout")
         Text(Double(net) / 100, format: .currency(code: currency).precision(.fractionLength(0)))
           .font(.figure(17))
-          .foregroundStyle(.green)
+          .foregroundStyle(Color.themeWorking)
           .lineLimit(1)
           .minimumScaleFactor(0.6)
       }

@@ -6,7 +6,8 @@ struct ShiftWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "HoursShift", provider: HoursProvider()) { entry in
       ShiftWidgetView(snapshot: entry.snapshot)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "hours://"))
     }
     .configurationDisplayName("Shift")

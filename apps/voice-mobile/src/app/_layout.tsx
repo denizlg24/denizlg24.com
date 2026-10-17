@@ -1,10 +1,16 @@
 import { useAuthState } from "@repo/native-auth/react";
+import {
+  navigationFonts,
+  useNavigationColors,
+  useStackOptions,
+} from "@repo/native-ui";
 import * as Notifications from "expo-notifications";
 import {
   DarkTheme,
   DefaultTheme,
   SplashScreen,
   Stack,
+  type Theme,
   ThemeProvider,
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -27,8 +33,19 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function useNavigationTheme(): Theme {
+  const base = useColorScheme() === "dark" ? DarkTheme : DefaultTheme;
+  const colors = useNavigationColors();
+  return {
+    ...base,
+    colors: { ...base.colors, ...colors },
+    fonts: navigationFonts,
+  };
+}
+
 export default function RootLayout() {
-  const scheme = useColorScheme();
+  const theme = useNavigationTheme();
+  const stackOptions = useStackOptions();
   const state = useAuthState(auth);
 
   useEffect(() => {
@@ -44,10 +61,10 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={theme}>
         {state.status === "signed-in" ? (
           <VoiceProvider>
-            <Stack screenOptions={{ headerShown: false }}>
+            <Stack screenOptions={{ ...stackOptions, headerShown: false }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="listen" options={{ animation: "none" }} />
               <Stack.Screen

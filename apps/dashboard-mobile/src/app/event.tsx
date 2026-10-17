@@ -139,6 +139,8 @@ function EventForm({
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
+      contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets
       keyboardShouldPersistTaps="handled"
     >
       <Stack.Screen

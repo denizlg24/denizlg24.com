@@ -84,3 +84,48 @@ export function until(value: string, now = Date.now()) {
 export function isoDay(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
+
+/** `2:05:09`: a running duration to the second. */
+export function clockface(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1_000));
+  const hours = Math.floor(total / 3_600);
+  const minutes = Math.floor((total % 3_600) / 60);
+  return `${hours}:${pad(minutes)}:${pad(total % 60)}`;
+}
+
+/** "overdue", "today", "tomorrow", "in 3d": how far off a due date is. */
+export function dueLabel(daysUntilDue: number, overdue: boolean) {
+  if (overdue) return "overdue";
+  if (daysUntilDue <= 0) return "today";
+  if (daysUntilDue === 1) return "tomorrow";
+  return `in ${daysUntilDue}d`;
+}
+
+const LONG_WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const LONG_MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** "Friday 17 October". */
+export function longDay(date: Date) {
+  return `${LONG_WEEKDAYS[date.getDay()] ?? ""} ${date.getDate()} ${LONG_MONTHS[date.getMonth()] ?? ""}`;
+}

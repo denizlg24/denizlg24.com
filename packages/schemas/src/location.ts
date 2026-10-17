@@ -48,12 +48,23 @@ export const locationPlaceSchema = z.object({
 export type LocationPlace = z.infer<typeof locationPlaceSchema>;
 
 /**
- * A stay CoreLocation detected (`CLVisit`). It is reported twice: on arrival
- * with no departure, then again with the same arrival once it ends — so the
- * id is derived from the arrival, and the second report completes the first.
+ * What noticed a stay: CoreLocation's `CLVisit`, a geofence around a shop he
+ * buys from (entered and stayed in), or the phone's own stop detection on
+ * the live trail. CoreLocation misses short shop stops, which is why the
+ * other two exist.
+ */
+export const locationVisitSourceSchema = z.enum(["visit", "geofence", "stop"]);
+export type LocationVisitSource = z.infer<typeof locationVisitSourceSchema>;
+
+/**
+ * A stay. A `CLVisit` is reported twice: on arrival with no departure, then
+ * again with the same arrival once it ends — so the id is derived from the
+ * arrival, and the second report completes the first. Geofence and stop
+ * reports are arrivals only.
  */
 export const locationVisitInputSchema = z.object({
   id: z.string().min(1).max(120),
+  source: locationVisitSourceSchema.default("visit"),
   arrivedAt: z.iso.datetime({ offset: true }),
   departedAt: z.iso.datetime({ offset: true }).nullable(),
   latitude: latitudeSchema,
@@ -70,6 +81,14 @@ export const locationBatchInputSchema = z.object({
   visits: z.array(locationVisitInputSchema).max(100).default([]),
 });
 export type LocationBatchInput = z.input<typeof locationBatchInputSchema>;
+
+/** Name words of the shops he has bought from: what the phone puts geofences around. */
+export const locationMerchantsResponseSchema = z.object({
+  tokens: z.array(z.string()),
+});
+export type LocationMerchantsResponse = z.infer<
+  typeof locationMerchantsResponseSchema
+>;
 
 export const locationBatchResultSchema = z.object({
   points: z.number().int().nonnegative(),

@@ -2,6 +2,7 @@ import type {
   LocationInsight,
   LocationPlace,
   LocationPointSource,
+  LocationVisitSource,
 } from "@repo/schemas";
 import mongoose from "mongoose";
 
@@ -102,6 +103,8 @@ export interface ILocationVisit {
   location: GeoPoint;
   horizontalAccuracy: number;
   places: LocationPlace[];
+  /** Absent on rows from before geofences and stop detection: those were all `visit`. */
+  source?: LocationVisitSource;
   /** Set once the arrival has been judged; never judged twice. */
   insight?: StoredInsight;
   createdAt: Date;
@@ -119,6 +122,7 @@ const locationVisitSchema = new mongoose.Schema<ILocationVisit>(
     location: { type: geoPointSchema, required: true },
     horizontalAccuracy: { type: Number, required: true },
     places: { type: [placeSchema], default: [] },
+    source: { type: String, enum: ["visit", "geofence", "stop"] },
     insight: insightSchema,
   },
   { timestamps: true, versionKey: false },

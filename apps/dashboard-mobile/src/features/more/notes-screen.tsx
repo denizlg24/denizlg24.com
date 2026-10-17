@@ -128,6 +128,9 @@ export function NewNoteScreen() {
     <ScrollView
       style={styles.sheet}
       contentContainerStyle={{ padding: spacing.lg }}
+      contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets
+      keyboardShouldPersistTaps="handled"
     >
       <Stack.Screen
         options={{

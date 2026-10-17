@@ -16,6 +16,18 @@ TanStack Query, `@expo/ui` SwiftUI controls, SF Symbols. UI primitives are
 `@repo/native-ui`: hairlines and typography, never cards; errors inline,
 never toasts. Email HTML is the only `WKWebView`.
 
+The theme is `packages/ui/src/theme.css`: native-ui's colours are its light
+and dark pairs (`DynamicColorIOS`), body text is Inter and display sizes are
+Calistoga, embedded at build by `expo-font` from `@repo/native-ui/fonts`.
+Anything that cannot take a dynamic colour (navigation themes, headers) reads
+`useResolvedColors()`. Widgets carry the same background and label colours.
+
+Today is the desktop's dashboard home: a live clock, then Events / Tasks /
+Alerts, then resources and LLM spend — nothing another tab already owns.
+A composer pinned to the bottom of a screen sits in `KeyboardDock`, which
+keeps it above the home indicator and the keyboard; scroll views use
+`automaticallyAdjustKeyboardInsets`.
+
 Every response is typed with `@repo/schemas` — no local response interfaces,
 or `turbo typecheck` stops catching contract drift. Pure maths and formatting
 are `@repo/utils`; the agent's UI message stream is reduced by

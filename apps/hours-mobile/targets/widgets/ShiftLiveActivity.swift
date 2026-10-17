@@ -35,13 +35,13 @@ struct ShiftLiveActivity: Widget {
         }
       } compactLeading: {
         Image(systemName: state.status == "break" ? "cup.and.saucer.fill" : "clock.fill")
-          .foregroundStyle(state.status == "break" ? .orange : .green)
+          .foregroundStyle(state.status == "break" ? Color.themeBreak : Color.themeWorking)
       } compactTrailing: {
         WorkedTime(state: state, size: 14)
           .frame(maxWidth: 64)
       } minimal: {
         Image(systemName: state.status == "break" ? "cup.and.saucer.fill" : "clock.fill")
-          .foregroundStyle(state.status == "break" ? .orange : .green)
+          .foregroundStyle(state.status == "break" ? Color.themeBreak : Color.themeWorking)
       }
       .widgetURL(URL(string: "hours://"))
     }
@@ -112,7 +112,7 @@ struct LockScreenShift: View {
         VStack(alignment: .leading, spacing: 2) {
           HStack(spacing: 6) {
             Circle()
-              .fill(state.status == "break" ? Color.orange : state.status == "ended" ? .secondary : .green)
+              .fill(state.status == "break" ? Color.themeBreak : state.status == "ended" ? .secondary : Color.themeWorking)
               .frame(width: 6, height: 6)
             Eyebrow(text: label(state))
           }

@@ -20,7 +20,6 @@ import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import { useState } from "react";
 import { Alert, StyleSheet, Switch, View } from "react-native";
-import { useToday } from "@/api/today";
 import { forgetPush } from "@/features/notifications/push";
 import { Segments } from "@/features/shell/segments";
 import { auth } from "@/lib/auth";
@@ -80,7 +79,6 @@ function Lead({
 
 export function SettingsScreen() {
   const settings = useSettings();
-  const today = useToday();
   const [signingOut, setSigningOut] = useState(false);
 
   const signOut = () =>
@@ -129,14 +127,6 @@ export function SettingsScreen() {
           </Section>
         ))}
         <Section title="App">
-          <Row
-            title="LLM today"
-            value={today.data ? `$${today.data.llm.todayUsd.toFixed(2)}` : "—"}
-          />
-          <Row
-            title="LLM this month"
-            value={today.data ? `$${today.data.llm.monthUsd.toFixed(2)}` : "—"}
-          />
           <Row
             title="Version"
             value={Constants.expoConfig?.version ?? "—"}

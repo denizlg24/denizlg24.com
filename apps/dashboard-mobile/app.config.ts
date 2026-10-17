@@ -1,3 +1,4 @@
+import themeFonts from "@repo/native-ui/fonts";
 import type { ConfigContext, ExpoConfig } from "expo/config";
 import packageJson from "./package.json";
 
@@ -40,6 +41,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-router",
+    ["expo-font", { fonts: themeFonts }],
     [
       "expo-splash-screen",
       {
@@ -47,7 +49,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         imageWidth: 96,
         resizeMode: "contain",
         backgroundColor: "#f9f8f6",
-        dark: { backgroundColor: "#000000" },
+        dark: { backgroundColor: "#303630" },
       },
     ],
     ["expo-build-properties", { ios: { deploymentTarget: "18.0" } }],

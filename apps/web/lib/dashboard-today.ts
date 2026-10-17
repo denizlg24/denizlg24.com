@@ -332,6 +332,8 @@ export async function getDashboardToday(
       kind: alert.kind,
       severity: alert.severity,
       title: alert.title,
+      detail: alert.detail,
+      firstSeenAt: alert.firstSeenAt,
       ...(alert.envelopeId ? { envelopeId: alert.envelopeId } : {}),
     })),
     resources: resources.map((resource) => ({

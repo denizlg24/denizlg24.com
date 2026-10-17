@@ -6,7 +6,7 @@ import WidgetKit
 /// one status dot carrying the only colour.
 extension Font {
   static func figure(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-    .system(size: size, weight: weight, design: .rounded).monospacedDigit()
+    .system(size: size, weight: weight, design: .default).monospacedDigit()
   }
 }
 
@@ -21,8 +21,8 @@ struct StatusDot: View {
 
   private var color: Color {
     switch status {
-    case .working: return .green
-    case .onBreak: return .orange
+    case .working: return .themeWorking
+    case .onBreak: return .themeBreak
     case .off: return .secondary.opacity(0.5)
     }
   }

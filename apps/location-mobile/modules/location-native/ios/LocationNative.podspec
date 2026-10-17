@@ -12,9 +12,9 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.frameworks = 'CoreLocation', 'MapKit', 'Security'
+  s.frameworks = 'CoreLocation', 'MapKit', 'Security', 'WidgetKit'
 
-  s.source_files = '*.swift'
+  s.source_files = '*.swift', 'Shared/*.swift'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'SWIFT_COMPILATION_MODE' => 'wholemodule'

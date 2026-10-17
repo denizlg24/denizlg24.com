@@ -1,37 +1,21 @@
-import { haptics } from "@repo/native-ui";
+import { colors, haptics, Text } from "@repo/native-ui";
 import { router } from "expo-router";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { auth } from "@/lib/auth";
 import { useVoice } from "./voice-controller";
 
 /** This session's turns, newest last, with the two things a session needs. */
 export function ConversationSheet() {
   const voice = useVoice();
-  const dark = useColorScheme() === "dark";
-  const label = dark ? "#ffffff" : "#000000";
-  const secondary = dark ? "rgba(235,235,245,0.6)" : "rgba(60,60,67,0.6)";
-  const separator = dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)";
   return (
     <ScrollView
-      style={{ backgroundColor: dark ? "#1c1c1e" : "#ffffff" }}
+      style={{ backgroundColor: colors.background }}
       contentContainerStyle={styles.content}
     >
       {voice.exchanges.map((exchange) => (
-        <View
-          key={exchange.id}
-          style={[styles.turn, { borderBottomColor: separator }]}
-        >
-          <Text style={[styles.question, { color: label }]}>
-            {exchange.question}
-          </Text>
-          <Text style={[styles.reply, { color: secondary }]}>
+        <View key={exchange.id} style={styles.turn}>
+          <Text variant="headline">{exchange.question}</Text>
+          <Text variant="callout" tone="secondary">
             {exchange.reply}
           </Text>
         </View>
@@ -44,7 +28,7 @@ export function ConversationSheet() {
         }}
         style={styles.action}
       >
-        <Text style={[styles.actionText, { color: label }]}>
+        <Text variant="body" weight="semibold">
           New conversation
         </Text>
       </Pressable>
@@ -58,9 +42,7 @@ export function ConversationSheet() {
         }}
         style={styles.action}
       >
-        <Text
-          style={[styles.actionText, { color: dark ? "#ff453a" : "#ff3b30" }]}
-        >
+        <Text variant="body" weight="semibold" tone="destructive">
           Sign out
         </Text>
       </Pressable>
@@ -74,9 +56,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
   },
-  question: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
-  reply: { fontSize: 15, lineHeight: 21 },
   action: { minHeight: 48, justifyContent: "center" },
-  actionText: { fontSize: 17, fontWeight: "600" },
 });

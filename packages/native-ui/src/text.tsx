@@ -2,7 +2,14 @@ import {
   Text as NativeText,
   type TextProps as NativeTextProps,
 } from "react-native";
-import { colors, figureStyle, type TypeVariant, typeScale } from "./theme";
+import {
+  colors,
+  displayVariants,
+  figureStyle,
+  fonts,
+  type TypeVariant,
+  typeScale,
+} from "./theme";
 
 export type TextTone =
   | "primary"
@@ -34,13 +41,6 @@ export interface TextProps extends NativeTextProps {
   eyebrow?: boolean;
 }
 
-const weightValue = {
-  regular: "400",
-  medium: "500",
-  semibold: "600",
-  bold: "700",
-} as const;
-
 export function Text({
   variant = "body",
   tone = "primary",
@@ -51,6 +51,13 @@ export function Text({
   style,
   ...rest
 }: TextProps) {
+  const face = displayVariants.has(variant)
+    ? null
+    : eyebrow
+      ? fonts.semibold
+      : weight
+        ? fonts[weight]
+        : null;
   return (
     <NativeText
       {...rest}
@@ -58,13 +65,9 @@ export function Text({
         typeScale[variant],
         { color: toneColor[tone] },
         figure && figureStyle,
-        weight && { fontWeight: weightValue[weight] },
+        face && { fontFamily: face },
         align && { textAlign: align },
-        eyebrow && {
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          fontWeight: "600",
-        },
+        eyebrow && { textTransform: "uppercase", letterSpacing: 0.8 },
         style,
       ]}
     />

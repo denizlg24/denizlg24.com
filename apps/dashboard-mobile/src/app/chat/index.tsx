@@ -8,18 +8,13 @@ import {
 } from "@repo/native-ui";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import {
   createConversation,
   useConversations,
   useDefaultModel,
 } from "@/api/agent";
+import { KeyboardDock } from "@/features/shell/keyboard-dock";
 import { QueryState } from "@/features/shell/tab-page";
 import { ago } from "@/lib/format";
 
@@ -49,7 +44,7 @@ export default function ChatHome() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
+    <KeyboardDock>
       <Stack.Screen
         options={{
           headerLeft: () => (
@@ -91,12 +86,11 @@ export default function ChatHome() {
           style={[typeScale.body, styles.input, { color: colors.label }]}
         />
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardDock>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
   composer: {
     paddingHorizontal: spacing.lg,

@@ -11,8 +11,8 @@ import { Stack } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { View } from "react-native";
 import { useResources, useSubResources } from "@/api/more";
+import { StatusDot } from "@/features/shell/status";
 import { Dash, QueryState } from "@/features/shell/tab-page";
-import { StatusDot } from "@/features/today/status";
 import { ago } from "@/lib/format";
 
 const STATUS_PAGE = "https://status.denizlg24.com";

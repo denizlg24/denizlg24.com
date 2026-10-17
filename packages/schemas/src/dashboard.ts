@@ -147,6 +147,8 @@ export const dashboardTodaySchema = z.object({
       kind: z.string(),
       severity: z.enum(["info", "warning", "critical"]),
       title: z.string(),
+      detail: z.string().optional(),
+      firstSeenAt: z.string().optional(),
       envelopeId: z.string().optional(),
     }),
   ),

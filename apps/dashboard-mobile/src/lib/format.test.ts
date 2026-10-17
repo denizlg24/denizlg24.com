@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { ago, clock, dayLabel, daysFrom, isoDay, until } from "./format";
+import {
+  ago,
+  clock,
+  clockface,
+  dayLabel,
+  daysFrom,
+  dueLabel,
+  isoDay,
+  longDay,
+  until,
+} from "./format";
 
 const now = new Date(2026, 9, 16, 10, 0);
 
@@ -42,5 +52,21 @@ describe("format", () => {
 
   test("isoDay is the local calendar day", () => {
     expect(isoDay(new Date(2026, 0, 5, 23, 30))).toBe("2026-01-05");
+  });
+
+  test("clockface runs to the second without padding the hours", () => {
+    expect(clockface(((2 * 60 + 5) * 60 + 9) * 1_000)).toBe("2:05:09");
+    expect(clockface(-5_000)).toBe("0:00:00");
+  });
+
+  test("due labels name the day, overdue first", () => {
+    expect(dueLabel(-2, true)).toBe("overdue");
+    expect(dueLabel(0, false)).toBe("today");
+    expect(dueLabel(1, false)).toBe("tomorrow");
+    expect(dueLabel(4, false)).toBe("in 4d");
+  });
+
+  test("long day spells weekday and month", () => {
+    expect(longDay(now)).toBe("Friday 16 October");
   });
 });

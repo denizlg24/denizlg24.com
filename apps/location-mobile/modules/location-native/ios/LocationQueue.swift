@@ -43,14 +43,17 @@ struct QueuedVisit: Codable {
   let horizontalAccuracy: Double
   /// Nearest first; empty on a departure report, which the server leaves be.
   var places: [QueuedPlace] = []
+  /// `visit` (CLVisit), `geofence` (a shop fence entered and stayed in) or `stop`.
+  var source = "visit"
 
   enum CodingKeys: String, CodingKey {
-    case id, arrivedAt, departedAt, latitude, longitude, horizontalAccuracy, places
+    case id, arrivedAt, departedAt, latitude, longitude, horizontalAccuracy, places, source
   }
 
   init(
     id: String, arrivedAt: String, departedAt: String?, latitude: Double,
-    longitude: Double, horizontalAccuracy: Double, places: [QueuedPlace] = []
+    longitude: Double, horizontalAccuracy: Double, places: [QueuedPlace] = [],
+    source: String = "visit"
   ) {
     self.id = id
     self.arrivedAt = arrivedAt
@@ -59,6 +62,7 @@ struct QueuedVisit: Codable {
     self.longitude = longitude
     self.horizontalAccuracy = horizontalAccuracy
     self.places = places
+    self.source = source
   }
 
   /// Queue files written before places existed have no `places` key; the
@@ -72,6 +76,7 @@ struct QueuedVisit: Codable {
     longitude = try container.decode(Double.self, forKey: .longitude)
     horizontalAccuracy = try container.decode(Double.self, forKey: .horizontalAccuracy)
     places = try container.decodeIfPresent([QueuedPlace].self, forKey: .places) ?? []
+    source = try container.decodeIfPresent(String.self, forKey: .source) ?? "visit"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -83,6 +88,7 @@ struct QueuedVisit: Codable {
     try container.encode(latitude, forKey: .latitude)
     try container.encode(longitude, forKey: .longitude)
     try container.encode(horizontalAccuracy, forKey: .horizontalAccuracy)
+    try container.encode(source, forKey: .source)
   }
 }
 
@@ -116,9 +122,11 @@ actor LocationQueue {
   private static let pointsPerBatch = 1_000
   private static let visitsPerBatch = 100
   /// Points alone wait until this many collect or this long passes; a visit
-  /// is sent at once, since it is what anything downstream reacts to.
+  /// is sent at once, since it is what the in-store message reacts to.
   private static let flushPointCount = 50
   private static let flushInterval: TimeInterval = 300
+  private static let eagerPointCount = 5
+  private static let eagerInterval: TimeInterval = 10
 
   private var pending = Pending()
   private var loaded = false
@@ -176,12 +184,17 @@ actor LocationQueue {
     )
   }
 
-  var due: Bool {
+  /// `eager` while exploring: the trail reaches the server within seconds.
+  func isDue(eager: Bool) -> Bool {
     load()
-    if !pending.visits.isEmpty || pending.points.count >= Self.flushPointCount { return true }
+    if !pending.visits.isEmpty { return true }
     guard !pending.points.isEmpty else { return false }
+    if pending.points.count >= (eager ? Self.eagerPointCount : Self.flushPointCount) {
+      return true
+    }
     guard let lastAttemptAt else { return true }
-    return Date().timeIntervalSince(lastAttemptAt) >= Self.flushInterval
+    return Date().timeIntervalSince(lastAttemptAt)
+      >= (eager ? Self.eagerInterval : Self.flushInterval)
   }
 
   /// Sends everything pending, a batch at a time, until empty or a failure.
