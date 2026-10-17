@@ -102,10 +102,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   Widgets, Live Activities, Control Center, App Intents. See
   [Hours and Voice for iPhone](#hours-and-voice-for-iphone).
 - `apps/location-mobile/` — owner-only location recorder (Expo SDK 57,
-  installed like Hours). Records only while Explore is switched on (app,
-  widget, Control Center, Siri): a GPS trail uploaded every few seconds,
-  captured in Swift because a location relaunch runs no JavaScript. Explored
-  map tab and Map widget on MapKit. History lives in web's Mongo, kept
+  installed like Hours). Arrivals always — CLVisit, geofences around shops
+  he buys from, stops on an explored trail — feeding the in-store message;
+  the GPS trail only while Explore is on (app, widget, Control Center,
+  Siri). Captured in Swift because a location relaunch runs no JavaScript.
+  Explored map tab and Map widget on MapKit. History lives in web's Mongo, kept
   indefinitely, under `/api/admin/location`. See its `AGENTS.md`.
 - `apps/dashboard-mobile/` — the `/admin/dashboard` cockpit as a native
   iPhone app (Expo SDK 57, installed like Hours): Today, Inbox, Calendar,

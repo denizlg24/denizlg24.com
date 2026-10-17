@@ -5,7 +5,12 @@ import type {
   FinanceLedgerEntry,
   LocationPlace,
 } from "@repo/schemas";
-import { type BriefSnapshot, buildStoreBrief } from "./location-brief";
+import {
+  type BriefSnapshot,
+  buildStoreBrief,
+  merchantToken,
+  merchantTokens,
+} from "./location-brief";
 
 const timestamp = "2026-10-01T10:00:00.000Z";
 
@@ -164,5 +169,91 @@ describe("buildStoreBrief", () => {
       snapshot,
     });
     expect(brief).toEqual({ skip: "no shop among the places nearby" });
+  });
+
+  test("a store number glued to the name still names the merchant", () => {
+    const brief = buildStoreBrief({
+      places: [place("Lidl", 20, "MKPOICategoryFoodMarket")],
+      snapshot: {
+        ...snapshot,
+        ledger: {
+          rows: [
+            purchase(
+              "l1",
+              -300,
+              "2026-09-28",
+              "COMPRA ESTRANG 2395 LIDL247LYNGBY",
+            ),
+            purchase(
+              "l2",
+              -250,
+              "2026-09-14",
+              "COMPRA ESTRANG 2395 LIDLFISKETORVET",
+            ),
+            purchase("l3", -111, "2026-10-04", "Lidl · LIDL284MALMOTRIANGELN"),
+            purchase(
+              "r1",
+              -600,
+              "2026-10-02",
+              "COMPRA ESTRANG 2395 REMA1000 NAERUM",
+            ),
+          ],
+        },
+      },
+    });
+    if ("skip" in brief) throw new Error(brief.skip);
+    expect(brief.merchant?.purchases).toBe(3);
+  });
+
+  test("both spellings of ø reach the same shop", () => {
+    const brief = buildStoreBrief({
+      places: [place("Føtex", 20, "MKPOICategoryFoodMarket")],
+      snapshot: {
+        ...snapshot,
+        ledger: {
+          rows: [
+            purchase("a", -800, "2026-10-10", "Føtex · F?TEX LYNGBY"),
+            purchase(
+              "b",
+              -900,
+              "2026-09-17",
+              "COMPRA ESTRANG 2395 FOETEX LYNGBY STORCENTER",
+            ),
+          ],
+        },
+      },
+    });
+    if ("skip" in brief) throw new Error(brief.skip);
+    expect(brief.merchant?.purchases).toBe(2);
+  });
+
+  test("a branch's town is not the merchant", () => {
+    const brief = buildStoreBrief({
+      places: [place("Lyngby Station", 10, "MKPOICategoryPublicTransport")],
+      snapshot: {
+        ...snapshot,
+        ledger: {
+          rows: [
+            purchase("a", -800, "2026-10-10", "COMPRA ESTRANG FOETEX LYNGBY"),
+          ],
+        },
+      },
+    });
+    expect(brief).toEqual({ skip: "no shop among the places nearby" });
+  });
+});
+
+describe("merchantToken", () => {
+  test("names the merchant, not what kind of place it is", () => {
+    expect(merchantToken("CAFE NORD 12", new Set())).toBe("nord");
+    expect(
+      merchantToken("COMPRA ESTRANG 2395 REMA1000 NAERUM", new Set()),
+    ).toBe("rema");
+  });
+});
+
+describe("merchantTokens", () => {
+  test("leads with the most bought-from merchant word", () => {
+    expect(merchantTokens(snapshot)).toEqual(["netto", "lidl"]);
   });
 });

@@ -29,6 +29,9 @@ export interface TrackerStatus {
   distanceMetres: number;
   sessionPoints: number;
   pendingPoints: number;
+  pendingVisits: number;
+  /** Shops nearby with a geofence around them. */
+  fencedShops: number;
   lastUploadAt: string | null;
   lastError: string | null;
   /** This process's latest fix; null until one arrives after launch. */

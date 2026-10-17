@@ -15,11 +15,13 @@ import {
   spacing,
   Text,
 } from "@repo/native-ui";
+import type { LocationVisit } from "@repo/schemas";
 import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
+import { useTodayVisits } from "@/api/location";
 import { forgetPush } from "@/features/push/push";
 import { auth } from "@/lib/auth";
-import { ago, clock, distance, elapsed } from "@/lib/format";
+import { ago, clock, distance, duration, elapsed } from "@/lib/format";
 import { useTracker } from "./use-tracker";
 
 const ACCESS: Record<LocationAuthorization, string> = {
@@ -30,6 +32,21 @@ const ACCESS: Record<LocationAuthorization, string> = {
   notDetermined: "Not asked",
   unknown: "Unknown",
 };
+
+const DETECTOR: Record<LocationVisit["source"], string> = {
+  visit: "visit",
+  geofence: "fence",
+  stop: "stop",
+};
+
+function verdict(visit: LocationVisit) {
+  const insight = visit.insight;
+  if (!insight) return visit.places.length ? "waiting" : "no places";
+  if (insight.reason === "judging") return "judging";
+  return insight.notified
+    ? `sent · ${insight.body ?? insight.title ?? ""}`
+    : insight.reason;
+}
 
 function useTick(active: boolean) {
   const [now, setNow] = useState(Date.now);
@@ -44,6 +61,7 @@ function useTick(active: boolean) {
 /** One switch: on when setting off, off on arrival. Nothing is recorded in between. */
 export function ExploreScreen() {
   const { status, refresh, available } = useTracker();
+  const visits = useTodayVisits();
   const [switching, setSwitching] = useState(false);
   const exploring = status?.exploring ?? false;
   const now = useTick(exploring);
@@ -74,6 +92,7 @@ export function ExploreScreen() {
       onRefresh={() => {
         void LocationNative?.flush();
         void refresh();
+        void visits.refetch();
       }}
     >
       <PageHeader title="Explore" />
@@ -157,8 +176,43 @@ export function ExploreScreen() {
           ) : null}
         </Section>
 
+        <Section
+          title="Arrivals"
+          trailing={
+            <Text variant="caption1" tone="tertiary" figure>
+              {status ? `${status.fencedShops} fenced` : ""}
+            </Text>
+          }
+        >
+          {visits.error ? <Notice message={visits.error.message} /> : null}
+          {visits.data?.visits.length ? (
+            visits.data.visits
+              .slice()
+              .reverse()
+              .map((visit, index, rows) => (
+                <Row
+                  key={visit.id}
+                  title={`${clock(visit.arrivedAt)}  ${visit.insight?.place || visit.places[0]?.name || "—"}`}
+                  subtitle={`${DETECTOR[visit.source]} · ${verdict(visit)}`}
+                  value={
+                    visit.durationMinutes === null
+                      ? undefined
+                      : duration(visit.durationMinutes)
+                  }
+                  separator={index < rows.length - 1}
+                />
+              ))
+          ) : (
+            <Row title="—" separator={false} />
+          )}
+        </Section>
+
         <Section title="Upload">
-          <Row title="Queued" value={String(status?.pendingPoints ?? 0)} />
+          <Row
+            title="Queued"
+            value={`${status?.pendingPoints ?? 0} · ${status?.pendingVisits ?? 0}`}
+            subtitle="points · arrivals"
+          />
           <Row
             title="Last upload"
             value={status?.lastUploadAt ? ago(status.lastUploadAt) : "—"}

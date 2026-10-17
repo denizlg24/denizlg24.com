@@ -8,7 +8,6 @@ import {
   commonDescriptorTokens,
   descriptorTokens,
   identityDescriptor,
-  sharesIdentity,
 } from "@/lib/finance/core";
 import {
   daysBetween,
@@ -76,15 +75,135 @@ function mode(values: string[]) {
   return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
+type LedgerRows = BriefSnapshot["ledger"]["rows"];
+
 /**
- * The shop and the numbers about it, or why there is nothing to say.
- * Pure over the snapshot, so it can be tested without a database.
+ * What his banks print before the merchant on a card payment. Usually common
+ * enough to be caught statistically too, but a short history must not turn
+ * `compra` into the shop.
  */
+const CARD_PREFIXES = new Set([
+  "compra",
+  "estrang",
+  "estr",
+  "debito",
+  "comiss",
+  "comissao",
+  "pagamento",
+  "dankort",
+  "mobilepay",
+]);
+
+/**
+ * Words that say what kind of place it is, not which: `CAFE NORD` is Nord.
+ * As a merchant word, `cafe` would fence every café in town and lend one
+ * café's history to the next.
+ */
+const GENERIC_PLACE_WORDS = new Set([
+  "cafe",
+  "caffe",
+  "coffee",
+  "restaurant",
+  "restaurante",
+  "pizza",
+  "pizzeria",
+  "bageri",
+  "bakery",
+  "kiosk",
+  "store",
+  "shop",
+  "market",
+  "marked",
+  "super",
+  "supermarket",
+  "supermercado",
+  "mini",
+  "bistro",
+  "grill",
+  "kebab",
+]);
+
+/**
+ * The word in a card descriptor that names the merchant: the first one that
+ * is not a bank code. Terminals lead with the brand and follow with the
+ * branch (`lidl 247 lyngby`, `foetex fisketorvet`, `rema 1000 naerum`), so
+ * every later word is a place, and matching on those would make "Lyngby
+ * Station" the shop he spends at in Føtex Lyngby.
+ */
+export function merchantToken(descriptor: string, common: ReadonlySet<string>) {
+  return (
+    descriptorTokens(identityDescriptor(descriptor)).find(
+      (token) =>
+        !common.has(token) &&
+        !CARD_PREFIXES.has(token) &&
+        !GENERIC_PLACE_WORDS.has(token),
+    ) ?? null
+  );
+}
+
+/** Bank codes common enough across his distinct merchants to name nobody. */
+export function commonMerchantWords(rows: LedgerRows) {
+  // Counted over distinct names, not rows: a bank code sits on every kind of
+  // counterparty, while the shop he goes to most sits on a fifth of his rows
+  // and is exactly the one this has to recognise.
+  return commonDescriptorTokens([
+    ...new Set(
+      rows
+        .filter((row) => row.origin === "bank")
+        .map((row) => descriptorTokens(identityDescriptor(row.descriptor)))
+        .map((tokens) => [...new Set(tokens)].sort().join(" ")),
+    ),
+  ]);
+}
+
+/**
+ * A place's name words in both spellings a Danish letter reaches a card
+ * terminal in: `Føtex` is `F?TEX` on one statement and `FOETEX` on another.
+ */
+export function placeTokens(name: string) {
+  const transliterated = name
+    .replace(/ø/g, "oe")
+    .replace(/Ø/g, "OE")
+    .replace(/å/g, "aa")
+    .replace(/Å/g, "AA");
+  return [
+    ...new Set([
+      ...descriptorTokens(identityDescriptor(name)),
+      ...descriptorTokens(identityDescriptor(transliterated)),
+    ]),
+  ];
+}
+
+/**
+ * Whether a place's name names this merchant. A prefix counts both for a
+ * name run into its branch (`lidlfisketorvet`) and for a shorter place name.
+ */
+export function placeNamesMerchant(placeTokens: string[], merchant: string) {
+  return placeTokens.some(
+    (token) => token === merchant || merchant.startsWith(token),
+  );
+}
+
 export type BriefSnapshot = Pick<
   BudgetSnapshot,
   "asOfDate" | "currency" | "envelopes" | "statuses"
 > & { ledger: Pick<BudgetSnapshot["ledger"], "rows"> };
 
+/** Purchases in the history window, as the brief and the geofences count them. */
+export function recentPurchases(snapshot: BriefSnapshot) {
+  const since = new Date(`${snapshot.asOfDate}T00:00:00.000Z`);
+  since.setUTCDate(since.getUTCDate() - HISTORY_DAYS);
+  const from = since.toISOString().slice(0, 10);
+  return snapshot.ledger.rows.filter(
+    (row) =>
+      row.origin === "bank" &&
+      row.amountMinor < 0 &&
+      row.effectiveDate >= from &&
+      isCountableSpendRow(row),
+  );
+}
+
+/** The shop and the numbers about it, or why there is nothing to say. */
 export function buildStoreBrief(input: {
   places: LocationPlace[];
   snapshot: BriefSnapshot;
@@ -93,40 +212,27 @@ export function buildStoreBrief(input: {
   const nearby = input.places.filter(
     (place) => place.distanceMetres <= MAX_PLACE_METRES,
   );
-  if (!nearby.length) return { skip: "nothing named within 75 m" };
+  if (!nearby.length) {
+    return { skip: `nothing named within ${MAX_PLACE_METRES} m` };
+  }
 
-  const since = new Date(`${snapshot.asOfDate}T00:00:00.000Z`);
-  since.setUTCDate(since.getUTCDate() - HISTORY_DAYS);
-  const from = since.toISOString().slice(0, 10);
-  const purchases = snapshot.ledger.rows.filter(
-    (row) =>
-      row.origin === "bank" &&
-      row.amountMinor < 0 &&
-      row.effectiveDate >= from &&
-      isCountableSpendRow(row),
+  const purchases = recentPurchases(snapshot);
+  const common = commonMerchantWords(snapshot.ledger.rows);
+  const merchantOf = new Map(
+    purchases.map((row) => [row.id, merchantToken(row.descriptor, common)]),
   );
-  // Commonness is counted over distinct names, not rows: a bank code sits on
-  // every kind of counterparty, while the shop he goes to most sits on a
-  // fifth of his rows and is exactly the one this has to recognise.
-  const common = commonDescriptorTokens([
-    ...new Set(
-      snapshot.ledger.rows
-        .filter((row) => row.origin === "bank")
-        .map((row) => descriptorTokens(identityDescriptor(row.descriptor)))
-        .map((tokens) => [...new Set(tokens)].sort().join(" ")),
-    ),
-  ]);
 
   // A shop the owner has bought from beats a nearer one he never has: the
   // nearest pin in a mall is as likely to be the shop next door.
   let chosen: { place: LocationPlace; rows: FinanceLedgerEntry[] } | null =
     null;
   for (const place of nearby) {
-    const tokens = descriptorTokens(identityDescriptor(place.name));
+    const tokens = placeTokens(place.name);
     if (!tokens.length) continue;
-    const rows = purchases.filter((row) =>
-      sharesIdentity(tokens, identityDescriptor(row.descriptor), common),
-    );
+    const rows = purchases.filter((row) => {
+      const merchant = merchantOf.get(row.id);
+      return merchant ? placeNamesMerchant(tokens, merchant) : false;
+    });
     if (rows.length) {
       chosen = { place, rows };
       break;
@@ -206,4 +312,21 @@ export function buildStoreBrief(input: {
         }
       : null,
   };
+}
+
+/**
+ * The merchant words of everything he has bought in the history window, most
+ * frequent first: the phone fences the shops nearby whose names carry one.
+ */
+export function merchantTokens(snapshot: BriefSnapshot, limit = 150) {
+  const common = commonMerchantWords(snapshot.ledger.rows);
+  const counts = new Map<string, number>();
+  for (const row of recentPurchases(snapshot)) {
+    const token = merchantToken(row.descriptor, common);
+    if (token) counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([token]) => token);
 }

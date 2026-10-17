@@ -57,13 +57,17 @@ const UNDECOMPOSED_LETTERS: Record<string, string> = {
  * A descriptor normalized for telling who a counterparty is. Not the stored
  * `normalizedDescriptor`: that one keys fingerprints and synthetic ids, so it
  * cannot change, and it turns `Føtex` into `f tex`, which has no word long
- * enough to name anyone.
+ * enough to name anyone, and keeps `lidl247lyngby` as one reference-looking
+ * word.
  */
 export function identityDescriptor(value: string) {
   return normalizeFinanceDescriptor(
     value
       .toLowerCase()
-      .replace(/[øæœßłđðþı]/g, (letter) => UNDECOMPOSED_LETTERS[letter] ?? ""),
+      .replace(/[øæœßłđðþı]/g, (letter) => UNDECOMPOSED_LETTERS[letter] ?? "")
+      // Card terminals glue a store number to the name (`LIDL247LYNGBY`,
+      // `REMA1000`), and a word holding a digit is dropped as a reference.
+      .replace(/([a-z])(?=[0-9])|([0-9])(?=[a-z])/g, "$1$2 "),
   );
 }
 

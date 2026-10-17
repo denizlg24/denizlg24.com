@@ -64,6 +64,7 @@ export function serializeLocationVisit(
     longitude: visit.longitude,
     horizontalAccuracy: visit.horizontalAccuracy,
     places: visit.places ?? [],
+    source: visit.source ?? "visit",
     insight: visit.insight
       ? { ...visit.insight, decidedAt: visit.insight.decidedAt.toISOString() }
       : null,
@@ -134,6 +135,7 @@ export async function ingestLocationBatch(
               longitude: visit.longitude,
               location: geo(visit.latitude, visit.longitude),
               horizontalAccuracy: visit.horizontalAccuracy,
+              source: visit.source,
               ...(visit.departedAt
                 ? { departedAt: new Date(visit.departedAt) }
                 : {}),

@@ -50,6 +50,8 @@ public class LocationNativeModule: Module {
         "distanceMetres": explore.distanceMetres,
         "sessionPoints": explore.trail.count,
         "pendingPoints": upload.pendingPoints,
+        "pendingVisits": upload.pendingVisits,
+        "fencedShops": tracker.fencedShops,
         "lastUploadAt": upload.lastUploadAt.map { LocationTracker.iso($0) as Any } ?? NSNull(),
         "lastError": upload.lastError.map { $0 as Any } ?? NSNull(),
         "lastFix": last.map { location in
