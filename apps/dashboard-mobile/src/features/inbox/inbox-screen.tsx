@@ -2,16 +2,24 @@ import {
   Button,
   colors,
   HeaderButton,
+  haptics,
   Notice,
   Row,
   spacing,
   Text,
   typeScale,
 } from "@repo/native-ui";
-import { TRIAGE_CATEGORY_LABELS } from "@repo/schemas";
+import { type IEmailAccount, TRIAGE_CATEGORY_LABELS } from "@repo/schemas";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { SymbolView } from "expo-symbols";
 import { useState } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import {
+  ActionSheetIOS,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import {
   useComments,
   useContacts,
@@ -96,6 +104,53 @@ export function InboxScreen() {
   );
 }
 
+/**
+ * One line, the whole address: several accounts share a local part
+ * (`geral@` twice), so a row of short labels both overflowed and lied.
+ */
+function AccountPicker({
+  accounts,
+  value,
+  onChange,
+}: {
+  accounts: IEmailAccount[];
+  value: string | undefined;
+  onChange: (id: string) => void;
+}) {
+  const current = accounts.find((item) => item._id === value) ?? accounts[0];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Account"
+      onPress={() =>
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: [...accounts.map((item) => item.user), "Cancel"],
+            cancelButtonIndex: accounts.length,
+          },
+          (index) => {
+            const picked = accounts[index];
+            if (picked) {
+              haptics.selection();
+              onChange(picked._id);
+            }
+          },
+        )
+      }
+      style={({ pressed }) => [styles.account, pressed && { opacity: 0.55 }]}
+    >
+      <Text variant="subheadline" weight="medium" numberOfLines={1}>
+        {current?.user ?? "—"}
+      </Text>
+      <SymbolView
+        name="chevron.up.chevron.down"
+        size={12}
+        tintColor={colors.secondaryLabel}
+      />
+    </Pressable>
+  );
+}
+
 function MailView({
   accountId,
   onAccount,
@@ -115,13 +170,10 @@ function MailView({
   return (
     <View>
       {(accounts.data?.length ?? 0) > 1 ? (
-        <Segments
-          value={accountId ?? ""}
+        <AccountPicker
+          accounts={accounts.data ?? []}
+          value={accountId}
           onChange={onAccount}
-          options={(accounts.data ?? []).map((item) => ({
-            value: item._id,
-            label: item.displayName || item.user.split("@")[0] || item.user,
-          }))}
         />
       ) : null}
       <TextInput
@@ -315,6 +367,12 @@ function CommentsView() {
 }
 
 const styles = StyleSheet.create({
+  account: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
   search: {
     paddingVertical: spacing.sm,
     marginBottom: spacing.xs,

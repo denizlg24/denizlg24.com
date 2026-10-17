@@ -129,7 +129,13 @@ export function Stat({ label, value }: { label: string; value: string }) {
       <Text variant="caption2" tone="secondary" eyebrow>
         {label}
       </Text>
-      <Text variant="title2" figure>
+      <Text
+        variant="title2"
+        figure
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+      >
         {value}
       </Text>
     </View>
