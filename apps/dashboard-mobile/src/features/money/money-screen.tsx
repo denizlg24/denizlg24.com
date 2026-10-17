@@ -30,9 +30,9 @@ import {
   useWatchlists,
 } from "@/api/money";
 import { Segments } from "@/features/shell/segments";
+import { severityTone } from "@/features/shell/status";
 import { SwipeRow } from "@/features/shell/swipe-row";
 import { Dash, QueryState, TabPage } from "@/features/shell/tab-page";
-import { severityTone } from "@/features/today/status";
 import { dayLabel } from "@/lib/format";
 import { changePercent, signedPercent } from "./quotes";
 

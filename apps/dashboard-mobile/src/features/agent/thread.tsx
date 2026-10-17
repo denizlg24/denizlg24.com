@@ -22,7 +22,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,6 +29,7 @@ import {
   View,
 } from "react-native";
 import { runTurn, useConversation, useDefaultModel } from "@/api/agent";
+import { KeyboardDock } from "@/features/shell/keyboard-dock";
 import { blocksOf, describeInput, toolLabel } from "./parts";
 
 function ask(title: string, message: string): Promise<boolean> {
@@ -157,11 +157,7 @@ export function Thread({
   const ticker = live ? runningTool(live.message) : null;
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      style={styles.screen}
-      keyboardVerticalOffset={90}
-    >
+    <KeyboardDock>
       <Stack.Screen
         options={{
           title: conversation.data?.title ?? "",
@@ -248,7 +244,7 @@ export function Thread({
           </Pressable>
         )}
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardDock>
   );
 }
 
@@ -303,7 +299,6 @@ function Message({ message }: { message: AgentUIMessage }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
   message: { gap: spacing.xs },
   mine: {

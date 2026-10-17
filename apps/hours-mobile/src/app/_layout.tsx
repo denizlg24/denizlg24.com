@@ -1,11 +1,17 @@
 import { useAuthState } from "@repo/native-auth/react";
-import { colors } from "@repo/native-ui";
+import {
+  colors,
+  navigationFonts,
+  useNavigationColors,
+  useStackOptions,
+} from "@repo/native-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   DarkTheme,
   DefaultTheme,
   SplashScreen,
   Stack,
+  type Theme,
   ThemeProvider,
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -28,8 +34,19 @@ const sheet = {
   contentStyle: { backgroundColor: colors.background },
 } as const;
 
+function useNavigationTheme(): Theme {
+  const base = useColorScheme() === "dark" ? DarkTheme : DefaultTheme;
+  const colors = useNavigationColors();
+  return {
+    ...base,
+    colors: { ...base.colors, ...colors },
+    fonts: navigationFonts,
+  };
+}
+
 export default function RootLayout() {
-  const scheme = useColorScheme();
+  const theme = useNavigationTheme();
+  const stackOptions = useStackOptions();
   const state = useAuthState(auth);
 
   useEffect(() => wireFocus(), []);
@@ -43,12 +60,12 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={theme}>
         <QueryClientProvider client={queryClient}>
           {state.status === "signed-in" ? (
             <>
               <HoursSync />
-              <Stack>
+              <Stack screenOptions={stackOptions}>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
                   name="shift"

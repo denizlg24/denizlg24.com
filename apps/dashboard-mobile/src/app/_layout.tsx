@@ -1,11 +1,17 @@
 import { useAuthState } from "@repo/native-auth/react";
-import { colors } from "@repo/native-ui";
+import {
+  colors,
+  navigationFonts,
+  useNavigationColors,
+  useStackOptions,
+} from "@repo/native-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   DarkTheme,
   DefaultTheme,
   SplashScreen,
   Stack,
+  type Theme,
   ThemeProvider,
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -16,10 +22,16 @@ import { NotificationsSync } from "@/features/notifications/notifications-sync";
 import { SignIn } from "@/features/shell/sign-in";
 import { SpotlightSync } from "@/features/spotlight/spotlight-sync";
 import { auth } from "@/lib/auth";
-import { queryClient, wireFocus } from "@/lib/query";
+import {
+  forgetQueries,
+  queryClient,
+  restoreQueries,
+  wireFocus,
+} from "@/lib/query";
 
 void SplashScreen.preventAutoHideAsync();
 void auth.hydrate();
+restoreQueries();
 
 export const unstable_settings = { initialRouteName: "(tabs)" };
 
@@ -30,28 +42,42 @@ const sheet = {
   contentStyle: { backgroundColor: colors.background },
 } as const;
 
+function useNavigationTheme(): Theme {
+  const base = useColorScheme() === "dark" ? DarkTheme : DefaultTheme;
+  const colors = useNavigationColors();
+  return {
+    ...base,
+    colors: { ...base.colors, ...colors },
+    fonts: navigationFonts,
+  };
+}
+
 export default function RootLayout() {
-  const scheme = useColorScheme();
+  const theme = useNavigationTheme();
+  const stackOptions = useStackOptions();
   const state = useAuthState(auth);
 
   useEffect(() => wireFocus(), []);
 
   useEffect(() => {
     if (state.status !== "loading") void SplashScreen.hideAsync();
-    if (state.status === "signed-out") queryClient.clear();
+    if (state.status === "signed-out") {
+      queryClient.clear();
+      forgetQueries();
+    }
   }, [state.status]);
 
   if (state.status === "loading") return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={theme}>
         <QueryClientProvider client={queryClient}>
           {state.status === "signed-in" ? (
             <>
               <NotificationsSync />
               <SpotlightSync />
-              <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
+              <Stack screenOptions={stackOptions}>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
                   name="chat"

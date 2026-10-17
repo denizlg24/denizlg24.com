@@ -11,7 +11,7 @@ struct ShiftControl: ControlWidget {
       ControlWidgetToggle("Shift", isOn: checkedIn, action: SetShiftIntent()) { on in
         Label(on ? "Checked in" : "Off", systemImage: on ? "clock.fill" : "clock")
       }
-      .tint(.green)
+      .tint(Color.themeWorking)
     }
     .displayName("Shift")
     .description("Check in and out.")

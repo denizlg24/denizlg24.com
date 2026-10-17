@@ -5,7 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./time-picker": "./src/time-picker.tsx"
+    "./time-picker": "./src/time-picker.tsx",
+    "./fonts": {
+      "types": "./fonts.d.cts",
+      "default": "./fonts.cjs"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -32,5 +36,9 @@
     "react": "19.2.7",
     "react-native": "0.86.3",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@expo-google-fonts/calistoga": "^0.4.1",
+    "@expo-google-fonts/inter": "^0.4.2"
   }
 }

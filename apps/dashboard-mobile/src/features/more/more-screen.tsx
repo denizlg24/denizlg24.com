@@ -35,6 +35,7 @@ export function MoreScreen() {
         />
       </Section>
       <Section title="Tools">
+        <Row title="Board" chevron onPress={() => router.push("/more/board")} />
         <Row title="Notes" chevron onPress={() => router.push("/more/notes")} />
         <Row
           title="Resources"

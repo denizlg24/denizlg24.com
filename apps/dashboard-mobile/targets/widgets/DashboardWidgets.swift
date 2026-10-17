@@ -91,9 +91,29 @@ extension TodaySnapshot {
 
 // MARK: - Shared views
 
+/// `packages/ui/src/theme.css`: the page and emphasis colours, light and dark.
+extension Color {
+  static let themeBackground = Color(light: 0xF9F8F6, dark: 0x303630)
+  static let themeLabel = Color(light: 0x303630, dark: 0xF1F3E0)
+
+  init(light: UInt32, dark: UInt32) {
+    self.init(
+      uiColor: UIColor { traits in
+        let hex = traits.userInterfaceStyle == .dark ? dark : light
+        return UIColor(
+          red: CGFloat((hex >> 16) & 0xFF) / 255,
+          green: CGFloat((hex >> 8) & 0xFF) / 255,
+          blue: CGFloat(hex & 0xFF) / 255,
+          alpha: 1
+        )
+      }
+    )
+  }
+}
+
 extension Font {
   static func figure(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-    .system(size: size, weight: weight, design: .rounded).monospacedDigit()
+    .system(size: size, weight: weight, design: .default).monospacedDigit()
   }
 }
 
@@ -146,7 +166,8 @@ struct TodayWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "DashboardToday", provider: TodayProvider()) { entry in
       TodayWidgetView(entry: entry)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "dashboard://today"))
     }
     .configurationDisplayName("Today")
@@ -245,7 +266,8 @@ struct BoardTodosWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "DashboardBoardTodos", provider: TodayProvider()) { entry in
       BoardTodosView(entry: entry)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "dashboard://today"))
     }
     .configurationDisplayName("Board")
@@ -307,7 +329,8 @@ struct NextClassWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "DashboardNextClass", provider: TodayProvider()) { entry in
       NextClassView(entry: entry)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "dashboard://calendar"))
     }
     .configurationDisplayName("Next class")
@@ -378,7 +401,8 @@ struct BudgetWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "DashboardBudget", provider: TodayProvider()) { entry in
       BudgetView(entry: entry)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "dashboard://money?view=budget"))
     }
     .configurationDisplayName("Budget")
@@ -483,7 +507,8 @@ struct WatchlistWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "DashboardWatchlist", provider: WatchlistProvider()) { entry in
       WatchlistView(entry: entry)
-        .containerBackground(.background, for: .widget)
+        .foregroundStyle(Color.themeLabel)
+        .containerBackground(Color.themeBackground, for: .widget)
         .widgetURL(URL(string: "dashboard://money?view=markets"))
     }
     .configurationDisplayName("Watchlist")
