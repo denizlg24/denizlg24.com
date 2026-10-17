@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "expo-crypto": "*",
@@ -23,11 +23,11 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.2",
-    "@types/react": "19.2.18",
+    "@types/bun": "^1.4.3",
+    "@types/react": "19.3.0",
     "expo-crypto": "~57.0.3",
     "expo-web-browser": "~57.0.3",
-    "react": "19.2.7",
+    "react": "19.3.0",
     "typescript": "5.9.3"
   }
 }
