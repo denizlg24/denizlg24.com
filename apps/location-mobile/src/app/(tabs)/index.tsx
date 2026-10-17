@@ -1,3 +1,3 @@
-import { TrackingScreen } from "@/features/tracking/tracking-screen";
+import { ExploreScreen } from "@/features/explore/explore-screen";
 
-export default TrackingScreen;
+export default ExploreScreen;

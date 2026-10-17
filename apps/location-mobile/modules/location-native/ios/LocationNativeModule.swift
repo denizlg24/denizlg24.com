@@ -22,9 +22,14 @@ public class LocationNativeModule: Module {
       LocationTracker.shared.requestPermission()
     }.runOnQueue(.main)
 
-    AsyncFunction("setLiveMode") { (mode: String) in
-      LocationTracker.shared.liveMode = LiveMode(rawValue: mode) ?? .auto
+    AsyncFunction("setExploring") { (on: Bool) in
+      LocationTracker.shared.setExploring(on)
     }.runOnQueue(.main)
+
+    /// The session's trail, flat `[lon, lat, …]` like the server's tracks.
+    Function("sessionTrail") { () -> [Double] in
+      ExploreStore.read().trail.flatMap { pair in pair.count == 2 ? [pair[1], pair[0]] : [] }
+    }
 
     AsyncFunction("flush") {
       LocationTracker.shared.flushIfDue(force: true)
@@ -34,13 +39,17 @@ public class LocationNativeModule: Module {
       let tracker = LocationTracker.shared
       let upload = await LocationQueue.shared.status()
       let last = tracker.lastLocation
+      let explore = ExploreStore.read()
       return [
         "authorization": tracker.authorization,
         "precise": tracker.preciseLocation,
-        "liveMode": tracker.liveMode.rawValue,
+        "exploring": explore.exploring,
         "liveActive": tracker.liveActive,
+        "startedAt": explore.startedAt.map { LocationTracker.iso($0) as Any } ?? NSNull(),
+        "endedAt": explore.endedAt.map { LocationTracker.iso($0) as Any } ?? NSNull(),
+        "distanceMetres": explore.distanceMetres,
+        "sessionPoints": explore.trail.count,
         "pendingPoints": upload.pendingPoints,
-        "pendingVisits": upload.pendingVisits,
         "lastUploadAt": upload.lastUploadAt.map { LocationTracker.iso($0) as Any } ?? NSNull(),
         "lastError": upload.lastError.map { $0 as Any } ?? NSNull(),
         "lastFix": last.map { location in
@@ -52,6 +61,16 @@ public class LocationNativeModule: Module {
           ] as Any
         } ?? NSNull(),
       ]
+    }
+
+    View(ExploredMapView.self) {
+      Prop("tracks") { (view: ExploredMapView, tracks: [[Double]]) in view.tracks = tracks }
+      Prop("spots") { (view: ExploredMapView, spots: [[Double]]) in view.spots = spots }
+      Prop("session") { (view: ExploredMapView, session: [Double]) in view.sessionTrail = session }
+      Prop("radiusMetres") { (view: ExploredMapView, radius: Double) in view.radiusMetres = radius }
+      Prop("frameMode") { (view: ExploredMapView, mode: String) in view.frameMode = mode }
+      Prop("frameKey") { (view: ExploredMapView, key: Int) in view.frameKey = key }
+      OnViewDidUpdateProps { (view: ExploredMapView) in view.update() }
     }
   }
 }

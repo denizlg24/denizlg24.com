@@ -4,7 +4,10 @@ import {
 } from "@modules/location-native";
 import {
   Button,
+  colors,
+  haptics,
   Notice,
+  PageHeader,
   Row,
   Screen,
   Section,
@@ -12,14 +15,11 @@ import {
   spacing,
   Text,
 } from "@repo/native-ui";
-import type { LocationVisit } from "@repo/schemas";
-import { Stack as RouterStack } from "expo-router";
-import { Linking, View } from "react-native";
-import { useCurrentLocation, useTodayVisits } from "@/api/location";
+import { useEffect, useState } from "react";
+import { Linking, StyleSheet, View } from "react-native";
 import { forgetPush } from "@/features/push/push";
 import { auth } from "@/lib/auth";
-import { accuracy, ago, clock, coordinates, duration } from "@/lib/format";
-import { LiveModePicker } from "./live-mode-picker";
+import { ago, clock, distance, elapsed } from "@/lib/format";
 import { useTracker } from "./use-tracker";
 
 const ACCESS: Record<LocationAuthorization, string> = {
@@ -31,170 +31,164 @@ const ACCESS: Record<LocationAuthorization, string> = {
   unknown: "Unknown",
 };
 
-function visitSubtitle(visit: LocationVisit) {
-  const insight = visit.insight;
-  if (insight && insight.reason !== "judging") {
-    return insight.notified
-      ? `${insight.title ?? ""} · ${insight.body ?? ""}`
-      : `silent · ${insight.reason}`;
-  }
-  return coordinates(visit.latitude, visit.longitude);
+function useTick(active: boolean) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
 }
 
-export function TrackingScreen() {
+/** One switch: on when setting off, off on arrival. Nothing is recorded in between. */
+export function ExploreScreen() {
   const { status, refresh, available } = useTracker();
-  const current = useCurrentLocation();
-  const visits = useTodayVisits();
-  const refreshing = current.isRefetching || visits.isRefetching;
+  const [switching, setSwitching] = useState(false);
+  const exploring = status?.exploring ?? false;
+  const now = useTick(exploring);
 
   const access = status?.authorization ?? "unknown";
   const blocked = access === "denied" || access === "restricted";
-  const visit = current.data?.visit ?? null;
-  const point = current.data?.point ?? null;
+  const startedAt = status?.startedAt ? Date.parse(status.startedAt) : null;
+  const endedAt = status?.endedAt ? Date.parse(status.endedAt) : null;
+
+  const toggle = async () => {
+    if (!LocationNative || switching) return;
+    setSwitching(true);
+    haptics.impact();
+    try {
+      if (!exploring && access === "notDetermined") {
+        await LocationNative.requestPermission();
+      }
+      await LocationNative.setExploring(!exploring);
+      haptics.success();
+    } finally {
+      setSwitching(false);
+      void refresh();
+    }
+  };
 
   return (
-    <>
-      <RouterStack.Screen
-        options={{ title: "Location", headerLargeTitle: true }}
-      />
-      <Screen
-        onRefresh={() => {
-          void LocationNative?.flush();
-          void refresh();
-          void current.refetch();
-          void visits.refetch();
-        }}
-        refreshing={refreshing}
-      >
-        <Stack>
-          {!available ? (
-            <Notice message="Native module missing (Expo Go)" />
-          ) : null}
+    <Screen
+      onRefresh={() => {
+        void LocationNative?.flush();
+        void refresh();
+      }}
+    >
+      <PageHeader title="Explore" />
+      <Stack>
+        {!available ? (
+          <Notice message="Native module missing (Expo Go)" />
+        ) : null}
 
-          <Section title="Now">
-            {visit ? (
-              <Row
-                title={
-                  visit.places[0]?.name ??
-                  coordinates(visit.latitude, visit.longitude)
-                }
-                subtitle={`Since ${clock(visit.arrivedAt)} · ${accuracy(visit.horizontalAccuracy)}`}
-                value={duration(
-                  (Date.now() - Date.parse(visit.arrivedAt)) / 60_000,
-                )}
-              />
-            ) : point ? (
-              <Row
-                title={coordinates(point.latitude, point.longitude)}
-                subtitle={`${point.source} · ${accuracy(point.horizontalAccuracy)}`}
-                value={ago(point.recordedAt)}
-              />
-            ) : (
-              <Row title="—" />
-            )}
-            {current.error ? <Notice message={current.error.message} /> : null}
-          </Section>
-
-          <Section title="Tracking">
-            <Row
-              title="Access"
-              value={ACCESS[access]}
-              valueTone={access === "always" ? "working" : "secondary"}
+        <View style={styles.hero}>
+          <View style={styles.state}>
+            <View
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: exploring
+                    ? colors.accent
+                    : colors.tertiaryLabel,
+                },
+              ]}
             />
-            {status && !status.precise && access !== "notDetermined" ? (
-              <Row title="Precise" value="Off" />
-            ) : null}
-            {access === "notDetermined" || access === "whenInUse" ? (
-              <View style={{ paddingVertical: spacing.md }}>
-                <Button
-                  label={access === "whenInUse" ? "Allow always" : "Allow"}
-                  onPress={() => {
-                    void LocationNative?.requestPermission().then(() =>
-                      setTimeout(() => void refresh(), 500),
-                    );
-                  }}
-                />
-              </View>
-            ) : null}
-            {blocked ? (
-              <View style={{ paddingVertical: spacing.md }}>
-                <Button
-                  label="Settings"
-                  variant="tinted"
-                  onPress={() => void Linking.openSettings()}
-                />
-              </View>
-            ) : null}
-            {status ? (
-              <>
-                <Text
-                  variant="footnote"
-                  tone="secondary"
-                  style={{ marginTop: spacing.md }}
-                >
-                  Live trail
-                </Text>
-                <LiveModePicker
-                  value={status.liveMode}
-                  onChange={(mode) => {
-                    void LocationNative?.setLiveMode(mode).then(refresh);
-                  }}
-                />
-                <Row
-                  title="Trail"
-                  value={status.liveActive ? "Recording" : "Idle"}
-                  valueTone={status.liveActive ? "working" : "secondary"}
-                />
-              </>
-            ) : null}
-          </Section>
-
-          <Section title="Upload">
-            <Row
-              title="Queued"
-              value={`${status?.pendingPoints ?? 0} · ${status?.pendingVisits ?? 0}`}
-              subtitle="points · visits"
-            />
-            <Row
-              title="Last upload"
-              value={status?.lastUploadAt ? ago(status.lastUploadAt) : "—"}
-              separator={!status?.lastError}
-            />
-            {status?.lastError ? <Notice message={status.lastError} /> : null}
-          </Section>
-
-          <Section title="Today">
-            {visits.data?.visits.length ? (
-              visits.data.visits
-                .slice()
-                .reverse()
-                .map((entry) => (
-                  <Row
-                    key={entry.id}
-                    title={`${clock(entry.arrivedAt)}–${entry.departedAt ? clock(entry.departedAt) : "now"}  ${entry.places[0]?.name ?? ""}`}
-                    subtitle={visitSubtitle(entry)}
-                    value={
-                      entry.durationMinutes === null
-                        ? duration(
-                            (Date.now() - Date.parse(entry.arrivedAt)) / 60_000,
-                          )
-                        : duration(entry.durationMinutes)
-                    }
-                  />
-                ))
-            ) : (
-              <Row title="—" />
-            )}
-            {visits.error ? <Notice message={visits.error.message} /> : null}
-          </Section>
-
+            <Text variant="caption1" tone="secondary" eyebrow>
+              {exploring
+                ? `Exploring · since ${status?.startedAt ? clock(status.startedAt) : "—"}`
+                : endedAt
+                  ? `Off · last walk ${status?.endedAt ? ago(status.endedAt) : "—"}`
+                  : "Off"}
+            </Text>
+          </View>
+          <Text variant="largeTitle" style={styles.figure}>
+            {exploring && startedAt
+              ? elapsed(now - startedAt)
+              : distance(status?.distanceMetres ?? 0)}
+          </Text>
+          <Text variant="subheadline" tone="secondary" figure>
+            {exploring
+              ? `${distance(status?.distanceMetres ?? 0)} · ${status?.sessionPoints ?? 0} points`
+              : startedAt && endedAt
+                ? `${elapsed(endedAt - startedAt)} · ${status?.sessionPoints ?? 0} points`
+                : "—"}
+          </Text>
           <Button
-            label="Sign out"
-            variant="destructive"
-            onPress={() => void forgetPush().then(() => auth.signOut())}
+            label={exploring ? "Stop" : "Explore"}
+            symbol={exploring ? "stop.fill" : "figure.walk"}
+            variant={exploring ? "tinted" : "filled"}
+            loading={switching}
+            disabled={!available || blocked}
+            onPress={() => void toggle()}
+            style={styles.toggle}
           />
-        </Stack>
-      </Screen>
-    </>
+        </View>
+
+        <Section title="Access">
+          <Row
+            title="Location"
+            value={ACCESS[access]}
+            valueTone={access === "always" ? "working" : "secondary"}
+            separator={access === "always" && status?.precise !== false}
+          />
+          {status && !status.precise && access !== "notDetermined" ? (
+            <Row title="Precise" value="Off" valueTone="destructive" />
+          ) : null}
+          {access === "notDetermined" || access === "whenInUse" ? (
+            <Button
+              label={access === "whenInUse" ? "Allow always" : "Allow"}
+              variant="tinted"
+              style={styles.inline}
+              onPress={() => {
+                void LocationNative?.requestPermission().then(() =>
+                  setTimeout(() => void refresh(), 500),
+                );
+              }}
+            />
+          ) : null}
+          {blocked ? (
+            <Button
+              label="Settings"
+              variant="tinted"
+              style={styles.inline}
+              onPress={() => void Linking.openSettings()}
+            />
+          ) : null}
+        </Section>
+
+        <Section title="Upload">
+          <Row title="Queued" value={String(status?.pendingPoints ?? 0)} />
+          <Row
+            title="Last upload"
+            value={status?.lastUploadAt ? ago(status.lastUploadAt) : "—"}
+            separator={!status?.lastError}
+          />
+          {status?.lastError ? <Notice message={status.lastError} /> : null}
+        </Section>
+
+        <Button
+          label="Sign out"
+          variant="destructive"
+          onPress={() => void forgetPush().then(() => auth.signOut())}
+        />
+      </Stack>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  hero: {
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: spacing.xl,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
+  },
+  state: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  figure: { fontSize: 56, lineHeight: 64, fontVariant: ["tabular-nums"] },
+  toggle: { alignSelf: "stretch", marginTop: spacing.lg },
+  inline: { marginVertical: spacing.md },
+});

@@ -102,9 +102,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   Widgets, Live Activities, Control Center, App Intents. See
   [Hours and Voice for iPhone](#hours-and-voice-for-iphone).
 - `apps/location-mobile/` — owner-only location recorder (Expo SDK 57,
-  installed like Hours). Visits and significant changes always on, a GPS
-  trail while moving; captured and uploaded in Swift because a location
-  relaunch runs no JavaScript. History lives in web's Mongo, kept
+  installed like Hours). Records only while Explore is switched on (app,
+  widget, Control Center, Siri): a GPS trail uploaded every few seconds,
+  captured in Swift because a location relaunch runs no JavaScript. Explored
+  map tab and Map widget on MapKit. History lives in web's Mongo, kept
   indefinitely, under `/api/admin/location`. See its `AGENTS.md`.
 - `apps/dashboard-mobile/` — the `/admin/dashboard` cockpit as a native
   iPhone app (Expo SDK 57, installed like Hours): Today, Inbox, Calendar,
@@ -782,10 +783,16 @@ gone (no manifest, no home-screen metadata); the page itself stays.
 - **Sign-in is the "iPhone apps" native client** with a third redirect,
   `com.denizlg24.dashboard:/oauth/callback` — a hand row on
   `auth_oauth_client.redirect_uris`, like Location's.
-- **Today is one request.** `GET /api/admin/dashboard/today`
-  (`lib/dashboard-today.ts`) feeds the tab and every widget; each source fails
-  open. Widgets draw the App Group snapshot and refetch only Today, never
-  quotes.
+- **Today mirrors the desktop's dashboard home**: a live clock, then
+  Events / Tasks / Alerts (agenda and alerts from `GET /api/admin/dashboard/today`,
+  tasks from `/kanban/upcoming`), then resources and LLM spend. The whiteboard
+  lives under More → Board. `dashboard/today` (`lib/dashboard-today.ts`) still
+  carries counts, budget and board todos because the widgets draw its App
+  Group snapshot; each source fails open, and widgets never refetch quotes.
+- **The query cache survives a launch** (`src/lib/query.ts`, a JSON file in
+  the app's cache directory), so tabs paint the last answer before the network
+  returns. Email bodies, authenticator codes, board renders and agent threads
+  are never written; sign-out deletes the file.
 - **Pushes are filtered on the server.** iOS shows an alert before app code
   runs, so `MobileDevice.notifications` holds the phone's toggles and
   `notifyDashboard` (`lib/mobile-push.ts`) skips devices with a kind off. The

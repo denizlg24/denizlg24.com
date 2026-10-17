@@ -116,9 +116,11 @@ actor LocationQueue {
   private static let pointsPerBatch = 1_000
   private static let visitsPerBatch = 100
   /// Points alone wait until this many collect or this long passes; a visit
-  /// is sent at once, since it is what anything downstream reacts to.
+  /// queued by an older build is sent at once.
   private static let flushPointCount = 50
   private static let flushInterval: TimeInterval = 300
+  private static let eagerPointCount = 5
+  private static let eagerInterval: TimeInterval = 10
 
   private var pending = Pending()
   private var loaded = false
@@ -157,15 +159,6 @@ actor LocationQueue {
     save()
   }
 
-  func add(visit: QueuedVisit) {
-    load()
-    if let queued = pending.visits[visit.id], queued.departedAt != nil, visit.departedAt == nil {
-      return
-    }
-    pending.visits[visit.id] = visit
-    save()
-  }
-
   func status() -> UploadStatus {
     load()
     return UploadStatus(
@@ -176,12 +169,17 @@ actor LocationQueue {
     )
   }
 
-  var due: Bool {
+  /// `eager` while exploring: the trail reaches the server within seconds.
+  func isDue(eager: Bool) -> Bool {
     load()
-    if !pending.visits.isEmpty || pending.points.count >= Self.flushPointCount { return true }
+    if !pending.visits.isEmpty { return true }
     guard !pending.points.isEmpty else { return false }
+    if pending.points.count >= (eager ? Self.eagerPointCount : Self.flushPointCount) {
+      return true
+    }
     guard let lastAttemptAt else { return true }
-    return Date().timeIntervalSince(lastAttemptAt) >= Self.flushInterval
+    return Date().timeIntervalSince(lastAttemptAt)
+      >= (eager ? Self.eagerInterval : Self.flushInterval)
   }
 
   /// Sends everything pending, a batch at a time, until empty or a failure.

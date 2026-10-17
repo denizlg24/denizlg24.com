@@ -1,4 +1,6 @@
-import { requireOptionalNativeModule } from "expo";
+import { requireNativeView, requireOptionalNativeModule } from "expo";
+import type { ComponentType } from "react";
+import type { ViewProps } from "react-native";
 
 export type LocationAuthorization =
   | "always"
@@ -7,8 +9,6 @@ export type LocationAuthorization =
   | "restricted"
   | "notDetermined"
   | "unknown";
-
-export type LiveMode = "off" | "auto" | "on";
 
 export interface LocationFix {
   latitude: number;
@@ -20,10 +20,15 @@ export interface LocationFix {
 export interface TrackerStatus {
   authorization: LocationAuthorization;
   precise: boolean;
-  liveMode: LiveMode;
+  exploring: boolean;
+  /** Standard updates are running: exploring, and the grant allows it. */
   liveActive: boolean;
+  /** The current session's start, or the last one's while off. */
+  startedAt: string | null;
+  endedAt: string | null;
+  distanceMetres: number;
+  sessionPoints: number;
   pendingPoints: number;
-  pendingVisits: number;
   lastUploadAt: string | null;
   lastError: string | null;
   /** This process's latest fix; null until one arrives after launch. */
@@ -36,7 +41,10 @@ type LocationNativeModule = {
   installationId(): string;
   /** "While Using" first, then "Always" on the next call. */
   requestPermission(): Promise<void>;
-  setLiveMode(mode: LiveMode): Promise<void>;
+  /** Starting clears the last session's trail; stopping uploads what is queued. */
+  setExploring(on: boolean): Promise<void>;
+  /** The current (or last) session, flat `[lon, lat, …]`. */
+  sessionTrail(): number[];
   /** Uploads whatever is queued now. */
   flush(): Promise<void>;
   status(): Promise<TrackerStatus>;
@@ -45,3 +53,21 @@ type LocationNativeModule = {
 /** Null in Expo Go and anywhere the native module was not built in. */
 export const LocationNative =
   requireOptionalNativeModule<LocationNativeModule>("LocationNative");
+
+export type MapFrameMode = "session" | "all" | "user";
+
+export interface ExploredMapViewProps extends ViewProps {
+  /** Flat `[lon, lat, …]` per track: `LocationExplored.tracks`. */
+  tracks: number[][];
+  spots: [number, number][];
+  /** Flat `[lon, lat, …]`, drawn over everything else. */
+  session: number[];
+  /** Half the explored band's width. */
+  radiusMetres: number;
+  frameMode: MapFrameMode;
+  /** Changing it frames the map again. */
+  frameKey: number;
+}
+
+export const ExploredMapView: ComponentType<ExploredMapViewProps> | null =
+  LocationNative ? requireNativeView("LocationNative") : null;
