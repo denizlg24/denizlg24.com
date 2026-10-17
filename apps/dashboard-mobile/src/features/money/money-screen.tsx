@@ -35,14 +35,17 @@ import { SwipeRow } from "@/features/shell/swipe-row";
 import { Dash, QueryState, TabPage } from "@/features/shell/tab-page";
 import { dayLabel } from "@/lib/format";
 import { changePercent, signedPercent } from "./quotes";
+import { ForecastLine, Recurring } from "./recurring";
 
-type View_ = "overview" | "budget" | "markets";
+type View_ = "overview" | "recurring" | "budget" | "markets";
 
 export function MoneyScreen() {
   const params = useLocalSearchParams<{ view?: string }>();
   const router = useRouter();
   const view: View_ =
-    params.view === "budget" || params.view === "markets"
+    params.view === "recurring" ||
+    params.view === "budget" ||
+    params.view === "markets"
       ? params.view
       : "overview";
   const finance = useFinance();
@@ -57,7 +60,7 @@ export function MoneyScreen() {
   );
 
   const refresh = () => {
-    if (view === "overview") void finance.refetch();
+    if (view === "overview" || view === "recurring") void finance.refetch();
     if (view === "budget") void budget.refetch();
     // Inside the minute, a pull reuses the quotes already held.
     if (
@@ -85,6 +88,7 @@ export function MoneyScreen() {
               (review) => review.status === "pending",
             ).length,
           },
+          { value: "recurring", label: "Recurring" },
           {
             value: "budget",
             label: "Budget",
@@ -99,6 +103,11 @@ export function MoneyScreen() {
         <>
           <QueryState error={finance.error} loading={!finance.data} />
           {finance.data ? <Overview finance={finance.data} /> : null}
+        </>
+      ) : view === "recurring" ? (
+        <>
+          <QueryState error={finance.error} loading={!finance.data} />
+          {finance.data ? <Recurring finance={finance.data} /> : null}
         </>
       ) : view === "budget" ? (
         <>
@@ -161,6 +170,7 @@ function Overview({ finance }: { finance: FinanceDashboardResponse }) {
           />
         ) : null}
       </View>
+      {finance.forecast ? <ForecastLine forecast={finance.forecast} /> : null}
 
       <Section title="Accounts">
         {finance.accounts.map((account, index) => {
