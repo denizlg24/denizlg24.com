@@ -29,12 +29,12 @@
   "devDependencies": {
     "@expo/ui": "~57.0.20",
     "@repo/typescript-config": "workspace:*",
-    "@types/react": "19.2.18",
+    "@types/react": "19.3.0",
     "expo": "~57.0.25",
     "expo-haptics": "~57.0.3",
     "expo-symbols": "~57.0.3",
-    "react": "19.2.7",
-    "react-native": "0.86.3",
+    "react": "19.3.0",
+    "react-native": "0.87.1",
     "typescript": "5.9.3"
   },
   "dependencies": {
