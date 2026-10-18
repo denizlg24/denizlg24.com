@@ -75,6 +75,18 @@ lock. Adding or removing an application requires no deployment-count setting.
 recovery still requires the signed Pi and Forge inventories to match exactly;
 it cannot mix a new deployment snapshot with an older control-plane database.
 
+## Avoiding recurring failures
+
+The PostgreSQL snapshot-export connection disables the idle-in-transaction
+session timeout only for itself. It must remain open while the dump and
+semantic inventory import its snapshot; the backup service timeout and cleanup
+trap bound its lifetime. The host's ordinary connection timeouts stay in force.
+
+R2 retention applies its deletion percentage cap to each pass, taking only the
+oldest snapshots already eligible under the retention policy. Excess candidates
+remain protected until later passes. A backlog therefore converges without
+raising the deletion cap or permanently failing every subsequent copy heartbeat.
+
 ## Backup observations
 
 The admin backup view shows the current phase, elapsed or final duration,

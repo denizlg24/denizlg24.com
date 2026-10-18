@@ -17,6 +17,7 @@ import {
 export interface FoodListRowProps {
   name: string;
   iconKey?: string | null;
+  imageUrl?: string | null;
   entryType?: "food" | "recipe";
   /** Secondary line, e.g. brand and serving. */
   detail?: string | null;
@@ -35,6 +36,7 @@ export interface FoodListRowProps {
 export function FoodListRow({
   name,
   iconKey,
+  imageUrl,
   entryType = "food",
   detail,
   calories,
@@ -70,6 +72,7 @@ export function FoodListRow({
         <FoodIcon
           name={name}
           iconKey={iconKey}
+          imageUrl={imageUrl}
           entryType={entryType}
           size={34}
         />

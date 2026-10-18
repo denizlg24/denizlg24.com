@@ -2,7 +2,8 @@
 
 The native client for Macros, and its only client: an iOS app first, plus a
 sideloaded Android APK built from the same code. `apps/macros` (Next.js) is
-the backend plus a marketing site; there is no web app. This app talks to its
+the backend plus a marketing site, public recipe articles and the web recipe
+kitchen; there is no web tracking app. This app talks to its
 `/api/*` routes and nothing else, except the `/register/*` pages that
 verification and password-reset emails open.
 
@@ -310,6 +311,37 @@ small differences are a `Platform.OS` check. The ones that exist:
 - Icon-only buttons get an `accessibilityLabel`.
 
 ## Look
+
+### Recipe articles
+
+Recipes are also written on the web (`macros.denizlg24.com/kitchen`), so the
+app must round-trip everything the web writes. `article-fields.tsx` edits a
+subtitle, cover photo, a `story` block list, prep/cook minutes and steps (title
++ their own blocks); `article-draft.ts` converts the stored block model
+(`@repo/schemas/macros`) to editable text and back. Paragraph, quote and list
+text is markdown-lite (`**bold**`, `_italic_`, `[text](https://…)`) through
+`@repo/macros-core/recipe-content`, so marks written on the web survive an
+edit here; a list is one field with an item per line. `recipe-blocks.tsx`
+renders blocks with nested `Text` and opens only http(s) links.
+
+New recipes are private. `Publish recipe` changes visibility only on Save;
+published recipes appear in the website's `/recipes` browse and at their public
+link. Unpublishing, archiving or owner suspension hides public access. Do not
+describe publication as link-only sharing.
+
+Photos use the system picker and the existing preparation path: JPEGs up to
+3 MB, reserved through an empty `POST /api/recipes/images` (its `uploadUrl` is
+only null on the web's direct-upload path) and uploaded with `File#upload`.
+Persist storage keys, not signed preview URLs. Keep Save and photo mutations
+guarded while an upload is in flight, and report failures through the
+editor's inline notice.
+
+`ingredient-amount.tsx` reuses logging's `AmountBar` keypad and food-serving
+details (`@repo/macros-core/foods/serving-options`, shared with the web
+kitchen). Typechecks and native bundles do not establish device interaction or
+visual correctness; recipe editor changes still need a native pass.
+
+### Shared appearance
 
 Editorial and monochrome, like the web app. Typography and hairline rules
 carry the hierarchy (`Section` = uppercase label + hairline); no cards, no

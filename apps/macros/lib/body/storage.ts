@@ -84,12 +84,40 @@ export async function createBodyPhotoUploadUrl(
   );
 }
 
-export async function createBodyPhotoDownloadUrl(key: string) {
+export async function createBodyPhotoDownloadUrl(
+  key: string,
+  responseContentType?: string,
+) {
   const bucket = await ensureBucket();
   return getSignedUrl(
     getClient(),
-    new GetObjectCommand({ Bucket: bucket, Key: key }),
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ...(responseContentType
+        ? {
+            ResponseContentType: responseContentType,
+            ResponseContentDisposition: "inline",
+          }
+        : {}),
+    }),
     { expiresIn: 900 },
+  );
+}
+
+export async function putBodyPhotoObject(
+  key: string,
+  body: Uint8Array,
+  contentType: string,
+) {
+  const bucket = await ensureBucket();
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    }),
   );
 }
 

@@ -56,3 +56,41 @@ first, since those otherwise only move on a weigh-in.
   belong in object storage, not the database.
 - Weight-trend points and energy-expenditure estimates are modelled as
   per-user daily records.
+
+## Recipe articles
+
+Recipes are written in the native app or on the web at `/kitchen` (sign-in
+with the same Better Auth email/password account; `/kitchen/new`,
+`/kitchen/<id>`). Published recipes are read at `/recipes` (paginated browse)
+and `/recipes/<id>` (article). An article is a title, a short subtitle
+(`description`), a cover photo, a `story` and ordered `steps`, plus the
+recipe's ingredients and calculated nutrition per serving. Prep and cook
+minutes are the existing `recipes` columns.
+
+`story` and each step's `blocks` are the block model in
+`@repo/schemas/macros` (`macrosRecipeBlockSchema`): paragraph, heading, quote,
+list and image, with inline bold/italic/link runs. **No HTML is stored or
+rendered anywhere.** Links are refused at the schema unless http(s), and the
+renderers re-check them; the server normalises blocks on save
+(`@repo/macros-core/recipe-content`). The web editor is TipTap with a schema
+limited to those nodes, so anything pasted outside it is dropped; the phone
+edits rich text as markdown-lite (`**bold**`, `_italic_`, `[text](https://…)`)
+through `inlinesToMarkdown` / `markdownToInlines`.
+
+Recipes start private; publishing makes the article discoverable in browse and
+reachable by link. Unpublishing, archiving or suspending the owner removes
+public article and image access. Apply migration `0020_recipe_articles` before
+deploying.
+
+Recipe photos are JPEGs (at most 3 MB) at `users/<userId>/recipes/<uuid>.jpg`
+in the private Macros bucket. The app gets a presigned PUT from an empty
+`POST /api/recipes/images`; the web editor re-encodes the photo through a
+canvas (which also drops EXIF/GPS) and posts the JPEG bytes as the body of the
+same route, which checks the JPEG signature and size and stores it, so the
+bucket needs no CORS. Saving validates ownership and object metadata for every
+key. `/api/recipes/<id>/images/<imageId>` checks visibility and membership and
+redirects to a short-lived signed URL forced to `image/jpeg`, inline.
+
+Updating a recipe may replace its ingredients: `{ ingredientId }` rows keep the
+food snapshot they were saved with and only change amount, `{ sourceItemId }`
+rows resolve like creation. Every save writes a new nutrition snapshot.

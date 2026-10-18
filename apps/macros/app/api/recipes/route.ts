@@ -33,12 +33,21 @@ export async function POST(request: Request) {
     );
   }
 
-  const recipe = await createRecipeFromFoods(session.user.id, parsed.data);
-  return NextResponse.json(
-    {
-      recipe,
-      fetchedAt: new Date().toISOString(),
-    } satisfies MacrosCreateRecipeResponse,
-    { status: 201 },
-  );
+  try {
+    const recipe = await createRecipeFromFoods(session.user.id, parsed.data);
+    return NextResponse.json(
+      {
+        recipe,
+        fetchedAt: new Date().toISOString(),
+      } satisfies MacrosCreateRecipeResponse,
+      { status: 201 },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Could not save recipe",
+      },
+      { status: 400 },
+    );
+  }
 }

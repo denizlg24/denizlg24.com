@@ -8,7 +8,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import { AppIcon, container, GetTheApp, sitePages } from "@/app/_landing/site";
 
 const DESKTOP_NAV = sitePages.filter(
-  (page) => page.href === "/features" || page.href === "/coach",
+  (page) =>
+    page.href === "/features" ||
+    page.href === "/coach" ||
+    page.href === "/recipes",
 );
 
 function currentFor(pathname: string, href: string) {

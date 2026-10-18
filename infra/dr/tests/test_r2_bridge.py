@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
@@ -14,6 +15,22 @@ import r2_bridge as bridge
 
 
 class BridgeTests(unittest.TestCase):
+    def setUp(self):
+        # Transfer tests must not depend on the developer machine's free disk.
+        disk = patch.object(bridge.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024**3))
+        disk.start()
+        self.addCleanup(disk.stop)
+
+    def test_low_disk_stops_before_fetching_or_publishing(self):
+        with tempfile.TemporaryDirectory() as work, \
+             patch.object(bridge.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), \
+             patch.object(bridge.r2, "request") as request, \
+             patch.object(bridge, "cloud_state") as cloud:
+            with self.assertRaisesRegex(ValueError, "less than 5 GiB free"):
+                bridge.transfer_object("forge", "data/aa/" + "a" * 64, 20, Path(work).resolve(), {}, True)
+            request.assert_not_called()
+            cloud.assert_not_called()
+
     def test_copy_locks_are_independent_by_profile_and_download_target(self):
         with tempfile.TemporaryDirectory() as work:
             root = Path(work).resolve()

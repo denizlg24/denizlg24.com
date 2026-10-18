@@ -12,6 +12,7 @@ export const sitePages = [
   { href: "/", label: "Overview" },
   { href: "/features", label: "Features" },
   { href: "/coach", label: "Coach" },
+  { href: "/recipes", label: "Recipes" },
   { href: "/download", label: "Download" },
   { href: "/changelog", label: "Changelog" },
 ] as const;

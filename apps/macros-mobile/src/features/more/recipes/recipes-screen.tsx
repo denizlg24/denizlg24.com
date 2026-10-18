@@ -94,6 +94,7 @@ export function RecipesScreen() {
         />
       </Stack.Toolbar>
       <Screen
+        automaticallyAdjustKeyboardInsets
         bleed
         stickyHeaderIndices={[0]}
         onRefresh={onRefresh}
@@ -153,6 +154,7 @@ export function RecipesScreen() {
                     entryType="recipe"
                     name={recipe.name}
                     iconKey={recipe.iconKey}
+                    imageUrl={recipe.coverImageUrl}
                     detail={recipeDetailLine(recipe)}
                     calories={recipe.caloriesPerServing}
                     protein={recipe.proteinPerServing}

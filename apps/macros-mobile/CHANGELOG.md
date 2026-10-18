@@ -7,6 +7,13 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.16 — 2026-10-18
+### Added
+- **Share your recipes** You can now create beautiful recipe pages and share them with your friends online
+
+### Fixed
+- You can now choose quantities when creating a recipe from the recipes page. 
+
 ## 0.0.15 — 2026-10-08
 
 ### Added

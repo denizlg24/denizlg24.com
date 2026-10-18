@@ -172,6 +172,7 @@ export function MyFoodsScreen() {
         />
       </Stack.Toolbar>
       <Screen
+        automaticallyAdjustKeyboardInsets
         bleed
         stickyHeaderIndices={[0]}
         onRefresh={onRefresh}

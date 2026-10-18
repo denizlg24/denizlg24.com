@@ -388,7 +388,11 @@ postgres_dump() {
     postgres_snapshot_pid="$holder_pid"
     exec 8>"$holder_in"
     exec 9<"$holder_out"
-    printf 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n' >&8
+    # This exporter deliberately waits while pg_dump and the inventory readers
+    # share its snapshot. The host's idle-in-transaction timeout otherwise
+    # destroys the snapshot during a large dump. Scope this to this connection;
+    # the service timeout and cleanup trap bound its lifetime.
+    printf 'SET idle_in_transaction_session_timeout = 0;\nBEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n' >&8
     IFS= read -r snapshot <&9 \
       || dr_die "PostgreSQL snapshot exporter exited before returning a snapshot"
     [[ "$snapshot" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$ ]] \

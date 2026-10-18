@@ -1,4 +1,8 @@
-import { macrosNutrientKeys } from "@repo/schemas/macros";
+import {
+  type MacrosRecipeBlock,
+  type MacrosRecipeStep,
+  macrosNutrientKeys,
+} from "@repo/schemas/macros";
 import { relations, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -445,6 +449,10 @@ export const recipes = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    coverImageKey: text("coverImageKey"),
+    story: jsonb("story").$type<MacrosRecipeBlock[]>().notNull().default([]),
+    steps: jsonb("steps").$type<MacrosRecipeStep[]>().notNull().default([]),
+    publishedAt: timestamp("publishedAt", { withTimezone: true }),
     iconKey: text("iconKey"),
     servings: numeric("servings", { precision: 12, scale: 4 })
       .notNull()
@@ -460,6 +468,11 @@ export const recipes = pgTable(
   (table) => [
     index("recipes_user_status_idx").on(table.userId, table.status),
     index("recipes_user_name_idx").on(table.userId, table.name),
+    index("recipes_published_idx")
+      .on(table.publishedAt.desc(), table.id.desc())
+      .where(
+        sql`${table.status} = 'active' and ${table.publishedAt} is not null`,
+      ),
   ],
 );
 

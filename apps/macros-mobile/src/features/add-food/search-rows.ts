@@ -150,6 +150,7 @@ export function recipeQuick(recipe: MacrosRecipeSummary): QuickItem {
       key: `recipe:${recipe.id}`,
       name: recipe.name,
       iconKey: recipe.iconKey,
+      imageUrl: recipe.coverImageUrl,
       entryType: recipe.iconKey ? "food" : "recipe",
       amount: describeAmount({
         servingLabel: recipe.servingLabel,

@@ -4,6 +4,8 @@ import { StyleSheet, View } from "react-native";
 import { API_URL } from "@/lib/config";
 import { colors, Icon, type IconName, radius, Skeleton } from "@/ui";
 
+import { RecipePhoto } from "./recipe-photo";
+
 const GLYPHS: ReadonlyArray<readonly [RegExp, IconName]> = [
   [/carrot|vegetable|salad|lettuce|spinach|kale|greens|cabbage/i, "carrot"],
   [
@@ -26,6 +28,7 @@ const loadedIcons = new Set<string>();
 export interface FoodIconProps {
   name: string;
   iconKey?: string | null;
+  imageUrl?: string | null;
   entryType?: "food" | "recipe" | "quick_add";
   size?: number;
 }
@@ -44,6 +47,7 @@ function iconUri(iconKey: string): string {
 export function FoodIcon({
   name,
   iconKey,
+  imageUrl,
   entryType = "food",
   size = 36,
 }: FoodIconProps) {
@@ -57,6 +61,9 @@ export function FoodIcon({
   const failed = settled?.loaded === false;
   const loaded =
     settled?.loaded === true || (uri !== null && loadedIcons.has(uri));
+
+  if (imageUrl)
+    return <RecipePhoto url={imageUrl} label={name} thumbnail size={size} />;
 
   if (uri && !failed) {
     return (
