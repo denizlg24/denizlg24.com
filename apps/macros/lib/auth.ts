@@ -6,6 +6,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { db } from "@/db/connection";
 import { schema } from "@/db/schema";
 import { deleteAccountData } from "@/lib/account/delete";
+import { getEmailVerificationUrl } from "@/lib/account/email-change";
 import {
   createAuthEmail,
   getPublicAppOrigin,
@@ -14,10 +15,6 @@ import {
 } from "@/lib/email";
 import { isSuspended } from "@/lib/moderation/service";
 
-// Verification links are opened in a browser, usually on the phone, and the
-// app picks up from there. Better Auth appends `?error=` to this path when the
-// token is bad, so the page renders both outcomes.
-const postVerificationPath = "/register/verified";
 const productionOrigin = "https://macros.denizlg24.com";
 const forgeDeploymentOriginPattern = "https://macros-*.denizlg24.com";
 const nativeAppOrigin = "macros://";
@@ -39,14 +36,6 @@ function getTrustedOrigins() {
   );
 }
 
-function getEmailVerificationUrl(token: string) {
-  const url = new URL("/register/verify-email", getAuthBaseUrl());
-  url.searchParams.set("token", token);
-  url.searchParams.set("callbackURL", postVerificationPath);
-
-  return url.toString();
-}
-
 export const auth = betterAuth({
   baseURL: getAuthBaseUrl(),
   secret: process.env.MACROS_BETTER_AUTH_SECRET,
@@ -64,6 +53,25 @@ export const auth = betterAuth({
     updateAge: 60 * 60 * 24,
   },
   user: {
+    // A verified user confirms from the current address first; that link
+    // mails the new address, and only verifying it applies the change.
+    changeEmail: {
+      enabled: true,
+      sendChangeEmailConfirmation: async ({ user, newEmail, token }) => {
+        const email = createAuthEmail({
+          actionLabel: "Confirm change",
+          actionUrl: getEmailVerificationUrl(token, "confirmed"),
+          body: `Someone asked to change the email on your Macros account to ${newEmail}. If that was you, confirm below and we will send a link to the new address to finish. If it was not, ignore this email and nothing changes.`,
+          preheader: "Confirm the new email for your Macros account.",
+          title: "Confirm your new email",
+        });
+        await sendEmail({
+          to: user.email,
+          subject: "Confirm your new Macros email",
+          ...email,
+        });
+      },
+    },
     deleteUser: {
       enabled: true,
       beforeDelete: async (user) => {
@@ -121,6 +129,24 @@ export const auth = betterAuth({
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, token }) => {
+      // Better Auth only mails an already verified user to verify the address
+      // they are changing to, which `user.email` holds here.
+      if (user.emailVerified) {
+        const email = createAuthEmail({
+          actionLabel: "Verify new email",
+          actionUrl: getEmailVerificationUrl(token, "verified"),
+          body: "Verify this address to finish moving your Macros account to it. Until you do, keep signing in with your current email.",
+          preheader: "Verify the new email for your Macros account.",
+          title: "Verify your new email",
+        });
+        await sendEmail({
+          to: user.email,
+          subject: "Verify your new Macros email",
+          ...email,
+        });
+        return;
+      }
+
       const verificationUrl = getEmailVerificationUrl(token);
       const email = createAuthEmail({
         actionLabel: "Verify email",

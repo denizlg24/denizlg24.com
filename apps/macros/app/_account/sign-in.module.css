@@ -1,0 +1,110 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 380px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.form h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.note a {
+  color: var(--foreground);
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.form input {
+  height: 44px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 16px;
+}
+.form input:focus-visible {
+  border-bottom-color: var(--foreground);
+  box-shadow: 0 1px 0 0 var(--foreground);
+}
+.form input:disabled {
+  opacity: 0.6;
+}
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Always rendered so screen readers announce what lands in it; empty, it
+   gives back the gap the column would otherwise leave for it. */
+.messages:empty {
+  margin-top: -16px;
+}
+.error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--destructive);
+}
+.submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  margin-top: 8px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.submit:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.switches {
+  display: flex;
+  justify-content: space-between;
+}
+.switches button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.switches button:hover {
+  color: var(--foreground);
+}
+.legal {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.legal a {
+  color: inherit;
+}

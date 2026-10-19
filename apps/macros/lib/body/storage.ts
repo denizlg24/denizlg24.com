@@ -121,6 +121,15 @@ export async function putBodyPhotoObject(
   );
 }
 
+export async function readBodyPhotoObject(key: string) {
+  const bucket = await ensureBucket();
+  const object = await getClient().send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+  if (!object.Body) throw new Error(`Stored object ${key} has no body`);
+  return object.Body.transformToByteArray();
+}
+
 export async function inspectBodyPhoto(key: string) {
   const bucket = await ensureBucket();
   return getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));

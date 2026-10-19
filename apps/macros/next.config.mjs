@@ -8,6 +8,15 @@ const nextConfig = {
       { source: "/app", destination: "/", permanent: false },
       { source: "/app/:path*", destination: "/", permanent: false },
       {
+        source: "/recipes",
+        has: [
+          { type: "query", key: "page", value: "(?<page>[2-9]|[1-9]\\d+)" },
+        ],
+        destination: "/recipes/page/:page",
+        permanent: true,
+      },
+      { source: "/recipes/page/1", destination: "/recipes", permanent: true },
+      {
         source: "/register/complete",
         destination: "/register/verified",
         permanent: false,

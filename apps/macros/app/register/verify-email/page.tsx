@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 import { pageMetadata } from "@/app/metadata";
+import {
+  parseEmailChangeStep,
+  verificationCallbackPath,
+} from "@/lib/account/email-change";
 import { VerificationError } from "../_components/verification-error";
 
 export const metadata = pageMetadata(
@@ -11,6 +15,7 @@ interface VerifyEmailPageProps {
   searchParams: Promise<{
     token?: string | string[];
     error?: string | string[];
+    change?: string | string[];
   }>;
 }
 
@@ -24,18 +29,21 @@ export default async function VerifyEmailPage({
   const params = await searchParams;
   const token = getSingleParam(params.token);
   const error = getSingleParam(params.error);
+  const change = parseEmailChangeStep(getSingleParam(params.change));
 
   if (error) {
-    return <VerificationError error={error} />;
+    return <VerificationError error={error} emailChange={change !== null} />;
   }
 
   if (!token) {
-    return <VerificationError error="INVALID_TOKEN" />;
+    return (
+      <VerificationError error="INVALID_TOKEN" emailChange={change !== null} />
+    );
   }
 
   const query = new URLSearchParams({
     token,
-    callbackURL: "/register/verified",
+    callbackURL: verificationCallbackPath(change),
   });
   redirect(`/api/auth/verify-email?${query}`);
 }

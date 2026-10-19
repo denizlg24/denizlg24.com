@@ -2,19 +2,24 @@ import { blocksToText } from "@repo/macros-core/recipe-content";
 import type { MacrosRecipeDetail } from "@repo/schemas/macros";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cache } from "react";
-import { z } from "zod";
 import { RecipeArticle } from "@/app/_recipes/recipe-article";
 import { ShareButton } from "@/app/_recipes/share-button";
-import { getPublicRecipe } from "@/lib/recipes/service";
+import { getPublicAppOrigin } from "@/lib/email";
+import { recipeShareImagePath } from "@/lib/recipes/share-image";
+import { loadPublicRecipe, publicRecipeParams } from "./load";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 3600;
+export const dynamicParams = true;
 
-const SITE = "https://macros.denizlg24.com";
+type Props = { params: Promise<{ id: string }> };
 
-const loadRecipe = cache(async (id: string) =>
-  z.uuid().safeParse(id).success ? getPublicRecipe(id) : null,
-);
+export function generateStaticParams() {
+  return publicRecipeParams();
+}
+
+function recipeUrl(id: string) {
+  return `${getPublicAppOrigin()}/recipes/${id}`;
+}
 
 function summaryOf(recipe: MacrosRecipeDetail) {
   const text =
@@ -31,15 +36,20 @@ function isoDuration(minutes: number | null | undefined) {
 
 /** `<` is escaped so recipe text can never close the script element. */
 function jsonLd(recipe: MacrosRecipeDetail) {
+  const origin = getPublicAppOrigin();
   return JSON.stringify({
     "@context": "https://schema.org",
     "@type": "Recipe",
     name: recipe.name,
     description: summaryOf(recipe),
-    image: recipe.coverImageUrl
-      ? [`${SITE}${recipe.coverImageUrl}`]
-      : undefined,
+    image: [
+      recipe.coverImageUrl
+        ? `${origin}${recipe.coverImageUrl}`
+        : `${origin}${recipeShareImagePath(recipe.id)}`,
+    ],
+    author: { "@type": "Organization", name: "Macros Recipes" },
     datePublished: recipe.publishedAt ?? undefined,
+    dateModified: recipe.updatedAt,
     prepTime: isoDuration(recipe.prepTimeMinutes),
     cookTime: isoDuration(recipe.cookTimeMinutes),
     recipeYield: `${recipe.servings} servings`,
@@ -61,36 +71,34 @@ function jsonLd(recipe: MacrosRecipeDetail) {
   }).replace(/</g, "\\u003c");
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}): Promise<Metadata> {
-  const recipe = await loadRecipe((await params).id);
-  if (!recipe) return { title: "Recipe not found" };
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const recipe = await loadPublicRecipe((await params).id);
+  if (!recipe) return { title: "Recipe not found", robots: { index: false } };
   const description = summaryOf(recipe);
+  const path = `/recipes/${recipe.id}`;
   return {
     title: `${recipe.name} · Recipes`,
     description,
-    alternates: { canonical: `${SITE}/recipes/${recipe.id}` },
+    alternates: { canonical: path },
     openGraph: {
       type: "article",
+      siteName: "Macros",
+      url: path,
       title: recipe.name,
       description,
       publishedTime: recipe.publishedAt ?? undefined,
-      ...(recipe.coverImageUrl
-        ? { images: [`${SITE}${recipe.coverImageUrl}`] }
-        : {}),
+      modifiedTime: recipe.updatedAt,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: recipe.name,
+      description,
     },
   };
 }
 
-export default async function RecipePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const recipe = await loadRecipe((await params).id);
+export default async function RecipePage({ params }: Props) {
+  const recipe = await loadPublicRecipe((await params).id);
   if (!recipe) notFound();
   return (
     <>
@@ -100,12 +108,7 @@ export default async function RecipePage({
       />
       <RecipeArticle
         recipe={recipe}
-        actions={
-          <ShareButton
-            title={recipe.name}
-            url={`${SITE}/recipes/${recipe.id}`}
-          />
-        }
+        actions={<ShareButton title={recipe.name} url={recipeUrl(recipe.id)} />}
       />
     </>
   );
