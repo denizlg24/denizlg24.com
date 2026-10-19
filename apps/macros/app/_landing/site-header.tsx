@@ -5,6 +5,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { AccountLinks, AccountSlot } from "@/app/_landing/account-menu";
 import { AppIcon, container, GetTheApp, sitePages } from "@/app/_landing/site";
 
 const DESKTOP_NAV = sitePages.filter(
@@ -89,6 +90,7 @@ export function SiteHeader() {
               ))}
             </ul>
           </nav>
+          <AccountSlot />
           <Link
             href="/download"
             aria-current={currentFor(pathname, "/download")}
@@ -142,6 +144,7 @@ export function SiteHeader() {
           <div onClick={closeMenu}>
             <GetTheApp className="mt-10 [&>*]:w-full" />
           </div>
+          <AccountLinks onNavigate={closeMenu} />
           <ul className="mt-auto flex gap-6 pt-10 text-sm text-muted-foreground">
             <li>
               <Link

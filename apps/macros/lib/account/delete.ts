@@ -10,6 +10,8 @@ import {
   verification,
 } from "@/db/schema";
 import { deleteUserObjects } from "@/lib/body/storage";
+import { revalidatePublicRecipes } from "@/lib/recipes/revalidate";
+import { getPublishedRecipeIdsOf } from "@/lib/recipes/service";
 
 /**
  * Runs before Better Auth deletes the user row, whose cascade removes the rest
@@ -23,8 +25,13 @@ import { deleteUserObjects } from "@/lib/body/storage";
  *
  * Stored objects go first: deleting a missing key is a no-op, so a failure
  * anywhere is safe to retry.
+ *
+ * Public pages are invalidated here, before the user row is gone, because the
+ * recipe ids are only readable now. Next applies the invalidation when the
+ * auth route returns, which is after the delete.
  */
 export async function deleteAccountData(userId: string) {
+  const publishedRecipeIds = await getPublishedRecipeIdsOf(userId);
   await deleteUserObjects(userId);
 
   await db.transaction(async (tx) => {
@@ -47,4 +54,6 @@ export async function deleteAccountData(userId: string) {
     // Password reset tokens name the user in `value`; nothing references them.
     await tx.delete(verification).where(eq(verification.value, userId));
   });
+
+  revalidatePublicRecipes(publishedRecipeIds);
 }

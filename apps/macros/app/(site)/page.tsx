@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AtAGlance } from "@/app/_landing/sections/at-a-glance";
 import { CheckInFeature } from "@/app/_landing/sections/coach";
 import { FeatureIndex, LoggingTeaser } from "@/app/_landing/sections/features";
+import { Film } from "@/app/_landing/sections/film";
 import { ClosingCta } from "@/app/_landing/sections/get-macros";
 import { Hero } from "@/app/_landing/sections/hero";
 import { WeightTrendFeature } from "@/app/_landing/sections/weight-trend";
@@ -20,6 +21,7 @@ export default function HomePage() {
   return (
     <>
       <Hero />
+      <Film />
       <AtAGlance />
       <LoggingTeaser
         index="01"

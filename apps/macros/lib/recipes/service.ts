@@ -9,7 +9,7 @@ import type {
   MacrosRecipeIngredientUpdate,
   MacrosRecipeStep,
 } from "@repo/schemas/macros";
-import { and, desc, eq, isNotNull, notExists } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, notExists } from "drizzle-orm";
 
 import { db } from "@/db/connection";
 import {
@@ -39,6 +39,8 @@ import type {
   UpdateRecipeInput,
 } from "@/lib/recipes/contracts";
 import { recipeImageUrl, validateRecipeImages, withImageUrls } from "./images";
+import { PUBLIC_RECIPES_PAGE_SIZE } from "./pagination";
+import { revalidatePublicRecipes } from "./revalidate";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -351,6 +353,7 @@ export async function createRecipeFromFoods(
     return { recipe, snapshot };
   });
 
+  if (created.recipe.publishedAt) revalidatePublicRecipes([created.recipe.id]);
   return toSummary(created.recipe, created.snapshot, ingredients.length);
 }
 
@@ -451,6 +454,8 @@ export async function updateRecipe(
     return { recipe, snapshot: newSnapshot, ingredientCount };
   });
 
+  if (existing.publishedAt || updated.recipe.publishedAt)
+    revalidatePublicRecipes([recipeId]);
   return toSummary(updated.recipe, updated.snapshot, updated.ingredientCount);
 }
 
@@ -574,11 +579,12 @@ export async function deleteRecipe(userId: string, recipeId: string) {
         eq(recipes.status, "active"),
       ),
     )
-    .returning({ id: recipes.id });
+    .returning({ id: recipes.id, publishedAt: recipes.publishedAt });
 
   if (!deleted) {
     throw new Error("Recipe not found");
   }
+  if (deleted.publishedAt) revalidatePublicRecipes([deleted.id]);
 }
 
 export async function logRecipe(userId: string, input: LogRecipeInput) {
@@ -719,25 +725,28 @@ export async function getPublicRecipe(id: string) {
   return getRecipeDetail(recipe.userId, id);
 }
 
-export const PUBLIC_RECIPES_PAGE_SIZE = 24;
+/** The same rule `getPublicRecipe` applies, as one SQL predicate. */
+function publiclyVisible() {
+  return and(
+    eq(recipes.status, "active"),
+    isNotNull(recipes.publishedAt),
+    notExists(
+      db
+        .select({ userId: userRestrictions.userId })
+        .from(userRestrictions)
+        .where(
+          and(
+            eq(userRestrictions.userId, recipes.userId),
+            isNotNull(userRestrictions.suspendedAt),
+          ),
+        ),
+    ),
+  );
+}
 
 export async function getPublicRecipes(page = 1) {
   const rows = await db.query.recipes.findMany({
-    where: and(
-      eq(recipes.status, "active"),
-      isNotNull(recipes.publishedAt),
-      notExists(
-        db
-          .select({ userId: userRestrictions.userId })
-          .from(userRestrictions)
-          .where(
-            and(
-              eq(userRestrictions.userId, recipes.userId),
-              isNotNull(userRestrictions.suspendedAt),
-            ),
-          ),
-      ),
-    ),
+    where: publiclyVisible(),
     orderBy: [desc(recipes.publishedAt), desc(recipes.id)],
     limit: PUBLIC_RECIPES_PAGE_SIZE + 1,
     offset: (page - 1) * PUBLIC_RECIPES_PAGE_SIZE,
@@ -765,4 +774,38 @@ export async function getPublicRecipes(page = 1) {
     items,
     hasMore: rows.length > PUBLIC_RECIPES_PAGE_SIZE,
   };
+}
+
+export type PublicRecipeSummary = Awaited<
+  ReturnType<typeof getPublicRecipes>
+>["items"][number];
+
+/** Every public recipe, newest first: static params and the sitemap. */
+export async function getPublicRecipeIndex() {
+  return db.query.recipes.findMany({
+    where: publiclyVisible(),
+    orderBy: [desc(recipes.publishedAt), desc(recipes.id)],
+    columns: { id: true, updatedAt: true },
+  });
+}
+
+export async function countPublicRecipes() {
+  const [row] = await db
+    .select({ value: count() })
+    .from(recipes)
+    .where(publiclyVisible());
+  return row?.value ?? 0;
+}
+
+/** Published regardless of the owner's standing, for revalidating after a change to it. */
+export async function getPublishedRecipeIdsOf(userId: string) {
+  const rows = await db.query.recipes.findMany({
+    where: and(
+      eq(recipes.userId, userId),
+      eq(recipes.status, "active"),
+      isNotNull(recipes.publishedAt),
+    ),
+    columns: { id: true },
+  });
+  return rows.map((row) => row.id);
 }

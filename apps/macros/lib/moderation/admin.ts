@@ -45,6 +45,8 @@ import {
 import { contributorRef } from "@/lib/moderation/alias";
 import { AUTO_HIDE_ACTOR, AUTO_HIDE_REASON } from "@/lib/moderation/policy";
 import { ModerationError } from "@/lib/moderation/service";
+import { revalidatePublicRecipes } from "@/lib/recipes/revalidate";
+import { getPublishedRecipeIdsOf } from "@/lib/recipes/service";
 
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
@@ -637,6 +639,9 @@ export async function setRestriction(
       },
     });
   });
+
+  if (Boolean(current?.suspendedAt) !== input.suspended)
+    revalidatePublicRecipes(await getPublishedRecipeIdsOf(userId));
 
   if (input.removeContributions) {
     const visible = await db

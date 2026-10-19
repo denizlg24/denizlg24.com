@@ -4,17 +4,28 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import styles from "./kitchen.module.css";
+import styles from "./sign-in.module.css";
 
 type Mode = "sign-in" | "sign-up" | "reset";
 
-const titles: Record<Mode, string> = {
-  "sign-in": "Sign in to write recipes",
+const otherTitles: Record<Exclude<Mode, "sign-in">, string> = {
   "sign-up": "Create a Macros account",
   reset: "Reset your password",
 };
 
-export function SignIn() {
+/**
+ * The one email and password form for every web page that needs an account.
+ * Without a `destination`, signing in re-renders the current page.
+ */
+export function SignIn({
+  title,
+  note,
+  destination,
+}: {
+  title: string;
+  note: string;
+  destination?: string;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("sign-in");
   const [name, setName] = useState("");
@@ -37,13 +48,14 @@ export function SignIn() {
         });
         if (result.error) {
           setError(
-            result.error.status === 403
+            result.error.code === "EMAIL_NOT_VERIFIED"
               ? "Verify your email first. We sent you a link when you signed up."
               : (result.error.message ?? "Those details didn’t match."),
           );
           return;
         }
-        router.refresh();
+        if (destination) router.push(destination);
+        else router.refresh();
       } else if (mode === "sign-up") {
         const result = await authClient.signUp.email({
           name: name.trim(),
@@ -78,17 +90,14 @@ export function SignIn() {
 
   return (
     <form
-      className={styles.signIn}
+      className={styles.form}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
-      <h1>{titles[mode]}</h1>
-      <p className={styles.gateNote}>
-        Use the same account as the Macros app. Recipes you write here show up
-        on your phone too.
-      </p>
+      <h1>{mode === "sign-in" ? title : otherTitles[mode]}</h1>
+      <p className={styles.note}>{note}</p>
       {mode === "sign-up" ? (
         <label>
           <span>Name</span>
@@ -96,6 +105,7 @@ export function SignIn() {
             autoComplete="name"
             required
             value={name}
+            disabled={busy}
             onChange={(event) => setName(event.target.value)}
           />
         </label>
@@ -107,6 +117,7 @@ export function SignIn() {
           autoComplete="email"
           required
           value={email}
+          disabled={busy}
           onChange={(event) => setEmail(event.target.value)}
         />
       </label>
@@ -121,21 +132,16 @@ export function SignIn() {
             required
             minLength={8}
             value={password}
+            disabled={busy}
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
       ) : null}
-      {error ? (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p className={styles.gateNote} role="status">
-          {notice}
-        </p>
-      ) : null}
-      <button type="submit" className={styles.primaryButton} disabled={busy}>
+      <div aria-live="polite" className={styles.messages}>
+        {error ? <p className={styles.error}>{error}</p> : null}
+        {notice ? <p className={styles.note}>{notice}</p> : null}
+      </div>
+      <button type="submit" className={styles.submit} disabled={busy}>
         {busy
           ? "One moment…"
           : mode === "sign-in"
@@ -147,15 +153,27 @@ export function SignIn() {
       <div className={styles.switches}>
         {mode === "sign-in" ? (
           <>
-            <button type="button" onClick={() => setMode("sign-up")}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setMode("sign-up")}
+            >
               Create an account
             </button>
-            <button type="button" onClick={() => setMode("reset")}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setMode("reset")}
+            >
               Forgot password?
             </button>
           </>
         ) : (
-          <button type="button" onClick={() => setMode("sign-in")}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setMode("sign-in")}
+          >
             Back to sign in
           </button>
         )}
