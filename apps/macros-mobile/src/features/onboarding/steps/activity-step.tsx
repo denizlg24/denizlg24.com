@@ -5,12 +5,13 @@ import { StepScaffold } from "../step-scaffold";
 import { useStep } from "../use-step";
 
 export function ActivityStep() {
-  const { draft, update, advance } = useStep("activity");
+  const { draft, update, advance, skipped } = useStep("activity");
 
   return (
     <StepScaffold
       step="activity"
       intro="Your typical week of training and movement. Optional — skip it if you’re unsure."
+      skipped={skipped}
       onContinue={() => advance()}
     >
       <Section title="Activity level">

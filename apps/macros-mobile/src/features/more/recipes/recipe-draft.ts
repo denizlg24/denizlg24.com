@@ -29,11 +29,11 @@ function subscribe(listener: () => void) {
 }
 
 export const recipeDraft = {
-  add(food: MacrosFoodSearchItem) {
+  add(food: MacrosFoodSearchItem, servings = 1) {
     sequence += 1;
     set([
       ...ingredients,
-      { key: `ingredient-${sequence}`, food, servings: "1" },
+      { key: `ingredient-${sequence}`, food, servings: String(servings) },
     ]);
   },
   remove(key: string) {

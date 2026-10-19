@@ -59,5 +59,16 @@ create extension if not exists pgcrypto;
 - The food log is time-based. `food_log_entries.mealType` is only a bucket derived from `eatenAt` in the user's timezone (`lib/foods/meal-bucket.ts`), recomputed on every write that sets `eatenAt`; no request schema accepts a meal. Copies keep their source's time of day on the target date, duplicates keep the original's instant.
 - Account deletion is Better Auth's `/delete-user` (password required by a `hooks.before` in `lib/auth.ts`) with `beforeDelete` = `deleteAccountData` in `lib/account/delete.ts`. It clears the user's objects under `users/<id>/` in storage, then every row that points at the user's own data with `RESTRICT`, so the user-row cascade can run in one statement. Postgres checks `RESTRICT` row by row in cascade order, so a new `RESTRICT` reference between user-owned rows breaks deletion unless it is cleared there too; without the pre-step, any user with a recipe could not delete their account.
 - Keep object storage credentials and upload transport out of this scaffold unless explicitly requested.
+- Recipe content is the JSON block model in `@repo/schemas/macros`, never HTML. Render it through `app/_recipes/recipe-blocks.tsx` (React elements, links re-checked as http(s)); the only `dangerouslySetInnerHTML` is the recipe page's JSON-LD, with `<` escaped. A new block type needs the schema, `normalizeBlocks`, both renderers, the TipTap converter (`app/kitchen/_components/editor-doc.ts`) and the phone's `article-draft.ts`.
 - **Never** use unsafe typecasts such as `as unknown as T` or `as any` if there are type erros it usually means the code is wrong or drizzle hasn't been generated.
 - When committing to the repository **always** use the format `type(scope): message` in imperative form, e.g. `feat(auth): add OTP login`. Allowed types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`, `style`, `revert`. Scope is required and kebab-case. Subject is lowercase, no trailing period, max 100 chars. Longer messages go in the body after a blank line, each line starting with `- `. Enforced by commitlint via the `commit-msg` husky hook. If you are an AI model, append a footer line `Assisted by "model name" & authored by "author name"`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -83,8 +83,9 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   [Status page](#status-page).
 - `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client
   (also shipped as a sideloaded Android APK);
-  `apps/macros` is now just the API, the marketing site and the auth-email
-  landing pages (`/register/*`). Not deployed by Forge: iOS builds upload to
+  `apps/macros` is now the API, the marketing site, the auth-email
+  landing pages (`/register/*`), public recipe articles (`/recipes`) and the
+  web recipe editor (`/kitchen`). Not deployed by Forge: iOS builds upload to
   TestFlight and the App Store; Android remains a sideloaded APK. See
   [Macros for iPhone](#macros-for-iphone-appsmacros-mobile).
 - `apps/macros-admin/` — Next.js moderation console for Macros' shared foods

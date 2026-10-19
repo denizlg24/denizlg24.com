@@ -2,7 +2,7 @@ import { formatServingLabel } from "@repo/macros-core/foods/display";
 import type { MacrosFoodSearchItem } from "@repo/schemas/macros";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Keyboard, StyleSheet, View } from "react-native";
 import { useCustomFoods, useFoodHistory, useFoodSearch } from "@/api/foods";
 import { useProfile } from "@/api/profile";
 import { useAddShoppingListItem } from "@/api/shopping-list";
@@ -20,10 +20,10 @@ import {
   VStack,
 } from "@/ui";
 import { toolbarText } from "@/ui/toolbar";
+import { IngredientAmount } from "../recipes/ingredient-amount";
 import { recipeDraft, useRecipeDraft } from "../recipes/recipe-draft";
 import { FoodListRow, ListSection } from "../shared/list-rows";
 import { NoticeSlot, useNotice } from "../shared/notice";
-import { useDebouncedValue } from "../shared/use-debounced";
 
 interface PickableFood {
   item: MacrosFoodSearchItem;
@@ -52,9 +52,11 @@ export function FoodPickerScreen() {
   const profile = useProfile();
   const energyUnit = profile.data?.energyUnit ?? "kcal";
   const [query, setQuery] = useState("");
-  const debounced = useDebouncedValue(query, 250);
-  const searching = debounced.trim().length > 0;
-  const search = useFoodSearch(debounced);
+  const [selectedFood, setSelectedFood] = useState<MacrosFoodSearchItem | null>(
+    null,
+  );
+  const searching = query.trim().length > 0;
+  const search = useFoodSearch(query);
   const history = useFoodHistory(null, 25);
   const custom = useCustomFoods();
   const addToList = useAddShoppingListItem();
@@ -82,11 +84,12 @@ export function FoodPickerScreen() {
 
   function pick({ item, localFoodId }: PickableFood) {
     haptics.light();
-    setLastAdded({ id: item.id, at: Date.now() });
     if (target === "recipe") {
-      recipeDraft.add(item);
+      Keyboard.dismiss();
+      setSelectedFood(item);
       return;
     }
+    setLastAdded({ id: item.id, at: Date.now() });
     bump(item.id, 1);
     addToList.mutate(
       {
@@ -135,11 +138,17 @@ export function FoodPickerScreen() {
       <Stack.Toolbar placement="right">
         {toolbarText({
           variant: "done",
+          disabled: selectedFood !== null,
           onPress: () => router.back(),
           children: "Done",
         })}
       </Stack.Toolbar>
-      <Screen bleed stickyHeaderIndices={[0]}>
+      <Screen
+        automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
+        bleed
+        stickyHeaderIndices={[0]}
+      >
         <NoticeSlot notice={notice} onDismiss={clear} inset />
         <VStack gap={spacing.xl}>
           {added > 0 ? (
@@ -168,7 +177,7 @@ export function FoodPickerScreen() {
           {searching && search.data && results.length === 0 ? (
             <EmptyState
               icon="search"
-              title={`Nothing found for “${debounced.trim()}”`}
+              title={`Nothing found for “${query.trim()}”`}
             />
           ) : null}
 
@@ -213,7 +222,7 @@ export function FoodPickerScreen() {
                       energyUnit={energyUnit}
                       accessibilityHint={
                         target === "recipe"
-                          ? "Adds one serving to the recipe"
+                          ? "Choose the amount for this ingredient"
                           : "Adds it to your shopping list"
                       }
                       onPress={() => pick(food)}
@@ -244,6 +253,19 @@ export function FoodPickerScreen() {
           ) : null}
         </VStack>
       </Screen>
+      {selectedFood ? (
+        <IngredientAmount
+          key={selectedFood.id}
+          food={selectedFood}
+          label="Add ingredient"
+          onClose={() => setSelectedFood(null)}
+          onSave={(amount) => {
+            recipeDraft.add(selectedFood, amount);
+            setLastAdded({ id: selectedFood.id, at: Date.now() });
+            setSelectedFood(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

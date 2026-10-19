@@ -33,8 +33,14 @@ def guarded_plan(snapshots, groups, now, max_delete_percent=25):
         raise ValueError("retention must preserve at least three snapshots")
     if any(now - timestamp(by_id[s]["time"]) <= dt.timedelta(days=14) for s in remove):
         raise ValueError("retention would delete a snapshot in the 14-day safety window")
-    if len(remove) * 100 > len(snapshots) * max_delete_percent:
-        raise ValueError("retention exceeds the reviewed deletion percentage limit")
+    # A backlog must converge without weakening the per-pass deletion guard.
+    # Only retire the oldest policy-approved candidates this time; deferred
+    # candidates remain authenticated and are checked as retained snapshots.
+    limit = len(snapshots) * max_delete_percent // 100
+    ordered = sorted(remove, key=lambda sid: (timestamp(by_id[sid]["time"]), sid))
+    deferred = set(ordered[limit:])
+    remove.difference_update(deferred)
+    keep.update(deferred)
     return sorted(keep), sorted(remove)
 
 

@@ -1,8 +1,15 @@
 import { formatServingLabel } from "@repo/macros-core/foods/display";
+import { hasWrittenStep } from "@repo/macros-core/recipe-content";
 import type { MacrosRecipeDetail } from "@repo/schemas/macros";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useProfile } from "@/api/profile";
 import {
   type CreateRecipeInput,
@@ -42,6 +49,13 @@ import {
 import { toolbarText } from "@/ui/toolbar";
 import { showActionSheet } from "../shared/action-sheet";
 import { NoticeSlot, useNotice } from "../shared/notice";
+import {
+  articleFromRecipe,
+  articleBody as articleRequest,
+  minutesValid,
+} from "./article-draft";
+import { ArticleFields, type RecipeArticleDraft } from "./article-fields";
+import { IngredientAmount } from "./ingredient-amount";
 import {
   type DraftIngredient,
   recipeDraft,
@@ -84,7 +98,7 @@ function savedTotals(recipe: MacrosRecipeDetail): Macros {
 }
 
 function trimNumber(value: number) {
-  return String(Number(value.toFixed(2)));
+  return String(Number(value.toFixed(4)));
 }
 
 export function RecipeEditorScreen() {
@@ -104,6 +118,11 @@ export function RecipeEditorScreen() {
   const [weight, setWeight] = useState("");
   const [iconKey, setIconKey] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
+  const [article, setArticle] = useState<RecipeArticleDraft>(() =>
+    articleFromRecipe(undefined),
+  );
+  const [uploading, setUploading] = useState(false);
+  const [activeIngredient, setActiveIngredient] = useState<string | null>(null);
   const hydrated = useRef(false);
 
   useEffect(() => {
@@ -121,6 +140,7 @@ export function RecipeEditorScreen() {
       recipe.totalWeightGrams > 0 ? trimNumber(recipe.totalWeightGrams) : "",
     );
     setIconKey(recipe.iconKey);
+    setArticle(articleFromRecipe(recipe));
   }, [existing.data]);
 
   const parsedServings = parseDecimal(servings);
@@ -137,15 +157,23 @@ export function RecipeEditorScreen() {
     name.trim().length > 0 && validServings && validWeight && validIngredients;
 
   const recipe = existing.data;
-  const dirty = recipe
-    ? name.trim() !== recipe.name ||
-      parsedServings !== recipe.servings ||
-      parsedWeight !== recipe.totalWeightGrams ||
-      iconKey !== recipe.iconKey
-    : name.trim() !== "" ||
-      weight !== "" ||
-      servings !== "1" ||
-      ingredients.length > 0;
+  const articleBody = articleRequest(article);
+  const savedArticle = useMemo(
+    () => JSON.stringify(articleRequest(articleFromRecipe(recipe))),
+    [recipe],
+  );
+  const articleDirty = JSON.stringify(articleBody) !== savedArticle;
+  const dirty =
+    articleDirty ||
+    (recipe
+      ? name.trim() !== recipe.name ||
+        parsedServings !== recipe.servings ||
+        parsedWeight !== recipe.totalWeightGrams ||
+        iconKey !== recipe.iconKey
+      : name.trim() !== "" ||
+        weight !== "" ||
+        servings !== "1" ||
+        ingredients.length > 0);
 
   const totals = recipe ? savedTotals(recipe) : draftTotals(ingredients);
   const divisor = validServings ? parsedServings : 1;
@@ -165,7 +193,10 @@ export function RecipeEditorScreen() {
     return [...new Set(keys.filter((key): key is string => Boolean(key)))];
   }, [editing, recipe?.iconKey, ingredients]);
 
-  const pending = createRecipe.isPending || updateRecipe.isPending;
+  const pending = uploading || createRecipe.isPending || updateRecipe.isPending;
+  const selectedIngredient = ingredients.find(
+    (item) => item.key === activeIngredient,
+  );
 
   function close() {
     recipeDraft.reset();
@@ -191,7 +222,19 @@ export function RecipeEditorScreen() {
   }
 
   function save() {
+    if (pending || selectedIngredient) return;
     setAttempted(true);
+    if (
+      !minutesValid(article.prepMinutes) ||
+      !minutesValid(article.cookMinutes)
+    ) {
+      showError(new Error("Prep and cook times are whole minutes."));
+      return;
+    }
+    if (article.isPublished && !hasWrittenStep(articleBody.steps)) {
+      showError(new Error("Add at least one written step before publishing."));
+      return;
+    }
     if (!valid || !validServings || !validWeight) {
       haptics.warning();
       return;
@@ -201,6 +244,7 @@ export function RecipeEditorScreen() {
       updateRecipe.mutate(
         {
           id,
+          ...articleBody,
           name: name.trim(),
           servings: parsedServings,
           totalWeightGrams: parsedWeight,
@@ -221,6 +265,7 @@ export function RecipeEditorScreen() {
       return;
     }
     const body: CreateRecipeInput = {
+      ...articleBody,
       name: name.trim(),
       servings: parsedServings,
       totalWeightGrams: parsedWeight,
@@ -301,7 +346,7 @@ export function RecipeEditorScreen() {
       <Stack.Toolbar placement="right">
         {toolbarText({
           variant: "done",
-          disabled: pending,
+          disabled: pending || Boolean(selectedIngredient),
           onPress: saveOnce,
           children: pending ? "Saving…" : "Save",
         })}
@@ -372,7 +417,8 @@ export function RecipeEditorScreen() {
                       {ingredient.foodName}
                     </Text>
                     <Text variant="subheadline" tone="secondary" figure>
-                      {formatDecimal(ingredient.servings)} ×
+                      {ingredient.amountLabel ??
+                        `${formatDecimal(ingredient.servings)} ×`}
                     </Text>
                   </View>
                   {index < recipe.ingredients.length - 1 ? <Hairline /> : null}
@@ -385,7 +431,7 @@ export function RecipeEditorScreen() {
                 title={`Ingredients · ${ingredients.length}`}
                 footer={
                   ingredients.length > 0
-                    ? "Amounts are servings of each food. Tap a food to move or remove it."
+                    ? "Tap an ingredient to change its amount or unit. Hold to move or remove it."
                     : undefined
                 }
               >
@@ -405,7 +451,11 @@ export function RecipeEditorScreen() {
                       <IngredientRow
                         ingredient={ingredient}
                         energyUnit={energyUnit}
-                        onPress={() => ingredientActions(ingredient, index)}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setActiveIngredient(ingredient.key);
+                        }}
+                        onLongPress={() => ingredientActions(ingredient, index)}
                       />
                     </SwipeRow>
                   ))}
@@ -476,8 +526,27 @@ export function RecipeEditorScreen() {
               </ScrollView>
             </Section>
           ) : null}
+          <ArticleFields
+            value={article}
+            onChange={setArticle}
+            onBusyChange={setUploading}
+            onError={showError}
+          />
         </VStack>
       </Screen>
+      {selectedIngredient ? (
+        <IngredientAmount
+          key={selectedIngredient.key}
+          food={selectedIngredient.food}
+          servings={parseDecimal(selectedIngredient.servings) ?? 1}
+          label="Update amount"
+          onClose={() => setActiveIngredient(null)}
+          onSave={(amount) => {
+            recipeDraft.setServings(selectedIngredient.key, String(amount));
+            setActiveIngredient(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -515,10 +584,12 @@ function IngredientRow({
   ingredient,
   energyUnit,
   onPress,
+  onLongPress,
 }: {
   ingredient: DraftIngredient;
   energyUnit: EnergyUnit;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const swipeAccessibility = useSwipeAccessibility();
   const { food } = ingredient;
@@ -531,8 +602,9 @@ function IngredientRow({
       <View style={styles.ingredient}>
         <Pressable
           onPress={onPress}
+          onLongPress={onLongPress}
           accessibilityRole="button"
-          accessibilityHint="Move or remove this food"
+          accessibilityHint="Change amount; hold to move or remove this food"
           {...swipeAccessibility}
           style={styles.ingredientMain}
         >
@@ -553,17 +625,16 @@ function IngredientRow({
             </Text>
           </View>
         </Pressable>
-        <TextField
-          value={ingredient.servings}
-          onChangeText={(value) =>
-            recipeDraft.setServings(ingredient.key, value)
-          }
-          keyboardType="decimal-pad"
-          selectTextOnFocus
-          accessibilityLabel={`Servings of ${food.name}`}
-          containerStyle={styles.amount}
-          style={styles.amountInput}
-        />
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Change amount of ${food.name}, ${ingredient.servings} servings`}
+          style={styles.amount}
+        >
+          <Text variant="body" figure>
+            {formatDecimal(amount)} ×
+          </Text>
+        </Pressable>
       </View>
       <Hairline inset={gutter} />
     </View>
@@ -642,10 +713,10 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   amount: {
-    width: 64,
-  },
-  amountInput: {
-    textAlign: "right",
+    minWidth: 64,
+    minHeight: 44,
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   addSpacing: {
     marginTop: spacing.md,

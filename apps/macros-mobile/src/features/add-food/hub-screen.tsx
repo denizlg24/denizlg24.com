@@ -147,6 +147,8 @@ export function HubScreen() {
       </Stack.Toolbar>
 
       <Screen
+        automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
         bleed
         stickyHeaderIndices={[0]}
         contentContainerStyle={[

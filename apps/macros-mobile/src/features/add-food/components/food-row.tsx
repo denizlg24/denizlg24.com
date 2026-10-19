@@ -23,6 +23,7 @@ export interface FoodRowData {
   name: string;
   brand?: string | null;
   iconKey?: string | null;
+  imageUrl?: string | null;
   entryType?: "food" | "recipe";
   /** "1 slice", "150 g", "3 foods". */
   amount: string;
@@ -179,6 +180,7 @@ export function FoodRow({
       <FoodIcon
         name={row.name}
         iconKey={row.iconKey}
+        imageUrl={row.imageUrl}
         entryType={row.entryType}
         size={ICON_SIZE}
       />

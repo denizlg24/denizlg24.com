@@ -32,13 +32,28 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(remove, ["7"])
         self.assertIn("0", keep)
 
-    def test_empty_stale_future_and_mass_delete_stop(self):
+    def test_empty_stale_and_future_stop(self):
         for snapshots, groups, now in [([], [], self.now),
             (self.snapshots, self.groups(), self.now + dt.timedelta(days=2)),
-            (self.snapshots, self.groups(), self.now - dt.timedelta(days=1)),
-            (self.snapshots, self.groups(4), self.now)]:
+            (self.snapshots, self.groups(), self.now - dt.timedelta(days=1))]:
             with self.subTest(snapshots=snapshots, now=now), self.assertRaises(ValueError):
                 guarded_plan(snapshots, groups, now)
+
+    def test_backlog_converges_in_bounded_oldest_first_batches(self):
+        snapshots = self.snapshots[:]
+        candidates = {"4", "5", "6", "7"}
+        batches = []
+        while candidates:
+            groups = [{"keep": [s for s in snapshots if s["id"] not in candidates],
+                       "remove": [s for s in snapshots if s["id"] in candidates]}]
+            keep, remove = guarded_plan(snapshots, groups, self.now)
+            self.assertTrue(remove)
+            self.assertLessEqual(len(remove) * 100, len(snapshots) * 25)
+            self.assertTrue({"0", "1", "2", "3"}.issubset(keep))
+            batches.append(remove)
+            candidates.difference_update(remove)
+            snapshots = [s for s in snapshots if s["id"] in keep]
+        self.assertEqual(batches, [["6", "7"], ["5"], ["4"]])
 
     def test_missing_duplicate_and_recent_deletion_stop(self):
         for groups in [[{"keep": self.snapshots[:-1]}],

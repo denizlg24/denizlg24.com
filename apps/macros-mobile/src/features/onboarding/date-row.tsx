@@ -1,16 +1,15 @@
 import { format, parseISO } from "date-fns";
-import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { haptics } from "@/lib/haptics";
 import { colors, Hairline, Icon, Row, spacing, Text } from "@/ui";
-import { DateTimePicker } from "@/ui/date-time-picker";
+import { CompactDatePicker } from "@/ui/date-time-picker";
 
 const ISO_DATE = "yyyy-MM-dd";
 
 /**
- * An optional date, Health-style: the row shows the value and tapping it
- * opens a wheel beneath. Opening an empty row fills in `defaultDate`, so what
- * the wheel shows is always what will be saved.
+ * An optional date. Unset, the row reads "Not set" and tapping it fills in
+ * `defaultDate`; set, it carries the compact date pill, whose calendar closes
+ * itself once a day is picked.
  */
 export function DateRow({
   title,
@@ -32,66 +31,73 @@ export function DateRow({
   detail?: string;
   error?: string;
 }) {
-  const [open, setOpen] = useState(false);
-
-  function toggle() {
+  function fill() {
     haptics.selection();
-    if (!open && !value) onChange(format(defaultDate, ISO_DATE));
-    setOpen(!open);
+    onChange(format(defaultDate, ISO_DATE));
   }
 
   function clear() {
     haptics.selection();
     onChange(null);
-    setOpen(false);
   }
 
   return (
     <View>
-      <Row
-        title={title}
-        subtitle={detail}
-        value={value ? format(parseISO(value), "d MMM yyyy") : "Not set"}
-        valueTone={open ? "primary" : "secondary"}
-        accessibilityHint={
-          open ? "Hides the date picker" : "Shows a date picker"
-        }
-        separator={!open && !error}
-        onPress={toggle}
-        trailing={
-          value ? (
-            <Pressable
-              onPress={clear}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel={`Clear ${title.toLowerCase()}`}
-            >
-              <Icon name="circle-x" size={18} color={colors.tertiaryLabel} />
-            </Pressable>
-          ) : null
-        }
-      />
-      {open ? (
-        <DateTimePicker
-          value={value ? parseISO(value) : defaultDate}
-          mode="date"
-          display="spinner"
-          minimumDate={minimumDate}
-          maximumDate={maximumDate}
-          onValueChange={(_event, date) => onChange(format(date, ISO_DATE))}
+      {value ? (
+        <Row
+          title={title}
+          subtitle={detail}
+          separator={!error}
+          trailing={
+            <View style={styles.trailing}>
+              <CompactDatePicker
+                value={parseISO(value)}
+                minimumDate={minimumDate}
+                maximumDate={maximumDate}
+                onValueChange={(date) => {
+                  haptics.selection();
+                  onChange(format(date, ISO_DATE));
+                }}
+              />
+              <Pressable
+                onPress={clear}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Clear ${title.toLowerCase()}`}
+              >
+                <Icon name="circle-x" size={18} color={colors.tertiaryLabel} />
+              </Pressable>
+            </View>
+          }
         />
-      ) : null}
+      ) : (
+        <Row
+          title={title}
+          subtitle={detail}
+          value="Not set"
+          accessibilityHint="Sets a date you can then change"
+          separator={!error}
+          onPress={fill}
+        />
+      )}
       {error ? (
-        <Text variant="footnote" tone="destructive" style={styles.error}>
-          {error}
-        </Text>
+        <>
+          <Text variant="footnote" tone="destructive" style={styles.error}>
+            {error}
+          </Text>
+          <Hairline />
+        </>
       ) : null}
-      {open || error ? <Hairline /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  trailing: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   error: {
     paddingBottom: spacing.sm,
   },

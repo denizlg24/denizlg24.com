@@ -1,11 +1,13 @@
+import { readingMinutes } from "@repo/macros-core/recipe-content";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { Linking, Share, StyleSheet, View } from "react-native";
 import { useCalorieSummary } from "@/api/dashboard";
 import { useProfile } from "@/api/profile";
 import { useDeleteRecipe, useRecipe } from "@/api/recipes";
 import { useAddShoppingListItems } from "@/api/shopping-list";
 import { FoodIcon } from "@/components/food-icon";
 import { MacroBars, MacroInline } from "@/components/macro-bars";
+import { RecipePhoto } from "@/components/recipe-photo";
 import { ApiError } from "@/lib/api";
 import { useToday } from "@/lib/day";
 import {
@@ -32,6 +34,7 @@ import { confirmDestructive } from "../shared/action-sheet";
 import { NoticeSlot, useNotice } from "../shared/notice";
 import { useRefresh } from "../shared/use-refresh";
 import { NutrientRows } from "./nutrient-rows";
+import { RecipeBlocks } from "./recipe-blocks";
 import { useSavedRecipeToken } from "./recipe-draft";
 import { recipeDetailLine } from "./recipes-screen";
 
@@ -193,26 +196,66 @@ export function RecipeDetailScreen() {
       >
         <NoticeSlot notice={notice} onDismiss={clear} />
         <VStack>
+          {data.coverImageUrl ? (
+            <RecipePhoto url={data.coverImageUrl} label={data.name} />
+          ) : null}
           <Flash token={flashToken} style={styles.header}>
-            <FoodIcon
-              name={data.name}
-              iconKey={data.iconKey}
-              entryType="recipe"
-              size={52}
-            />
-            <View style={styles.headerText}>
-              <Text variant="title3" numberOfLines={3}>
-                {data.name}
+            {data.coverImageUrl ? null : (
+              <FoodIcon
+                name={data.name}
+                iconKey={data.iconKey}
+                entryType="recipe"
+                size={44}
+              />
+            )}
+            <Text variant="title1">{data.name}</Text>
+            {data.description ? (
+              <Text variant="title3" tone="secondary" weight="regular">
+                {data.description}
               </Text>
-              <Text variant="footnote" tone="secondary">
-                {recipeDetailLine(data)}
-                {data.totalWeightGrams > 0
-                  ? ` · ${formatGrams(data.totalWeightGrams)} total`
-                  : ""}
-              </Text>
-            </View>
+            ) : null}
+            <Text variant="footnote" tone="secondary">
+              {[
+                recipeDetailLine(data),
+                data.totalWeightGrams > 0
+                  ? `${formatGrams(data.totalWeightGrams)} total`
+                  : null,
+                data.prepTimeMinutes
+                  ? `Prep ${data.prepTimeMinutes} min`
+                  : null,
+                data.cookTimeMinutes
+                  ? `Cook ${data.cookTimeMinutes} min`
+                  : null,
+                `${readingMinutes(data)} min read`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
           </Flash>
-
+          {data.publicUrl ? (
+            <View style={styles.share}>
+              <Button
+                label="Share recipe"
+                variant="tinted"
+                size="regular"
+                onPress={() => {
+                  void Share.share({
+                    message: `${data.name} ${data.publicUrl}`,
+                    url: data.publicUrl ?? undefined,
+                  }).catch(showError);
+                }}
+              />
+              <Button
+                label="View published page"
+                variant="plain"
+                size="regular"
+                onPress={() => {
+                  if (data.publicUrl)
+                    void Linking.openURL(data.publicUrl).catch(showError);
+                }}
+              />
+            </View>
+          ) : null}
           <View style={styles.nutrition}>
             <Stat
               size="hero"
@@ -242,6 +285,10 @@ export function RecipeDetailScreen() {
 
           <Button label="Log a serving" icon="plus" onPress={openLog} />
 
+          {data.story?.length ? (
+            <RecipeBlocks blocks={data.story} fallbackLabel={data.name} />
+          ) : null}
+
           <Section
             title={`Ingredients · ${data.ingredients.length}`}
             footer="Amounts are for the whole recipe."
@@ -256,9 +303,10 @@ export function RecipeDetailScreen() {
                     <Text variant="footnote" tone="secondary" numberOfLines={1}>
                       {[
                         ingredient.brand,
-                        `${formatDecimal(ingredient.servings)} ${
-                          ingredient.servings === 1 ? "serving" : "servings"
-                        }`,
+                        ingredient.amountLabel ??
+                          `${formatDecimal(ingredient.servings)} ${
+                            ingredient.servings === 1 ? "serving" : "servings"
+                          }`,
                       ]
                         .filter(Boolean)
                         .join(" · ")}
@@ -279,6 +327,26 @@ export function RecipeDetailScreen() {
             ))}
           </Section>
 
+          {data.steps?.length ? (
+            <Section title="Method">
+              <VStack gap={spacing.xl}>
+                {data.steps.map((step, index) => (
+                  <View key={`step-${index}`} style={styles.method}>
+                    <Text variant="footnote" tone="secondary" eyebrow>
+                      Step {index + 1}
+                    </Text>
+                    {step.title ? (
+                      <Text variant="title3">{step.title}</Text>
+                    ) : null}
+                    <RecipeBlocks
+                      blocks={step.blocks}
+                      fallbackLabel={step.title || `Step ${index + 1}`}
+                    />
+                  </View>
+                ))}
+              </VStack>
+            </Section>
+          ) : null}
           <NutrientRows nutrients={data.nutrientsPerServing} />
         </VStack>
       </Screen>
@@ -287,14 +355,10 @@ export function RecipeDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  method: { gap: spacing.sm },
+  share: { gap: spacing.sm },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  headerText: {
-    flex: 1,
-    gap: spacing.xxs,
+    gap: spacing.sm,
   },
   nutrition: {
     gap: spacing.lg,

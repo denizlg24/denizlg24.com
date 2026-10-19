@@ -141,6 +141,13 @@
       "when": 1791440058194,
       "tag": "0019_content_moderation",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792328459007,
+      "tag": "0020_recipe_articles",
+      "breakpoints": true
     }
   ]
 }

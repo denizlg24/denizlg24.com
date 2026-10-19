@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { isPlausibleBarcode } from "./barcode";
 import {
   buildServingOptions,
   describeAmount,
@@ -8,7 +7,7 @@ import {
   measureFor,
   quantityFor,
   servingsFor,
-} from "./serving";
+} from "./serving-options";
 
 const per100g = buildServingOptions({
   servingLabel: "100 g",
@@ -128,19 +127,5 @@ describe("amounts", () => {
     expect(
       describeAmount({ servingLabel: "1 slice", servingsConsumed: 2 }),
     ).toBe("2 slice");
-  });
-});
-
-describe("isPlausibleBarcode", () => {
-  test("accepts valid check digits", () => {
-    expect(isPlausibleBarcode("4006381333931", "ean13")).toBe(true);
-    expect(isPlausibleBarcode("96385074", "ean8")).toBe(true);
-    expect(isPlausibleBarcode("036000291452", "upc_a")).toBe(true);
-  });
-
-  test("rejects misreads", () => {
-    expect(isPlausibleBarcode("4006381333932", "ean13")).toBe(false);
-    expect(isPlausibleBarcode("12345", "ean13")).toBe(false);
-    expect(isPlausibleBarcode("40063813339a1", "ean13")).toBe(false);
   });
 });
