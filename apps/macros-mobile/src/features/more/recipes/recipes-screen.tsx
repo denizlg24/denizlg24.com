@@ -95,6 +95,7 @@ export function RecipesScreen() {
       </Stack.Toolbar>
       <Screen
         automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
         bleed
         stickyHeaderIndices={[0]}
         onRefresh={onRefresh}

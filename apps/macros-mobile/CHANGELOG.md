@@ -12,7 +12,11 @@ are understood.
 - **Share your recipes** You can now create beautiful recipe pages and share them with your friends online
 
 ### Fixed
-- You can now choose quantities when creating a recipe from the recipes page. 
+- You can now choose quantities when creating a recipe from the recipes page.
+- Scrolling a search now puts the keyboard away.
+- Choosing a food icon closes the icon grid.
+- Date of birth and goal date close their calendar once a day is picked.
+- Onboarding points out the optional answers left empty before moving on.
 
 ## 0.0.15 — 2026-10-08
 

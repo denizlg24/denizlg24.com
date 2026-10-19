@@ -9,6 +9,8 @@ import {
   hasErrors,
   type OnboardingDraft,
   type StepKey,
+  skipNotice,
+  skippedFields,
   stepPosition,
   validateStep,
 } from "./model";
@@ -17,17 +19,29 @@ import {
  * A step's draft, its field errors, and `advance`, which validates the step
  * and pushes the next one. Each step is its own native stack screen, so Back
  * and the edge swipe are the system's and every answer survives them.
+ *
+ * The first Continue with optional answers missing stays put and names them
+ * in `skipped`; the second goes on without them.
  */
 export function useStep(step: StepKey) {
   const router = useRouter();
   const { draft, update } = useOnboardingDraft();
   const [errors, setErrors] = useState<DraftErrors>({});
+  const [nudged, setNudged] = useState(false);
+  const missing = skippedFields(step, draft);
+  const skipped = nudged && missing.length > 0 ? skipNotice(missing) : null;
 
   function advance(prepare?: (draft: OnboardingDraft) => OnboardingDraft) {
     const found = validateStep(step, draft);
     setErrors(found);
     if (hasErrors(found)) {
       haptics.error();
+      return;
+    }
+    if (missing.length > 0 && !nudged) {
+      haptics.warning();
+      Keyboard.dismiss();
+      setNudged(true);
       return;
     }
     if (prepare) update(prepare);
@@ -42,5 +56,5 @@ export function useStep(step: StepKey) {
     );
   }
 
-  return { draft, update, errors, advance, clearError };
+  return { draft, update, errors, advance, clearError, skipped };
 }

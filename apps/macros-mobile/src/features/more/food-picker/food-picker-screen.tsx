@@ -143,7 +143,12 @@ export function FoodPickerScreen() {
           children: "Done",
         })}
       </Stack.Toolbar>
-      <Screen automaticallyAdjustKeyboardInsets bleed stickyHeaderIndices={[0]}>
+      <Screen
+        automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
+        bleed
+        stickyHeaderIndices={[0]}
+      >
         <NoticeSlot notice={notice} onDismiss={clear} inset />
         <VStack gap={spacing.xl}>
           {added > 0 ? (

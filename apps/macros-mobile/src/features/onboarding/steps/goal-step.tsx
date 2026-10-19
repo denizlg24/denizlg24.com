@@ -17,7 +17,8 @@ import { useStep } from "../use-step";
 const pace = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 export function GoalStep() {
-  const { draft, update, errors, advance, clearError } = useStep("goal");
+  const { draft, update, errors, advance, clearError, skipped } =
+    useStep("goal");
   const directional = isDirectionalGoal(draft.goalType);
   const rateKg = weeklyRateKgOf(draft);
   const target = parseDecimal(draft.targetWeight);
@@ -34,6 +35,7 @@ export function GoalStep() {
     <StepScaffold
       step="goal"
       intro="Pick a direction. A target and a date are optional; together they set your pace."
+      skipped={skipped}
       onContinue={() => advance()}
     >
       <Section title="Goal">

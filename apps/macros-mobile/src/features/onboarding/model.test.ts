@@ -10,6 +10,8 @@ import {
   initialDraft,
   type OnboardingDraft,
   planDays,
+  skipNotice,
+  skippedFields,
   stepDayDelta,
   stepPosition,
   suggestTargets,
@@ -310,5 +312,36 @@ describe("buildRegistrationBody", () => {
         now,
       ),
     ).toBeNull();
+  });
+});
+
+describe("skippedFields", () => {
+  test("names the empty optional answers in reading order", () => {
+    expect(
+      skippedFields(
+        "about",
+        draft({ sex: null, birthDate: null, heightCm: "" }),
+      ),
+    ).toEqual(["sex", "date of birth", "height"]);
+    expect(skippedFields("about", draft())).toEqual([]);
+    expect(
+      skippedFields("about", draft({ weightUnit: "lb", heightFt: "5" })),
+    ).toEqual([]);
+  });
+
+  test("asks for a target and date only on a directional goal", () => {
+    expect(skippedFields("goal", draft({ goalType: "maintain" }))).toEqual([]);
+    expect(skippedFields("goal", draft({ goalDate: "2026-12-01" }))).toEqual([
+      "target weight",
+    ]);
+  });
+
+  test("reads as a sentence", () => {
+    expect(skipNotice(["height"])).toBe(
+      "Height is still empty. Filling it in makes your plan more accurate.",
+    );
+    expect(skipNotice(["sex", "date of birth", "height"])).toBe(
+      "Sex, date of birth and height are still empty. Filling them in makes your plan more accurate.",
+    );
   });
 });

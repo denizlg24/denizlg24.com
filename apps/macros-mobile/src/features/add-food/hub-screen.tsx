@@ -148,6 +148,7 @@ export function HubScreen() {
 
       <Screen
         automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
         bleed
         stickyHeaderIndices={[0]}
         contentContainerStyle={[

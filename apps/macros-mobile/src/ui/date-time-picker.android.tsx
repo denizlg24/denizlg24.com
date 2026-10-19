@@ -9,6 +9,7 @@ import { Text } from "./text";
 import { colors, radius, spacing, useResolvedColors } from "./theme";
 
 export type {
+  CompactDatePickerProps,
   CompactTimePickerProps,
   DateTimePickerProps,
 } from "./date-time-picker";
@@ -182,6 +183,24 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+
+/** The same field, date only; Material's dialog closes on OK by itself. */
+export const CompactDatePicker: typeof Shared.CompactDatePicker = ({
+  value,
+  onValueChange,
+  minimumDate,
+  maximumDate,
+  style,
+}) => (
+  <DateTimePicker
+    value={value}
+    mode="date"
+    minimumDate={minimumDate}
+    maximumDate={maximumDate}
+    onValueChange={(_event, date) => onValueChange(date)}
+    style={style}
+  />
+);
 
 /** The same field, time only; Android has no compact pill to size. */
 export const CompactTimePicker: typeof Shared.CompactTimePicker = ({

@@ -145,6 +145,7 @@ export function IconPicker({
                     onPress={() => {
                       haptics.selection();
                       onChange(icon.key);
+                      setOpen(false);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${groupLabel} icon ${icon.key.split("-").at(-1) ?? ""}`}

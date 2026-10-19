@@ -429,6 +429,46 @@ export function validateStep(
   }
 }
 
+/**
+ * The optional answers a step is about to be left without, in reading order.
+ * Each one falls back to an average in the estimate, so Continue names them
+ * once before skipping them.
+ */
+export function skippedFields(step: StepKey, draft: OnboardingDraft): string[] {
+  switch (step) {
+    case "about": {
+      const hasHeight =
+        draft.weightUnit === "kg"
+          ? draft.heightCm.trim() !== ""
+          : draft.heightFt.trim() !== "" || draft.heightIn.trim() !== "";
+      return [
+        draft.sex ? null : "sex",
+        draft.birthDate ? null : "date of birth",
+        hasHeight ? null : "height",
+      ].filter((field) => field !== null);
+    }
+    case "activity":
+      return draft.activityLevel ? [] : ["activity level"];
+    case "goal":
+      if (!isDirectionalGoal(draft.goalType)) return [];
+      return [
+        draft.targetWeight.trim() !== "" ? null : "target weight",
+        draft.goalDate ? null : "goal date",
+      ].filter((field) => field !== null);
+    default:
+      return [];
+  }
+}
+
+export function skipNotice(fields: string[]): string {
+  const list =
+    fields.length <= 1
+      ? (fields[0] ?? "")
+      : `${fields.slice(0, -1).join(", ")} and ${fields.at(-1)}`;
+  const named = list.charAt(0).toUpperCase() + list.slice(1);
+  return `${named} ${fields.length === 1 ? "is" : "are"} still empty. Filling ${fields.length === 1 ? "it" : "them"} in makes your plan more accurate.`;
+}
+
 export function hasErrors(errors: DraftErrors): boolean {
   return Object.values(errors).some(Boolean);
 }

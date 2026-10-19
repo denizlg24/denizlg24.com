@@ -9,7 +9,8 @@ import { StepScaffold } from "../step-scaffold";
 import { useStep } from "../use-step";
 
 export function AboutStep() {
-  const { draft, update, errors, advance, clearError } = useStep("about");
+  const { draft, update, errors, advance, clearError, skipped } =
+    useStep("about");
   const age = ageOf(draft);
   const bounds = useMemo(() => {
     const today = startOfDay(new Date());
@@ -24,6 +25,7 @@ export function AboutStep() {
     <StepScaffold
       step="about"
       intro="All optional. Each answer makes your starting estimate more accurate."
+      skipped={skipped}
       onContinue={() => advance()}
     >
       <Section title="Sex">

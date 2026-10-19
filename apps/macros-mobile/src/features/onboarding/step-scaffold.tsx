@@ -30,6 +30,8 @@ export interface StepScaffoldProps {
   busy?: boolean;
   /** A failure of the continue action itself, pinned above the button. */
   error?: string | null;
+  /** Optional answers still empty after a first Continue (`useStep`). */
+  skipped?: string | null;
 }
 
 /**
@@ -46,6 +48,7 @@ export function StepScaffold({
   onContinue,
   busy = false,
   error,
+  skipped,
 }: StepScaffoldProps) {
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardInset();
@@ -74,7 +77,14 @@ export function StepScaffold({
       <Animated.View style={[styles.footer, footerStyle]}>
         <Hairline style={styles.footerRule} />
         {error ? <InlineNotice message={error} /> : null}
-        <Button label={continueLabel} loading={busy} onPress={onContinue} />
+        {skipped && !error ? (
+          <InlineNotice tone="info" message={skipped} />
+        ) : null}
+        <Button
+          label={skipped ? "Continue anyway" : continueLabel}
+          loading={busy}
+          onPress={onContinue}
+        />
       </Animated.View>
       <OnboardingMenu />
     </View>
