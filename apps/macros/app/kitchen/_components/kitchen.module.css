@@ -74,6 +74,10 @@
   cursor: default;
 }
 .ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: none;
   border: 0;
   padding: 6px 2px;
@@ -343,7 +347,8 @@
 }
 
 .insertMenu {
-  margin-left: -44px;
+  flex-wrap: wrap;
+  margin-block: 8px;
   font-size: 13px;
   color: var(--muted-foreground);
 }
@@ -361,7 +366,8 @@
 .insertMenu button {
   border: 0;
   background: none;
-  padding: 4px 8px;
+  min-height: 44px;
+  padding: 4px 12px;
   font: inherit;
   color: inherit;
   cursor: pointer;
@@ -827,7 +833,17 @@
 }
 @media (max-width: 640px) {
   .topBar {
-    padding: 0 16px;
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 16px;
+  }
+  .topBar .topBarEnd {
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
   }
   .status {
     display: none;
@@ -865,4 +881,30 @@
     width: 80px;
     aspect-ratio: 1;
   }
+}
+
+.insertTools {
+  margin-bottom: 12px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.insertToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 44px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+}
+.insertToggle::-webkit-details-marker {
+  display: none;
+}
+.insertToggle span {
+  font-size: 22px;
+}
+.insertToggle:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 4px;
 }

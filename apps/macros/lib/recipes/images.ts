@@ -44,21 +44,31 @@ export function withImageUrls<T extends Article>(recipeId: string, article: T) {
   };
 }
 
-export async function validateRecipeImages(userId: string, article: Article) {
-  await Promise.all(
-    recipeImageKeys(article).map(async (key) => {
-      if (!ownsRecipeImage(userId, key))
-        throw new Error("This recipe image does not belong to your account.");
-      const object = await inspectBodyPhoto(key);
-      if (
-        object.ContentType !== "image/jpeg" ||
-        !object.ContentLength ||
-        object.ContentLength > RECIPE_IMAGE_MAX_BYTES
-      ) {
-        throw new Error(
-          "Recipe images must be JPEG photos under 3 MB. Choose the photo again.",
-        );
-      }
-    }),
-  );
+export async function validateRecipeImages(
+  userId: string,
+  article: Article,
+  inspect = inspectBodyPhoto,
+) {
+  // The storage service can reject simultaneous metadata requests on one client.
+  // Check photos in order so a multi-photo article can be saved reliably.
+  for (const key of recipeImageKeys(article)) {
+    if (!ownsRecipeImage(userId, key))
+      throw new Error("This recipe image does not belong to your account.");
+    const object = await inspect(key).catch((cause: unknown) => {
+      console.error("[macros] recipe photo validation failed", cause);
+      throw new Error(
+        "Couldn’t verify a recipe photo. Your edits are still here. Try saving again.",
+        { cause },
+      );
+    });
+    if (
+      object.ContentType !== "image/jpeg" ||
+      !object.ContentLength ||
+      object.ContentLength > RECIPE_IMAGE_MAX_BYTES
+    ) {
+      throw new Error(
+        "Recipe images must be JPEG photos under 3 MB. Choose the photo again.",
+      );
+    }
+  }
 }

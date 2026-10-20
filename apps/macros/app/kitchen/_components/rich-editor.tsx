@@ -1,7 +1,7 @@
 import type { MacrosRecipeBlock } from "@repo/schemas/macros";
 import { Placeholder } from "@tiptap/extensions";
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
-import { BubbleMenu, FloatingMenu } from "@tiptap/react/menus";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { useRef, useState } from "react";
 import { blocksToDoc, docToBlocks, IMAGE_NODE } from "./editor-doc";
@@ -116,46 +116,52 @@ export function RichEditor({
       {editor ? (
         <>
           <SelectionMenu editor={editor} />
-          <FloatingMenu editor={editor} className={styles.insertMenu}>
-            <span aria-hidden="true" className={styles.insertPlus}>
-              +
-            </span>
-            <button
-              type="button"
-              onClick={async () => {
-                const file = await pickImage();
-                if (file) void insertImages([file]);
-              }}
+          <details className={styles.insertTools}>
+            <summary className={styles.insertToggle}>
+              <span aria-hidden="true">+</span> Insert
+            </summary>
+            <div
+              className={styles.insertMenu}
+              role="group"
+              aria-label="Insert content"
             >
-              Photo
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                editor.chain().focus().setHeading({ level: 2 }).run()
-              }
-            >
-              Heading
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-            >
-              List
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-            >
-              Numbered
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleBlockquote().run()}
-            >
-              Quote
-            </button>
-          </FloatingMenu>
+              <button
+                type="button"
+                onClick={async () => {
+                  const file = await pickImage();
+                  if (file) void insertImages([file]);
+                }}
+              >
+                Photo
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  editor.chain().focus().setHeading({ level: 2 }).run()
+                }
+              >
+                Heading
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+              >
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              >
+                Numbered
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBlockquote().run()}
+              >
+                Quote
+              </button>
+            </div>
+          </details>
         </>
       ) : null}
       <EditorContent editor={editor} />

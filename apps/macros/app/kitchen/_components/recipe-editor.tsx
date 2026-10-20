@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { serif } from "@/app/_recipes/fonts";
 import { RecipeArticle } from "@/app/_recipes/recipe-article";
+import { ShareButton } from "@/app/_recipes/share-button";
 import {
   type DraftIngredient,
   IngredientList,
@@ -365,6 +366,13 @@ export function RecipeEditor({
           </span>
         </div>
         <div className={styles.topBarEnd}>
+          {published && recipeId ? (
+            <ShareButton
+              title={name}
+              url={`/recipes/${recipeId}`}
+              className={styles.ghostButton}
+            />
+          ) : null}
           {published && recipeId ? (
             <Link
               className={styles.ghostButton}

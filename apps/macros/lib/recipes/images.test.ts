@@ -140,3 +140,30 @@ describe("recipe image bytes", () => {
     });
   });
 });
+
+describe("multi-photo recipe saves", () => {
+  it("validates every photo without overlapping storage metadata requests", async () => {
+    let active = 0;
+    const checked: string[] = [];
+    const cover = `users/alice/recipes/${image}`;
+    const step = "users/alice/recipes/5faaf274-74c0-42cb-b67b-77e4aece8d25.jpg";
+    await validateRecipeImages(
+      "alice",
+      {
+        coverImageKey: cover,
+        story: [{ type: "image", imageKey: cover }],
+        steps: [{ title: "Cook", blocks: [{ type: "image", imageKey: step }] }],
+      },
+      async (key) => {
+        active += 1;
+        if (active > 1) throw new Error("UnknownError");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        checked.push(key);
+        active -= 1;
+        return { ContentType: "image/jpeg", ContentLength: 100, $metadata: {} };
+      },
+    );
+    expect(checked).toEqual([cover, step]);
+    expect(active).toBe(0);
+  });
+});
