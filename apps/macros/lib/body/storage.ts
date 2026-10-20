@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  type HeadObjectCommandOutput,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -130,9 +131,26 @@ export async function readBodyPhotoObject(key: string) {
   return object.Body.transformToByteArray();
 }
 
-export async function inspectBodyPhoto(key: string) {
-  const bucket = await ensureBucket();
-  return getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+export async function inspectBodyPhoto(
+  key: string,
+): Promise<HeadObjectCommandOutput> {
+  // Inspect the object directly; reads do not need bucket creation or a
+  // separate HEAD bucket request, which this gateway can also refuse.
+  const input = { Bucket: getBucket(), Key: key };
+  try {
+    return await getClient().send(new HeadObjectCommand(input));
+  } catch (error) {
+    const failure = error as { $metadata?: { httpStatusCode?: number } };
+    if (failure?.$metadata?.httpStatusCode !== 403) throw error;
+    // The S3 gateway intermittently refuses HEAD even for readable photos.
+    // GET still checks access and returns the same metadata. Close its body
+    // immediately: validation only needs the content type and full byte size.
+    const { Body, ...metadata } = await getClient().send(
+      new GetObjectCommand(input),
+    );
+    await Body?.transformToWebStream().cancel();
+    return metadata;
+  }
 }
 
 export async function deleteBodyPhotoObject(key: string) {
