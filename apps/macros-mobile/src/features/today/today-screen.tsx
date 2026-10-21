@@ -26,6 +26,7 @@ import {
   spacing,
   VStack,
 } from "@/ui";
+import { CookTonight } from "./cook-tonight";
 import { EnergySection } from "./energy-section";
 import { HabitsSection } from "./habits-section";
 import { weighInHref } from "./links";
@@ -87,7 +88,6 @@ export function TodayScreen() {
 
   const openLog = () => router.push("/log");
   const openProgress = () => router.push("/progress");
-  const openMore = () => router.push("/more");
   const openHabits = () => router.push("/more/habits");
   const headerButtons = (
     <>
@@ -100,6 +100,11 @@ export function TodayScreen() {
         icon="target"
         label="Strategy"
         onPress={() => router.push("/strategy")}
+      />
+      <HeaderIconButton
+        icon="user-round"
+        label="You"
+        onPress={() => router.push("/more")}
       />
     </>
   );
@@ -202,10 +207,15 @@ export function TodayScreen() {
             <InlineNotice
               tone="info"
               message="No nutrition plan is active, so there’s no target yet."
-              action={{ label: "Set up", onPress: openMore }}
+              action={{
+                label: "Set up",
+                onPress: () => router.push("/strategy"),
+              }}
             />
           ) : null}
         </Section>
+
+        <CookTonight energyUnit={energyUnit} />
 
         <Section
           title="Activity"

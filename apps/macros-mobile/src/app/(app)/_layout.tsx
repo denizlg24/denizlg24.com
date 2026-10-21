@@ -1,8 +1,9 @@
 import { Stack } from "expo-router";
 import { addFoodModalRoutes } from "@/features/add-food/routes";
 import { HealthSync } from "@/features/health/health-sync";
+import { kitchenModalRoutes } from "@/features/kitchen/routes";
 import { logModalRoutes } from "@/features/log/routes";
-import { moreModalRoutes } from "@/features/more/routes";
+import { moreRoutes } from "@/features/more/routes";
 import { NotificationsSync } from "@/features/notifications/notifications-sync";
 import { progressModalRoutes } from "@/features/progress/routes";
 import { QuickActions } from "@/features/shell/quick-actions";
@@ -17,7 +18,8 @@ const modalRoutes = [
   ...addFoodModalRoutes,
   ...logModalRoutes,
   ...progressModalRoutes,
-  ...moreModalRoutes,
+  ...moreRoutes,
+  ...kitchenModalRoutes,
 ];
 
 // A widget or link that opens a sheet directly still leaves the tabs under it.

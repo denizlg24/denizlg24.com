@@ -15,6 +15,7 @@ export const Stepper: typeof Shared.Stepper = ({
   max,
   onValueChange,
   hideLabel = false,
+  disabled = false,
   style,
 }) => {
   // Rounded to the step's precision so 0.5 steps never drift to 2.4999.
@@ -34,14 +35,14 @@ export const Stepper: typeof Shared.Stepper = ({
         <StepButton
           icon="minus"
           label={`Decrease ${label}`}
-          disabled={value <= min}
+          disabled={disabled || value <= min}
           onPress={() => move(-1)}
         />
         <View style={styles.divider} />
         <StepButton
           icon="plus"
           label={`Increase ${label}`}
-          disabled={value >= max}
+          disabled={disabled || value >= max}
           onPress={() => move(1)}
         />
       </View>

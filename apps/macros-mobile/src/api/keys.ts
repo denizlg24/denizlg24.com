@@ -41,6 +41,8 @@ export function invalidateAfterLogging(
       ["food-log"],
       ["statistics"],
       ["pantry"],
+      // A log draws pantry stock, which decides which recipes are ready.
+      ["recipes"],
       ["foods", "search"],
       ["foods", "history"],
       ["foods", "suggestions"],

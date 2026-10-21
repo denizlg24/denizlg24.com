@@ -292,7 +292,7 @@ function FoodDetailBody({
     confirmDestructive({
       title: "Hide this contributor?",
       message:
-        "You won’t see this food or anything else the same person added. Undo it in More › Settings › Hidden Contributors.",
+        "You won’t see this food or anything else the same person added. Undo it in You › Settings › Hidden Contributors.",
       confirmLabel: "Hide Foods",
       onConfirm: () => {
         hideContributor.mutate(sourceItemId, {

@@ -7,12 +7,12 @@ import {
   useShoppingList,
   useUpdateShoppingListItem,
 } from "@/api/shopping-list";
+import { ShoppingRow } from "@/features/kitchen/shopping/shopping-segment";
 import { confirmDestructive } from "@/features/more/shared/action-sheet";
 import { errorMessage } from "@/lib/api";
 import type { EnergyUnit } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import { Button, EmptyState, gutter, InlineNotice, spacing } from "@/ui";
-import { ShoppingRow } from "../more/shopping/shopping-list-screen";
 import { FoodRow } from "./components/food-row";
 import {
   ListHeading,
@@ -78,7 +78,7 @@ export function RecipesBody({
       <EmptyState
         icon="chef-hat"
         title="No recipes yet"
-        message="Recipes you make in More and meals you save from the Log show up here, ready to add in one tap."
+        message="Recipes you make in the Kitchen and meals you save from the Log show up here, ready to add in one tap."
       />
     );
   }
@@ -264,7 +264,7 @@ export function ShopBody({ query }: { query: string }) {
             : "Your shopping list is empty"
         }
         message={
-          needle ? undefined : "Add what you need from Shopping list in More."
+          needle ? undefined : "Add what you need from the list in the Kitchen."
         }
       />
     );

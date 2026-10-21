@@ -8,6 +8,7 @@ import {
   Hairline,
   Icon,
   type IconName,
+  radius,
   type SwipeAction,
   SwipeRow,
   spacing,
@@ -28,6 +29,8 @@ export interface FoodRowData {
   /** "1 slice", "150 g", "3 foods". */
   amount: string;
   macros?: MacroSnapshot;
+  /** Stock on hand, from search's `pantryItemIds`. */
+  inPantry?: boolean;
 }
 
 const ICON_SIZE = 36;
@@ -185,9 +188,26 @@ export function FoodRow({
         size={ICON_SIZE}
       />
       <View style={styles.text}>
-        <Text variant="body" weight="semibold" numberOfLines={1}>
-          {name}
-        </Text>
+        <View style={styles.nameLine}>
+          <Text
+            variant="body"
+            weight="semibold"
+            numberOfLines={1}
+            style={styles.name}
+          >
+            {name}
+          </Text>
+          {row.inPantry ? (
+            <Text
+              variant="caption2"
+              weight="semibold"
+              tone="secondary"
+              style={styles.pantry}
+            >
+              In pantry
+            </Text>
+          ) : null}
+        </View>
         <Summary
           macros={row.macros}
           amount={row.amount}
@@ -240,6 +260,21 @@ const styles = StyleSheet.create({
   text: {
     flex: 1,
     gap: spacing.xs,
+  },
+  nameLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  name: {
+    flexShrink: 1,
+  },
+  pantry: {
+    overflow: "hidden",
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+    backgroundColor: colors.tertiaryFill,
   },
   summary: {
     flexDirection: "row",

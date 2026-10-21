@@ -2,44 +2,23 @@ import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { useBodyOverview } from "@/api/body";
-import { useCustomFoods } from "@/api/foods";
-import { usePantry } from "@/api/pantry";
 import { useProfile } from "@/api/profile";
-import { useRecipes } from "@/api/recipes";
-import { useShoppingList } from "@/api/shopping-list";
 import { deviceTimeZone, useToday } from "@/lib/day";
-import { formatInteger } from "@/lib/format";
-import { PageHeader, Row, Screen, Section, spacing, Text, VStack } from "@/ui";
+import { Row, Screen, Section, spacing, Text, VStack } from "@/ui";
 import { useRefresh } from "./shared/use-refresh";
 
-function count(value: number | undefined) {
-  return value === undefined ? undefined : formatInteger(value);
-}
-
+/** Body, Habits and Settings, opened from the person button on Today. */
 export function MoreScreen() {
   const router = useRouter();
   const profile = useProfile();
-  const foods = useCustomFoods();
-  const recipes = useRecipes();
-  const shopping = useShoppingList();
-  const pantry = usePantry();
   const body = useBodyOverview();
 
   const refetch = useCallback(
-    () =>
-      Promise.all([
-        profile.refetch(),
-        foods.refetch(),
-        recipes.refetch(),
-        shopping.refetch(),
-        pantry.refetch(),
-        body.refetch(),
-      ]),
-    [profile, foods, recipes, shopping, pantry, body],
+    () => Promise.all([profile.refetch(), body.refetch()]),
+    [profile, body],
   );
   const { refreshing, onRefresh } = useRefresh(refetch);
 
-  const toGet = shopping.data?.filter((item) => !item.checked).length;
   const habits = body.data?.habits;
   const today = useToday(profile.data?.timezone ?? deviceTimeZone());
   const habitsDone = habits
@@ -47,9 +26,8 @@ export function MoreScreen() {
     : undefined;
 
   return (
-    <Screen statusBarScrim onRefresh={onRefresh} refreshing={refreshing}>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <VStack>
-        <PageHeader title="More" />
         {profile.data ? (
           <View style={styles.account} accessible accessibilityRole="header">
             <Text variant="title2" numberOfLines={2}>
@@ -61,41 +39,7 @@ export function MoreScreen() {
           </View>
         ) : null}
 
-        <Section title="Food">
-          <Row
-            icon="utensils"
-            title="Pantry"
-            value={count(
-              pantry.data?.items.filter((item) => item.quantity > 0).length,
-            )}
-            chevron
-            onPress={() => router.push("/more/pantry")}
-          />
-          <Row
-            icon="utensils"
-            title="My foods"
-            value={count(foods.data?.length)}
-            chevron
-            onPress={() => router.push("/more/foods")}
-          />
-          <Row
-            icon="chef-hat"
-            title="Recipes"
-            value={count(recipes.data?.length)}
-            chevron
-            onPress={() => router.push("/more/recipes")}
-          />
-          <Row
-            icon="shopping-cart"
-            title="Shopping list"
-            value={toGet ? `${formatInteger(toGet)} to get` : undefined}
-            chevron
-            separator={false}
-            onPress={() => router.push("/more/shopping-list")}
-          />
-        </Section>
-
-        <Section title="You">
+        <Section>
           <Row
             icon="person-standing"
             title="Body"

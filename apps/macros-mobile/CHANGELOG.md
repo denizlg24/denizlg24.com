@@ -7,6 +7,29 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.18 — 2026-10-21
+
+### Added
+- **Kitchen.** A new tab for your recipes, pantry and shopping list, with
+  My foods a tap away. It takes More's place in the tab bar; Body, Habits
+  and Settings now open from the person button on Today.
+- **Cook mode.** Step through a recipe one page at a time in large type,
+  tick off ingredients as you go and log what you made at the end. The
+  screen stays on while you cook.
+- **Ready to cook.** Recipes your pantry covers are marked Ready, lead the
+  Kitchen and show up on Today.
+- **Pantry in real measures.** Stock food in heads, pieces, cups or grams
+  and step it up or down from the list. Foods running low and out of stock
+  are grouped, and an empty one goes on your shopping list with a swipe.
+- Food search shows matching recipes and marks food you have in your
+  pantry.
+
+### Changed
+- Recipes are photo-led. Scale a recipe's servings, see which ingredients
+  your pantry covers and add the missing ones to your list in one tap.
+- Logging a recipe uses up its ingredients from your pantry.
+- A food you check off your shopping list can go straight into your pantry.
+
 ## 0.0.17 — 2026-10-21
 
 ### Added

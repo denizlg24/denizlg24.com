@@ -11,6 +11,7 @@ export const glyphs = {
   calendar: require("../../assets/glyphs/calendar.png"),
   "chart-column": require("../../assets/glyphs/chart-column.png"),
   check: require("../../assets/glyphs/check.png"),
+  "chef-hat": require("../../assets/glyphs/chef-hat.png"),
   "circle-check": require("../../assets/glyphs/circle-check.png"),
   "circle-ellipsis": require("../../assets/glyphs/circle-ellipsis.png"),
   "circle-user": require("../../assets/glyphs/circle-user.png"),
@@ -21,6 +22,7 @@ export const glyphs = {
   "list-x": require("../../assets/glyphs/list-x.png"),
   "log-out": require("../../assets/glyphs/log-out.png"),
   "notebook-pen": require("../../assets/glyphs/notebook-pen.png"),
+  "package-plus": require("../../assets/glyphs/package-plus.png"),
   pencil: require("../../assets/glyphs/pencil.png"),
   plus: require("../../assets/glyphs/plus.png"),
   "scan-barcode": require("../../assets/glyphs/scan-barcode.png"),
@@ -54,9 +56,9 @@ export const tabGlyphs = {
     default: require("../../assets/glyphs/tab-chart-line.png"),
     selected: require("../../assets/glyphs/tab-chart-line-selected.png"),
   },
-  circleEllipsis: {
-    default: require("../../assets/glyphs/tab-circle-ellipsis.png"),
-    selected: require("../../assets/glyphs/tab-circle-ellipsis-selected.png"),
+  chefHat: {
+    default: require("../../assets/glyphs/tab-chef-hat.png"),
+    selected: require("../../assets/glyphs/tab-chef-hat-selected.png"),
   },
 } satisfies Record<
   string,

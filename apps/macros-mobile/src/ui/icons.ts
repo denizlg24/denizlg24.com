@@ -81,6 +81,7 @@ import PersonStanding from "lucide-react-native/icons/person-standing";
 import Pill from "lucide-react-native/icons/pill";
 import Plus from "lucide-react-native/icons/plus";
 import Popcorn from "lucide-react-native/icons/popcorn";
+import Refrigerator from "lucide-react-native/icons/refrigerator";
 import RotateCcwClock from "lucide-react-native/icons/rotate-ccw-clock";
 import Salad from "lucide-react-native/icons/salad";
 import Scale from "lucide-react-native/icons/scale";
@@ -103,6 +104,7 @@ import Target from "lucide-react-native/icons/target";
 import Trash from "lucide-react-native/icons/trash";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import Undo2 from "lucide-react-native/icons/undo-2";
+import UserRound from "lucide-react-native/icons/user-round";
 import Utensils from "lucide-react-native/icons/utensils";
 import VideoOff from "lucide-react-native/icons/video-off";
 import WifiOff from "lucide-react-native/icons/wifi-off";
@@ -195,6 +197,7 @@ export const icons = {
   "person-standing": PersonStanding,
   plus: Plus,
   popcorn: Popcorn,
+  refrigerator: Refrigerator,
   "rotate-ccw-clock": RotateCcwClock,
   scale: Scale,
   "scan-barcode": ScanBarcode,
@@ -214,6 +217,7 @@ export const icons = {
   trash: Trash,
   "triangle-alert": TriangleAlert,
   "undo-2": Undo2,
+  "user-round": UserRound,
   utensils: Utensils,
   "video-off": VideoOff,
   "wifi-off": WifiOff,
