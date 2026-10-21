@@ -1,5 +1,6 @@
 import { MacrosWidgets } from "@modules/macros-widgets";
 import { useEffect, useRef } from "react";
+import { useBodyOverview } from "@/api/body";
 import { useDashboard } from "@/api/dashboard";
 import { useProfile } from "@/api/profile";
 import { useWeightOverview } from "@/api/weight";
@@ -13,6 +14,7 @@ function SnapshotWriter() {
   const day = useToday(profile?.timezone);
   const dashboard = useDashboard(day).data;
   const weightOverview = useWeightOverview().data;
+  const body = useBodyOverview().data;
   const written = useRef<string | null>(null);
 
   useEffect(() => {
@@ -20,6 +22,7 @@ function SnapshotWriter() {
     const snapshot = buildWidgetSnapshot({
       dashboard,
       weightOverview,
+      activity: body?.activity,
       mode: profile.caloriePreference,
       energyUnit: profile.energyUnit,
       weightUnit: profile.weightUnit,
@@ -28,7 +31,7 @@ function SnapshotWriter() {
     if (key === written.current) return;
     written.current = key;
     widgets?.setSnapshot(JSON.stringify(snapshot));
-  }, [profile, dashboard, weightOverview]);
+  }, [profile, dashboard, weightOverview, body]);
 
   return null;
 }

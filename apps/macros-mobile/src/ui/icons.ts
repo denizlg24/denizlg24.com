@@ -108,7 +108,6 @@ import VideoOff from "lucide-react-native/icons/video-off";
 import WifiOff from "lucide-react-native/icons/wifi-off";
 import Wine from "lucide-react-native/icons/wine";
 import WineOff from "lucide-react-native/icons/wine-off";
-import Workflow from "lucide-react-native/icons/workflow";
 import X from "lucide-react-native/icons/x";
 import Zap from "lucide-react-native/icons/zap";
 
@@ -219,7 +218,6 @@ export const icons = {
   "video-off": VideoOff,
   "wifi-off": WifiOff,
   wine: Wine,
-  workflow: Workflow,
   x: X,
   zap: Zap,
 } as const;

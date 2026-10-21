@@ -11,6 +11,7 @@ struct MacrosWidgetsBundle: WidgetBundle {
     #if MACROS_APP_GROUP
       TodayWidget()
       WeightWidget()
+      ActivityWidget()
     #endif
   }
 }

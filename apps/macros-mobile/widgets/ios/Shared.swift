@@ -5,6 +5,7 @@ import WidgetKit
 enum AppLink {
   static let today = URL(string: "macros://")!
   static let log = URL(string: "macros://log")!
+  static let activity = URL(string: "macros://progress/activity")!
   static let progress = URL(string: "macros://progress")!
   static let search = URL(string: "macros://add-food")!
   static let scan = URL(string: "macros://scan")!

@@ -218,13 +218,13 @@ small differences are a `Platform.OS` check. The ones that exist:
   Swift modules of one name in one build collide (a stale one in derived data
   fails the build with "cannot find 'MacrosWidgetsModule'"). Quick Log
   (small/medium) and Shortcut (Lock Screen, configurable) only open routes
-  through `macros://…` links, so they ship in every build; Today and Weight
-  Trend read a snapshot through the App Group `group.com.denizlg24.macros`,
+  through `macros://…` links, so they ship in every build; Today, Weight
+  Trend and Activity read a snapshot through the App Group `group.com.denizlg24.macros`,
   an entitlement, so they are compiled in (`MACROS_APP_GROUP`) for every iOS
   build. The extension never talks to the API: `WidgetSync` (in
   `(app)/_layout.tsx`) builds a `WidgetSnapshot` (`features/widgets/snapshot.ts`,
   decoded by `widgets/ios/Snapshot.swift`) from the dashboard — pending logs
-  included — and the weight overview, writes it through
+  included — the weight overview and body activity, writes it through
   `modules/macros-widgets` and reloads every timeline when it changes; sign
   out clears it. The widget turns the day over itself at midnight in the
   profile's zone (nothing eaten, last targets). A link that opens a sheet
@@ -309,6 +309,33 @@ small differences are a `Platform.OS` check. The ones that exist:
   their own; don't repeat them at call sites.
 - Respect Dynamic Type: no fixed heights on text containers.
 - Icon-only buttons get an `accessibilityLabel`.
+
+## Pantry
+
+More > Pantry uses `src/api/pantry.ts` and the shared pantry wire schemas.
+Stock is measured in the food's stored servings. Set stock online; these writes
+are not queued for offline replay because a delayed absolute count would erase
+intervening consumption. `invalidateAfterLogging` refreshes pantry and food search
+alongside the log. When selecting a search match already in the pantry, edit its
+stored item so the serving label agrees with the retained serving basis.
+
+## Activity
+
+Today and Progress open the movement screen in `src/features/activity`.
+This is separate from `features/log/activity-screen.tsx`, the food-log calendar.
+Use `@repo/macros-core/activity` for daily selection and averages: manual values
+override imported totals per metric, falling back to the latest non-null reading.
+Sources are never summed. Missing readings remain null (displayed as a dash or a
+chart gap); a recorded zero counts, and averages include only days with readings.
+Active energy is context, not an addition to calorie targets or the expenditure
+estimate derived from intake and weight trend.
+
+The Activity widget supports small/medium Home Screen and inline/circular/
+rectangular Lock Screen families. It uses the same daily selection through the
+optional `activity` snapshot field; older snapshots without it remain readable.
+Widget figures use the profile's energy unit and open the movement screen.
+Keep the existing semantic monochrome appearance, system type and native
+navigation; this feature adds no design-system tokens or visual exceptions.
 
 ## Look
 

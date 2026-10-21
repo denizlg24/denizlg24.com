@@ -6,13 +6,24 @@ import { sectionTitle } from "@/app/_landing/sections/feature-row";
 import {
   ANDROID_APK_HREF,
   AppIcon,
+  AppStoreBadge,
   container,
   GetTheApp,
   primaryButton,
   SectionLabel,
 } from "@/app/_landing/site";
-import { TestFlightForm } from "@/app/_landing/testflight-form";
 import { latestAndroidRelease } from "@/app/android/release";
+import { latestAppStoreVersion } from "@/app/ios/release";
+
+async function AppStoreVersion() {
+  const version = await latestAppStoreVersion().catch(() => null);
+  if (!version) return null;
+  return (
+    <p className="font-figure text-sm text-muted-foreground">
+      Latest version {version}
+    </p>
+  );
+}
 
 async function AndroidVersion() {
   const release = await latestAndroidRelease().catch(() => null);
@@ -91,18 +102,20 @@ export function Platforms() {
         </div>
 
         <div id="iphone" className="reveal flex flex-col gap-6 border-t pt-8">
-          <PlatformStatus available>iPhone · Public beta</PlatformStatus>
-          <div className="flex flex-col gap-3">
+          <PlatformStatus available>iPhone · Available now</PlatformStatus>
+          <div className="flex flex-col gap-2">
             <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
-              Join on TestFlight.
+              On the App Store.
             </h2>
-            <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-              TestFlight is Apple’s app for trying apps before they reach the
-              App Store. Leave your email and Apple sends you an invite — no
-              device registration, and you keep updates as they come out.
-            </p>
+            <Suspense fallback={null}>
+              <AppStoreVersion />
+            </Suspense>
           </div>
-          <TestFlightForm />
+          <AppStoreBadge className="w-fit" />
+          <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
+            Install it like any other app, then create an account with your
+            email. Updates arrive through the App Store.
+          </p>
         </div>
       </div>
     </section>
@@ -137,7 +150,7 @@ const FAQ: ReadonlyArray<{ question: string; answer: ReactNode }> = [
   {
     question: "How do I update on iPhone?",
     answer:
-      "TestFlight installs new versions for you, or shows an Update button when one is ready. Each beta build stops working after 90 days, so keep TestFlight updates on to move to the newest one when it’s out.",
+      "The App Store installs new versions for you, or shows an Update button on Macros when one is ready.",
   },
   {
     question: "How do I update on Android?",

@@ -4,7 +4,7 @@
 
 Macros is a MacroFactor-style nutrition tracker for food logs, micronutrients, recipes, weight trends, energy expenditure estimates, and multi-angle weigh-in photo metadata.
 
-This app is the **backend** for the iOS and Android client (`apps/macros-mobile`) plus a public marketing site. `/`, `/features`, `/coach`, `/download`, `/changelog`, `/terms`, `/privacy`, `/support`, and `/account/delete` share the `app/(site)` layout; the deletion page signs in through Better Auth and calls the same account deletion hook as the native app. `/register/*` contains the verification and password-reset pages. `/ios/source.json` remains a frozen SideStore source for existing installs, while `/android/Macros.apk` streams the newest `macros-android-v*` release asset. The iOS release goes through TestFlight and the App Store; the old UDID request API and OTA install pages are gone. `/download#iphone` posts to `POST /api/testflight` (`lib/testflight.ts`), which adds the address to the external TestFlight group `MACROS_TESTFLIGHT_GROUP_ID` through the App Store Connect API and lets Apple email the invite; nothing is stored here, and a per-IP limit keeps the form from mailing strangers. The `distribution_requests` table is retained until its rows are reviewed. `/app/*` redirects to `/` for old home-screen installs.
+This app is the **backend** for the iOS and Android client (`apps/macros-mobile`) plus a public marketing site. `/`, `/features`, `/coach`, `/download`, `/changelog`, `/terms`, `/privacy`, `/support`, and `/account/delete` share the `app/(site)` layout; the deletion page signs in through Better Auth and calls the same account deletion hook as the native app. `/register/*` contains the verification and password-reset pages. `/ios/source.json` remains a frozen SideStore source for existing installs, while `/android/Macros.apk` streams the newest `macros-android-v*` release asset. The iPhone app is on the App Store (`APP_STORE_HREF` in `app/ios/release.ts`); the download page and footer link there with Apple's unaltered badge artwork (`public/badges`), and the version it shows is the one Apple is serving, read from the public iTunes lookup, never App Store Connect, which would also report builds still in review. The old UDID request API, OTA install pages and TestFlight sign-up are gone. The `distribution_requests` table is retained until its rows are reviewed. `/app/*` redirects to `/` for old home-screen installs.
 
 `/account` (dynamic, `noindex`) is the signed-in account page: name, change email (Better Auth `changeEmail`: the current address confirms, then the new one verifies), password, devices (read from the `session` table directly — `listSessions` refuses sessions older than a day and would hand tokens to the browser; one is revoked through `DELETE /api/account/sessions/[id]`), a link to `/kitchen` and inline deletion. The site header reads the session on the client so marketing pages stay static. Public recipe pages, `/recipes`, `/recipes/page/[n]`, their Open Graph images and the sitemap are static, generated at build (`generateStaticParams`, failing open to `[]` when the database is unreachable) and refreshed on demand: anything that changes a published recipe's content or visibility (edit, publish, unpublish, archive, delete, owner suspension, account deletion) calls `revalidatePublicRecipes` in `lib/recipes/revalidate.ts`. A new path to those states must call it too, or the old page stays public for up to an hour. `/changelog` and the public `GET /api/changelog` are both parsed at build from `apps/macros-mobile/CHANGELOG.md` by `@repo/utils/changelog`.
 
@@ -38,6 +38,23 @@ Store only object-storage metadata for weigh-in photos in PostgreSQL, including 
 ## Auth Policy
 
 Better-auth handles authentication. For now we only have email/password with Resend to send verification and password reset emails. In the future we want magic link sign-in and social logins also.
+
+## Pantry
+
+`lib/pantry/service.ts` stores a per-user stock checkpoint in `pantry_items`.
+Quantities are servings of the stored food's serving basis. Food log entries
+created after the checkpoint consume stock, including saved-meal, copied and
+backdated entries; edits and deletions update that same balance. Nutrition
+snapshots remain immutable. Setting stock means the amount on hand now and
+starts a new checkpoint. Recipe logs and quick adds do not consume pantry stock.
+The public balance floors at zero without discarding overconsumption, so deleting
+an excessive log restores the correct amount. Qualify outer columns explicitly
+in the correlated SQL; Drizzle removes ordinary column qualification in this
+single-table select. Search injects available pantry foods before common foods
+and branded foods through `lib/pantry/search.ts`.
+
+Run the real database regression against an isolated, migrated local database:
+`MACROS_PANTRY_TEST_DATABASE_URL=<local-url> bun test lib/pantry`.
 
 ## Migration Workflow
 

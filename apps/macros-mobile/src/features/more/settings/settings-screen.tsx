@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { openBrowserAsync } from "expo-web-browser";
 import { useState } from "react";
-import { Platform } from "react-native";
 import { useProfile, useUpdateCaloriePreference } from "@/api/profile";
 import { API_URL, APP_VERSION, capabilities, DEVICE_NAME } from "@/lib/config";
 import { energyLabel } from "@/lib/format";
@@ -91,25 +90,15 @@ export function SettingsScreen() {
           />
         </Section>
 
-        {/* Both routes into Health are iOS only; Health Connect is not wired up. */}
-        {Platform.OS === "ios" ? (
+        {capabilities.healthKit ? (
           <Section title="Apple Health">
-            {capabilities.healthKit ? (
-              <Row
-                icon="heart-pulse"
-                title="Sync with Health"
-                subtitle="Weight, steps and active energy in; what you eat out."
-                chevron
-                onPress={() => router.push("/more/apple-health")}
-              />
-            ) : null}
             <Row
-              icon={capabilities.healthKit ? "workflow" : "heart-pulse"}
-              title="Import with Shortcuts"
-              subtitle="Send weight and steps from Health automatically."
+              icon="heart-pulse"
+              title="Sync with Health"
+              subtitle="Weight, steps and active energy in; what you eat out."
               chevron
               separator={false}
-              onPress={() => router.push("/more/health-import")}
+              onPress={() => router.push("/more/apple-health")}
             />
           </Section>
         ) : null}

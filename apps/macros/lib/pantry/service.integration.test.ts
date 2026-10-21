@@ -1,0 +1,167 @@
+import { test } from "bun:test";
+import { strict as assert } from "node:assert";
+import { eq, inArray } from "drizzle-orm";
+
+const testUrl = process.env.MACROS_PANTRY_TEST_DATABASE_URL;
+test.skipIf(!testUrl)(
+  "pantry stock follows log writes, edits, retries and account boundaries",
+  async () => {
+    assert.ok(testUrl);
+    const url = new URL(testUrl);
+    assert.ok(
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname),
+      "Use an isolated local test database",
+    );
+    process.env.MACROS_DATABASE_URL = testUrl;
+    const { db } = await import("@/db/connection");
+    const {
+      user,
+      foods,
+      foodNutritionSnapshots,
+      userCustomFoods,
+      foodLogEntries,
+    } = await import("@/db/schema");
+    const { getPantry, setPantryItem, removePantryItem } = await import(
+      "./service"
+    );
+    const { logExternalFood } = await import("@/lib/foods/service");
+    const { updateLogEntryServing, duplicateLogEntry } = await import(
+      "@/lib/foods/entry-acceleration"
+    );
+    const { deleteFoodLogEntry } = await import("@/lib/foods/delete-entry");
+
+    const owner = `pantry-test-${crypto.randomUUID()}`;
+    const other = `pantry-test-${crypto.randomUUID()}`;
+    try {
+      await db
+        .insert(user)
+        .values([
+          {
+            id: owner,
+            name: "Pantry review",
+            email: `${owner}@example.test`,
+            emailVerified: true,
+          },
+          {
+            id: other,
+            name: "Other",
+            email: `${other}@example.test`,
+            emailVerified: true,
+          },
+        ])
+        .onConflictDoNothing();
+      const { nutrientDefinitions } = await import("@/db/schema");
+      await db
+        .insert(nutrientDefinitions)
+        .values(
+          ["calories", "protein", "carbs", "fat"].map((key) => ({
+            key,
+            label: key,
+            group: "macros",
+            sortOrder: 0,
+            unit: key === "calories" ? "kcal" : "g",
+          })),
+        )
+        .onConflictDoNothing();
+      const [food] = await db
+        .insert(foods)
+        .values({
+          ownerUserId: owner,
+          source: "custom",
+          name: "Rolled oats",
+          iconKey: "other-001",
+        })
+        .returning();
+      assert.ok(food);
+      await db
+        .insert(userCustomFoods)
+        .values({ userId: owner, foodId: food.id });
+      await db.insert(foodNutritionSnapshots).values({
+        foodId: food.id,
+        servingLabel: "100 g",
+        servingQuantity: "100",
+        servingUnit: "g",
+        rawNutrition: {
+          itemId: food.id,
+          servingLabel: "100 g",
+          servingQuantity: 100,
+          servingUnit: "g",
+          nutrients: { calories: 380, protein: 13, carbs: 68, fat: 7 },
+        },
+      });
+      const balance = async () =>
+        (await getPantry(owner)).find((x) => x.foodId === food.id)!.quantity;
+      await setPantryItem(owner, { sourceItemId: food.id, quantity: 5 });
+      assert.equal(await balance(), 5);
+      assert.equal((await getPantry(other)).length, 0);
+      const mutation = crypto.randomUUID();
+      const logged = await logExternalFood(owner, {
+        sourceItemId: food.id,
+        servingsConsumed: 1.5,
+        clientMutationId: mutation,
+        logDate: "2026-10-01",
+      });
+      assert.equal(await balance(), 3.5);
+      const [sourceEntry] = await db
+        .select()
+        .from(foodLogEntries)
+        .where(eq(foodLogEntries.id, logged.entryId));
+      assert.ok(sourceEntry);
+      await db.insert(foodLogEntries).values({
+        ...sourceEntry,
+        id: crypto.randomUUID(),
+        userId: other,
+        clientMutationId: null,
+        servingsConsumed: "200",
+      });
+      assert.equal(await balance(), 3.5);
+
+      await logExternalFood(owner, {
+        sourceItemId: food.id,
+        servingsConsumed: 1.5,
+        clientMutationId: mutation,
+        logDate: "2026-10-01",
+      });
+      assert.equal(await balance(), 3.5);
+      await updateLogEntryServing(owner, logged.entryId, {
+        servingsConsumed: 2,
+      });
+      assert.equal(await balance(), 3);
+      const duplicate = await duplicateLogEntry(owner, logged.entryId);
+      assert.ok(duplicate);
+      assert.equal(await balance(), 1);
+      await deleteFoodLogEntry(owner, duplicate);
+      assert.equal(await balance(), 3);
+      // Serving basis changes are converted, not counted as equal serving units.
+      await db
+        .update(foodLogEntries)
+        .set({ servingQuantity: "50" })
+        .where(eq(foodLogEntries.id, logged.entryId));
+      assert.equal(await balance(), 4);
+      await setPantryItem(owner, { sourceItemId: food.id, quantity: 8 });
+      assert.equal(await balance(), 8);
+      await deleteFoodLogEntry(owner, logged.entryId);
+      assert.equal(await balance(), 8);
+      const excessive = await logExternalFood(owner, {
+        sourceItemId: food.id,
+        servingsConsumed: 10,
+      });
+      assert.equal(await balance(), 0);
+      await deleteFoodLogEntry(owner, excessive.entryId);
+      assert.equal(await balance(), 8);
+      const item = (await getPantry(owner)).find((x) => x.foodId === food.id)!;
+      assert.equal(await removePantryItem(other, item.id), false);
+      assert.equal(await removePantryItem(owner, item.id), true);
+      assert.equal(
+        (await getPantry(owner)).some((x) => x.id === item.id),
+        false,
+      );
+    } finally {
+      await db
+        .delete(foodLogEntries)
+        .where(inArray(foodLogEntries.userId, [owner, other]));
+      await db.delete(user).where(inArray(user.id, [owner, other]));
+    }
+  },
+  30_000,
+);

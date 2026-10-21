@@ -1,4 +1,5 @@
 import {
+  type MacrosFoodSearchItem,
   type MacrosRecipeBlock,
   type MacrosRecipeStep,
   macrosNutrientKeys,
@@ -1234,6 +1235,40 @@ export const distributionRequests = pgTable(
   ],
 );
 
+// Stock is a checkpoint. Logged food created after it consumes stock; edits
+// and deletions are reflected by the same query, including offline replays.
+export const pantryItems = pgTable(
+  "pantry_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    foodId: uuid("foodId")
+      .notNull()
+      .references(() => foods.id, { onDelete: "cascade" }),
+    item: jsonb("item").$type<MacrosFoodSearchItem>().notNull(),
+    quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+    servingQuantity: numeric("servingQuantity", {
+      precision: 12,
+      scale: 4,
+    }).notNull(),
+    servingUnit: text("servingUnit").notNull(),
+    stockedAt: timestamp("stockedAt", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    unique("pantry_items_user_food_unique").on(table.userId, table.foodId),
+    check("pantry_items_quantity_check", sql`${table.quantity} >= 0`),
+    check(
+      "pantry_items_serving_quantity_check",
+      sql`${table.servingQuantity} > 0`,
+    ),
+  ],
+);
+
 /**
  * One flat, always-on shopping list rather than one per day: the owner shops
  * from a running list, so "daily" is how often it is read, not how it is keyed.
@@ -1757,6 +1792,7 @@ export const schema = {
   habitCompletions,
   healthImportTokens,
   shoppingListItems,
+  pantryItems,
   pushDevices,
   notificationPreferences,
   distributionRequests,

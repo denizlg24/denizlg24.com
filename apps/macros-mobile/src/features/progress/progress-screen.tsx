@@ -238,6 +238,17 @@ export function ProgressScreen() {
           onOpen={() => router.push(progressPaths.statistics)}
         />
 
+        <Section title="Activity">
+          <Row
+            icon="footprints"
+            title="Steps and active energy"
+            subtitle="Daily readings and movement trends"
+            chevron
+            separator={false}
+            onPress={() => router.push("/progress/activity")}
+          />
+        </Section>
+
         <Section
           title="Goal"
           action={{

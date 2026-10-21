@@ -33,6 +33,13 @@ struct WidgetSnapshot: Codable {
     var lastWeighIn: String?
   }
 
+  struct Activity: Codable {
+    var steps: Double?
+    var activeEnergy: Double?
+    var unit: String
+  }
+
+  var activity: Activity? = nil
   var version: Int
   var day: String
   var timeZone: String
@@ -77,6 +84,7 @@ extension WidgetSnapshot {
     var next = self
     next.day = today
     next.energy.eaten = 0
+    next.activity = nil
     next.macros = macros.map { macro in
       var reset = macro
       reset.eaten = 0
@@ -136,6 +144,7 @@ struct SnapshotProvider: TimelineProvider {
 extension WidgetSnapshot {
   /// The widget gallery's preview before the app has written anything.
   static let sample = WidgetSnapshot(
+    activity: Activity(steps: 7240, activeEnergy: 385, unit: "kcal"),
     version: 1,
     day: "2026-01-01",
     timeZone: TimeZone.current.identifier,

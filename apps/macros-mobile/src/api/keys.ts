@@ -40,6 +40,8 @@ export function invalidateAfterLogging(
       ["calorie-summary"],
       ["food-log"],
       ["statistics"],
+      ["pantry"],
+      ["foods", "search"],
       ["foods", "history"],
       ["foods", "suggestions"],
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),

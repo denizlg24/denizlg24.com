@@ -171,3 +171,43 @@ describe("snapshotKey", () => {
     expect(snapshotKey(earlier)).toBe(snapshotKey(later));
   });
 });
+
+describe("activity snapshot", () => {
+  const imported = {
+    userId: "test",
+    logDate: "2026-10-06",
+    steps: 7240,
+    activeEnergyKcal: 385,
+    source: "import" as const,
+    sourceId: "healthkit",
+    createdAt: "2026-10-06T08:00:00Z",
+    updatedAt: "2026-10-06T08:00:00Z",
+  };
+  const build = (activity = [imported]) =>
+    buildWidgetSnapshot({
+      dashboard: dashboard(),
+      weightOverview: undefined,
+      mode: "remaining",
+      energyUnit: "kj",
+      weightUnit: "kg",
+      activity,
+    });
+  test("converts active energy once and keeps step totals intact", () => {
+    const snapshot = build();
+    expect(snapshot.activity.steps).toBe(7240);
+    expect(snapshot.activity.activeEnergy).toBeCloseTo(385 * 4.184);
+    expect(snapshot.activity.unit).toBe("kJ");
+  });
+  test("never shows an old day's movement as today's", () => {
+    const snapshot = build([{ ...imported, logDate: "2026-10-05" }]);
+    expect(snapshot.activity.steps).toBeNull();
+    expect(snapshot.activity.activeEnergy).toBeNull();
+  });
+  test("changed movement invalidates the widget key, including measured zero", () => {
+    expect(snapshotKey(build())).not.toBe(
+      snapshotKey(build([{ ...imported, steps: 0 }])),
+    );
+    expect(build([{ ...imported, steps: 0 }]).activity.steps).toBe(0);
+    expect(build([]).activity.steps).toBeNull();
+  });
+});

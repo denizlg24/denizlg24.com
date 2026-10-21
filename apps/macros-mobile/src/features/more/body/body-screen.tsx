@@ -1,3 +1,4 @@
+import { activityOn } from "@repo/macros-core/activity";
 import type { MacrosBodyMeasurementSite } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -107,11 +108,7 @@ export function BodyScreen() {
 
   const waterMl =
     data?.hydration.find((entry) => entry.logDate === today)?.volumeMl ?? 0;
-  const todayActivity =
-    data?.activity.filter((entry) => entry.logDate === today) ?? [];
-  const activity =
-    todayActivity.find((entry) => entry.source === "manual") ??
-    todayActivity[0];
+  const activity = activityOn(data?.activity ?? [], today);
   const quickAdds = usesOunces ? [8, 12, 16] : [250, 350, 500];
   const volumeUnit = usesOunces ? "oz" : "ml";
 
@@ -192,7 +189,8 @@ export function BodyScreen() {
               style={styles.stat}
             />
           </View>
-          {activity?.source === "import" ? (
+          {activity.stepsSource === "import" ||
+          activity.energySource === "import" ? (
             <Text variant="footnote" tone="secondary" style={styles.source}>
               From Apple Health
             </Text>

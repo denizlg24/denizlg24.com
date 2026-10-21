@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { useBodyOverview } from "@/api/body";
 import { useCustomFoods } from "@/api/foods";
+import { usePantry } from "@/api/pantry";
 import { useProfile } from "@/api/profile";
 import { useRecipes } from "@/api/recipes";
 import { useShoppingList } from "@/api/shopping-list";
@@ -21,6 +22,7 @@ export function MoreScreen() {
   const foods = useCustomFoods();
   const recipes = useRecipes();
   const shopping = useShoppingList();
+  const pantry = usePantry();
   const body = useBodyOverview();
 
   const refetch = useCallback(
@@ -30,9 +32,10 @@ export function MoreScreen() {
         foods.refetch(),
         recipes.refetch(),
         shopping.refetch(),
+        pantry.refetch(),
         body.refetch(),
       ]),
-    [profile, foods, recipes, shopping, body],
+    [profile, foods, recipes, shopping, pantry, body],
   );
   const { refreshing, onRefresh } = useRefresh(refetch);
 
@@ -59,6 +62,15 @@ export function MoreScreen() {
         ) : null}
 
         <Section title="Food">
+          <Row
+            icon="utensils"
+            title="Pantry"
+            value={count(
+              pantry.data?.items.filter((item) => item.quantity > 0).length,
+            )}
+            chevron
+            onPress={() => router.push("/more/pantry")}
+          />
           <Row
             icon="utensils"
             title="My foods"

@@ -1,5 +1,9 @@
 import { Stack } from "expo-router";
-import { tabRootOptions, tabStackOptions } from "@/features/shell/routes";
+import {
+  compactSheet,
+  tabRootOptions,
+  tabStackOptions,
+} from "@/features/shell/routes";
 
 export default function Layout() {
   return (
@@ -8,6 +12,8 @@ export default function Layout() {
         name="index"
         options={{ ...tabRootOptions, title: "Progress" }}
       />
+      <Stack.Screen name="activity" options={{ title: "Activity" }} />
+      <Stack.Screen name="activity-edit" options={compactSheet} />
       <Stack.Screen name="strategy" options={{ title: "Strategy" }} />
       <Stack.Screen name="goals" options={{ title: "Goals" }} />
       <Stack.Screen name="statistics" options={{ title: "Statistics" }} />

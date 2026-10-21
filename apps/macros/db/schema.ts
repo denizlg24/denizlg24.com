@@ -7,6 +7,8 @@ export * from "./schema/moderation";
 export * from "./schema/notifications";
 export * from "./schema/recipes";
 export * from "./schema/shopping-list";
+
+export { pantryItems } from "./schema/definitions";
 export * from "./schema/targets";
 export * from "./schema/weight";
 export { schema } from "./schema/definitions";

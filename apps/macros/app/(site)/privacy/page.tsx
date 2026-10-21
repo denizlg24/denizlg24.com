@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="8 October 2026"
+      updated="21 October 2026"
       intro={
         <p>
           Macros is a nutrition tracker built and run by one developer (
@@ -44,16 +44,6 @@ export default function PrivacyPage() {
             <Link href="/account/delete">on this site</Link>.
           </li>
         </ul>
-      </LegalSection>
-
-      <LegalSection title="The iPhone beta">
-        <p>
-          The TestFlight sign-up on the download page sends the email address
-          and any name you enter to Apple, which adds you as a tester and emails
-          the invite. Macros doesn’t keep a copy. Apple’s TestFlight terms cover
-          what it does with tester details, and you can leave the beta from the
-          TestFlight app.
-        </p>
       </LegalSection>
 
       <LegalSection title="Your account">

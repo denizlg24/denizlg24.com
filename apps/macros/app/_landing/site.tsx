@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { APP_STORE_HREF } from "@/app/ios/release";
 
 export const container = "mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8";
 
@@ -66,8 +67,8 @@ export function SiteFooter() {
     {
       title: "Get the app",
       links: [
+        { href: APP_STORE_HREF, label: "App Store" },
         { href: ANDROID_APK_HREF, label: "Android APK" },
-        { href: "/download#iphone", label: "iPhone beta" },
         { href: "/download#faq", label: "Questions" },
       ],
     },
@@ -103,7 +104,7 @@ export function SiteFooter() {
             </p>
             <p className="flex items-center gap-2.5 text-sm font-medium">
               <MacroRule />
-              On Android now · iPhone in preparation
+              On the App Store and Android
             </p>
           </div>
           <nav
@@ -203,20 +204,43 @@ export function MoreLink({
   );
 }
 
-/** Android downloads today; iPhone waits for its public release. */
+/** Apple's badge artwork, unaltered: black on light, white on dark. */
+export function AppStoreBadge({ className }: { className?: string }) {
+  return (
+    <a
+      href={APP_STORE_HREF}
+      className={cn(
+        "inline-flex h-12 items-center justify-center transition-[opacity,scale] hover:opacity-85 active:scale-[0.98]",
+        className,
+      )}
+    >
+      <Image
+        src="/badges/app-store-black.svg"
+        alt="Download on the App Store"
+        width={144}
+        height={48}
+        unoptimized
+        className="h-12 w-auto dark:hidden"
+      />
+      <Image
+        src="/badges/app-store-white.svg"
+        alt="Download on the App Store"
+        width={144}
+        height={48}
+        unoptimized
+        className="hidden h-12 w-auto dark:block"
+      />
+    </a>
+  );
+}
+
 export function GetTheApp({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-3", className)}>
-      <a href={ANDROID_APK_HREF} className={primaryButton}>
+      <AppStoreBadge />
+      <a href={ANDROID_APK_HREF} className={secondaryButton}>
         Download for Android
       </a>
-      <Link href="/download#iphone" className={secondaryButton}>
-        <span
-          aria-hidden="true"
-          className="size-2 rounded-full bg-macro-carbs"
-        />
-        Join the iPhone beta
-      </Link>
     </div>
   );
 }

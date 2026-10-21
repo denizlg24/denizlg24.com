@@ -1,8 +1,10 @@
+import { activityOn } from "@repo/macros-core/activity";
 import {
   MACRO_COLORS,
   NUTRIENT_OVERFLOW_COLOR,
 } from "@repo/macros-core/macro-colors";
 import type {
+  MacrosBodyOverview,
   MacrosCaloriePreference,
   MacrosDashboard,
   MacrosWeightOverview,
@@ -63,6 +65,7 @@ export interface WidgetSnapshot {
   };
   macros: WidgetMacro[];
   weight: WidgetWeight | null;
+  activity: { steps: number | null; activeEnergy: number | null; unit: string };
 }
 
 function energy(kcal: number, unit: WidgetEnergyUnit): number {
@@ -129,6 +132,7 @@ export function widgetWeight(
 export function buildWidgetSnapshot({
   dashboard,
   weightOverview,
+  activity = [],
   mode,
   energyUnit,
   weightUnit,
@@ -136,12 +140,14 @@ export function buildWidgetSnapshot({
 }: {
   dashboard: MacrosDashboard;
   weightOverview: MacrosWeightOverview | undefined;
+  activity?: MacrosBodyOverview["activity"];
   mode: MacrosCaloriePreference;
   energyUnit: WidgetEnergyUnit;
   weightUnit: WidgetWeightUnit;
   now?: Date;
 }): WidgetSnapshot {
   const { consumed, targets } = dashboard;
+  const movement = activityOn(activity, dashboard.today);
   const macro = (key: WidgetMacro["key"], label: string): WidgetMacro => ({
     key,
     label,
@@ -169,6 +175,14 @@ export function buildWidgetSnapshot({
       macro("fat", "Fat"),
     ],
     weight: widgetWeight(dashboard, weightOverview, weightUnit),
+    activity: {
+      steps: movement.steps,
+      activeEnergy:
+        movement.activeEnergyKcal === null
+          ? null
+          : energy(movement.activeEnergyKcal, energyUnit),
+      unit: energyUnit === "kj" ? "kJ" : "kcal",
+    },
   };
 }
 

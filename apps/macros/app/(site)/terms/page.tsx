@@ -12,7 +12,7 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of use"
-      updated="8 October 2026"
+      updated="21 October 2026"
       intro={
         <p>
           These terms cover the Macros apps for iPhone and Android and the
@@ -63,10 +63,8 @@ export default function TermsPage() {
 
       <LegalSection title="Installing the app">
         <p>
-          The iPhone app is in public beta on Apple’s TestFlight. Signing up on
-          the download page asks Apple to send you an invite; beta builds can
-          have bugs, and each one stops working after 90 days unless a newer one
-          replaces it.
+          The iPhone app is distributed through Apple’s App Store, and Apple’s
+          App Store terms also apply to downloading it.
         </p>
         <p>
           The Android app is not distributed through Google Play. It is

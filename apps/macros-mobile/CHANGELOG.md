@@ -7,6 +7,20 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.17 — 2026-10-21
+
+### Added
+- **Pantry.** Keep track of what you have at home in More › Pantry. Logging
+  a food uses up its stock, and foods you have on hand come first in search.
+- **Activity.** Steps and active energy get their own screen, reachable from
+  Today and Progress, with daily readings, trends and manual corrections.
+- **Activity widget.** Today's steps and active energy on the Home Screen and
+  Lock Screen.
+
+### Changed
+- The Shortcuts import guide is gone from Settings. Sync with Health brings in
+  your weight, steps and active energy directly.
+
 ## 0.0.16 — 2026-10-18
 ### Added
 - **Share your recipes** You can now create beautiful recipe pages and share them with your friends online

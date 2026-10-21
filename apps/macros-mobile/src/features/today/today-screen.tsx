@@ -1,3 +1,4 @@
+import { activityOn } from "@repo/macros-core/activity";
 import type { MacrosCaloriePreference } from "@repo/schemas/macros";
 import { format, parseISO } from "date-fns";
 import { useRouter } from "expo-router";
@@ -11,6 +12,7 @@ import { FailedWritesNotice } from "@/components/failed-writes-notice";
 import { PendingPlateBar } from "@/features/add-food/components/plate-bar";
 import { errorMessage, NetworkError } from "@/lib/api";
 import { useToday } from "@/lib/day";
+import { energyLabel, formatEnergy, formatInteger } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
 import {
   Button,
@@ -18,6 +20,7 @@ import {
   HeaderIconButton,
   InlineNotice,
   PageHeader,
+  Row,
   Screen,
   Section,
   spacing,
@@ -101,6 +104,7 @@ export function TodayScreen() {
     </>
   );
 
+  const movement = activityOn(body.data?.activity ?? [], day);
   const data = dashboard.data;
   const dateLine = format(parseISO(data?.today ?? day), "EEEE d MMMM");
 
@@ -201,6 +205,29 @@ export function TodayScreen() {
               action={{ label: "Set up", onPress: openMore }}
             />
           ) : null}
+        </Section>
+
+        <Section
+          title="Activity"
+          action={{
+            label: "View",
+            onPress: () => router.push("/progress/activity"),
+          }}
+        >
+          <Row
+            title="Steps"
+            value={
+              movement.steps === null ? "—" : formatInteger(movement.steps)
+            }
+            subtitle={
+              movement.activeEnergyKcal === null
+                ? "No active energy reading yet"
+                : `${formatEnergy(movement.activeEnergyKcal, energyUnit)} ${energyLabel(energyUnit)} active energy`
+            }
+            chevron
+            separator={false}
+            onPress={() => router.push("/progress/activity")}
+          />
         </Section>
 
         <HabitsSection
