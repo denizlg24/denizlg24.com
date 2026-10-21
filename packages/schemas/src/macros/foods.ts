@@ -79,6 +79,10 @@ export const macrosExternalFoodNutritionSchema = z
     packageServingLabel: z.string().nullable().optional(),
     packageServingQnty: numericValueSchema.nullable().optional(),
     packageServingUnit: z.string().nullable().optional(),
+    // Household measures the composition table publishes ("1 head, large").
+    portions: z
+      .array(z.object({ label: z.string(), grams: numericValueSchema }))
+      .optional(),
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
   })

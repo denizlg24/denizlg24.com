@@ -159,6 +159,8 @@ export const itemsRoutes = new Elysia({ prefix: "/items" })
       params: itemIdParamsSchema,
       detail: {
         summary: "Get item nutrition",
+        description:
+          "Per 100 g/ml, plus the item's household portions with gram weights.",
         tags: ["Items"],
       },
     },

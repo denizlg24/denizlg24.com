@@ -75,6 +75,8 @@ bun run barcodes:normalize          # GTIN-14 rewrite + item_barcodes backfill (
 bun run dedupe:openfoodfacts        # merge product duplicates, cluster variants
 bun run icons:classify              # LLM icons + concept names (resumable)
 bun run concepts:link               # cluster the same food across tables, fill gaps
+bun run portions:propagate          # copy household measures across a concept (--dry-run)
+bun run portions:estimate           # LLM measures for USDA generics still without (--dry-run)
 bun run search:sync -- --prune      # reindex, and drop merged/quarantined docs
 bun run quality:audit -- --dry-run  # score every row against the validation gates
 bun run db:backup                   # dump every table to backups/<timestamp>/
@@ -211,6 +213,22 @@ resolve to the survivor, search drops them. Rows that disagree stay but share a
 ("banana, raw"); `concepts:link` clusters the same concept across tables when
 the macros agree and fills each member's unmeasured nutrients from the
 best-ranked sibling, crediting the donor in `provenance`.
+
+## Household portions
+
+`item_portions` holds measures with gram weights ("1 head, large" = 1248 g).
+Only USDA, CNF and Matvaretabellen publish them (`origin = 'source'`), and an
+import replaces only those rows. The other tables borrow them:
+`portions:propagate` copies a cluster sibling's measures, or a same-concept
+item's when energy density agrees within 30%, since a cup weighs what the
+food's state makes it (`origin = 'concept'`, `donor_item_id` set). It
+rewrites every `concept` row, so run it after any import or `concepts:link`.
+`portions:estimate` asks a small model for the USDA generics still without
+any (`origin = 'llm'`). A source that starts publishing its own replaces both.
+Branded and OpenFoodFacts products keep their package serving instead.
+`GET /items/{id}/nutrition` returns the portions with the nutrients; Macros
+offers the household ones (metric and noise labels dropped,
+`@repo/macros-core/foods/portions`) beside grams.
 
 ## OpenFoodFacts Import
 

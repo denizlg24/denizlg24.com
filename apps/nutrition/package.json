@@ -25,6 +25,8 @@
     "icons:import": "bun --env-file=../../.env.nutrition scripts/import-food-icons.ts",
     "icons:assign": "bun --env-file=../../.env.nutrition scripts/assign-food-icons.ts",
     "icons:classify": "bun --env-file=../../.env.nutrition scripts/classify-foods-llm.ts",
+    "portions:propagate": "bun --env-file=../../.env.nutrition scripts/propagate-portions.ts",
+    "portions:estimate": "bun --env-file=../../.env.nutrition scripts/estimate-portions-llm.ts",
     "quality:audit": "bun --env-file=../../.env.nutrition scripts/audit-food-quality.ts",
     "search:sync": "bun --env-file=../../.env.nutrition scripts/sync-meilisearch.ts"
   },

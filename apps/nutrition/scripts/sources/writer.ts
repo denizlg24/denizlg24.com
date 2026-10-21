@@ -1,5 +1,5 @@
 import { normalizeBarcode } from "@repo/macros-core/barcode";
-import { getTableColumns, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 
@@ -194,7 +194,24 @@ export const upsertPrepared = async (pool: Pool, batch: PreparedFood[]) => {
       .onConflictDoNothing();
 
     const ids = [...idByBarcode.values()];
-    await tx.delete(itemPortions).where(inArray(itemPortions.itemId, ids));
+    // Derived portions stand in until the source publishes its own.
+    const publishing = batch.flatMap((entry) => {
+      const itemId = idByBarcode.get(entry.item.barcode);
+      return itemId && entry.portions.length > 0 ? [itemId] : [];
+    });
+    await tx
+      .delete(itemPortions)
+      .where(
+        and(
+          inArray(itemPortions.itemId, ids),
+          publishing.length > 0
+            ? or(
+                eq(itemPortions.origin, "source"),
+                inArray(itemPortions.itemId, publishing),
+              )
+            : eq(itemPortions.origin, "source"),
+        ),
+      );
     const portionRows = batch.flatMap((entry) => {
       const itemId = idByBarcode.get(entry.item.barcode);
       return itemId

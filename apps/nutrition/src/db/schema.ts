@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -284,7 +285,16 @@ export const itemBarcodes = pgTable(
   (table) => [index("item_barcodes_item_id_idx").on(table.itemId)],
 );
 
-/** Household measures a composition table publishes with gram weights. */
+export const portionOrigins = ["source", "concept", "llm"] as const;
+export type PortionOrigin = (typeof portionOrigins)[number];
+
+/**
+ * Household measures with gram weights. `source` rows are what the item's
+ * composition table publishes and are replaced on every import; `concept`
+ * rows are copied from `donor_item_id`, an item of the same concept, and
+ * `llm` rows are estimated. Both derived kinds survive a re-import unless the
+ * source starts publishing portions of its own.
+ */
 export const itemPortions = pgTable(
   "item_portions",
   {
@@ -295,9 +305,20 @@ export const itemPortions = pgTable(
     label: text("label").notNull(),
     grams: requiredAmount("grams"),
     sortOrder: integer("sort_order").notNull().default(0),
+    origin: text("origin", { enum: portionOrigins })
+      .notNull()
+      .default("source"),
+    donorItemId: uuid("donor_item_id").references(() => items.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     uniqueIndex("item_portions_item_label_idx").on(table.itemId, table.label),
+    index("item_portions_origin_idx").on(table.origin),
+    check(
+      "item_portions_origin_check",
+      sql`${table.origin} in ('source', 'concept', 'llm')`,
+    ),
   ],
 );
 
