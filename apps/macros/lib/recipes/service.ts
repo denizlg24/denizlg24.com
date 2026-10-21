@@ -1,15 +1,26 @@
 import { formatLoggedAmount } from "@repo/macros-core/foods/display";
+import { recipeCoverage, toBasisServings } from "@repo/macros-core/pantry";
 import {
   hasWrittenStep,
   normalizeBlocks,
   normalizeSteps,
 } from "@repo/macros-core/recipe-content";
 import type {
+  MacrosFoodSearchRecipe,
   MacrosRecipeIngredientInput,
   MacrosRecipeIngredientUpdate,
   MacrosRecipeStep,
 } from "@repo/schemas/macros";
-import { and, count, desc, eq, isNotNull, notExists } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  notExists,
+} from "drizzle-orm";
 
 import { db } from "@/db/connection";
 import {
@@ -17,6 +28,7 @@ import {
   foodLogEntryNutrients,
   recipeIngredients,
   recipeNutritionSnapshots,
+  recipeSnapshotIngredients,
   recipeSnapshotNutrients,
   recipes,
   userProfiles,
@@ -30,6 +42,7 @@ import {
   refreshDailyNutritionSummary,
 } from "@/lib/foods/service";
 import { isSuspended } from "@/lib/moderation/service";
+import { getPantryStock } from "@/lib/pantry/service";
 import type {
   CreateRecipeInput,
   LogRecipeInput,
@@ -315,7 +328,62 @@ async function insertNutritionSnapshot(
   if (nutrientRows.length > 0) {
     await tx.insert(recipeSnapshotNutrients).values(nutrientRows);
   }
+  const ingredientRows = await tx.query.recipeIngredients.findMany({
+    where: and(
+      eq(recipeIngredients.recipeId, recipe.id),
+      eq(recipeIngredients.ingredientType, "food"),
+    ),
+  });
+  const snapshotIngredients = ingredientRows.flatMap((row) =>
+    row.foodId && row.foodSnapshotId
+      ? [
+          {
+            snapshotId: snapshot.id,
+            position: row.position,
+            foodId: row.foodId,
+            foodSnapshotId: row.foodSnapshotId,
+            servingsPerServing: (
+              Number(row.servings ?? row.quantity) / servings
+            ).toFixed(6),
+          },
+        ]
+      : [],
+  );
+  if (snapshotIngredients.length > 0) {
+    await tx.insert(recipeSnapshotIngredients).values(snapshotIngredients);
+  }
   return snapshot;
+}
+
+/** Ingredients short in the pantry, for one serving of each recipe. */
+async function pantryCoverageFor(userId: string, snapshotIds: string[]) {
+  const coverage = new Map<string, { ingredients: number; missing: number }>();
+  if (snapshotIds.length === 0) return coverage;
+  const [stock, rows] = await Promise.all([
+    getPantryStock(userId),
+    db.query.recipeSnapshotIngredients.findMany({
+      where: inArray(recipeSnapshotIngredients.snapshotId, snapshotIds),
+      with: {
+        foodSnapshot: { columns: { servingQuantity: true, servingUnit: true } },
+      },
+    }),
+  ]);
+  for (const snapshotId of snapshotIds) {
+    const needs = rows
+      .filter((row) => row.snapshotId === snapshotId)
+      .map((row) => ({
+        foodId: row.foodId,
+        servings: Number(row.servingsPerServing),
+        servingQuantity: Number(row.foodSnapshot.servingQuantity),
+        servingUnit: row.foodSnapshot.servingUnit,
+      }));
+    const result = recipeCoverage(needs, stock);
+    coverage.set(snapshotId, {
+      ingredients: result.ingredients.length,
+      missing: result.missing,
+    });
+  }
+  return coverage;
 }
 
 export async function createRecipeFromFoods(
@@ -366,14 +434,63 @@ export async function getUserRecipes(userId: string): Promise<RecipeSummary[]> {
     },
   });
 
-  const summaries: RecipeSummary[] = [];
-  for (const recipe of recipeRows) {
-    const snapshot = await latestRecipeSnapshot(recipe.id);
-    if (!snapshot) continue;
-    summaries.push(toSummary(recipe, snapshot, recipe.ingredients.length));
-  }
+  const latest = await Promise.all(
+    recipeRows.map(async (recipe) => ({
+      recipe,
+      snapshot: await latestRecipeSnapshot(recipe.id),
+    })),
+  );
+  const coverage = await pantryCoverageFor(
+    userId,
+    latest.flatMap(({ snapshot }) => (snapshot ? [snapshot.id] : [])),
+  );
+  return latest.flatMap(({ recipe, snapshot }) =>
+    snapshot
+      ? [
+          {
+            ...toSummary(recipe, snapshot, recipe.ingredients.length),
+            pantry: coverage.get(snapshot.id),
+          },
+        ]
+      : [],
+  );
+}
 
-  return summaries;
+/** Active recipes whose name contains the query, for food search. */
+export async function searchUserRecipes(
+  userId: string,
+  query: string,
+  limit: number,
+): Promise<MacrosFoodSearchRecipe[]> {
+  const term = query.trim();
+  if (!term) return [];
+  const rows = await db.query.recipes.findMany({
+    where: and(
+      eq(recipes.userId, userId),
+      eq(recipes.status, "active"),
+      ilike(recipes.name, `%${term.replace(/[\\%_]/g, "\\$&")}%`),
+    ),
+    orderBy: desc(recipes.updatedAt),
+    limit,
+  });
+  const hits = await Promise.all(
+    rows.map(async (recipe) => {
+      const snapshot = await latestRecipeSnapshot(recipe.id);
+      if (!snapshot) return null;
+      return {
+        id: recipe.id,
+        name: recipe.name,
+        iconKey: recipe.iconKey,
+        coverImageUrl: recipeImageUrl(recipe.id, recipe.coverImageKey),
+        servingLabel: recipe.servingLabel,
+        caloriesPerServing: Number(snapshot.caloriesPerServing),
+        proteinPerServing: Number(snapshot.proteinPerServing),
+        carbsPerServing: Number(snapshot.carbsPerServing),
+        fatPerServing: Number(snapshot.fatPerServing),
+      };
+    }),
+  );
+  return hits.filter((hit) => hit !== null);
 }
 
 export async function updateRecipe(
@@ -509,6 +626,7 @@ export async function getRecipeDetail(
     );
   }
 
+  const stock = await getPantryStock(userId);
   const ingredientDetails: RecipeIngredientDetail[] = recipe.ingredients
     .slice()
     .sort((left, right) => left.position - right.position)
@@ -519,6 +637,18 @@ export async function getRecipeDetail(
         ingredient.childRecipe?.name ??
         "Unknown ingredient";
       const brand = ingredient.food?.brand ?? null;
+
+      const pantryServingsOf = (row: typeof ingredient) => {
+        const held = row.foodId ? stock.get(row.foodId) : undefined;
+        if (!held || !row.foodSnapshot) return null;
+        return toBasisServings(
+          { ...held, servings: held.onHand },
+          {
+            servingQuantity: Number(row.foodSnapshot.servingQuantity),
+            servingUnit: row.foodSnapshot.servingUnit,
+          },
+        );
+      };
 
       const lookup = (key: string) => {
         const row = ingredient.foodSnapshot?.nutrients.find(
@@ -536,6 +666,8 @@ export async function getRecipeDetail(
         foodName,
         brand,
         servings,
+        foodId: ingredient.foodId,
+        pantryServings: pantryServingsOf(ingredient),
         amountLabel: formatLoggedAmount({
           servingLabel: ingredient.foodSnapshot?.servingLabel,
           servingQuantity: Number(

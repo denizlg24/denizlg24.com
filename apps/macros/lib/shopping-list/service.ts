@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { db } from "@/db/connection";
 import { foods, shoppingListItems } from "@/db/schema";
+import { ensureExternalFoodSnapshot } from "@/lib/foods/service";
 import type {
   CreateShoppingListItemInput,
   ShoppingListItem,
@@ -10,17 +11,52 @@ import type {
 
 type Row = typeof shoppingListItems.$inferSelect;
 
-function toItem(row: Row): ShoppingListItem {
-  return {
+/** The search id a linked food is stocked and logged by. */
+async function toItems(rows: Row[]): Promise<ShoppingListItem[]> {
+  const foodIds = [
+    ...new Set(rows.flatMap((row) => (row.foodId ? [row.foodId] : []))),
+  ];
+  const linked = foodIds.length
+    ? await db
+        .select({ id: foods.id, externalItemId: foods.externalItemId })
+        .from(foods)
+        .where(inArray(foods.id, foodIds))
+    : [];
+  const sourceIds = new Map(
+    linked.map((food) => [food.id, food.externalItemId ?? food.id]),
+  );
+  return rows.map((row) => ({
     id: row.id,
     position: row.position,
     label: row.label,
     note: row.note,
     foodId: row.foodId,
+    sourceItemId: row.foodId ? (sourceIds.get(row.foodId) ?? null) : null,
     iconKey: row.iconKey,
     checked: row.checked,
     createdAt: row.createdAt.toISOString(),
-  };
+  }));
+}
+
+async function toItem(row: Row): Promise<ShoppingListItem> {
+  const [item] = await toItems([row]);
+  if (!item) throw new Error("Shopping list item vanished");
+  return item;
+}
+
+/** A local food id for a search id, resolving a catalogue food on first use. */
+async function localFoodFor(sourceItemId: string) {
+  const local = await db.query.foods.findFirst({
+    where: and(
+      or(eq(foods.id, sourceItemId), eq(foods.externalItemId, sourceItemId)),
+      isNull(foods.deletedAt),
+    ),
+    columns: { id: true },
+  });
+  if (local) return local.id;
+  return ensureExternalFoodSnapshot(sourceItemId)
+    .then((food) => food.foodId)
+    .catch(() => null);
 }
 
 export async function getShoppingList(
@@ -32,7 +68,7 @@ export async function getShoppingList(
     .where(eq(shoppingListItems.userId, userId))
     .orderBy(asc(shoppingListItems.position), asc(shoppingListItems.createdAt));
 
-  return rows.map(toItem);
+  return toItems(rows);
 }
 
 export async function createShoppingListItem(
@@ -41,9 +77,12 @@ export async function createShoppingListItem(
 ): Promise<ShoppingListItem> {
   // A picked food carries its own icon, and the catalogue is the authority on
   // it — trusting a client-sent key would let the list drift from the food.
-  const linkedFood = input.foodId
+  const foodId =
+    input.foodId ??
+    (input.sourceItemId ? await localFoodFor(input.sourceItemId) : null);
+  const linkedFood = foodId
     ? await db.query.foods.findFirst({
-        where: and(eq(foods.id, input.foodId), isNull(foods.deletedAt)),
+        where: and(eq(foods.id, foodId), isNull(foods.deletedAt)),
         columns: { id: true, iconKey: true },
       })
     : null;

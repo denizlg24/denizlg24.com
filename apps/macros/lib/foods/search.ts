@@ -9,14 +9,17 @@ import {
 } from "@/lib/foods/service";
 import { searchNutritionFoods } from "@/lib/foods/source";
 import { hiddenItemIdsFor } from "@/lib/moderation/service";
-import { rankFoodSearch } from "@/lib/pantry/search";
+import { mergeFoodSearch } from "@/lib/pantry/search";
 import { getPantry } from "@/lib/pantry/service";
+import { searchUserRecipes } from "@/lib/recipes/service";
+
+const RECIPE_RESULT_LIMIT = 5;
 
 export async function searchFoods(
   userId: string,
   input: FoodSearchParams,
 ): Promise<MacrosFoodSearchResponse> {
-  const [userItems, historyItems, sourceResult, hidden, pantry] =
+  const [userItems, historyItems, sourceResult, hidden, pantry, recipes] =
     await Promise.all([
       searchUserCustomFoods(userId, input.q, input.brand, input.limit),
       getFoodHistory(userId, undefined, input.limit),
@@ -25,6 +28,7 @@ export async function searchFoods(
         .catch((error: unknown) => ({ ok: false as const, error })),
       hiddenItemIdsFor(userId),
       getPantry(userId),
+      searchUserRecipes(userId, input.q ?? "", RECIPE_RESULT_LIMIT),
     ]);
   const query = input.q?.toLocaleLowerCase() ?? "";
   const localHistory = historyItems.filter((item) => {
@@ -54,45 +58,50 @@ export async function searchFoods(
   ]);
   const iconFor = (barcode: string | null, fallback: string) =>
     (barcode && ownIcons.get(barcode)) || fallback;
-  const seen = new Set<string>();
   const available = pantry.filter(
     (entry) => entry.quantity > 0 && !hidden.has(entry.item.id),
   );
   const pantryIds = new Set(available.map((entry) => entry.item.id));
-  const items = [
-    ...available
-      .filter(
-        ({ item }) =>
-          (!query ||
-            item.name.toLocaleLowerCase().includes(query) ||
-            item.brand?.toLocaleLowerCase().includes(query)) &&
-          (!input.brand ||
-            item.brand
-              ?.toLocaleLowerCase()
-              .includes(input.brand.toLocaleLowerCase())),
-      )
-      .map(({ item }) => item),
-    ...localHistory.map((item) => ({
-      ...item,
-      iconKey: iconFor(item.barcode, sourceIcons.get(item.id) ?? item.iconKey),
-    })),
-    ...userItems,
-    ...sourceItems.map((summary) => {
-      const item = toFoodSearchItem(summary);
-      return { ...item, iconKey: iconFor(item.barcode, item.iconKey) };
-    }),
-  ].filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
+  const items = mergeFoodSearch(
+    {
+      pantry: available
+        .filter(
+          ({ item }) =>
+            (!query ||
+              item.name.toLocaleLowerCase().includes(query) ||
+              item.brand?.toLocaleLowerCase().includes(query)) &&
+            (!input.brand ||
+              item.brand
+                ?.toLocaleLowerCase()
+                .includes(input.brand.toLocaleLowerCase())),
+        )
+        .map(({ item }) => item),
+      history: localHistory.map((item) => ({
+        ...item,
+        iconKey: iconFor(
+          item.barcode,
+          sourceIcons.get(item.id) ?? item.iconKey,
+        ),
+      })),
+      custom: userItems,
+      source: sourceItems.map((summary) => {
+        const item = toFoodSearchItem(summary);
+        return { ...item, iconKey: iconFor(item.barcode, item.iconKey) };
+      }),
+    },
+    input.limit,
+  );
 
-  if (!sourceResult.ok && items.length === 0) {
+  if (!sourceResult.ok && items.length === 0 && recipes.length === 0) {
     throw sourceResult.error;
   }
   return {
-    items: rankFoodSearch(items, pantryIds).slice(0, input.limit),
+    items,
     fetchedAt: new Date().toISOString(),
     sourceUnavailable: !sourceResult.ok,
+    pantryItemIds: items
+      .filter((item) => pantryIds.has(item.id))
+      .map((item) => item.id),
+    recipes,
   } satisfies MacrosFoodSearchResponse;
 }

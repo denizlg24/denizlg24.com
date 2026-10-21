@@ -155,6 +155,13 @@
       "when": 1792556508647,
       "tag": "0021_dashing_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792604973311,
+      "tag": "0022_kitchen",
+      "breakpoints": true
     }
   ]
 }

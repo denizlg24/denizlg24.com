@@ -42,16 +42,30 @@ Better-auth handles authentication. For now we only have email/password with Res
 ## Pantry
 
 `lib/pantry/service.ts` stores a per-user stock checkpoint in `pantry_items`.
-Quantities are servings of the stored food's serving basis. Food log entries
-created after the checkpoint consume stock, including saved-meal, copied and
-backdated entries; edits and deletions update that same balance. Nutrition
-snapshots remain immutable. Setting stock means the amount on hand now and
-starts a new checkpoint. Recipe logs and quick adds do not consume pantry stock.
-The public balance floors at zero without discarding overconsumption, so deleting
-an excessive log restores the correct amount. Qualify outer columns explicitly
-in the correlated SQL; Drizzle removes ordinary column qualification in this
-single-table select. Search injects available pantry foods before common foods
-and branded foods through `lib/pantry/search.ts`.
+Quantities are servings of the stored food's serving basis; `unitLabel` and
+`servingsPerUnit` name the measure stock is counted in ("head, large" = 12.48
+servings of 100 g), and setting stock with a unit (plus the `basis` it was
+computed against) converts into the stored basis. Food log entries and recipe
+logs created after the checkpoint consume stock, including saved-meal, copied
+and backdated entries; edits and deletions update the same balance. Amounts
+are converted through grams where both sides have a weight
+(`@repo/macros-core/pantry`), never counted serving for serving across
+different units. A recipe draws on its snapshot's ingredients
+(`recipe_snapshot_ingredients`, written with every recipe nutrition snapshot,
+per one recipe serving), so editing a recipe never changes what an earlier log
+consumed. Quick adds have no food and consume nothing. Setting stock means the
+amount on hand now and starts a new checkpoint. The public balance floors at
+zero without discarding overconsumption, so deleting an excessive log restores
+the correct amount.
+
+Food search (`lib/foods/search.ts`) puts available pantry foods, history and
+the owner's foods first, capped at `LOCAL_RESULT_LIMIT` and counted outside
+`limit`, then the catalogue in its own relevance order — brands are never
+demoted, and nothing local can push a catalogue match off the list. The
+response also names stocked item ids and matching recipes. Recipe summaries
+carry `pantry` coverage for one serving; recipe detail ingredients carry
+`foodId` and `pantryServings`. Shopping list items carry `sourceItemId` and
+accept one on create, so a bought item can be stocked.
 
 Run the real database regression against an isolated, migrated local database:
 `MACROS_PANTRY_TEST_DATABASE_URL=<local-url> bun test lib/pantry`.
