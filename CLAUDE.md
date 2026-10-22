@@ -113,6 +113,12 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   iPhone app (Expo SDK 57, installed like Hours): Today, Inbox, Calendar,
   Money and More tabs, widgets, a Share extension, Spotlight and pushes. See
   [Dashboard for iPhone](#dashboard-for-iphone).
+- `apps/tally-macos/` — Tally, a native SwiftUI menu-bar app for this Mac:
+  Claude seat usage and seat switching (rewrites Claude Code's keychain item
+  and `oauthAccount`), Codex limits, denizlg24.com's LLM spend and local token
+  use. XcodeGen project, never committed; `release-tally.yml` signs and
+  notarizes on a `bun run bump:tally`, as `tally-v*`, never "latest". See its
+  `AGENTS.md`.
 - `packages/native-ui/` — the UI primitives Hours, Voice, Location and the
   dashboard share (Macros keeps its own Android-aware copy).
 - `packages/native-auth/` — deniz auth sign-in (code + PKCE through
