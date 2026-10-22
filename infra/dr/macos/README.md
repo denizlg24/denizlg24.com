@@ -14,6 +14,13 @@ while the Mac is awake. Configuration and signing keys stay outside the
 repository. The process uses its installed files and Homebrew PATH, so the
 checkout need not stay open.
 
+The installer requires an Apple Development or Developer ID Application signing
+identity in the login keychain. Set `DR_MACOS_SIGNING_IDENTITY` to select one
+explicitly. It installs `~/Applications/DR Backups.app` with a stable signed
+identity, so Homebrew Python updates no longer change the application responsible
+for iCloud access. Allow this app to access iCloud Drive when macOS asks; the
+copy helpers inherit that permission. The installer rejects ad-hoc signing.
+
 The menu shows live Pi and Forge phases. It can start a combined copy, start Pi
 and Forge independently, download a verified encrypted backup to a chosen
 folder, refresh status, and open task logs. Pi and Forge use separate locks, so

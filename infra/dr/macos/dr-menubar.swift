@@ -65,7 +65,6 @@ private struct Options {
 private enum MenuBarError: LocalizedError {
   case usage
   case commandUnavailable
-  case responsibilityUnavailable
 
   var errorDescription: String? {
     switch self {
@@ -73,31 +72,15 @@ private enum MenuBarError: LocalizedError {
       "usage: dr-menubar --command PATH --config PATH --source ssh|r2 --interval SECONDS --schedule-enabled true|false --log-root PATH --state PATH"
     case .commandUnavailable:
       "The installed DR command is unavailable. Re-run the Mac DR installer."
-    case .responsibilityUnavailable:
-      "macOS would not let the copy run under its own privacy identity, so iCloud Drive would refuse it."
     }
   }
 }
 
-private typealias DisclaimResponsibility =
-  @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
-
-private let disclaimResponsibility: DisclaimResponsibility? = {
-  // RTLD_DEFAULT from dlfcn.h, which Swift cannot import as a macro.
-  let searchEverywhere = UnsafeMutableRawPointer(bitPattern: -2)
-  guard let symbol = dlsym(searchEverywhere, "responsibility_spawnattrs_setdisclaim") else {
-    return nil
-  }
-  return unsafeBitCast(symbol, to: DisclaimResponsibility.self)
-}()
-
-/// Copies have to answer macOS privacy checks as themselves. Spawned as plain
-/// children, their iCloud Drive access is judged against this menu bar app,
-/// which holds no grant and could not keep one: every install re-signs it ad
-/// hoc. Downloads keep the app's identity, since the folder the user picked in
-/// its open panel was consented to by the app.
+/// All copy/download children inherit the signed app's privacy identity.
+/// Disclaiming responsibility made Homebrew Python the responsible process,
+/// so interpreter updates discarded the user's iCloud permission.
 private func spawn(
-  _ executable: URL, arguments: [String], output: FileHandle, disclaimingResponsibility: Bool
+  _ executable: URL, arguments: [String], output: FileHandle
 ) throws -> pid_t {
   var actions: posix_spawn_file_actions_t?
   posix_spawn_file_actions_init(&actions)
@@ -118,11 +101,6 @@ private func spawn(
   posix_spawnattr_setflags(
     &attributes,
     Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
-  if disclaimingResponsibility {
-    guard let disclaimResponsibility, disclaimResponsibility(&attributes, 1) == 0 else {
-      throw MenuBarError.responsibilityUnavailable
-    }
-  }
 
   let argv = ([executable.path] + arguments).map { strdup($0) }
   defer { for argument in argv { free(argument) } }
@@ -380,8 +358,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
       let pid: pid_t
       do {
         pid = try spawn(
-          options.command, arguments: arguments, output: handle,
-          disclaimingResponsibility: command == "cycle")
+          options.command, arguments: arguments, output: handle)
       } catch {
         try? handle.close()
         throw error
@@ -678,7 +655,9 @@ umask(0o077)
 // handles it is only installed once AppKit has finished launching.
 signal(SIGUSR1, SIG_IGN)
 do {
-  let options = try Options(arguments: Array(CommandLine.arguments.dropFirst()))
+  let commandArguments = Array(CommandLine.arguments.dropFirst())
+  let defaults = Bundle.main.object(forInfoDictionaryKey: "DRLaunchArguments") as? [String] ?? []
+  let options = try Options(arguments: commandArguments.isEmpty ? defaults : commandArguments)
   let app = NSApplication.shared
   let delegate = AppDelegate(options: options)
   app.delegate = delegate

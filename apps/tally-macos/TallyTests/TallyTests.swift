@@ -34,6 +34,23 @@ struct JSONValueTests {
 }
 
 struct CredentialWriteTests {
+    @Test func repairsNativeWriterPartitionWithoutBreakingClaudeCodeReads() async throws {
+        let service = "com.denizlg24.tally.test.\(UUID().uuidString)"
+        let account = "regression"
+        defer { Keychain.delete(service: service, account: account) }
+        _ = try await Shell.run("/usr/bin/security", ["add-generic-password", "-s", service,
+            "-a", account, "-w", "public-fixture", "-T", "/usr/bin/security", "-T", Bundle.main.bundlePath])
+        let document: JSONValue = .object(["claudeAiOauth": .object(["accessToken": .string("fixture")])])
+        // Reproduce 0.1.0: data stays valid but the shared partition changes.
+        try Keychain.write(try document.data(), service: service, account: account)
+        #expect(try !Keychain.allowsAppleTool(service: service, account: account))
+        #expect(try await ClaudeCode.readCredentials(service: service, account: account) == document)
+        try await ClaudeCode.writeCredentials(document, service: service, account: account)
+        #expect(try Keychain.allowsAppleTool(service: service, account: account))
+        let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])
+        #expect(try ClaudeCode.decodeCredentialOutput(output) == document)
+    }
+
     @Test func backgroundReadOfUntrustedItemFailsWithoutPrompting() async throws {
         let service = "com.denizlg24.tally.test.\(UUID().uuidString)"
         let account = "regression"

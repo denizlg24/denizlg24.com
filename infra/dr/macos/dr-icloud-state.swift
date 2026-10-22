@@ -108,7 +108,10 @@ while Date() < deadline {
                 }
             }
         }
-    } catch {
+    } catch let error as NSError {
+        if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+            fail("iCloud access denied for \(path). Allow DR Backups to access iCloud Drive in macOS Privacy & Security → Files and Folders.")
+        }
         // File Provider can briefly replace a placeholder while materialising.
         // Retry until the bounded timeout; terminal provider errors fail above.
     }
