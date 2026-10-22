@@ -84,4 +84,49 @@ enum Keychain {
       SecItemDelete(query as CFDictionary)
     }
   }
+
+  /// Metadata only: preflight the Apple tool's partition before invoking it.
+  /// Native writes can remove it even when the trusted-application list still
+  /// names security. Calling security in that state would open a dialog.
+  static func allowsAppleTool(service: String, account: String) throws -> Bool {
+    try withInteraction(false) {
+      let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: account,
+        kSecReturnRef as String: true,
+      ]
+      var result: CFTypeRef?
+      let status = SecItemCopyMatching(query as CFDictionary, &result)
+      if status == errSecItemNotFound { return false }
+      guard status == errSecSuccess, let result else { throw Failure(status: status) }
+      let item = result as! SecKeychainItem
+      var access: SecAccess?
+      let copied = SecKeychainItemCopyAccess(item, &access)
+      guard copied == errSecSuccess, let access else { throw Failure(status: copied) }
+      var list: CFArray?
+      let listed = SecAccessCopyACLList(access, &list)
+      guard listed == errSecSuccess else { throw Failure(status: listed) }
+      for acl in list as? [SecACL] ?? [] {
+        var apps: CFArray?
+        var description: CFString?
+        var selector = SecKeychainPromptSelector()
+        guard SecACLCopyContents(acl, &apps, &description, &selector) == errSecSuccess,
+              let hex = description as String?, hex.count.isMultiple(of: 2) else { continue }
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+          let next = hex.index(index, offsetBy: 2)
+          guard let byte = UInt8(hex[index..<next], radix: 16) else { break }
+          data.append(byte)
+          index = next
+        }
+        if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let partitions = plist["Partitions"] as? [String], partitions.contains("apple-tool:") {
+          return true
+        }
+      }
+      return false
+    }
+  }
 }

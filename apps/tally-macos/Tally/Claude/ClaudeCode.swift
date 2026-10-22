@@ -3,9 +3,11 @@ import Foundation
 /// Claude Code's own state on this Mac: the keychain item holding its tokens
 /// and the `oauthAccount` block in `~/.claude.json`.
 ///
-/// Native keychain access keeps tokens out of process arguments and avoids
-/// `security -i`'s 4,096-byte line limit. Background reads and writes prohibit
-/// authentication UI; only an explicit seat switch may request access.
+/// The shared item must be written by security: native updates reset its
+/// partition to Tally's identity, making Claude Code's own reads prompt.
+/// Send quoted JSON on stdin (never hex or process arguments), with a strict
+/// byte limit checked before touching the item. Background reads preflight
+/// the partition and never launch security when it would need authorization.
 ///
 /// The item also carries `mcpOAuth` (every MCP server's tokens). Only
 /// `claudeAiOauth` belongs to a seat; anything else is written back untouched.
@@ -20,18 +22,26 @@ enum ClaudeCode {
 
     static func readCredentials(service: String = service, account: String = keychainAccount,
                                 allowInteraction: Bool = false) async throws -> JSONValue? {
-        try await Task.detached(priority: .utility) {
-            guard let data = try Keychain.read(service: service, account: account,
-                                               allowInteraction: allowInteraction) else { return nil }
+        let readable = try await Task.detached(priority: .utility) {
+            try Keychain.allowsAppleTool(service: service, account: account)
+        }.value
+        if readable {
+            do {
+                let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])
+                return try decodeCredentialOutput(output)
+            } catch let failure as Shell.Failure where failure.status == 44 { return nil }
+        }
+        // A prior native build may have removed the Apple partition. Read it
+        // without UI if possible; an explicit switch can authorize migration.
+        return try await Task.detached(priority: .utility) {
+            guard let data = try Keychain.read(service: service, account: account, allowInteraction: allowInteraction) else { return nil }
             return try JSONValue.parse(data)
         }.value
     }
 
     static func writeCredentials(_ document: JSONValue, service: String = service, account: String = keychainAccount) async throws {
-        let data = try document.data()
-        try await Task.detached(priority: .utility) {
-            try Keychain.write(data, service: service, account: account, allowInteraction: false)
-        }.value
+        let command = try credentialCommand(document, service: service, account: account)
+        _ = try await Shell.run("/usr/bin/security", ["-i"], input: command)
         // Never mark a switch successful unless we can read the exact
         // document back, including the unrelated MCP credentials.
         guard try await readCredentials(service: service, account: account) == document else {
@@ -41,10 +51,47 @@ enum ClaudeCode {
 
     enum CredentialError: LocalizedError {
         case verificationFailed
+        case oversized
+        case invalidIdentity
 
         var errorDescription: String? {
-            "Claude Code credentials did not match after writing. Seat switch was not completed."
+            switch self {
+            case .verificationFailed: "Claude Code credentials did not match after writing. Seat switch was not completed."
+            case .oversized: "Claude Code credentials exceed the secure keychain command limit. No credentials were changed."
+            case .invalidIdentity: "Invalid keychain service or account. No credentials were changed."
+            }
         }
+    }
+
+    static func credentialCommand(_ document: JSONValue, service: String, account: String) throws -> Data {
+        guard !service.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              !account.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw CredentialError.invalidIdentity
+        }
+        func quote(_ text: String) -> String {
+            "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        let json = String(decoding: try document.data(), as: UTF8.self)
+        let command = Data("add-generic-password -U -a \(quote(account)) -s \(quote(service)) -w \(quote(json))\n".utf8)
+        guard command.count < 4096 else { throw CredentialError.oversized }
+        return command
+    }
+
+    /// security prints non-ASCII passwords as unprefixed hex, even with -w.
+    static func decodeCredentialOutput(_ output: Data) throws -> JSONValue {
+        let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.first == "{" { return try JSONValue.parse(Data(text.utf8)) }
+        var decoded = Data()
+        if text.count.isMultiple(of: 2) {
+            var index = text.startIndex
+            while index < text.endIndex {
+                let next = text.index(index, offsetBy: 2)
+                guard let byte = UInt8(text[index..<next], radix: 16) else { return try JSONValue.parse(output) }
+                decoded.append(byte)
+                index = next
+            }
+        }
+        return try JSONValue.parse(decoded)
     }
 
     static func readAccount() -> JSONValue? {

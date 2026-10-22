@@ -93,7 +93,7 @@ jobs:
     name: Deploy to the forge host
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     # Manual approval gate, same as the Pi. A green build is not a rollout.
     environment: forge
     env:
@@ -163,7 +163,11 @@ jobs:
             # `find -mmin` rather than `stat`: the age test decides whether the
             # fence is ever breakable, so it must not be the half of a `||`
             # that silently answers "not stale" where the syntax is wrong.
-            if [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; then
+            pid="$(cat "$lock/pid" 2>/dev/null || true)"
+            # A snapshot can legitimately run longer than the stale age. Never
+            # break a live local holder; dead PID locks can be reclaimed now.
+            if { [[ "$pid" =~ ^[0-9]+$ ]] && [[ ! -d "/proc/$pid" ]]; } ||
+               { [[ ! "$pid" =~ ^[0-9]+$ ]] && [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; }; then
               echo "breaking a deploy fence abandoned by '$(holder)'" >&2
               # Rename first: whoever wins the rename wins the break, so two
               # runners cannot both clear it and both proceed.

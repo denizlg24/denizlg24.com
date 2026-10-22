@@ -67,7 +67,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: pi
     env:
       IMAGE_TAG: ${{ needs.build-api.outputs.image_tag }}
@@ -139,7 +139,11 @@ jobs:
             # that silently answers "not stale" when the syntax is wrong.
             # Printing nothing here means young, or already gone — either way
             # the next mkdir is the real contest.
-            if [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; then
+            pid="$(cat "$lock/pid" 2>/dev/null || true)"
+            # A snapshot can legitimately run longer than the stale age. Never
+            # break a live local holder; dead PID locks can be reclaimed now.
+            if { [[ "$pid" =~ ^[0-9]+$ ]] && [[ ! -d "/proc/$pid" ]]; } ||
+               { [[ ! "$pid" =~ ^[0-9]+$ ]] && [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; }; then
               echo "breaking a deploy fence abandoned by '$(holder)'" >&2
               # Rename first: whoever wins the rename wins the break, so two
               # runners cannot both clear it and both proceed.
@@ -196,6 +200,12 @@ jobs:
              # runner's numeric uid onto the installed DR runtime.
              sudo tar --no-same-owner -xzf /tmp/cloud-dr.tgz -C /opt/deniz-cloud
              rm -f /tmp/cloud-infra.tgz /tmp/cloud-dr.tgz"
+
+      - name: Install updated disaster recovery services
+        if: env.DEPLOY_MODE == 'deploy' && env.DR_FENCING_ENABLED == 'true'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "sudo /opt/deniz-cloud/infra/dr/install-host --profile pi --ssh-user denizlg24 --execute"
 
       # Renders the compose file against the real .env.pi on the Pi. Proves the
       # env file is present, complete and readable without starting anything.
@@ -282,6 +292,8 @@ jobs:
       - name: Start the stack
         if: env.DEPLOY_MODE == 'deploy'
         run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            sudo bash -s < infra/scripts/ensure-storage-boundary.sh
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} up -d"
 

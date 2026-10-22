@@ -5,6 +5,15 @@ version opens with its entry. Each release is a `## <version> — <YYYY-MM-DD>`
 heading, optionally grouped under `### Added`, `### Changed`, `### Fixed`.
 `bun run bump:tally <patch|minor|major>` opens the entry for the next version.
 
+## 0.1.1 — 2026-10-22
+
+### Fixed
+- Preserve Claude Code's Apple-tool keychain access during seat switches, so
+  its credential reads stop requesting a password after Tally refreshes.
+- Handle Unicode credentials and reject oversized writes before changing data.
+- Allow explicit authorization of seats saved by a development build while
+  keeping background refreshes silent.
+
 ## 0.1.0 — 2026-10-22
 
 ### Added

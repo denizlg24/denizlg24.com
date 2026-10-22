@@ -32,8 +32,8 @@ struct SeatSpan: Codable, Sendable, Equatable {
 enum SeatVault {
     private static let service = "com.denizlg24.tally.claude-seat"
 
-    static func secret(for seatID: String) -> SeatSecret? {
-        guard let data = try? Keychain.read(service: service, account: seatID, allowInteraction: false) else { return nil }
+    static func secret(for seatID: String, allowInteraction: Bool = false) -> SeatSecret? {
+        guard let data = try? Keychain.read(service: service, account: seatID, allowInteraction: allowInteraction) else { return nil }
         return try? JSONDecoder().decode(SeatSecret.self, from: data)
     }
 

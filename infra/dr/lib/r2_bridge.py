@@ -111,7 +111,10 @@ def digest(path):
 
 
 def cloud_state(command, path, timeout="3600"):
-    run([ROOT / "macos/dr-icloud-state", command, path, timeout])
+    result = subprocess.run([ROOT / "macos/dr-icloud-state", command, path, timeout], capture_output=True)
+    if result.returncode:
+        detail = result.stderr.decode(errors="replace").strip()[-1500:]
+        raise RuntimeError(f"iCloud {command} failed for {path} (exit {result.returncode}): {detail}")
 
 
 def inventory(catalog):
@@ -343,17 +346,21 @@ def main():
                 raise ValueError("DR_ICLOUD_ROOT must be inside iCloud Drive")
             private_file(os.environ["DR_COMPLETION_SIGNING_KEY"])
             receipts = []
+            failures = []
             for profile in profiles:
-                catalog = Catalog(profile, temporary, no_cache=False).load()
-                select({profile: catalog})
                 try:
+                    catalog = Catalog(profile, temporary, no_cache=False).load()
+                    select({profile: catalog})
                     receipts.append(mirror(catalog, root, state_root, args.workers))
                 except Exception as error:
-                    state_path = safe_path(state_root / f"{catalog.host}.json")
+                    state_path = safe_path(state_root / f"{HOSTS[profile]}.json")
                     state = json.loads(state_path.read_text()) if state_path.exists() else {}
                     state.update(phase="failed", error=str(error))
                     json_write(state_path, state)
-                    raise
+                    failures.append(f"{profile}: {error}")
+                    log(f"{profile}: {error}; continuing with remaining profiles")
+            if failures:
+                raise RuntimeError("; ".join(failures))
             if args.profile == "all":
                 if any((dt.datetime.now(UTC) - dt.datetime.fromisoformat(r["capturedAt"])).total_seconds() > 36 * 3600 for r in receipts):
                     raise ValueError("iCloud data was copied but the source capture is overdue; heartbeat withheld")
