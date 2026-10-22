@@ -151,7 +151,8 @@ with open(path, "wb") as stream:
     plistlib.dump({"CFBundleIdentifier": "com.denizlg24.dr-backups", "CFBundleName": "DR Backups",
                   "CFBundleExecutable": "dr-menubar", "CFBundlePackageType": "APPL",
                   "CFBundleVersion": "1", "LSUIElement": True, "DRLaunchArguments": arguments,
-                  "NSDocumentsFolderUsageDescription": "Copy encrypted recovery snapshots to iCloud Drive."}, stream)
+                  "NSDocumentsFolderUsageDescription": "Copy encrypted recovery snapshots to iCloud Drive.",
+                  "NSFileProviderDomainUsageDescription": "Verify and copy encrypted server backups in iCloud Drive."}, stream)
 PY
 codesign --force --sign "$signing_identity" --identifier com.denizlg24.dr-backups "$bundle"
 codesign --verify --strict "$bundle"
