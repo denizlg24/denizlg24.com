@@ -72,12 +72,12 @@ export default function TabsLayout() {
         />
         <NativeTabs.Trigger.Label>Progress</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="more">
+      <NativeTabs.Trigger name="kitchen">
         <NativeTabs.Trigger.Icon
-          src={tabGlyphs.circleEllipsis}
+          src={tabGlyphs.chefHat}
           renderingMode="template"
         />
-        <NativeTabs.Trigger.Label>More</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Kitchen</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );

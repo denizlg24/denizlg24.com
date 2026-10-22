@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { authClient } from "@/lib/auth-client";
 import { API_URL } from "@/lib/config";
 import { Skeleton, Text } from "@/ui";
@@ -11,11 +11,14 @@ export function RecipePhoto({
   label,
   thumbnail = false,
   size = 52,
+  style,
 }: {
   url: string;
   label: string;
   thumbnail?: boolean;
   size?: number;
+  /** Overrides the full-size frame: a card's aspect ratio or corners. */
+  style?: StyleProp<ViewStyle>;
 }) {
   const [source, setSource] = useState<{
     uri: string;
@@ -47,7 +50,9 @@ export function RecipePhoto({
   return (
     <View
       style={
-        thumbnail ? [styles.thumb, { width: size, height: size }] : styles.photo
+        thumbnail
+          ? [styles.thumb, { width: size, height: size }]
+          : [styles.photo, style]
       }
     >
       {settled !== url ? (

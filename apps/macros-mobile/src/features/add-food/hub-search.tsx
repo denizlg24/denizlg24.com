@@ -22,7 +22,9 @@ import {
   favoriteQuick,
   historyQuick,
   type QuickItem,
+  recipeQuick,
   searchQuick,
+  withPantryMark,
 } from "./search-rows";
 
 const PICKS = 5;
@@ -194,8 +196,21 @@ export function SearchBody({
   const database = results.filter((item) => !seen.has(item.id));
   const common = database.filter((item) => !item.brand).map(searchQuick);
   const branded = database.filter((item) => item.brand).map(searchQuick);
+  const recipes = (
+    !search.isPlaceholderData
+      ? (search.data?.recipes ?? [])
+      : awaiting
+        ? (search.data?.recipes ?? []).filter((recipe) =>
+            matches(recipe, needle),
+          )
+        : []
+  ).map(recipeQuick);
+  const stocked = new Set(search.data?.pantryItemIds ?? []);
+  const marked = (rows: QuickItem[]) =>
+    rows.map((quick) => withPantryMark(quick, stocked));
   const settled = search.data !== undefined && !search.isPlaceholderData;
   const none =
+    recipes.length === 0 &&
     fromHistory.length === 0 &&
     yourFoods.length === 0 &&
     common.length === 0 &&
@@ -232,29 +247,36 @@ export function SearchBody({
       ) : null}
 
       <QuickSection
+        title="Recipes"
+        items={recipes}
+        cap={MATCHES_CAP}
+        energyUnit={energyUnit}
+        handlers={handlers}
+      />
+      <QuickSection
         title="From History"
-        items={fromHistory}
+        items={marked(fromHistory)}
         cap={MATCHES_CAP}
         energyUnit={energyUnit}
         handlers={handlers}
       />
       <QuickSection
         title="Your Foods"
-        items={yourFoods}
+        items={marked(yourFoods)}
         cap={MATCHES_CAP}
         energyUnit={energyUnit}
         handlers={handlers}
       />
       <QuickSection
         title="Common"
-        items={common}
+        items={marked(common)}
         cap={MATCHES_CAP}
         energyUnit={energyUnit}
         handlers={handlers}
       />
       <QuickSection
         title="Branded"
-        items={branded}
+        items={marked(branded)}
         cap={MATCHES_CAP}
         energyUnit={energyUnit}
         handlers={handlers}

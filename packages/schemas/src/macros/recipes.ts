@@ -140,6 +140,8 @@ export const macrosRecipeSummarySchema = z.object({
   fatPerServing: z.number(),
   ingredientCount: z.number(),
   createdAt: z.string(),
+  /** Ingredients short in the pantry for one serving. */
+  pantry: z.object({ ingredients: z.number(), missing: z.number() }).optional(),
 });
 
 export const macrosRecipesResponseSchema = z.object({
@@ -164,6 +166,13 @@ export const macrosRecipeIngredientDetailSchema = z.object({
   foodName: z.string(),
   brand: z.string().nullable(),
   servings: z.number(),
+  /** Local food id, for the shopping list; null for a nested recipe. */
+  foodId: z.uuid().nullable().optional(),
+  /**
+   * Stock on hand in this ingredient's own serving basis (`servings` is in
+   * the same basis, for the whole recipe); null when it is not stocked.
+   */
+  pantryServings: z.number().nullable().optional(),
   caloriesContribution: z.number(),
   proteinContribution: z.number(),
   carbsContribution: z.number(),

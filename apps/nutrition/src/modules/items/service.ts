@@ -168,7 +168,10 @@ export class ItemsService {
 
   async getNutrition(id: string) {
     await this.getById(id);
-    const nutrition = await this.repository.findNutritionByItemId(id);
+    const [nutrition, portions] = await Promise.all([
+      this.repository.findNutritionByItemId(id),
+      this.repository.findPortions(id),
+    ]);
 
     if (!nutrition) {
       throw new ApiError(
@@ -178,7 +181,7 @@ export class ItemsService {
       );
     }
 
-    return nutrition;
+    return { ...nutrition, portions };
   }
 
   async create(input: CreateItemInput) {

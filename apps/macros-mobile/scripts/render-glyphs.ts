@@ -23,6 +23,7 @@ const TOOLBAR = [
   "calendar",
   "chart-column",
   "check",
+  "chef-hat",
   "circle-check",
   "circle-ellipsis",
   "circle-user",
@@ -33,6 +34,7 @@ const TOOLBAR = [
   "list-x",
   "log-out",
   "notebook-pen",
+  "package-plus",
   "pencil",
   "plus",
   "scan-barcode",
@@ -53,7 +55,7 @@ const TABS = [
   "apple",
   "circle-plus",
   "chart-line",
-  "circle-ellipsis",
+  "chef-hat",
 ] as const;
 
 const TOOLBAR_POINTS = 22;

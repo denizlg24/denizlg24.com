@@ -13,6 +13,7 @@ import {
   getServingWeightGrams,
   normalizeFoodUnit,
 } from "./display";
+import { householdServings } from "./portions";
 
 /** A serving size a food declares: label plus the measure it stands for. */
 export interface DeclaredServing {
@@ -69,7 +70,8 @@ const servingSizesSchema = z.array(macrosCreateFoodServingSizeSchema);
 /**
  * A custom food's snapshot carries every serving it was created with (the
  * snapshot schema passes unknown keys through); a source food declares the
- * product's own serving separately from the per-100 g basis.
+ * product's own serving separately from the per-100 g basis, and a
+ * composition-table food its household measures.
  */
 export function foodServingFrom(
   nutrition: MacrosExternalFoodNutrition,
@@ -90,6 +92,13 @@ export function foodServingFrom(
       label: nutrition.packageServingLabel,
       quantity: packageQuantity,
       unit: nutrition.packageServingUnit,
+    });
+  }
+  for (const serving of householdServings(nutrition.portions ?? [])) {
+    alternates.push({
+      label: serving.label,
+      quantity: serving.grams,
+      unit: "g",
     });
   }
   return {

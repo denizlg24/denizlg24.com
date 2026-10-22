@@ -590,6 +590,36 @@ export const recipeSnapshotNutrients = pgTable(
   (table) => [primaryKey({ columns: [table.snapshotId, table.nutrientKey] })],
 );
 
+/**
+ * The food ingredients a recipe snapshot was priced with, per one recipe
+ * serving. Ingredients are edited in place, so this is what lets a logged
+ * recipe draw down pantry stock the same way however later edits go.
+ */
+export const recipeSnapshotIngredients = pgTable(
+  "recipe_snapshot_ingredients",
+  {
+    snapshotId: uuid("snapshotId")
+      .notNull()
+      .references(() => recipeNutritionSnapshots.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    foodId: uuid("foodId")
+      .notNull()
+      .references(() => foods.id, { onDelete: "cascade" }),
+    foodSnapshotId: uuid("foodSnapshotId")
+      .notNull()
+      .references(() => foodNutritionSnapshots.id, { onDelete: "cascade" }),
+    /** Servings of the food snapshot in one serving of the recipe. */
+    servingsPerServing: numeric("servingsPerServing", {
+      precision: 14,
+      scale: 6,
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.snapshotId, table.position] }),
+    index("recipe_snapshot_ingredients_food_idx").on(table.foodId),
+  ],
+);
+
 export const foodFavorites = pgTable(
   "food_favorites",
   {
@@ -1235,8 +1265,9 @@ export const distributionRequests = pgTable(
   ],
 );
 
-// Stock is a checkpoint. Logged food created after it consumes stock; edits
-// and deletions are reflected by the same query, including offline replays.
+// Stock is a checkpoint. Logged food and recipes created after it consume
+// stock; edits and deletions are reflected on every read, including offline
+// replays.
 export const pantryItems = pgTable(
   "pantry_items",
   {
@@ -1254,6 +1285,10 @@ export const pantryItems = pgTable(
       scale: 4,
     }).notNull(),
     servingUnit: text("servingUnit").notNull(),
+    // The measure stock is counted in ("head, large"), as servings of the
+    // basis above per one of it. Null counts in the basis serving itself.
+    unitLabel: text("unitLabel"),
+    servingsPerUnit: numeric("servingsPerUnit", { precision: 14, scale: 6 }),
     stockedAt: timestamp("stockedAt", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1265,6 +1300,10 @@ export const pantryItems = pgTable(
     check(
       "pantry_items_serving_quantity_check",
       sql`${table.servingQuantity} > 0`,
+    ),
+    check(
+      "pantry_items_unit_check",
+      sql`(${table.unitLabel} is null) = (${table.servingsPerUnit} is null) and (${table.servingsPerUnit} is null or ${table.servingsPerUnit} > 0)`,
     ),
   ],
 );
@@ -1501,7 +1540,26 @@ export const recipeNutritionSnapshotRelations = relations(
       references: [recipes.id],
     }),
     nutrients: many(recipeSnapshotNutrients),
+    ingredients: many(recipeSnapshotIngredients),
     logEntries: many(foodLogEntries),
+  }),
+);
+
+export const recipeSnapshotIngredientRelations = relations(
+  recipeSnapshotIngredients,
+  ({ one }) => ({
+    snapshot: one(recipeNutritionSnapshots, {
+      fields: [recipeSnapshotIngredients.snapshotId],
+      references: [recipeNutritionSnapshots.id],
+    }),
+    food: one(foods, {
+      fields: [recipeSnapshotIngredients.foodId],
+      references: [foods.id],
+    }),
+    foodSnapshot: one(foodNutritionSnapshots, {
+      fields: [recipeSnapshotIngredients.foodSnapshotId],
+      references: [foodNutritionSnapshots.id],
+    }),
   }),
 );
 
@@ -1771,6 +1829,7 @@ export const schema = {
   recipeIngredients,
   recipeNutritionSnapshots,
   recipeSnapshotNutrients,
+  recipeSnapshotIngredients,
   foodFavorites,
   foodServingPreferences,
   mealTemplates,
@@ -1816,6 +1875,7 @@ export const schema = {
   recipeIngredientRelations,
   recipeNutritionSnapshotRelations,
   recipeSnapshotNutrientRelations,
+  recipeSnapshotIngredientRelations,
   foodLogEntryRelations,
   foodLogEntryNutrientRelations,
   dailyNutritionSummaryRelations,

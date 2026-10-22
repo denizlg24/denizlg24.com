@@ -6,6 +6,8 @@ export const macrosShoppingListItemSchema = z.object({
   label: z.string(),
   note: z.string().nullable(),
   foodId: z.uuid().nullable(),
+  /** The search id to stock or log the linked food by. */
+  sourceItemId: z.uuid().nullable().optional(),
   iconKey: z.string().nullable(),
   checked: z.boolean(),
   createdAt: z.string(),
@@ -25,6 +27,8 @@ export const macrosCreateShoppingListItemBodySchema = z.object({
     .optional()
     .transform((value) => value || null),
   foodId: z.uuid().optional(),
+  /** A search item to link; resolved to its local food. */
+  sourceItemId: z.uuid().optional(),
   iconKey: z.string().trim().min(1).max(128).optional(),
 });
 

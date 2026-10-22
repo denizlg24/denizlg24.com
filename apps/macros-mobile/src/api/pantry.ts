@@ -1,11 +1,21 @@
+import { stockStatus } from "@repo/macros-core/pantry";
 import type {
+  MacrosPantryItem,
   MacrosPantryResponse,
   MacrosSetPantryItemBody,
 } from "@repo/schemas/macros";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api, apiVoid } from "@/lib/api";
+import { queryKeys } from "./keys";
 
 export const pantryKey = ["pantry"] as const;
+const setKey = ["pantry", "set"] as const;
+
 export function usePantry() {
   return useQuery({
     queryKey: pantryKey,
@@ -13,20 +23,74 @@ export function usePantry() {
       api<MacrosPantryResponse>("/api/pantry", { signal }),
   });
 }
+
+/** Stock decides search order and which recipes can be cooked. */
+function invalidateDependents(client: QueryClient) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: ["foods", "search"] }),
+    client.invalidateQueries({ queryKey: queryKeys.recipes }),
+  ]);
+}
+
+/**
+ * The stock a set leaves, for a row already in the pantry. A body with a
+ * `basis` needs the server's conversion, so it waits for the answer instead.
+ */
+function applySet(
+  item: MacrosPantryItem,
+  body: MacrosSetPantryItemBody,
+): MacrosPantryItem {
+  const unit = body.unit ?? item.unit;
+  const servingsPerUnit = unit?.servingsPerUnit ?? 1;
+  const quantity = body.unit
+    ? body.quantity * body.unit.servingsPerUnit
+    : body.quantity;
+  return {
+    ...item,
+    quantity,
+    unit,
+    unitQuantity: quantity / servingsPerUnit,
+    status: stockStatus(quantity, servingsPerUnit),
+  };
+}
+
+/**
+ * Online only, never queued: the count is absolute, so one replayed late
+ * would erase whatever was eaten in between. A stepper tap shows at once;
+ * only the last set in flight writes the server's answer back, so an earlier
+ * response landing late cannot step the row backwards.
+ */
 export function useSetPantryItem() {
   const client = useQueryClient();
   return useMutation({
-    mutationKey: ["pantry", "set"],
+    mutationKey: setKey,
     networkMode: "always",
     retry: false,
     mutationFn: (body: MacrosSetPantryItemBody) =>
       api<MacrosPantryResponse>("/api/pantry", { method: "PUT", body }),
-    onSuccess: (data) => {
-      client.setQueryData(pantryKey, data);
-      void client.invalidateQueries({ queryKey: ["foods", "search"] });
+    onMutate: async (body) => {
+      const previous = client.getQueryData<MacrosPantryResponse>(pantryKey);
+      if (!previous || body.basis) return { previous: undefined };
+      await client.cancelQueries({ queryKey: pantryKey });
+      client.setQueryData<MacrosPantryResponse>(pantryKey, {
+        ...previous,
+        items: previous.items.map((item) =>
+          item.item.id === body.sourceItemId ? applySet(item, body) : item,
+        ),
+      });
+      return { previous };
     },
+    onError: (_error, _body, context) => {
+      if (context?.previous) client.setQueryData(pantryKey, context.previous);
+    },
+    onSuccess: (data) => {
+      if (client.isMutating({ mutationKey: setKey }) === 1)
+        client.setQueryData(pantryKey, data);
+    },
+    onSettled: () => invalidateDependents(client),
   });
 }
+
 export function useRemovePantryItem() {
   const client = useQueryClient();
   return useMutation({
@@ -38,7 +102,7 @@ export function useRemovePantryItem() {
     onSuccess: () =>
       Promise.all([
         client.invalidateQueries({ queryKey: pantryKey }),
-        client.invalidateQueries({ queryKey: ["foods", "search"] }),
+        invalidateDependents(client),
       ]),
   });
 }

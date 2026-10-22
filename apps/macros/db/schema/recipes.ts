@@ -5,6 +5,8 @@ export {
   recipeNutritionSnapshotRelations,
   recipeNutritionSnapshots,
   recipeRelations,
+  recipeSnapshotIngredientRelations,
+  recipeSnapshotIngredients,
   recipeSnapshotNutrientRelations,
   recipeSnapshotNutrients,
   recipeSourceEnum,

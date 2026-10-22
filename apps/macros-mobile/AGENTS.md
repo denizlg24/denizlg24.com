@@ -24,7 +24,7 @@ verification and password-reset emails open.
 - `react-native-svg` for charts that need more than Swift Charts' single series.
 - `expo-camera` (barcodes, label photos), `expo-image-picker`,
   `expo-image-manipulator`, `expo-haptics`, `expo-image`, `expo-sharing`,
-  `expo-file-system`, `expo-crypto`.
+  `expo-file-system`, `expo-crypto`, `expo-keep-awake` (cook mode).
 - `lucide-react-native` for icons, the web app's set. `@resvg/resvg-js`
   (dev only) renders them to PNGs for native chrome.
 
@@ -50,7 +50,11 @@ src/app/                 routes only — thin files that render a feature screen
   (auth)/                sign in, sign up, verify email, forgot password
   onboarding/            the registration wizard
   (app)/_layout.tsx      stack: the tabs plus every modal/sheet route
-  (app)/(tabs)/          NativeTabs: (today), log, progress, more, and the "+"
+  (app)/(tabs)/          NativeTabs: (today), log, progress, kitchen, and the "+"
+  (app)/(tabs)/kitchen/  Kitchen: Recipes | Pantry | List, My foods, recipes
+  (app)/more/            You (Body, Habits, Settings): pages pushed over the
+                         tabs from Today's person button; URLs stay /more/...
+  (app)/cook/[id].tsx    cook mode, on the root stack beside /recipe-log/[id]
   (app)/add-food/        the add-food hub: its own stack inside a modal
 src/features/<feature>/  screens, feature components, feature-only hooks
 src/features/<feature>/routes.ts   the feature's modal routes (see below)
@@ -310,14 +314,57 @@ small differences are a `Platform.OS` check. The ones that exist:
 - Respect Dynamic Type: no fixed heights on text containers.
 - Icon-only buttons get an `accessibilityLabel`.
 
-## Pantry
+## Kitchen and pantry
 
-More > Pantry uses `src/api/pantry.ts` and the shared pantry wire schemas.
-Stock is measured in the food's stored servings. Set stock online; these writes
-are not queued for offline replay because a delayed absolute count would erase
-intervening consumption. `invalidateAfterLogging` refreshes pantry and food search
-alongside the log. When selecting a search match already in the pantry, edit its
-stored item so the serving label agrees with the retained serving basis.
+The Kitchen tab's root (`features/kitchen/kitchen-screen.tsx`) is one
+`PageHeader` and a segmented control over three segments: Recipes, Pantry and
+List. The segment is a module store (`kitchenSegment`), so it survives for
+the session and other screens open the Kitchen on a segment with
+`openKitchen`. The header's "+" menu adds a recipe, focuses the pantry
+search or the list's composer; the List's reorder mode replaces the whole
+root with `ShoppingReorder`, since SwiftUI's edit list cannot nest in a
+scroll view.
+
+Recipes are logged through one sheet only, the root `/recipe-log/[id]`
+(`features/add-food/recipe-log-screen.tsx`), from the detail, the grid's
+long press and cook mode. Cook mode is `/cook/[id]` on the root stack, not
+in the Kitchen's, so that sheet presents over it in the same stack.
+
+Pantry rows (`src/api/pantry.ts`, `@repo/schemas/macros` pantry) hold stock
+in servings of the food's stored basis (`servingQuantity` / `servingUnit`),
+optionally counted in a unit: `unit: { label, servingsPerUnit }` ("head,
+large" of a per-100 g food is 12.48), with `unitQuantity` the stock in that
+unit and `status` `in` / `low` (one unit or less) / `out`. `formatStock`
+(`features/kitchen/amounts.ts`) reads a row out — "3 heads, large", else the
+basis weight ("450 g"), else servings.
+
+- `PUT /api/pantry` sets an absolute amount. With `unit`, `quantity` is in
+  that unit; `basis` is the serving the unit was measured against, which the
+  server converts into the row's own basis. The `pantry-item` sheet builds
+  units from the food's serving options (household measures included) and
+  sends both; a row's stepper re-sends the row's unit without a basis,
+  because its `servingsPerUnit` is already in the row's basis. Without a
+  unit, `quantity` is servings and the stored unit stays.
+- Pantry writes are online only and never queued: a delayed absolute count
+  would erase whatever was eaten in between. Offline, the notice shows and
+  the stepper, Save and Remove are disabled.
+- The stepper is optimistic; only the last set in flight writes the
+  server's answer back, and a stepped row keeps its section until the
+  segment is shown again.
+- Logging uses stock up on the server: a food directly, a recipe per
+  ingredient scaled by servings. `invalidateAfterLogging` refreshes the
+  pantry, recipes (their coverage) and food search; pantry writes refresh
+  search and recipes.
+- Recipe summaries carry `pantry: { ingredients, missing }` for one
+  serving; ready to cook is `ingredients > 0 && missing === 0`. Detail
+  ingredients carry `pantryServings` in the ingredient's own basis, and
+  `ingredientPantryMark` compares it with the scaled need. Nothing
+  pantry-related shows while the pantry is empty.
+- Food search returns `pantryItemIds` (the hub marks those rows "In
+  pantry") and matching `recipes`, listed above the foods.
+- Shopping lines are created with `sourceItemId` and the server links the
+  local food; a checked linked line offers Add to pantry, which opens the
+  sheet at one more unit than is on hand.
 
 ## Activity
 

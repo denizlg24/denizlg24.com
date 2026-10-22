@@ -79,6 +79,10 @@ export const macrosExternalFoodNutritionSchema = z
     packageServingLabel: z.string().nullable().optional(),
     packageServingQnty: numericValueSchema.nullable().optional(),
     packageServingUnit: z.string().nullable().optional(),
+    // Household measures the composition table publishes ("1 head, large").
+    portions: z
+      .array(z.object({ label: z.string(), grams: numericValueSchema }))
+      .optional(),
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
   })
@@ -216,10 +220,26 @@ export const macrosFoodHistoryItemSchema = macrosFoodSearchItemSchema.extend({
   lastEnteredUnit: z.string().nullable(),
 });
 
+/** A recipe whose name matches the query, logged as a recipe, not a food. */
+export const macrosFoodSearchRecipeSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  iconKey: z.string().nullable(),
+  coverImageUrl: z.string().nullable(),
+  servingLabel: z.string(),
+  caloriesPerServing: z.number(),
+  proteinPerServing: z.number(),
+  carbsPerServing: z.number(),
+  fatPerServing: z.number(),
+});
+
 export const macrosFoodSearchResponseSchema = z.object({
   items: z.array(macrosFoodSearchItemSchema),
   fetchedAt: z.string(),
   sourceUnavailable: z.boolean().default(false),
+  /** Item ids with stock on hand, so a row can say so. */
+  pantryItemIds: z.array(z.uuid()).optional(),
+  recipes: z.array(macrosFoodSearchRecipeSchema).optional(),
 });
 
 export const macrosFoodHistoryResponseSchema = z.object({
@@ -384,6 +404,9 @@ export const macrosBarcodeParamsSchema = z.object({
 
 export type MacrosFoodSearchParams = z.infer<
   typeof macrosFoodSearchParamsSchema
+>;
+export type MacrosFoodSearchRecipe = z.infer<
+  typeof macrosFoodSearchRecipeSchema
 >;
 export type MacrosExternalFoodSummary = z.infer<
   typeof macrosExternalFoodSummarySchema

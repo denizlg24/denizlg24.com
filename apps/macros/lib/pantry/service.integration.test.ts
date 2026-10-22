@@ -29,6 +29,9 @@ test.skipIf(!testUrl)(
       "@/lib/foods/entry-acceleration"
     );
     const { deleteFoodLogEntry } = await import("@/lib/foods/delete-entry");
+    const { createRecipeFromFoods, logRecipe } = await import(
+      "@/lib/recipes/service"
+    );
 
     const owner = `pantry-test-${crypto.randomUUID()}`;
     const other = `pantry-test-${crypto.randomUUID()}`;
@@ -149,6 +152,39 @@ test.skipIf(!testUrl)(
       assert.equal(await balance(), 0);
       await deleteFoodLogEntry(owner, excessive.entryId);
       assert.equal(await balance(), 8);
+      // Stock counted in a measure, drawn down by a recipe per serving.
+      await setPantryItem(owner, {
+        sourceItemId: food.id,
+        quantity: 4,
+        unit: { label: "cup", servingsPerUnit: 0.9 },
+        basis: { servingQuantity: 100, servingUnit: "g" },
+      });
+      const counted = (await getPantry(owner)).find(
+        (x) => x.foodId === food.id,
+      )!;
+      assert.equal(counted.quantity, 3.6);
+      assert.equal(counted.unitQuantity, 4);
+      assert.equal(counted.status, "in");
+      const porridge = await createRecipeFromFoods(owner, {
+        name: "Porridge",
+        totalWeightGrams: 180,
+        servings: 2,
+        ingredients: [{ sourceItemId: food.id, servingsConsumed: 1.8 }],
+      });
+      await logRecipe(owner, { recipeId: porridge.id, servingsConsumed: 1 });
+      const afterRecipe = (await getPantry(owner)).find(
+        (x) => x.foodId === food.id,
+      )!;
+      assert.ok(Math.abs(afterRecipe.quantity - 2.7) < 1e-9);
+      assert.ok(Math.abs((afterRecipe.unitQuantity ?? 0) - 3) < 1e-9);
+      await setPantryItem(owner, {
+        sourceItemId: food.id,
+        quantity: 1,
+        unit: { label: "cup", servingsPerUnit: 0.9 },
+      });
+      const low = (await getPantry(owner)).find((x) => x.foodId === food.id)!;
+      assert.equal(low.unitQuantity, 1);
+      assert.equal(low.status, "low");
       const item = (await getPantry(owner)).find((x) => x.foodId === food.id)!;
       assert.equal(await removePantryItem(other, item.id), false);
       assert.equal(await removePantryItem(owner, item.id), true);
@@ -160,6 +196,8 @@ test.skipIf(!testUrl)(
       await db
         .delete(foodLogEntries)
         .where(inArray(foodLogEntries.userId, [owner, other]));
+      const { recipes } = await import("@/db/schema");
+      await db.delete(recipes).where(inArray(recipes.userId, [owner, other]));
       await db.delete(user).where(inArray(user.id, [owner, other]));
     }
   },

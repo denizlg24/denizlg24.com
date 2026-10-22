@@ -138,7 +138,21 @@ export function favoriteQuick(
   };
 }
 
-export function recipeQuick(recipe: MacrosRecipeSummary): QuickItem {
+/** A recipe from the list or from food search, logged by the serving. */
+export type QuickRecipe = Pick<
+  MacrosRecipeSummary,
+  | "id"
+  | "name"
+  | "iconKey"
+  | "coverImageUrl"
+  | "servingLabel"
+  | "caloriesPerServing"
+  | "proteinPerServing"
+  | "carbsPerServing"
+  | "fatPerServing"
+>;
+
+export function recipeQuick(recipe: QuickRecipe): QuickItem {
   const macros = macrosFromPerServing(recipe, 1);
   return {
     kind: "recipe",
@@ -159,6 +173,15 @@ export function recipeQuick(recipe: MacrosRecipeSummary): QuickItem {
       macros,
     },
   };
+}
+
+/** Marks a food row whose food has stock on hand. */
+export function withPantryMark(
+  quick: QuickItem,
+  stocked: ReadonlySet<string>,
+): QuickItem {
+  if (quick.kind !== "food" || !stocked.has(quick.sourceItemId)) return quick;
+  return { ...quick, row: { ...quick.row, inPantry: true } };
 }
 
 export function templateRow(template: MacrosMealTemplateListItem): FoodRowData {
