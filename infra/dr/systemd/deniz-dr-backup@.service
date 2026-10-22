@@ -3,6 +3,8 @@ Description=Deniz disaster-recovery backup (%i)
 After=network-online.target docker.service
 Wants=network-online.target
 ConditionPathExists=/etc/deniz-dr/%i.env
+StartLimitIntervalSec=6h
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -34,3 +36,5 @@ CacheDirectory=deniz-dr-restic
 CacheDirectoryMode=0700
 UMask=0077
 TimeoutStartSec=5h
+Restart=on-failure
+RestartSec=15min
