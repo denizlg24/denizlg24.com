@@ -25,7 +25,7 @@ import {
 } from "@/ui";
 import { glyphs } from "@/ui/glyphs";
 import { SegmentedControl } from "@/ui/segmented-control";
-import { PantrySegment } from "./pantry/pantry-segment";
+import { PantrySegment, pantryScanHref } from "./pantry/pantry-segment";
 import { RecipesSegment } from "./recipes/recipes-segment";
 import {
   KITCHEN_SEGMENTS,
@@ -48,6 +48,11 @@ const ADD_MENU: MenuAction[] = [
     id: "stock",
     title: "Stock food",
     image: menuIcon("refrigerator", glyphs["package-plus"]),
+  },
+  {
+    id: "scan",
+    title: "Scan to stock",
+    image: menuIcon("barcode.viewfinder", glyphs["scan-barcode"]),
   },
   {
     id: "list",
@@ -105,7 +110,10 @@ export function KitchenScreen() {
   function add(choice: string) {
     if (choice === "recipe") router.push("/kitchen/recipe-editor");
     else if (choice === "stock") openAndFocus("pantry");
-    else if (choice === "list") openAndFocus("list");
+    else if (choice === "scan") {
+      kitchenSegment.set("pantry");
+      router.push(pantryScanHref);
+    } else if (choice === "list") openAndFocus("list");
   }
 
   if (reordering) {

@@ -53,10 +53,11 @@ import {
   scaledIngredientAmount,
   servingsLabel,
 } from "../amounts";
+import { storeRecipeHref } from "../pantry/store-recipe-sheet";
 import { openKitchen } from "../segment";
 import { NutrientRows } from "./nutrient-rows";
 import { RecipeBlocks } from "./recipe-blocks";
-import { RecipeArt } from "./recipe-card";
+import { ingredientTitle, RecipeArt } from "./recipe-card";
 import { useSavedRecipeToken } from "./recipe-draft";
 
 function plural(count: number, one: string, many: string) {
@@ -67,7 +68,7 @@ function shoppingLine(
   ingredient: MacrosRecipeIngredientDetail,
 ): AddShoppingListItemInput {
   return {
-    label: ingredient.foodName.slice(0, 160),
+    label: ingredientTitle(ingredient).slice(0, 160),
     note: ingredient.brand ? ingredient.brand.slice(0, 80) : undefined,
     foodId: ingredient.foodId ?? undefined,
     sourceItemId: ingredient.sourceItemId ?? undefined,
@@ -167,6 +168,9 @@ function RecipeDetailBody({
 
   const factor = recipe.servings > 0 ? servings / recipe.servings : 1;
   const pantryInUse = (pantry.data?.items.length ?? 0) > 0;
+  const stored =
+    pantry.data?.recipes?.find((entry) => entry.recipeId === recipe.id)
+      ?.quantity ?? 0;
   const marks = recipe.ingredients.map((ingredient) =>
     pantryInUse ? ingredientPantryMark(ingredient, factor) : null,
   );
@@ -278,6 +282,13 @@ function RecipeDetailBody({
             Add Ingredients to Shopping List
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction
+            icon={glyphs["package-plus"]}
+            iconRenderingMode="template"
+            onPress={() => router.push(storeRecipeHref(recipe))}
+          >
+            Store in Pantry
+          </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.MenuAction
             icon={glyphs.trash}
             iconRenderingMode="template"
             destructive
@@ -310,6 +321,11 @@ function RecipeDetailBody({
             <Text variant="footnote" tone="secondary">
               {meta}
             </Text>
+            {stored > 0 ? (
+              <Text variant="footnote" weight="semibold">
+                {servingsLabel(stored)} stored in your pantry
+              </Text>
+            ) : null}
           </Flash>
           {recipe.publicUrl ? (
             <View style={styles.share}>
@@ -472,7 +488,7 @@ function IngredientRow({
         style={styles.ingredient}
         accessible
         accessibilityLabel={[
-          ingredient.foodName,
+          ingredientTitle(ingredient),
           amount,
           mark === "covered"
             ? "in your pantry"
@@ -490,12 +506,12 @@ function IngredientRow({
         />
         <View style={styles.ingredientText}>
           <Text variant="body" numberOfLines={2}>
-            {ingredient.foodName}
+            {ingredientTitle(ingredient)}
           </Text>
           <Text variant="footnote" tone="secondary" numberOfLines={1}>
             {[
               amount,
-              ingredient.brand,
+              ingredient.displayName ? ingredient.foodName : ingredient.brand,
               `${formatEnergy(calories, energyUnit)} ${energyLabel(energyUnit)}`,
             ]
               .filter(Boolean)

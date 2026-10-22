@@ -92,7 +92,9 @@ export function LabelScreen() {
   const barcode = readParam(params.barcode);
   const forward: Record<string, string> = {
     ...(barcode ? { barcode } : {}),
-    ...forwardedTimeParams(params, today),
+    ...(readParam(params.for) === "pantry"
+      ? { for: "pantry" }
+      : forwardedTimeParams(params, today)),
   };
 
   const regionWidth = Math.min(width - spacing.xxl * 2, 380);

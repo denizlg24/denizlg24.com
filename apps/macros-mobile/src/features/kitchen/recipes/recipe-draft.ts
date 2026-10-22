@@ -1,15 +1,68 @@
-import type { MacrosFoodSearchItem } from "@repo/schemas/macros";
+import type {
+  MacrosFoodSearchItem,
+  MacrosRecipeIngredientDetail,
+} from "@repo/schemas/macros";
 import { useSyncExternalStore } from "react";
 
 export interface DraftIngredient {
   key: string;
+  /** Set for a saved row, which keeps the nutrition it was saved with. */
+  ingredientId?: string;
   food: MacrosFoodSearchItem;
   /** Raw text of the servings field; parsed on save. */
   servings: string;
+  /** What the recipe calls the food; empty shows its own name. */
+  displayName: string;
 }
 
 /**
- * The ingredient list of the recipe being created. It lives outside the
+ * A saved row as an editable one. Its food carries the snapshot's nutrition
+ * per serving, so totals follow an amount change exactly as the server will
+ * price it.
+ */
+export function draftFromSaved(
+  row: MacrosRecipeIngredientDetail,
+  key: string,
+): DraftIngredient {
+  const per = (contribution: number) =>
+    row.servings > 0 ? contribution / row.servings : 0;
+  return {
+    key,
+    ingredientId: row.id,
+    food: {
+      id: row.sourceItemId ?? row.id,
+      barcode: null,
+      name: row.foodName,
+      brand: row.brand,
+      iconKey: row.iconKey ?? "other-001",
+      servingLabel: null,
+      caloriesPerServing: per(row.caloriesContribution),
+      proteinPerServing: per(row.proteinContribution),
+      carbsPerServing: per(row.carbsContribution),
+      fatPerServing: per(row.fatContribution),
+      sourceUpdatedAt: null,
+      rank: null,
+      score: null,
+      isUserFood: false,
+    },
+    servings: String(Number(row.servings.toFixed(4))),
+    displayName: row.displayName ?? "",
+  };
+}
+
+/** Changes when anything a save would send changes. */
+export function draftFingerprint(rows: readonly DraftIngredient[]): string {
+  return JSON.stringify(
+    rows.map((row) => [
+      row.ingredientId ?? row.food.id,
+      row.servings,
+      row.displayName.trim(),
+    ]),
+  );
+}
+
+/**
+ * The ingredient list of the recipe being written. It lives outside the
  * editor because the food picker is its own sheet and adds to it directly.
  */
 let ingredients: readonly DraftIngredient[] = [];
@@ -33,8 +86,31 @@ export const recipeDraft = {
     sequence += 1;
     set([
       ...ingredients,
-      { key: `ingredient-${sequence}`, food, servings: String(servings) },
+      {
+        key: `ingredient-${sequence}`,
+        food,
+        servings: String(servings),
+        displayName: "",
+      },
     ]);
+  },
+  /** Loads a saved recipe's rows; returns what was loaded. */
+  hydrate(rows: readonly MacrosRecipeIngredientDetail[]) {
+    const next = rows.map((row) => {
+      sequence += 1;
+      return draftFromSaved(row, `ingredient-${sequence}`);
+    });
+    set(next);
+    return next;
+  },
+  rename(key: string, displayName: string) {
+    set(
+      ingredients.map((ingredient) =>
+        ingredient.key === key
+          ? { ...ingredient, displayName: displayName.trim().slice(0, 120) }
+          : ingredient,
+      ),
+    );
   },
   remove(key: string) {
     set(ingredients.filter((ingredient) => ingredient.key !== key));

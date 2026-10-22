@@ -1,4 +1,7 @@
-import type { MacrosRecipeSummary } from "@repo/schemas/macros";
+import type {
+  MacrosRecipeIngredientDetail,
+  MacrosRecipeSummary,
+} from "@repo/schemas/macros";
 import {
   Pressable,
   type StyleProp,
@@ -11,6 +14,7 @@ import { RecipePhoto } from "@/components/recipe-photo";
 import {
   type EnergyUnit,
   energyLabel,
+  formatDecimal,
   formatEnergy,
   formatGrams,
 } from "@/lib/format";
@@ -65,8 +69,19 @@ export function pantryLabel(missing: number): string {
   return missing === 0 ? "Ready" : `${missing} missing`;
 }
 
-function PantryChip({ missing }: { missing: number }) {
-  const ready = missing === 0;
+/** What the recipe calls an ingredient, else the food's own name. */
+export function ingredientTitle(
+  ingredient: Pick<MacrosRecipeIngredientDetail, "displayName" | "foodName">,
+): string {
+  return ingredient.displayName || ingredient.foodName;
+}
+
+/** Cooked servings waiting in the pantry: "2 stored". */
+export function storedLabel(servings: number): string {
+  return `${formatDecimal(servings)} stored`;
+}
+
+function PantryChip({ label, ready }: { label: string; ready: boolean }) {
   return (
     <View style={[styles.chip, ready && styles.chipReady]}>
       {ready ? (
@@ -77,7 +92,7 @@ function PantryChip({ missing }: { missing: number }) {
         weight="semibold"
         tone={ready ? "onTint" : "primary"}
       >
-        {pantryLabel(missing)}
+        {label}
       </Text>
     </View>
   );
@@ -120,6 +135,16 @@ export function RecipeCard({
     showPantry && recipe.pantry && recipe.pantry.ingredients > 0
       ? recipe.pantry
       : null;
+  const stored = recipe.storedServings ?? 0;
+  const chip =
+    stored > 0
+      ? { label: storedLabel(stored), ready: true }
+      : coverage
+        ? {
+            label: pantryLabel(coverage.missing),
+            ready: coverage.missing === 0,
+          }
+        : null;
   const macros = recipeMacroLine(recipe, energyUnit);
   return (
     <Flash token={flashToken} style={[styles.flash, { width }]}>
@@ -127,11 +152,7 @@ export function RecipeCard({
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityRole="button"
-        accessibilityLabel={[
-          recipe.name,
-          `${macros} per serving`,
-          coverage ? pantryLabel(coverage.missing) : null,
-        ]
+        accessibilityLabel={[recipe.name, `${macros} per serving`, chip?.label]
           .filter(Boolean)
           .join(", ")}
         accessibilityHint="Touch and hold for more"
@@ -147,7 +168,7 @@ export function RecipeCard({
             aspectRatio={feature ? 4 / 3 : 1}
             iconSize={feature ? 88 : 64}
           />
-          {coverage ? <PantryChip missing={coverage.missing} /> : null}
+          {chip ? <PantryChip label={chip.label} ready={chip.ready} /> : null}
         </View>
         <View style={styles.text}>
           <Text

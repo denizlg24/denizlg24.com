@@ -3,6 +3,7 @@ import { stockStatus } from "@repo/macros-core/pantry";
 import type {
   MacrosFoodSearchItem,
   MacrosPantryItem,
+  MacrosPantryRecipe,
   MacrosPantryStockStatus,
 } from "@repo/schemas/macros";
 import { useRouter } from "expo-router";
@@ -15,7 +16,12 @@ import {
   View,
 } from "react-native";
 import { useFoodSearch } from "@/api/foods";
-import { usePantry, useRemovePantryItem, useSetPantryItem } from "@/api/pantry";
+import {
+  usePantry,
+  useRemovePantryItem,
+  useSetPantryItem,
+  useSetPantryRecipe,
+} from "@/api/pantry";
 import { useAddShoppingListItem, useShoppingList } from "@/api/shopping-list";
 import { FoodIcon } from "@/components/food-icon";
 import { confirmDestructive } from "@/features/more/shared/action-sheet";
@@ -40,8 +46,14 @@ import {
   useSwipeAccessibility,
 } from "@/ui";
 import { Stepper } from "@/ui/stepper";
-import { formatStock } from "../amounts";
+import { formatStock, servingsLabel } from "../amounts";
 import { lastStocked, pantryItemHref } from "./pantry-item-sheet";
+
+/** The scanner, finishing on the pantry's amount sheet instead of the log. */
+export const pantryScanHref = {
+  pathname: "/scan",
+  params: { for: "pantry" },
+} as const;
 
 const GROUPS: { status: MacrosPantryStockStatus; title: string }[] = [
   { status: "low", title: "Running low" },
@@ -91,6 +103,7 @@ export function PantrySegment({
   const pantry = usePantry();
   const shopping = useShoppingList();
   const save = useSetPantryItem();
+  const saveRecipe = useSetPantryRecipe();
   const remove = useRemovePantryItem();
   const addToList = useAddShoppingListItem();
   const stocked = useStore(lastStocked);
@@ -109,9 +122,13 @@ export function PantrySegment({
   const search = useFoodSearch(debounced);
 
   const items = pantry.data?.items ?? [];
+  const storedRecipes = pantry.data?.recipes ?? [];
   const visible = needle
     ? items.filter((entry) => matches(entry.item, needle))
     : items;
+  const visibleRecipes = needle
+    ? storedRecipes.filter((entry) => matches(entry, needle))
+    : storedRecipes;
   // A stocked food the catalogue matches but the name filter missed still
   // shows, under the catalogue, rather than nowhere.
   const shownIds = new Set(visible.map((entry) => entry.item.id));
@@ -139,10 +156,22 @@ export function PantrySegment({
     );
   }
 
-  function removeItem(entry: MacrosPantryItem) {
+  function stepRecipe(entry: MacrosPantryRecipe, value: number) {
+    if (!online) return offline();
+    haptics.selection();
+    saveRecipe.mutate(
+      {
+        recipeId: entry.recipeId,
+        quantity: Math.min(9999, Math.max(0, value)),
+      },
+      { onError: showError },
+    );
+  }
+
+  function removeItem(entry: { id: string; name: string }) {
     if (!online) return offline();
     confirmDestructive({
-      title: `Remove ${entry.item.name}?`,
+      title: `Remove ${entry.name}?`,
       message: "Your food log stays as it is.",
       confirmLabel: "Remove",
       onConfirm: () =>
@@ -223,7 +252,19 @@ export function PantrySegment({
             >
               <Icon name="circle-x" size={18} color={colors.tertiaryLabel} />
             </Pressable>
-          ) : null}
+          ) : (
+            <Pressable
+              onPress={() => {
+                haptics.selection();
+                router.push(pantryScanHref);
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Scan a barcode to stock"
+            >
+              <Icon name="scan-barcode" size={20} color={colors.tint} />
+            </Pressable>
+          )}
         </View>
         <Hairline inset={gutter} />
       </View>
@@ -252,6 +293,39 @@ export function PantrySegment({
         <ActivityIndicator accessibilityLabel="Loading pantry" />
       ) : null}
 
+      {visibleRecipes.length > 0 ? (
+        <ListSection title={`Cooked · ${visibleRecipes.length}`}>
+          {visibleRecipes.map((entry) => (
+            <SwipeRow
+              key={entry.id}
+              actions={[
+                {
+                  label: "Remove",
+                  icon: "trash",
+                  destructive: true,
+                  onPress: () => removeItem({ id: entry.id, name: entry.name }),
+                },
+              ]}
+            >
+              <Flash token={stocked?.id === entry.recipeId ? stocked.at : null}>
+                <StoredRecipeRow
+                  entry={entry}
+                  online={online}
+                  onOpen={() => {
+                    haptics.selection();
+                    router.push({
+                      pathname: "/kitchen/recipes/[id]",
+                      params: { id: entry.recipeId },
+                    });
+                  }}
+                  onStep={(value) => stepRecipe(entry, value)}
+                />
+              </Flash>
+            </SwipeRow>
+          ))}
+        </ListSection>
+      ) : null}
+
       {GROUPS.map((group) => {
         const rows = visible.filter(
           (entry) => (pinned.get(entry.id) ?? statusOf(entry)) === group.status,
@@ -270,7 +344,9 @@ export function PantrySegment({
                 flashToken={stocked?.id === entry.item.id ? stocked.at : null}
                 onOpen={() => open(entry.item)}
                 onStep={(value) => step(entry, value)}
-                onRemove={() => removeItem(entry)}
+                onRemove={() =>
+                  removeItem({ id: entry.id, name: entry.item.name })
+                }
                 onAddToList={
                   statusOf(entry) === "out"
                     ? () => addEntryToList(entry)
@@ -327,11 +403,14 @@ export function PantrySegment({
         </ListSection>
       ) : null}
 
-      {!needle && pantry.data && items.length === 0 ? (
+      {!needle &&
+      pantry.data &&
+      items.length === 0 &&
+      storedRecipes.length === 0 ? (
         <EmptyState
           icon="refrigerator"
           title="What’s in your pantry?"
-          message="Search above to stock food in the measure you buy it in. Logging food and recipes uses it up, and recipes show what you can cook."
+          message="Search or scan a barcode to stock food in the measure you buy it in. Logging food and recipes uses it up, and recipes show what you can cook. Store a recipe you cooked from its menu."
         />
       ) : null}
       {!needle && items.length > 0 ? (
@@ -432,6 +511,68 @@ function PantryRowContent({
           step={1}
           min={0}
           max={999_999}
+          disabled={!online}
+          onValueChange={onStep}
+        />
+      </View>
+      <Hairline inset={gutter} />
+    </View>
+  );
+}
+
+function StoredRecipeRow({
+  entry,
+  online,
+  onOpen,
+  onStep,
+}: {
+  entry: MacrosPantryRecipe;
+  online: boolean;
+  onOpen: () => void;
+  onStep: (value: number) => void;
+}) {
+  const swipeAccessibility = useSwipeAccessibility();
+  const stock =
+    entry.quantity > 0 ? servingsLabel(entry.quantity) : "None left";
+  return (
+    <View>
+      <View style={styles.row}>
+        <Pressable
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={`${entry.name}, ${stock}`}
+          accessibilityHint="Opens the recipe"
+          {...swipeAccessibility}
+          style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
+        >
+          <FoodIcon
+            name={entry.name}
+            iconKey={entry.iconKey}
+            entryType="recipe"
+            size={34}
+          />
+          <View style={styles.rowText}>
+            <Text variant="body" numberOfLines={2}>
+              {entry.name}
+            </Text>
+            <Text
+              variant="footnote"
+              tone="secondary"
+              weight="semibold"
+              figure
+              numberOfLines={1}
+            >
+              {stock}
+            </Text>
+          </View>
+        </Pressable>
+        <Stepper
+          label={`${entry.name} servings stored`}
+          hideLabel
+          value={entry.quantity}
+          step={1}
+          min={0}
+          max={9999}
           disabled={!online}
           onValueChange={onStep}
         />

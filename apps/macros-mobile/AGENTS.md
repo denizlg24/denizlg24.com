@@ -365,6 +365,16 @@ basis weight ("450 g"), else servings.
 - Shopping lines are created with `sourceItemId` and the server links the
   local food; a checked linked line offers Add to pantry, which opens the
   sheet at one more unit than is on hand.
+- The scanner has a pantry mode (`pantryScanHref`, `/scan?for=pantry`): a
+  found code closes the camera and opens `pantry-item`; an unknown one
+  carries `for=pantry` through `/label` and `/create-food`, which then open
+  the same sheet for the food just created instead of the log.
+- Cooked servings live in the response's `recipes` (the pantry's "Cooked"
+  section). The recipe detail's Store in Pantry opens `store-recipe`, which
+  adds a batch and by default uses up its stocked ingredients; logging the
+  recipe then eats the batch first (`storedServings` on the recipe, "From
+  your pantry" in the log sheet). Both writes are online only, like food
+  stock.
 
 ## Activity
 
@@ -387,6 +397,13 @@ navigation; this feature adds no design-system tokens or visual exceptions.
 ## Look
 
 ### Recipe articles
+
+The editor edits a saved recipe's ingredients like a new one: `recipeDraft`
+is hydrated with each saved row as `ingredientId` plus its snapshot's
+nutrition per serving, so totals reprice live and a save sends the list only
+when `draftFingerprint` changed (a new nutrition snapshot either way). Hold a
+row to rename it: `displayName` is what the recipe calls the food, and the
+published page shows only that.
 
 Recipes are also written on the web (`macros.denizlg24.com/kitchen`), so the
 app must round-trip everything the web writes. `article-fields.tsx` edits a

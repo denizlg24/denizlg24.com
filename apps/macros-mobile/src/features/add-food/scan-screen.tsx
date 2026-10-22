@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { foodKeys, lookupBarcode } from "@/api/foods";
+import { pantryItemHref } from "@/features/kitchen/pantry/pantry-item-sheet";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
 import type { LogTimeParams } from "@/lib/log-time";
@@ -19,7 +20,7 @@ import { isPlausibleBarcode } from "./barcode";
 import { CameraPermissionGate } from "./components/camera-permission";
 import { CameraStatus } from "./components/camera-status";
 import { goToHub, useHubBelow } from "./hub-route";
-import { forwardedTimeParams, useZone } from "./target";
+import { forwardedTimeParams, readParam, useZone } from "./target";
 
 type ScanState =
   | { kind: "scanning" }
@@ -63,10 +64,19 @@ function RoundButton({
   );
 }
 
+/**
+ * Where a scan leads: the log (the add-food hub) by default, or the
+ * pantry's amount sheet when stocking (`for=pantry`), which carries through
+ * label reading and New food for a code nobody has added.
+ */
+type ScanPurpose = "log" | "pantry";
+
 export function ScanScreen() {
   const params = useLocalSearchParams();
   const zone = useZone();
   const [forward] = useState(() => forwardedTimeParams(params, zone.today));
+  const purpose: ScanPurpose =
+    readParam(params.for) === "pantry" ? "pantry" : "log";
   const hubBelow = useHubBelow();
 
   return (
@@ -74,16 +84,25 @@ export function ScanScreen() {
       purpose="scan barcodes"
       fallback={{
         label: "Search by name",
-        onPress: () => goToHub(hubBelow(), forward),
+        onPress: () =>
+          purpose === "pantry" ? router.back() : goToHub(hubBelow(), forward),
       }}
       onClose={() => router.back()}
     >
-      <Scanner timeParams={forward} />
+      <Scanner timeParams={forward} purpose={purpose} />
     </CameraPermissionGate>
   );
 }
 
-function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
+function Scanner({
+  timeParams: forward,
+  purpose,
+}: {
+  timeParams: LogTimeParams;
+  purpose: ScanPurpose;
+}) {
+  const onward: Record<string, string> =
+    purpose === "pantry" ? { for: "pantry" } : { ...forward };
   const queryClient = useQueryClient();
   const hubBelow = useHubBelow();
   const insets = useSafeAreaInsets();
@@ -112,6 +131,11 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
       }
       // The sheet opens on data it already has instead of fetching it again.
       queryClient.setQueryData(foodKeys.detail(detail.item.id), detail);
+      if (purpose === "pantry") {
+        router.back();
+        router.push(pantryItemHref(detail.item));
+        return;
+      }
       goToHub(hubBelow(), forward, {
         pathname: "/food/[id]",
         params: { id: detail.item.id, name: detail.item.name, ...forward },
@@ -216,7 +240,7 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
                   onPress={() =>
                     router.replace({
                       pathname: "/label",
-                      params: { barcode: state.code, ...forward },
+                      params: { barcode: state.code, ...onward },
                     })
                   }
                 />
@@ -226,7 +250,7 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
                   onPress={() =>
                     router.replace({
                       pathname: "/create-food",
-                      params: { barcode: state.code, ...forward },
+                      params: { barcode: state.code, ...onward },
                     })
                   }
                 />
@@ -250,7 +274,11 @@ function Scanner({ timeParams: forward }: { timeParams: LogTimeParams }) {
                 variant="plain"
                 size="regular"
                 block={false}
-                onPress={() => goToHub(hubBelow(), forward)}
+                onPress={() =>
+                  purpose === "pantry"
+                    ? router.back()
+                    : goToHub(hubBelow(), forward)
+                }
               />
             </View>
           </View>
