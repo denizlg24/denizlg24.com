@@ -18,6 +18,20 @@ from recovery_plan import plan
 from recovery_packages import resolve
 
 
+class TimestampTests(unittest.TestCase):
+    def test_restic_fractional_precision_is_portable_to_system_python(self):
+        for digits in ("1", "12", "123", "12345", "123456", "123456789"):
+            for zone in ("Z", "+00:00", "+02:00"):
+                with self.subTest(digits=digits, zone=zone):
+                    value = catalog_module.timestamp(f"2026-10-22T20:32:30.{digits}{zone}")
+                    self.assertEqual(value.microsecond, int(digits[:6].ljust(6, "0")))
+                    self.assertEqual(value.hour, 18 if zone == "+02:00" else 20)
+
+    def test_timezone_is_still_required(self):
+        with self.assertRaises(ValueError):
+            catalog_module.timestamp("2026-10-22T20:32:30.123456")
+
+
 class RetentionTests(unittest.TestCase):
     def setUp(self):
         self.now = dt.datetime(2026, 9, 5, tzinfo=UTC)

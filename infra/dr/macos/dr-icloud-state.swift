@@ -31,13 +31,7 @@ func isRetryableUbiquityError(_ error: NSError) -> Bool {
 
 let deadline = Date().addingTimeInterval(timeout)
 
-if command == .hydrate {
-    do {
-        try FileManager.default.startDownloadingUbiquitousItem(at: url)
-    } catch {
-        fail("could not request iCloud hydration for \(path): \(error)")
-    }
-}
+var hydrationRequested = false
 
 while Date() < deadline {
     do {
@@ -91,13 +85,27 @@ while Date() < deadline {
         case .waitUploaded:
             if values.ubiquitousItemIsUploaded == true { exit(0) }
         case .hydrate:
-            if values.ubiquitousItemDownloadingStatus == .current {
+            if values.ubiquitousItemDownloadingStatus == .current || values.ubiquitousItemDownloadingStatus == .downloaded {
                 // Opening and reading the byte is a second guard against a
                 // stale metadata bit on an evicted placeholder.
                 let handle = try FileHandle(forReadingFrom: probe)
                 _ = try handle.read(upToCount: 1)
                 try handle.close()
                 exit(0)
+            }
+            // A readable current item needs no download request. File Provider
+            // may deny that unnecessary mutation (Cocoa 257) even while the
+            // existing local encrypted object is readable. Request hydration
+            // only for an actual placeholder, retrying transient server errors.
+            if !hydrationRequested {
+                do {
+                    try FileManager.default.startDownloadingUbiquitousItem(at: probe)
+                    hydrationRequested = true
+                } catch let error as NSError {
+                    if !isRetryableUbiquityError(error) {
+                        fail("could not request iCloud hydration for \(path): \(error)")
+                    }
+                }
             }
         }
     } catch {
