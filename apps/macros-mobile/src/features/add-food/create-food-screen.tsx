@@ -22,6 +22,7 @@ import {
   useFoodDetail,
   useUpdateFood,
 } from "@/api/foods";
+import { pantryItemHref } from "@/features/kitchen/pantry/pantry-item-sheet";
 import { confirmDestructive } from "@/features/more/shared/action-sheet";
 import { errorMessage } from "@/lib/api";
 import { haptics } from "@/lib/haptics";
@@ -257,6 +258,11 @@ function FoodForm({ mode, initial }: { mode: Mode; initial?: FoodFormState }) {
       };
       queryClient.setQueryData(foodKeys.detail(created.item.id), createdDetail);
       haptics.success();
+      if (readParam(params.for) === "pantry") {
+        router.back();
+        router.push(pantryItemHref(created.item));
+        return;
+      }
       router.replace({
         pathname: "/food/[id]",
         params: {

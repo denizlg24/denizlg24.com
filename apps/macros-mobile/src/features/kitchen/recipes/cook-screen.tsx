@@ -33,6 +33,7 @@ import {
 } from "@/ui";
 import { scaledIngredientAmount, servingsLabel } from "../amounts";
 import { RecipeBlocks } from "./recipe-blocks";
+import { ingredientTitle } from "./recipe-card";
 
 /**
  * Cooking, one page at a time: the ingredients for the chosen servings as a
@@ -166,7 +167,7 @@ function CookPages({
                     onPress={() => toggle(ingredient)}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: done }}
-                    accessibilityLabel={`${ingredient.foodName}, ${amount}`}
+                    accessibilityLabel={`${ingredientTitle(ingredient)}, ${amount}`}
                     style={({ pressed }) => [
                       styles.ingredient,
                       pressed && styles.pressed,
@@ -193,7 +194,7 @@ function CookPages({
                         tone={done ? "tertiary" : "primary"}
                         style={done ? styles.struck : undefined}
                       >
-                        {ingredient.foodName}
+                        {ingredientTitle(ingredient)}
                       </Text>
                       <Text variant="body" tone="secondary" figure>
                         {amount}

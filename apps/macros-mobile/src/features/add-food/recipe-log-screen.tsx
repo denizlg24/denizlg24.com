@@ -5,6 +5,8 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRecipe } from "@/api/recipes";
 import { EatenAtPicker } from "@/components/eaten-at-picker";
 import { FoodIcon } from "@/components/food-icon";
+import { servingsLabel } from "@/features/kitchen/amounts";
+import { ingredientTitle } from "@/features/kitchen/recipes/recipe-card";
 import { errorMessage } from "@/lib/api";
 import { energyLabel, formatEnergy } from "@/lib/format";
 import { haptics } from "@/lib/haptics";
@@ -211,7 +213,11 @@ function RecipeLogBody({
           <SheetHeader
             title={recipe.name}
             onClose={() => router.back()}
-            subtitle={`Recipe · ${recipe.ingredientCount} ingredients`}
+            subtitle={
+              recipe.storedServings
+                ? `From your pantry · ${servingsLabel(recipe.storedServings)} stored`
+                : `Recipe · ${recipe.ingredientCount} ingredients`
+            }
             leading={
               <FoodIcon
                 name={recipe.name}
@@ -246,8 +252,12 @@ function RecipeLogBody({
               {recipe.ingredients.map((ingredient, index) => (
                 <Row
                   key={ingredient.id}
-                  title={ingredient.foodName}
-                  subtitle={ingredient.brand ?? undefined}
+                  title={ingredientTitle(ingredient)}
+                  subtitle={
+                    (ingredient.displayName
+                      ? ingredient.foodName
+                      : ingredient.brand) ?? undefined
+                  }
                   value={`${formatEnergy(
                     recipe.servings > 0
                       ? ingredient.caloriesContribution / recipe.servings

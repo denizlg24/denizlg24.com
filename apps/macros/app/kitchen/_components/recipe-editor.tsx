@@ -39,6 +39,8 @@ function fromDetail(rows: readonly MacrosRecipeIngredientDetail[]) {
       sourceItemId: row.sourceItemId ?? null,
       name: row.foodName,
       brand: row.brand,
+      displayName: row.displayName ?? "",
+      iconKey: row.iconKey ?? null,
       servings: row.servings,
       perServing: {
         calories: row.servings ? row.caloriesContribution / row.servings : 0,
@@ -165,7 +167,11 @@ export function RecipeEditor({
       cookValue,
       servingsValue,
       weightValue,
-      rows.map((row) => [row.sourceItemId, row.servings]),
+      rows.map((row) => [
+        row.sourceItemId,
+        row.servings,
+        row.displayName.trim(),
+      ]),
     ]);
   const fingerprint = fingerprintWith(ingredients);
   const [savedFingerprint, setSavedFingerprint] = useState(() =>
@@ -217,10 +223,12 @@ export function RecipeEditor({
                 ? {
                     ingredientId: row.ingredientId,
                     servingsConsumed: row.servings,
+                    displayName: row.displayName.trim() || null,
                   }
                 : {
                     sourceItemId: row.sourceItemId,
                     servingsConsumed: row.servings,
+                    displayName: row.displayName.trim() || null,
                   },
             ),
           }),
@@ -331,6 +339,8 @@ export function RecipeEditor({
       id: row.key,
       foodName: row.name,
       brand: row.brand,
+      displayName: row.displayName.trim() || null,
+      iconKey: row.iconKey,
       servings: row.servings,
       amountLabel: row.amountLabel,
       caloriesContribution: row.perServing.calories * row.servings,

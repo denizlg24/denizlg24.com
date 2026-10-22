@@ -2,7 +2,7 @@ import { blocksToText } from "@repo/macros-core/recipe-content";
 import type { MacrosRecipeDetail } from "@repo/schemas/macros";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { RecipeArticle } from "@/app/_recipes/recipe-article";
+import { ingredientName, RecipeArticle } from "@/app/_recipes/recipe-article";
 import { ShareButton } from "@/app/_recipes/share-button";
 import { getPublicAppOrigin } from "@/lib/email";
 import { recipeShareImagePath } from "@/lib/recipes/share-image";
@@ -54,7 +54,9 @@ function jsonLd(recipe: MacrosRecipeDetail) {
     cookTime: isoDuration(recipe.cookTimeMinutes),
     recipeYield: `${recipe.servings} servings`,
     recipeIngredient: recipe.ingredients.map((ingredient) =>
-      [ingredient.amountLabel, ingredient.foodName].filter(Boolean).join(" "),
+      [ingredient.amountLabel, ingredientName(ingredient)]
+        .filter(Boolean)
+        .join(" "),
     ),
     recipeInstructions: (recipe.steps ?? []).map((step) => ({
       "@type": "HowToStep",

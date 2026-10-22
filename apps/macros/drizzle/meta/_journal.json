@@ -162,6 +162,13 @@
       "when": 1792604973311,
       "tag": "0022_kitchen",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792677002434,
+      "tag": "0023_pantry_recipes",
+      "breakpoints": true
     }
   ]
 }

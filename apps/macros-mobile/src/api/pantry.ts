@@ -3,6 +3,8 @@ import type {
   MacrosPantryItem,
   MacrosPantryResponse,
   MacrosSetPantryItemBody,
+  MacrosSetPantryRecipeBody,
+  macrosStorePantryRecipeBodySchema,
 } from "@repo/schemas/macros";
 import {
   type QueryClient,
@@ -10,6 +12,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type { z } from "zod";
 import { api, apiVoid } from "@/lib/api";
 import { queryKeys } from "./keys";
 
@@ -104,5 +107,71 @@ export function useRemovePantryItem() {
         client.invalidateQueries({ queryKey: pantryKey }),
         invalidateDependents(client),
       ]),
+  });
+}
+
+const recipeSetKey = ["pantry", "recipe", "set"] as const;
+
+/**
+ * Stored servings of a recipe, set outright. Online only for the same
+ * reason as a food's count; the stepper shows at once and only the last set
+ * in flight writes the answer back.
+ */
+export function useSetPantryRecipe() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: recipeSetKey,
+    networkMode: "always",
+    retry: false,
+    mutationFn: (body: MacrosSetPantryRecipeBody) =>
+      api<MacrosPantryResponse>("/api/pantry/recipes", { method: "PUT", body }),
+    onMutate: async (body) => {
+      const previous = client.getQueryData<MacrosPantryResponse>(pantryKey);
+      if (!previous?.recipes) return { previous: undefined };
+      await client.cancelQueries({ queryKey: pantryKey });
+      client.setQueryData<MacrosPantryResponse>(pantryKey, {
+        ...previous,
+        recipes: previous.recipes.map((stored) =>
+          stored.recipeId === body.recipeId
+            ? {
+                ...stored,
+                quantity: body.quantity,
+                status: stockStatus(body.quantity, 1),
+              }
+            : stored,
+        ),
+      });
+      return { previous };
+    },
+    onError: (_error, _body, context) => {
+      if (context?.previous) client.setQueryData(pantryKey, context.previous);
+    },
+    onSuccess: (data) => {
+      if (client.isMutating({ mutationKey: recipeSetKey }) === 1)
+        client.setQueryData(pantryKey, data);
+    },
+    onSettled: () => invalidateDependents(client),
+  });
+}
+
+export type StorePantryRecipeInput = z.input<
+  typeof macrosStorePantryRecipeBodySchema
+>;
+
+/** A batch just cooked goes in; its ingredients come out when asked. */
+export function useStorePantryRecipe() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: ["pantry", "recipe", "store"],
+    networkMode: "always",
+    // Adds servings: a retry after a lost answer would store them twice.
+    retry: false,
+    mutationFn: (body: StorePantryRecipeInput) =>
+      api<MacrosPantryResponse>("/api/pantry/recipes", {
+        method: "POST",
+        body,
+      }),
+    onSuccess: (data) => client.setQueryData(pantryKey, data),
+    onSettled: () => invalidateDependents(client),
   });
 }

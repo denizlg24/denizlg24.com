@@ -1,6 +1,7 @@
 import type { NativeStackNavigationOptions } from "expo-router";
 import {
   amountSheet,
+  compactSheet,
   formModal,
   type ModalRoute,
   tabRootOptions,
@@ -34,6 +35,7 @@ export const kitchenStackRoutes: ModalRoute[] = [
   { name: "recipe-editor", options: { ...modalForm, title: "New recipe" } },
   { name: "food-picker", options: { ...modalForm, title: "Add foods" } },
   { name: "pantry-item", options: amountSheet },
+  { name: "store-recipe", options: compactSheet },
 ];
 
 /**

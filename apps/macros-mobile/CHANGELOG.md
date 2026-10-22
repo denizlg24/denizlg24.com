@@ -7,6 +7,24 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.19 — 2026-10-22
+
+### Added
+- **Scan into your pantry.** Scan a barcode from the pantry to stock it in
+  one step. A product nobody has added yet can be read from its label or
+  entered by hand, and lands straight in your pantry.
+- **Store cooked meals.** Put a batch you cooked in your pantry from the
+  recipe's menu. Its ingredients come out of stock once, and logging the
+  recipe eats the stored servings first.
+- **Name ingredients your way.** Hold an ingredient in a recipe to rename
+  it: "kidney beans" instead of a brand's full product name. Published
+  recipes show only that name.
+
+### Changed
+- Edit a recipe's ingredients after saving or publishing it: change
+  amounts, add or remove foods, and the nutrition is recalculated.
+- Published recipes show each ingredient's food icon.
+
 ## 0.0.18 — 2026-10-21
 
 ### Added

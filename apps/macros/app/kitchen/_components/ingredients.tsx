@@ -29,6 +29,9 @@ export type DraftIngredient = {
   sourceItemId: string | null;
   name: string;
   brand: string | null;
+  /** What the recipe calls it; empty shows the food's own name. */
+  displayName: string;
+  iconKey: string | null;
   servings: number;
   perServing: Macros;
   amountLabel: string;
@@ -46,6 +49,8 @@ export function fromSearchItem(item: MacrosFoodSearchItem): DraftIngredient {
     sourceItemId: item.id,
     name: item.name,
     brand: item.brand,
+    displayName: "",
+    iconKey: item.iconKey,
     servings: 1,
     perServing: {
       calories: item.caloriesPerServing ?? 0,
@@ -124,8 +129,23 @@ export function IngredientList({
           {ingredients.map((ingredient, index) => (
             <li key={ingredient.key} className={styles.ingredientRow}>
               <div className={styles.ingredientName}>
-                {ingredient.name}
-                {ingredient.brand ? <small>{ingredient.brand}</small> : null}
+                <input
+                  className={styles.displayName}
+                  value={ingredient.displayName}
+                  placeholder={ingredient.name}
+                  maxLength={120}
+                  aria-label={`Name ${ingredient.name} in this recipe`}
+                  onChange={(event) =>
+                    update(ingredient.key, { displayName: event.target.value })
+                  }
+                />
+                <small>
+                  {ingredient.displayName.trim()
+                    ? [ingredient.name, ingredient.brand]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : ingredient.brand}
+                </small>
               </div>
               <AmountField
                 ingredient={ingredient}

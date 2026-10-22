@@ -32,6 +32,7 @@ import {
   recipes,
   userProfiles,
 } from "@/db/schema";
+import { eatsFromStoredRecipe } from "@/lib/pantry/service";
 import { mealTypeAt } from "./meal-bucket";
 import {
   ensureExternalFoodSnapshot,
@@ -121,6 +122,9 @@ async function cloneEntry(
       servingUnit: source.servingUnit,
       servingsConsumed: source.servingsConsumed,
       notes: source.notes,
+      fromPantry: source.recipeId
+        ? await eatsFromStoredRecipe(source.userId, source.recipeId)
+        : false,
     })
     .returning({ id: foodLogEntries.id });
   if (!entry) throw new Error("Failed to copy log entry");
@@ -618,6 +622,9 @@ export async function logMealTemplate(
           servingsConsumed: item.servings,
           clientMutationId:
             entryIds.length === 0 ? input.clientMutationId : undefined,
+          fromPantry: item.recipeId
+            ? await eatsFromStoredRecipe(userId, item.recipeId)
+            : false,
         })
         .returning({ id: foodLogEntries.id });
       if (!entry) throw new Error("Failed to log meal template");

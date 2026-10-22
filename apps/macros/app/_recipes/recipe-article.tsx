@@ -1,7 +1,11 @@
 import { readingMinutes } from "@repo/macros-core/recipe-content";
-import type { MacrosRecipeDetail } from "@repo/schemas/macros";
+import type {
+  MacrosRecipeDetail,
+  MacrosRecipeIngredientDetail,
+} from "@repo/schemas/macros";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { IosFoodIcon } from "../_landing/phone/food-icon";
 import styles from "./article.module.css";
 import { serif } from "./fonts";
 import { RecipeBlocks } from "./recipe-blocks";
@@ -17,6 +21,13 @@ export function formatMinutes(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** What the recipe calls it; the catalogue name and brand stay private then. */
+export function ingredientName(
+  ingredient: Pick<MacrosRecipeIngredientDetail, "displayName" | "foodName">,
+) {
+  return ingredient.displayName || ingredient.foodName;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
@@ -125,13 +136,16 @@ export function RecipeArticle({
           <ul className={styles.ingredients}>
             {recipe.ingredients.map((ingredient) => (
               <li key={ingredient.id}>
-                <span>
-                  {ingredient.foodName}
-                  {ingredient.brand ? (
-                    <span className={styles.ingredientBrand}>
-                      {ingredient.brand}
-                    </span>
-                  ) : null}
+                <span className={styles.ingredientName}>
+                  <IosFoodIcon iconKey={ingredient.iconKey ?? null} size={32} />
+                  <span>
+                    {ingredientName(ingredient)}
+                    {!ingredient.displayName && ingredient.brand ? (
+                      <span className={styles.ingredientBrand}>
+                        {ingredient.brand}
+                      </span>
+                    ) : null}
+                  </span>
                 </span>
                 <span className={styles.amount}>
                   {ingredient.amountLabel ??

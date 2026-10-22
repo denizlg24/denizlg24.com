@@ -18,20 +18,30 @@ test.skipIf(!testUrl)(
       user,
       foods,
       foodNutritionSnapshots,
+      foodNutrientValues,
       userCustomFoods,
       foodLogEntries,
     } = await import("@/db/schema");
-    const { getPantry, setPantryItem, removePantryItem } = await import(
-      "./service"
-    );
+    const {
+      getPantry,
+      getPantryRecipes,
+      setPantryItem,
+      setPantryRecipe,
+      storePantryRecipe,
+      removePantryItem,
+    } = await import("./service");
     const { logExternalFood } = await import("@/lib/foods/service");
     const { updateLogEntryServing, duplicateLogEntry } = await import(
       "@/lib/foods/entry-acceleration"
     );
     const { deleteFoodLogEntry } = await import("@/lib/foods/delete-entry");
-    const { createRecipeFromFoods, logRecipe } = await import(
-      "@/lib/recipes/service"
-    );
+    const {
+      createRecipeFromFoods,
+      getRecipeDetail,
+      getUserRecipes,
+      logRecipe,
+      updateRecipe,
+    } = await import("@/lib/recipes/service");
 
     const owner = `pantry-test-${crypto.randomUUID()}`;
     const other = `pantry-test-${crypto.randomUUID()}`;
@@ -79,19 +89,32 @@ test.skipIf(!testUrl)(
       await db
         .insert(userCustomFoods)
         .values({ userId: owner, foodId: food.id });
-      await db.insert(foodNutritionSnapshots).values({
-        foodId: food.id,
-        servingLabel: "100 g",
-        servingQuantity: "100",
-        servingUnit: "g",
-        rawNutrition: {
-          itemId: food.id,
+      const [foodSnapshot] = await db
+        .insert(foodNutritionSnapshots)
+        .values({
+          foodId: food.id,
           servingLabel: "100 g",
-          servingQuantity: 100,
+          servingQuantity: "100",
           servingUnit: "g",
-          nutrients: { calories: 380, protein: 13, carbs: 68, fat: 7 },
-        },
-      });
+          rawNutrition: {
+            itemId: food.id,
+            servingLabel: "100 g",
+            servingQuantity: 100,
+            servingUnit: "g",
+            nutrients: { calories: 380, protein: 13, carbs: 68, fat: 7 },
+          },
+        })
+        .returning();
+      assert.ok(foodSnapshot);
+      await db.insert(foodNutrientValues).values(
+        Object.entries({ calories: 380, protein: 13, carbs: 68, fat: 7 }).map(
+          ([nutrientKey, amount]) => ({
+            snapshotId: foodSnapshot.id,
+            nutrientKey,
+            amount: String(amount),
+          }),
+        ),
+      );
       const balance = async () =>
         (await getPantry(owner)).find((x) => x.foodId === food.id)!.quantity;
       await setPantryItem(owner, { sourceItemId: food.id, quantity: 5 });
@@ -185,6 +208,91 @@ test.skipIf(!testUrl)(
       const low = (await getPantry(owner)).find((x) => x.foodId === food.id)!;
       assert.equal(low.unitQuantity, 1);
       assert.equal(low.status, "low");
+
+      // A stored batch uses its ingredients once; eating it draws the batch.
+      const oats = async () =>
+        (await getPantry(owner)).find((x) => x.foodId === food.id)!.quantity;
+      const stored = async () =>
+        (await getPantryRecipes(owner)).find((x) => x.recipeId === porridge.id)
+          ?.quantity ?? 0;
+      const near = (actual: number, expected: number) =>
+        assert.ok(
+          Math.abs(actual - expected) < 1e-6,
+          `${actual} ≠ ${expected}`,
+        );
+      await setPantryItem(owner, { sourceItemId: food.id, quantity: 3 });
+      await storePantryRecipe(owner, {
+        recipeId: porridge.id,
+        servings: 2,
+        useIngredients: true,
+      });
+      near(await stored(), 2);
+      near(await oats(), 1.2);
+      const fromBatch = await logRecipe(owner, {
+        recipeId: porridge.id,
+        servingsConsumed: 1,
+      });
+      near(await stored(), 1);
+      near(await oats(), 1.2);
+      const copied = await duplicateLogEntry(owner, fromBatch.entryId);
+      assert.ok(copied);
+      near(await stored(), 0);
+      near(await oats(), 1.2);
+      await logRecipe(owner, { recipeId: porridge.id, servingsConsumed: 1 });
+      near(await stored(), 0);
+      near(await oats(), 0.3);
+      await setPantryRecipe(owner, { recipeId: porridge.id, quantity: 4 });
+      await storePantryRecipe(owner, {
+        recipeId: porridge.id,
+        servings: 1,
+        useIngredients: false,
+      });
+      near(await stored(), 5);
+      near(await oats(), 0.3);
+      const summary = (await getUserRecipes(owner)).find(
+        (x) => x.id === porridge.id,
+      );
+      assert.equal(summary?.storedServings, 5);
+      assert.equal((await getPantryRecipes(other)).length, 0);
+      await assert.rejects(
+        setPantryRecipe(other, { recipeId: porridge.id, quantity: 1 }),
+      );
+
+      // A display name survives an amount edit and clears with null.
+      const detail = await getRecipeDetail(owner, porridge.id);
+      const ingredientId = detail.ingredients[0]!.id;
+      const edit = (
+        ingredient: Parameters<typeof updateRecipe>[2]["ingredients"],
+      ) =>
+        updateRecipe(owner, porridge.id, {
+          name: "Porridge",
+          totalWeightGrams: 180,
+          servings: 2,
+          ingredients: ingredient,
+        });
+      await edit([
+        { ingredientId, servingsConsumed: 1.8, displayName: "Oats" },
+      ]);
+      const renamed = await getRecipeDetail(owner, porridge.id);
+      assert.equal(renamed.ingredients[0]!.displayName, "Oats");
+      await edit([
+        { ingredientId: renamed.ingredients[0]!.id, servingsConsumed: 3.6 },
+      ]);
+      const doubled = await getRecipeDetail(owner, porridge.id);
+      assert.equal(doubled.ingredients[0]!.displayName, "Oats");
+      near(doubled.caloriesPerServing, (380 * 3.6) / 2);
+      await edit([
+        {
+          ingredientId: doubled.ingredients[0]!.id,
+          servingsConsumed: 3.6,
+          displayName: null,
+        },
+      ]);
+      assert.equal(
+        (await getRecipeDetail(owner, porridge.id)).ingredients[0]!.displayName,
+        null,
+      );
+
       const item = (await getPantry(owner)).find((x) => x.foodId === food.id)!;
       assert.equal(await removePantryItem(other, item.id), false);
       assert.equal(await removePantryItem(owner, item.id), true);

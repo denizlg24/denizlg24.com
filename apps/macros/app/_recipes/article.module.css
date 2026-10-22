@@ -212,13 +212,18 @@ h4.blockHeading {
 .ingredients li {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 24px;
   padding: 13px 0;
   border-bottom: 1px solid var(--rule);
 }
 .ingredients li:first-child {
   border-top: 1px solid var(--rule);
+}
+.ingredientName {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .ingredientBrand {
   display: block;

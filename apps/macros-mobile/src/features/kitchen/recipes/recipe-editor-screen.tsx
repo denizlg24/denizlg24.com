@@ -22,6 +22,7 @@ import { MacroInline } from "@/components/macro-bars";
 import { repaintPlate } from "@/features/add-food/plate-store";
 import { showActionSheet } from "@/features/more/shared/action-sheet";
 import { NoticeSlot, useNotice } from "@/features/more/shared/notice";
+import { promptText } from "@/features/more/shared/prompt";
 import {
   type EnergyUnit,
   energyLabel,
@@ -58,6 +59,7 @@ import { ArticleFields, type RecipeArticleDraft } from "./article-fields";
 import { IngredientAmount } from "./ingredient-amount";
 import {
   type DraftIngredient,
+  draftFingerprint,
   recipeDraft,
   savedRecipe,
   useRecipeDraft,
@@ -97,6 +99,14 @@ function savedTotals(recipe: MacrosRecipeDetail): Macros {
   };
 }
 
+function ingredientBody(ingredient: DraftIngredient) {
+  const servingsConsumed = parseDecimal(ingredient.servings) ?? 1;
+  const displayName = ingredient.displayName.trim() || null;
+  return ingredient.ingredientId
+    ? { ingredientId: ingredient.ingredientId, servingsConsumed, displayName }
+    : { sourceItemId: ingredient.food.id, servingsConsumed, displayName };
+}
+
 function trimNumber(value: number) {
   return String(Number(value.toFixed(4)));
 }
@@ -123,6 +133,8 @@ export function RecipeEditorScreen() {
   );
   const [uploading, setUploading] = useState(false);
   const [activeIngredient, setActiveIngredient] = useState<string | null>(null);
+  // What the saved recipe's rows looked like when loaded; null until then.
+  const [savedIngredients, setSavedIngredients] = useState<string | null>(null);
   const hydrated = useRef(false);
 
   useEffect(() => {
@@ -141,6 +153,9 @@ export function RecipeEditorScreen() {
     );
     setIconKey(recipe.iconKey);
     setArticle(articleFromRecipe(recipe));
+    setSavedIngredients(
+      draftFingerprint(recipeDraft.hydrate(recipe.ingredients)),
+    );
   }, [existing.data]);
 
   const parsedServings = parseDecimal(servings);
@@ -148,11 +163,10 @@ export function RecipeEditorScreen() {
   const validServings = positive(parsedServings, 9999);
   const validWeight = positive(parsedWeight, 999_999);
   const validIngredients =
-    editing ||
-    (ingredients.length > 0 &&
-      ingredients.every((ingredient) =>
-        positive(parseDecimal(ingredient.servings), 9999),
-      ));
+    ingredients.length > 0 &&
+    ingredients.every((ingredient) =>
+      positive(parseDecimal(ingredient.servings), 9999),
+    );
   const valid =
     name.trim().length > 0 && validServings && validWeight && validIngredients;
 
@@ -163,19 +177,28 @@ export function RecipeEditorScreen() {
     [recipe],
   );
   const articleDirty = JSON.stringify(articleBody) !== savedArticle;
+  const ingredientsDirty =
+    savedIngredients !== null &&
+    draftFingerprint(ingredients) !== savedIngredients;
   const dirty =
     articleDirty ||
     (recipe
       ? name.trim() !== recipe.name ||
         parsedServings !== recipe.servings ||
         parsedWeight !== recipe.totalWeightGrams ||
-        iconKey !== recipe.iconKey
+        iconKey !== recipe.iconKey ||
+        ingredientsDirty
       : name.trim() !== "" ||
         weight !== "" ||
         servings !== "1" ||
         ingredients.length > 0);
 
-  const totals = recipe ? savedTotals(recipe) : draftTotals(ingredients);
+  // Saved rows reprice from the nutrition they were saved with, so the
+  // draft's sum is what the server will compute.
+  const totals =
+    recipe && savedIngredients === null
+      ? savedTotals(recipe)
+      : draftTotals(ingredients);
   const divisor = validServings ? parsedServings : 1;
   const perServing: Macros = {
     calories: totals.calories / divisor,
@@ -187,11 +210,12 @@ export function RecipeEditorScreen() {
     validServings && validWeight ? parsedWeight / parsedServings : null;
 
   const iconChoices = useMemo(() => {
-    const keys = editing
-      ? [recipe?.iconKey]
-      : ingredients.map((ingredient) => ingredient.food.iconKey);
+    const keys = [
+      recipe?.iconKey,
+      ...ingredients.map((ingredient) => ingredient.food.iconKey),
+    ];
     return [...new Set(keys.filter((key): key is string => Boolean(key)))];
-  }, [editing, recipe?.iconKey, ingredients]);
+  }, [recipe?.iconKey, ingredients]);
 
   const pending = uploading || createRecipe.isPending || updateRecipe.isPending;
   const selectedIngredient = ingredients.find(
@@ -249,6 +273,9 @@ export function RecipeEditorScreen() {
           servings: parsedServings,
           totalWeightGrams: parsedWeight,
           ...(iconKey === recipe.iconKey ? {} : { iconKey }),
+          ...(ingredientsDirty
+            ? { ingredients: ingredients.map(ingredientBody) }
+            : {}),
         },
         {
           onSuccess: ({ recipe: next }) => {
@@ -273,6 +300,7 @@ export function RecipeEditorScreen() {
       ingredients: ingredients.map((ingredient) => ({
         sourceItemId: ingredient.food.id,
         servingsConsumed: parseDecimal(ingredient.servings) ?? 1,
+        displayName: ingredient.displayName.trim() || null,
       })),
     };
     createRecipe.mutate(body, {
@@ -281,10 +309,26 @@ export function RecipeEditorScreen() {
     });
   }
 
+  function rename(ingredient: DraftIngredient) {
+    promptText({
+      title: "Name in this recipe",
+      message: `Shown instead of “${ingredient.food.name}”${ingredient.food.brand ? ` and ${ingredient.food.brand}` : ""} on the recipe and its published page. Leave it empty to use the food’s own name.`,
+      defaultValue: ingredient.displayName || ingredient.food.name,
+      onSubmit: (value) => {
+        const next = value.trim();
+        recipeDraft.rename(
+          ingredient.key,
+          next === ingredient.food.name ? "" : next,
+        );
+      },
+    });
+  }
+
   function ingredientActions(ingredient: DraftIngredient, index: number) {
     showActionSheet({
-      title: ingredient.food.name,
+      title: ingredient.displayName || ingredient.food.name,
       actions: [
+        { label: "Rename…", onPress: () => rename(ingredient) },
         ...(index > 0
           ? [
               {
@@ -405,88 +449,66 @@ export function RecipeEditorScreen() {
             energyUnit={energyUnit}
           />
 
-          {recipe ? (
+          <View>
             <Section
-              title={`Ingredients · ${recipe.ingredients.length}`}
-              footer="Ingredients are fixed once a recipe is saved. To use different ones, create a new recipe."
+              title={`Ingredients · ${ingredients.length}`}
+              footer={
+                ingredients.length > 0
+                  ? "Tap an ingredient to change its amount. Hold to rename, move or remove it."
+                  : undefined
+              }
             >
-              {recipe.ingredients.map((ingredient, index) => (
-                <View key={ingredient.id}>
-                  <View style={styles.savedIngredient}>
-                    <Text variant="body" numberOfLines={1} style={styles.flex}>
-                      {ingredient.foodName}
-                    </Text>
-                    <Text variant="subheadline" tone="secondary" figure>
-                      {ingredient.amountLabel ??
-                        `${formatDecimal(ingredient.servings)} ×`}
-                    </Text>
-                  </View>
-                  {index < recipe.ingredients.length - 1 ? <Hairline /> : null}
-                </View>
-              ))}
-            </Section>
-          ) : (
-            <View>
-              <Section
-                title={`Ingredients · ${ingredients.length}`}
-                footer={
-                  ingredients.length > 0
-                    ? "Tap an ingredient to change its amount or unit. Hold to move or remove it."
-                    : undefined
-                }
-              >
-                <View style={styles.bleed}>
-                  {ingredients.map((ingredient, index) => (
-                    <SwipeRow
-                      key={ingredient.key}
-                      actions={[
-                        {
-                          label: "Remove",
-                          icon: "trash",
-                          destructive: true,
-                          onPress: () => recipeDraft.remove(ingredient.key),
-                        },
-                      ]}
-                    >
-                      <IngredientRow
-                        ingredient={ingredient}
-                        energyUnit={energyUnit}
-                        onPress={() => {
-                          Keyboard.dismiss();
-                          setActiveIngredient(ingredient.key);
-                        }}
-                        onLongPress={() => ingredientActions(ingredient, index)}
-                      />
-                    </SwipeRow>
-                  ))}
-                </View>
-                {attempted && !validIngredients ? (
-                  <Text
-                    variant="footnote"
-                    tone="destructive"
-                    style={styles.addSpacing}
+              <View style={styles.bleed}>
+                {ingredients.map((ingredient, index) => (
+                  <SwipeRow
+                    key={ingredient.key}
+                    actions={[
+                      {
+                        label: "Remove",
+                        icon: "trash",
+                        destructive: true,
+                        onPress: () => recipeDraft.remove(ingredient.key),
+                      },
+                    ]}
                   >
-                    {ingredients.length === 0
-                      ? "Add at least one food."
-                      : "Every food needs an amount above 0."}
-                  </Text>
-                ) : null}
-                <Button
-                  label="Add Food"
-                  icon="plus"
-                  variant="tinted"
-                  size="regular"
+                    <IngredientRow
+                      ingredient={ingredient}
+                      energyUnit={energyUnit}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setActiveIngredient(ingredient.key);
+                      }}
+                      onLongPress={() => ingredientActions(ingredient, index)}
+                    />
+                  </SwipeRow>
+                ))}
+              </View>
+              {attempted && !validIngredients ? (
+                <Text
+                  variant="footnote"
+                  tone="destructive"
                   style={styles.addSpacing}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/kitchen/food-picker",
-                      params: { for: "recipe" },
-                    })
-                  }
-                />
-              </Section>
-            </View>
-          )}
+                >
+                  {ingredients.length === 0
+                    ? "Add at least one food."
+                    : "Every food needs an amount above 0."}
+                </Text>
+              ) : null}
+              <Button
+                label="Add Food"
+                icon="plus"
+                variant="tinted"
+                size="regular"
+                style={styles.addSpacing}
+                onPress={() =>
+                  router.push({
+                    pathname: "/kitchen/food-picker",
+                    params: { for: "recipe" },
+                  })
+                }
+              />
+            </Section>
+          </View>
 
           {iconChoices.length > 0 ? (
             <Section title="Icon">
@@ -593,6 +615,7 @@ function IngredientRow({
 }) {
   const swipeAccessibility = useSwipeAccessibility();
   const { food } = ingredient;
+  const title = ingredient.displayName || food.name;
   const amount = parseDecimal(ingredient.servings) ?? 0;
   const serving = food.servingLabel
     ? formatServingLabel(food.servingLabel)
@@ -604,18 +627,22 @@ function IngredientRow({
           onPress={onPress}
           onLongPress={onLongPress}
           accessibilityRole="button"
-          accessibilityHint="Change amount; hold to move or remove this food"
+          accessibilityHint="Change amount; hold to rename, move or remove this food"
           {...swipeAccessibility}
           style={styles.ingredientMain}
         >
           <FoodIcon name={food.name} iconKey={food.iconKey} size={30} />
           <View style={styles.flex}>
             <Text variant="body" numberOfLines={2}>
-              {food.name}
+              {title}
             </Text>
             <Text variant="footnote" tone="secondary" numberOfLines={1} figure>
               {[
-                serving ? `1 serving = ${serving}` : food.brand,
+                ingredient.displayName
+                  ? food.name
+                  : serving
+                    ? `1 serving = ${serving}`
+                    : food.brand,
                 food.caloriesPerServing !== null
                   ? `${formatEnergy(food.caloriesPerServing * amount, energyUnit)} ${energyLabel(energyUnit)}`
                   : null,
@@ -628,7 +655,7 @@ function IngredientRow({
         <Pressable
           onPress={onPress}
           accessibilityRole="button"
-          accessibilityLabel={`Change amount of ${food.name}, ${ingredient.servings} servings`}
+          accessibilityLabel={`Change amount of ${title}, ${ingredient.servings} servings`}
           style={styles.amount}
         >
           <Text variant="body" figure>
@@ -687,12 +714,6 @@ const styles = StyleSheet.create({
   },
   bleed: {
     marginHorizontal: -gutter,
-  },
-  savedIngredient: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
   },
   ingredient: {
     flexDirection: "row",
