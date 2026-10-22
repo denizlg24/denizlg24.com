@@ -500,6 +500,9 @@ export const recipeIngredients = pgTable(
     unit: text("unit").notNull(),
     servings: numeric("servings", { precision: 12, scale: 4 }),
     notes: text("notes"),
+    // What the recipe calls the food ("kidney beans"), shown instead of its
+    // catalogue name and brand.
+    displayName: text("displayName"),
     ...timestamps,
   },
   (table) => [
@@ -767,6 +770,9 @@ export const foodLogEntries = pgTable(
     enteredQuantity: numeric("enteredQuantity", { precision: 12, scale: 4 }),
     enteredUnit: text("enteredUnit"),
     notes: text("notes"),
+    // A recipe eaten from cooked servings in the pantry: it draws those down
+    // instead of the ingredients, which were used when it was stored.
+    fromPantry: boolean("fromPantry").notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -1275,10 +1281,12 @@ export const pantryItems = pgTable(
     userId: text("userId")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    foodId: uuid("foodId")
-      .notNull()
-      .references(() => foods.id, { onDelete: "cascade" }),
-    item: jsonb("item").$type<MacrosFoodSearchItem>().notNull(),
+    // A row stocks a food or cooked servings of a recipe, never both.
+    foodId: uuid("foodId").references(() => foods.id, { onDelete: "cascade" }),
+    recipeId: uuid("recipeId").references(() => recipes.id, {
+      onDelete: "cascade",
+    }),
+    item: jsonb("item").$type<MacrosFoodSearchItem>(),
     quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
     servingQuantity: numeric("servingQuantity", {
       precision: 12,
@@ -1296,6 +1304,11 @@ export const pantryItems = pgTable(
   },
   (table) => [
     unique("pantry_items_user_food_unique").on(table.userId, table.foodId),
+    unique("pantry_items_user_recipe_unique").on(table.userId, table.recipeId),
+    check(
+      "pantry_items_stocks_one_check",
+      sql`(${table.foodId} is not null and ${table.item} is not null and ${table.recipeId} is null) or (${table.recipeId} is not null and ${table.foodId} is null and ${table.item} is null)`,
+    ),
     check("pantry_items_quantity_check", sql`${table.quantity} >= 0`),
     check(
       "pantry_items_serving_quantity_check",

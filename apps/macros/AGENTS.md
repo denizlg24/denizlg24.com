@@ -58,6 +58,24 @@ amount on hand now and starts a new checkpoint. The public balance floors at
 zero without discarding overconsumption, so deleting an excessive log restores
 the correct amount.
 
+A pantry row stocks either a food or cooked servings of a recipe
+(`recipeId`, quantity in recipe servings, no `item`; a check enforces one or
+the other). `POST /api/pantry/recipes` stores a batch: it adds servings to
+the row and, with `useIngredients`, checkpoints every stocked ingredient at
+its balance less what the batch used. `PUT` sets the servings outright. A
+recipe logged while it has stored servings is stamped
+`food_log_entries.fromPantry` at write time (`eatsFromStoredRecipe`, also
+used by copies, duplicates and saved meals): it draws the stored servings
+down and never the ingredients, which the batch already used. The flag is
+decided once, so later edits to the pantry never re-route an old log. A
+stamped log that outlasts its stored row consumes nothing.
+
+Recipe ingredients carry an optional `displayName` ("kidney beans" for a
+brand's tin). The public page and its JSON-LD show it instead
+of the food's name and brand, and `getPublicRecipe` replaces both before
+anything renders. On update, an `ingredientId` row that omits `displayName`
+keeps the saved one; `null` clears it.
+
 Food search (`lib/foods/search.ts`) puts available pantry foods, history and
 the owner's foods first, capped at `LOCAL_RESULT_LIMIT` and counted outside
 `limit`, then the catalogue in its own relevance order — brands are never

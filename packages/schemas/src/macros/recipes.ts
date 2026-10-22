@@ -1,9 +1,22 @@
 import { z } from "zod";
 import { macrosDailyMacrosSchema, macrosMealTypeSchema } from "./common";
 
+/**
+ * What the recipe calls an ingredient ("kidney beans" for a brand's tin),
+ * shown instead of the food's own name and brand. Null clears it.
+ */
+const ingredientDisplayName = z
+  .string()
+  .trim()
+  .max(120)
+  .transform((value) => value || null)
+  .nullable()
+  .optional();
+
 export const macrosRecipeIngredientInputSchema = z.object({
   sourceItemId: z.uuid(),
   servingsConsumed: z.number().positive().max(9999),
+  displayName: ingredientDisplayName,
 });
 
 /** Rejects every scheme but http(s), so a stored link can never run script. */
@@ -70,6 +83,8 @@ export const macrosRecipeIngredientUpdateSchema = z.union([
   z.object({
     ingredientId: z.uuid(),
     servingsConsumed: z.number().positive().max(9999),
+    /** Omitted keeps the saved name. */
+    displayName: ingredientDisplayName,
   }),
   macrosRecipeIngredientInputSchema,
 ]);
@@ -142,6 +157,8 @@ export const macrosRecipeSummarySchema = z.object({
   createdAt: z.string(),
   /** Ingredients short in the pantry for one serving. */
   pantry: z.object({ ingredients: z.number(), missing: z.number() }).optional(),
+  /** Cooked servings stored in the pantry; absent when none are. */
+  storedServings: z.number().optional(),
 });
 
 export const macrosRecipesResponseSchema = z.object({
@@ -165,6 +182,7 @@ export const macrosRecipeIngredientDetailSchema = z.object({
   iconKey: z.string().nullable().optional(),
   foodName: z.string(),
   brand: z.string().nullable(),
+  displayName: z.string().nullable().optional(),
   servings: z.number(),
   /** Local food id, for the shopping list; null for a nested recipe. */
   foodId: z.uuid().nullable().optional(),

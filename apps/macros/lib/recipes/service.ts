@@ -42,7 +42,11 @@ import {
   refreshDailyNutritionSummary,
 } from "@/lib/foods/service";
 import { isSuspended } from "@/lib/moderation/service";
-import { getPantryStock } from "@/lib/pantry/service";
+import {
+  eatsFromStoredRecipe,
+  getPantryStock,
+  getRecipeStock,
+} from "@/lib/pantry/service";
 import type {
   CreateRecipeInput,
   LogRecipeInput,
@@ -192,6 +196,7 @@ type ResolvedIngredient = {
   foodId: string;
   snapshotId: string;
   servingsConsumed: number;
+  displayName: string | null;
   nutrients: Record<string, number>;
 };
 
@@ -216,6 +221,7 @@ async function resolveNewIngredients(
         foodId: resolved.foodId,
         snapshotId: resolved.snapshotId,
         servingsConsumed: ingredient.servingsConsumed,
+        displayName: ingredient.displayName ?? null,
         nutrients: resolved.nutrition.nutrients,
       };
     }),
@@ -255,6 +261,10 @@ async function resolveUpdatedIngredients(
         foodId: row.foodId,
         snapshotId: row.foodSnapshotId,
         servingsConsumed: ingredient.servingsConsumed,
+        displayName:
+          ingredient.displayName === undefined
+            ? row.displayName
+            : ingredient.displayName,
         nutrients: Object.fromEntries(
           row.foodSnapshot.nutrients.map((nutrient) => [
             nutrient.nutrientKey,
@@ -284,6 +294,7 @@ async function replaceIngredients(
       quantity: toNumericString(ingredient.servingsConsumed),
       unit: "serving",
       servings: toNumericString(ingredient.servingsConsumed),
+      displayName: ingredient.displayName,
     })),
   );
 }
@@ -440,20 +451,24 @@ export async function getUserRecipes(userId: string): Promise<RecipeSummary[]> {
       snapshot: await latestRecipeSnapshot(recipe.id),
     })),
   );
-  const coverage = await pantryCoverageFor(
-    userId,
-    latest.flatMap(({ snapshot }) => (snapshot ? [snapshot.id] : [])),
-  );
-  return latest.flatMap(({ recipe, snapshot }) =>
-    snapshot
-      ? [
-          {
-            ...toSummary(recipe, snapshot, recipe.ingredients.length),
-            pantry: coverage.get(snapshot.id),
-          },
-        ]
-      : [],
-  );
+  const [coverage, stored] = await Promise.all([
+    pantryCoverageFor(
+      userId,
+      latest.flatMap(({ snapshot }) => (snapshot ? [snapshot.id] : [])),
+    ),
+    getRecipeStock(userId),
+  ]);
+  return latest.flatMap(({ recipe, snapshot }) => {
+    if (!snapshot) return [];
+    const storedServings = stored.get(recipe.id) ?? 0;
+    return [
+      {
+        ...toSummary(recipe, snapshot, recipe.ingredients.length),
+        pantry: coverage.get(snapshot.id),
+        ...(storedServings > 0 ? { storedServings } : {}),
+      },
+    ];
+  });
 }
 
 /** Active recipes whose name contains the query, for food search. */
@@ -626,7 +641,11 @@ export async function getRecipeDetail(
     );
   }
 
-  const stock = await getPantryStock(userId);
+  const [stock, stored] = await Promise.all([
+    getPantryStock(userId),
+    getRecipeStock(userId, [recipeId]),
+  ]);
+  const storedServings = stored.get(recipeId) ?? 0;
   const ingredientDetails: RecipeIngredientDetail[] = recipe.ingredients
     .slice()
     .sort((left, right) => left.position - right.position)
@@ -665,6 +684,7 @@ export async function getRecipeDetail(
         iconKey: ingredient.food?.iconKey ?? null,
         foodName,
         brand,
+        displayName: ingredient.displayName,
         servings,
         foodId: ingredient.foodId,
         pantryServings: pantryServingsOf(ingredient),
@@ -687,6 +707,7 @@ export async function getRecipeDetail(
 
   return {
     ...summary,
+    ...(storedServings > 0 ? { storedServings } : {}),
     coverImageKey: recipe.coverImageKey,
     ...withImageUrls(recipe.id, recipe),
     prepTimeMinutes: recipe.prepTimeMinutes,
@@ -764,6 +785,7 @@ export async function logRecipe(userId: string, input: LogRecipeInput) {
   if (!snapshot) {
     throw new Error("Recipe has no nutrition snapshot");
   }
+  const fromPantry = await eatsFromStoredRecipe(userId, recipe.id);
 
   const logged = await db.transaction(async (tx: DbTransaction) => {
     const [entry] = await tx
@@ -785,6 +807,7 @@ export async function logRecipe(userId: string, input: LogRecipeInput) {
         servingUnit: snapshot.servingLabel,
         servingsConsumed: toNumericString(input.servingsConsumed),
         notes: input.notes,
+        fromPantry,
       })
       .onConflictDoNothing()
       .returning({ id: foodLogEntries.id });
@@ -854,7 +877,21 @@ export async function getPublicRecipe(id: string) {
     columns: { userId: true },
   });
   if (!recipe || (await isSuspended(recipe.userId))) return null;
-  return getRecipeDetail(recipe.userId, id);
+  const detail = await getRecipeDetail(recipe.userId, id);
+  // A renamed ingredient keeps its product to the author; the owner's stock
+  // is never public.
+  return {
+    ...detail,
+    storedServings: undefined,
+    pantry: undefined,
+    ingredients: detail.ingredients.map((ingredient) => ({
+      ...ingredient,
+      pantryServings: null,
+      ...(ingredient.displayName
+        ? { foodName: ingredient.displayName, brand: null }
+        : {}),
+    })),
+  };
 }
 
 /** The same rule `getPublicRecipe` applies, as one SQL predicate. */
