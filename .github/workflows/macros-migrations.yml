@@ -1,0 +1,78 @@
+name: Macros migrations
+
+# Forge builds and runs apps/macros but never touches its schema, so a merged
+# migration used to wait for someone to run drizzle-kit by hand while the new
+# code was already live. This applies it on the merge instead. Forge starts
+# its build from the same push; installing and migrating takes a minute or
+# two against a build of several, so the schema normally lands first. Keep
+# migrations additive (expand, then contract in a later release): the old
+# container serves against the new schema in between either way.
+#
+# MACROS_DATABASE_URL is an environment secret of `macros-db`, which only
+# `main` may deploy to, so no pull request run can read it. CI's
+# `macros-db` job already proves each migration on a throwaway database.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/macros/drizzle/**
+      - .github/workflows/macros-migrations.yml
+  workflow_dispatch:
+
+concurrency:
+  group: macros-migrations
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Apply to proj_macros
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: macros-db
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check the target
+        env:
+          MACROS_DATABASE_URL: ${{ secrets.MACROS_DATABASE_URL }}
+        run: |
+          if [[ -z "$MACROS_DATABASE_URL" ]]; then
+            echo "::error::MACROS_DATABASE_URL is not set on the macros-db environment."
+            exit 1
+          fi
+          # An empty proj_macros_db sits beside the real database; migrating
+          # it would report success and change nothing that is served.
+          database="${MACROS_DATABASE_URL##*/}"
+          database="${database%%\?*}"
+          if [[ "$database" != "proj_macros" ]]; then
+            echo "::error::MACROS_DATABASE_URL names '$database', not proj_macros."
+            exit 1
+          fi
+
+      - name: Apply migrations
+        working-directory: apps/macros
+        env:
+          MACROS_DATABASE_URL: ${{ secrets.MACROS_DATABASE_URL }}
+        run: bunx drizzle-kit migrate
+
+      - name: Summary
+        working-directory: apps/macros
+        run: |
+          latest="$(jq -r '.entries[-1].tag' drizzle/meta/_journal.json)"
+          {
+            echo "### Macros migrations"
+            echo
+            echo "proj_macros is migrated through \`${latest}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

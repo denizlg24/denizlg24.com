@@ -93,8 +93,14 @@ Run the real database regression against an isolated, migrated local database:
 1. Edit Drizzle schema in `db/schema.ts`.
 2. Run `bunx drizzle-kit generate`.
 3. Review the generated SQL.
-4. Run `bunx drizzle-kit migrate`.
+4. Run `bunx drizzle-kit migrate` against a local database.
 5. Run `bun run typecheck`, `bun run lint`, and `bun run build`.
+
+Production (`proj_macros`) is migrated by `.github/workflows/macros-migrations.yml`
+on every push to `main` that touches `drizzle/`, from the `macros-db`
+environment's `MACROS_DATABASE_URL`. Forge builds from the same push and never
+migrates, so the old container briefly runs against the new schema: keep a
+migration additive and drop columns a release later.
 
 If `gen_random_uuid()` is unavailable in a database, enable pgcrypto:
 
