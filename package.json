@@ -35,6 +35,7 @@
     "postinstall": "node scripts/fetch-tectonic.mjs",
     "bump:desktop": "bun scripts/update-desktop-app-version.ts",
     "bump:macros": "bun scripts/update-macros-app-version.ts",
+    "bump:tally": "bun scripts/update-tally-app-version.ts",
     "prepare": "husky"
   },
   "devDependencies": {
