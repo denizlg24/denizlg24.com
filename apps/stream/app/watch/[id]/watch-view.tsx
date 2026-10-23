@@ -5,7 +5,7 @@ import { StreamPlayer } from "@repo/stream-player";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import { reportProgress } from "@/app/actions";
+import { recordViewing, reportProgress } from "@/app/actions";
 
 export function WatchView({
   titleId,
@@ -30,8 +30,7 @@ export function WatchView({
     [titleId, episodeId],
   );
   const onBack = useCallback(() => {
-    if (window.history.length > 1) router.back();
-    else router.push(`/title/${titleId}`);
+    router.push(`/title/${titleId}`);
   }, [router, titleId]);
   const onNext = useCallback(
     (episode: Episode) =>
@@ -53,6 +52,9 @@ export function WatchView({
         onPlayTitle={() => router.replace(`/watch/${titleId}`)}
         onNext={onNext}
         onProgress={playback.trailer ? undefined : onProgress}
+        onViewing={async (completed) =>
+          (await recordViewing({ titleId, episodeId, completed })).ok
+        }
       />
     </div>
   );

@@ -139,3 +139,59 @@ integration(
     ).toBe(0);
   },
 );
+
+integration(
+  "embed viewing keeps selections and completion without fabricating playback time",
+  async () => {
+    const { titles, episodes } = await import("../db/schema");
+    await database.db
+      .insert(titles)
+      .values({ id: "tt7654321", type: "series", title: "Episode progress" });
+    await database.db.insert(episodes).values([
+      { id: "tt7654322", seriesId: "tt7654321", season: 1, episode: 1 },
+      { id: "tt7654323", seriesId: "tt7654321", season: 2, episode: 1 },
+    ]);
+    const [profile] = await members.listProfiles("alice");
+    const selection = {
+      titleId: "tt7654321",
+      episodeId: "tt7654322",
+      completed: false,
+    };
+    const started = await catalog.saveViewing(profile!.id, selection);
+    expect(started.positionS).toBe(0);
+    expect(started.durationS).toBe(0);
+    expect(
+      (await catalog.continueWatching(profile!.id)).some(
+        (item) => item.title.id === selection.titleId,
+      ),
+    ).toBe(true);
+    await catalog.saveProgress(profile!.id, {
+      ...selection,
+      positionS: 300,
+      durationS: 3000,
+    });
+    expect((await catalog.saveViewing(profile!.id, selection)).positionS).toBe(
+      300,
+    );
+    const moved = await catalog.saveViewing(profile!.id, {
+      ...selection,
+      episodeId: "tt7654323",
+    });
+    expect(moved.positionS).toBe(0);
+    expect(moved.durationS).toBe(0);
+    const finished = await catalog.saveViewing(profile!.id, {
+      ...selection,
+      episodeId: "tt7654323",
+      completed: true,
+    });
+    expect(finished.completed).toBe(true);
+    expect(finished.positionS).toBe(0);
+    expect(finished.durationS).toBe(0);
+    const { validViewing } = await import("./viewing");
+    expect(await validViewing(selection)).toBe(true);
+    expect(await validViewing({ ...selection, episodeId: "tt1234567" })).toBe(
+      false,
+    );
+    expect(await validViewing({ ...selection, episodeId: null })).toBe(false);
+  },
+);

@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { BottomBar, type MenuId, TopBar } from "./controls";
+import { EmbedPlayer } from "./embed-player";
 import { DOUBLE_TAP_MS, resolveTap, type Tap } from "./gestures";
 import type { PlayerAction } from "./keyboard";
 import { SEEK_STEP_S } from "./keyboard";
@@ -46,9 +47,17 @@ export interface StreamPlayerProps {
   onNext?: (episode: Episode) => void;
   /** About every 10 s while playing, and on pause, end and unmount. */
   onProgress?: (positionS: number, durationS: number) => void;
+  onViewing?: (completed: boolean) => Promise<boolean>;
 }
 
 export function StreamPlayer(props: StreamPlayerProps) {
+  if (
+    props.playback.embed &&
+    !props.playback.trailer &&
+    props.playback.sources.length === 0
+  ) {
+    return <EmbedPlayer key={props.playback.embed.url} {...props} />;
+  }
   return props.playback.trailer ? (
     <TrailerPlayer
       key={props.playback.trailer.youtubeKey}

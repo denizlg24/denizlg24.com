@@ -1,3 +1,4 @@
+import { decodeActorName } from "@repo/schemas/stream";
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import {
@@ -13,7 +14,8 @@ import { openTitle } from "@/features/studio/open";
 import { useAudience } from "@/lib/audience-store";
 import { Button, colors, IconButton, Poster, Text } from "@/ui";
 export default function Actor() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const params = useLocalSearchParams<{ name: string }>();
+  const name = decodeActorName(params.name ?? "");
   const { lead } = useAudience();
   const result = useActorTitles(name, lead.id);
   const insets = useSafeAreaInsets();

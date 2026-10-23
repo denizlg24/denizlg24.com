@@ -16,6 +16,7 @@ import {
   titlePageSchema,
   titleSummarySchema,
   tonightSchema,
+  type viewingInputSchema,
 } from "@repo/schemas/stream";
 import {
   keepPreviousData,
@@ -237,6 +238,60 @@ export function usePlayback(
       }),
     staleTime: 0,
     gcTime: 0,
+  });
+}
+
+export function useCurrentEpisode(id: string, episodeId: string | null) {
+  return useQuery({
+    queryKey: ["episodes", id, "current", episodeId],
+    enabled: episodeId !== null,
+    queryFn: ({ signal }) =>
+      api(`titles/${id}/episodes`, episodesResponseSchema, { signal }),
+    select: (data) =>
+      data.episodes.find((episode) => episode.id === episodeId) ?? null,
+    staleTime: 30 * 60_000,
+  });
+}
+
+export function useRecordProgress(profileIds: string[]) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: z.input<typeof progressInputSchema>) =>
+      Promise.all(
+        profileIds.map((profileId) =>
+          api(`profiles/${profileId}/progress`, progressSchema, {
+            method: "PUT",
+            body: input,
+          }),
+        ),
+      ),
+    onSuccess: (saved) => {
+      for (let index = 0; index < profileIds.length; index++) {
+        client.setQueriesData<TitleResponse>(
+          { queryKey: ["title", saved[index]!.titleId, profileIds[index]] },
+          (current) =>
+            current ? { ...current, progress: saved[index]! } : current,
+        );
+      }
+    },
+  });
+}
+
+export function useRecordViewing(profileIds: string[]) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: z.input<typeof viewingInputSchema>) =>
+      Promise.all(
+        profileIds.map((profileId) =>
+          api(`profiles/${profileId}/viewing`, progressSchema, {
+            method: "PUT",
+            body: input,
+          }),
+        ),
+      ),
+    onSuccess: () => {
+      for (const id of profileIds) invalidateAfterWatching(client, id);
+    },
   });
 }
 

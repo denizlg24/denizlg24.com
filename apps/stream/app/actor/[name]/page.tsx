@@ -1,4 +1,4 @@
-import { titleQuerySchema } from "@repo/schemas/stream";
+import { decodeActorName, titleQuerySchema } from "@repo/schemas/stream";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -10,13 +10,13 @@ import { audienceProfiles, requireViewer } from "@/lib/viewer";
 export async function generateMetadata({
   params,
 }: PageProps<"/actor/[name]">): Promise<Metadata> {
-  return { title: (await params).name };
+  return { title: decodeActorName((await params).name) };
 }
 export default async function ActorPage({
   params,
   searchParams,
 }: PageProps<"/actor/[name]">) {
-  const { name } = await params;
+  const name = decodeActorName((await params).name);
   const query = await searchParams;
   if (!name.trim() || name.length > 200) notFound();
   const viewer = await requireViewer(`/actor/${encodeURIComponent(name)}`);

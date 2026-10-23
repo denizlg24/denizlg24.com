@@ -19,7 +19,12 @@ export async function GET(
     ? await ownedProfile(caller.subject, profileId)
     : null;
   const episode = new URL(request.url).searchParams.get("episode");
-  return NextResponse.json(
-    await playbackFor(title, profile?.id ?? null, episode),
-  );
+  try {
+    return NextResponse.json(
+      await playbackFor(title, profile?.id ?? null, episode),
+    );
+  } catch (error) {
+    if (error instanceof RangeError) return fail(404, "episode_not_found");
+    throw error;
+  }
 }

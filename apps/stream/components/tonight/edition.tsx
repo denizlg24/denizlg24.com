@@ -18,6 +18,7 @@ function longDate(iso: string): string {
 }
 
 function minutesLeft(positionS: number, durationS: number): string {
+  if (durationS <= 0) return "Continue watching";
   const left = Math.max(1, Math.round((durationS - positionS) / 60));
   return `${formatRuntime(left)} left`;
 }
