@@ -56,3 +56,19 @@ a35651b3cc1ed4103f9d699bf2777926b11ed2e7:infra/compose/.env.pi.example:generic-a
 42516a5303ac2423ff213b9ca4e19667a91e4cd9:apps/nutrition/config/food-icons/originals.json:generic-api-key:1951
 42516a5303ac2423ff213b9ca4e19667a91e4cd9:apps/nutrition/config/food-icons/originals.json:generic-api-key:1959
 42516a5303ac2423ff213b9ca4e19667a91e4cd9:apps/nutrition/config/food-icons/originals.json:generic-api-key:3639
+
+# PR 281 squash merge: the same reviewed public food icon identifiers.
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/macros/app/_landing/demo-data.ts:generic-api-key:106
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/macros/public/food-icons/catalog.json:generic-api-key:2730
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/assets/food-icons/icons.json:generic-api-key:2730
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/rules.json:generic-api-key:155
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/src/modules/food-icons/matching.test.ts:generic-api-key:9
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1903
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1911
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1919
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1927
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1935
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1943
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1951
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1959
+061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:3639
