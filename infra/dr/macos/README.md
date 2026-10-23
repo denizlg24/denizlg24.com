@@ -39,7 +39,7 @@ dr-backups menu                      # reopen the menu app after Quit
 dr-backups logs                      # open the log directory
 ```
 
-The R2 mode needs Python 3.11+, restic, the existing R2 credentials, per-host
+The R2 mode needs Python 3.9+, restic, the existing R2 credentials, per-host
 restic passwords, allowed signers, the Mac completion key, and iCloud heartbeat
 URLs in the private config. It does not use SSH. The default installer source
 remains `ssh` for existing installations.

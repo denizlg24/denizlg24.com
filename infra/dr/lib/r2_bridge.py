@@ -106,8 +106,13 @@ def operation_locks(paths):
 
 
 def digest(path):
+    # launchd can use the macOS/Xcode Python 3.9, which predates file_digest.
+    # Bound memory while verifying multi-gigabyte encrypted backup objects.
+    checksum = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            checksum.update(chunk)
+    return checksum.hexdigest()
 
 
 def cloud_state(command, path, timeout="3600"):

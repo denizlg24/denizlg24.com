@@ -15,6 +15,13 @@ import r2_bridge as bridge
 
 
 class BridgeTests(unittest.TestCase):
+    def test_digest_supports_empty_and_multi_chunk_objects_on_system_python(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "encrypted-object"
+            for payload in (b"", b"encrypted-restic-object" * 100001):
+                path.write_bytes(payload)
+                self.assertEqual(bridge.digest(path), hashlib.sha256(payload).hexdigest())
+
     def test_file_provider_failure_keeps_its_path_and_diagnostic(self):
         failed = subprocess.CompletedProcess([], 1, stderr=b"STOP: iCloud quota exceeded", stdout=b"")
         with patch.object(bridge.subprocess, "run", return_value=failed), \

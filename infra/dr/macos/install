@@ -43,6 +43,7 @@ for required_command in python3 swiftc codesign security plutil launchctl jq ssh
   done
   declared_path_dirs+=("$resolved_dir")
 done
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else "STOP: Python 3.9 or newer is required")'
 agent_path="$(
   IFS=:
   printf '%s' "${declared_path_dirs[*]}"
