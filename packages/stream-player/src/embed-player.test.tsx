@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EmbedPlayer } from "./embed-player";
 
-test("embedded playback never permits popups, top navigation, downloads or sandbox escape", () => {
+test("server rendering keeps a sandbox and defers provider loading until host detection", () => {
   const html = renderToStaticMarkup(
     createElement(EmbedPlayer, {
       title: "Movie",
@@ -21,6 +21,7 @@ test("embedded playback never permits popups, top navigation, downloads or sandb
   );
   const iframe = html.match(/<iframe\b[^>]+>/)?.[0];
   expect(iframe).toBeDefined();
+  expect(iframe).not.toContain("src=");
   const sandbox = iframe?.match(/\bsandbox="([^"]*)"/)?.[1];
   expect(sandbox).toBeDefined();
   const allowed = new Set(sandbox?.split(/\s+/));

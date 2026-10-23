@@ -6,7 +6,12 @@ import {
   parseEmbedProgress,
 } from "@repo/schemas/stream";
 import { ArrowLeft, Check, RotateCw, SkipForward } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  embedEnvironment,
+  serverEmbedEnvironment,
+  subscribeEmbedEnvironment,
+} from "./embed-environment";
 import type { StreamPlayerProps } from "./stream-player";
 import { formatTime } from "./time";
 import { UpNext } from "./up-next";
@@ -22,6 +27,11 @@ export function EmbedPlayer({
   autoPlay = true,
   nextCountdownS = 10,
 }: StreamPlayerProps) {
+  const environment = useSyncExternalStore(
+    subscribeEmbedEnvironment,
+    embedEnvironment,
+    serverEmbedEnvironment,
+  );
   const iframe = useRef<HTMLIFrameElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -132,18 +142,23 @@ export function EmbedPlayer({
           <span>Reload player</span>
         </button>
       </header>
-      {/* Keep popup and top-navigation restrictions even when a provider rejects them. */}
+      {/* Only a protected native host may omit the browser sandbox. */}
       <iframe
         ref={iframe}
-        key={`${url}:${attempt}`}
-        src={url}
+        key={`${url}:${attempt}:${environment}`}
+        src={environment === "pending" ? undefined : url}
         title={subtitle ? `${title}: ${subtitle}` : title}
         allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowFullScreen
-        sandbox="allow-scripts allow-same-origin allow-presentation"
+        sandbox={
+          environment === "native"
+            ? undefined
+            : "allow-scripts allow-same-origin allow-presentation"
+        }
         referrerPolicy="strict-origin-when-cross-origin"
         className="min-h-0 w-full flex-1 border-0"
         onLoad={() => {
+          if (environment === "pending") return;
           if (!started.current) {
             started.current = true;
             void onViewing?.(false)

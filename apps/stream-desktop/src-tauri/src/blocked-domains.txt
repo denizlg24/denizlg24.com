@@ -1,0 +1,22 @@
+# Stream's bundled advertising/tracking host rules. Exact hosts and subdomains only.
+# Keep playback/CDN and authentication hosts out of this list.
+# Sources for maintenance: https://easylist.to/ and observed player requests.
+adsterra.com
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+histats.com
+popads.net
+popcash.net
+propellerads.com
+exoclick.com
+exosrv.com
+realsrv.com
+onclicka.com
+onclickalgo.com
+onclickperformance.com
+tsyndicate.com
+highperformanceformat.com
+effectivegatecpm.com
+profitableratecpm.com
+profitablecpmrate.com
