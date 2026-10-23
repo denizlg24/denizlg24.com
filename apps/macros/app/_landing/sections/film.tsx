@@ -28,8 +28,8 @@ export function Film() {
           <video
             ref={video}
             className="block aspect-video w-full bg-muted"
-            src="/media/macros-film.mp4"
-            poster="/media/macros-film-poster.jpg"
+            src="/media/macros-film-0.1.0.mp4"
+            poster="/media/macros-film-poster-0.1.0.jpg"
             width={1920}
             height={1080}
             controls={started}

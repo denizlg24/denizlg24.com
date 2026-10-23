@@ -7,6 +7,15 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.1.0 — 2026-10-23
+
+### Changed
+- The website's film now shows the latest app and original food illustrations.
+
+### Fixed
+- Long food and recipe names stay within their pantry rows, keeping stock
+  controls visible.
+
 ## 0.0.20 — 2026-10-23
 
 ### Added
