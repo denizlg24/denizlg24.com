@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -61,7 +62,7 @@ const opaqueBounds = async (path: string) => {
 };
 
 describe("food icon assets", () => {
-  test("the committed manifest contains every extracted icon", async () => {
+  test("the committed manifest contains every replacement and addition", async () => {
     const manifest = await readJson<IconManifest>(
       resolve(assetsRoot, "icons.json"),
     );
@@ -74,18 +75,18 @@ describe("food icon assets", () => {
       ),
     );
 
-    expect(manifest.icons).toHaveLength(424);
+    expect(manifest.icons).toHaveLength(455);
     expect(counts).toEqual({
-      "baked-goods": 36,
+      "baked-goods": 37,
       meats: 43,
-      vegetables: 61,
+      vegetables: 64,
       seafood: 24,
-      fruit: 43,
-      "nuts-and-seeds": 19,
-      "dairy-and-eggs": 19,
-      drinks: 34,
+      fruit: 46,
+      "nuts-and-seeds": 24,
+      "dairy-and-eggs": 21,
+      drinks: 41,
       sweets: 36,
-      other: 109,
+      other: 119,
     });
     expect(manifest.icons[0]?.key).toBe("baked-goods-001");
     expect(manifest.icons.some((icon) => icon.key === "other-001")).toBe(true);
@@ -100,6 +101,12 @@ describe("food icon assets", () => {
       const bounds = await opaqueBounds(resolve(assetsRoot, icon.file));
       expect(bounds.canvasWidth, icon.key).toBe(128);
       expect(bounds.canvasHeight, icon.key).toBe(128);
+      expect(bounds.width, icon.key).toBeGreaterThan(0);
+      expect(bounds.height, icon.key).toBeGreaterThan(0);
+      expect(
+        Math.max(bounds.width, bounds.height),
+        icon.key,
+      ).toBeGreaterThanOrEqual(90);
       expect(bounds.minX, icon.key).toBeGreaterThan(0);
       expect(bounds.minY, icon.key).toBeGreaterThan(0);
       expect(bounds.maxX, icon.key).toBeLessThan(127);
@@ -107,23 +114,65 @@ describe("food icon assets", () => {
     }
   });
 
-  test("non-square baked-good source art keeps its original proportions", async () => {
-    const expectedSizes: Record<string, [number, number]> = {
-      "baked-goods-001": [95, 76],
-      "baked-goods-002": [95, 66],
-      "baked-goods-004": [95, 69],
-    };
+  test("every original is distinct, replaces legacy bytes, and matches its public copy", async () => {
+    const manifest = await readJson<IconManifest>(
+      resolve(assetsRoot, "icons.json"),
+    );
+    const plan = await readJson<{
+      icons: Array<{ key: string; prompt: string; replacesSha256?: string }>;
+    }>(resolve(projectRoot, "config/food-icons/originals.json"));
+    const planned = new Map(plan.icons.map((icon) => [icon.key, icon]));
+    const hashes = new Set<string>();
+    const published = resolve(projectRoot, "../macros/public/food-icons");
 
-    for (const [key, expected] of Object.entries(expectedSizes)) {
-      const bounds = await opaqueBounds(
-        resolve(assetsRoot, "icons", `${key}.png`),
-      );
-      expect([bounds.width, bounds.height], key).toEqual(expected);
+    expect(
+      await readJson<IconManifest>(resolve(published, "catalog.json")),
+    ).toEqual(manifest);
+    for (const icon of manifest.icons) {
+      const original = planned.get(icon.key);
+      expect(original?.prompt.length, icon.key).toBeGreaterThan(0);
+      const bytes = await readFile(resolve(assetsRoot, icon.file));
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      expect(hash, icon.key).not.toBe(original?.replacesSha256);
+      expect(hashes.has(hash), icon.key).toBe(false);
+      hashes.add(hash);
+      expect(
+        await readFile(resolve(published, `${icon.key}.png`)),
+        icon.key,
+      ).toEqual(bytes);
     }
   });
 });
 
 describe("food icon rules", () => {
+  test("new foods have specific icons instead of broad category fallbacks", async () => {
+    const config = await readJson<FoodIconRules>(
+      resolve(projectRoot, "config/food-icons/rules.json"),
+    );
+    const compiled = compileFoodIconRules(config);
+    const examples = {
+      "Firm tofu": "other-110",
+      "Smoked tempeh": "other-111",
+      "Cooked quinoa": "other-113",
+      "Oat milk": "drinks-035",
+      "Soya milk": "drinks-036",
+      "Soy milk": "drinks-036",
+      "Matcha latte": "drinks-038",
+      "Chia seeds": "nuts-and-seeds-020",
+      "Pumpkin seeds": "nuts-and-seeds-022",
+      Tahini: "nuts-and-seeds-024",
+      "Dragon fruit": "fruit-044",
+      Edamame: "vegetables-062",
+      Skyr: "dairy-and-eggs-020",
+      "Greek yoghurt": "dairy-and-eggs-021",
+      "Sourdough bread": "baked-goods-037",
+      "Chia seed protein bar": "sweets-021",
+      "Baby food with oat milk": "other-089",
+    };
+    for (const [name, key] of Object.entries(examples)) {
+      expect(classifyFoodIcon(compiled, name), name).toBe(key);
+    }
+  });
   test("every rule compiles and references a generated icon", async () => {
     const [config, manifest] = await Promise.all([
       readJson<FoodIconRules>(

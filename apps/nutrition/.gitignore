@@ -58,3 +58,6 @@ package-lock.json
 
 # database backups
 /backups
+
+# Generated icon staging; only the normalized published assets are committed.
+/assets/food-icons/originals/

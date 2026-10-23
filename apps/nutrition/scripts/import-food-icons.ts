@@ -8,6 +8,7 @@ import { foodIcons } from "../src/db/schema";
 
 interface IconManifestEntry {
   key: string;
+  label: string;
   foodGroup: string;
   file: string;
 }
@@ -67,6 +68,7 @@ try {
       .insert(foodIcons)
       .values({
         key: icon.key,
+        name: icon.label,
         foodGroup: icon.foodGroup,
         mediaType,
         imageBase64,
@@ -74,6 +76,7 @@ try {
       .onConflictDoUpdate({
         target: foodIcons.key,
         set: {
+          name: icon.label,
           foodGroup: icon.foodGroup,
           mediaType,
           imageBase64,

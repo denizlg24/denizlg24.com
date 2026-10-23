@@ -8,10 +8,8 @@ export interface IconCatalogEntry {
 }
 
 /**
- * The icon assets carry no captions, only sprite-sheet coordinates. The curated
- * regex rules are the only description of what each icon depicts, so the LLM
- * catalog is derived from them: every rule pattern is stripped back to the
- * plain words a human wrote it for.
+ * Combine artwork captions with curated matching rules, stripping each regex
+ * back to the plain words it describes for the classification catalog.
  */
 const patternToTerms = (pattern: string) =>
   pattern
@@ -22,8 +20,7 @@ const patternToTerms = (pattern: string) =>
     .trim();
 
 /**
- * Hand-written captions for icons no rule describes (read off the sprite
- * sheets). Without them the model could never pick those icons.
+ * Captions cover every original illustration, including those with no rule.
  */
 const CAPTIONS_PATH = "config/food-icons/captions.json";
 

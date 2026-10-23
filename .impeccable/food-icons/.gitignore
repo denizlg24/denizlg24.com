@@ -1,0 +1,4 @@
+# Local generation checkpoints, database rollback journals, caches, and captures.
+# Reproducible catalog/source files live under apps/nutrition instead.
+*
+!.gitignore

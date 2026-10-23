@@ -2,6 +2,161 @@
   "defaultIconKey": "other-001",
   "rules": [
     {
+      "iconKey": "baked-goods-037",
+      "priority": 490,
+      "patterns": ["\\bsourdough\\b"]
+    },
+    {
+      "iconKey": "other-110",
+      "priority": 490,
+      "patterns": ["\\btofu\\b"]
+    },
+    {
+      "iconKey": "other-111",
+      "priority": 490,
+      "patterns": ["\\btempeh\\b"]
+    },
+    {
+      "iconKey": "other-112",
+      "priority": 490,
+      "patterns": ["\\bseitan\\b"]
+    },
+    {
+      "iconKey": "other-113",
+      "priority": 490,
+      "patterns": ["\\bquinoa\\b"]
+    },
+    {
+      "iconKey": "other-114",
+      "priority": 490,
+      "patterns": ["\\bcouscous\\b"]
+    },
+    {
+      "iconKey": "other-115",
+      "priority": 490,
+      "patterns": ["\\bbuckwheat\\b"]
+    },
+    {
+      "iconKey": "other-116",
+      "priority": 490,
+      "patterns": ["\\bbulgur\\b"]
+    },
+    {
+      "iconKey": "other-117",
+      "priority": 490,
+      "patterns": ["\\bchickpeas?\\b", "\\bgarbanzo(?: beans?)?\\b"]
+    },
+    {
+      "iconKey": "other-118",
+      "priority": 490,
+      "patterns": ["\\bnutritional yeast\\b"]
+    },
+    {
+      "iconKey": "other-119",
+      "priority": 490,
+      "patterns": ["\\ba[cç]a[ií](?: bowls?)?\\b"]
+    },
+    {
+      "iconKey": "drinks-035",
+      "priority": 490,
+      "patterns": ["\\boat milk\\b", "\\boat drink\\b"]
+    },
+    {
+      "iconKey": "drinks-036",
+      "priority": 490,
+      "patterns": ["\\bsoya? milk\\b", "\\bsoya? drink\\b"]
+    },
+    {
+      "iconKey": "drinks-037",
+      "priority": 490,
+      "patterns": ["\\balmond milk\\b", "\\balmond drink\\b"]
+    },
+    {
+      "iconKey": "drinks-038",
+      "priority": 490,
+      "patterns": ["\\bmatcha\\b"]
+    },
+    {
+      "iconKey": "drinks-039",
+      "priority": 490,
+      "patterns": ["\\bkombucha\\b"]
+    },
+    {
+      "iconKey": "drinks-040",
+      "priority": 490,
+      "patterns": ["\\bcoconut water\\b"]
+    },
+    {
+      "iconKey": "drinks-041",
+      "priority": 490,
+      "patterns": ["\\bkefir\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-020",
+      "priority": 490,
+      "patterns": ["\\bchia seeds?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-021",
+      "priority": 490,
+      "patterns": ["\\bflax(?:seeds?| seeds?)\\b", "\\blinseeds?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-022",
+      "priority": 490,
+      "patterns": ["\\bpumpkin seeds?\\b", "\\bpepitas?\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-023",
+      "priority": 490,
+      "patterns": ["\\bhemp (?:seeds?|hearts?)\\b"]
+    },
+    {
+      "iconKey": "nuts-and-seeds-024",
+      "priority": 490,
+      "patterns": ["\\btahini\\b"]
+    },
+    {
+      "iconKey": "fruit-044",
+      "priority": 490,
+      "patterns": ["\\bdragon fruit\\b", "\\bpitaya\\b"]
+    },
+    {
+      "iconKey": "fruit-045",
+      "priority": 490,
+      "patterns": ["\\blychees?\\b", "\\blitchi\\b"]
+    },
+    {
+      "iconKey": "fruit-046",
+      "priority": 490,
+      "patterns": ["\\brambutans?\\b"]
+    },
+    {
+      "iconKey": "vegetables-062",
+      "priority": 490,
+      "patterns": ["\\bedamame\\b"]
+    },
+    {
+      "iconKey": "vegetables-063",
+      "priority": 490,
+      "patterns": ["\\bkale\\b"]
+    },
+    {
+      "iconKey": "vegetables-064",
+      "priority": 490,
+      "patterns": ["\\bsauerkraut\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-020",
+      "priority": 490,
+      "patterns": ["\\bskyr\\b"]
+    },
+    {
+      "iconKey": "dairy-and-eggs-021",
+      "priority": 490,
+      "patterns": ["\\bgreek yog[ou]rt\\b", "\\bgreek yoghurt\\b"]
+    },
+    {
       "iconKey": "other-089",
       "priority": 500,
       "patterns": [
@@ -15,7 +170,11 @@
       "priority": 500,
       "patterns": ["\\bsushi\\b", "\\bsashimi\\b", "\\bnigiri\\b", "\\bmaki\\b"]
     },
-    { "iconKey": "other-106", "priority": 500, "patterns": ["\\bramen\\b"] },
+    {
+      "iconKey": "other-106",
+      "priority": 500,
+      "patterns": ["\\bramen\\b"]
+    },
     {
       "iconKey": "other-107",
       "priority": 500,
@@ -36,7 +195,11 @@
         "\\bwontons?\\b"
       ]
     },
-    { "iconKey": "other-103", "priority": 500, "patterns": ["\\btacos?\\b"] },
+    {
+      "iconKey": "other-103",
+      "priority": 500,
+      "patterns": ["\\btacos?\\b"]
+    },
     {
       "iconKey": "other-104",
       "priority": 500,
@@ -116,7 +279,11 @@
         "\\bvermicelli\\b"
       ]
     },
-    { "iconKey": "other-021", "priority": 390, "patterns": ["\\bnoodles?\\b"] },
+    {
+      "iconKey": "other-021",
+      "priority": 390,
+      "patterns": ["\\bnoodles?\\b"]
+    },
     {
       "iconKey": "other-098",
       "priority": 500,
@@ -132,7 +299,11 @@
       "priority": 500,
       "patterns": ["\\bempanadas?\\b", "\\bpierogi\\b", "\\bpastel(?:es)?\\b"]
     },
-    { "iconKey": "other-085", "priority": 500, "patterns": ["\\brisotto\\b"] },
+    {
+      "iconKey": "other-085",
+      "priority": 500,
+      "patterns": ["\\brisotto\\b"]
+    },
     {
       "iconKey": "other-071",
       "priority": 480,
@@ -148,8 +319,16 @@
       "priority": 470,
       "patterns": ["\\bhummus\\b", "\\btahini\\b"]
     },
-    { "iconKey": "other-015", "priority": 490, "patterns": ["\\bfalafel\\b"] },
-    { "iconKey": "other-028", "priority": 480, "patterns": ["\\bpopcorn\\b"] },
+    {
+      "iconKey": "other-015",
+      "priority": 490,
+      "patterns": ["\\bfalafel\\b"]
+    },
+    {
+      "iconKey": "other-028",
+      "priority": 480,
+      "patterns": ["\\bpopcorn\\b"]
+    },
     {
       "iconKey": "other-027",
       "priority": 480,
@@ -170,7 +349,11 @@
         "\\bpapas fritas\\b"
       ]
     },
-    { "iconKey": "other-010", "priority": 480, "patterns": ["\\bwaffles?\\b"] },
+    {
+      "iconKey": "other-010",
+      "priority": 480,
+      "patterns": ["\\bwaffles?\\b"]
+    },
     {
       "iconKey": "other-040",
       "priority": 480,
@@ -220,7 +403,11 @@
       "priority": 480,
       "patterns": ["\\btomato soup\\b"]
     },
-    { "iconKey": "other-079", "priority": 390, "patterns": ["\\bsoups?\\b"] },
+    {
+      "iconKey": "other-079",
+      "priority": 390,
+      "patterns": ["\\bsoups?\\b"]
+    },
     {
       "iconKey": "other-088",
       "priority": 480,
@@ -312,7 +499,11 @@
       "priority": 420,
       "patterns": ["\\bpotato chips?\\b", "\\bcrisps?\\b"]
     },
-    { "iconKey": "other-084", "priority": 390, "patterns": ["\\bchips\\b"] },
+    {
+      "iconKey": "other-084",
+      "priority": 390,
+      "patterns": ["\\bchips\\b"]
+    },
     {
       "iconKey": "other-023",
       "priority": 420,
@@ -428,7 +619,6 @@
       "priority": 450,
       "patterns": ["\\bhoney\\b", "\\bmel\\b", "\\bmiel\\b"]
     },
-
     {
       "iconKey": "sweets-004",
       "priority": 500,
@@ -692,7 +882,6 @@
       "priority": 420,
       "patterns": ["\\bwafers?\\b"]
     },
-
     {
       "iconKey": "drinks-032",
       "priority": 500,
@@ -747,7 +936,11 @@
       "priority": 480,
       "patterns": ["\\bwhite wine\\b", "\\bvinho branco\\b", "\\bvin blanc\\b"]
     },
-    { "iconKey": "drinks-034", "priority": 480, "patterns": ["\\bsake\\b"] },
+    {
+      "iconKey": "drinks-034",
+      "priority": 480,
+      "patterns": ["\\bsake\\b"]
+    },
     {
       "iconKey": "drinks-002",
       "priority": 470,
@@ -851,7 +1044,6 @@
         "\\bsumo\\b"
       ]
     },
-
     {
       "iconKey": "dairy-and-eggs-004",
       "priority": 480,
@@ -986,7 +1178,6 @@
         "\\bmascarpone\\b"
       ]
     },
-
     {
       "iconKey": "nuts-and-seeds-002",
       "priority": 480,
@@ -1066,7 +1257,6 @@
         "\\bfrutos secos\\b"
       ]
     },
-
     {
       "iconKey": "seafood-001",
       "priority": 470,
@@ -1176,7 +1366,6 @@
       "priority": 440,
       "patterns": ["\\btilapia\\b", "\\bcod(?:fish)?\\b", "\\bhaddock\\b"]
     },
-
     {
       "iconKey": "meats-002",
       "priority": 470,
@@ -1343,7 +1532,6 @@
       "priority": 380,
       "patterns": ["\\bmeat\\b", "\\bcarne\\b", "\\bviande\\b"]
     },
-
     {
       "iconKey": "vegetables-001",
       "priority": 470,
@@ -1650,7 +1838,6 @@
         "\\bl[eé]gumes?\\b"
       ]
     },
-
     {
       "iconKey": "fruit-003",
       "priority": 450,
@@ -1875,7 +2062,6 @@
       "priority": 350,
       "patterns": ["\\bfruit\\b", "\\bfrutas?\\b", "\\bfruits?\\b"]
     },
-
     {
       "iconKey": "baked-goods-004",
       "priority": 100,

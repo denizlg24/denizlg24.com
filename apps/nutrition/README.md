@@ -347,13 +347,29 @@ destructive import.
 
 Each item stores an `iconKey`; the corresponding PNG base64 is stored once in `food_icons`. This avoids duplicating the same image across many item rows. Existing and newly inserted items default to `other-001`.
 
-The screenshot workflow supports continued grids, optional connected-background removal, deterministic cell splitting, database import, and prioritized regex assignment. See [Food icon processing](docs/food-icons.md) for the complete workflow.
+The food icon catalog contains 455 original illustrations: all 424 legacy IDs and 31 additional icons. Prompts and provenance are recorded in `config/food-icons/originals.json`, and the installed catalog is `assets/food-icons/icons.json`. See [Food icon processing](docs/food-icons.md) for preparation, installation, database import, and deterministic matching.
 
-The regex rules miss a third of the catalog, so `icons:classify` reassigns
-every icon with `openai/gpt-6-luna` through the AI Gateway (`icon_source =
-'llm'`; reruns skip classified rows). The model sees one line per icon: the
-rule terms, or a hand-written caption from `config/food-icons/captions.json`
-for the 147 icons no rule describes.
+Seed the icon names and images with `icons:import`, then populate the separate
+`${MEILISEARCH_INDEX}_icons` catalog with `icons:index`. The `icons:match`
+workflow searches each active food's concept/English/source name first. It
+accepts only strong, distinct whole-word matches; ambiguous or weak hits fall
+back to an existing valid, specific LLM assignment. `--llm-fallback` classifies
+only unresolved/default foods through the configured AI Gateway.
+
+```bash
+bun run icons:import
+bun run icons:index
+bun run icons:match --dry-run --report /private/path/audit.json
+bun run icons:match --llm-fallback --backup /private/path/rollback.jsonl --report /private/path/applied.json
+bun run search:sync -- --since <rollout-start-ISO-timestamp>
+```
+
+The matcher keeps a versioned local SQLite cache, checkpoints each batch, and
+requires a private rollback journal before updates. Writes compare the old
+icon key and source so concurrent edits survive. Existing IDs and nutrition
+snapshots remain intact. `--refresh-llm` is an explicit expensive opt-in;
+ordinary runs reuse specific assignments. `icons:classify` remains available
+for separate full classification jobs and skips Meilisearch-assigned rows.
 
 ## API Overview
 

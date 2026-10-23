@@ -34,7 +34,7 @@ const args = {
 const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/chat/completions";
 const research = new Set<string>(researchSources);
 
-interface Candidate {
+export interface Candidate {
   id: string;
   name: string;
   nameEn: string | null;
@@ -48,7 +48,7 @@ interface Assignment {
   conceptName: string | null;
 }
 
-const systemPrompt = (
+export const systemPrompt = (
   catalog: string,
 ) => `You assign food icons. Each catalog line is an icon key followed by the foods it depicts.
 
@@ -78,7 +78,7 @@ const describe = (item: Candidate, index: number) => {
   return `${index}. ${research.has(item.source) ? "[R] " : ""}${names}${extra ? ` (${extra})` : ""}`;
 };
 
-const responseFormat = (withConcepts: boolean) => ({
+const responseFormat = (withConcepts: boolean, validKeys: Set<string>) => ({
   type: "json_schema",
   json_schema: {
     name: "icon_assignments",
@@ -96,7 +96,7 @@ const responseFormat = (withConcepts: boolean) => ({
             required: withConcepts ? ["i", "key", "concept"] : ["i", "key"],
             properties: {
               i: { type: "integer" },
-              key: { type: "string" },
+              key: { type: "string", enum: [...validKeys] },
               // Product batches never carry concepts; leaving the field out
               // saves a third of the output tokens, which bound throughput.
               ...(withConcepts
@@ -115,7 +115,7 @@ const usage = { input: 0, cachedInput: 0, output: 0, calls: 0, failed: 0 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const classifyBatch = async (
+export const classifyBatch = async (
   system: string,
   batch: Candidate[],
   validKeys: Set<string>,
@@ -141,6 +141,7 @@ const classifyBatch = async (
         reasoning_effort: args.reasoning,
         response_format: responseFormat(
           batch.some((item) => research.has(item.source)),
+          validKeys,
         ),
       }),
       signal: AbortSignal.timeout(120_000),
@@ -230,7 +231,7 @@ const main = async () => {
     const validKeys = new Set(iconRows.map((row) => row.key));
 
     const filters = ["merged_into is null", "not quarantined"];
-    if (!args.redo) filters.push("icon_source <> 'llm'");
+    if (!args.redo) filters.push("icon_source not in ('llm', 'meilisearch')");
     const params: unknown[] = [];
     if (args.source) {
       params.push(args.source.split(","));
@@ -337,4 +338,4 @@ const main = async () => {
   }
 };
 
-await main();
+if (import.meta.main) await main();
