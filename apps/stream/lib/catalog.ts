@@ -124,6 +124,10 @@ export function titleFilters(query: TitleQuery, kids: boolean): SQL {
   if (query.yearTo) filters.push(lte(titles.startYear, query.yearTo));
   if (query.ratingMin) filters.push(gte(titles.rating, query.ratingMin));
   if (query.votesMin) filters.push(gte(titles.votes, query.votesMin));
+  if (query.moodMin !== undefined)
+    filters.push(gte(titles.mood, query.moodMin));
+  if (query.moodMax !== undefined)
+    filters.push(lte(titles.mood, query.moodMax));
   if (query.runtimeMax) {
     filters.push(lte(titles.runtimeMinutes, query.runtimeMax));
   }
@@ -324,4 +328,47 @@ export async function continueWatching(
     title: serializeSummary(row.title),
     progress: serializeProgress(row.progress),
   }));
+}
+
+/** Titles closest in taste space: the map's neighbourhood, nearest first. */
+export async function nearbyTitles(
+  row: TitleRow,
+  kids: boolean,
+  limit = 12,
+): Promise<TitleSummary[]> {
+  const radius = 900;
+  const rows = await db
+    .select()
+    .from(titles)
+    .where(
+      and(
+        audienceFilter(kids),
+        not(eq(titles.id, row.id)),
+        gte(titles.mapX, row.mapX - radius),
+        lte(titles.mapX, row.mapX + radius),
+        gte(titles.mapY, row.mapY - radius),
+        lte(titles.mapY, row.mapY + radius),
+        isNotNull(titles.posterPath),
+        gte(titles.votes, 10_000),
+      ),
+    )
+    .orderBy(
+      sql`(${titles.mapX} - ${row.mapX}) ^ 2 + (${titles.mapY} - ${row.mapY}) ^ 2 - ${titles.popularity} * 20000`,
+    )
+    .limit(limit);
+  return rows.map(serializeSummary);
+}
+
+export async function finishedTitles(
+  profileId: string,
+  limit = 120,
+): Promise<TitleSummary[]> {
+  const rows = await db
+    .select({ title: titles })
+    .from(progress)
+    .innerJoin(titles, eq(titles.id, progress.titleId))
+    .where(and(eq(progress.profileId, profileId), eq(progress.completed, true)))
+    .orderBy(desc(progress.updatedAt))
+    .limit(limit);
+  return rows.map(({ title }) => serializeSummary(title));
 }

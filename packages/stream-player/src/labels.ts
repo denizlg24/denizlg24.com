@@ -28,6 +28,6 @@ export function episodeLabel(
 ): string {
   const code = episodeCode(episode);
   const title = episode.title?.trim() ?? "";
-  if (code && title) return `${code} · ${title}`;
+  if (code && title) return `${code}: ${title}`;
   return code || title || "Next episode";
 }

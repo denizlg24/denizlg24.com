@@ -1,5 +1,7 @@
 import {
+  AUTH_APP_URL,
   CLOUD_AUTH_ISSUER,
+  DEV_AUTH_APP_URL,
   DEV_CLOUD_AUTH_ISSUER,
   OAUTH_RESOURCES,
 } from "@repo/schemas/cloud";
@@ -39,4 +41,10 @@ export function webUrl(): string {
 
 export function minVotes(): number {
   return Number(process.env.STREAM_MIN_VOTES ?? 1000);
+}
+
+export function authAppUrl(): string {
+  return (
+    process.env.AUTH_APP_URL ?? (isDev ? DEV_AUTH_APP_URL : AUTH_APP_URL)
+  ).replace(/\/$/, "");
 }

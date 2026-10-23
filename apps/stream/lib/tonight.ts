@@ -1,10 +1,9 @@
 import "server-only";
 
-import {
-  formatRuntime,
-  type Recommendation,
-  type TitleSummary,
-  type Tonight,
+import type {
+  Recommendation,
+  TitleSummary,
+  Tonight,
 } from "@repo/schemas/stream";
 import { and, desc, gte, isNotNull, type SQL } from "drizzle-orm";
 
@@ -65,7 +64,7 @@ export function pickDoubleFeature(
   return {
     first: best.first,
     second: best.second,
-    reason: `Two ${best.genre.toLowerCase()} films, back to back · ${formatRuntime(best.total)}`,
+    reason: `Two ${best.genre.toLowerCase()} films that sit well back to back.`,
   };
 }
 

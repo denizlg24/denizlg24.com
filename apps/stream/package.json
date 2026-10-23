@@ -16,6 +16,7 @@
   "dependencies": {
     "@denizlg24/auth": "workspace:*",
     "@repo/schemas": "workspace:*",
+    "@repo/stream-player": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.46.0",
     "next": "16.3.5",

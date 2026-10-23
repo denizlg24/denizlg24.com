@@ -36,9 +36,7 @@ export function UpNext({ episode, seconds, onPlay, onCancel }: UpNextProps) {
       aria-label="Up next"
       className="absolute right-4 bottom-32 z-30 flex max-w-sm flex-col items-end gap-3 text-right sm:right-8 sm:bottom-36 lg:right-12 lg:bottom-48 lg:max-w-xl"
     >
-      <p className="font-medium text-white/60 text-xs uppercase tracking-[0.2em] lg:text-base">
-        Up next
-      </p>
+      <p className="font-bold text-white/65 text-sm lg:text-lg">Up next</p>
       <p className="text-balance font-semibold text-white text-xl drop-shadow-md lg:text-4xl">
         {episodeLabel(episode)}
       </p>

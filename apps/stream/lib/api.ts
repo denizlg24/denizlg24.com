@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import type { z } from "zod";
 
 import type { MemberRow, ProfileRow } from "@/db/schema";
-import { bearerVerifier, isFamilyToken } from "@/lib/auth";
+import { auth, bearerVerifier, isFamilyToken } from "@/lib/auth";
+import { devSubject } from "@/lib/dev-session";
 import { findMember, ownedProfile, touchMember } from "@/lib/members";
 
 export type ApiFailure = NextResponse<{ error: string }>;
@@ -19,13 +20,27 @@ export interface ApiCaller {
   member: MemberRow | null;
 }
 
-/** 401 means "sign in again" to every client, so an unreachable issuer is a 503. */
+/**
+ * Native clients send a bearer. The web app's own client components read
+ * with its session cookie, and only read: every web mutation is a server
+ * action, which checks its origin, so a cookie never authorises a write here.
+ * 401 means "sign in again" to every client, so an unreachable issuer is 503.
+ */
 export async function authenticate(
   request: Request,
 ): Promise<ApiCaller | ApiFailure> {
+  const dev = request.headers.has("authorization") ? null : devSubject();
+  if (dev) {
+    const member = await findMember(dev);
+    return { subject: dev, member };
+  }
   let token: AccessToken | null;
   try {
-    token = await bearerVerifier().verifyRequest(request);
+    token = request.headers.has("authorization")
+      ? await bearerVerifier().verifyRequest(request)
+      : request.method === "GET"
+        ? ((await auth.getSession())?.token ?? null)
+        : null;
   } catch (error) {
     if (error instanceof AuthUnavailableError)
       return fail(503, "auth_unavailable");

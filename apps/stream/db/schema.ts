@@ -36,7 +36,7 @@ export const titles = pgTable(
     originalTitle: text("original_title"),
     startYear: smallint("start_year"),
     endYear: smallint("end_year"),
-    runtimeMinutes: smallint("runtime_minutes"),
+    runtimeMinutes: integer("runtime_minutes"),
     genres: text("genres").array().notNull().default(sql`'{}'::text[]`),
     adult: boolean("adult").notNull().default(false),
     rating: real("rating"),
@@ -84,10 +84,10 @@ export const episodes = pgTable(
     seriesId: text("series_id")
       .notNull()
       .references(() => titles.id, { onDelete: "cascade" }),
-    season: smallint("season"),
-    episode: smallint("episode"),
+    season: integer("season"),
+    episode: integer("episode"),
     title: text("title"),
-    runtimeMinutes: smallint("runtime_minutes"),
+    runtimeMinutes: integer("runtime_minutes"),
     rating: real("rating"),
   },
   (table) => [

@@ -49,7 +49,7 @@ describe("labels", () => {
 
   test("episodes", () => {
     expect(episodeLabel({ season: 2, episode: 3, title: "Pilot" })).toBe(
-      "S2 E3 · Pilot",
+      "S2 E3: Pilot",
     );
     expect(episodeLabel({ season: null, episode: 4, title: null })).toBe("E4");
     expect(episodeLabel({ season: null, episode: null, title: " " })).toBe(

@@ -39,9 +39,13 @@ export async function mapRegion(
   query: MapQuery,
   kids: boolean,
 ): Promise<MapRegion> {
-  const cellX = sql`floor(${titles.mapX} / ${query.cell})`;
-  const cellY = sql`floor(${titles.mapY} / ${query.cell})`;
-  const rows = await db
+  // DISTINCT ON must repeat its expressions verbatim in ORDER BY, and two bind
+  // parameters are two expressions to Postgres, so the validated cell size is
+  // inlined as a literal.
+  const cell = sql.raw(String(Math.round(query.cell)));
+  const cellX = sql`floor(${titles.mapX} / ${cell})`;
+  const cellY = sql`floor(${titles.mapY} / ${cell})`;
+  const perCell = db
     .selectDistinctOn([cellX, cellY], {
       id: titles.id,
       x: titles.mapX,
@@ -52,6 +56,7 @@ export async function mapRegion(
       rating: titles.rating,
       posterPath: titles.posterPath,
       votes: titles.votes,
+      popularity: titles.popularity,
     })
     .from(titles)
     .where(
@@ -67,13 +72,26 @@ export async function mapRegion(
           Math.min(query.y0, query.y1),
           Math.max(query.y0, query.y1),
         ),
-        query.type ? eq(titles.type, query.type) : undefined,
+        query.type === "series"
+          ? inArray(titles.type, ["series", "miniseries"])
+          : query.type
+            ? eq(titles.type, query.type)
+            : undefined,
       ),
     )
     .orderBy(cellX, cellY, desc(titles.popularity))
+    .as("per_cell");
+  // Past the cap, the least popular cells go — never one side of the view.
+  const rows = await db
+    .select()
+    .from(perCell)
+    .orderBy(desc(perCell.popularity))
     .limit(MAX_POINTS);
   return {
-    points: rows.map(({ votes, ...row }) => ({ ...row, weight: reach(votes) })),
+    points: rows.map(({ votes, popularity: _, ...row }) => ({
+      ...row,
+      weight: reach(votes),
+    })),
   };
 }
 

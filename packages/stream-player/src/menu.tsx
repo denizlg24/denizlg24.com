@@ -125,7 +125,7 @@ export function PlayerMenu({
         >
           <p
             aria-hidden="true"
-            className="px-4 pt-1 pb-2 font-medium text-white/50 text-xs uppercase tracking-[0.18em] lg:text-sm"
+            className="px-4 pt-1 pb-2 font-bold text-white/55 text-sm lg:text-base"
           >
             {label}
           </p>
