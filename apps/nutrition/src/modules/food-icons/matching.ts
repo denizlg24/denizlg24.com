@@ -5,6 +5,36 @@ export interface IconSearchHit {
   _rankingScore: number;
 }
 
+export const ICON_STOP_WORDS = [
+  "a",
+  "an",
+  "the",
+  "in",
+  "of",
+  "with",
+  "and",
+  "beside",
+  "showing",
+  "small",
+  "two",
+] as const;
+const ignored = new Set<string>(ICON_STOP_WORDS);
+
+/** Preserve a specific assignment when the model can only offer Other. */
+export function resolveIconFallback(
+  currentKey: string,
+  currentSource: string,
+  proposedKey: string,
+) {
+  return proposedKey === "other-001" && currentKey !== "other-001"
+    ? {
+        iconKey: currentKey,
+        iconSource: currentSource,
+        method: "existing-specific" as const,
+      }
+    : { iconKey: proposedKey, iconSource: "llm", method: "llm" as const };
+}
+
 export const normalizeIconQuery = (name: string) =>
   name
     .normalize("NFKD")
@@ -28,19 +58,6 @@ export function selectIconSearchHit(
       : word.endsWith("s") && !word.endsWith("ss")
         ? word.slice(0, -1)
         : word;
-  const ignored = new Set([
-    "a",
-    "an",
-    "the",
-    "in",
-    "of",
-    "with",
-    "and",
-    "beside",
-    "showing",
-    "small",
-    "two",
-  ]);
   const tokens = (name: string) =>
     normalizeIconQuery(name)
       .split(" ")

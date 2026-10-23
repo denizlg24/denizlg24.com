@@ -6,6 +6,7 @@ import { Pool } from "pg";
 import {
   type IconSearchHit,
   normalizeIconQuery,
+  resolveIconFallback,
   selectIconSearchHit,
 } from "../src/modules/food-icons/matching";
 import {
@@ -53,7 +54,12 @@ interface Decision {
   query: string;
   iconKey: string;
   iconSource: string;
-  method: "meilisearch" | "existing-llm" | "llm" | "unresolved";
+  method:
+    | "meilisearch"
+    | "existing-llm"
+    | "existing-specific"
+    | "llm"
+    | "unresolved";
 }
 
 await mkdir(dirname(cachePath), { recursive: true });
@@ -81,6 +87,7 @@ const report = {
   scanned: 0,
   meilisearch: 0,
   existingLlm: 0,
+  existingSpecific: 0,
   llm: 0,
   unresolved: 0,
   changedIcons: 0,
@@ -198,9 +205,11 @@ try {
         return {
           food,
           query,
-          iconKey: previous.icon_key,
-          iconSource: "llm",
-          method: "llm",
+          ...resolveIconFallback(
+            food.iconKey,
+            food.iconSource,
+            previous.icon_key,
+          ),
         };
       return {
         food,
@@ -260,12 +269,15 @@ try {
       for (const decision of decisions)
         if (decision.method === "unresolved") {
           const assignment = cachedLlm.get(version, decision.query);
-          if (assignment)
-            Object.assign(decision, {
-              iconKey: assignment.icon_key,
-              iconSource: "llm",
-              method: "llm",
-            });
+          if (assignment && validKeys.has(assignment.icon_key))
+            Object.assign(
+              decision,
+              resolveIconFallback(
+                decision.food.iconKey,
+                decision.food.iconSource,
+                assignment.icon_key,
+              ),
+            );
         }
     }
 
@@ -277,6 +289,8 @@ try {
     for (const decision of decisions) {
       if (decision.method === "meilisearch") report.meilisearch++;
       else if (decision.method === "existing-llm") report.existingLlm++;
+      else if (decision.method === "existing-specific")
+        report.existingSpecific++;
       else if (decision.method === "llm") report.llm++;
       else report.unresolved++;
       report.iconCounts[decision.iconKey] =

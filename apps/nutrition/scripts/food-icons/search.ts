@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { env } from "../../src/config/env";
-import type { IconSearchHit } from "../../src/modules/food-icons/matching";
+import {
+  ICON_STOP_WORDS,
+  type IconSearchHit,
+} from "../../src/modules/food-icons/matching";
 
 export interface IconSearchDocument {
   id: string;
@@ -80,19 +83,7 @@ export class FoodIconSearch {
       await this.request(`/indexes/${this.index}/settings`, "PATCH", {
         searchableAttributes: ["name", "aliases"],
         displayedAttributes: ["key", "name", "foodGroup", "aliases"],
-        stopWords: [
-          "a",
-          "an",
-          "the",
-          "in",
-          "of",
-          "with",
-          "and",
-          "beside",
-          "showing",
-          "small",
-          "two",
-        ],
+        stopWords: [...ICON_STOP_WORDS],
       }),
     );
     await this.wait(

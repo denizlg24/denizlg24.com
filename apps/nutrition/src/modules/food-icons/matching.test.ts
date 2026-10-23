@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeIconQuery, selectIconSearchHit } from "./matching";
+import {
+  normalizeIconQuery,
+  resolveIconFallback,
+  selectIconSearchHit,
+} from "./matching";
 
 const yogurt = {
   key: "dairy-and-eggs-021",
@@ -126,6 +130,29 @@ describe("Meilisearch food icon relevance", () => {
   test("normalizes accented food names without discarding food words", () => {
     expect(normalizeIconQuery("Açaí, unsweetened (100 g)")).toBe(
       "acai unsweetened 100 g",
+    );
+  });
+});
+
+describe("LLM icon fallback", () => {
+  test("keeps a specific rule assignment when cached or fresh answers offer Other", () => {
+    expect(resolveIconFallback("fruit-035", "rule", "other-001")).toEqual({
+      iconKey: "fruit-035",
+      iconSource: "rule",
+      method: "existing-specific",
+    });
+    expect(resolveIconFallback("fruit-035", "llm", "other-001").iconKey).toBe(
+      "fruit-035",
+    );
+  });
+  test("accepts default answers for default foods and specific model answers", () => {
+    expect(resolveIconFallback("other-001", "rule", "other-001")).toEqual({
+      iconKey: "other-001",
+      iconSource: "llm",
+      method: "llm",
+    });
+    expect(resolveIconFallback("fruit-035", "rule", "fruit-007").iconKey).toBe(
+      "fruit-007",
     );
   });
 });

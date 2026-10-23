@@ -566,7 +566,7 @@
     {
       "key": "meats-035",
       "foodGroup": "meats",
-      "subject": "beef heart organ meat, a compact dark burgundy butcher's cut with one cut face",
+      "subject": "beef heart",
       "prompt": "Create ONE original food icon for a premium nutrition tracker. Subject: beef heart organ meat, a compact dark burgundy butcher's cut with one cut face. Colorful editorial illustration with a crisp recognizable organic silhouette, rich natural colors, subtle two-tone shading and a small warm highlight. Clean stylized illustration, simple enough to read at 36px, slightly angled three-quarter view. Single centered subject or small coherent serving, fully visible, occupying 74 percent of a square transparent canvas. No text, no logo, no border, no face, no background, no cast shadow, no unrelated props. Use a plain small ceramic bowl only if the food needs a container. Original composition from this description; do not imitate any existing app icons. Depict food prepared by a butcher, with simple natural muscle surfaces. No medical diagram, no exposed colored arteries, no blue veins.",
       "existing": true,
       "replacesSha256": "37ee2ef3a1ca3f2dfcf8afb875f495577dc52490812eebb9d3c5b0ce47523c40"

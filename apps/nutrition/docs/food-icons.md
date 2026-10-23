@@ -100,7 +100,9 @@ After search, an existing valid, specific `icon_source = 'llm'` assignment is
 reused. Only unresolved/default foods reach the optional LLM fallback; responses
 are checked against the installed keys. Do not pass `--refresh-llm` unless a
 full paid reclassification is intended. Unrecognized foods may still retain
-the generic Other icon.
+the generic Other icon. A generic model answer never replaces an existing
+specific icon, including a rule-based assignment; this guard applies to both
+cached and fresh model answers.
 
 The versioned SQLite cache at `.impeccable/food-icons/search-cache.sqlite`
 (relative to the repo root) avoids repeated search/model requests. The JSON
