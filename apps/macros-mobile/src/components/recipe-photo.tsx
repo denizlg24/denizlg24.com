@@ -1,8 +1,8 @@
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
+import { buildUrl } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
-import { API_URL } from "@/lib/config";
 import { Skeleton, Text } from "@/ui";
 
 /** Relative image URLs are private API reads; only those receive the cookie. */
@@ -35,7 +35,7 @@ export function RecipePhoto({
         .then((cookie) => {
           if (active)
             setSource({
-              uri: `${API_URL}${url}`,
+              uri: buildUrl(url),
               headers: cookie ? { Cookie: cookie } : undefined,
             });
         })

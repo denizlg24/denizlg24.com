@@ -8,6 +8,15 @@ This app is the **backend** for the iOS and Android client (`apps/macros-mobile`
 
 `/account` (dynamic, `noindex`) is the signed-in account page: name, change email (Better Auth `changeEmail`: the current address confirms, then the new one verifies), password, devices (read from the `session` table directly — `listSessions` refuses sessions older than a day and would hand tokens to the browser; one is revoked through `DELETE /api/account/sessions/[id]`), a link to `/kitchen` and inline deletion. The site header reads the session on the client so marketing pages stay static. Public recipe pages, `/recipes`, `/recipes/page/[n]`, their Open Graph images and the sitemap are static, generated at build (`generateStaticParams`, failing open to `[]` when the database is unreachable) and refreshed on demand: anything that changes a published recipe's content or visibility (edit, publish, unpublish, archive, delete, owner suspension, account deletion) calls `revalidatePublicRecipes` in `lib/recipes/revalidate.ts`. A new path to those states must call it too, or the old page stays public for up to an hour. `/changelog` and the public `GET /api/changelog` are both parsed at build from `apps/macros-mobile/CHANGELOG.md` by `@repo/utils/changelog`.
 
+## API compatibility
+
+`/api/*` feature handlers are the v1 contract, also exposed at `/api/v1/*`
+by the explicit fallback rewrites in `lib/api/versioning.mjs`. Keep both URLs
+and their existing behavior compatible with released apps. Breaking changes
+belong in new versioned routes and schemas; never redirect old clients to the
+latest contract. Authentication remains at `/api/auth`. See `API.md` for
+versioning, deployment order and food/icon cache revision instructions.
+
 ## Stack
 
 - Next.js 16 App Router

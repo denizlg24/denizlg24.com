@@ -1,9 +1,7 @@
-import {
-  MACROS_FOOD_ICON_ASSET_VERSION,
-  macrosFoodIconCatalogSchema,
-} from "@repo/schemas/macros";
+import { macrosFoodIconCatalogSchema } from "@repo/schemas/macros";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useFoodCacheVersions } from "@/lib/food-cache-provider";
 
 export const FOOD_ICON_GROUPS = [
   { id: "baked-goods", label: "Baked goods" },
@@ -32,11 +30,12 @@ export function groupOfIcon(iconKey: string): FoodIconGroup {
  * rather than trusted like an API response, and never goes stale in a session.
  */
 export function useFoodIconCatalog() {
+  const { foodIcons } = useFoodCacheVersions();
   return useQuery({
-    queryKey: ["food-icons", "catalog", MACROS_FOOD_ICON_ASSET_VERSION],
+    queryKey: ["food-icons", "catalog", foodIcons],
     queryFn: ({ signal }) =>
       api<unknown>(
-        `/food-icons/catalog.json?v=${MACROS_FOOD_ICON_ASSET_VERSION}`,
+        `/food-icons/catalog.json?v=${encodeURIComponent(foodIcons)}`,
         { signal },
       ).then((body) => macrosFoodIconCatalogSchema.parse(body).icons),
     staleTime: Number.POSITIVE_INFINITY,

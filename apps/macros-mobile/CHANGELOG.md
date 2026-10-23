@@ -11,10 +11,15 @@ are understood.
 
 ### Changed
 - The website's film now shows the latest app and original food illustrations.
+- Food data and illustrations can refresh automatically after a catalogue
+  update, without reinstalling the app.
+- App requests use a versioned API so future releases can keep older apps
+  working.
 
 ### Fixed
 - Long food and recipe names stay within their pantry rows, keeping stock
   controls visible.
+- App updates and food-cache refreshes preserve queued offline writes.
 
 ## 0.0.20 — 2026-10-23
 
