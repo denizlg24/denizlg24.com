@@ -1,4 +1,9 @@
-import { formatRuntime, type TitleDetail } from "@repo/schemas/stream";
+import {
+  formatRuntime,
+  type TitleDetail,
+  tmdbImage,
+} from "@repo/schemas/stream";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import {
@@ -21,7 +26,12 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useEpisodes, useTitle, useToggleWatchlist } from "@/api/stream";
+import {
+  useCurrentEpisode,
+  useEpisodes,
+  useTitle,
+  useToggleWatchlist,
+} from "@/api/stream";
 import { playTitle } from "@/features/studio/open";
 import { useAudience } from "@/lib/audience-store";
 import { listNames, titleFacts } from "@/lib/format";
@@ -54,8 +64,13 @@ export function TitleScreen({ id }: { id: string }) {
   const query = useTitle(id, lead.id);
   const toggle = useToggleWatchlist(lead.id);
   const detail = query.data?.title;
+  const currentEpisode = useCurrentEpisode(
+    id,
+    query.data?.progress?.episodeId ?? null,
+  );
   const [season, setSeason] = useState<number | null>(null);
-  const activeSeason = season ?? detail?.seasons[0] ?? null;
+  const activeSeason =
+    season ?? currentEpisode.data?.season ?? detail?.seasons[0] ?? null;
   const episodes = useEpisodes(
     id,
     detail && detail.type !== "movie" ? activeSeason : null,
@@ -126,13 +141,17 @@ export function TitleScreen({ id }: { id: string }) {
               label={
                 resume !== null && progress
                   ? `Resume, ${formatRemaining(progress.positionS, progress.durationS)}`
-                  : "Play"
+                  : progress && detail.type !== "movie"
+                    ? "Continue series"
+                    : progress && !progress.completed
+                      ? "Continue watching"
+                      : "Play"
               }
               icon={Play}
               filledIcon
               size={size}
               block
-              onPress={() => playTitle(id, progress?.episodeId ?? null)}
+              onPress={() => playTitle(id)}
             />
             <View style={styles.row}>
               <Button
@@ -246,6 +265,22 @@ export function TitleScreen({ id }: { id: string }) {
               {episodes.isPending && activeSeason !== null ? (
                 <ActivityIndicator color={colors.muted} />
               ) : null}
+              {episodes.isError ? (
+                <View>
+                  <Text color="muted">The episode list didn't load.</Text>
+                  <Button
+                    label="Try again"
+                    variant="ghost"
+                    onPress={() => void episodes.refetch()}
+                  />
+                </View>
+              ) : null}
+              {episodes.data?.length === 0 ? (
+                <Text color="muted">
+                  There aren't any episodes listed for this season yet. Try
+                  another season.
+                </Text>
+              ) : null}
               {episodes.data?.map((episode) => (
                 <Pressable
                   key={episode.id}
@@ -257,20 +292,40 @@ export function TitleScreen({ id }: { id: string }) {
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  <Text
-                    variant={classic ? "classicTitle" : "title"}
-                    color="amber"
-                    style={styles.episodeNumber}
-                  >
-                    {episode.episode ?? ""}
-                  </Text>
+                  {episode.stillPath ? (
+                    <Image
+                      source={{ uri: tmdbImage(episode.stillPath, "w500")! }}
+                      style={styles.episodeStill}
+                      contentFit="cover"
+                      accessibilityLabel=""
+                    />
+                  ) : (
+                    <View style={styles.episodeStill}>
+                      <Play color={colors.muted} size={24} />
+                    </View>
+                  )}
                   <View style={styles.grow}>
                     <Text
                       variant={classic ? "classicLabel" : "headline"}
                       numberOfLines={2}
                     >
+                      {episode.episode}.{" "}
                       {episode.title ?? `Episode ${episode.episode ?? ""}`}
                     </Text>
+                    {episode.overview ? (
+                      <Text
+                        variant={classic ? "classicBody" : "footnote"}
+                        color="muted"
+                        numberOfLines={2}
+                      >
+                        {episode.overview}
+                      </Text>
+                    ) : null}
+                    {progress?.episodeId === episode.id ? (
+                      <Text variant="caption" color="amber">
+                        {progress.completed ? "Watched" : "You're here"}
+                      </Text>
+                    ) : null}
                     <View style={styles.episodeMeta}>
                       {episode.rating !== null ? (
                         <Rating
@@ -398,6 +453,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.hairline,
   },
-  episodeNumber: { width: 44 },
+  episodeStill: {
+    width: 96,
+    aspectRatio: 16 / 9,
+    borderRadius: 8,
+    backgroundColor: colors.raised,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   grow: { flex: 1, gap: spacing.xxs },
 });

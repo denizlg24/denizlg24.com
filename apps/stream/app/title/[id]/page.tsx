@@ -13,6 +13,7 @@ import {
   findProgress,
   findTitle,
   inWatchlist,
+  listEpisodes,
   nearbyTitles,
   titleDetail,
 } from "@/lib/catalog";
@@ -52,8 +53,13 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
     nearbyTitles(row, kids),
   ]);
   const classic = viewer.layout === "classic";
+  const currentEpisode = progress?.episodeId
+    ? (await listEpisodes(row.id, null)).find(
+        (episode) => episode.id === progress.episodeId,
+      )
+    : null;
   const backdrop = tmdbImage(title.backdropPath, "w1280");
-  const resuming = progress && !progress.completed && progress.positionS > 60;
+  const resuming = progress && !progress.completed;
   const language = languageName(title.originalLanguage);
   const billing: [string, string][] = [
     [
@@ -139,7 +145,13 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
                 className={`flex items-center gap-3 rounded-full bg-amber font-bold text-ink transition-transform hover:scale-[1.02] ${classic ? "px-9 py-4 text-xl" : "px-8 py-4 text-lg"}`}
               >
                 <Play className="size-5 fill-current" strokeWidth={0} />
-                {resuming ? "Resume" : "Play"}
+                {resuming
+                  ? title.type === "movie"
+                    ? "Continue watching"
+                    : "Continue series"
+                  : progress?.completed && title.type !== "movie"
+                    ? "Continue series"
+                    : "Play"}
               </Link>
               <SaveButton
                 titleId={title.id}
@@ -183,8 +195,9 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
             <Episodes
               seriesId={title.id}
               seasons={title.seasons}
-              initialSeason={title.seasons[0]}
+              initialSeason={currentEpisode?.season ?? title.seasons[0]}
               currentEpisodeId={progress?.episodeId ?? null}
+              completed={progress?.completed ?? false}
             />
           ) : null}
           {title.cast.length > 0 ? (

@@ -4,8 +4,9 @@ The family catalogue client (`com.denizlg24.stream`, schemes
 `com.denizlg24.stream` and `stream`) for `apps/stream`'s `/api/v1`. Plan
 031, "Design" section, is the spec. Family-facing: the storage-app copy
 rules apply — plain language, friendly empty states, guidance on every
-dead end. Never anything that resolves, scrapes or embeds third-party
-streams: the player opens only what `/playback` returns.
+dead end. `/playback` supplies media identity: direct files use expo-video,
+while `embedPlayerUrl` selects the underlying event-enabled embed for a WebView.
+Never add resolvers or scrapers.
 
 ## Stack
 
@@ -82,11 +83,16 @@ layout.
 
 `features/player`: one `PlayerController` interface; `useVideoController`
 wraps expo-video, `UNAVAILABLE` is the same chrome with nothing to play
-(every title today: "Not available to play yet" over the backdrop, controls
-disabled). Custom controls only (`nativeControls={false}`); AirPlay is the
+("Not available to play yet" over the backdrop, controls disabled). Custom controls only (`nativeControls={false}`); AirPlay is the
 system `VideoAirPlayButton` (`airplay-button.android.tsx` renders nothing).
 Progress: every ~10 s while playing, on pause, on close
-(`use-progress-reporter.ts`, `shouldReportProgress`). Resume past 30 s and
+(`use-progress-reporter.ts`, `shouldReportProgress`). VidSrc embeds use
+`embed-player.tsx` and `/profiles/[id]/viewing` for everyone on the sofa: save
+the selected episode on load, bridge validated `PLAYER_EVENT` messages to
+`/progress`, and restore the saved timestamp with a seek command. Completion
+opens a cancellable countdown. Block popup windows and top-level navigation
+away from the player; do not pass app credentials into a WebView. A native rebuild is required after adding react-native-webview.
+Resume past 30 s and
 before 95 % (`resumePosition`). The screen is landscape through the stack's
 `orientation` option; every other screen asks for portrait. `/playback`'s
 `textTracks` are not used: expo-video cannot side-load subtitles, so the

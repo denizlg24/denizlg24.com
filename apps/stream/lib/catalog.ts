@@ -317,6 +317,34 @@ export async function saveProgress(
   return serializeProgress(row);
 }
 
+/** Embed selections have no observable clock. Preserve real progress on re-entry. */
+export async function saveViewing(
+  profileId: string,
+  input: { titleId: string; episodeId: string | null; completed: boolean },
+): Promise<Progress> {
+  const sameEpisode = sql`${progress.episodeId} is not distinct from ${input.episodeId}`;
+  const [row] = await db
+    .insert(progress)
+    .values({
+      profileId,
+      ...input,
+      positionS: 0,
+      durationS: 0,
+    })
+    .onConflictDoUpdate({
+      target: [progress.profileId, progress.titleId],
+      set: {
+        episodeId: input.episodeId,
+        completed: input.completed,
+        positionS: sql`case when ${sameEpisode} then ${progress.positionS} else 0 end`,
+        durationS: sql`case when ${sameEpisode} then ${progress.durationS} else 0 end`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return serializeProgress(row);
+}
+
 export async function continueWatching(
   profileId: string,
   limit = 20,
@@ -329,8 +357,10 @@ export async function continueWatching(
       and(
         eq(progress.profileId, profileId),
         eq(progress.completed, false),
-        gte(progress.positionS, 30),
-        gt(progress.durationS, 0),
+        or(
+          and(gte(progress.positionS, 30), gt(progress.durationS, 0)),
+          eq(progress.durationS, 0),
+        ),
       ),
     )
     .orderBy(desc(progress.updatedAt))

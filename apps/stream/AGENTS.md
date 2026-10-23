@@ -6,11 +6,18 @@ and the ingest jobs. Design and rollout: `docs/internal/plans/031-stream.md`.
 Family-facing, so the storage copy rules apply: plain language, friendly
 empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
 
-- **Plays nothing it doesn't own.** `lib/playback.ts` is the only place a
-  `PlaybackSource` is made, and only from files on our own storage. No
-  title has one yet. Never add resolvers or scrapers. Official YouTube trailers are the one
-  embed exception: `/watch/[id]?trailer=1` uses `Playback.trailer`, never
-  `PlaybackSource`, and never reports viewing progress.
+- **Playback contracts distinguish files, embeds and trailers.** `lib/playback.ts`
+  selects the title/episode and returns VidSrc's documented IMDb embed URL in
+  `Playback.embed`; it never treats an HTML page as a direct `PlaybackSource`.
+  Web/desktop use an iframe; mobile uses a WebView. Never add resolvers
+  or scrapers. Clients use the underlying `vsembed.ru` embed directly to
+  avoid the outer ad scripts and receive VidAPI `PLAYER_EVENT` messages. Verify
+  message origin, frame source and media identity before saving timestamps via
+  `/progress`. Restore saved time with the player seek command. `/viewing` saves
+  selections and manual completion; never estimate time from sound or a timer.
+  Completion opens a cancellable next-episode countdown. Official YouTube
+  trailers use `Playback.trailer` and never save viewing progress. Episode previews come from cached TMDB season details and
+  fall back to IMDb metadata when TMDB is unavailable.
 - **A tenant, not a first-party client.** deniz auth gives first-party
   tokens to superusers only, so Stream is the owner's `family` tenant
   (`STREAM_TENANT_ID`). `isFamilyToken` is the admission test: the owner

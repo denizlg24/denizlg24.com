@@ -12,6 +12,7 @@ export function formatClock(seconds: number): string {
 
 /** "1h 12m left", "8m left", "Less than a minute left". */
 export function formatRemaining(positionS: number, durationS: number): string {
+  if (durationS <= 0) return "Continue watching";
   const left = Math.max(0, durationS - positionS);
   const minutes = Math.round(left / 60);
   if (minutes < 1) return "Less than a minute left";

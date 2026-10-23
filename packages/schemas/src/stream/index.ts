@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export {
+  allowEmbedNavigation,
+  decodeActorName,
+  EMBED_BROWSER_SCRIPT,
+  type EmbedProgress,
+  embedPlayerUrl,
+  parseEmbedProgress,
+} from "./embed";
+
 /**
  * Wire contracts for Stream (`apps/stream`, `/api/v1/*`), shared by the web
  * app, the Expo app and the desktop shell. Titles are keyed by their IMDb id
@@ -88,6 +97,8 @@ export const episodeSchema = z.object({
   title: z.string().nullable(),
   runtimeMinutes: z.number().int().nullable(),
   rating: z.number().nullable(),
+  overview: z.string().nullable().optional(),
+  stillPath: z.string().nullable().optional(),
 });
 export type Episode = z.infer<typeof episodeSchema>;
 
@@ -357,8 +368,8 @@ export const mapHighlightsSchema = z.object({
 export type MapHighlight = z.infer<typeof mapHighlightSchema>;
 
 /**
- * Something the player can open. Only ever a file on our own storage — the
- * catalogue resolves it, clients never build one.
+ * A direct media file. HTML embed pages belong in Playback.embed instead;
+ * the catalogue supplies both, clients never resolve media themselves.
  */
 export const playbackSourceSchema = z.object({
   url: z.url(),
@@ -376,6 +387,18 @@ export const textTrackSchema = z.object({
 export type TextTrack = z.infer<typeof textTrackSchema>;
 
 export const playbackSchema = z.object({
+  embed: z
+    .object({
+      provider: z.literal("vidsrc"),
+      url: z
+        .string()
+        .regex(
+          /^https:\/\/vidsrc\.mov\/embed\/(?:movie\/(?:tt\d+|\d+)|tv\/(?:tt\d+|\d+)\/\d+\/\d+)$/,
+        ),
+    })
+    .nullable()
+    .optional(),
+  episode: episodeSchema.nullable().optional(),
   trailer: z
     .object({ youtubeKey: z.string().regex(/^[a-zA-Z0-9_-]{11}$/) })
     .nullable()
@@ -386,6 +409,13 @@ export const playbackSchema = z.object({
   next: episodeSchema.nullable(),
 });
 export type Playback = z.infer<typeof playbackSchema>;
+
+/** Episode selection and explicit completion; never an estimated playback clock. */
+export const viewingInputSchema = z.object({
+  titleId: titleIdSchema,
+  episodeId: titleIdSchema.nullable(),
+  completed: z.boolean(),
+});
 
 /** web `POST /api/admin/stream/recommendations` */
 export const recommendationCandidateSchema = z.object({

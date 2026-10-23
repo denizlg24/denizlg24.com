@@ -15,6 +15,7 @@ import { useAudience } from "@/lib/audience-store";
 import { episodeLabel } from "@/lib/format";
 import { resumePosition } from "@/lib/time";
 import { type PlayerController, UNAVAILABLE } from "./controller";
+import { EmbedPlayer } from "./embed-player";
 import { PlayerChrome } from "./player-chrome";
 import { useProgressReporter } from "./use-progress-reporter";
 import { useVideoController } from "./use-video-controller";
@@ -35,7 +36,7 @@ export function PlayerScreen({
   id: string;
   episode: string | null;
 }) {
-  const { lead: profile } = useAudience();
+  const { lead: profile, audience } = useAudience();
   const client = useQueryClient();
   const title = useTitle(id, profile.id);
   const playback = usePlayback(id, profile.id, episode);
@@ -48,10 +49,11 @@ export function PlayerScreen({
         .flatMap(([, data]) => data?.episodes ?? [])
         .find((item) => item.id === episode)
     : undefined;
-  const subtitle = cachedEpisode
+  const currentEpisode = playback.data?.episode ?? cachedEpisode;
+  const subtitle = currentEpisode
     ? [
-        episodeLabel(cachedEpisode.season, cachedEpisode.episode),
-        cachedEpisode.title,
+        episodeLabel(currentEpisode.season, currentEpisode.episode),
+        currentEpisode.title,
       ]
         .filter(Boolean)
         .join(": ")
@@ -75,7 +77,15 @@ export function PlayerScreen({
 
   return (
     <View style={styles.screen}>
-      {source ? (
+      {playback.data?.embed && !source ? (
+        <EmbedPlayer
+          key={playback.data.embed.url}
+          playback={playback.data}
+          titleId={id}
+          profileIds={audience.map((item) => item.id)}
+          {...shared}
+        />
+      ) : source ? (
         <ActivePlayer
           key={`${id}:${episode ?? ""}`}
           source={source}
@@ -83,7 +93,7 @@ export function PlayerScreen({
           resume={playback.data?.resume ?? null}
           profileId={profile.id}
           titleId={id}
-          episodeId={episode}
+          episodeId={playback.data?.episode?.id ?? episode}
           {...shared}
         />
       ) : (

@@ -6,13 +6,20 @@ import {
   profileUpdateSchema,
   progressInputSchema,
   titleIdSchema,
+  viewingInputSchema,
 } from "@repo/schemas/stream";
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
-import { findTitle, saveProgress, setWatchlist } from "@/lib/catalog";
+import {
+  findTitle,
+  saveProgress,
+  saveViewing,
+  setWatchlist,
+} from "@/lib/catalog";
 import { streamBaseUrl } from "@/lib/config";
 import { devSubject } from "@/lib/dev-session";
 import {
@@ -26,7 +33,8 @@ import {
   updateProfile,
 } from "@/lib/members";
 import { invalidateRecommendations } from "@/lib/recommendations";
-import { readSofa, SOFA_COOKIE, TV_COOKIE } from "@/lib/viewer";
+import { readSofa, requireViewer, SOFA_COOKIE, TV_COOKIE } from "@/lib/viewer";
+import { validViewing } from "@/lib/viewing";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -104,10 +112,10 @@ export async function toggleSaved(
 }
 
 export async function reportProgress(input: unknown): Promise<ActionResult> {
-  const row = await member();
+  const viewer = await requireViewer("/");
   const parsed = progressInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "invalid" };
-  const audience = await readSofa(row.subject);
+  const audience = viewer.audience;
   const saved = await Promise.all(
     audience.map((profile) => saveProgress(profile.id, parsed.data)),
   );
@@ -116,6 +124,23 @@ export async function reportProgress(input: unknown): Promise<ActionResult> {
       .filter((_, index) => saved[index]?.completed)
       .map((profile) => invalidateRecommendations(profile.id)),
   );
+  return { ok: true };
+}
+
+export async function recordViewing(input: unknown): Promise<ActionResult> {
+  const viewer = await requireViewer("/");
+  const parsed = viewingInputSchema.safeParse(input);
+  if (!parsed.success || !(await validViewing(parsed.data))) {
+    return { ok: false, error: "That film or episode couldn't be found." };
+  }
+  await Promise.all(
+    viewer.audience.map(async (profile) => {
+      await saveViewing(profile.id, parsed.data);
+      if (parsed.data.completed) await invalidateRecommendations(profile.id);
+    }),
+  );
+  revalidatePath(`/title/${parsed.data.titleId}`);
+  revalidatePath("/", "page");
   return { ok: true };
 }
 
