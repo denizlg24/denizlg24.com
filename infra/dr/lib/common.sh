@@ -264,8 +264,8 @@ dr_read_env_file() {
 # is touched here. Locks left by a previous boot never reach this:
 # deniz-dr-locks.conf removes them before anything can take one.
 #
-# The break is a rename, the same publication point the deploy agent uses, so
-# two reclaimers cannot both win.
+# Call only under dr_guard_lock_operation: inspection and rename must be
+# serialized with all other Pi lock mutations, including deploy workflows.
 dr_reclaim_abandoned_lock() {
   local lock_dir="$1" pid tombstone
   # Without a procfs every pid would look dead; never guess.
@@ -278,9 +278,25 @@ dr_reclaim_abandoned_lock() {
   printf 'reclaimed %s from pid %s, which no longer exists\n' "$lock_dir" "$pid" >&2
 }
 
+# Lock the permanent parent directory inode, not the replaceable lock itself.
+# Linux host jobs and Pi release/SSH scripts use this same advisory guard.
+# Mac-local locks have no procfs reclamation and retain mkdir-only behavior.
+dr_guard_lock_operation() (
+  local lock_dir="$1"; shift
+  if [[ -d /proc/self ]]; then
+    exec 9<"$(dirname "$lock_dir")" || return
+    flock -x 9 || return
+  fi
+  "$@" "$lock_dir"
+)
+
 # One attempt, for the jobs that skip rather than wait: a held lock means try
 # next time, but an abandoned one is reclaimed instead of skipped for ever.
 dr_try_lock() {
+  dr_guard_lock_operation "$1" dr_try_lock_guarded
+}
+
+dr_try_lock_guarded() {
   local lock_dir="$1"
   if ! mkdir "$lock_dir" 2>/dev/null; then
     dr_reclaim_abandoned_lock "$lock_dir" || return 1
@@ -291,18 +307,19 @@ dr_try_lock() {
 
 dr_lock() {
   local lock_dir="$1" deadline="${2:-0}" now
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    # Straight back to mkdir: the lock is free, and that is the real contest.
-    if dr_reclaim_abandoned_lock "$lock_dir"; then continue; fi
+  while ! dr_try_lock "$lock_dir"; do
     now="$(date +%s)"
     (( deadline > 0 )) || dr_die "another coordinated operation holds ${lock_dir}"
     (( now < deadline )) || dr_die "timed out waiting for ${lock_dir}"
     sleep 2
   done
-  printf '%s\n' "$$" > "${lock_dir}/pid"
 }
 
 dr_unlock() {
+  dr_guard_lock_operation "$1" dr_unlock_guarded
+}
+
+dr_unlock_guarded() {
   local lock_dir="$1"
   [[ -d "$lock_dir" && -f "${lock_dir}/pid" ]] || return 0
   [[ "$(cat "${lock_dir}/pid")" == "$$" ]] || dr_die "refusing to remove a lock owned by another process: ${lock_dir}"

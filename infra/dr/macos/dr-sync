@@ -229,7 +229,7 @@ release_remote_lock() {
   local endpoint="$1" lock="$2" token="$3"
   shift 3
   ssh "$@" "$endpoint" \
-    "test \"\$(cat '$lock/owner' 2>/dev/null)\" = '$token' && rm -f '$lock/owner' && rmdir '$lock'" \
+    "exec 9<'$(dirname "$lock")'; flock -x 9; test \"\$(cat '$lock/owner' 2>/dev/null)\" = '$token' && rm -f '$lock/owner' && rmdir '$lock'" \
     >/dev/null 2>&1 || true
 }
 

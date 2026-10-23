@@ -15,6 +15,44 @@ import r2_bridge as bridge
 
 
 class BridgeTests(unittest.TestCase):
+    def test_digest_supports_empty_and_multi_chunk_objects_on_system_python(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "encrypted-object"
+            for payload in (b"", b"encrypted-restic-object" * 100001):
+                path.write_bytes(payload)
+                self.assertEqual(bridge.digest(path), hashlib.sha256(payload).hexdigest())
+
+    def test_file_provider_failure_keeps_its_path_and_diagnostic(self):
+        failed = subprocess.CompletedProcess([], 1, stderr=b"STOP: iCloud quota exceeded", stdout=b"")
+        with patch.object(bridge.subprocess, "run", return_value=failed), \
+             self.assertRaisesRegex(RuntimeError, "iCloud hydrate failed for /encrypted/object.*quota exceeded"):
+            bridge.cloud_state("hydrate", Path("/encrypted/object"))
+
+    def test_failed_host_does_not_stop_the_other_independent_copy(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work).resolve()
+            key = root / "signing-key"
+            key.write_text("fixture")
+            key.chmod(0o600)
+            def catalog(profile, *_args, **_kwargs):
+                if profile == "forge":
+                    return SimpleNamespace(load=lambda: (_ for _ in ()).throw(RuntimeError("forge unavailable")))
+                return SimpleNamespace(load=lambda: SimpleNamespace(profile="pi", host="pi-cloud"))
+            with patch.dict(os.environ, {"DR_LOCAL_CACHE": str(root / "cache"),
+                                         "DR_ICLOUD_ROOT": str(root / "Library/Mobile Documents/copies"),
+                                         "DR_COMPLETION_SIGNING_KEY": str(key)}), \
+                 patch.object(sys, "argv", ["dr-r2", "cycle", "--profile", "all"]), \
+                 patch.object(bridge, "Catalog", side_effect=catalog), \
+                 patch.object(bridge, "select", return_value=[]), \
+                 patch.object(bridge, "mirror", return_value={}) as mirror, \
+                 self.assertRaisesRegex(RuntimeError, "forge unavailable"):
+                bridge.main()
+            self.assertEqual(mirror.call_count, 1)
+            self.assertEqual(mirror.call_args.args[0].profile, "pi")
+            state = json.loads((root / "cache/r2-bridge/forge.json").read_text())
+            self.assertEqual(state["phase"], "failed")
+            self.assertEqual(state["error"], "forge unavailable")
+
     def setUp(self):
         # Transfer tests must not depend on the developer machine's free disk.
         disk = patch.object(bridge.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024**3))

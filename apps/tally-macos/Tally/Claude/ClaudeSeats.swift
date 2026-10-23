@@ -164,7 +164,7 @@ final class ClaudeSeats {
             await syncLocked()
             guard seatID != activeSeatID else { return }
             let document = try await ClaudeCode.readCredentials(allowInteraction: allowInteraction) ?? .object([:])
-            try await install(seatID, into: document)
+            try await install(seatID, into: document, allowInteraction: allowInteraction)
             note("Switched to \(title(seatID))")
         }
     }
@@ -172,8 +172,8 @@ final class ClaudeSeats {
     /// Writes a stashed seat into Claude Code: its tokens into the keychain item
     /// (keeping every other key, notably `mcpOAuth`) and its account block into
     /// `~/.claude.json`. Sessions already running keep the seat they started on.
-    private func install(_ seatID: String, into document: JSONValue) async throws {
-        guard var secret = SeatVault.secret(for: seatID) else {
+    private func install(_ seatID: String, into document: JSONValue, allowInteraction: Bool = false) async throws {
+        guard var secret = SeatVault.secret(for: seatID, allowInteraction: allowInteraction) else {
             throw SeatError.missingTokens(title(seatID))
         }
         var oauth = ClaudeOAuth(raw: secret.oauth)

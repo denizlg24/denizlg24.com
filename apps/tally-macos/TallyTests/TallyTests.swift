@@ -34,6 +34,26 @@ struct JSONValueTests {
 }
 
 struct CredentialWriteTests {
+    @Test func repairsNativeWriterPartitionWithoutBreakingClaudeCodeReads() async throws {
+        let service = "com.denizlg24.tally.test.\(UUID().uuidString)"
+        let account = "regression"
+        defer { Keychain.delete(service: service, account: account) }
+        _ = try await Shell.run("/usr/bin/security", ["add-generic-password", "-s", service,
+            "-a", account, "-w", "public-fixture", "-T", "/usr/bin/security", "-T", Bundle.main.bundlePath])
+        let document: JSONValue = .object(["claudeAiOauth": .object(["accessToken": .string("fixture")])])
+        // Reproduce 0.1.0: data stays valid but the shared partition changes.
+        try Keychain.write(try document.data(), service: service, account: account)
+        #expect(try !Keychain.allowsAppleTool(service: service, account: account))
+        #expect(try await ClaudeCode.readCredentials(service: service, account: account) == document)
+        await #expect(throws: ClaudeCode.CredentialError.self) {
+            try await ClaudeCode.verifyAppleToolCredentials(document, service: service, account: account)
+        }
+        try await ClaudeCode.writeCredentials(document, service: service, account: account)
+        #expect(try Keychain.allowsAppleTool(service: service, account: account))
+        let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])
+        #expect(try ClaudeCode.decodeCredentialOutput(output) == document)
+    }
+
     @Test func backgroundReadOfUntrustedItemFailsWithoutPrompting() async throws {
         let service = "com.denizlg24.tally.test.\(UUID().uuidString)"
         let account = "regression"
@@ -52,7 +72,7 @@ struct CredentialWriteTests {
         }
     }
 
-    @Test func switchesLargeDocumentsWithoutTruncatingMCPCredentials() async throws {
+    @Test func switchesDocumentsWithoutChangingAppleToolAccess() async throws {
         let service = "com.denizlg24.tally.test.\(UUID().uuidString)"
         let account = "regression"
         defer { Keychain.delete(service: service, account: account) }
@@ -60,7 +80,7 @@ struct CredentialWriteTests {
         var document: JSONValue = .object([
             "claudeAiOauth": .object(["accessToken": .string("first-seat")]),
             "mcpOAuth": .object([
-                "server": .object(["accessToken": .string(String(repeating: "fixture-", count: 4096))]),
+                "server": .object(["accessToken": .string(String(repeating: "a", count: 2100) + "\"\\\n☃")]),
             ]),
             "unknownField": .object(["preserved": .bool(true)]),
         ])
@@ -72,6 +92,15 @@ struct CredentialWriteTests {
         let installed = try await ClaudeCode.readCredentials(service: service, account: account)
         #expect(installed == document)
         #expect(installed?["mcpOAuth"] == document["mcpOAuth"])
+        #expect(try Keychain.allowsAppleTool(service: service, account: account))
+        // An independent process must still be able to read after both writes.
+        let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])
+        #expect(try ClaudeCode.decodeCredentialOutput(output) == document)
+        let oversized: JSONValue = .object(["token": .string(String(repeating: "x", count: 32_000))])
+        await #expect(throws: ClaudeCode.CredentialError.self) {
+            try await ClaudeCode.writeCredentials(oversized, service: service, account: account)
+        }
+        #expect(try await ClaudeCode.readCredentials(service: service, account: account) == document)
     }
 }
 

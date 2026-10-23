@@ -11,6 +11,12 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+func failIfPermissionDenied(_ error: NSError, path: String) {
+    if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+        fail("iCloud access denied for \(path). Allow DR Backups to access iCloud Drive in macOS Privacy & Security → Files and Folders.")
+    }
+}
+
 guard CommandLine.arguments.count >= 3,
       let command = Command(rawValue: CommandLine.arguments[1]) else {
     fail("usage: dr-icloud-state wait-uploaded|hydrate|evict PATH [TIMEOUT_SECONDS]")
@@ -31,13 +37,7 @@ func isRetryableUbiquityError(_ error: NSError) -> Bool {
 
 let deadline = Date().addingTimeInterval(timeout)
 
-if command == .hydrate {
-    do {
-        try FileManager.default.startDownloadingUbiquitousItem(at: url)
-    } catch {
-        fail("could not request iCloud hydration for \(path): \(error)")
-    }
-}
+var hydrationRequested = false
 
 while Date() < deadline {
     do {
@@ -91,7 +91,7 @@ while Date() < deadline {
         case .waitUploaded:
             if values.ubiquitousItemIsUploaded == true { exit(0) }
         case .hydrate:
-            if values.ubiquitousItemDownloadingStatus == .current {
+            if values.ubiquitousItemDownloadingStatus == .current || values.ubiquitousItemDownloadingStatus == .downloaded {
                 // Opening and reading the byte is a second guard against a
                 // stale metadata bit on an evicted placeholder.
                 let handle = try FileHandle(forReadingFrom: probe)
@@ -99,8 +99,24 @@ while Date() < deadline {
                 try handle.close()
                 exit(0)
             }
+            // A readable current item needs no download request. File Provider
+            // may deny that unnecessary mutation (Cocoa 257) even while the
+            // existing local encrypted object is readable. Request hydration
+            // only for an actual placeholder, retrying transient server errors.
+            if !hydrationRequested {
+                do {
+                    try FileManager.default.startDownloadingUbiquitousItem(at: probe)
+                    hydrationRequested = true
+                } catch let error as NSError {
+                    failIfPermissionDenied(error, path: path)
+                    if !isRetryableUbiquityError(error) {
+                        fail("could not request iCloud hydration for \(path): \(error)")
+                    }
+                }
+            }
         }
-    } catch {
+    } catch let error as NSError {
+        failIfPermissionDenied(error, path: path)
         // File Provider can briefly replace a placeholder while materialising.
         // Retry until the bounded timeout; terminal provider errors fail above.
     }

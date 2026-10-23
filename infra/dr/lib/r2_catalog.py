@@ -30,6 +30,11 @@ def run(args, *, env=None, input=None):
 
 
 def timestamp(value):
+    # Restic uses variable nanosecond precision. Python 3.9 (the macOS
+    # system interpreter) accepts only 3 or 6 fractional digits. Normalize
+    # rather than letting a valid snapshot randomly break every later copy.
+    value = re.sub(r"\.(\d+)(?=Z$|[+-]\d{2}:\d{2}$)",
+                   lambda match: "." + match[1][:6].ljust(6, "0"), value)
     value = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     if value.tzinfo is None:
         raise ValueError("timestamp must have a timezone")

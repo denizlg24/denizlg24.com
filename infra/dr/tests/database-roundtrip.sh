@@ -4,6 +4,7 @@ set -Eeuo pipefail
 umask 077
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
+source "$root/infra/dr/lib/mongo-verifier.sh"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 pg_source="deniz-dr-it-pg-source-${run_id}"
 pg_target="deniz-dr-it-pg-target-${run_id}"
@@ -121,9 +122,9 @@ docker exec -i "$pg_target" pg_restore --exit-on-error --create -U user-name -d 
 [[ "$(docker exec "$pg_target" psql -X -qAt -U user-name -d cloud-db -c "SELECT rolname FROM pg_roles WHERE rolname='reader'")" == reader ]] \
   || { echo "PostgreSQL role did not restore" >&2; exit 1; }
 
-docker run -d --name "$mongo_source" --network none \
+docker run -d --name "$mongo_source" --network none --memory 768m --memory-swap 1536m \
   --mount "type=bind,source=$root/infra/dr/lib/mongo-semantic.js,target=/semantic.js,readonly" \
-  mongo:8.2.11 mongod --replSet rs0 --bind_ip_all --quiet \
+  mongo:8.2.11 mongod --replSet rs0 --bind_ip_all --quiet --wiredTigerCacheSizeGB 0.25 \
   --setParameter diagnosticDataCollectionEnabled=false >/dev/null
 for _ in $(seq 1 60); do
   docker exec "$mongo_source" mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok===1 ? 0 : 1)' >/dev/null 2>&1 && break
@@ -148,16 +149,14 @@ docker exec -e DR_MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0' "$mongo_
 docker exec "$mongo_source" mongodump --uri='mongodb://127.0.0.1:27017/?replicaSet=rs0' \
   --oplog --archive --gzip > "$work/mongodb.archive.gz"
 
-docker run -d --name "$mongo_target" --network none \
-  --mount "type=bind,source=$root/infra/dr/lib/mongo-semantic.js,target=/semantic.js,readonly" \
-  mongo:8.2.11 mongod --bind_ip_all --quiet \
-  --setParameter diagnosticDataCollectionEnabled=false >/dev/null
+mkdir -p "$work/mongo-target"
+dr_start_mongo_verifier "$mongo_target" mongo:8.2.11 "$work/mongo-target" >/dev/null
+docker cp "$root/infra/dr/lib/mongo-semantic.js" "$mongo_target:/semantic.js" >/dev/null
 for _ in $(seq 1 60); do
   docker exec "$mongo_target" mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok===1 ? 0 : 1)' >/dev/null 2>&1 && break
   sleep 1
 done
-docker exec -i "$mongo_target" mongorestore --archive --gzip --oplogReplay --drop \
-  < "$work/mongodb.archive.gz" >/dev/null
+dr_restore_mongo_archive "$mongo_target" "$work/mongodb.archive.gz"
 docker exec -e DR_MONGO_URI='mongodb://127.0.0.1:27017' "$mongo_target" \
   mongosh --quiet --nodb --file /semantic.js | tail -1 | jq -S . > "$work/mongo-actual.json"
 cmp -s "$work/mongo-actual.json" "$work/mongo-expected.json" \

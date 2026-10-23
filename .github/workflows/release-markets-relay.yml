@@ -59,7 +59,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: pi
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -119,17 +119,21 @@ jobs:
           lease="$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '"' | head -1)"
           test "$lease" = home
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
+          # Guard the parent inode: it survives lock-directory replacement.
+          exec 9<"$(dirname "$lock")"
           holder() { cat "$lock/owner" 2>/dev/null || echo unknown; }
           deadline=$(( $(date +%s) + wait_seconds ))
           while true; do
+            flock -x 9
             if mkdir "$lock" 2>/dev/null; then break; fi
-            # `find -mmin` rather than `stat`: the age test decides whether the
-            # fence is ever breakable, so it must not be the half of a `||`
-            # that silently answers "not stale" where the syntax is wrong.
-            if [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; then
+            pid="$(cat "$lock/pid" 2>/dev/null || true)"
+            # A snapshot can legitimately run longer than the stale age. Never
+            # break a live local holder; dead PID locks can be reclaimed now.
+            if { [[ "$pid" =~ ^[0-9]+$ ]] && [[ ! -d "/proc/$pid" ]]; } ||
+               { [[ ! "$pid" =~ ^[0-9]+$ ]] && [ -n "$(find "$lock" -maxdepth 0 -mmin "+${stale_minutes}" 2>/dev/null)" ]; }; then
               echo "breaking a deploy fence abandoned by '$(holder)'" >&2
-              # Rename first: whoever wins the rename wins the break, so two
-              # runners cannot both clear it and both proceed.
+              # Inspection, rename, and acquisition share the same guard,
+              # so a second reclaimer cannot remove our replacement.
               if mv "$lock" "${lock}.abandoned.$$" 2>/dev/null; then
                 rm -rf "${lock}.abandoned.$$"
               fi
@@ -139,9 +143,11 @@ jobs:
               echo "deploy fence still held after ${wait_seconds}s by '$(holder)'" >&2
               exit 1
             fi
+            flock -u 9
             sleep 10
           done
           printf '%s\n' "$token" > "$lock/owner"
+          flock -u 9
           REMOTE
           echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
 
@@ -211,6 +217,8 @@ jobs:
           set -euo pipefail
           token="$1"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
+          exec 9<"$(dirname "$lock")"
+          flock -x 9
           owner="$(cat "$lock/owner" 2>/dev/null || true)"
           if [ "$owner" != "$token" ]; then
             # Someone else holds it — this run's fence was already broken as abandoned,

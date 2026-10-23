@@ -7,6 +7,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${script_dir}/lib/common.sh"
 source "${script_dir}/lib/telemetry.sh"
+source "${script_dir}/lib/mongo-verifier.sh"
 
 profile=""
 mode="--execute"
@@ -628,9 +629,7 @@ mongodb_dump() {
   image_id="$(docker inspect -f '{{.Image}}' "$container")"
   [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || dr_die "MongoDB container has no immutable local image id"
   install -d -m 0700 "$verify_data"
-  docker run -d --name "$verify_container" --network none --user 0:0 \
-    --mount "type=bind,source=${verify_data},target=/data/db" --tmpfs /tmp \
-    "$image_id" mongod --bind_ip_all --quiet --setParameter diagnosticDataCollectionEnabled=false >/dev/null
+  dr_start_mongo_verifier "$verify_container" "$image_id" "$verify_data" >/dev/null
   verification_containers+=("$verify_container")
   for _ in $(seq 1 90); do
     if docker exec "$verify_container" mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok===1 ? 0 : 1)' >/dev/null 2>&1; then
@@ -640,8 +639,7 @@ mongodb_dump() {
     sleep 1
   done
   [[ "$ready" == true ]] || dr_die "disposable MongoDB verifier did not become ready"
-  docker exec -i "$verify_container" mongorestore --archive --gzip --oplogReplay --drop \
-    < "$stage/artifacts/mongodb.archive.gz" >/dev/null
+  dr_restore_mongo_archive "$verify_container" "$stage/artifacts/mongodb.archive.gz"
   docker cp "$script_dir/lib/mongo-semantic.js" "${verify_container}:${remote_js}" >/dev/null
   docker exec -e DR_MONGO_URI=mongodb://127.0.0.1:27017 "$verify_container" mongosh --quiet --nodb --file "$remote_js" \
     | tail -1 | jq . > "$stage/meta/mongodb-semantic.json"

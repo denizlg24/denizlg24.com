@@ -28,14 +28,16 @@ the desktop app.
 
 ## What bites
 
-- **Claude credentials use native keychain access.** Background reads and writes
-  disable interaction with the serialized legacy keychain interaction setting
-  as well as `LAContext.interactionNotAllowed` (the login keychain ignores the
-  latter). Only an explicit seat switch may ask for access. Never invoke
-  `security` from polling: its access dialogs can
-  repeat indefinitely. Never use `security -i` for credentials: its 4,096-byte
-  line limit truncates hex payloads above roughly 2 KB. Never pass tokens in
-  process arguments. Verify each write by reading the full document back.
+- **Only `security` writes Claude Code's shared item.** Native data writes reset
+  its partition list to Tally's team, making Claude Code's own `security` reads
+  prompt. Send quoted JSON on stdin, never hex or process arguments. Reject
+  commands at or above 4,096 UTF-8 bytes before writing; oversized documents
+  must stay untouched. Verify both document readback and independent Apple-tool
+  access. Background reads preflight the partition without UI and fall back to
+  silent native reads when migrating a damaged item. Only explicit switching
+  may authorize native access, including saved seats from a development build.
+  Tally-owned secrets use native access with the serialized legacy interaction
+  setting plus LAContext (the login keychain ignores LAContext alone).
 - **The item holds more than the seat.** `mcpOAuth` (every MCP server's
   tokens) sits beside `claudeAiOauth`. A switch replaces `claudeAiOauth` and
   `~/.claude.json`'s `oauthAccount` and nothing else.
