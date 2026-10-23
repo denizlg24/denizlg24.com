@@ -506,6 +506,7 @@ function PantryRowContent({
         </Pressable>
         <Stepper
           label={`${entry.item.name} on hand`}
+          style={styles.stepper}
           hideLabel
           value={unitAmount(entry)}
           step={1}
@@ -568,6 +569,7 @@ function StoredRecipeRow({
         </Pressable>
         <Stepper
           label={`${entry.name} servings stored`}
+          style={styles.stepper}
           hideLabel
           value={entry.quantity}
           step={1}
@@ -651,13 +653,19 @@ const styles = StyleSheet.create({
   },
   rowMain: {
     flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
   },
   rowText: {
     flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
     gap: spacing.xxs,
+  },
+  stepper: {
+    flexShrink: 0,
   },
   pressed: {
     opacity: 0.6,

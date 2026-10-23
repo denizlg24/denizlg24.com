@@ -1,5 +1,6 @@
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { type ReactNode, useMemo } from "react";
+import { FoodCacheProvider } from "./food-cache-provider";
 import {
   createPersister,
   createQueryClient,
@@ -58,7 +59,7 @@ export function QueryProviders({
         void restored.finally(() => queryClient.resumePausedMutations());
       }}
     >
-      {children}
+      <FoodCacheProvider>{children}</FoodCacheProvider>
     </PersistQueryClientProvider>
   );
 }

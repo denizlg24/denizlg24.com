@@ -1,8 +1,9 @@
-import { MACROS_FOOD_ICON_ASSET_VERSION } from "@repo/schemas/macros";
 import { Image } from "expo-image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { API_URL } from "@/lib/config";
+import { useFoodCacheVersions } from "@/lib/food-cache-provider";
+import { useOnline } from "@/lib/online";
 import { colors, Icon, type IconName, radius, Skeleton } from "@/ui";
 
 import { RecipePhoto } from "./recipe-photo";
@@ -34,9 +35,9 @@ export interface FoodIconProps {
   size?: number;
 }
 
-function iconUri(iconKey: string): string {
+function iconUri(iconKey: string, version: string): string {
   const assetKey = iconKey === "other-001" ? "other-006" : iconKey;
-  return `${API_URL}/food-icons/${encodeURIComponent(assetKey)}.png?v=${MACROS_FOOD_ICON_ASSET_VERSION}`;
+  return `${API_URL}/food-icons/${encodeURIComponent(assetKey)}.png?v=${encodeURIComponent(version)}`;
 }
 
 /**
@@ -52,12 +53,21 @@ export function FoodIcon({
   entryType = "food",
   size = 36,
 }: FoodIconProps) {
-  const uri = entryType !== "quick_add" && iconKey ? iconUri(iconKey) : null;
+  const { foodIcons } = useFoodCacheVersions();
+  const online = useOnline();
+  const uri =
+    entryType !== "quick_add" && iconKey ? iconUri(iconKey, foodIcons) : null;
   // Keyed by URI, so a recycled row showing another food starts over.
   const [outcome, setOutcome] = useState<{
     uri: string;
     loaded: boolean;
   } | null>(null);
+  // A new revision may first be opened offline. Retry its image when the
+  // network returns rather than keeping the fallback until another relaunch.
+  useEffect(() => {
+    if (online)
+      setOutcome((current) => (current?.loaded === false ? null : current));
+  }, [online]);
   const settled = outcome?.uri === uri ? outcome : null;
   const failed = settled?.loaded === false;
   const loaded =

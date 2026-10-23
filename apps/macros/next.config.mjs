@@ -1,7 +1,13 @@
+import { v1ApiRewrites } from "./lib/api/versioning.mjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: ["192.168.1.65"],
   output: "standalone",
+  async rewrites() {
+    // Physical versioned routes take precedence when a future contract forks.
+    return { fallback: v1ApiRewrites() };
+  },
   // The web app is gone; home-screen installs and old links still open these.
   async redirects() {
     return [

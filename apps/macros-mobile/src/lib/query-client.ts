@@ -16,7 +16,9 @@ import { restorePendingLogs } from "@/api/pending-logs";
 import { registerShoppingListMutationDefaults } from "@/api/shopping-list";
 import { registerWeightMutationDefaults } from "@/api/weight";
 import { ApiError, isRetryable } from "./api";
-import { APP_VERSION } from "./config";
+import { migratePersistedCache } from "./food-cache";
+
+export { PERSIST_BUSTER } from "./food-cache";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -68,11 +70,18 @@ export function createQueryClient() {
  * until the first refetch landed.
  */
 export function createPersister(userId: string) {
-  return createAsyncStoragePersister({
+  const persister = createAsyncStoragePersister({
     storage: AsyncStorage,
     key: `macros-query-cache:${userId}`,
     throttleTime: 1000,
   });
+  return {
+    ...persister,
+    restoreClient: async () => {
+      const client = await persister.restoreClient();
+      return client ? migratePersistedCache(client) : client;
+    },
+  };
 }
 
 /** After the cache is restored: the writes it brought back keep their totals. */
@@ -96,14 +105,6 @@ export function restorePendingLogsFor(
 }
 
 export const PERSIST_MAX_AGE = 7 * DAY_MS;
-
-/**
- * Raise to drop every persisted cache on the next launch without a version
- * change, when the server's data changed under it (the nutrition catalogue
- * rebuild of 2026-10-04 reassigned most food icons).
- */
-const CACHE_EPOCH = 1;
-export const PERSIST_BUSTER = `${APP_VERSION}:${CACHE_EPOCH}`;
 
 export async function clearPersistedCaches() {
   const keys = await AsyncStorage.getAllKeys();

@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { MACROS_CACHE_VERSIONS } from "./cache-versions";
 
 /** Bump when replacing artwork under the stable food icon IDs. */
-export const MACROS_FOOD_ICON_ASSET_VERSION = "original-food-icons-v1";
+export const MACROS_FOOD_ICON_ASSET_VERSION = MACROS_CACHE_VERSIONS.foodIcons;
 
 /**
  * `public/food-icons/catalog.json` in the web app: a static asset, not an API

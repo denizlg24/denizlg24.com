@@ -4,7 +4,7 @@ The native client for Macros, and its only client: an iOS app first, plus a
 sideloaded Android APK built from the same code. `apps/macros` (Next.js) is
 the backend plus a marketing site, public recipe articles and the web recipe
 kitchen; there is no web tracking app. This app talks to its
-`/api/*` routes and nothing else, except the `/register/*` pages that
+`/api/v1/*` feature routes and `/api/auth/*`, except the `/register/*` pages that
 verification and password-reset emails open.
 
 ## Stack
@@ -66,6 +66,18 @@ scripts/                 release tooling (bun, not RN)
 ```
 
 ## Contracts
+
+The API version is independent of the app release. `buildUrl` pins feature
+requests through `versionedMacrosApiPath`; uploads and relative private images
+must use it too. Better Auth, static artwork and presigned storage URLs retain
+their own paths. Keep the backend's legacy `/api/*` routes working for older
+binaries; see `apps/macros/API.md` before changing a wire contract.
+
+`MACROS_CACHE_VERSIONS` in `packages/schemas/src/macros/cache-versions.ts`
+controls food-data and illustration refreshes. Deploying a changed revision
+refreshes clients from 0.1.0 onward on launch, foreground or reconnect. Never
+use the persistence buster for content changes: it would delete queued offline
+writes along with reads. Food revalidation retains cached data while offline.
 
 Every request and response type comes from `@repo/schemas/macros` — never
 declare a wire type locally. Response types are `z.infer` (output); request

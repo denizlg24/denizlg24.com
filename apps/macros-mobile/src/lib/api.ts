@@ -1,3 +1,4 @@
+import { versionedMacrosApiPath } from "@repo/schemas/macros";
 import { authClient } from "./auth-client";
 import { API_URL } from "./config";
 
@@ -50,7 +51,7 @@ export function reportUnauthorized() {
 }
 
 export function buildUrl(path: string, query?: QueryParams): string {
-  const url = new URL(path.startsWith("/") ? path : `/${path}`, API_URL);
+  const url = new URL(versionedMacrosApiPath(path), API_URL);
   if (query) {
     for (const [key, raw] of Object.entries(query)) {
       const values = Array.isArray(raw) ? raw : [raw];
@@ -83,6 +84,8 @@ function readErrorBody(body: unknown, status: number) {
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = {
     Accept: "application/json",
+    // React Query owns offline reads; an HTTP cache must not undo a refresh.
+    "Cache-Control": "no-cache",
     ...options.headers,
   };
   const cookie = await authClient.getCookie();
@@ -102,6 +105,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
       headers,
       body,
       signal: options.signal,
+      cache: "no-store",
       // The session travels in the Cookie header above; letting the native
       // cookie jar add its own copy produces two conflicting session cookies.
       credentials: "omit",
