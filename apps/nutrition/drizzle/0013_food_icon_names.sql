@@ -1,0 +1,1 @@
+ALTER TABLE "food_icons" ADD COLUMN "name" text DEFAULT '' NOT NULL;

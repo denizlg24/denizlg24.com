@@ -7,6 +7,22 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.0.20 — 2026-10-23
+
+### Added
+- **31 more food icons.** Specific illustrations for foods including plant
+  milks, Greek yogurt, skyr, tofu, chia seeds and fermented foods.
+
+### Changed
+- **Fresh food illustrations.** All 455 icons now use original, colorful
+  artwork throughout the app and website.
+- More foods have a specific illustration, with existing assignments reused
+  where a clearer match is unavailable. Your logged nutrition stays intact.
+
+### Fixed
+- Updated food artwork refreshes in the app instead of keeping an older
+  cached image.
+
 ## 0.0.19 — 2026-10-22
 
 ### Added

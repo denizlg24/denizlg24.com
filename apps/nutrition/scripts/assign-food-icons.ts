@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Pool } from "pg";
@@ -19,7 +19,14 @@ const rulesPath = resolve(
 );
 const batchSize = Number(readOption("--batch-size", "10000"));
 const dryRun = Bun.argv.includes("--dry-run");
+const onlyAdditions = Bun.argv.includes("--only-additions");
+const backupIndex = Bun.argv.indexOf("--backup");
+const backupPath = backupIndex === -1 ? undefined : Bun.argv[backupIndex + 1];
 const databaseUrl = Bun.env.DATABASE_URL;
+
+if (backupIndex !== -1 && (!backupPath || backupPath.startsWith("--"))) {
+  throw new Error("--backup requires a file path");
+}
 
 if (!Number.isInteger(batchSize) || batchSize < 1) {
   throw new Error("--batch-size must be a positive integer");
@@ -28,10 +35,24 @@ if (!Number.isInteger(batchSize) || batchSize < 1) {
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 
 const pool = new Pool({ connectionString: databaseUrl });
+const backup = backupPath
+  ? await open(resolve(backupPath), "wx", 0o600)
+  : undefined;
 
 try {
   const config = JSON.parse(await readFile(rulesPath, "utf8")) as FoodIconRules;
   const compiledRules = compileFoodIconRules(config);
+  const originals = onlyAdditions
+    ? (JSON.parse(
+        await readFile(resolve("config/food-icons/originals.json"), "utf8"),
+      ) as { icons: Array<{ key: string; existing: boolean }> })
+    : undefined;
+  const additionKeys = new Set(
+    originals?.icons.filter((icon) => !icon.existing).map((icon) => icon.key),
+  );
+  if (onlyAdditions && additionKeys.size === 0) {
+    throw new Error("No additional icons are defined in originals.json");
+  }
 
   const iconKeys = [
     config.defaultIconKey,
@@ -74,7 +95,17 @@ try {
     if (batch.rows.length === 0) break;
 
     const assignments = batch.rows.map((item) => {
-      const iconKey = classifyFoodIcon(compiledRules, item.name, item.brand);
+      const proposedIconKey = classifyFoodIcon(
+        compiledRules,
+        item.name,
+        item.brand,
+      );
+      // Keep existing curated assignments when rolling out additional foods.
+      // A broad rule or unknown name must not replace a specific existing icon.
+      const iconKey =
+        onlyAdditions && !additionKeys.has(proposedIconKey)
+          ? item.icon_key
+          : proposedIconKey;
       counts.set(iconKey, (counts.get(iconKey) ?? 0) + 1);
       return { id: item.id, currentIconKey: item.icon_key, iconKey };
     });
@@ -83,14 +114,26 @@ try {
     );
     changed += changes.length;
 
+    if (backup && changes.length > 0) {
+      await backup.writeFile(
+        `${changes.map((item) => JSON.stringify(item)).join("\n")}\n`,
+      );
+      await backup.sync();
+    }
+
     if (!dryRun && changes.length > 0) {
       const result = await pool.query(
         `update items
          set icon_key = updates.icon_key, updated_at = now()
-         from unnest($1::uuid[], $2::text[]) as updates(id, icon_key)
+         from unnest($1::uuid[], $2::text[], $3::text[]) as updates(id, icon_key, previous_icon_key)
          where items.id = updates.id
+           and items.icon_key is not distinct from updates.previous_icon_key
            and items.icon_key is distinct from updates.icon_key`,
-        [changes.map((item) => item.id), changes.map((item) => item.iconKey)],
+        [
+          changes.map((item) => item.id),
+          changes.map((item) => item.iconKey),
+          changes.map((item) => item.currentIconKey),
+        ],
       );
       updated += result.rowCount ?? 0;
     }
@@ -113,5 +156,6 @@ try {
       : `Finished: scanned ${scanned}; updated ${updated}`,
   );
 } finally {
+  await backup?.close();
   await pool.end();
 }

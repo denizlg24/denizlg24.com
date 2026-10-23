@@ -1,5 +1,6 @@
 "use client";
 
+import { MACROS_FOOD_ICON_ASSET_VERSION } from "@repo/schemas/macros";
 import { cn } from "@repo/ui/utils";
 import { CookingPot } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -61,7 +62,7 @@ export function IosFoodIcon({
       />
       <img
         ref={image}
-        src={`/food-icons/${iconKey}.png`}
+        src={`/food-icons/${iconKey}.png?v=${MACROS_FOOD_ICON_ASSET_VERSION}`}
         alt=""
         width={size}
         height={size}

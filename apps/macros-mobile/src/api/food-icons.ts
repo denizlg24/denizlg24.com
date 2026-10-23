@@ -1,4 +1,7 @@
-import { macrosFoodIconCatalogSchema } from "@repo/schemas/macros";
+import {
+  MACROS_FOOD_ICON_ASSET_VERSION,
+  macrosFoodIconCatalogSchema,
+} from "@repo/schemas/macros";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -30,11 +33,12 @@ export function groupOfIcon(iconKey: string): FoodIconGroup {
  */
 export function useFoodIconCatalog() {
   return useQuery({
-    queryKey: ["food-icons", "catalog"],
+    queryKey: ["food-icons", "catalog", MACROS_FOOD_ICON_ASSET_VERSION],
     queryFn: ({ signal }) =>
-      api<unknown>("/food-icons/catalog.json", { signal }).then(
-        (body) => macrosFoodIconCatalogSchema.parse(body).icons,
-      ),
+      api<unknown>(
+        `/food-icons/catalog.json?v=${MACROS_FOOD_ICON_ASSET_VERSION}`,
+        { signal },
+      ).then((body) => macrosFoodIconCatalogSchema.parse(body).icons),
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

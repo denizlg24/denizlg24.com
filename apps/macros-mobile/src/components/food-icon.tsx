@@ -1,3 +1,4 @@
+import { MACROS_FOOD_ICON_ASSET_VERSION } from "@repo/schemas/macros";
 import { Image } from "expo-image";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -35,7 +36,7 @@ export interface FoodIconProps {
 
 function iconUri(iconKey: string): string {
   const assetKey = iconKey === "other-001" ? "other-006" : iconKey;
-  return `${API_URL}/food-icons/${encodeURIComponent(assetKey)}.png`;
+  return `${API_URL}/food-icons/${encodeURIComponent(assetKey)}.png?v=${MACROS_FOOD_ICON_ASSET_VERSION}`;
 }
 
 /**

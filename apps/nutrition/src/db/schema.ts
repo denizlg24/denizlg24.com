@@ -70,6 +70,7 @@ export const foodIcons = pgTable(
   "food_icons",
   {
     key: text("key").primaryKey(),
+    name: text("name").notNull().default(""),
     foodGroup: text("food_group").notNull(),
     mediaType: text("media_type").notNull().default("image/png"),
     imageBase64: text("image_base64").notNull(),
