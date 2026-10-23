@@ -18,6 +18,28 @@ const text = Atkinson_Hyperlegible_Next({
 export const metadata: Metadata = {
   title: { default: "Stream", template: "%s · Stream" },
   applicationName: "Stream",
+  metadataBase: new URL(
+    process.env.STREAM_URL ?? "https://stream.denizlg24.com",
+  ),
+  description:
+    "Your family’s films, series, shared profiles and personal picks.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Stream",
+  },
+  openGraph: {
+    title: "Stream",
+    description: "Films and series for the family",
+    type: "website",
+    siteName: "Stream",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Stream",
+    description: "Films and series for the family",
+  },
   robots: { index: false, follow: false, nocache: true },
 };
 

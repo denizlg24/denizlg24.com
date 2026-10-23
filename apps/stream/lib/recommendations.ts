@@ -7,7 +7,17 @@ import {
   type RecommendationRequest,
   recommendationResponseSchema,
 } from "@repo/schemas/stream";
-import { and, desc, eq, gte, like, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  like,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -20,9 +30,14 @@ import {
 } from "@/db/schema";
 import { audienceFilter, serializeSummary } from "@/lib/catalog";
 import { authIssuer, webUrl } from "@/lib/config";
+import {
+  languagePreferences,
+  preferenceScore,
+} from "@/lib/recommendation-ranking";
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const POOL = 120;
+const CACHE_VERSION = "v2:";
 const PICKS = 24;
 
 type Signal = RecommendationRequest["history"][number]["signal"];
@@ -64,6 +79,7 @@ function candidate(row: TitleRow): RecommendationCandidate {
     type: row.type,
     genres: row.genres,
     rating: row.rating,
+    originalLanguage: row.originalLanguage,
   };
 }
 
@@ -132,6 +148,7 @@ async function candidatePool(
   kids: boolean,
   affinity: Map<string, number>,
   seen: string[],
+  languages: string[],
 ): Promise<TitleRow[]> {
   const top = [...affinity.entries()]
     .filter(([, weight]) => weight > 0)
@@ -148,6 +165,8 @@ async function candidatePool(
     .where(
       and(
         audienceFilter(kids),
+        isNotNull(titles.posterPath),
+        inArray(titles.originalLanguage, languages),
         gte(titles.rating, 6.5),
         gte(titles.votes, 5000),
         seen.length > 0 ? notInArray(titles.id, seen) : undefined,
@@ -214,7 +233,21 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
   );
   const kids = profiles.some((profile) => profile.kids);
   const seen = [...new Set(history.map((item) => item.id))];
-  const pool = await candidatePool(kids, affinity, seen);
+  const languages = languagePreferences(history);
+  const personal = profiles.map((profile, index) =>
+    genreAffinity(
+      profile.favoriteGenres,
+      histories[index].map((item) => ({
+        genres: item.genres,
+        weight: SIGNAL_WEIGHT[item.signal],
+      })),
+    ),
+  );
+  const pool = (await candidatePool(kids, affinity, seen, languages)).sort(
+    (a, b) =>
+      preferenceScore(candidate(b), personal) -
+        preferenceScore(candidate(a), personal) || b.popularity - a.popularity,
+  );
   if (pool.length === 0) return;
   const picks = await askWeb({
     audience: profiles.map((profile) => ({
@@ -227,7 +260,12 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
     count: PICKS,
   });
   const allowed = new Set(pool.map((row) => row.id));
-  const chosen = (picks ?? []).filter((pick) => allowed.has(pick.id));
+  const chosenIds = new Set<string>();
+  const chosen = (picks ?? []).filter((pick) => {
+    if (!allowed.has(pick.id) || chosenIds.has(pick.id)) return false;
+    chosenIds.add(pick.id);
+    return true;
+  });
   const final =
     chosen.length > 0
       ? chosen
@@ -235,7 +273,7 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
           id: row.id,
           reason: fallbackReason(row, affinity, profiles.length > 1),
         }));
-  const audience = audienceKey(profiles);
+  const audience = CACHE_VERSION + audienceKey(profiles);
   await db.transaction(async (tx) => {
     await tx
       .delete(recommendations)
@@ -268,7 +306,7 @@ export async function recommendationsFor(
   profiles: ProfileRow[],
 ): Promise<Recommendation[]> {
   if (profiles.length === 0) return [];
-  const audience = audienceKey(profiles);
+  const audience = CACHE_VERSION + audienceKey(profiles);
   let rows = await stored(audience);
   const fresh =
     rows.length > 0 && Date.now() - rows[0].rec.generatedAt.getTime() < TTL_MS;

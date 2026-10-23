@@ -187,6 +187,42 @@ export function TitleScreen({ id }: { id: string }) {
             </Text>
           ) : null}
 
+          {detail.cast.length > 0 ? (
+            <View style={{ gap: 16 }}>
+              <Text variant={classic ? "classicHeading" : "display"}>Cast</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 12 }}
+              >
+                {detail.cast.map((person) => (
+                  <Pressable
+                    key={`${person.name}:${person.character}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Films and series with ${person.name}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/actor/[name]",
+                        params: { name: person.name },
+                      })
+                    }
+                    style={{
+                      width: 144,
+                      minHeight: 64,
+                      padding: 12,
+                      backgroundColor: colors.raised,
+                      borderRadius: 12,
+                    }}
+                  >
+                    <Text variant="headline">{person.name}</Text>
+                    <Text variant="caption" color="muted">
+                      {person.character}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
           {detail.seasons.length > 0 ? (
             <View style={styles.seasons}>
               <Text variant={classic ? "classicHeading" : "display"}>

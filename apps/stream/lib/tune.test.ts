@@ -59,6 +59,22 @@ describe("tune", () => {
     ).toEqual(DEFAULT_TUNE);
   });
 
+  test("genres survive navigation and reach the API", () => {
+    const state = {
+      ...DEFAULT_TUNE,
+      genres: ["Comedy", "Thriller"] as ("Comedy" | "Thriller")[],
+    };
+    expect(tuneFromParams(Object.fromEntries(tuneToParams(state)))).toEqual(
+      state,
+    );
+    expect(titleQuerySchema.parse(tuneToQuery(state)).genres).toEqual(
+      state.genres,
+    );
+    expect(tuneFromParams({ genres: "Comedy,invalid,Comedy" }).genres).toEqual([
+      "Comedy",
+    ]);
+  });
+
   test("an inverted era is put the right way round", () => {
     const state = tuneFromParams({ from: "8", to: "2" });
     expect(state.eraFrom).toBe(2);

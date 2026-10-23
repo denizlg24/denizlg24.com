@@ -255,7 +255,7 @@ function Section({
 
 function PickUp({ items }: { items: ContinueWatchingItem[] }) {
   return (
-    <Section title="Pick up where you left off">
+    <Section title="Continue watching">
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}

@@ -303,3 +303,22 @@ export function useHighlights(audience: string) {
     select: (data) => data.highlights,
   });
 }
+
+export function useActorTitles(name: string, profileId: string) {
+  return useInfiniteQuery({
+    queryKey: ["actor", name, profileId],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      api("titles", titlePageSchema, {
+        query: {
+          actor: name,
+          profile: profileId,
+          sort: "newest",
+          limit: 30,
+          cursor: pageParam,
+        },
+        signal,
+      }),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+}

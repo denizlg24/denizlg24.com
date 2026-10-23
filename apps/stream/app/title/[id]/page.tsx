@@ -200,24 +200,30 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
                       key={`${person.name}-${person.character}`}
                       className="w-28 shrink-0 space-y-2"
                     >
-                      {photo ? (
-                        <img
-                          src={photo}
-                          alt=""
-                          loading="lazy"
-                          className="aspect-square w-full rounded-full object-cover grayscale-[30%]"
-                        />
-                      ) : (
-                        <div className="grid aspect-square w-full place-items-center rounded-full bg-lift font-display text-3xl text-faint">
-                          {person.name.charAt(0)}
-                        </div>
-                      )}
-                      <p className="text-sm leading-tight">{person.name}</p>
-                      {person.character ? (
-                        <p className="text-xs leading-tight text-muted">
-                          {person.character}
-                        </p>
-                      ) : null}
+                      <Link
+                        href={`/actor/${encodeURIComponent(person.name)}`}
+                        data-nav
+                        className="block space-y-2 rounded-xl outline-offset-4 hover:text-amber"
+                      >
+                        {photo ? (
+                          <img
+                            src={photo}
+                            alt=""
+                            loading="lazy"
+                            className="aspect-square w-full rounded-full object-cover grayscale-[30%]"
+                          />
+                        ) : (
+                          <div className="grid aspect-square w-full place-items-center rounded-full bg-lift font-display text-3xl text-faint">
+                            {person.name.charAt(0)}
+                          </div>
+                        )}
+                        <p className="text-sm leading-tight">{person.name}</p>
+                        {person.character ? (
+                          <p className="text-xs leading-tight text-muted">
+                            {person.character}
+                          </p>
+                        ) : null}
+                      </Link>
                     </li>
                   );
                 })}

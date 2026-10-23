@@ -4,7 +4,7 @@
  *
  *   bun scripts/render-icons.ts
  */
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
@@ -46,3 +46,27 @@ const GRAIN = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">
   <rect width="320" height="320" filter="url(#n)"/>
 </svg>`;
 render(GRAIN, "grain.png");
+
+const web = join(import.meta.dir, "../../stream");
+mkdirSync(join(web, "public"), { recursive: true });
+for (const [file, size] of [
+  ["icon.png", 512],
+  ["apple-icon.png", 180],
+] as const) {
+  writeFileSync(
+    join(web, "app", file),
+    new Resvg(mark(size, true)).render().asPng(),
+  );
+}
+writeFileSync(
+  join(web, "public", "icon-192.png"),
+  new Resvg(mark(192, true)).render().asPng(),
+);
+writeFileSync(
+  join(web, "app", "opengraph-image.png"),
+  new Resvg(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="${NIGHT}"/><path d="M120 210 L300 315 L120 420 Z" fill="${EMBER}"/><text x="380" y="335" font-family="sans-serif" font-size="100" font-weight="bold" fill="#efe9df">Stream</text><text x="385" y="410" font-family="sans-serif" font-size="28" fill="#efe9df">Films and series for the family</text></svg>`,
+  )
+    .render()
+    .asPng(),
+);

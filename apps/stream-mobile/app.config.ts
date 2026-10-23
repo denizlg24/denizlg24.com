@@ -14,6 +14,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Stream",
   slug: "stream",
+  description:
+    "Your family’s films, series, shared profiles and personal picks.",
   scheme: [BUNDLE_IDENTIFIER, "stream"],
   version: packageJson.version,
   // Every screen asks for portrait except the player (`app/_layout.tsx`).

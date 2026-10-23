@@ -13,12 +13,19 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   `PlaybackSource`, and never reports viewing progress.
 - **A tenant, not a first-party client.** deniz auth gives first-party
   tokens to superusers only, so Stream is the owner's `family` tenant
-  (`STREAM_TENANT_ID`). `isFamilyToken` is the admission test. Tokens never
+  (`STREAM_TENANT_ID`). `isFamilyToken` is the admission test: the owner
+  plus `STREAM_FAMILY_SUBJECTS` (comma-separated deniz auth user ids). A tenant
+  token alone never grants access to the shared household. Tokens never
   carry `superuser`, the owner's included. `STREAM_OWNER_SUBJECT` makes the
   owner's member row `owner`.
 - **Two ways in to `/api/v1`.** A bearer (native clients), or the web
   session cookie on GET only. Every web write is a server action
   (`app/actions.ts`), so a cookie never authorises an API mutation.
+- **Profiles belong to the household.** Every admitted member can select and edit
+  every profile. `member_subject` records who created it; it is not an access
+  boundary. First sign-in creates a profile only if the household has none.
+  Creation/deletion take a transaction lock around the household-wide five-profile
+  limit and the last-profile guard.
 - **The audience is the sofa.** `stream-sofa` holds the profile ids
   watching. Recommendations are cached per audience (`recommendations.audience`
   = sorted ids), any kids profile makes the whole audience kid-safe, and
@@ -27,7 +34,9 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
 - **Recommendations go through web's `llm-service`**
   (`POST /api/admin/stream/recommendations`, `client_credentials` with
   `STREAM_WEB_OAUTH_CLIENT_ID/SECRET`). The candidate pool is built here, and
-  a pick outside it is dropped. Any failure falls back to genre affinity, so
+  a pick outside it is dropped. Language interest comes from positive viewing/saves (English at cold start);
+  group ranking rewards shared tastes. Double bills match language and genre
+  similarity, then audience rank. Any failure falls back to genre affinity, so
   the programme never empties.
 - **Taste space is fixed per title.** `lib/taste-space.ts` places every
   title from its genres and votes, deterministically, and ingest writes

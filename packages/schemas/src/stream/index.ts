@@ -54,6 +54,7 @@ export const titleSummarySchema = z.object({
   /** TMDB path such as `/abc.jpg`; build URLs with `tmdbImage`. */
   posterPath: z.string().nullable(),
   backdropPath: z.string().nullable(),
+  originalLanguage: z.string().nullable().optional(),
 });
 export type TitleSummary = z.infer<typeof titleSummarySchema>;
 
@@ -111,6 +112,7 @@ const csv = <T extends z.ZodType>(item: T) =>
 
 export const titleQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
+  actor: z.string().trim().min(1).max(200).optional(),
   type: titleTypeSchema.optional(),
   genres: csv(genreSchema).optional(),
   yearFrom: z.coerce.number().int().min(1870).max(2100).optional(),
@@ -387,6 +389,7 @@ export type Playback = z.infer<typeof playbackSchema>;
 
 /** web `POST /api/admin/stream/recommendations` */
 export const recommendationCandidateSchema = z.object({
+  originalLanguage: z.string().nullable().optional(),
   id: titleIdSchema,
   title: z.string(),
   year: z.number().int().nullable(),

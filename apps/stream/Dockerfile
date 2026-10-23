@@ -23,6 +23,7 @@ ENV PORT=3011
 
 COPY --from=build --chown=node:node /workspace/apps/stream/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/stream/.next/static ./apps/stream/.next/static
+COPY --from=build --chown=node:node /workspace/apps/stream/public ./apps/stream/public
 
 USER node
 EXPOSE 3011

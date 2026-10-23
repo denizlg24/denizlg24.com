@@ -10,7 +10,7 @@ import {
   profileColorSchema,
   profileLayoutSchema,
 } from "@repo/schemas/stream";
-import { and, asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -58,8 +58,8 @@ export async function touchMember(subject: string): Promise<void> {
 }
 
 export async function listProfiles(subject: string): Promise<Profile[]> {
+  if (!(await findMember(subject))) return [];
   const rows = await db.query.profiles.findMany({
-    where: eq(profiles.memberSubject, subject),
     orderBy: asc(profiles.createdAt),
   });
   return rows.map(serializeProfile);
@@ -72,7 +72,7 @@ export async function me(member: MemberRow): Promise<Me> {
   };
 }
 
-/** First sign-in: the account and its first profile are one step. */
+/** All admitted family accounts share one household; only the first creates a profile. */
 export async function createMember(
   subject: string,
   name: string,
@@ -88,10 +88,8 @@ export async function createMember(
       })
       .onConflictDoUpdate({ target: members.subject, set: { name } })
       .returning();
-    const [{ value }] = await tx
-      .select({ value: count() })
-      .from(profiles)
-      .where(eq(profiles.memberSubject, subject));
+    await tx.execute(sql`select pg_advisory_xact_lock(7311024)`);
+    const [{ value }] = await tx.select({ value: count() }).from(profiles);
     if (value === 0) {
       await tx.insert(profiles).values({ memberSubject: subject, name, color });
     }
@@ -105,25 +103,28 @@ export async function createProfile(
   subject: string,
   input: ProfileInput,
 ): Promise<Profile> {
-  const existing = await db
-    .select({ value: count() })
-    .from(profiles)
-    .where(eq(profiles.memberSubject, subject));
-  if ((existing[0]?.value ?? 0) >= MAX_PROFILES) throw new ProfileLimitError();
-  const [row] = await db
-    .insert(profiles)
-    .values({ memberSubject: subject, ...input })
-    .returning();
-  return serializeProfile(row);
+  if (!(await findMember(subject)))
+    throw new Error("Family membership required");
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(7311024)`);
+    const [{ value }] = await tx.select({ value: count() }).from(profiles);
+    if (value >= MAX_PROFILES) throw new ProfileLimitError();
+    const [row] = await tx
+      .insert(profiles)
+      .values({ memberSubject: subject, ...input })
+      .returning();
+    return serializeProfile(row);
+  });
 }
 
 export async function ownedProfile(
   subject: string,
   profileId: string,
 ): Promise<ProfileRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(profileId)) return null;
+  if (!/^[0-9a-f-]{36}$/i.test(profileId) || !(await findMember(subject)))
+    return null;
   const row = await db.query.profiles.findFirst({
-    where: and(eq(profiles.id, profileId), eq(profiles.memberSubject, subject)),
+    where: eq(profiles.id, profileId),
   });
   return row ?? null;
 }
@@ -133,10 +134,11 @@ export async function updateProfile(
   profileId: string,
   input: Partial<ProfileInput>,
 ): Promise<Profile | null> {
+  if (!(await ownedProfile(subject, profileId))) return null;
   const [row] = await db
     .update(profiles)
     .set(input)
-    .where(and(eq(profiles.id, profileId), eq(profiles.memberSubject, subject)))
+    .where(eq(profiles.id, profileId))
     .returning();
   return row ? serializeProfile(row) : null;
 }
@@ -147,14 +149,16 @@ export async function deleteProfile(
   subject: string,
   profileId: string,
 ): Promise<boolean> {
-  const all = await listProfiles(subject);
-  if (!all.some((profile) => profile.id === profileId)) return false;
-  if (all.length === 1) throw new LastProfileError();
-  await db
-    .delete(profiles)
-    .where(
-      and(eq(profiles.id, profileId), eq(profiles.memberSubject, subject)),
-    );
+  if (!(await findMember(subject))) return false;
+  const deleted = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(7311024)`);
+    const all = await tx.select({ id: profiles.id }).from(profiles);
+    if (!all.some((profile) => profile.id === profileId)) return false;
+    if (all.length === 1) throw new LastProfileError();
+    await tx.delete(profiles).where(eq(profiles.id, profileId));
+    return true;
+  });
+  if (!deleted) return false;
   await forgetProfileRecommendations(profileId);
   return true;
 }

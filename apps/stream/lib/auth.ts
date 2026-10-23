@@ -3,6 +3,7 @@ import { createVerifier } from "@denizlg24/auth/server";
 
 import {
   authIssuer,
+  ownerSubject,
   streamBaseUrl,
   streamResource,
   streamTenant,
@@ -17,11 +18,24 @@ export function sessionCookieName(): string {
 /**
  * Stream is the owner's `family` tenant, so a token carries `tenant` and
  * never `superuser` — the owner's included. Membership of the tenant is the
- * whole admission test; who is invited is decided on auth.denizlg24.com.
+ * issuer boundary. The owner and explicitly invited account subjects form
+ * the household; another tenant user must not gain access to shared profiles.
  */
 export function isFamilyToken(token: AccessToken): boolean {
   const tenant = streamTenant();
-  return !token.machine && tenant !== null && token.tenant === tenant;
+  const allowed = new Set([
+    ownerSubject(),
+    ...(process.env.STREAM_FAMILY_SUBJECTS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ]);
+  return (
+    !token.machine &&
+    tenant !== null &&
+    token.tenant === tenant &&
+    allowed.has(token.userId)
+  );
 }
 
 export const auth = createDenizAuth(() => ({

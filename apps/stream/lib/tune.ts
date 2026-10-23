@@ -1,4 +1,9 @@
-import type { TitleQueryInput, TitleSort } from "@repo/schemas/stream";
+import {
+  type Genre,
+  genreSchema,
+  type TitleQueryInput,
+  type TitleSort,
+} from "@repo/schemas/stream";
 
 export interface DialOption<T> {
   label: string;
@@ -60,6 +65,7 @@ export interface TuneState {
   kind: Kind;
   sort: TitleSort;
   q: string;
+  genres: Genre[];
 }
 
 export const DEFAULT_TUNE: TuneState = {
@@ -71,6 +77,7 @@ export const DEFAULT_TUNE: TuneState = {
   kind: null,
   sort: "popular",
   q: "",
+  genres: [],
 };
 
 function clampIndex(value: number, length: number): number {
@@ -88,6 +95,7 @@ export function tuneToQuery(state: TuneState): TitleQueryInput {
   if (state.eraFrom > 0) query.yearFrom = DECADES[state.eraFrom];
   if (state.eraTo < DECADES.length - 1) query.yearTo = DECADES[state.eraTo] + 9;
   if (state.kind) query.type = state.kind;
+  if (state.genres.length) query.genres = state.genres;
   if (state.q.trim()) query.q = state.q.trim();
   return query;
 }
@@ -105,6 +113,7 @@ export function tuneToParams(state: TuneState): URLSearchParams {
   if (state.kind) params.set("kind", state.kind);
   if (state.sort !== defaults.sort) params.set("sort", state.sort);
   if (state.q.trim()) params.set("q", state.q.trim());
+  if (state.genres.length) params.set("genres", state.genres.join(","));
   return params;
 }
 
@@ -134,6 +143,14 @@ export function tuneFromParams(
     kind,
     sort,
     q: one("q") ?? "",
+    genres: [
+      ...new Set(
+        (one("genres") ?? "").split(",").flatMap((value) => {
+          const parsed = genreSchema.safeParse(value);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      ),
+    ],
   };
 }
 

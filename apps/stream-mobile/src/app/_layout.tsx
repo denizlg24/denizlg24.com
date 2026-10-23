@@ -94,6 +94,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: "#000000" },
                       }}
                     />
+                    <Stack.Screen name="actor/[name]" />
                     <Stack.Screen name="account" options={sheet} />
                   </Stack.Protected>
                   <Stack.Screen

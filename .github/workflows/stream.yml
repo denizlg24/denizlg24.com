@@ -1,0 +1,93 @@
+name: Stream
+on:
+  pull_request:
+    paths:
+      - "apps/stream/**"
+      - "apps/stream-mobile/**"
+      - "apps/stream-desktop/**"
+      - "packages/stream-player/**"
+      - "packages/schemas/**"
+      - "packages/auth-sdk/**"
+      - "bun.lock"
+      - "package.json"
+      - ".github/workflows/stream.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/stream/**"
+      - "apps/stream-mobile/**"
+      - "packages/stream-player/**"
+      - "packages/schemas/**"
+      - "packages/auth-sdk/**"
+      - "bun.lock"
+      - ".github/workflows/stream.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stream-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: stream-test
+          POSTGRES_DB: stream_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd packages/auth-sdk build
+      - run: bun run --cwd apps/stream typecheck
+      - run: bun run --cwd apps/stream test
+      - name: Test household access and playback progress against Postgres
+        working-directory: apps/stream
+        run: bun test ./lib/members.integration.test.ts
+        env:
+          STREAM_TEST_DATABASE_URL: postgres://postgres:stream-test@localhost:5432/stream_test
+      - run: bun run --cwd packages/stream-player typecheck
+      - run: bun run --cwd packages/stream-player test
+      - run: bun run --cwd apps/stream-mobile typecheck
+      - run: bun run --cwd apps/stream-mobile test
+      - run: bunx biome check apps/stream apps/stream-mobile apps/stream-desktop packages/stream-player
+      - name: Build the web app
+        run: bun run --cwd apps/stream build
+        env:
+          STREAM_URL: https://stream.denizlg24.com
+  mobile-bundles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Bundle iOS and Android
+        run: bun run --cwd apps/stream-mobile bundle
+        env:
+          EXPO_PUBLIC_STREAM_API_URL: https://stream.denizlg24.com
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stream-mobile-bundles
+          path: apps/stream-mobile/dist
+          retention-days: 14
+  # Forge's GitHub integration deploys the web target on main, using its
+  # production environment and health check. Desktop releases are handled
+  # by release-stream-desktop.yml; native iOS compilation by personal-ios.yml.

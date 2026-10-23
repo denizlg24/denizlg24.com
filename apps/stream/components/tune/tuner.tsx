@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  genreSchema,
   type TitlePage,
   type TitleSummary,
   titlePageSchema,
@@ -154,6 +155,33 @@ export function Tuner({
             </button>
           ))}
         </div>
+        <fieldset className="space-y-3">
+          <legend className="mb-3 font-display text-2xl">Genres</legend>
+          <p className="text-sm text-muted">
+            Choose one or more. Matches include every selected genre.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {genreSchema.options.map((genre) => (
+              <button
+                key={genre}
+                type="button"
+                data-nav
+                aria-pressed={state.genres.includes(genre)}
+                onClick={() =>
+                  set(
+                    "genres",
+                    state.genres.includes(genre)
+                      ? state.genres.filter((value) => value !== genre)
+                      : [...state.genres, genre],
+                  )
+                }
+                className={`rounded-full px-3 py-2 text-sm ring-1 transition-colors ${state.genres.includes(genre) ? "bg-amber text-ink ring-amber" : "text-muted ring-hairline hover:text-paper"}`}
+              >
+                {genre}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <Dial
           label={state.kind === "series" ? "Episode length" : "Time you have"}
           options={TIME.map((option) => option.label)}

@@ -1,4 +1,5 @@
 import type { TitleSummary } from "@repo/schemas/stream";
+import { genreSchema } from "@repo/schemas/stream";
 import { Search, SearchX } from "lucide-react-native";
 import { useDeferredValue } from "react";
 import {
@@ -17,6 +18,7 @@ import { createStore, useStore } from "@/lib/store";
 import { EMPTY_FILTERS, type TitleFilters } from "@/lib/title-query";
 import {
   Button,
+  Chip,
   colors,
   EmptyState,
   gutter,
@@ -87,6 +89,28 @@ export function TuneScreen() {
           accessibilityLabel="Search by name"
           style={styles.input}
         />
+      </View>
+      <View style={{ gap: 10 }}>
+        <Text variant="heading">Genres</Text>
+        <Text variant="footnote" color="muted">
+          Matches include every selected genre.
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {genreSchema.options.map((genre) => (
+            <Chip
+              key={genre}
+              label={genre}
+              selected={filters.genres.includes(genre)}
+              onPress={() =>
+                set({
+                  genres: filters.genres.includes(genre)
+                    ? filters.genres.filter((value) => value !== genre)
+                    : [...filters.genres, genre],
+                })
+              }
+            />
+          ))}
+        </View>
       </View>
       <TunerBand
         title="Time"

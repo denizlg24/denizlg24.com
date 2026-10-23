@@ -24,7 +24,7 @@
         "fullscreen": false,
         "decorations": true,
         "theme": "Dark",
-        "backgroundColor": "#0b0b0c",
+        "backgroundColor": "#0c0b0a",
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required"
       }
     ],
@@ -35,9 +35,9 @@
   "bundle": {
     "active": true,
     "category": "Entertainment",
-    "copyright": "Copyright © 2026 denizlg24. All rights reserved.",
+    "copyright": "Copyright \u00a9 2026 denizlg24. All rights reserved.",
     "shortDescription": "Films and series for the family",
-    "longDescription": "Stream is the family film and series catalogue.",
+    "longDescription": "Discover films and series together, keep individual watchlists and progress, and pick up where you left off with shared family profiles.",
     "targets": ["app", "dmg", "nsis"],
     "createUpdaterArtifacts": true,
     "icon": [
@@ -61,7 +61,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "STREAM_DESKTOP_UPDATER_PUBKEY_PLACEHOLDER",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0MTQ0MDYyQjdDOTc1RUMKUldUc2RjbTNZa0FVNU94eXhVMWgvNm9JeVFNUDRJUnFjQzFBT0VGWGlxSDMrV0Q1aHlZbUx3akwK",
       "endpoints": [
         "https://github.com/denizlg24/denizlg24.com/releases/download/stream-desktop-latest/latest.json"
       ]

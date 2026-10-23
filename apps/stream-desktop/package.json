@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bunx tauri dev",
     "bundle": "bunx tauri build",
-    "typecheck": "true"
+    "typecheck": "true",
+    "icons": "tauri icon ../stream-mobile/assets/icon.png --output src-tauri/icons"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"

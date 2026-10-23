@@ -13,19 +13,21 @@ export function StillTile({
   progress,
   size = "md",
   className = "",
+  href,
 }: {
   title: TitleSummary;
   note?: string;
   progress?: number;
   size?: "md" | "lg";
   className?: string;
+  href?: string;
 }) {
   const still =
     tmdbImage(title.backdropPath, "w780") ??
     tmdbImage(title.posterPath, "w500");
   return (
     <Link
-      href={`/title/${title.id}`}
+      href={href ?? `/title/${title.id}`}
       data-nav
       className={`group block rounded-xl outline-offset-4 ${className}`}
     >

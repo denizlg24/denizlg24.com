@@ -170,13 +170,14 @@ export function Edition({
           </div>
         ) : null}
         {tonight.continue.length > 0 ? (
-          <Section title="Pick up where you left off">
+          <Section title="Continue watching">
             <Strip>
               {tonight.continue.map((item) => (
                 <StillTile
                   key={item.title.id}
                   title={item.title}
                   className="w-80 shrink-0 snap-start md:w-96"
+                  href={`/watch/${item.title.id}${item.progress.episodeId ? `?episode=${item.progress.episodeId}` : ""}`}
                   note={minutesLeft(
                     item.progress.positionS,
                     item.progress.durationS,

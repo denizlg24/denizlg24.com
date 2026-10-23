@@ -28,7 +28,7 @@ export function localDate(now = new Date()): string {
   }).format(now);
 }
 
-/** Two films sharing a genre that fit one evening, the best-rated such pair. */
+/** Two compatible films, weighted toward the audience’s strongest matches. */
 export function pickDoubleFeature(
   recs: Recommendation[],
 ): Tonight["doubleFeature"] {
@@ -50,9 +50,18 @@ export function pickDoubleFeature(
       const [a, b] = [films[i], films[j]];
       const total = a.runtimeMinutes + b.runtimeMinutes;
       if (total > DOUBLE_FEATURE_MAX_MINUTES) continue;
-      const genre = a.genres.find((name) => b.genres.includes(name));
+      if (!a.originalLanguage || a.originalLanguage !== b.originalLanguage)
+        continue;
+      const shared = a.genres.filter((name) => b.genres.includes(name));
+      const similarity =
+        shared.length / new Set([...a.genres, ...b.genres]).size;
+      if (similarity < 0.4) continue;
+      const genre = shared.find((name) => name !== "Drama") ?? shared[0];
       if (!genre) continue;
-      const score = (a.rating ?? 0) + (b.rating ?? 0);
+      const score =
+        similarity * 4 -
+        (i + j) * 0.4 +
+        ((a.rating ?? 0) + (b.rating ?? 0)) * 0.1;
       if (!best || score > best.score) {
         const [first, second] =
           (a.startYear ?? 0) <= (b.startYear ?? 0) ? [a, b] : [b, a];

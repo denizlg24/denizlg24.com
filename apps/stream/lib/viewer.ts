@@ -60,6 +60,13 @@ export async function readSofa(subject: string): Promise<ProfileRow[]> {
     .split(",")
     .filter((id) => id.length > 0)
     .slice(0, 5);
+  if (ids.length === 0) {
+    const all = await listProfiles(subject);
+    if (all.length === 1) {
+      const only = await ownedProfile(subject, all[0].id);
+      return only ? [only] : [];
+    }
+  }
   const rows = await Promise.all(ids.map((id) => ownedProfile(subject, id)));
   return rows.filter((row): row is ProfileRow => row !== null);
 }

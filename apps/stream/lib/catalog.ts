@@ -16,6 +16,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -78,6 +79,7 @@ export function serializeSummary(row: TitleRow): TitleSummary {
     genres: row.genres,
     rating: row.rating,
     votes: row.votes,
+    originalLanguage: row.originalLanguage,
     posterPath: row.posterPath,
     backdropPath: row.backdropPath,
   };
@@ -116,6 +118,10 @@ export function titleFilters(query: TitleQuery, kids: boolean): SQL {
       sql`lower(${titles.title}) like ${`%${query.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`}`,
     );
   }
+  if (query.actor)
+    filters.push(
+      sql`exists (select 1 from jsonb_array_elements(${titles.cast}) person where person->>'name' = ${query.actor})`,
+    );
   if (query.type) filters.push(eq(titles.type, TYPE_OF[query.type]));
   if (query.genres && query.genres.length > 0) {
     filters.push(arrayContains(titles.genres, query.genres));
@@ -320,7 +326,12 @@ export async function continueWatching(
     .from(progress)
     .innerJoin(titles, eq(titles.id, progress.titleId))
     .where(
-      and(eq(progress.profileId, profileId), eq(progress.completed, false)),
+      and(
+        eq(progress.profileId, profileId),
+        eq(progress.completed, false),
+        gte(progress.positionS, 30),
+        gt(progress.durationS, 0),
+      ),
     )
     .orderBy(desc(progress.updatedAt))
     .limit(limit);
