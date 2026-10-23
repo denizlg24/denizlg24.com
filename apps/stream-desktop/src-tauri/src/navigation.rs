@@ -3,11 +3,12 @@ use tauri::Url;
 const SIGN_IN_ORIGINS: [&str; 2] = ["https://auth.denizlg24.com", "https://api.denizlg24.com"];
 
 // WKWebView reports subframe navigations to the same handler as top-level
-// ones, so an embedded trailer would otherwise be cancelled and opened in the
-// browser.
-const EMBED_PREFIXES: [&str; 2] = [
+// ones, so the known playback frames must be permitted explicitly.
+const EMBED_PREFIXES: [&str; 4] = [
     "https://www.youtube.com/embed/",
     "https://www.youtube-nocookie.com/embed/",
+    "https://vsembed.ru/embed/",
+    "https://stellarconductornexus.com/embed/",
 ];
 
 // `Url::origin` is opaque for custom schemes such as `shell://`, so two
@@ -23,7 +24,7 @@ pub enum Route {
     Allow,
     Retry,
     Reload(Option<Url>),
-    External,
+    Block,
 }
 
 pub struct Shell {
@@ -64,7 +65,7 @@ impl Shell {
             };
         }
 
-        if matches!(url.scheme(), "about" | "blob" | "data") || self.is_stream(url) {
+        if url.as_str() == "about:blank" || self.is_stream(url) {
             return Route::Allow;
         }
 
@@ -77,7 +78,7 @@ impl Shell {
             return Route::Allow;
         }
 
-        Route::External
+        Route::Block
     }
 }
 
@@ -115,21 +116,38 @@ mod tests {
     }
 
     #[test]
-    fn sends_everything_else_out() {
-        assert_eq!(
-            route("https://www.themoviedb.org/movie/278"),
-            Route::External
-        );
+    fn blocks_untrusted_navigation() {
+        assert_eq!(route("https://www.themoviedb.org/movie/278"), Route::Block);
         assert_eq!(
             route("https://stream.denizlg24.com.evil.example/"),
-            Route::External
+            Route::Block
         );
-        assert_eq!(route("http://stream.denizlg24.com/"), Route::External);
-        assert_eq!(
-            route("https://www.youtube.com/watch?v=abc"),
-            Route::External
-        );
-        assert_eq!(route("mailto:deniz@example.com"), Route::External);
+        assert_eq!(route("http://stream.denizlg24.com/"), Route::Block);
+        assert_eq!(route("https://www.youtube.com/watch?v=abc"), Route::Block);
+        assert_eq!(route("mailto:deniz@example.com"), Route::Block);
+    }
+
+    #[test]
+    fn permits_player_frames_but_blocks_ad_redirects_and_protocol_handlers() {
+        for url in [
+            "https://vsembed.ru/embed/tv/tt0944947/1-1?autoplay=1",
+            "https://stellarconductornexus.com/embed/movie/tt0111161",
+            "about:blank",
+        ] {
+            assert_eq!(route(url), Route::Allow, "{url}");
+        }
+        for url in [
+            "https://vsembed.ru/advertisement",
+            "https://vsembed.ru.evil.example/embed/movie/tt0111161",
+            "https://stellarconductornexus.com/redirect",
+            "https://ads.example/landing",
+            "data:text/html,<script>open('https://ads.example')</script>",
+            "blob:https://ads.example/123",
+            "intent://ads.example/",
+            "javascript:open('https://ads.example')",
+        ] {
+            assert_eq!(route(url), Route::Block, "{url}");
+        }
     }
 
     #[test]

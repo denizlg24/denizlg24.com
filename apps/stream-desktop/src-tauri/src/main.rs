@@ -15,7 +15,6 @@ use std::time::Duration;
 use tauri::http::{header::CONTENT_TYPE, Response};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
 
 use navigation::{Route, Shell};
@@ -115,10 +114,7 @@ fn handle_route(app: &AppHandle, state: &Shared, url: &Url) -> bool {
             }
             false
         }
-        Route::External => {
-            let _ = app.opener().open_url(url.as_str(), None::<&str>);
-            false
-        }
+        Route::Block => false,
     }
 }
 
@@ -156,21 +152,11 @@ fn create_window(app: &AppHandle, state: &Shared) -> tauri::Result<WebviewWindow
 
     let nav_app = app.clone();
     let nav_state = state.clone();
-    let popup_app = app.clone();
-    let popup_state = state.clone();
 
     let builder = WebviewWindowBuilder::from_config(app, &config)?
         .on_navigation(move |url| handle_route(&nav_app, &nav_state, url))
-        .on_new_window(move |url, _features| {
-            if let Route::Allow = popup_state.shell.route(&url) {
-                if let Some(window) = popup_app.get_webview_window(MAIN_WINDOW) {
-                    let _ = window.navigate(url);
-                }
-            } else {
-                let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
-            }
-            NewWindowResponse::Deny
-        });
+        // Denying a popup must have no navigation or external-browser side effects.
+        .on_new_window(|_url, _features| NewWindowResponse::Deny);
 
     #[cfg(target_os = "macos")]
     let builder = builder.user_agent(&format!(
@@ -262,7 +248,6 @@ fn main() {
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
                 .build(),
         )
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SHELL_SCHEME, |_ctx, _request| {

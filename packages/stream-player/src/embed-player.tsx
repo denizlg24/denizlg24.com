@@ -132,6 +132,7 @@ export function EmbedPlayer({
           <span>Reload player</span>
         </button>
       </header>
+      {/* Keep popup and top-navigation restrictions even when a provider rejects them. */}
       <iframe
         ref={iframe}
         key={`${url}:${attempt}`}
@@ -139,6 +140,7 @@ export function EmbedPlayer({
         title={subtitle ? `${title}: ${subtitle}` : title}
         allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowFullScreen
+        sandbox="allow-scripts allow-same-origin allow-presentation"
         referrerPolicy="strict-origin-when-cross-origin"
         className="min-h-0 w-full flex-1 border-0"
         onLoad={() => {
