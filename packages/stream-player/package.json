@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",
-    "lucide-react": "^1.46.0"
+    "lucide-react": "^1.60.0"
   },
   "peerDependencies": {
     "react": "19.2.4",
@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "typescript": "^5.9.3"
