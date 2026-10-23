@@ -118,6 +118,9 @@ export const titleQuerySchema = z.object({
   ratingMin: z.coerce.number().min(0).max(10).optional(),
   votesMin: z.coerce.number().int().min(0).optional(),
   runtimeMax: z.coerce.number().int().min(1).optional(),
+  /** Tune's mood dial: -1 is light (comedy, family), +1 heavy (horror, war). */
+  moodMin: z.coerce.number().min(-1).max(1).optional(),
+  moodMax: z.coerce.number().min(-1).max(1).optional(),
   sort: titleSortSchema.default("popular"),
   cursor: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(60).default(30),
@@ -143,11 +146,19 @@ export const PROFILE_COLORS = [
 export const profileColorSchema = z.enum(PROFILE_COLORS);
 export type ProfileColor = z.infer<typeof profileColorSchema>;
 
+/**
+ * `studio` is Sofa / Tonight / Tune / Map; `classic` is large type and a few
+ * plain rows, for whoever would rather not learn a new interface.
+ */
+export const profileLayoutSchema = z.enum(["studio", "classic"]);
+export type ProfileLayout = z.infer<typeof profileLayoutSchema>;
+
 export const profileSchema = z.object({
   id: z.string(),
   name: z.string(),
   color: profileColorSchema,
   kids: z.boolean(),
+  layout: profileLayoutSchema,
   favoriteGenres: z.array(genreSchema),
 });
 export type Profile = z.infer<typeof profileSchema>;
@@ -158,6 +169,7 @@ export const profileInputSchema = z.object({
   name: z.string().trim().min(1).max(24),
   color: profileColorSchema,
   kids: z.boolean().default(false),
+  layout: profileLayoutSchema.default("studio"),
   favoriteGenres: z.array(genreSchema).max(6).default([]),
 });
 export type ProfileInput = z.infer<typeof profileInputSchema>;
@@ -175,6 +187,13 @@ export const meSchema = z.object({
   profiles: z.array(profileSchema),
 });
 export type Me = z.infer<typeof meSchema>;
+
+/** `POST /api/v1/me`: the first sign-in names the account and its first profile. */
+export const memberSetupSchema = z.object({
+  name: z.string().trim().min(1).max(24),
+  color: profileColorSchema,
+});
+export type MemberSetup = z.infer<typeof memberSetupSchema>;
 
 export const progressSchema = z.object({
   titleId: titleIdSchema,
@@ -230,11 +249,90 @@ export const railSchema = z.discriminatedUnion("kind", [
 ]);
 export type Rail = z.infer<typeof railSchema>;
 
+/** Classic layout: `GET /home?profile=`. */
 export const homeSchema = z.object({
   hero: titleDetailSchema.nullable(),
   rails: z.array(railSchema),
 });
 export type Home = z.infer<typeof homeSchema>;
+
+/**
+ * Studio layout: `GET /tonight?profiles=a,b`. One edition per audience per
+ * day — whoever is on the sofa — rather than an endless page.
+ */
+export const tonightSchema = z.object({
+  date: z.iso.date(),
+  audience: z.array(profileSchema),
+  lead: z.object({ title: titleDetailSchema, reason: z.string() }).nullable(),
+  programme: z.array(recommendationSchema),
+  doubleFeature: z
+    .object({
+      first: titleSummarySchema,
+      second: titleSummarySchema,
+      reason: z.string(),
+    })
+    .nullable(),
+  continue: z.array(continueWatchingItemSchema),
+  fresh: z.array(titleSummarySchema),
+});
+export type Tonight = z.infer<typeof tonightSchema>;
+
+/**
+ * The taste map. Every title has a fixed point in a square of side
+ * `MAP_SIZE`: its genres pull it toward hand-placed anchors, and the less
+ * popular it is, the further it drifts from the cluster's core.
+ */
+export const MAP_SIZE = 10_000;
+
+export const mapQuerySchema = z.object({
+  x0: z.coerce.number(),
+  y0: z.coerce.number(),
+  x1: z.coerce.number(),
+  y1: z.coerce.number(),
+  /** Side of a level-of-detail cell: one title, the most popular, per cell. */
+  cell: z.coerce.number().min(20).max(MAP_SIZE),
+  type: titleTypeSchema.optional(),
+});
+export type MapQuery = z.infer<typeof mapQuerySchema>;
+
+export const mapPointSchema = z.object({
+  id: titleIdSchema,
+  x: z.number(),
+  y: z.number(),
+  title: z.string(),
+  type: titleTypeSchema,
+  year: z.number().int().nullable(),
+  rating: z.number().nullable(),
+  posterPath: z.string().nullable(),
+  /** 0–1, from votes: how large to draw it. */
+  weight: z.number(),
+});
+export type MapPoint = z.infer<typeof mapPointSchema>;
+
+export const mapRegionSchema = z.object({ points: z.array(mapPointSchema) });
+export type MapRegion = z.infer<typeof mapRegionSchema>;
+
+export const mapMetaSchema = z.object({
+  size: z.number(),
+  anchors: z.array(
+    z.object({ genre: z.string(), x: z.number(), y: z.number() }),
+  ),
+});
+export type MapMeta = z.infer<typeof mapMetaSchema>;
+
+/** `GET /map/highlights?profiles=`: the audience's constellation. */
+export const mapHighlightSchema = z.object({
+  id: titleIdSchema,
+  x: z.number(),
+  y: z.number(),
+  title: z.string(),
+  kind: z.enum(["watched", "saved", "picked"]),
+  who: z.array(z.string()),
+});
+export const mapHighlightsSchema = z.object({
+  highlights: z.array(mapHighlightSchema),
+});
+export type MapHighlight = z.infer<typeof mapHighlightSchema>;
 
 /**
  * Something the player can open. Only ever a file on our own storage — the
@@ -277,17 +375,25 @@ export type RecommendationCandidate = z.infer<
 >;
 
 export const recommendationRequestSchema = z.object({
-  profile: z.object({
-    kids: z.boolean(),
-    favoriteGenres: z.array(z.string()),
-  }),
+  /** Everyone on the sofa; picks must suit all of them. */
+  audience: z
+    .array(
+      z.object({
+        name: z.string(),
+        kids: z.boolean(),
+        favoriteGenres: z.array(z.string()),
+      }),
+    )
+    .min(1)
+    .max(5),
   history: z
     .array(
       recommendationCandidateSchema.extend({
+        who: z.string(),
         signal: z.enum(["finished", "watching", "watchlist", "abandoned"]),
       }),
     )
-    .max(80),
+    .max(120),
   candidates: z.array(recommendationCandidateSchema).min(1).max(150),
   count: z.number().int().min(1).max(30),
 });
