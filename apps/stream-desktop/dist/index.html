@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Stream</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0b0c;
+        color: #ececed;
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        display: none;
+        height: 100%;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+      }
+      body.offline main {
+        display: flex;
+      }
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        max-width: 360px;
+        color: #9a9aa0;
+      }
+      button {
+        margin-top: 12px;
+        padding: 10px 28px;
+        border: 0;
+        border-radius: 999px;
+        background: #ececed;
+        color: #0b0b0c;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      button:focus-visible {
+        outline: 2px solid #ececed;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Stream can't reach the server</h1>
+      <p>Check that this computer is connected to the internet, then try again.</p>
+      <button type="button" id="retry">Retry</button>
+    </main>
+    <script>
+      if (new URLSearchParams(location.search).has("offline")) {
+        document.body.classList.add("offline");
+        const retry = document.getElementById("retry");
+        retry.focus();
+        retry.addEventListener("click", () => {
+          retry.disabled = true;
+          retry.textContent = "Trying…";
+          location.href = "/retry";
+        });
+      }
+    </script>
+  </body>
+</html>

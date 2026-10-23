@@ -1,0 +1,70 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Stream",
+  "mainBinaryName": "Stream",
+  "version": "0.1.0",
+  "identifier": "com.denizlg24.stream",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:3011"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "url": "https://stream.denizlg24.com",
+        "title": "Stream",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "theme": "Dark",
+        "backgroundColor": "#0b0b0c",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Entertainment",
+    "copyright": "Copyright © 2026 denizlg24. All rights reserved.",
+    "shortDescription": "Films and series for the family",
+    "longDescription": "Stream is the family film and series catalogue.",
+    "targets": ["app", "dmg", "nsis"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "STREAM_DESKTOP_UPDATER_PUBKEY_PLACEHOLDER",
+      "endpoints": [
+        "https://github.com/denizlg24/denizlg24.com/releases/download/stream-desktop-latest/latest.json"
+      ]
+    }
+  }
+}

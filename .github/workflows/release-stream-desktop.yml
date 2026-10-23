@@ -1,0 +1,299 @@
+name: Release Stream desktop
+
+# Versioned releases are `stream-desktop-v<version>` and never "latest": the
+# Envoy CLI's updater reads this repository's latest release. The app's
+# updater reads `latest.json` from the rolling `stream-desktop-latest` release
+# instead, which the publish job refreshes.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/stream-desktop/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stream-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONFIG: apps/stream-desktop/src-tauri/tauri.conf.json
+  FEED_TAG: stream-desktop-latest
+  PUBKEY_PLACEHOLDER: STREAM_DESKTOP_UPDATER_PUBKEY_PLACEHOLDER
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect version change
+        id: version
+        shell: bash
+        run: |
+          current_version="$(jq -r '.version' "$CONFIG")"
+          tag="stream-desktop-v$current_version"
+
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "version=$current_version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_version="$(git show "${{ github.event.before }}:$CONFIG" 2>/dev/null | jq -r '.version' 2>/dev/null || true)"
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "apps/stream-desktop changed, but its version did not."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Bun
+        if: steps.version.outputs.changed == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.3"
+
+      # The shell bundles no UI, so only its own directory goes into the notes.
+      - name: Write release notes
+        if: steps.version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          bun scripts/ci/release-notes.ts \
+            --version "$VERSION" \
+            --tag-prefix stream-desktop-v \
+            --changelog apps/stream-desktop/CHANGELOG.md \
+            --paths apps/stream-desktop \
+            --head "${{ github.sha }}" \
+            --repo "${{ github.repository }}" > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create draft release and tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release $TAG already exists and is published." >&2
+              exit 1
+            fi
+
+            echo "Reusing existing draft release $TAG."
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --draft \
+            --latest=false \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --target "${{ github.sha }}" \
+            --title "Stream desktop v$VERSION"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            platform: macos-26
+            args: "--target universal-apple-darwin"
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - name: Windows x64
+            platform: windows-latest
+            args: ""
+            rust_targets: ""
+    runs-on: ${{ matrix.platform }}
+    # The desktop app's environment: it already holds the Developer ID
+    # certificate and App Store Connect key, which sign any app of the team.
+    environment: desktop-release
+    outputs:
+      updater: ${{ steps.updater.outputs.enabled }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Tauri refuses to build updater artifacts without the private key, and
+      # artifacts signed against the placeholder pubkey would be refused by
+      # every installed copy, so both cases switch them off in the checkout.
+      - name: Prepare updater signing
+        id: updater
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.STREAM_DESKTOP_TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          pubkey="$(jq -r '.plugins.updater.pubkey' "$CONFIG")"
+          if [[ -z "$SIGNING_KEY" || "$pubkey" == "$PUBKEY_PLACEHOLDER" ]]; then
+            echo "::notice::Updater signing is not set up (STREAM_DESKTOP_TAURI_SIGNING_PRIVATE_KEY missing or pubkey still the placeholder). Building without updater artifacts; installed copies will not see this release."
+            jq '.bundle.createUpdaterArtifacts = false' "$CONFIG" > "$RUNNER_TEMP/tauri.conf.json"
+            mv "$RUNNER_TEMP/tauri.conf.json" "$CONFIG"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # Tauri signs and notarizes when these variables exist, and refuses an
+      # empty APPLE_CERTIFICATE rather than skipping it, so they are exported
+      # only when every secret is present.
+      - name: Prepare macOS signing
+        id: macos-signing
+        if: startsWith(matrix.platform, 'macos-')
+        shell: bash
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
+        run: |
+          missing=()
+          for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_IDENTITY \
+            APPLE_ASC_KEY_ID APPLE_ASC_ISSUER_ID APPLE_ASC_PRIVATE_KEY; do
+            [[ -z "${!name}" ]] && missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::notice::Developer ID signing is not set up (missing: ${missing[*]}). Signing ad hoc; Gatekeeper will refuse the app on first launch."
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_$APPLE_ASC_KEY_ID.p8"
+          printf '%s\n' "$APPLE_ASC_PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "APPLE_CERTIFICATE=$DEVELOPER_ID_P12"
+            echo "APPLE_CERTIFICATE_PASSWORD=$DEVELOPER_ID_P12_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$DEVELOPER_ID_IDENTITY"
+            echo "APPLE_API_KEY=$APPLE_ASC_KEY_ID"
+            echo "APPLE_API_ISSUER=$APPLE_ASC_ISSUER_ID"
+            echo "APPLE_API_KEY_PATH=$key_path"
+          } >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Note unsigned Windows build
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: echo "::notice::The Windows installer is not Authenticode-signed; SmartScreen will warn on first run."
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.3"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/stream-desktop/src-tauri -> target"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.STREAM_DESKTOP_TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.STREAM_DESKTOP_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: apps/stream-desktop
+          tauriScript: bunx tauri
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: ${{ steps.updater.outputs.enabled == 'true' }}
+          args: ${{ matrix.args }}
+          releaseAssetNamePattern: "Stream_[version]_[platform]_[arch][setup][ext]"
+
+      - name: Verify signature and notarization
+        if: steps.macos-signing.outputs.signed == 'true'
+        shell: bash
+        run: |
+          app="$(find apps/stream-desktop/src-tauri/target -maxdepth 6 -type d -path '*/release/bundle/macos/*.app' | head -n 1)"
+          if [[ -z "$app" ]]; then
+            echo "No app bundle was built." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|flags)='
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+
+      - name: Remove signing material
+        if: always() && startsWith(matrix.platform, 'macos-')
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest=false
+
+      # latest.json's download URLs point at the versioned release's assets;
+      # only the manifest itself moves to the rolling release.
+      - name: Refresh updater feed
+        if: needs.build.outputs.updater == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP/feed"
+          jq -e --arg version "$VERSION" '.version == $version or .version == ("v" + $version)' "$RUNNER_TEMP/feed/latest.json" >/dev/null
+
+          if ! gh release view "$FEED_TAG" >/dev/null 2>&1; then
+            gh release create "$FEED_TAG" \
+              --latest=false \
+              --target "${{ github.sha }}" \
+              --title "Stream desktop updater feed" \
+              --notes "Holds latest.json for Stream desktop's updater. Releases themselves are the stream-desktop-v* tags."
+          fi
+          gh release upload "$FEED_TAG" "$RUNNER_TEMP/feed/latest.json" --clobber
+
+      - name: Note skipped updater feed
+        if: needs.build.outputs.updater != 'true'
+        run: echo "::notice::Updater signing is not set up, so $FEED_TAG was left as it was."

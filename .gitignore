@@ -30,6 +30,7 @@ __pycache__/
 out/
 build
 dist
+!apps/stream-desktop/dist/
 **/generated/prisma/
 next-env.d.ts
 *.tsbuildinfo
@@ -70,6 +71,7 @@ _archive/
 .conclave/
 # tauri
 apps/desktop/src-tauri/target/
+apps/stream-desktop/src-tauri/target/
 
 # Envoy - Local state
 .envoy/cache/
