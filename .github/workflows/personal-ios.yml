@@ -7,6 +7,9 @@ name: Personal iOS apps
 on:
   pull_request:
     paths:
+      - "apps/stream-mobile/**"
+      - "packages/auth-sdk/**"
+      - "packages/schemas/src/stream/**"
       - "apps/hours-mobile/**"
       - "apps/voice-mobile/**"
       - "apps/location-mobile/**"
@@ -40,6 +43,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - app: Stream
+            directory: apps/stream-mobile
+            extension: ""
           - app: Hours
             directory: apps/hours-mobile
             extension: HoursWidgetExtension
@@ -88,6 +94,10 @@ jobs:
           if jq -e '.scripts.test' package.json >/dev/null; then
             bun run test
           fi
+
+      - name: Build the Stream auth SDK
+        if: matrix.app == 'Stream'
+        run: bun run auth-sdk
 
       - name: Generate the native project
         run: bunx expo prebuild --platform ios --clean

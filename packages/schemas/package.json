@@ -9,7 +9,8 @@
     "./envoy": "./src/envoy/index.ts",
     "./macros": "./src/macros/index.ts",
     "./markets": "./src/markets.ts",
-    "./status": "./src/status/index.ts"
+    "./status": "./src/status/index.ts",
+    "./stream": "./src/stream/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,14 @@
+{
+  "name": "stream-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bunx tauri dev",
+    "bundle": "bunx tauri build",
+    "typecheck": "true",
+    "icons": "tauri icon ../stream-mobile/assets/icon.png --output src-tauri/icons"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

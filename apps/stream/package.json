@@ -1,0 +1,44 @@
+{
+  "name": "stream",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun --env-file=../../.env.stream next dev -p 3011",
+    "build": "next build",
+    "start": "next start -p 3011",
+    "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && tsc --noEmit",
+    "test": "bun test",
+    "db:generate": "bun --env-file=../../.env.stream drizzle-kit generate",
+    "db:migrate": "bun --env-file=../../.env.stream drizzle-kit migrate",
+    "ingest": "bun --env-file=../../.env.stream scripts/ingest.ts",
+    "enrich": "bun --env-file=../../.env.stream scripts/enrich.ts"
+  },
+  "dependencies": {
+    "@denizlg24/auth": "workspace:*",
+    "@repo/schemas": "workspace:*",
+    "@repo/stream-player": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "lucide-react": "^1.46.0",
+    "next": "16.3.5",
+    "pg": "^8.23.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
+}
