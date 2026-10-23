@@ -521,7 +521,7 @@
     },
     "apps/macros-mobile": {
       "name": "macros-mobile",
-      "version": "0.0.17",
+      "version": "0.1.0",
       "dependencies": {
         "@better-auth/expo": "1.7.5",
         "@expo/ui": "~57.0.20",
@@ -1222,6 +1222,25 @@
         "@repo/typescript-config": "workspace:*",
         "@types/bun": "^1.4.2",
         "typescript": "^5.9.3",
+      },
+    },
+    "packages/stream-player": {
+      "name": "@repo/stream-player",
+      "version": "0.0.0",
+      "dependencies": {
+        "@repo/schemas": "workspace:*",
+        "lucide-react": "^1.46.0",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "workspace:*",
+        "@types/bun": "^1.4.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "typescript": "^5.9.3",
+      },
+      "peerDependencies": {
+        "react": "19.2.4",
+        "react-dom": "19.2.4",
       },
     },
     "packages/tts": {
@@ -2305,6 +2324,8 @@
     "@repo/native-ui": ["@repo/native-ui@workspace:packages/native-ui"],
 
     "@repo/schemas": ["@repo/schemas@workspace:packages/schemas"],
+
+    "@repo/stream-player": ["@repo/stream-player@workspace:packages/stream-player"],
 
     "@repo/tts": ["@repo/tts@workspace:packages/tts"],
 
