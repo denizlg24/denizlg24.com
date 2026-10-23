@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireAudience } from "@/lib/api";
-import { mapHighlights } from "@/lib/map";
+import { mapHighlights } from "@/lib/grid";
 
 export async function GET(request: Request) {
   const caller = await requireAudience(request);

@@ -284,43 +284,63 @@ export type Tonight = z.infer<typeof tonightSchema>;
  */
 export const MAP_SIZE = 10_000;
 
-export const mapQuerySchema = z.object({
-  x0: z.coerce.number(),
-  y0: z.coerce.number(),
-  x1: z.coerce.number(),
-  y1: z.coerce.number(),
-  /** Side of a level-of-detail cell: one title, the most popular, per cell. */
-  cell: z.coerce.number().min(20).max(MAP_SIZE),
-  type: titleTypeSchema.optional(),
-});
-export type MapQuery = z.infer<typeof mapQuerySchema>;
+/**
+ * The endless grid: titles laid on a fixed lattice in taste-space order, so
+ * neighbours are alike and a remote moves one poster at a time. Coordinates
+ * are unbounded integers; the server wraps them onto the lattice.
+ */
+export const GRID_MAX_WINDOW = 1200;
 
-export const mapPointSchema = z.object({
+export const gridQuerySchema = z
+  .object({
+    x0: z.coerce.number().int(),
+    y0: z.coerce.number().int(),
+    x1: z.coerce.number().int(),
+    y1: z.coerce.number().int(),
+    type: z.enum(["movie", "series"]).optional(),
+  })
+  .refine(
+    (query) =>
+      query.x1 >= query.x0 &&
+      query.y1 >= query.y0 &&
+      (query.x1 - query.x0 + 1) * (query.y1 - query.y0 + 1) <= GRID_MAX_WINDOW,
+    "window too large",
+  );
+export type GridQuery = z.infer<typeof gridQuerySchema>;
+
+export const gridTitleSchema = z.object({
   id: titleIdSchema,
-  x: z.number(),
-  y: z.number(),
   title: z.string(),
   type: titleTypeSchema,
   year: z.number().int().nullable(),
   rating: z.number().nullable(),
   posterPath: z.string().nullable(),
-  /** 0–1, from votes: how large to draw it. */
-  weight: z.number(),
 });
-export type MapPoint = z.infer<typeof mapPointSchema>;
+export type GridTitle = z.infer<typeof gridTitleSchema>;
 
-export const mapRegionSchema = z.object({ points: z.array(mapPointSchema) });
-export type MapRegion = z.infer<typeof mapRegionSchema>;
+export const gridCellSchema = z.object({
+  gx: z.number().int(),
+  gy: z.number().int(),
+  title: gridTitleSchema,
+});
+export type GridCell = z.infer<typeof gridCellSchema>;
 
-export const mapMetaSchema = z.object({
-  size: z.number(),
-  anchors: z.array(
-    z.object({ genre: z.string(), x: z.number(), y: z.number() }),
+export const gridWindowSchema = z.object({ cells: z.array(gridCellSchema) });
+export type GridWindow = z.infer<typeof gridWindowSchema>;
+
+export const gridMetaSchema = z.object({
+  width: z.number().int(),
+  height: z.number().int(),
+  /** Where each genre's neighbourhood sits, for the region names. */
+  regions: z.array(
+    z.object({ genre: z.string(), gx: z.number().int(), gy: z.number().int() }),
   ),
+  /** Opening cell: the audience's latest title, or the most popular one. */
+  start: z.object({ gx: z.number().int(), gy: z.number().int() }),
 });
-export type MapMeta = z.infer<typeof mapMetaSchema>;
+export type GridMeta = z.infer<typeof gridMetaSchema>;
 
-/** `GET /map/highlights?profiles=`: the audience's constellation. */
+/** `GET /grid/highlights?profiles=`: what the audience watched, saved or was picked. */
 export const mapHighlightSchema = z.object({
   id: titleIdSchema,
   x: z.number(),
