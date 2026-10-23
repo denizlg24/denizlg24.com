@@ -3,6 +3,7 @@
 import type { Episode, Playback } from "@repo/schemas/stream";
 import {
   type PointerEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -24,7 +25,8 @@ import { cx } from "./styles";
 import { UpNext } from "./up-next";
 import { useAutoHide } from "./use-auto-hide";
 import { moveFocus, useKeyboard } from "./use-keyboard";
-import { usePlayer } from "./use-player";
+import { type Player, usePlayer } from "./use-player";
+import { useYoutubePlayer } from "./use-youtube-player";
 
 export interface StreamPlayerProps {
   playback: Playback;
@@ -40,32 +42,72 @@ export interface StreamPlayerProps {
   unavailableMessage?: string;
   className?: string;
   onBack?: () => void;
+  onPlayTitle?: () => void;
   onNext?: (episode: Episode) => void;
   /** About every 10 s while playing, and on pause, end and unmount. */
   onProgress?: (positionS: number, durationS: number) => void;
 }
 
-export function StreamPlayer({
+export function StreamPlayer(props: StreamPlayerProps) {
+  return props.playback.trailer ? (
+    <TrailerPlayer
+      key={props.playback.trailer.youtubeKey}
+      {...props}
+      youtubeKey={props.playback.trailer.youtubeKey}
+    />
+  ) : (
+    <FilePlayer {...props} />
+  );
+}
+
+function FilePlayer(props: StreamPlayerProps) {
+  const player = usePlayer({
+    sources: props.playback.sources,
+    textTracks: props.playback.textTracks,
+    resume: props.playback.resume,
+    autoPlay: props.autoPlay ?? true,
+    onProgress: props.onProgress,
+  });
+  return <PlayerShell {...props} player={player} />;
+}
+
+function TrailerPlayer({
+  youtubeKey,
+  ...props
+}: StreamPlayerProps & { youtubeKey: string }) {
+  const { player, mountRef } = useYoutubePlayer(
+    youtubeKey,
+    props.autoPlay ?? true,
+  );
+  return (
+    <PlayerShell
+      {...props}
+      player={player}
+      surface={
+        <div
+          ref={mountRef}
+          className="absolute inset-0 size-full [&_iframe]:size-full"
+        />
+      }
+    />
+  );
+}
+
+function PlayerShell({
   playback,
   title,
   subtitle = null,
   backdropUrl = null,
-  autoPlay = true,
   crossOrigin = "anonymous",
   nextCountdownS = 10,
   unavailableMessage = "Not available to play yet",
   className,
   onBack,
   onNext,
-  onProgress,
-}: StreamPlayerProps) {
-  const player = usePlayer({
-    sources: playback.sources,
-    textTracks: playback.textTracks,
-    resume: playback.resume,
-    autoPlay,
-    onProgress,
-  });
+  onPlayTitle,
+  player,
+  surface,
+}: StreamPlayerProps & { player: Player; surface?: ReactNode }) {
   const { media, hasMedia, actions, availability } = player;
 
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
@@ -77,13 +119,18 @@ export function StreamPlayer({
     at: number;
   } | null>(null);
 
+  const playTitleRef = useRef<HTMLButtonElement>(null);
   const playRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (playback.trailer && media.ended)
+      playTitleRef.current?.focus({ preventScroll: true });
+  }, [playback.trailer, media.ended]);
   const backRef = useRef<HTMLButtonElement>(null);
   const lastTapRef = useRef<Tap | null>(null);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerTypeRef = useRef("mouse");
 
-  const next = playback.next;
+  const next = playback.trailer ? null : playback.next;
   const showUpNext = Boolean(
     next && onNext && hasMedia && media.ended && !upNextDismissed,
   );
@@ -110,7 +157,7 @@ export function StreamPlayer({
 
   useEffect(() => {
     const target =
-      playback.sources.length === 0 && backRef.current
+      !playback.trailer && playback.sources.length === 0 && backRef.current
         ? backRef.current
         : playRef.current;
     target?.focus({ preventScroll: true });
@@ -235,31 +282,32 @@ export function StreamPlayer({
         }
       }}
     >
-      {availability === "none" ? (
-        <Backdrop url={backdropUrl} />
-      ) : (
-        // biome-ignore lint/a11y/useMediaCaption: tracks come from playback.textTracks
-        <video
-          ref={player.videoRef}
-          src={player.source?.url}
-          poster={backdropUrl ?? undefined}
-          crossOrigin={crossOrigin ?? undefined}
-          preload="metadata"
-          playsInline
-          x-webkit-airplay="allow"
-          className="absolute inset-0 size-full object-contain"
-        >
-          {playback.textTracks.map((track) => (
-            <track
-              key={track.url}
-              kind="subtitles"
-              src={track.url}
-              srcLang={track.language}
-              label={track.label}
-            />
-          ))}
-        </video>
-      )}
+      {surface ??
+        (availability === "none" ? (
+          <Backdrop url={backdropUrl} />
+        ) : (
+          // biome-ignore lint/a11y/useMediaCaption: tracks come from playback.textTracks
+          <video
+            ref={player.videoRef}
+            src={player.source?.url}
+            poster={backdropUrl ?? undefined}
+            crossOrigin={crossOrigin ?? undefined}
+            preload="metadata"
+            playsInline
+            x-webkit-airplay="allow"
+            className="absolute inset-0 size-full object-contain"
+          >
+            {playback.textTracks.map((track) => (
+              <track
+                key={track.url}
+                kind="subtitles"
+                src={track.url}
+                srcLang={track.language}
+                label={track.label}
+              />
+            ))}
+          </video>
+        ))}
 
       <div
         aria-hidden="true"
@@ -281,9 +329,48 @@ export function StreamPlayer({
       )}
       {player.failed && (
         <Notice
-          title="Something went wrong while playing"
+          title={
+            playback.trailer
+              ? "This trailer can’t be played here."
+              : "Something went wrong while playing"
+          }
           action={{ label: "Try again", onClick: actions.retry }}
         />
+      )}
+
+      {player.failed && playback.trailer && (
+        <a
+          className="absolute inset-x-0 top-[68%] z-30 mx-auto w-fit rounded-full border border-white/30 px-6 py-3 text-white hover:bg-white/10"
+          href={`https://www.youtube.com/watch?v=${encodeURIComponent(playback.trailer.youtubeKey)}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open on YouTube
+        </a>
+      )}
+      {playback.trailer && media.ended && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-5 bg-black/85 p-6 text-center">
+          <h2 className="font-display text-4xl">What’s next?</h2>
+          <button
+            type="button"
+            className="rounded-full bg-amber px-7 py-3 font-bold text-ink"
+            ref={playTitleRef}
+            data-player-nav=""
+            data-player-role="control"
+            onClick={onPlayTitle}
+          >
+            Play {title}
+          </button>
+          <button
+            type="button"
+            data-player-nav=""
+            data-player-role="control"
+            className="rounded-full border border-white/30 px-7 py-3"
+            onClick={onBack}
+          >
+            Back to details
+          </button>
+        </div>
       )}
 
       <TopBar

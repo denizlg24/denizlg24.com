@@ -374,6 +374,10 @@ export const textTrackSchema = z.object({
 export type TextTrack = z.infer<typeof textTrackSchema>;
 
 export const playbackSchema = z.object({
+  trailer: z
+    .object({ youtubeKey: z.string().regex(/^[a-zA-Z0-9_-]{11}$/) })
+    .nullable()
+    .optional(),
   sources: z.array(playbackSourceSchema),
   textTracks: z.array(textTrackSchema),
   resume: progressSchema.nullable(),

@@ -177,10 +177,10 @@ export async function enrichIfMissing(row: TitleRow): Promise<TitleRow> {
   }
 }
 
-/** The most-voted titles TMDB hasn't filled yet, a few at a time to stay under its rate limit. */
+/** The most popular titles TMDB hasn't filled yet, a few at a time to stay under its rate limit. */
 export async function runEnrichment({
   limit = 2000,
-  concurrency = 6,
+  concurrency = 8,
   log = () => {},
 }: {
   limit?: number;
@@ -196,7 +196,7 @@ export async function runEnrichment({
     .select()
     .from(titles)
     .where(isNull(titles.enrichedAt))
-    .orderBy(desc(titles.votes))
+    .orderBy(desc(titles.popularity))
     .limit(limit);
   let enriched = 0;
   let failed = 0;

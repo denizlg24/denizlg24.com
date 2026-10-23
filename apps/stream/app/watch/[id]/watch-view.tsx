@@ -41,15 +41,18 @@ export function WatchView({
   return (
     <div className="fixed inset-0 bg-black" data-nav-own="all">
       <StreamPlayer
-        key={episodeId ?? titleId}
+        key={`${episodeId ?? titleId}:${playback.trailer ? "trailer" : "film"}`}
         playback={playback}
         title={title}
         subtitle={subtitle}
         backdropUrl={backdropUrl}
         unavailableMessage="This one isn't available to play yet."
-        onBack={onBack}
+        onBack={
+          playback.trailer ? () => router.push(`/title/${titleId}`) : onBack
+        }
+        onPlayTitle={() => router.replace(`/watch/${titleId}`)}
         onNext={onNext}
-        onProgress={onProgress}
+        onProgress={playback.trailer ? undefined : onProgress}
       />
     </div>
   );

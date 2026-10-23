@@ -83,6 +83,137 @@ async function upsertEpisodes(rows: EpisodeInsert[]): Promise<void> {
 }
 
 /**
+ * Daily soaps and talk shows run to thousands of episodes nobody browses one
+ * by one, and they were most of the episode table and most of the memory.
+ */
+const MAX_EPISODES_PER_SERIES = 400;
+
+/**
+ * An episode as one number: series index, season, episode and rating ×10,
+ * 20 + 11 + 9 + 7 bits. Half a million of these is a few megabytes, where
+ * tuples were hundreds.
+ */
+const NONE_SEASON = 2047;
+const NONE_EPISODE = 511;
+const NONE_RATING = 127;
+
+export function packEpisode(
+  seriesIndex: number,
+  season: number | null,
+  episode: number | null,
+  rating: number | null,
+): number {
+  const s =
+    season === null || season < 0 || season >= NONE_SEASON
+      ? NONE_SEASON
+      : season;
+  const e =
+    episode === null || episode < 0 || episode >= NONE_EPISODE
+      ? NONE_EPISODE
+      : episode;
+  const r =
+    rating === null ? NONE_RATING : Math.min(100, Math.round(rating * 10));
+  return ((seriesIndex * 2048 + s) * 512 + e) * 128 + r;
+}
+
+export function unpackEpisode(value: number): {
+  seriesIndex: number;
+  season: number | null;
+  episode: number | null;
+  rating: number | null;
+} {
+  const r = value % 128;
+  const rest = Math.floor(value / 128);
+  const e = rest % 512;
+  const rest2 = Math.floor(rest / 512);
+  const s = rest2 % 2048;
+  return {
+    seriesIndex: Math.floor(rest2 / 2048),
+    season: s === NONE_SEASON ? null : s,
+    episode: e === NONE_EPISODE ? null : e,
+    rating: r === NONE_RATING ? null : r / 10,
+  };
+}
+
+/**
+ * Two streams of `title.episode` (count, then select), one of the ratings
+ * for the selected ids, and one of `title.basics` to name them, upserting as
+ * it goes. Memory holds a packed number per selected episode, never rows.
+ */
+async function ingestEpisodes(
+  series: Set<string>,
+  log: (message: string) => void,
+): Promise<number> {
+  const counts = new Map<string, number>();
+  for await (const [, parent] of tsvRows(
+    await openDataset("title.episode.tsv.gz"),
+  )) {
+    if (series.has(parent)) counts.set(parent, (counts.get(parent) ?? 0) + 1);
+  }
+  const parents: string[] = [];
+  const parentIndex = new Map<string, number>();
+  for (const [parent, count] of counts) {
+    if (count <= MAX_EPISODES_PER_SERIES) {
+      parentIndex.set(parent, parents.length);
+      parents.push(parent);
+    }
+  }
+  counts.clear();
+  const wanted = new Map<string, number>();
+  for await (const [id, parent, season, episode] of tsvRows(
+    await openDataset("title.episode.tsv.gz"),
+  )) {
+    const index = parentIndex.get(parent);
+    if (index !== undefined) {
+      wanted.set(
+        id,
+        packEpisode(index, intField(season), intField(episode), null),
+      );
+    }
+  }
+  parentIndex.clear();
+  for await (const [id, rating] of tsvRows(
+    await openDataset("title.ratings.tsv.gz"),
+  )) {
+    const packed = wanted.get(id);
+    const value = Number(rating);
+    if (packed !== undefined && Number.isFinite(value)) {
+      const { seriesIndex, season, episode } = unpackEpisode(packed);
+      wanted.set(id, packEpisode(seriesIndex, season, episode, value));
+    }
+  }
+  log(`episodes wanted: ${wanted.size}`);
+
+  let written = 0;
+  let batch: EpisodeInsert[] = [];
+  for await (const [id, , primary, , , , , runtime] of tsvRows(
+    await openDataset("title.basics.tsv.gz"),
+  )) {
+    const packed = wanted.get(id);
+    if (packed === undefined) continue;
+    const { seriesIndex, season, episode, rating } = unpackEpisode(packed);
+    batch.push({
+      id,
+      seriesId: parents[seriesIndex],
+      season,
+      episode,
+      title: field(primary),
+      runtimeMinutes: intField(runtime),
+      rating,
+    });
+    if (batch.length >= BATCH) {
+      await upsertEpisodes(batch);
+      written += batch.length;
+      batch = [];
+    }
+  }
+  await upsertEpisodes(batch);
+  written += batch.length;
+  log(`episodes: ${written}`);
+  return written;
+}
+
+/**
  * One pass over IMDb's daily datasets. Ratings decide what is kept (enough
  * votes), basics describe it, and episodes hang off the series that made
  * the cut. Rows are upserted, never deleted: a title that falls under the
@@ -105,7 +236,11 @@ export async function runImdbIngest({
     )) {
       const parsedVotes = Number(votes);
       const parsedRating = Number(rating);
-      if (Number.isFinite(parsedVotes) && Number.isFinite(parsedRating)) {
+      if (
+        Number.isFinite(parsedVotes) &&
+        Number.isFinite(parsedRating) &&
+        parsedVotes >= threshold
+      ) {
         ratings.set(id, pack(parsedRating, parsedVotes));
       }
     }
@@ -113,31 +248,9 @@ export async function runImdbIngest({
     log(`ratings: ${ratings.size}`);
 
     const kept = new Set<string>();
-    const episodeParents = new Map<string, [number | null, number | null]>();
-    const wantEpisodes = new Map<string, string>();
-
+    const series = new Set<string>();
     const now = new Date();
     let batch: TitleInsert[] = [];
-    const episodeRows: EpisodeInsert[] = [];
-
-    if (withEpisodes) {
-      // Episodes are matched to series on ratings alone, before basics says
-      // which of those parents are series; basics then names them in its pass.
-      for await (const [id, parent, season, episode] of tsvRows(
-        await openDataset("title.episode.tsv.gz"),
-      )) {
-        const parentRating = ratings.get(parent);
-        if (
-          parentRating === undefined ||
-          unpack(parentRating).votes < threshold
-        ) {
-          continue;
-        }
-        wantEpisodes.set(id, parent);
-        episodeParents.set(id, [intField(season), intField(episode)]);
-      }
-      log(`episodes wanted: ${wantEpisodes.size}`);
-    }
 
     for await (const row of tsvRows(await openDataset("title.basics.tsv.gz"))) {
       const [
@@ -151,22 +264,8 @@ export async function runImdbIngest({
         runtime,
         genres,
       ] = row;
-      const packed = ratings.get(id);
-      const parent = wantEpisodes.get(id);
-      if (parent !== undefined) {
-        const [season, episode] = episodeParents.get(id) ?? [null, null];
-        episodeRows.push({
-          id,
-          seriesId: parent,
-          season,
-          episode,
-          title: field(primary),
-          runtimeMinutes: intField(runtime),
-          rating: packed === undefined ? null : unpack(packed).rating,
-        });
-        continue;
-      }
       const type = titleTypeOf(imdbType);
+      const packed = ratings.get(id);
       if (!type || packed === undefined) continue;
       const { rating, votes } = unpack(packed);
       if (votes < threshold) continue;
@@ -194,6 +293,7 @@ export async function runImdbIngest({
         ingestedAt: now,
       });
       kept.add(id);
+      if (type !== "movie") series.add(id);
       if (batch.length >= BATCH) {
         await upsertTitles(batch);
         stats.titles += batch.length;
@@ -205,13 +305,10 @@ export async function runImdbIngest({
     stats.titles += batch.length;
     log(`titles: ${stats.titles}`);
 
-    const orphanless = episodeRows.filter((row) => kept.has(row.seriesId));
-    for (let i = 0; i < orphanless.length; i += BATCH) {
-      await upsertEpisodes(orphanless.slice(i, i + BATCH));
+    if (withEpisodes && series.size > 0) {
+      ratings.clear();
+      stats.episodes = await ingestEpisodes(series, log);
     }
-    stats.episodes = orphanless.length;
-    log(`episodes: ${stats.episodes}`);
-
     await db
       .update(ingestRuns)
       .set({ status: "completed", finishedAt: new Date(), stats })

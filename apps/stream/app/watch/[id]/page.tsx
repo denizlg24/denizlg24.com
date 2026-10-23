@@ -20,13 +20,25 @@ export default async function WatchPage({
   const viewer = await requireViewer(`/watch/${id}`);
   const title = await findTitle(id);
   if (!title) notFound();
-  const playback = await playbackFor(
-    title,
-    viewer.audience[0].id,
-    requested.success ? requested.data : null,
-  );
+  const isTrailer = query.trailer === "1";
+  if (isTrailer && !title.trailerKey) notFound();
+  const playback = isTrailer
+    ? {
+        sources: [],
+        textTracks: [],
+        resume: null,
+        next: null,
+        trailer: { youtubeKey: title.trailerKey! },
+      }
+    : await playbackFor(
+        title,
+        viewer.audience[0].id,
+        requested.success ? requested.data : null,
+      );
   const episodes =
-    title.type === "movie" ? [] : await listEpisodes(title.id, null);
+    isTrailer || title.type === "movie"
+      ? []
+      : await listEpisodes(title.id, null);
   const episodeId =
     (requested.success ? requested.data : null) ??
     playback.resume?.episodeId ??
@@ -37,7 +49,7 @@ export default async function WatchPage({
     <WatchView
       titleId={title.id}
       title={title.title}
-      subtitle={episode ? episodeLabel(episode) : null}
+      subtitle={isTrailer ? "Trailer" : episode ? episodeLabel(episode) : null}
       episodeId={episode?.id ?? null}
       backdropUrl={tmdbImage(title.backdropPath, "w1280")}
       playback={playback}

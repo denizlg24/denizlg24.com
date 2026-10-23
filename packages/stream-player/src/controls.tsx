@@ -18,12 +18,7 @@ import {
 import type { ReactNode, Ref } from "react";
 import { ControlButton } from "./control-button";
 import { SEEK_STEP_S } from "./keyboard";
-import {
-  episodeLabel,
-  languageName,
-  PLAYBACK_RATES,
-  rateLabel,
-} from "./labels";
+import { episodeLabel, languageName, rateLabel } from "./labels";
 import { PlayerMenu } from "./menu";
 import { SeekBar } from "./seek-bar";
 import { cx, iconSize } from "./styles";
@@ -240,27 +235,29 @@ export function BottomBar({
               </span>
             </ControlButton>
           )}
-          <PlayerMenu
-            {...menuProps("captions")}
-            label="Subtitles"
-            triggerLabel={
-              captionsOn
-                ? `Subtitles: ${captionItems[player.captionIndex + 1]?.label}`
-                : "Subtitles: off"
-            }
-            trigger={
-              <>
-                <Captions className={iconSize} />
-                {captionsOn && (
-                  <span className="absolute bottom-1.5 h-0.5 w-5 rounded-full bg-white lg:bottom-2 lg:w-6" />
-                )}
-              </>
-            }
-            disabled={!hasMedia || textTracks.length === 0}
-            items={captionItems}
-            selected={String(player.captionIndex)}
-            onSelect={(value) => actions.setCaptions(Number(value))}
-          />
+          {textTracks.length > 0 && (
+            <PlayerMenu
+              {...menuProps("captions")}
+              label="Subtitles"
+              triggerLabel={
+                captionsOn
+                  ? `Subtitles: ${captionItems[player.captionIndex + 1]?.label}`
+                  : "Subtitles: off"
+              }
+              trigger={
+                <>
+                  <Captions className={iconSize} />
+                  {captionsOn && (
+                    <span className="absolute bottom-1.5 h-0.5 w-5 rounded-full bg-white lg:bottom-2 lg:w-6" />
+                  )}
+                </>
+              }
+              disabled={!hasMedia || textTracks.length === 0}
+              items={captionItems}
+              selected={String(player.captionIndex)}
+              onSelect={(value) => actions.setCaptions(Number(value))}
+            />
+          )}
           {player.audioTracks.length > 0 && (
             <PlayerMenu
               {...menuProps("audio")}
@@ -281,7 +278,7 @@ export function BottomBar({
             triggerLabel={`Playback speed: ${rateLabel(media.rate)}`}
             trigger={<Gauge className={iconSize} />}
             disabled={!hasMedia}
-            items={PLAYBACK_RATES.map((rate) => ({
+            items={player.rates.map((rate) => ({
               value: String(rate),
               label: rateLabel(rate),
             }))}
@@ -320,15 +317,17 @@ export function BottomBar({
               )}
             </ControlButton>
           )}
-          <ControlButton
-            label={
-              player.pip ? "Exit picture in picture" : "Picture in picture"
-            }
-            disabled={!hasMedia || !player.canPip}
-            onClick={actions.togglePip}
-          >
-            <PictureInPicture2 className={iconSize} />
-          </ControlButton>
+          {player.canPip && (
+            <ControlButton
+              label={
+                player.pip ? "Exit picture in picture" : "Picture in picture"
+              }
+              disabled={!hasMedia || !player.canPip}
+              onClick={actions.togglePip}
+            >
+              <PictureInPicture2 className={iconSize} />
+            </ControlButton>
+          )}
           <ControlButton
             label={player.fullscreen ? "Exit full screen" : "Full screen"}
             disabled={!player.canFullscreen}

@@ -1,5 +1,5 @@
 import { formatRuntime, titleYears, tmdbImage } from "@repo/schemas/stream";
-import { Play } from "lucide-react";
+import { Clapperboard, Play } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -152,15 +152,14 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
                 }
               />
               {title.trailerKey ? (
-                <a
-                  href={`https://www.youtube.com/watch?v=${title.trailerKey}`}
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  href={`/watch/${title.id}?trailer=1`}
                   data-nav
-                  className={`rounded-full border border-hairline px-6 py-3 transition-colors hover:border-paper/40 ${classic ? "text-xl" : ""}`}
+                  className={`flex items-center gap-2 rounded-full border border-hairline px-6 py-3 transition-colors hover:border-paper/40 ${classic ? "text-xl" : ""}`}
                 >
+                  <Clapperboard className="size-5" />
                   Watch the trailer
-                </a>
+                </Link>
               ) : null}
             </div>
           </div>

@@ -70,6 +70,7 @@ function GridCanvas({
   const startY = useSharedValue(0);
   const cellX = useSharedValue(0);
   const cellY = useSharedValue(0);
+  const panActive = useSharedValue(false);
   useEffect(() => {
     if (!meta.data) return;
     x.value = meta.data.start.gx;
@@ -115,6 +116,9 @@ function GridCanvas({
       cellX.value = Math.round(x.value);
       cellY.value = Math.round(y.value);
     })
+    .onStart(() => {
+      panActive.value = true;
+    })
     .onUpdate((event) => {
       x.value = startX.value - event.translationX / pitch.x;
       y.value = startY.value - event.translationY / pitch.y;
@@ -138,13 +142,14 @@ function GridCanvas({
       scheduleOnRN(setFocus, { gx, gy });
     })
     .onFinalize((_event, success) => {
-      if (!success) {
+      if (!success && panActive.value) {
         const gx = Math.round(x.value),
           gy = Math.round(y.value);
         x.value = withTiming(gx);
         y.value = withTiming(gy);
         scheduleOnRN(setFocus, { gx, gy });
       }
+      panActive.value = false;
     });
   const center = (cell: Cell) => {
     x.value = withTiming(cell.gx, { duration: 220 });

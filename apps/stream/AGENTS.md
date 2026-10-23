@@ -8,7 +8,9 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
 
 - **Plays nothing it doesn't own.** `lib/playback.ts` is the only place a
   `PlaybackSource` is made, and only from files on our own storage. No
-  title has one yet. Never add resolvers, scrapers or third-party embeds.
+  title has one yet. Never add resolvers or scrapers. Official YouTube trailers are the one
+  embed exception: `/watch/[id]?trailer=1` uses `Playback.trailer`, never
+  `PlaybackSource`, and never reports viewing progress.
 - **A tenant, not a first-party client.** deniz auth gives first-party
   tokens to superusers only, so Stream is the owner's `family` tenant
   (`STREAM_TENANT_ID`). `isFamilyToken` is the admission test. Tokens never

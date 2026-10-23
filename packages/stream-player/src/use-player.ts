@@ -1,6 +1,6 @@
 import type { PlaybackSource, Progress, TextTrack } from "@repo/schemas/stream";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { languageName } from "./labels";
+import { languageName, PLAYBACK_RATES } from "./labels";
 import {
   airPlaySupported,
   audioTracksOf,
@@ -521,6 +521,7 @@ export function usePlayer({
   };
 
   return {
+    rates: [...PLAYBACK_RATES] as number[],
     videoRef,
     containerRef,
     media,
