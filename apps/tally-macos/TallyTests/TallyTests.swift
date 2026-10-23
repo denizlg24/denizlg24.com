@@ -45,6 +45,9 @@ struct CredentialWriteTests {
         try Keychain.write(try document.data(), service: service, account: account)
         #expect(try !Keychain.allowsAppleTool(service: service, account: account))
         #expect(try await ClaudeCode.readCredentials(service: service, account: account) == document)
+        await #expect(throws: ClaudeCode.CredentialError.self) {
+            try await ClaudeCode.verifyAppleToolCredentials(document, service: service, account: account)
+        }
         try await ClaudeCode.writeCredentials(document, service: service, account: account)
         #expect(try Keychain.allowsAppleTool(service: service, account: account))
         let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])

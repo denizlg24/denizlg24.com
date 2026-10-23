@@ -11,6 +11,12 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+func failIfPermissionDenied(_ error: NSError, path: String) {
+    if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+        fail("iCloud access denied for \(path). Allow DR Backups to access iCloud Drive in macOS Privacy & Security → Files and Folders.")
+    }
+}
+
 guard CommandLine.arguments.count >= 3,
       let command = Command(rawValue: CommandLine.arguments[1]) else {
     fail("usage: dr-icloud-state wait-uploaded|hydrate|evict PATH [TIMEOUT_SECONDS]")
@@ -102,6 +108,7 @@ while Date() < deadline {
                     try FileManager.default.startDownloadingUbiquitousItem(at: probe)
                     hydrationRequested = true
                 } catch let error as NSError {
+                    failIfPermissionDenied(error, path: path)
                     if !isRetryableUbiquityError(error) {
                         fail("could not request iCloud hydration for \(path): \(error)")
                     }
@@ -109,9 +116,7 @@ while Date() < deadline {
             }
         }
     } catch let error as NSError {
-        if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
-            fail("iCloud access denied for \(path). Allow DR Backups to access iCloud Drive in macOS Privacy & Security → Files and Folders.")
-        }
+        failIfPermissionDenied(error, path: path)
         // File Provider can briefly replace a placeholder while materialising.
         // Retry until the bounded timeout; terminal provider errors fail above.
     }

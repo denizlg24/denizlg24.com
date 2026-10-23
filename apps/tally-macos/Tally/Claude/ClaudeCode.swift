@@ -42,9 +42,18 @@ enum ClaudeCode {
     static func writeCredentials(_ document: JSONValue, service: String = service, account: String = keychainAccount) async throws {
         let command = try credentialCommand(document, service: service, account: account)
         _ = try await Shell.run("/usr/bin/security", ["-i"], input: command)
-        // Never mark a switch successful unless we can read the exact
-        // document back, including the unrelated MCP credentials.
-        guard try await readCredentials(service: service, account: account) == document else {
+        try await verifyAppleToolCredentials(document, service: service, account: account)
+    }
+
+    static func verifyAppleToolCredentials(_ document: JSONValue, service: String, account: String) async throws {
+        let readable = try await Task.detached(priority: .utility) {
+            try Keychain.allowsAppleTool(service: service, account: account)
+        }.value
+        // The native migration fallback must never mask broken Claude Code
+        // access, or launch security when the Apple-tool partition is absent.
+        guard readable else { throw CredentialError.verificationFailed }
+        let output = try await Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, "-a", account, "-w"])
+        guard try decodeCredentialOutput(output) == document else {
             throw CredentialError.verificationFailed
         }
     }
