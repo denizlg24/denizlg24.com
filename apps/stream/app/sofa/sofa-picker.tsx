@@ -12,7 +12,8 @@ import { Wordmark } from "@/components/top-bar";
 /**
  * Several people can sit down together; their picks are blended. A profile
  * that prefers the classic layout gets a single-choice sofa — tapping a
- * face starts straight away, which is what a non-technical viewer expects.
+ * new face starts straight away. Selected faces always toggle off, including
+ * classic profiles that are already watching with other people.
  */
 export function SofaPicker({
   profiles,
@@ -33,7 +34,7 @@ export function SofaPicker({
     });
 
   const tap = (profile: Profile) => {
-    if (profile.layout === "classic") {
+    if (profile.layout === "classic" && !chosen.includes(profile.id)) {
       start([profile.id]);
       return;
     }
