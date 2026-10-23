@@ -37,7 +37,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|auth/|healthz|api/jobs|api/public|robots\\.txt|favicon\\.ico|icon\\.png|apple-icon\\.png).*)",
+    "/((?!_next/static|_next/image|auth/|healthz|api/jobs|api/public|robots\\.txt|favicon\\.ico|icon\\.png|apple-icon\\.png|icon-192\\.png|manifest\\.webmanifest|opengraph-image\\.png).*)",
     "/auth/session",
   ],
 };
