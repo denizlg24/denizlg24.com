@@ -13,6 +13,7 @@
     "dev": "bun --env-file=.env turbo run dev",
     "dev:web": "bun run markets:relay; bun --env-file=.env turbo run dev --filter=web",
     "dev:desktop": "bun run markets:relay; bun --env-file=.env turbo run dev --filter=web --filter=desktop",
+    "dev:stream-desktop": "bun --env-file=.env turbo run dev --filter=stream --filter=stream-desktop",
     "markets:relay": "bun scripts/markets-relay-dev.mjs",
     "markets:relay:down": "bun scripts/markets-relay-dev.mjs --down",
     "migrate:macros:prod": "cd apps/macros && bun --env-file=../../.env.macros run db:migrate",
