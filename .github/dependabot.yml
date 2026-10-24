@@ -8,6 +8,25 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    # Held on purpose; README.md "Dependency updates" says why.
+    ignore:
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-reanimated"
+      - dependency-name: "react-native-worklets"
+      - dependency-name: "react-native-screens"
+      - dependency-name: "react-native-safe-area-context"
+      - dependency-name: "react-native-svg"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "@types/react"
+      - dependency-name: "@types/react-dom"
+      - dependency-name: "playwright"
+      - dependency-name: "mongodb"
+        versions: [">=7.7.0"]
+      - dependency-name: "mongoose"
+        versions: [">=9.11.0"]
+      - dependency-name: "@biomejs/biome"
+        versions: [">=2.6.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

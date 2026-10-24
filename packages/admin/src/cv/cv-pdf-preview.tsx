@@ -97,6 +97,7 @@ export default function CvPdfPreview({
         </div>
       ) : (
         <Document
+          suspense={false}
           key={active.updatedAt}
           file={pdfFile}
           onLoadSuccess={({ numPages: total }) => setNumPages(total)}

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ToolRegistrar } from "../../server";
-import { createApi } from "../define";
+import { createApi, UPLOAD_MAX_BYTES } from "../define";
 import {
   createClient,
   type RecordedCall,
@@ -748,7 +748,7 @@ describe("misc", () => {
     const big = await client.call("web_upload", {
       action: "image",
       filename: "big.bin",
-      base64: Buffer.alloc(9 * 1024 * 1024).toString("base64"),
+      base64: Buffer.alloc(UPLOAD_MAX_BYTES + 1).toString("base64"),
     });
     expect(big.isError).toBe(true);
     const empty = await client.call("web_upload", {

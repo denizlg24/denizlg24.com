@@ -9,6 +9,7 @@ import {
 import type { McpConfig } from "./config";
 import { createHealthReporter } from "./health";
 import { mcpServerFactory, type ToolRegistrar } from "./server";
+import { UPLOAD_MAX_BYTES } from "./tools/define";
 import { createUpstream, ServiceTokens, type Upstream } from "./upstream";
 
 export interface McpAppOptions {
@@ -33,6 +34,9 @@ export function createMcpApp(options: McpAppOptions) {
     mcpServerFactory(upstream, resource.origin, options.register),
     {
       onerror: (error) => console.error("MCP request failed", error),
+      // The SDK's 4 MiB default would refuse an upload the tools accept: the
+      // file travels as base64 (4/3 its size) inside a JSON-RPC envelope.
+      maxRequestBodySize: Math.ceil((UPLOAD_MAX_BYTES * 4) / 3) + 1024 * 1024,
     },
   );
   const endpoint = resource.pathname;

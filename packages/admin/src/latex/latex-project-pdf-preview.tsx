@@ -68,6 +68,7 @@ export function PdfBytesPreview({
     >
       {failure ?? (
         <Document
+          suspense={false}
           key={resetKey}
           file={pdfFile}
           onLoadSuccess={({ numPages: total }) => setNumPages(total)}

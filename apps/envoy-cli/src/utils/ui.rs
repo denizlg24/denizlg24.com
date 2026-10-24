@@ -201,7 +201,7 @@ pub fn prompt_input_with_default(
 }
 
 pub fn generate_secure_passphrase(length: usize) -> String {
-    use rand::Rng;
+    use rand::RngExt;
     const CHARSET: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*-_=+";
 
