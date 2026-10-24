@@ -48,6 +48,8 @@ export interface StreamPlayerProps {
   /** About every 10 s while playing, and on pause, end and unmount. */
   onProgress?: (positionS: number, durationS: number) => void;
   onViewing?: (completed: boolean) => Promise<boolean>;
+  /** Remote control: 30 s skips that keep moving while held. */
+  tv?: boolean;
 }
 
 export function StreamPlayer(props: StreamPlayerProps) {

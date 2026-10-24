@@ -451,10 +451,71 @@ export const recommendationRequestSchema = z.object({
       }),
     )
     .max(120),
-  candidates: z.array(recommendationCandidateSchema).min(1).max(150),
+  candidates: z
+    .array(
+      recommendationCandidateSchema.extend({
+        overview: z.string().max(300).nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(150),
   count: z.number().int().min(1).max(30),
+  /** What the viewer asked the assistant for; picks must answer it. */
+  prompt: z.string().trim().min(1).max(300).optional(),
 });
 export type RecommendationRequest = z.infer<typeof recommendationRequestSchema>;
+
+export const ASSISTANT_PROMPT_MAX = 300;
+export const assistantPromptSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(ASSISTANT_PROMPT_MAX);
+
+/**
+ * What the model reads out of a prompt, in the catalogue's own vocabulary.
+ * Every field is required and nullable so it suits strict structured output.
+ */
+export const assistantIntentSchema = z.object({
+  type: titleTypeSchema.nullable(),
+  /** Any of these; empty means no genre preference. */
+  genres: z.array(genreSchema).max(4),
+  /** Genres the prompt rules out ("nothing scary"). */
+  excludeGenres: z.array(genreSchema).max(4),
+  yearFrom: z.number().int().min(1870).max(2100).nullable(),
+  yearTo: z.number().int().min(1870).max(2100).nullable(),
+  runtimeMax: z.number().int().min(20).max(400).nullable(),
+  mood: z.enum(["light", "any", "heavy"]),
+  ratingMin: z.number().min(0).max(10).nullable(),
+  /** ISO 639-1 codes of the original language, when the prompt names one. */
+  languages: z.array(z.string().regex(/^[a-z]{2}$/)).max(4),
+  /** Titles the prompt compares against ("like Knives Out"). */
+  similarTo: z.array(z.string().min(1).max(120)).max(4),
+  /** Plot words to look for in overviews ("heist", "space", "dragon"). */
+  keywords: z.array(z.string().min(2).max(40)).max(8),
+});
+export type AssistantIntent = z.infer<typeof assistantIntentSchema>;
+
+export const assistantIntentRequestSchema = z.object({
+  prompt: assistantPromptSchema,
+  kids: z.boolean(),
+  year: z.number().int(),
+});
+export type AssistantIntentRequest = z.infer<
+  typeof assistantIntentRequestSchema
+>;
+
+export const assistantIntentResponseSchema = z.object({
+  intent: assistantIntentSchema,
+});
+
+export const assistantResultSchema = z.object({
+  prompt: z.string(),
+  picks: z.array(recommendationSchema),
+  /** False when the model was unavailable and the pool's own order was used. */
+  personal: z.boolean(),
+});
+export type AssistantResult = z.infer<typeof assistantResultSchema>;
 
 export const recommendationResponseSchema = z.object({
   picks: z.array(

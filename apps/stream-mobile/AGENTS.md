@@ -62,8 +62,9 @@ A classic profile is single-select and starts at once. `?profiles=` routes
 (`/tonight`, `/grid/highlights`) take the whole audience.
 
 `app/_layout.tsx` gates with `Stack.Protected`: `(studio)` (native tabs
-Tonight · Tune · Map · Shelf), `(classic)` (expo-router/ui tabs as three
-big labelled buttons along the top, ~20 pt type), shared `title/[id]`,
+Tonight · Tune · Map · Shelf · Ask), `(classic)` (expo-router/ui tabs as four
+big labelled buttons along the top, ~20 pt type; its Ask is `/ideas`
+because both groups share one URL space), shared `title/[id]`,
 `watch/[id]`, `account`; `sofa` is reachable always. `/` redirects by
 layout.
 

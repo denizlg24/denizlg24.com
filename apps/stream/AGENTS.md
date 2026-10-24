@@ -45,14 +45,24 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   group ranking rewards shared tastes. Double bills match language and genre
   similarity, then audience rank. Any failure falls back to genre affinity, so
   the programme never empties.
+- **The assistant (`/ask`, `GET /api/v1/assistant?q=`) is two model calls.**
+  Web's `/api/admin/stream/assistant` turns the prompt into catalogue filters
+  (`assistantIntentSchema`). `lib/assistant.ts` builds a kid-safe pool from
+  them, relaxing the soft filters when fewer than 30 match, plus titles near
+  any "like X". The recommendations route then ranks within that pool with
+  the prompt. Without the model, the prompt's words become keywords and the
+  pool's own order is served (`personal: false`).
 - **Taste space is fixed per title.** `lib/taste-space.ts` places every
   title from its genres and votes, deterministically, and ingest writes
   `map_x`/`map_y`/`mood`. Moving an anchor moves the whole map, so the next
   ingest rewrites every row.
 - **Ingest upserts, never deletes.** A title under `STREAM_MIN_VOTES` keeps
   its rows. `POST /api/jobs/ingest` and `/api/jobs/enrich` (bearer
-  `STREAM_CRON_SECRET`) answer 202 and log to `ingest_runs`. Nothing in this
-  repo schedules them. Run them locally with `bun run ingest` / `bun run enrich`.
+  `STREAM_CRON_SECRET`) answer 202 and log to `ingest_runs` when they finish.
+  Picron on pi-cloud schedules them: ingest daily at 04:30, enrich hourly at
+  :15 with `limit=3000`. Most catalogue screens hide titles without a poster,
+  so an enrich backlog reads as missing films. Run them locally with
+  `bun run ingest` / `bun run enrich`.
 - **Forge never migrates.** `bun run db:migrate` (env `.env.stream`) before
   merging a schema change. `0000_init` creates `pg_trgm`.
 - **TMDB images are hot-linked** at TMDB's own sizes (`tmdbImage`), not

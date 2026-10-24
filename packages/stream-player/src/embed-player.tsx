@@ -32,15 +32,35 @@ import {
   serverEmbedEnvironment,
   subscribeEmbedEnvironment,
 } from "./embed-environment";
-import { SEEK_STEP_S } from "./keyboard";
+import { useHoldSeek } from "./hold-seek";
+import { type Direction, SEEK_STEP_S } from "./keyboard";
 import { SeekBar } from "./seek-bar";
 import type { StreamPlayerProps } from "./stream-player";
 import { cx, iconSize } from "./styles";
 import { formatTime } from "./time";
 import { UpNext } from "./up-next";
 import { useAutoHide } from "./use-auto-hide";
+import { moveFocus } from "./use-keyboard";
 
 const UNLOCK_MS = 30_000;
+const TV_SEEK_STEP_S = 30;
+// The provider's title strip and control bar, clipped while our controls
+// stand in for them. Measured on its player; it has no option to hide them.
+const PROVIDER_TOP_PX = 64;
+const PROVIDER_BOTTOM_PX = 96;
+
+const ARROWS: Record<string, Direction> = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+};
+const SEEK_KEYS: Record<string, -1 | 1> = {
+  ArrowLeft: -1,
+  j: -1,
+  ArrowRight: 1,
+  l: 1,
+};
 
 type Clock = {
   position: number;
@@ -59,6 +79,7 @@ export function EmbedPlayer({
   onProgress,
   autoPlay = true,
   nextCountdownS = 10,
+  tv = false,
 }: StreamPlayerProps) {
   const environment = useSyncExternalStore(
     subscribeEmbedEnvironment,
@@ -70,7 +91,10 @@ export function EmbedPlayer({
   // player is driven through its message API. The desktop host blocks natively.
   const shielded = environment !== "native";
   const iframe = useRef<HTMLIFrameElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  const playButton = useRef<HTMLButtonElement>(null);
+  const step = tv ? TV_SEEK_STEP_S : SEEK_STEP_S;
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -210,6 +234,27 @@ export function EmbedPlayer({
     moveClock({ position: target });
     chrome.reveal();
   };
+  const hold = useHoldSeek({
+    step,
+    position,
+    duration: clock?.duration ?? 0,
+    commit: seekTo,
+  });
+  const shown = hold.target ?? position;
+  const { reveal } = chrome;
+  useEffect(() => {
+    if (hold.target !== null) reveal();
+  }, [hold.target, reveal]);
+
+  // Once the shield is up the remote and keyboard must reach this page, not
+  // the provider's frame, which still holds focus from the landing click.
+  useEffect(() => {
+    if (!shieldUp) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === iframe.current)
+      playButton.current?.focus({ preventScroll: true });
+  }, [shieldUp]);
+
   const toggleMute = () => {
     command(muted ? "unmute" : "mute");
     setMuted(!muted);
@@ -220,25 +265,35 @@ export function EmbedPlayer({
   };
 
   useEffect(() => {
-    if (!shieldUp) return;
-    const keys = (event: KeyboardEvent) => {
+    const down = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const control = target?.closest<HTMLElement>("[data-player-nav]");
+      const inside = control && root.current?.contains(control);
+      const direction = ARROWS[event.key];
+      const seekKey = SEEK_KEYS[event.key];
+      if (inside && control.dataset.playerRole === "seek" && seekKey) {
+        event.preventDefault();
+        hold.start(seekKey, true);
+        return;
+      }
+      if (inside && direction && root.current) {
+        if (moveFocus(root.current, direction)) event.preventDefault();
+        return;
+      }
       if (
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        (event.target instanceof Element &&
-          event.target.closest(
-            "button, input, select, textarea, [contenteditable]",
-          ))
+        !shieldUp ||
+        target?.closest("button, input, select, textarea, [contenteditable]")
       )
         return;
+      if (seekKey) {
+        event.preventDefault();
+        hold.start(seekKey, true);
+        return;
+      }
       const actions: Record<string, () => void> = {
         " ": togglePlay,
         k: togglePlay,
-        ArrowLeft: () => seekTo(position - SEEK_STEP_S),
-        j: () => seekTo(position - SEEK_STEP_S),
-        ArrowRight: () => seekTo(position + SEEK_STEP_S),
-        l: () => seekTo(position + SEEK_STEP_S),
         m: toggleMute,
         f: toggleFullscreen,
       };
@@ -247,8 +302,15 @@ export function EmbedPlayer({
       event.preventDefault();
       action();
     };
-    window.addEventListener("keydown", keys);
-    return () => window.removeEventListener("keydown", keys);
+    const up = (event: KeyboardEvent) => {
+      if (SEEK_KEYS[event.key]) hold.stop();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
   });
 
   const save = async () => {
@@ -267,11 +329,15 @@ export function EmbedPlayer({
     }
   };
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-black text-paper">
+    <div
+      ref={root}
+      className="relative flex h-full min-h-0 flex-col bg-black text-paper"
+    >
       <header className="flex shrink-0 items-center gap-4 px-4 py-3">
         <button
           type="button"
           data-nav
+          data-player-nav=""
           onClick={onBack}
           aria-label="Back to title"
           className="rounded-full p-3 hover:bg-paper/10"
@@ -288,6 +354,7 @@ export function EmbedPlayer({
           <button
             type="button"
             data-nav
+            data-player-nav=""
             aria-pressed={unlocked}
             onClick={() => setUnlocked((value) => !value)}
             className="flex items-center gap-2 rounded-full px-3 py-2 hover:bg-paper/10 aria-pressed:bg-paper/15"
@@ -299,6 +366,7 @@ export function EmbedPlayer({
         <button
           type="button"
           data-nav
+          data-player-nav=""
           onClick={() => {
             restored.current = false;
             setArmed(false);
@@ -311,7 +379,10 @@ export function EmbedPlayer({
           <span>Reload player</span>
         </button>
       </header>
-      <div ref={stage} className="relative min-h-0 flex-1 bg-black">
+      <div
+        ref={stage}
+        className="relative min-h-0 flex-1 overflow-hidden bg-black"
+      >
         <iframe
           ref={iframe}
           key={`${url}:${attempt}`}
@@ -320,7 +391,19 @@ export function EmbedPlayer({
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           allowFullScreen
           referrerPolicy="strict-origin-when-cross-origin"
-          className="size-full border-0"
+          className={
+            shieldUp
+              ? "absolute inset-x-0 w-full border-0"
+              : "size-full border-0"
+          }
+          style={
+            shieldUp
+              ? {
+                  top: -PROVIDER_TOP_PX,
+                  height: `calc(100% + ${PROVIDER_TOP_PX + PROVIDER_BOTTOM_PX}px)`,
+                }
+              : undefined
+          }
           onLoad={() => {
             if (!started.current) {
               started.current = true;
@@ -355,13 +438,14 @@ export function EmbedPlayer({
             <div
               onPointerMove={chrome.reveal}
               className={cx(
-                "absolute inset-x-0 bottom-0 z-20 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pt-8 pb-2 transition-opacity sm:gap-2 sm:px-4",
+                "absolute inset-x-0 bottom-0 z-20 flex items-center gap-1 bg-black px-2 py-2 transition-opacity sm:gap-2 sm:px-4",
                 chrome.visible
                   ? "opacity-100"
                   : "pointer-events-none opacity-0",
               )}
             >
               <ControlButton
+                ref={playButton}
                 label={clock?.running ? "Pause" : "Play"}
                 onClick={togglePlay}
               >
@@ -371,24 +455,21 @@ export function EmbedPlayer({
                   <Play className={iconSize} />
                 )}
               </ControlButton>
-              <ControlButton
-                label={`Back ${SEEK_STEP_S} seconds`}
-                onClick={() => seekTo(position - SEEK_STEP_S)}
-              >
-                <SkipIcon direction="back" />
+              <ControlButton label={`Back ${step} seconds`} {...hold.bind(-1)}>
+                <SkipIcon direction="back" seconds={step} />
               </ControlButton>
               <ControlButton
-                label={`Forward ${SEEK_STEP_S} seconds`}
-                onClick={() => seekTo(position + SEEK_STEP_S)}
+                label={`Forward ${step} seconds`}
+                {...hold.bind(1)}
               >
-                <SkipIcon direction="forward" />
+                <SkipIcon direction="forward" seconds={step} />
               </ControlButton>
               <span className="shrink-0 px-1 text-sm text-white/80 tabular-nums">
-                {formatTime(position)} / {formatTime(clock?.duration ?? 0)}
+                {formatTime(shown)} / {formatTime(clock?.duration ?? 0)}
               </span>
               <div className="min-w-0 flex-1 px-2">
                 <SeekBar
-                  currentTime={position}
+                  currentTime={shown}
                   duration={clock?.duration ?? 0}
                   buffered={[]}
                   disabled={!clock}
@@ -434,6 +515,7 @@ export function EmbedPlayer({
         <button
           type="button"
           data-nav
+          data-player-nav=""
           disabled={saving || completed}
           onClick={() => void save()}
           className="flex items-center gap-2 rounded-full px-4 py-2 hover:bg-paper/10 disabled:opacity-50"
@@ -445,6 +527,7 @@ export function EmbedPlayer({
           <button
             type="button"
             data-nav
+            data-player-nav=""
             disabled={saving}
             onClick={() => onNext(playback.next!)}
             className="flex items-center gap-2 rounded-full px-4 py-2 hover:bg-paper/10 disabled:opacity-50"

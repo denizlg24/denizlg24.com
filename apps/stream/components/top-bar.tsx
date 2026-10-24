@@ -10,11 +10,13 @@ const STUDIO = [
   { href: "/tune", label: "Tune" },
   { href: "/map", label: "Map" },
   { href: "/shelf", label: "Shelf" },
+  { href: "/ask", label: "Ask" },
 ];
 
 const CLASSIC = [
   { href: "/", label: "Home" },
   { href: "/search", label: "Search" },
+  { href: "/ask", label: "Ask for ideas" },
   { href: "/my-list", label: "My list" },
 ];
 

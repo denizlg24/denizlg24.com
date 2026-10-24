@@ -1,4 +1,5 @@
 import {
+  assistantResultSchema,
   episodeSchema,
   gridMetaSchema,
   gridWindowSchema,
@@ -58,6 +59,8 @@ export const keys = {
     ["playback", id, profileId, episode] as const,
   tonight: (audience: string) => ["tonight", audience] as const,
   highlights: (audience: string) => ["grid", "highlights", audience] as const,
+  assistant: (audience: string, prompt: string) =>
+    ["assistant", audience, prompt] as const,
 };
 
 export function useMe() {
@@ -313,6 +316,22 @@ export function useTonight(audience: string) {
     queryFn: ({ signal }) =>
       api("tonight", tonightSchema, { query: { profiles: audience }, signal }),
     staleTime: 10 * 60_000,
+  });
+}
+
+/** Picks for a typed wish; the model can take 5–20 s, so an answer is kept a while. */
+export function useAssistant(audience: string, prompt: string) {
+  return useQuery({
+    queryKey: keys.assistant(audience, prompt),
+    enabled: prompt.length > 0,
+    queryFn: ({ signal }) =>
+      api("assistant", assistantResultSchema, {
+        query: { profiles: audience, q: prompt },
+        signal,
+      }),
+    staleTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 
