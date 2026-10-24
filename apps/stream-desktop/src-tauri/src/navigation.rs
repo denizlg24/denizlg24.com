@@ -3,13 +3,10 @@ use tauri::Url;
 const SIGN_IN_ORIGINS: [&str; 2] = ["https://auth.denizlg24.com", "https://api.denizlg24.com"];
 
 // WKWebView reports subframe navigations to the same handler as top-level
-// ones, so the known playback frames must be permitted explicitly.
-const EMBED_PREFIXES: [&str; 4] = [
-    "https://www.youtube.com/embed/",
-    "https://www.youtube-nocookie.com/embed/",
-    "https://vsembed.ru/embed/",
-    "https://stellarconductornexus.com/embed/",
-];
+// ones, without saying which frame, so playback frames are recognised by
+// their path. The player's host rotates; its `/embed/` paths do not. Ad hosts
+// are refused before this is consulted.
+const EMBED_PATH: &str = "/embed/";
 
 // `Url::origin` is opaque for custom schemes such as `shell://`, so two
 // shell URLs would never compare equal through it.
@@ -71,9 +68,7 @@ impl Shell {
 
         let origin = url.origin().ascii_serialization();
         if SIGN_IN_ORIGINS.contains(&origin.as_str())
-            || EMBED_PREFIXES
-                .iter()
-                .any(|prefix| url.as_str().starts_with(prefix))
+            || (url.scheme() == "https" && url.path().starts_with(EMBED_PATH))
         {
             return Route::Allow;
         }
@@ -128,17 +123,21 @@ mod tests {
     }
 
     #[test]
-    fn permits_player_frames_but_blocks_ad_redirects_and_protocol_handlers() {
+    fn permits_player_frames_on_any_host_but_blocks_ad_redirects_and_protocol_handlers() {
         for url in [
             "https://vsembed.ru/embed/tv/tt0944947/1-1?autoplay=1",
             "https://stellarconductornexus.com/embed/movie/tt0111161",
+            "https://rotated-player.example/embed/player/movie/tt0111161?vs=x",
+            "https://www.youtube-nocookie.com/embed/abc?origin=x",
             "about:blank",
         ] {
             assert_eq!(route(url), Route::Allow, "{url}");
         }
         for url in [
             "https://vsembed.ru/advertisement",
-            "https://vsembed.ru.evil.example/embed/movie/tt0111161",
+            "http://rotated-player.example/embed/movie/tt0111161",
+            "https://player.example/embedded/movie",
+            "https://player.example/?next=/embed/movie",
             "https://stellarconductornexus.com/redirect",
             "https://ads.example/landing",
             "data:text/html,<script>open('https://ads.example')</script>",
