@@ -22,6 +22,12 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: "260mb",
   },
   images: {
+    // Cloudflare caches /_next/image by rule, and the free plan ignores
+    // `Vary: Accept`: offering AVIF too would hand AVIF to browsers that
+    // asked for WebP. One format keeps the edge copy right for everyone.
+    formats: ["image/webp"],
+    // Upload keys carry a random UUID, so a stored image never changes in place.
+    minimumCacheTTL: 2_592_000,
     remotePatterns: [
       new URL("https://rose-acceptable-bee-887.mypinata.cloud/**"),
       new URL("https://scontent.cdninstagram.com/**"),
