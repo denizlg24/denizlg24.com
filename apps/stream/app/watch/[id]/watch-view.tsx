@@ -14,6 +14,7 @@ export function WatchView({
   episodeId,
   backdropUrl,
   playback,
+  tv,
 }: {
   titleId: string;
   title: string;
@@ -21,6 +22,7 @@ export function WatchView({
   episodeId: string | null;
   backdropUrl: string | null;
   playback: Playback;
+  tv: boolean;
 }) {
   const router = useRouter();
   const onProgress = useCallback(
@@ -42,6 +44,7 @@ export function WatchView({
       <StreamPlayer
         key={`${episodeId ?? titleId}:${playback.trailer ? "trailer" : "film"}`}
         playback={playback}
+        tv={tv}
         title={title}
         subtitle={subtitle}
         backdropUrl={backdropUrl}

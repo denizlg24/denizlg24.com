@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createMachineTokenSource } from "@denizlg24/auth/server";
 import {
   type Recommendation,
   type RecommendationCandidate,
@@ -29,11 +28,11 @@ import {
   watchlist,
 } from "@/db/schema";
 import { audienceFilter, serializeSummary } from "@/lib/catalog";
-import { authIssuer, webUrl } from "@/lib/config";
 import {
   languagePreferences,
   preferenceScore,
 } from "@/lib/recommendation-ranking";
+import { postToWeb } from "@/lib/web";
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const POOL = 120;
@@ -41,28 +40,12 @@ const CACHE_VERSION = "v2:";
 const PICKS = 24;
 
 type Signal = RecommendationRequest["history"][number]["signal"];
-const SIGNAL_WEIGHT: Record<Signal, number> = {
+export const SIGNAL_WEIGHT: Record<Signal, number> = {
   finished: 3,
   watching: 2,
   watchlist: 1.5,
   abandoned: -1,
 };
-
-let tokens: ReturnType<typeof createMachineTokenSource> | null = null;
-
-function webTokens() {
-  const clientId = process.env.STREAM_WEB_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.STREAM_WEB_OAUTH_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  tokens ??= createMachineTokenSource({
-    issuer: authIssuer(),
-    clientId,
-    clientSecret,
-    resource: webUrl(),
-    scope: "superuser",
-  });
-  return tokens;
-}
 
 export function audienceKey(profiles: readonly ProfileRow[]): string {
   return profiles
@@ -71,7 +54,7 @@ export function audienceKey(profiles: readonly ProfileRow[]): string {
     .join(",");
 }
 
-function candidate(row: TitleRow): RecommendationCandidate {
+export function candidate(row: TitleRow): RecommendationCandidate {
   return {
     id: row.id,
     title: row.title,
@@ -111,7 +94,7 @@ export function signalOf(row: {
   return stale && barely ? "abandoned" : "watching";
 }
 
-async function profileHistory(
+export async function profileHistory(
   profile: ProfileRow,
 ): Promise<RecommendationRequest["history"]> {
   const [watched, saved] = await Promise.all([
@@ -176,31 +159,16 @@ async function candidatePool(
     .limit(POOL);
 }
 
-async function askWeb(
+export async function askWeb(
   body: RecommendationRequest,
 ): Promise<{ id: string; reason: string }[] | null> {
-  const source = webTokens();
-  if (!source) return null;
-  try {
-    const response = await fetch(
-      `${webUrl()}/api/admin/stream/recommendations`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${await source.getToken()}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(45_000),
-      },
-    );
-    if (response.status === 401) source.invalidate();
-    if (!response.ok) return null;
-    return recommendationResponseSchema.parse(await response.json()).picks;
-  } catch (error) {
-    console.error("[stream] recommendations request failed", error);
-    return null;
-  }
+  const response = await postToWeb(
+    "/api/admin/stream/recommendations",
+    body,
+    recommendationResponseSchema,
+    45_000,
+  );
+  return response?.picks ?? null;
 }
 
 function fallbackReason(

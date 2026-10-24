@@ -112,13 +112,19 @@ export function TopBar({
   );
 }
 
-export function SkipIcon({ direction }: { direction: "back" | "forward" }) {
+export function SkipIcon({
+  direction,
+  seconds = SEEK_STEP_S,
+}: {
+  direction: "back" | "forward";
+  seconds?: number;
+}) {
   const Icon = direction === "back" ? RotateCcw : RotateCw;
   return (
     <span className="relative inline-flex">
       <Icon className={iconSize} />
       <span className="absolute inset-0 flex items-center justify-center pt-px font-semibold text-[8px] tabular-nums sm:text-[9px] lg:text-[10px]">
-        {SEEK_STEP_S}
+        {seconds}
       </span>
     </span>
   );

@@ -71,7 +71,8 @@ export type LlmPurpose =
   | "incident-verdict"
   | "speech-narrate"
   | "nutrition-label"
-  | "stream-recommend";
+  | "stream-recommend"
+  | "stream-assistant";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -104,6 +105,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "speech-narrate": [],
   "nutrition-label": ["vision", "structured-output"],
   "stream-recommend": ["structured-output"],
+  "stream-assistant": ["structured-output"],
 };
 
 /**

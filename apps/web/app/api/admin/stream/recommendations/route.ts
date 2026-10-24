@@ -20,6 +20,7 @@ const SYSTEM = [
   'Each reason is one short, warm sentence addressed to the viewer ("Because you loved …", "A sharp heist thriller like …"), at most 120 characters, naming a title from their history when it helps.',
   "When several people watch together, address them as a group and pick what they would enjoy together.",
   "If anyone watching is a kids profile, pick only titles clearly suitable for children.",
+  "When they asked for something specific, every pick must answer that request first and their taste second; each reason then says how it fits the request. Return fewer picks rather than ones that miss it.",
 ].join(" ");
 
 const pickSchema = z.object({
@@ -44,9 +45,11 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { audience, history, candidates, count } = parsed.data;
-  const describe = (item: (typeof candidates)[number]) =>
-    `${item.id} | ${item.title}${item.year ? ` (${item.year})` : ""} | ${item.type} | ${item.genres.join("/")} | ${item.rating ?? "–"}`;
+  const { audience, history, candidates, count, prompt: asked } = parsed.data;
+  const describe = (
+    item: (typeof history)[number] | (typeof candidates)[number],
+  ) =>
+    `${item.id} | ${item.title}${item.year ? ` (${item.year})` : ""} | ${item.type} | ${item.genres.join("/")} | ${item.rating ?? "–"}${"overview" in item && item.overview ? ` | ${item.overview}` : ""}`;
   const prompt = [
     audience.length > 1
       ? `Watching together: ${audience.map((person) => person.name).join(", ")}. Every pick must suit all of them.`
@@ -63,7 +66,9 @@ export async function POST(request: NextRequest) {
           .join("\n")
       : "nothing yet — rely on favourite genres and quality",
     "",
-    `Candidates (id | title | type | genres | rating). Pick ${count}:`,
+    ...(asked ? [`They asked for: ${asked}`, ""] : []),
+    "",
+    `Candidates (id | title | type | genres | rating${asked ? " | synopsis" : ""}). Pick up to ${count}:`,
     candidates.map(describe).join("\n"),
   ].join("\n");
 
