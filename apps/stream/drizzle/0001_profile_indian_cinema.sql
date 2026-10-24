@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "show_indian_cinema" boolean DEFAULT false NOT NULL;

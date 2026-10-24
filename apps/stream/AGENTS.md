@@ -38,6 +38,13 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   = sorted ids), any kids profile makes the whole audience kid-safe, and
   saves and progress apply to everyone sitting down. If anyone on the sofa
   prefers `classic`, the room gets classic.
+- **What a sofa may see is `AudienceRules`** (`lib/audience-rules.ts`), passed
+  to every catalogue query in place of a kids flag. The stricter setting wins:
+  any kids profile makes it kid-safe, and Indian-language cinema
+  (`INDIAN_LANGUAGES`, off by default per profile) shows only when everyone
+  has it on. The language comes from TMDB, so unenriched titles pass. A cache
+  that holds filtered titles is keyed by `rulesKey`, and changing a profile
+  field that affects picks invalidates its recommendations in `updateProfile`.
 - **Recommendations go through web's `llm-service`**
   (`POST /api/admin/stream/recommendations`, `client_credentials` with
   `STREAM_WEB_OAUTH_CLIENT_ID/SECRET`). The candidate pool is built here, and

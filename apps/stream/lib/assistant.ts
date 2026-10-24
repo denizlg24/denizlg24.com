@@ -24,6 +24,11 @@ import {
 import { db } from "@/db";
 import { type ProfileRow, type TitleRow, titles } from "@/db/schema";
 import { fallbackIntent } from "@/lib/assistant-intent";
+import {
+  type AudienceRules,
+  audienceRules,
+  rulesKey,
+} from "@/lib/audience-rules";
 import { audienceFilter, nearbyTitles, serializeSummary } from "@/lib/catalog";
 import {
   askWeb,
@@ -60,11 +65,11 @@ function escapeLike(value: string): string {
 /** Hard filters; `strict` false keeps only what must never be broken. */
 export function intentFilters(
   intent: AssistantIntent,
-  kids: boolean,
+  rules: AudienceRules,
   strict: boolean,
 ): SQL[] {
   const filters: (SQL | undefined)[] = [
-    audienceFilter(kids),
+    audienceFilter(rules),
     isNotNull(titles.posterPath),
     gte(titles.votes, 1000),
     intent.type === "movie"
@@ -120,7 +125,7 @@ function relevance(intent: AssistantIntent): SQL {
 
 async function similarTitles(
   names: string[],
-  kids: boolean,
+  rules: AudienceRules,
 ): Promise<TitleRow[]> {
   const anchors = await Promise.all(
     names.map(async (name) => {
@@ -129,7 +134,7 @@ async function similarTitles(
         .from(titles)
         .where(
           and(
-            audienceFilter(kids),
+            audienceFilter(rules),
             ilike(titles.title, `%${escapeLike(name)}%`),
           ),
         )
@@ -141,7 +146,7 @@ async function similarTitles(
   const near = await Promise.all(
     anchors
       .filter((row): row is TitleRow => row !== undefined)
-      .map(async (row) => ({ row, near: await nearbyTitles(row, kids, 15) })),
+      .map(async (row) => ({ row, near: await nearbyTitles(row, rules, 15) })),
   );
   const ids = near.flatMap(({ near: list }) => list.map((item) => item.id));
   if (ids.length === 0) return [];
@@ -155,7 +160,7 @@ async function similarTitles(
 
 export async function assistantPool(
   intent: AssistantIntent,
-  kids: boolean,
+  rules: AudienceRules,
   finished: string[],
 ): Promise<TitleRow[]> {
   const unseen = finished.length > 0 ? notInArray(titles.id, finished) : null;
@@ -165,14 +170,14 @@ export async function assistantPool(
       .from(titles)
       .where(
         and(
-          ...intentFilters(intent, kids, strict),
+          ...intentFilters(intent, rules, strict),
           ...(unseen ? [unseen] : []),
         ),
       )
       .orderBy(desc(relevance(intent)))
       .limit(POOL);
   const [similar, strict] = await Promise.all([
-    similarTitles(intent.similarTo, kids),
+    similarTitles(intent.similarTo, rules),
     query(true),
   ]);
   const relaxed = strict.length < STRICT_MINIMUM ? await query(false) : [];
@@ -194,9 +199,9 @@ async function generate(
   profiles: ProfileRow[],
   prompt: string,
 ): Promise<AssistantResult> {
-  const kids = profiles.some((profile) => profile.kids);
+  const rules = audienceRules(profiles);
   const [intent, histories] = await Promise.all([
-    readIntent(prompt, kids),
+    readIntent(prompt, rules.kids),
     Promise.all(profiles.map(profileHistory)),
   ]);
   const history = histories.flat();
@@ -207,7 +212,7 @@ async function generate(
         .map((item) => item.id),
     ),
   ];
-  const pool = await assistantPool(intent, kids, finished);
+  const pool = await assistantPool(intent, rules, finished);
   if (pool.length === 0) return { prompt, picks: [], personal: false };
   const picks = await askWeb({
     audience: profiles.map((profile) => ({
@@ -243,7 +248,7 @@ export async function askAssistant(
   profiles: ProfileRow[],
   prompt: string,
 ): Promise<AssistantResult> {
-  const key = `${audienceKey(profiles)}\n${prompt.toLowerCase()}`;
+  const key = `${audienceKey(profiles)}:${rulesKey(audienceRules(profiles))}\n${prompt.toLowerCase()}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.result;
   const running = inFlight.get(key);

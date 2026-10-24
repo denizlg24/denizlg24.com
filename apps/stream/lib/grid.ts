@@ -17,6 +17,7 @@ import {
   titles,
   watchlist,
 } from "@/db/schema";
+import { type AudienceRules, rulesKey } from "@/lib/audience-rules";
 import { audienceFilter } from "@/lib/catalog";
 import {
   cellAt,
@@ -40,7 +41,7 @@ const lattices = new Map<
   { builtAt: number; lattice: Lattice<GridEntry>; index: Map<string, number> }
 >();
 
-async function build(kids: boolean, kind: Kind) {
+async function build(rules: AudienceRules, kind: Kind) {
   const rows = await db
     .select({
       id: titles.id,
@@ -54,7 +55,7 @@ async function build(kids: boolean, kind: Kind) {
     })
     .from(titles)
     .where(
-      sql`${audienceFilter(kids)} ${
+      sql`${audienceFilter(rules)} ${
         kind === "movie"
           ? sql`and ${titles.type} = 'movie'`
           : kind === "series"
@@ -70,11 +71,11 @@ async function build(kids: boolean, kind: Kind) {
 }
 
 /** One lattice per audience kind, rebuilt hourly; ingest changes it daily at most. */
-async function latticeFor(kids: boolean, kind: Kind) {
-  const key = `${kids ? "kids" : "all"}:${kind}`;
+async function latticeFor(rules: AudienceRules, kind: Kind) {
+  const key = `${rulesKey(rules)}:${kind}`;
   const cached = lattices.get(key);
   if (cached && Date.now() - cached.builtAt < TTL_MS) return cached;
-  const fresh = await build(kids, kind);
+  const fresh = await build(rules, kind);
   lattices.set(key, fresh);
   return fresh;
 }
@@ -85,9 +86,9 @@ function strip({ x: _x, y: _y, ...title }: GridEntry): GridTitle {
 
 export async function gridWindow(
   query: GridQuery,
-  kids: boolean,
+  rules: AudienceRules,
 ): Promise<GridWindow> {
-  const { lattice } = await latticeFor(kids, query.type ?? "all");
+  const { lattice } = await latticeFor(rules, query.type ?? "all");
   if (lattice.cells.length === 0) return { cells: [] };
   const cells: GridWindow["cells"] = [];
   for (let gy = query.y0; gy <= query.y1; gy++) {
@@ -100,12 +101,12 @@ export async function gridWindow(
 }
 
 export async function gridMeta(
-  kids: boolean,
+  rules: AudienceRules,
   kind: Kind,
   profiles: ProfileRow[],
   focusId: string | null = null,
 ): Promise<GridMeta> {
-  const { lattice, index } = await latticeFor(kids, kind);
+  const { lattice, index } = await latticeFor(rules, kind);
   const focused = focusId ? index.get(focusId) : undefined;
   const latest =
     focused === undefined && profiles.length > 0

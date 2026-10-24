@@ -20,7 +20,10 @@ import {
   profiles,
 } from "@/db/schema";
 import { ownerSubject } from "@/lib/config";
-import { forgetProfileRecommendations } from "@/lib/recommendations";
+import {
+  forgetProfileRecommendations,
+  invalidateRecommendations,
+} from "@/lib/recommendations";
 
 export function serializeProfile(row: ProfileRow): Profile {
   const color = profileColorSchema.safeParse(row.color);
@@ -29,6 +32,7 @@ export function serializeProfile(row: ProfileRow): Profile {
     name: row.name,
     color: color.success ? color.data : "ember",
     kids: row.kids,
+    showIndianCinema: row.showIndianCinema,
     layout: profileLayoutSchema.safeParse(row.layout).data ?? "studio",
     favoriteGenres: row.favoriteGenres.flatMap((genre) => {
       const parsed = genreSchema.safeParse(genre);
@@ -140,6 +144,13 @@ export async function updateProfile(
     .set(input)
     .where(eq(profiles.id, profileId))
     .returning();
+  // Each of these changes what may be picked for any sofa this profile is on.
+  if (
+    input.favoriteGenres !== undefined ||
+    input.kids !== undefined ||
+    input.showIndianCinema !== undefined
+  )
+    await invalidateRecommendations(profileId);
   return row ? serializeProfile(row) : null;
 }
 

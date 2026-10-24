@@ -18,13 +18,22 @@ beforeAll(async () => {
   const isolated = new URL(url);
   isolated.searchParams.set("options", `-c search_path=${schema},public`);
   process.env.STREAM_DATABASE_URL = isolated.toString();
-  const migration = (
-    await readFile(new URL("../drizzle/0000_init.sql", import.meta.url), "utf8")
-  ).replaceAll('"public".', `"${schema}".`);
+  const journal: { entries: { tag: string }[] } = JSON.parse(
+    await readFile(
+      new URL("../drizzle/meta/_journal.json", import.meta.url),
+      "utf8",
+    ),
+  );
   const setup = new Client({ connectionString: isolated.toString() });
   await setup.connect();
   try {
-    await setup.query(migration);
+    for (const { tag } of journal.entries) {
+      const migration = await readFile(
+        new URL(`../drizzle/${tag}.sql`, import.meta.url),
+        "utf8",
+      );
+      await setup.query(migration.replaceAll('"public".', `"${schema}".`));
+    }
   } finally {
     await setup.end();
   }
@@ -54,6 +63,7 @@ integration(
         name: `Person ${i}`,
         color: "ember",
         kids: false,
+        showIndianCinema: false,
         layout: "studio",
         favoriteGenres: [],
       });
@@ -62,6 +72,7 @@ integration(
         name: "Extra",
         color: "tide",
         kids: false,
+        showIndianCinema: false,
         layout: "studio",
         favoriteGenres: [],
       }),
@@ -103,6 +114,7 @@ integration(
   async () => {
     const { titleQuerySchema } = await import("@repo/schemas/stream");
     const { titles } = await import("../db/schema");
+    const everyone = { kids: false, hideIndianCinema: false };
     await database.db.insert(titles).values({
       id: "tt1234568",
       type: "movie",
@@ -117,7 +129,7 @@ integration(
             actor: "O’Neil",
             genres: ["Comedy", "Thriller"],
           }),
-          false,
+          everyone,
         )
       ).total,
     ).toBe(1);
@@ -125,7 +137,7 @@ integration(
       (
         await catalog.queryTitles(
           titleQuerySchema.parse({ actor: "O’Neil", genres: ["Drama"] }),
-          false,
+          everyone,
         )
       ).total,
     ).toBe(0);
@@ -133,10 +145,52 @@ integration(
       (
         await catalog.queryTitles(
           titleQuerySchema.parse({ actor: "' OR true --" }),
-          false,
+          everyone,
         )
       ).total,
     ).toBe(0);
+  },
+);
+
+integration(
+  "Indian-language titles stay hidden unless the whole sofa allows them",
+  async () => {
+    const { titleQuerySchema } = await import("@repo/schemas/stream");
+    const { titles } = await import("../db/schema");
+    const { audienceRules } = await import("./audience-rules");
+    await database.db.insert(titles).values([
+      {
+        id: "tt2000001",
+        type: "movie",
+        title: "Lagaan match",
+        originalLanguage: "hi",
+      },
+      {
+        id: "tt2000002",
+        type: "movie",
+        title: "Lagaan match too",
+        originalLanguage: "en",
+      },
+      { id: "tt2000003", type: "movie", title: "Lagaan match unenriched" },
+    ]);
+    const query = titleQuerySchema.parse({ q: "Lagaan match" });
+    const found = async (rules: ReturnType<typeof audienceRules>) =>
+      (await catalog.queryTitles(query, rules)).titles.map((t) => t.id).sort();
+    const opted = { kids: false, showIndianCinema: true };
+    const unset = { kids: false, showIndianCinema: false };
+    expect(await found(audienceRules([unset]))).toEqual([
+      "tt2000002",
+      "tt2000003",
+    ]);
+    expect(await found(audienceRules([opted, unset]))).toEqual([
+      "tt2000002",
+      "tt2000003",
+    ]);
+    expect(await found(audienceRules([opted]))).toEqual([
+      "tt2000001",
+      "tt2000002",
+      "tt2000003",
+    ]);
   },
 );
 

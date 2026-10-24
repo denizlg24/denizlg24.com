@@ -20,8 +20,10 @@ import {
   gte,
   inArray,
   isNotNull,
+  isNull,
   lte,
   not,
+  notInArray,
   or,
   type SQL,
   sql,
@@ -36,6 +38,7 @@ import {
   titles,
   watchlist,
 } from "@/db/schema";
+import { type AudienceRules, INDIAN_LANGUAGES } from "@/lib/audience-rules";
 
 /** Certifications a kids profile may see, across the US and UK systems TMDB reports. */
 const KIDS_CERTIFICATIONS = [
@@ -52,8 +55,16 @@ const KIDS_CERTIFICATIONS = [
 const KIDS_GENRES = ["Family", "Animation"];
 const NOT_FOR_KIDS = ["Horror", "Thriller", "Crime", "War"];
 
-export function audienceFilter(kids: boolean): SQL {
-  const base = eq(titles.adult, false);
+export function audienceFilter({ kids, hideIndianCinema }: AudienceRules): SQL {
+  const base = and(
+    eq(titles.adult, false),
+    hideIndianCinema
+      ? or(
+          isNull(titles.originalLanguage),
+          notInArray(titles.originalLanguage, INDIAN_LANGUAGES),
+        )
+      : undefined,
+  ) as SQL;
   if (!kids) return base;
   return and(
     base,
@@ -111,8 +122,8 @@ const TYPE_OF = {
   miniseries: "miniseries",
 } as const;
 
-export function titleFilters(query: TitleQuery, kids: boolean): SQL {
-  const filters: SQL[] = [audienceFilter(kids)];
+export function titleFilters(query: TitleQuery, rules: AudienceRules): SQL {
+  const filters: SQL[] = [audienceFilter(rules)];
   if (query.q) {
     filters.push(
       sql`lower(${titles.title}) like ${`%${query.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`}`,
@@ -142,9 +153,9 @@ export function titleFilters(query: TitleQuery, kids: boolean): SQL {
 
 export async function queryTitles(
   query: TitleQuery,
-  kids: boolean,
+  rules: AudienceRules,
 ): Promise<TitlePage> {
-  const where = titleFilters(query, kids);
+  const where = titleFilters(query, rules);
   const [rows, [{ total }]] = await Promise.all([
     db
       .select()
@@ -374,7 +385,7 @@ export async function continueWatching(
 /** Titles closest in taste space: the map's neighbourhood, nearest first. */
 export async function nearbyTitles(
   row: TitleRow,
-  kids: boolean,
+  rules: AudienceRules,
   limit = 12,
 ): Promise<TitleSummary[]> {
   const radius = 900;
@@ -383,7 +394,7 @@ export async function nearbyTitles(
     .from(titles)
     .where(
       and(
-        audienceFilter(kids),
+        audienceFilter(rules),
         not(eq(titles.id, row.id)),
         gte(titles.mapX, row.mapX - radius),
         lte(titles.mapX, row.mapX + radius),

@@ -9,6 +9,7 @@ import Link from "next/link";
 
 import { TitleRow } from "@/components/classic/title-row";
 import { TopBar } from "@/components/top-bar";
+import { audienceRules } from "@/lib/audience-rules";
 import { queryTitles } from "@/lib/catalog";
 import { audienceProfiles, requireViewer } from "@/lib/viewer";
 
@@ -29,7 +30,7 @@ export default async function SearchPage({
   const kind = typeof params.kind === "string" ? params.kind : "";
   const genre = genreSchema.safeParse(params.genre);
   const browsing = q.trim().length > 0 || genre.success || kind !== "";
-  const kids = viewer.audience.some((profile) => profile.kids);
+  const rules = audienceRules(viewer.audience);
   const query = titleQuerySchema.parse({
     q: q.trim() || undefined,
     type: kind || undefined,
@@ -37,7 +38,7 @@ export default async function SearchPage({
     sort: q.trim() ? "votes" : "popular",
     limit: 40,
   });
-  const results = browsing ? await queryTitles(query, kids) : null;
+  const results = browsing ? await queryTitles(query, rules) : null;
   const link = (next: Record<string, string>) => {
     const merged = new URLSearchParams({
       ...(q ? { q } : {}),

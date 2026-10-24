@@ -12,6 +12,7 @@ import { and, desc, isNotNull, type SQL } from "drizzle-orm";
 
 import { db } from "@/db";
 import { type ProfileRow, titles } from "@/db/schema";
+import { type AudienceRules, audienceRules } from "@/lib/audience-rules";
 import {
   continueWatching,
   findTitle,
@@ -35,11 +36,11 @@ async function titleRail(
   id: string,
   label: string,
   input: TitleQueryInput,
-  kids: boolean,
+  rules: AudienceRules,
 ): Promise<Extract<Rail, { kind: "titles" }>> {
   const query = titleQuerySchema.parse({ ...input, limit: RAIL_SIZE });
   const where = and(
-    titleFilters(query, kids),
+    titleFilters(query, rules),
     isNotNull(titles.posterPath),
   ) as SQL;
   const SORT = {
@@ -82,6 +83,7 @@ export async function buildHome(profile: ProfileRow): Promise<Home> {
     )
     .slice(0, 5);
 
+  const rules = audienceRules([profile]);
   const [continuing, recommended, ...titleRails] = await Promise.all([
     continueWatching(profile.id),
     recommendationsFor([profile]),
@@ -89,32 +91,32 @@ export async function buildHome(profile: ProfileRow): Promise<Home> {
       "trending",
       "Trending now",
       { sort: "popular", yearFrom: year - 2 },
-      profile.kids,
+      rules,
     ),
     titleRail(
       "top-films",
       "Best-rated films",
       { type: "movie", sort: "rating", votesMin: 100_000 },
-      profile.kids,
+      rules,
     ),
     titleRail(
       "top-series",
       "Best-rated series",
       { type: "series", sort: "rating", votesMin: 50_000 },
-      profile.kids,
+      rules,
     ),
     titleRail(
       "new",
       `New in ${year}`,
       { sort: "popular", yearFrom: year },
-      profile.kids,
+      rules,
     ),
     ...genres.map((genre) =>
       titleRail(
         `genre-${genre.toLowerCase()}`,
         genre,
         { genres: [genre], sort: "popular", ratingMin: 6.5 },
-        profile.kids,
+        rules,
       ),
     ),
   ]);

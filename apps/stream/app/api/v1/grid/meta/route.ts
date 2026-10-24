@@ -2,6 +2,7 @@ import { titleIdSchema } from "@repo/schemas/stream";
 import { NextResponse } from "next/server";
 
 import { requireAudience } from "@/lib/api";
+import { audienceRules } from "@/lib/audience-rules";
 import { gridMeta } from "@/lib/grid";
 
 export async function GET(request: Request) {
@@ -11,10 +12,9 @@ export async function GET(request: Request) {
   const type = params.get("type");
   const focus = titleIdSchema.safeParse(params.get("focus"));
   const kind = type === "movie" || type === "series" ? type : "all";
-  const kids = caller.profiles.some((profile) => profile.kids);
   return NextResponse.json(
     await gridMeta(
-      kids,
+      audienceRules(caller.profiles),
       kind,
       caller.profiles,
       focus.success ? focus.data : null,
