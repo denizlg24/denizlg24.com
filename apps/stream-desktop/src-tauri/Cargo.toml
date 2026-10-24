@@ -1,6 +1,6 @@
 [package]
 name = "stream-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Stream for macOS and Windows"
 authors = ["Deniz Lopes Gunes"]
 edition = "2021"
