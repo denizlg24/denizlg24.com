@@ -220,6 +220,7 @@ export const PdfViewerTemplate = ({
         onPointerCancel={handleDragEnd}
       >
         <Document
+          suspense={false}
           file={pdfData}
           onLoadSuccess={onDocumentLoadSuccess}
           loading={

@@ -15,8 +15,8 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.60.0",
     "radix-ui": "^1.8.1",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "shadcn": "^4.22.1",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.4",
@@ -24,8 +24,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "~6.0.2",
     "vite": "^8.3.4"

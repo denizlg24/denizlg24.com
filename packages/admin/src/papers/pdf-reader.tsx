@@ -327,6 +327,7 @@ export function InlinePdfReader({
         className="flex max-h-[70vh] min-h-[32rem] justify-center overflow-auto p-3 outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <Document
+          suspense={false}
           file={url}
           onLoadSuccess={handleLoad}
           loading={documentLoading}
@@ -778,6 +779,7 @@ export function MobilePdfReader({
         onTouchEnd={handleTouchEnd}
       >
         <Document
+          suspense={false}
           file={url}
           onLoadSuccess={(loaded) => {
             setDocument(loaded);
@@ -1164,6 +1166,7 @@ export function DesktopPdfReader({
           className="min-w-0 flex-1 overflow-auto bg-muted/25 p-6 dark:[&_.react-pdf__Page]:[filter:invert(1)_hue-rotate(180deg)]"
         >
           <Document
+            suspense={false}
             file={url}
             onLoadSuccess={handleDocumentLoad}
             loading={documentLoading}

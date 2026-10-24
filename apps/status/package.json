@@ -17,10 +17,10 @@
     "@repo/ui": "workspace:*",
     "ai": "^7.0.147",
     "lucide-react": "^1.60.0",
-    "mongodb": "^7.7.0",
+    "mongodb": "^7.6.0",
     "next": "16.4.2",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "recharts": "^3.10.1",
     "server-only": "^0.0.1",
     "zod": "^4.6.7"

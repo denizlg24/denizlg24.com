@@ -416,7 +416,7 @@ const splitSheets = async () => {
         const key = `${groupSlug}-${String(index).padStart(3, "0")}`;
         const outputPath = resolve(iconsDirectory, `${key}.png`);
 
-        let iconBuffer = await sharp(inputPath)
+        let iconBuffer: Buffer = await sharp(inputPath)
           .extract({
             left,
             top,

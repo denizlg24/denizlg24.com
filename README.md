@@ -5,8 +5,9 @@
 This is the monorepo behind [denizlg24.com](https://denizlg24.com), my public
 website, personal applications, and self-hosted infrastructure.
 
-Most applications here are purpose-built for my own workflows. The public
-projects are Envoy with its Rust CLI, and Macros.
+Most applications here are purpose-built for my own workflows; storage and
+Stream also serve my family. The public projects are Envoy with its Rust CLI,
+and Macros.
 
 ## Public projects
 
@@ -39,9 +40,15 @@ weight trends and energy-expenditure estimates.
 | --- | --- | --- |
 | `apps/web` | Public website, writing, projects, and private administration | Personal |
 | `apps/desktop` | Native life-dashboard client built with Tauri | Personal |
+| `apps/dashboard-mobile` | The administration dashboard as a native iPhone app, with widgets and pushes | Personal |
+| `apps/hours-mobile` | Work-hours clock for iPhone with widgets and Live Activities | Personal |
+| `apps/voice-mobile` | Voice-note recorder for iPhone | Personal |
+| `apps/location-mobile` | Location recorder for iPhone: visits, geofences and an explored map | Personal |
+| `apps/tally-macos` | SwiftUI menu-bar app for Claude and Codex usage, seat switching and LLM spend | Personal |
 | `apps/authenticator-extension` | Chrome and Firefox extension holding an offline authenticator vault | Personal |
 | `apps/macros` | Macros API and website | Public |
 | `apps/macros-mobile` | Macros for iPhone and Android, built with Expo | Public |
+| `apps/macros-admin` | Moderation console for foods shared to the Macros catalogue | Personal |
 | `apps/macros-vision` | Python service for nutrition-label OCR and food-photo classification | Public |
 | `apps/nutrition` | Food catalogue API combining USDA, national composition tables and OpenFoodFacts | Public |
 | `apps/api` | API and OAuth 2.1 authorization server for my self-hosted cloud | Personal |
@@ -55,9 +62,12 @@ weight trends and energy-expenditure estimates.
 | `apps/deploy-agent` | Executor on the deploy host that builds images and runs containers | Personal |
 | `apps/email-classifier` | Python Logistic Regression Email Classifier API | Personal |
 | `apps/markets-relay` | Bun WebSocket relay fanning out Tiingo market quotes | Personal |
-| `apps/storage` | Browser-based file manager | Personal |
+| `apps/storage` | Browser-based file manager | Family |
 | `apps/storage-metadata` | Privileged metadata, checksum, and tiering service for the storage namespace | Personal |
 | `apps/terminal` | Web-terminal daemon for the cloud host | Personal |
+| `apps/stream` | Film and series catalogue: web and TV interface, API and ingest jobs | Family |
+| `apps/stream-mobile` | Stream for iPhone and Android, built with Expo | Family |
+| `apps/stream-desktop` | Stream desktop player built with Tauri | Family |
 | `apps/envoy` | Envoy website and encrypted-storage API | Public |
 | `apps/envoy-cli` | Rust command-line client for Envoy | Public |
 | `apps/ssh-server` | Go based ssh-server that powers my business card | Personal |
@@ -78,6 +88,11 @@ weight trends and energy-expenditure estimates.
 | `packages/cloud-auth-client` | Client-side authentication for the cloud applications |
 | `packages/macros-core` | Macros domain logic shared by its API and app: nutrients, servings, weight trend, expenditure |
 | `packages/auth-ui` | Sign-in and consent flow screens for the auth application |
+| `packages/auth-sdk` | `@denizlg24/auth`, the published SDK for applications that sign in with deniz auth |
+| `packages/native-ui` | UI primitives shared by the personal iPhone apps |
+| `packages/native-auth` | Sign-in and the administration API client for the personal iPhone apps |
+| `packages/expo-ios-targets` | Expo config plugins for widget extensions, App Intents and the iOS scene life cycle |
+| `packages/stream-player` | Playback session, controls and embed player shared by the Stream clients |
 | `packages/tts` | Text-to-speech model catalogue and narration chunking |
 | `packages/utils` | Shared helpers for money, recurrence, payroll, tree structures, and changelog parsing |
 | `packages/typescript-config` | Shared TypeScript configuration presets |
@@ -86,7 +101,7 @@ weight trends and energy-expenditure estimates.
 
 The TypeScript applications are organized as Bun workspaces and coordinated by
 Turborepo. Next.js and React power the browser interfaces, Tauri packages the
-desktop application, Expo builds the Macros app, and shared packages keep
+desktop applications, Expo builds the iPhone and Android apps, and shared packages keep
 contracts and UI consistent across applications.
 
 One identity covers everything: the cloud API is also the OAuth 2.1
@@ -98,6 +113,21 @@ Redis, and S3-compatible storage. Forge is the deployment platform on top of
 it: the API holds the control plane and `deploy-agent` builds images and runs
 containers on the host. Envoy combines a Next.js service with a Rust CLI and
 shares versioned API fixtures across both implementations.
+
+## Dependency updates
+
+Dependabot groups minor and patch updates into one weekly pull request. Some
+versions are held on purpose, and a grouped update that moves them is merged
+without them:
+
+| Dependency | Held at | Why |
+| --- | --- | --- |
+| `react-native`, `react-native-reanimated`, `-worklets`, `-screens`, `-safe-area-context`, `-svg` | The Expo SDK's versions | Expo SDK 57 builds against those native versions; they move with the SDK |
+| `react`, `react-dom` and their types | The root `overrides` | Every Next.js and Expo app shares one React |
+| `mongodb` | 7.6 | 7.7 pulls `bson` 7.3, which calls a `node:v8` API Bun does not implement and throws on import |
+| `mongoose` | 9.10 | 9.11 requires `mongodb` 7.7 |
+| `@biomejs/biome` | 2.5 | 2.6 adds lint rules the tree does not yet pass |
+| `playwright` | The exact build `@playwright/mcp` depends on | Two copies of Playwright break the browser pool |
 
 ## Running infrastructure
 
@@ -126,7 +156,9 @@ backup and recovery flow works, and the retention policy behind it.
 
 - Bun, TypeScript, Turborepo
 - Next.js, React, Tailwind CSS
-- Expo and React Native for the Macros app, with Swift modules for HealthKit
+- Expo and React Native for the mobile apps, with Swift for HealthKit, widgets,
+  Live Activities and App Intents
+- SwiftUI for the macOS menu-bar app
 - Vite and Manifest V3 for the browser extension
 - Rust and Tauri
 - Go, Python, FastAPI
