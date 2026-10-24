@@ -27,6 +27,11 @@ const proxy = startEgressProxy({
 const pool = new BrowserPool({
   proxyServer: `http://127.0.0.1:${proxy.port}`,
   viewport: config.viewport,
+  screen: config.screen,
+  headless: config.headless,
+  ...(config.channel ? { channel: config.channel } : {}),
+  locale: config.locale,
+  ...(config.timezoneId ? { timezoneId: config.timezoneId } : {}),
   maxSessions: config.maxSessions,
   sessionIdleMs: config.sessionIdleMs,
   ...(config.executablePath ? { executablePath: config.executablePath } : {}),
@@ -40,8 +45,6 @@ const playwright: PlaywrightMcpConfig = {
     // The pool hands every server its context; `isolated` would make the
     // server ask the browser for a fresh one, which SimpleBrowser refuses.
     isolated: false,
-    launchOptions: { headless: true },
-    contextOptions: { viewport: config.viewport },
   },
   capabilities: ["vision", "pdf"],
   imageResponses: "allow",

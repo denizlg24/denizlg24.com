@@ -23,6 +23,9 @@ const config: BrowserConfig = {
   proxyPort: 0,
   allowPrivateEgress: true,
   viewport: { width: 800, height: 600 },
+  screen: { width: 1024, height: 768 },
+  headless: true,
+  locale: "en-US",
   maxSessions: 3,
   sessionIdleMs: 60_000,
   mcpIdleMs: 60_000,
@@ -43,6 +46,9 @@ beforeAll(() => {
   pool = new BrowserPool({
     proxyServer: `http://127.0.0.1:${proxy.port}`,
     viewport: config.viewport,
+    screen: config.screen,
+    headless: config.headless,
+    locale: config.locale,
     maxSessions: config.maxSessions,
     sessionIdleMs: config.sessionIdleMs,
   });
