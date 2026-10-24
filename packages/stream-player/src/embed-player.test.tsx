@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EmbedPlayer } from "./embed-player";
 
-test("server rendering keeps a sandbox and defers provider loading until host detection", () => {
+test("the provider loads unsandboxed and the click shield waits for the player to report", () => {
   const html = renderToStaticMarkup(
     createElement(EmbedPlayer, {
       title: "Movie",
@@ -20,21 +20,7 @@ test("server rendering keeps a sandbox and defers provider loading until host de
     }),
   );
   const iframe = html.match(/<iframe\b[^>]+>/)?.[0];
-  expect(iframe).toBeDefined();
-  expect(iframe).not.toContain("src=");
-  const sandbox = iframe?.match(/\bsandbox="([^"]*)"/)?.[1];
-  expect(sandbox).toBeDefined();
-  const allowed = new Set(sandbox?.split(/\s+/));
-  for (const capability of [
-    "allow-popups",
-    "allow-popups-to-escape-sandbox",
-    "allow-top-navigation",
-    "allow-top-navigation-by-user-activation",
-    "allow-top-navigation-to-custom-protocols",
-    "allow-downloads",
-  ]) {
-    expect(allowed.has(capability)).toBe(false);
-  }
-  expect(allowed.has("allow-scripts")).toBe(true);
-  expect(allowed.has("allow-same-origin")).toBe(true);
+  expect(iframe).toContain('src="https://vsembed.ru/embed/movie/tt0111161');
+  expect(iframe).not.toContain("sandbox");
+  expect(html).not.toContain("data-embed-shield");
 });

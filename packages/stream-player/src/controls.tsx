@@ -112,7 +112,7 @@ export function TopBar({
   );
 }
 
-function SkipIcon({ direction }: { direction: "back" | "forward" }) {
+export function SkipIcon({ direction }: { direction: "back" | "forward" }) {
   const Icon = direction === "back" ? RotateCcw : RotateCw;
   return (
     <span className="relative inline-flex">

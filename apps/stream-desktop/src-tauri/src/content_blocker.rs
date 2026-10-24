@@ -40,7 +40,7 @@ pub fn webkit_rules() -> String {
 }
 
 /// Only the Stream top frame gets the capability flag. Subframes receive popup
-/// guards, but cannot opt the web player out of its sandbox. The app does not
+/// guards, but cannot turn off the web player's click shield. The app does not
 /// navigate to Stream until the native request filter is installed successfully.
 pub fn initialization_script(home: &Url) -> String {
     format!(

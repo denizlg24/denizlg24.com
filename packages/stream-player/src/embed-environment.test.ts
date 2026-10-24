@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { embedEnvironment, serverEmbedEnvironment } from "./embed-environment";
 
-test("only the immutable native capability in the top frame removes the sandbox", () => {
+test("only the immutable native capability in the top frame skips the click shield", () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
   try {
     for (const [value, writable, configurable, topFrame, expected] of [
