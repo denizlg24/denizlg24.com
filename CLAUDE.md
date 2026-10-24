@@ -962,11 +962,21 @@ operator side: `docs/internal/runbooks/status-incident-agent.md`.
 ## The agent's browser (apps/browser)
 
 `@playwright/mcp`'s tools (snapshot, click, type, screenshot, coordinate
-clicks, PDF) served over streamable HTTP from one headless Chromium, added to
+clicks, PDF) served over streamable HTTP from one Google Chrome, added to
 the agent as an ordinary `bearer` connector (`BROWSER_MCP_TOKEN`, URL
 `https://browser.denizlg24.com/mcp`). Its Dockerfile is Debian, not alpine:
-Playwright's Chromium is a glibc build and `playwright install --with-deps`
-only knows apt.
+Chrome is a glibc build and `playwright install --with-deps` only knows apt.
+
+- **Chrome runs headful on Xvfb, never headless.** Playwright's headless
+  builds put `HeadlessChrome` in the UA and client hints and report no
+  pointer; every challenge vendor stops them on sight. The pool owns the
+  launch, so anything @playwright/mcp would add to *its* launch options
+  (it disables `AutomationControlled`) never applies — the pool's own
+  `launch` must carry it, and `--enable-automation` is dropped there too.
+  Timezone (`BROWSER_TIMEZONE`, baked into the image) must match where
+  Forge's egress IP geolocates; locale and screen are config too. The one
+  known tell left is WebGL reporting SwiftShader. Chrome ships no
+  linux/arm64, so the image is amd64 only.
 
 - **A browser context lives per agent session, not per MCP session.** Web
   closes every connector client at the end of a turn, and Playwright MCP's

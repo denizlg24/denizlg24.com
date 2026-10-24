@@ -3,6 +3,11 @@ import { type Browser, type BrowserContext, chromium } from "playwright";
 export interface BrowserPoolOptions {
   proxyServer: string;
   viewport: { width: number; height: number };
+  screen: { width: number; height: number };
+  headless: boolean;
+  channel?: string;
+  locale: string;
+  timezoneId?: string;
   /** Contexts kept at once; the least recently used is closed for a new one. */
   maxSessions: number;
   /** A context untouched for this long is closed. */
@@ -40,14 +45,24 @@ export class BrowserPool {
 
   private async launch(): Promise<Browser> {
     const browser = await chromium.launch({
-      headless: true,
+      headless: this.options.headless,
       ...(this.options.executablePath
         ? { executablePath: this.options.executablePath }
-        : {}),
+        : this.options.channel
+          ? { channel: this.options.channel }
+          : {}),
       // `<-loopback>` removes Chromium's implicit proxy bypass for localhost,
       // so even 127.0.0.1 is decided by the proxy.
       proxy: { server: this.options.proxyServer, bypass: "<-loopback>" },
-      args: ["--disable-dev-shm-usage"],
+      args: [
+        "--disable-dev-shm-usage",
+        // Without it `navigator.webdriver` is true, the first thing every
+        // challenge script reads. @playwright/mcp adds this when it launches,
+        // but here the pool launches and MCP only ever sees the context.
+        "--disable-blink-features=AutomationControlled",
+        `--window-size=${this.options.screen.width},${this.options.screen.height}`,
+      ],
+      ignoreDefaultArgs: ["--enable-automation"],
       // Shutdown closes contexts, then the browser; Playwright's own signal
       // handlers would kill Chromium under the contexts being closed.
       handleSIGINT: false,
@@ -127,7 +142,14 @@ export class BrowserPool {
     }
     const session: Session = {
       context: this.getBrowser().then((browser) =>
-        browser.newContext({ viewport: this.options.viewport }),
+        browser.newContext({
+          viewport: this.options.viewport,
+          screen: this.options.screen,
+          locale: this.options.locale,
+          ...(this.options.timezoneId
+            ? { timezoneId: this.options.timezoneId }
+            : {}),
+        }),
       ),
       lastUsedAt: Date.now(),
     };
