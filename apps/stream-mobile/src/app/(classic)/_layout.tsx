@@ -12,7 +12,7 @@ import { useAudience } from "@/lib/audience-store";
 import { Avatar, colors, gutter, radius, spacing, Text } from "@/ui";
 
 /**
- * Classic: three big labelled buttons along the top — Home, Search, My list
+ * Classic: big labelled buttons along the top — Home, Search, Ask, My list
  * — and the person watching, which opens the sofa to change who it is.
  */
 export default function ClassicLayout() {
@@ -39,6 +39,9 @@ export default function ClassicLayout() {
           </TabTrigger>
           <TabTrigger name="search" href="/search" asChild>
             <TabButton label="Search" />
+          </TabTrigger>
+          <TabTrigger name="ideas" href="/ideas" asChild>
+            <TabButton label="Ask" />
           </TabTrigger>
           <TabTrigger name="list" href="/list" asChild>
             <TabButton label="My list" />

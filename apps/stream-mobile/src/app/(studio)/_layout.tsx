@@ -1,7 +1,7 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { colors } from "@/ui";
 
-/** Studio: Tonight · Tune · Map · Shelf. `sf` names the iOS glyph, `md` the Material one. */
+/** Studio: Tonight · Tune · Map · Shelf · Ask. `sf` names the iOS glyph, `md` the Material one. */
 export default function StudioLayout() {
   return (
     <NativeTabs
@@ -29,6 +29,10 @@ export default function StudioLayout() {
       <NativeTabs.Trigger name="shelf">
         <NativeTabs.Trigger.Icon sf="books.vertical" md="video_library" />
         <NativeTabs.Trigger.Label>Shelf</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="ask">
+        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
+        <NativeTabs.Trigger.Label>Ask</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
