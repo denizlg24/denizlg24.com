@@ -34,7 +34,9 @@ function dimensions(
   fallback: { width: number; height: number },
 ): { width: number; height: number } {
   const match = value?.match(/^(\d{3,4})x(\d{3,4})$/);
-  return match ? { width: Number(match[1]), height: Number(match[2]) } : fallback;
+  return match
+    ? { width: Number(match[1]), height: Number(match[2]) }
+    : fallback;
 }
 
 export function configFromEnv(
@@ -52,7 +54,9 @@ export function configFromEnv(
     viewport: dimensions(env.BROWSER_VIEWPORT, { width: 1280, height: 720 }),
     screen: dimensions(env.BROWSER_SCREEN, { width: 1920, height: 1080 }),
     headless: env.BROWSER_HEADLESS === "1",
-    ...(env.BROWSER_CHANNEL !== "" ? { channel: env.BROWSER_CHANNEL ?? "chrome" } : {}),
+    ...(env.BROWSER_CHANNEL !== ""
+      ? { channel: env.BROWSER_CHANNEL ?? "chrome" }
+      : {}),
     locale: env.BROWSER_LOCALE?.trim() || "en-US",
     ...(env.BROWSER_TIMEZONE?.trim()
       ? { timezoneId: env.BROWSER_TIMEZONE.trim() }
