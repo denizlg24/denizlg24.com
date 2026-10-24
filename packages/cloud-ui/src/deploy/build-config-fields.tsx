@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  DEFAULT_CPU_LIMIT,
   DEPLOY_RUNTIME_VERSIONS,
   DEPLOY_RUNTIMES,
   type DeployBuilder,
@@ -63,7 +64,7 @@ export function defaultBuildConfig(): BuildConfigForm {
     startCommand: null,
     healthPath: "/",
     memoryReservationMb: "256",
-    cpuLimit: "1",
+    cpuLimit: String(DEFAULT_CPU_LIMIT),
   };
 }
 

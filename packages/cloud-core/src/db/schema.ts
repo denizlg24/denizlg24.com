@@ -1274,7 +1274,7 @@ export const deployTargets = pgTable(
     memoryLimitMb: integer("memory_limit_mb"),
     cpuLimit: numeric("cpu_limit", { precision: 4, scale: 2 })
       .notNull()
-      .default("1.0"),
+      .default("10.0"),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     previewDeploys: boolean("preview_deploys").notNull().default(true),
     /**

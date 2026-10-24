@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import type {
   AgentDeploymentRequest,
   DeploymentKind,
@@ -8,6 +9,36 @@ import type { BuildLog } from "./build-log";
 import { type Exec, execOrThrow } from "./exec";
 
 export const DEFAULT_CONTAINER_PORT = 3_000;
+
+/**
+ * Every deployment runs under this slice (`infra/systemd/forge-apps.slice`),
+ * which outweighs `system.slice` and is capped below the host's thread count,
+ * so all apps together can never starve Caddy, the tunnel or this agent.
+ */
+export const APPS_CGROUP_PARENT = "forge-apps.slice";
+
+/** Threads no deployment may claim; the platform's share of the host. */
+const PLATFORM_RESERVED_CPUS = 2;
+
+/**
+ * `--cpu-shares` per kind; Docker maps it onto cgroup v2 `cpu.weight`. Weights
+ * only matter while the host is contended, so an idle Forge lets anything burst
+ * to its ceiling, and a busy one serves production before staging before
+ * previews.
+ */
+const CPU_SHARES_BY_KIND: Record<DeploymentKind, number> = {
+  production: 1_024,
+  environment: 512,
+  preview: 256,
+};
+
+/** Docker refuses `--cpus` above the host's thread count, so clamp here. */
+export function cpuCeiling(requested: number, hostCpus: number): number {
+  return Math.max(
+    0.1,
+    Math.min(requested, Math.max(1, hostCpus - PLATFORM_RESERVED_CPUS)),
+  );
+}
 
 export interface DeploymentRoute {
   deploymentId: string;
@@ -333,8 +364,12 @@ export function containerCreateArgs(options: {
     // adjustment makes a deployed app always the cheaper target.
     "--oom-score-adj",
     "500",
+    "--cgroup-parent",
+    APPS_CGROUP_PARENT,
     "--cpus",
-    String(request.runtime.cpuLimit),
+    String(cpuCeiling(request.runtime.cpuLimit, availableParallelism())),
+    "--cpu-shares",
+    String(CPU_SHARES_BY_KIND[request.kind]),
     "--pids-limit",
     "512",
     "--security-opt",

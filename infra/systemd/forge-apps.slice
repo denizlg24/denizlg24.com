@@ -1,0 +1,11 @@
+[Unit]
+Description=Forge deployments
+Before=slices.target
+
+[Slice]
+# Twice system.slice's default weight: under contention deployments get two
+# thirds of the host and the platform (Caddy, cloudflared, the agent, BuildKit)
+# keeps a third. The quota is ten of the twelve threads, so all deployments
+# together can never take the last two from the edge, however hard they burst.
+CPUWeight=200
+CPUQuota=1000%

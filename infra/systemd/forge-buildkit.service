@@ -14,8 +14,10 @@ EnvironmentFile=-/etc/forge/buildkit-storage.env
 # Refuse to create a cache directory beneath an absent mount by accident.
 ExecStartPre=/usr/bin/test -d ${BUILDKIT_DATA_ROOT}
 # The worker is disposable; all durable cache state is the bind mount below.
+# Builds run inside it, so its CPU share is what keeps a monorepo-wide build
+# from slowing Caddy and the tunnel: a tenth of a default service's weight.
 ExecStartPre=-/usr/bin/docker rm --force forge-buildkit
-ExecStart=/usr/bin/docker run --rm --name forge-buildkit --privileged --pull=missing --volume ${BUILDKIT_DATA_ROOT}:/var/lib/buildkit --volume ${BUILDKIT_CONFIG_PATH}:/etc/buildkit/buildkitd.toml:ro moby/buildkit:v0.32.2 --config /etc/buildkit/buildkitd.toml
+ExecStart=/usr/bin/docker run --rm --name forge-buildkit --privileged --pull=missing --cpu-shares 102 --volume ${BUILDKIT_DATA_ROOT}:/var/lib/buildkit --volume ${BUILDKIT_CONFIG_PATH}:/etc/buildkit/buildkitd.toml:ro moby/buildkit:v0.32.2 --config /etc/buildkit/buildkitd.toml
 ExecStop=-/usr/bin/docker stop --time 30 forge-buildkit
 Restart=always
 RestartSec=5
