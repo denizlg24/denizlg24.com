@@ -18,13 +18,22 @@ beforeAll(async () => {
   const isolated = new URL(url);
   isolated.searchParams.set("options", `-c search_path=${schema},public`);
   process.env.STREAM_DATABASE_URL = isolated.toString();
-  const migration = (
-    await readFile(new URL("../drizzle/0000_init.sql", import.meta.url), "utf8")
-  ).replaceAll('"public".', `"${schema}".`);
+  const journal: { entries: { tag: string }[] } = JSON.parse(
+    await readFile(
+      new URL("../drizzle/meta/_journal.json", import.meta.url),
+      "utf8",
+    ),
+  );
   const setup = new Client({ connectionString: isolated.toString() });
   await setup.connect();
   try {
-    await setup.query(migration);
+    for (const { tag } of journal.entries) {
+      const migration = await readFile(
+        new URL(`../drizzle/${tag}.sql`, import.meta.url),
+        "utf8",
+      );
+      await setup.query(migration.replaceAll('"public".', `"${schema}".`));
+    }
   } finally {
     await setup.end();
   }
