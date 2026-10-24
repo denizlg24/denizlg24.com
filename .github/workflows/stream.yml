@@ -88,6 +88,25 @@ jobs:
           name: stream-mobile-bundles
           path: apps/stream-mobile/dist
           retention-days: 14
+  desktop-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/stream-desktop/src-tauri
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path apps/stream-desktop/src-tauri/Cargo.toml -- --check
+      - name: Test native playback protection
+        run: cargo test --locked --manifest-path apps/stream-desktop/src-tauri/Cargo.toml
   # Forge's GitHub integration deploys the web target on main, using its
   # production environment and health check. Desktop releases are handled
   # by release-stream-desktop.yml; native iOS compilation by personal-ios.yml.

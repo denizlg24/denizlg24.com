@@ -99,14 +99,34 @@ export function decodeActorName(value: string): string {
   }
 }
 
-/** Remains in the WebView; no credentials or application data are exposed. */
+/**
+ * Remains in the WebView; no credentials or application data are exposed.
+ * Popunder scripts wrap the play button and throw when `window.open` returns
+ * null, which swallows the click, so they get a decoy window instead. The
+ * native side still refuses every real window request.
+ */
 export const EMBED_BROWSER_SCRIPT = `
 (function () {
   if (window.__streamBridge) return; window.__streamBridge = true;
-  window.open = function () { return null; };
+  var decoy = new Proxy(function () {}, {
+    get: function (_, key) {
+      if (key === 'closed') return false;
+      if (key === 'toString' || key === 'valueOf') return function () { return ''; };
+      if (key === 'then' || typeof key === 'symbol') return undefined;
+      return decoy;
+    },
+    set: function () { return true; },
+    apply: function () { return decoy; }
+  });
+  Object.defineProperty(window, 'open', { value: function () { return decoy; }, writable: false, configurable: false });
   document.addEventListener('click', function (e) {
-    var a = e.target && e.target.closest && e.target.closest('a');
-    if (a && (a.target === '_blank' || a.target === '_top' || a.target === '_parent')) { e.preventDefault(); e.stopImmediatePropagation(); }
+    var a = e.target && e.target.closest && e.target.closest('a, area');
+    var target = a && String(a.target).toLowerCase();
+    if (target === '_blank' || target === '_top' || target === '_parent') { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('submit', function (e) {
+    var target = e.target && e.target.target && String(e.target.target).toLowerCase();
+    if (target && target !== '_self') { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
   window.addEventListener('message', function (e) {
     var frame = document.getElementById('player_iframe');

@@ -86,7 +86,14 @@ test("native bridge blocks popup creation and only relays events from the active
       handlers.set(key, handler),
   };
   new Function("window", "document", EMBED_BROWSER_SCRIPT)(window, document);
-  expect(window.open("https://ad.example.test")).toBeNull();
+  const popup = window.open("https://ad.example.test");
+  expect(popup.closed).toBe(false);
+  popup.location.href = "https://ad.example.test/landing";
+  popup.document.write("<script></script>");
+  expect(String(popup)).toBe("");
+  expect(() => {
+    window.open = () => null;
+  }).toThrow();
   const receive = handlers.get("message")!;
   receive({ source: {}, origin: "https://player.example.test", data: event });
   receive({

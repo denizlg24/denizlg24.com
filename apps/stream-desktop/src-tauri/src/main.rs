@@ -3,19 +3,22 @@
     windows_subsystem = "windows"
 )]
 
+mod content_blocker;
 mod navigation;
 mod updater;
+#[cfg(target_os = "macos")]
+mod webkit;
 #[cfg(windows)]
 mod webview2;
 
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::http::{header::CONTENT_TYPE, Response};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
 
 use navigation::{Route, Shell};
@@ -29,6 +32,7 @@ struct State {
     shell: Shell,
     last: Mutex<Url>,
     client: reqwest::Client,
+    protected: AtomicBool,
 }
 
 type Shared = Arc<State>;
@@ -97,6 +101,14 @@ fn reload(app: &AppHandle, state: &Shared, window: &WebviewWindow) {
 }
 
 fn handle_route(app: &AppHandle, state: &Shared, url: &Url) -> bool {
+    if !state.protected.load(Ordering::Acquire)
+        && !url.as_str().starts_with(state.shell.origin.as_str())
+    {
+        return false;
+    }
+    if content_blocker::blocks(url) {
+        return false;
+    }
     match state.shell.route(url) {
         Route::Allow => {
             if state.shell.is_stream(url) {
@@ -115,10 +127,7 @@ fn handle_route(app: &AppHandle, state: &Shared, url: &Url) -> bool {
             }
             false
         }
-        Route::External => {
-            let _ = app.opener().open_url(url.as_str(), None::<&str>);
-            false
-        }
+        Route::Block => false,
     }
 }
 
@@ -156,21 +165,17 @@ fn create_window(app: &AppHandle, state: &Shared) -> tauri::Result<WebviewWindow
 
     let nav_app = app.clone();
     let nav_state = state.clone();
-    let popup_app = app.clone();
-    let popup_state = state.clone();
 
     let builder = WebviewWindowBuilder::from_config(app, &config)?
+        .initialization_script_for_all_frames(content_blocker::initialization_script(
+            &state.shell.home,
+        ))
         .on_navigation(move |url| handle_route(&nav_app, &nav_state, url))
-        .on_new_window(move |url, _features| {
-            if let Route::Allow = popup_state.shell.route(&url) {
-                if let Some(window) = popup_app.get_webview_window(MAIN_WINDOW) {
-                    let _ = window.navigate(url);
-                }
-            } else {
-                let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
-            }
-            NewWindowResponse::Deny
-        });
+        .on_download(|_webview, event| {
+            !matches!(event, tauri::webview::DownloadEvent::Requested { .. })
+        })
+        // Denying a popup must have no navigation or external-browser side effects.
+        .on_new_window(|_url, _features| NewWindowResponse::Deny);
 
     #[cfg(target_os = "macos")]
     let builder = builder.user_agent(&format!(
@@ -182,9 +187,6 @@ fn create_window(app: &AppHandle, state: &Shared) -> tauri::Result<WebviewWindow
     let builder = builder.initialization_script(shortcut_script(&state.shell));
 
     let window = builder.build()?;
-
-    #[cfg(windows)]
-    webview2::configure(&window, &user_agent_suffix(app));
 
     #[cfg(not(any(windows, target_os = "macos")))]
     let _ = user_agent_suffix;
@@ -262,7 +264,6 @@ fn main() {
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
                 .build(),
         )
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SHELL_SCHEME, |_ctx, _request| {
@@ -299,11 +300,30 @@ fn main() {
                 shell: Shell::new(shell_origin(), home.clone()),
                 last: Mutex::new(home.clone()),
                 client,
+                protected: AtomicBool::new(false),
             });
             app.manage(state.clone());
 
-            create_window(handle, &state)?;
-            connect(handle, &state, home);
+            let window = create_window(handle, &state)?;
+            let ready_app = handle.clone();
+            let ready_state = state.clone();
+            let ready_window = window.clone();
+            let ready: content_blocker::Ready = Arc::new(move |result| match result {
+                Ok(()) => {
+                    ready_state.protected.store(true, Ordering::Release);
+                    connect(&ready_app, &ready_state, home.clone());
+                }
+                Err(error) => {
+                    eprintln!("playback protection failed: {error}");
+                    let _ = ready_window.eval("document.body.textContent = 'Playback protection could not start. Restart Stream.'");
+                }
+            });
+            #[cfg(target_os = "macos")]
+            webkit::configure(&window, ready)?;
+            #[cfg(windows)]
+            webview2::configure(&window, &user_agent_suffix(handle), ready)?;
+            #[cfg(not(any(windows, target_os = "macos")))]
+            ready(Err("Content blocking is unsupported on this platform".into()));
 
             if !cfg!(debug_assertions) {
                 updater::spawn(handle.clone());
