@@ -543,6 +543,17 @@ hint, not a platform ceiling.
   that record only an owner (the Mac bridge, release workflows) are still left
   alone. The Pi's copy of the tmpfiles rule is installed by `install-host`,
   which no release runs, so a change to it needs that run by hand.
+- **A Forge target's `cpuLimit` is a burst ceiling, not an allocation.**
+  Contention is settled by weight: every deployment runs under
+  `forge-apps.slice` (`--cgroup-parent`; `CPUWeight=200`, capped at ten of the
+  twelve threads) with `--cpu-shares` by kind — production 1024, environment
+  512, preview 256 — and BuildKit runs at `--cpu-shares 102` inside
+  `system.slice`. The default ceiling is `DEFAULT_CPU_LIMIT` (10); the agent
+  clamps anything higher to the host's threads minus two. A hard one-core quota
+  used to throttle web's image optimizer on a host sitting at 7%. The slice
+  unit ships with the agent, but the release runs the *previously installed*
+  `forge-agent-install`, so a new staged unit lands one release late unless
+  installed by hand; without it systemd still creates the slice, uncapped.
 - **Stateful services on the Forge box are host units, never deployments.** A
   Forge deployment gets no volume (old containers go with `--volumes`), an
   HTTP-only health check and a new port and container name on every deploy, so

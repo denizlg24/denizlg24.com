@@ -418,6 +418,14 @@ export function deriveMemoryCeilingMb(reservationMb: number): number {
 
 const memoryMbSchema = z.number().int().min(MIN_MEMORY_MB).max(MAX_MEMORY_MB);
 
+/**
+ * The CPU ceiling a target gets unless it asks for less: Forge's 12 threads
+ * minus two kept for Caddy, the tunnel, the agent and dockerd. A ceiling, not
+ * an allocation — contention is settled by `cpu.weight`, which follows the
+ * deployment kind, so an idle host lets any app burst to this.
+ */
+export const DEFAULT_CPU_LIMIT = 10;
+
 export const deploymentRuntimeSpecSchema = z
   .object({
     healthPath: z.string().min(1).max(1_024).default("/"),
@@ -433,7 +441,7 @@ export const deploymentRuntimeSpecSchema = z
      * the platform also refuses to commit more of these than the host has.
      */
     memoryReservationMb: memoryMbSchema.default(256),
-    cpuLimit: z.number().min(0.1).max(32).default(1),
+    cpuLimit: z.number().min(0.1).max(32).default(DEFAULT_CPU_LIMIT),
     containerPort: z.number().int().min(1).max(65_535).optional(),
   })
   .refine((runtime) => runtime.memoryLimitMb >= runtime.memoryReservationMb, {
@@ -1133,7 +1141,7 @@ export const createDeployTargetInputSchema = z.object({
    * is one number and the ceiling moves with it.
    */
   memoryLimitMb: memoryMbSchema.nullish(),
-  cpuLimit: z.number().min(0.1).max(32).default(1),
+  cpuLimit: z.number().min(0.1).max(32).default(DEFAULT_CPU_LIMIT),
   autoDeploy: z.boolean().default(true),
   previewDeploys: z.boolean().default(true),
   /**

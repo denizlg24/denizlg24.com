@@ -10,8 +10,11 @@ import {
 } from "./fixtures";
 import { PortAllocator } from "./ports";
 import {
+  APPS_CGROUP_PARENT,
   applyDeploymentEnv,
+  containerCreateArgs,
   containerNameFor,
+  cpuCeiling,
   healthUrl,
   loopbackOnlyRouteManager,
   type RouteManager,
@@ -742,5 +745,38 @@ describe("reapSuperseded", () => {
         sleep: noSleep,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("container CPU", () => {
+  function flag(args: string[], name: string): string | undefined {
+    const index = args.indexOf(name);
+    return index === -1 ? undefined : args[index + 1];
+  }
+
+  it("keeps the platform's two threads out of every ceiling", () => {
+    expect(cpuCeiling(10, 12)).toBe(10);
+    expect(cpuCeiling(32, 12)).toBe(10);
+    expect(cpuCeiling(10, 4)).toBe(2);
+    expect(cpuCeiling(0.5, 12)).toBe(0.5);
+    expect(cpuCeiling(4, 2)).toBe(1);
+  });
+
+  it("weighs production over environments over previews, all in the apps slice", () => {
+    const shares = (["production", "environment", "preview"] as const).map(
+      (kind) => {
+        const { command } = containerCreateArgs({
+          request: deploymentRequest({ kind }),
+          imageTag: "forge/test:latest",
+          port: 40_000,
+          containerPort: 3_000,
+          network: "forge-apps",
+        });
+        expect(flag(command, "--cgroup-parent")).toBe(APPS_CGROUP_PARENT);
+        return Number(flag(command, "--cpu-shares"));
+      },
+    );
+    expect(shares[0]).toBeGreaterThan(shares[1] ?? 0);
+    expect(shares[1]).toBeGreaterThan(shares[2] ?? 0);
   });
 });

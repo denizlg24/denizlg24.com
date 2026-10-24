@@ -217,6 +217,11 @@ fi
 # by the service user because both processes run as `forge`.
 install -d -m 0750 -o forge -g forge /srv/forge/access
 
+# The slice every deployment's container is created under (--cgroup-parent).
+# Without the unit systemd still creates the slice on demand, just uncapped, so
+# an older host only loses the cap, never a deployment.
+install_staged forge-apps.slice /etc/systemd/system/forge-apps.slice 0644 || true
+
 # The reboot path. The unprivileged agent drains its queue and creates the
 # sentinel in host-control; forge-reboot.path hands that to root. It travels
 # with the binary because the route writing the sentinel ships in it.

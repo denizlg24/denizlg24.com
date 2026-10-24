@@ -386,6 +386,13 @@
       "when": 1792156254284,
       "tag": "0054_dashboard_notification_types",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792851530638,
+      "tag": "0055_forge_cpu_ceiling",
+      "breakpoints": true
     }
   ]
 }
