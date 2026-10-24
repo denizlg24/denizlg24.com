@@ -27,6 +27,7 @@ import {
   titles,
   watchlist,
 } from "@/db/schema";
+import { type AudienceRules, audienceRules } from "@/lib/audience-rules";
 import { audienceFilter, serializeSummary } from "@/lib/catalog";
 import {
   languagePreferences,
@@ -128,7 +129,7 @@ export async function profileHistory(
 }
 
 async function candidatePool(
-  kids: boolean,
+  rules: AudienceRules,
   affinity: Map<string, number>,
   seen: string[],
   languages: string[],
@@ -147,7 +148,7 @@ async function candidatePool(
     .from(titles)
     .where(
       and(
-        audienceFilter(kids),
+        audienceFilter(rules),
         isNotNull(titles.posterPath),
         inArray(titles.originalLanguage, languages),
         gte(titles.rating, 6.5),
@@ -199,7 +200,7 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
       weight: SIGNAL_WEIGHT[item.signal],
     })),
   );
-  const kids = profiles.some((profile) => profile.kids);
+  const rules = audienceRules(profiles);
   const seen = [...new Set(history.map((item) => item.id))];
   const languages = languagePreferences(history);
   const personal = profiles.map((profile, index) =>
@@ -211,7 +212,7 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
       })),
     ),
   );
-  const pool = (await candidatePool(kids, affinity, seen, languages)).sort(
+  const pool = (await candidatePool(rules, affinity, seen, languages)).sort(
     (a, b) =>
       preferenceScore(candidate(b), personal) -
         preferenceScore(candidate(a), personal) || b.popularity - a.popularity,

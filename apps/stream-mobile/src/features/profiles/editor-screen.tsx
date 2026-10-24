@@ -47,6 +47,9 @@ export function EditorScreen({ id }: { id: string | null }) {
   const [name, setName] = useState(existing?.name ?? "");
   const [color, setColor] = useState<ProfileColor>(existing?.color ?? "tide");
   const [kids, setKids] = useState(existing?.kids ?? false);
+  const [indianCinema, setIndianCinema] = useState(
+    existing?.showIndianCinema ?? false,
+  );
   const [layout, setLayout] = useState<ProfileLayout>(
     existing?.layout ?? "studio",
   );
@@ -55,6 +58,7 @@ export function EditorScreen({ id }: { id: string | null }) {
     name,
     color,
     kids,
+    showIndianCinema: indianCinema,
     layout,
     favoriteGenres: genres,
   });
@@ -152,6 +156,22 @@ export function EditorScreen({ id }: { id: string | null }) {
           onValueChange={setKids}
           trackColor={{ true: colors.amber, false: colors.raised }}
           accessibilityLabel="Kids profile"
+        />
+      </View>
+
+      <View style={styles.switchRow}>
+        <View style={styles.grow}>
+          <Text variant="headline">Show Bollywood and Indian films</Text>
+          <Text variant="footnote" color="muted">
+            Films and series in Hindi, Tamil, Telugu and other Indian languages.
+            They only appear when everyone watching has this on.
+          </Text>
+        </View>
+        <Switch
+          value={indianCinema}
+          onValueChange={setIndianCinema}
+          trackColor={{ true: colors.amber, false: colors.raised }}
+          accessibilityLabel="Show Bollywood and Indian films"
         />
       </View>
 

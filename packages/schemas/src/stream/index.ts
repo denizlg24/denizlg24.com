@@ -171,6 +171,8 @@ export const profileSchema = z.object({
   name: z.string(),
   color: profileColorSchema,
   kids: z.boolean(),
+  /** Off by default: Bollywood and other Indian-language cinema stays hidden. */
+  showIndianCinema: z.boolean(),
   layout: profileLayoutSchema,
   favoriteGenres: z.array(genreSchema),
 });
@@ -182,6 +184,7 @@ export const profileInputSchema = z.object({
   name: z.string().trim().min(1).max(24),
   color: profileColorSchema,
   kids: z.boolean().default(false),
+  showIndianCinema: z.boolean().default(false),
   layout: profileLayoutSchema.default("studio"),
   favoriteGenres: z.array(genreSchema).max(6).default([]),
 });

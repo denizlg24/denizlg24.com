@@ -171,7 +171,6 @@ export async function editProfile(
     z.string().parse(id),
     parsed.data,
   );
-  if (parsed.data.favoriteGenres) await invalidateRecommendations(id);
   return updated ? { ok: true } : { ok: false, error: "Profile not found." };
 }
 

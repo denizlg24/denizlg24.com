@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PosterLink } from "@/components/poster";
 import { TopBar } from "@/components/top-bar";
+import { audienceRules } from "@/lib/audience-rules";
 import { queryTitles } from "@/lib/catalog";
 import { audienceProfiles, requireViewer } from "@/lib/viewer";
 
@@ -28,7 +29,7 @@ export default async function ActorPage({
       limit: 48,
       sort: "newest",
     }),
-    viewer.audience.some((profile) => profile.kids),
+    audienceRules(viewer.audience),
   );
   return (
     <div className="min-h-dvh">

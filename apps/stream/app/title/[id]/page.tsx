@@ -9,6 +9,7 @@ import { PosterImage, PosterLink } from "@/components/poster";
 import { SaveButton } from "@/components/save-button";
 import { Episodes } from "@/components/title/episodes";
 import { TopBar } from "@/components/top-bar";
+import { audienceRules } from "@/lib/audience-rules";
 import {
   findProgress,
   findTitle,
@@ -44,13 +45,13 @@ export default async function TitlePage({ params }: PageProps<"/title/[id]">) {
   const found = await findTitle(id);
   if (!found) notFound();
   const row = await enrichIfMissing(found);
-  const kids = viewer.audience.some((profile) => profile.kids);
+  const rules = audienceRules(viewer.audience);
   const lead = viewer.audience[0];
   const [title, saved, progress, nearby] = await Promise.all([
     titleDetail(row),
     inWatchlist(lead.id, row.id),
     findProgress(lead.id, row.id),
-    nearbyTitles(row, kids),
+    nearbyTitles(row, rules),
   ]);
   const classic = viewer.layout === "classic";
   const currentEpisode = progress?.episodeId

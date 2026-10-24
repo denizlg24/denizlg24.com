@@ -9,6 +9,7 @@ import { and, desc, gte, isNotNull, type SQL } from "drizzle-orm";
 
 import { db } from "@/db";
 import { type ProfileRow, titles } from "@/db/schema";
+import { audienceRules } from "@/lib/audience-rules";
 import {
   audienceFilter,
   continueWatching,
@@ -78,7 +79,7 @@ export function pickDoubleFeature(
 }
 
 export async function buildTonight(profiles: ProfileRow[]): Promise<Tonight> {
-  const kids = profiles.some((profile) => profile.kids);
+  const rules = audienceRules(profiles);
   const year = new Date().getUTCFullYear();
   const [recs, continuing, freshRows] = await Promise.all([
     recommendationsFor(profiles),
@@ -88,7 +89,7 @@ export async function buildTonight(profiles: ProfileRow[]): Promise<Tonight> {
       .from(titles)
       .where(
         and(
-          audienceFilter(kids),
+          audienceFilter(rules),
           gte(titles.startYear, year - 1),
           isNotNull(titles.posterPath),
         ) as SQL,

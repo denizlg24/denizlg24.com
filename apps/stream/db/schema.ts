@@ -121,6 +121,7 @@ export const profiles = pgTable(
     name: text("name").notNull(),
     color: text("color").notNull(),
     kids: boolean("kids").notNull().default(false),
+    showIndianCinema: boolean("show_indian_cinema").notNull().default(false),
     layout: text("layout").notNull().default("studio"),
     favoriteGenres: text("favorite_genres")
       .array()

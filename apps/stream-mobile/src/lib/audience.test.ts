@@ -12,6 +12,7 @@ const profile = (id: string, patch: Partial<Profile> = {}): Profile => ({
   name: id,
   color: "ember",
   kids: false,
+  showIndianCinema: false,
   layout: "studio",
   favoriteGenres: [],
   ...patch,

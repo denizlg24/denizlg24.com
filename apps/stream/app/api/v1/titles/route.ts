@@ -2,6 +2,7 @@ import { titleQuerySchema } from "@repo/schemas/stream";
 import { NextResponse } from "next/server";
 
 import { fail, profileParam, requireMember } from "@/lib/api";
+import { audienceRules } from "@/lib/audience-rules";
 import { queryTitles } from "@/lib/catalog";
 import { ownedProfile } from "@/lib/members";
 
@@ -18,6 +19,6 @@ export async function GET(request: Request) {
     ? await ownedProfile(caller.subject, profileId)
     : null;
   return NextResponse.json(
-    await queryTitles(query.data, profile?.kids ?? false),
+    await queryTitles(query.data, audienceRules(profile ? [profile] : [])),
   );
 }

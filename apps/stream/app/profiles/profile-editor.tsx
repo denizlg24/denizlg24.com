@@ -43,6 +43,9 @@ export function ProfileEditor({
   const [name, setName] = useState(profile?.name ?? "");
   const [color, setColor] = useState<ProfileColor>(profile?.color ?? "tide");
   const [kids, setKids] = useState(profile?.kids ?? false);
+  const [indianCinema, setIndianCinema] = useState(
+    profile?.showIndianCinema ?? false,
+  );
   const [layout, setLayout] = useState<ProfileLayout>(
     profile?.layout ?? "studio",
   );
@@ -65,7 +68,14 @@ export function ProfileEditor({
 
   const save = (event: React.FormEvent) => {
     event.preventDefault();
-    const input = { name, color, kids, layout, favoriteGenres: genres };
+    const input = {
+      name,
+      color,
+      kids,
+      showIndianCinema: indianCinema,
+      layout,
+      favoriteGenres: genres,
+    };
     run(() => (profile ? editProfile(profile.id, input) : addProfile(input)));
   };
 
@@ -139,6 +149,22 @@ export function ProfileEditor({
           <span className="block text-sm text-muted">
             Only shows titles suitable for children. When a kids profile is on
             the sofa, everyone's picks stay child-friendly.
+          </span>
+        </span>
+      </label>
+      <label className="flex cursor-pointer items-center gap-4">
+        <input
+          type="checkbox"
+          checked={indianCinema}
+          onChange={(event) => setIndianCinema(event.target.checked)}
+          data-nav
+          className="size-6 accent-amber"
+        />
+        <span>
+          <span className="block text-lg">Show Bollywood and Indian films</span>
+          <span className="block text-sm text-muted">
+            Films and series in Hindi, Tamil, Telugu and other Indian languages.
+            They only appear when everyone on the sofa has this on.
           </span>
         </span>
       </label>
