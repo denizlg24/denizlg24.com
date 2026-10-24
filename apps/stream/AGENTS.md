@@ -70,8 +70,14 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   :15 with `limit=3000`. Most catalogue screens hide titles without a poster,
   so an enrich backlog reads as missing films. Run them locally with
   `bun run ingest` / `bun run enrich`.
-- **Forge never migrates.** `bun run db:migrate` (env `.env.stream`) before
-  merging a schema change. `0000_init` creates `pg_trgm`.
+- **Forge never migrates, and `.env.stream` is not production.** Its
+  `STREAM_DATABASE_URL` is a local Docker Postgres, so `bun run db:migrate`
+  migrates that copy only. Production is `proj_stream` on pi-cloud, bound to
+  the Forge target as a resource (`forge_resource_credentials_reveal`). Before
+  merging a schema change, run `STREAM_DATABASE_URL=<that url> bunx
+  drizzle-kit migrate` from `apps/stream`. A deploy whose code expects a column
+  the database lacks still passes `/healthz`, which reads no tables, and then
+  fails every page. `0000_init` creates `pg_trgm`.
 - **TMDB images are hot-linked** at TMDB's own sizes (`tmdbImage`), not
   through `next/image`, which would proxy every poster through this host's
   memory. The attribution line in the Tonight footer is required by TMDB's
