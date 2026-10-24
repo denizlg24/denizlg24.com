@@ -22,7 +22,7 @@
     "@prisma/client-runtime-utils": "7.10.1",
     "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.8",
     "hono": "^4.13.13",
     "jose": "^6.2.13",
     "lucide-react": "^1.60.0",
