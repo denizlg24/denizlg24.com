@@ -19,7 +19,7 @@
     "@expo-google-fonts/atkinson-hyperlegible-next": "^0.4.1",
     "@expo-google-fonts/big-shoulders": "^0.4.1",
     "@repo/schemas": "workspace:*",
-    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-query": "^5.104.5",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.19",
@@ -37,24 +37,24 @@
     "expo-system-ui": "~57.0.4",
     "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.3",
-    "lucide-react-native": "^1.48.0",
-    "react": "19.2.7",
+    "lucide-react-native": "^1.61.0",
+    "react": "19.3.1",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
-    "react-native-reanimated": "4.5.1",
+    "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
-    "react-native-svg": "15.15.4",
+    "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
     "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@repo/expo-ios-targets": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@resvg/resvg-js": "2.6.2",
-    "@types/bun": "^1.4.2",
-    "@types/react": "19.2.18",
+    "@types/bun": "^1.4.3",
+    "@types/react": "19.3.0",
     "typescript": "5.9.3"
   }
 }
