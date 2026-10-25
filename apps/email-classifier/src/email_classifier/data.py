@@ -130,14 +130,9 @@ def prepare_inference_row(raw: dict[str, Any]) -> dict[str, Any]:
     row = {
         **raw,
         "subject": str(raw.get("subject") or ""),
-        "body": str(
-            raw.get("body") or raw.get("bodyText") or raw.get("snippet") or ""
-        ),
+        "body": str(raw.get("body") or raw.get("bodyText") or raw.get("snippet") or ""),
         "sender_name": str(
-            raw.get("sender_name")
-            or raw.get("senderName")
-            or raw.get("fromName")
-            or ""
+            raw.get("sender_name") or raw.get("senderName") or raw.get("fromName") or ""
         ),
         "sender_address": sender_address.casefold(),
         "sender_domain": sender_domain.casefold(),
@@ -194,9 +189,7 @@ def _validate_row(
     except (TypeError, ValueError) as exc:
         raise DatasetError(f"{location}: sample_weight must be numeric") from exc
     if not math.isfinite(weight) or weight <= 0:
-        raise DatasetError(
-            f"{location}: sample_weight must be positive and finite"
-        )
+        raise DatasetError(f"{location}: sample_weight must be positive and finite")
     split = raw.get("split")
     if split is not None and split != expected_split:
         raise DatasetError(
@@ -210,7 +203,7 @@ def _validate_row(
     return row
 
 
-def load_jsonl(path: Path, *, split: str) -> Dataset:
+def load_jsonl(path: Path, *, split: str, require_all_labels: bool = True) -> Dataset:
     """Load and validate one non-empty JSONL split."""
     rows: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -242,7 +235,7 @@ def load_jsonl(path: Path, *, split: str) -> Dataset:
     if not rows:
         raise DatasetError(f"{path}: no rows found")
     missing_labels = sorted(LABEL_SET - {str(row["label"]) for row in rows})
-    if missing_labels:
+    if missing_labels and require_all_labels:
         raise DatasetError(f"{path}: missing labels: {', '.join(missing_labels)}")
     return Dataset(path=path.resolve(), rows=tuple(rows))
 
@@ -291,19 +284,21 @@ def _validate_bundle(train: Dataset, evaluation: Dataset) -> None:
         str(row["id"]) for row in evaluation.rows if row["source"] == "synthetic"
     ]
     if synthetic_eval:
-        raise DatasetError(
-            f"evaluation contains synthetic rows: {synthetic_eval[:3]}"
-        )
+        raise DatasetError(f"evaluation contains synthetic rows: {synthetic_eval[:3]}")
 
 
 def load_datasets(
     train_path: Path = TRAIN_PATH,
     eval_path: Path = EVAL_PATH,
     manifest_path: Path = MANIFEST_PATH,
+    *,
+    require_all_labels: bool = True,
 ) -> DatasetBundle:
     """Load the prepared dataset and enforce split/manifest invariants."""
-    train = load_jsonl(train_path, split="train")
-    evaluation = load_jsonl(eval_path, split="eval")
+    train = load_jsonl(train_path, split="train", require_all_labels=require_all_labels)
+    evaluation = load_jsonl(
+        eval_path, split="eval", require_all_labels=require_all_labels
+    )
     manifest = _load_manifest(manifest_path)
     _validate_bundle(train, evaluation)
     manifest_rows = manifest.get("rows")
