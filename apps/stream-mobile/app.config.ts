@@ -71,6 +71,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     "./plugins/with-stream-native",
+    "./plugins/with-android-tv",
   ],
   extra: { apiUrl },
 });

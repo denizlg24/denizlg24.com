@@ -3,6 +3,7 @@ import {
   type AuthState,
   AuthUnavailableError,
   createPublicClient,
+  type DeviceSignIn,
   type PublicClient,
 } from "@denizlg24/auth/client";
 import {
@@ -109,7 +110,9 @@ function friendly(error: unknown): string {
   if (error instanceof AuthorizationResponseError) {
     return error.reason === "access_denied"
       ? "Sign-in was cancelled."
-      : "Something went wrong while signing in. Please try again.";
+      : error.reason === "expired"
+        ? "The code expired before it was used."
+        : "Something went wrong while signing in. Please try again.";
   }
   if (error instanceof Error && error.message) return error.message;
   return "Something went wrong while signing in. Please try again.";
@@ -168,6 +171,27 @@ export const session = {
       setState({ signingIn: false });
     }
   },
+
+  /**
+   * A TV has no browser to sign in with: it shows a code, someone approves it
+   * on their phone at the verification URI, and `complete()` finishes here.
+   */
+  async startDeviceSignIn(): Promise<DeviceSignIn> {
+    const fresh = await discover();
+    let current = client;
+    if (!current || !sameConfig(config, fresh)) {
+      current = attach(fresh);
+      await secureStorage.set(CONFIG_KEY, JSON.stringify(fresh));
+    }
+    try {
+      return await current.startDeviceSignIn();
+    } catch (error) {
+      throw new Error(friendly(error));
+    }
+  },
+
+  /** A message fit for the screen, for anything `startDeviceSignIn` or `complete` throws. */
+  describeError: friendly,
 
   async signOut(): Promise<void> {
     setState({ error: null });

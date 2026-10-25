@@ -51,18 +51,21 @@ export function MetaRow({
 
 export function Rating({ value, large }: { value: string; large?: boolean }) {
   return (
-    <View
-      style={styles.rating}
-      accessible
-      accessibilityLabel={`Rated ${value} out of 10`}
-    >
+    // The label sits on the text: an `accessible` View is a stop for a TV
+    // remote's focus on Android, and this one has nothing to press.
+    <View style={styles.rating}>
       <Star
         size={large ? 20 : 14}
         color={colors.amber}
         fill={colors.amber}
         strokeWidth={1.5}
       />
-      <Text variant={large ? "classicLabel" : "callout"}>{value}</Text>
+      <Text
+        variant={large ? "classicLabel" : "callout"}
+        accessibilityLabel={`Rated ${value} out of 10`}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
