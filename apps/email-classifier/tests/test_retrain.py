@@ -1,0 +1,346 @@
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import joblib
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+import main
+from email_classifier import retrain, runtime
+from email_classifier.artifacts import active_model, write_json
+from email_classifier.data import LABELS, Dataset, prepare_inference_row
+from email_classifier.evaluate import classification_metrics
+
+
+class ProbabilityModel:
+    def __init__(self, label="fyi"):
+        self.named_steps = {"classifier": SimpleNamespace(classes_=np.array(LABELS))}
+        self.label = label
+
+    def predict(self, rows):
+        return np.array([self.label] * len(rows))
+
+    def predict_proba(self, rows):
+        return np.array(
+            [[1.0 if label == self.label else 0.0 for label in LABELS] for _ in rows]
+        )
+
+
+def row(identifier, label="fyi", group=None):
+    return prepare_inference_row(
+        {
+            "id": identifier,
+            "label": label,
+            "subject": identifier,
+            "body": f"Body of {identifier}",
+            "sender_address": "person@example.com",
+            "sender_name": "Person",
+            "source": "local",
+            "sample_weight": 1.0,
+            "group_id": group or identifier,
+        }
+    )
+
+
+def datasets(tmp_path):
+    train = Dataset(
+        tmp_path / "train.jsonl",
+        tuple(row(f"train-{i}", label) for i, label in enumerate(LABELS)),
+    )
+    evaluation = Dataset(
+        tmp_path / "eval.jsonl",
+        tuple(row(f"eval-{i}", label) for i, label in enumerate(LABELS)),
+    )
+    return train, evaluation
+
+
+def test_corrections_replace_labels_and_exclude_holdout_id_content_and_thread(tmp_path):
+    train, evaluation = datasets(tmp_path)
+    correction = {**train.rows[0], "label": "fyi"}
+    # Add a second spam example so the correction doesn't remove that class.
+    train = Dataset(train.path, (*train.rows, row("extra-spam", "spam")))
+    corrections = [
+        correction,
+        dict(evaluation.rows[0]),
+        {**evaluation.rows[1], "id": "duplicate-eval"},
+        row("same-thread", group=evaluation.groups[2]),
+    ]
+    merged, count = retrain.merge_corrections(train, evaluation, corrections)
+    assert count == 1
+    assert next(r for r in merged.rows if r["id"] == correction["id"])["label"] == "fyi"
+    assert "same-thread" not in {r["id"] for r in merged.rows}
+
+
+def test_conflicting_duplicate_human_labels_fail(tmp_path):
+    train, evaluation = datasets(tmp_path)
+    first = row("new")
+    second = {**first, "id": "other", "label": "spam"}
+    with pytest.raises(ValueError, match="conflicting"):
+        retrain.merge_corrections(train, evaluation, [first, second])
+
+
+def metrics():
+    report = classification_metrics(list(LABELS), list(LABELS))
+    report["macro_f1"] = 0.8
+    return report
+
+
+def test_promotion_requires_improvement_and_preserves_critical_categories():
+    old = metrics()
+    new = copy.deepcopy(old)
+    assert retrain.promotion_reasons(old, new)
+    new["macro_f1"] = 0.81
+    assert retrain.promotion_reasons(old, new) == []
+    new["per_class"]["action-needed"]["recall"] = 0.9
+    new["per_class"]["promo"]["f1-score"] = 0.9
+    new["spam_counts"]["false_positive"] = 1
+    reasons = retrain.promotion_reasons(old, new)
+    assert len(reasons) == 3
+
+
+def test_model_hot_reload_and_corrupt_artifact_retains_incumbent(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    monkeypatch.setattr(runtime, "_runtime_classifier", None)
+    monkeypatch.setattr(runtime, "_runtime_revision", None)
+    monkeypatch.setattr(
+        runtime, "_resolve_local_model", lambda: (tmp_path / "seed", "a" * 64)
+    )
+    seed = ProbabilityModel()
+    original_load = joblib.load
+    monkeypatch.setattr(
+        runtime.joblib,
+        "load",
+        lambda p: seed if Path(p).name == "seed" else original_load(p),
+    )
+    assert runtime.get_runtime_classifier().model is seed
+    model_path = tmp_path / "new.joblib"
+    joblib.dump(ProbabilityModel("purchases"), model_path)
+    digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    write_json(tmp_path / "active.json", {"artifact": "new.joblib", "sha256": digest})
+    promoted = runtime.get_runtime_classifier()
+    assert promoted.model_version == f"sha256:{digest[:12]}"
+    assert promoted.predict(row("check")).category == "purchases"
+    write_json(
+        tmp_path / "active.json", {"artifact": "broken.joblib", "sha256": "0" * 64}
+    )
+    assert runtime.get_runtime_classifier() is promoted
+
+
+def test_pointer_cannot_escape_volume(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    write_json(tmp_path / "active.json", {"artifact": "../outside", "sha256": "0" * 64})
+    with pytest.raises(ValueError, match="inside"):
+        active_model()
+
+
+def test_retrain_routes_require_auth_and_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_API_TOKEN", "test-token")
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    monkeypatch.delenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED", raising=False)
+    client = TestClient(main.app)
+    assert client.post("/api/retrain").status_code == 401
+    headers = {"Authorization": "Bearer test-token"}
+    assert client.post("/api/retrain", headers=headers).status_code == 503
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED", "true")
+    monkeypatch.setattr(
+        retrain, "start_retraining", lambda: {"status": "accepted", "run_id": "run-1"}
+    )
+    result = client.post("/api/retrain", headers=headers)
+    assert result.status_code == 202
+    assert result.json()["run_id"] == "run-1"
+    assert client.get("/api/retrain", headers=headers).json()["status"] == "never-run"
+
+
+def test_concurrent_triggers_share_os_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    write_json(tmp_path / "status.json", {"run_id": "current", "status": "started"})
+    with (tmp_path / "worker.lock").open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert retrain.start_retraining() == {
+            "status": "already-running",
+            "run_id": "current",
+        }
+
+
+def test_failed_worker_emails_failure_without_exception_details(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    notices = []
+    monkeypatch.setattr(
+        retrain, "notify", lambda *args: notices.append(copy.deepcopy(args))
+    )
+    monkeypatch.setattr(
+        retrain,
+        "execute",
+        Mock(side_effect=ValueError("secret@example.com mongodb://password")),
+    )
+    lock_fd = os.open(tmp_path / "worker.lock", os.O_CREAT | os.O_RDWR)
+    assert retrain.run_worker(lock_fd, "failure-test") == 1
+    report = json.loads((tmp_path / "status.json").read_text())
+    assert report["status"] == "failed"
+    assert [notice[1] for notice in notices] == ["started", "failed"]
+    assert "secret@example.com" not in json.dumps(notices)
+    assert report["error_type"] == "ValueError"
+
+
+def test_resend_recipient_key_and_retry_idempotency(monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "web-test-key")
+    requests = []
+
+    def send(request, **_kwargs):
+        requests.append(request)
+        if len(requests) == 1:
+            raise OSError("temporary failure")
+        from io import BytesIO
+
+        return BytesIO(b'{"id":"email-id"}')
+
+    monkeypatch.setattr(retrain, "urlopen", send)
+    monkeypatch.setattr(retrain.time, "sleep", lambda _: None)
+    retrain.notify("run-1", "skipped", {"reason": "unchanged"})
+    payload = json.loads(requests[-1].data)
+    assert payload["to"] == ["denizlg24@gmail.com"]
+    assert requests[-1].get_header("Authorization") == "Bearer web-test-key"
+    assert requests[0].get_header("Idempotency-key") == requests[1].get_header(
+        "Idempotency-key"
+    )
+
+
+@pytest.mark.parametrize("improves", [True, False])
+def test_execute_promotes_or_rejects_and_skips_unchanged_data(
+    tmp_path, monkeypatch, improves
+):
+    monkeypatch.setenv("MONGODB_URI", "mongodb://unused/test")
+    train, _ = datasets(tmp_path)
+    evaluation = Dataset(
+        tmp_path / "eval.jsonl",
+        tuple(row(f"eval-{label}-{i}", label) for label in LABELS for i in range(5)),
+    )
+    bundle = SimpleNamespace(train=train, eval=evaluation)
+    monkeypatch.setattr(retrain, "load_datasets", lambda *_: bundle)
+    mongo = Mock()
+    mongo.__enter__ = Mock(return_value=mongo)
+    mongo.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(retrain, "MongoClient", lambda *_args, **_kwargs: mongo)
+    monkeypatch.setattr(
+        retrain,
+        "correction_rows",
+        lambda _: ([row(f"human-{i}") for i in range(10)], 0),
+    )
+    monkeypatch.setattr(
+        retrain,
+        "load_runtime_classifier",
+        lambda: SimpleNamespace(model_version="seed"),
+    )
+    candidate = SimpleNamespace(pipeline=ProbabilityModel(), training_seconds=1.0)
+    trainer = Mock(return_value=candidate)
+    monkeypatch.setattr(retrain, "train_candidate", trainer)
+    old, new = metrics(), metrics()
+    new["macro_f1"] = 0.81 if improves else 0.8
+    monkeypatch.setattr(retrain, "score", Mock(side_effect=[old, new]))
+    previous = {"artifact": "old.joblib", "sha256": "a" * 64}
+    write_json(tmp_path / "active.json", previous)
+    report = {}
+    assert retrain.execute(tmp_path, "integration-run", report) == (
+        "promoted" if improves else "rejected"
+    )
+    pointer = json.loads((tmp_path / "active.json").read_text())
+    if improves:
+        assert pointer["artifact"] == "runs/integration-run/model.joblib"
+        assert json.loads((tmp_path / "previous.json").read_text()) == previous
+        assert (tmp_path / pointer["artifact"]).is_file()
+    else:
+        assert pointer == previous
+        assert report["rejection_reasons"]
+    assert retrain.execute(tmp_path, "unchanged-run", {}) == "skipped"
+    assert trainer.call_count == 1
+
+
+def test_real_training_pipeline_supports_runtime_inference(tmp_path, monkeypatch):
+    from email_classifier import train
+    from email_classifier.models import candidate_configs
+
+    dataset = Dataset(
+        tmp_path / "train.jsonl",
+        tuple(
+            row(f"{label}-independent-{i}", label) for label in LABELS for i in range(5)
+        ),
+    )
+    config = candidate_configs("logistic-regression")[0]
+    monkeypatch.setattr(train, "candidate_configs", lambda _: [config])
+    candidate = train.train_candidate(dataset, "logistic-regression")
+    model = runtime.RuntimeClassifier(
+        candidate.pipeline,
+        tuple(str(c) for c in candidate.pipeline.named_steps["classifier"].classes_),
+        "test",
+    )
+    prediction = model.predict(row("scheduled-independent-unseen"))
+    assert prediction.category in LABELS
+    assert set(prediction.probabilities) == set(LABELS)
+    assert sum(prediction.probabilities.values()) == pytest.approx(1.0)
+
+
+def test_legacy_holdout_group_excludes_new_thread_siblings(tmp_path):
+    train, evaluation = datasets(tmp_path)
+    anchor = {**evaluation.rows[0], "group_id": "export-thread"}
+    sibling = row("new-sibling", group="export-thread")
+    _, count = retrain.merge_corrections(train, evaluation, [anchor, sibling])
+    assert count == 0
+
+
+def test_export_requires_human_evidence_and_skips_incomplete_bodies():
+    db = Mock()
+    docs = [
+        {
+            "emailId": "id",
+            "accountId": "account",
+            "category": "fyi",
+            "email": {
+                "subject": "Hello",
+                "from": [{"address": "a@example.com"}],
+                "threadId": "thread",
+            },
+            "body": {"text": "Hello there", "html": "", "attachmentCount": 1},
+        },
+        {
+            "emailId": "skip",
+            "accountId": "account",
+            "category": "fyi",
+            "email": {},
+            "body": {"text": "", "html": "<p>Hello</p>"},
+        },
+    ]
+    db.emailtriages.aggregate.return_value = docs
+    rows, skipped = retrain.correction_rows(db)
+    assert len(rows) == 1
+    assert skipped == 1
+    assert rows[0]["group_id"] == "account:thread"
+    query = db.emailtriages.aggregate.call_args.args[0][0]["$match"]
+    assert query["$or"][1] == {"userStatus": "reviewed", "reviewRequired": False}
+
+
+def test_real_child_worker_records_failure_and_releases_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
+    # Deliberately omit the key so this subprocess test cannot send real mail.
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    result = retrain.start_retraining()
+    assert result["status"] == "accepted"
+    child = retrain._children[-1]
+    assert child.wait(timeout=15) == 1
+    report = json.loads((tmp_path / "status.json").read_text())
+    assert report["run_id"] == result["run_id"]
+    assert report["status"] == "failed"
+    assert report["notification_error"] == "KeyError"
+    with (tmp_path / "worker.lock").open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

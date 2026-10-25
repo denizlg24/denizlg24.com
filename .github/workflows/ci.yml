@@ -376,6 +376,8 @@ jobs:
           uv run python -m compileall -q main.py src/email_classifier
       - name: Import API application
         run: uv run python -c 'from main import app; assert app.title == "Email Classifier API"'
+      - name: Test retraining and inference contracts
+        run: uv run pytest tests/test_retrain.py
       - name: Build Python package
         run: uv build
 

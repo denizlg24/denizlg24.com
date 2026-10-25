@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import sys
@@ -230,6 +231,38 @@ def classify_email(email: EmailClassificationRequest) -> ClassificationResponse:
         probabilities=prediction.probabilities,
         model_version=prediction.model_version,
     )
+
+
+@app.post("/api/retrain", dependencies=[Depends(require_authorization)])
+def trigger_retraining() -> JSONResponse:
+    """Cron starts a worker on Forge; never run training in the HTTP request."""
+    if os.getenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED") != "true":
+        raise APIError(503, "retraining is disabled")
+    from email_classifier.retrain import start_retraining
+
+    try:
+        result = start_retraining()
+    except Exception as exc:
+        raise APIError(503, "retraining worker could not start") from exc
+    return JSONResponse(
+        result, status_code=202 if result["status"] == "accepted" else 200
+    )
+
+
+@app.get("/api/retrain", dependencies=[Depends(require_authorization)])
+def retraining_status() -> JSONResponse:
+    from email_classifier.artifacts import retraining_root
+
+    if os.getenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED") != "true":
+        raise APIError(503, "retraining is disabled")
+    try:
+        path = retraining_root() / "status.json"
+        report = (
+            json.loads(path.read_text()) if path.exists() else {"status": "never-run"}
+        )
+    except Exception as exc:
+        raise APIError(503, "retraining status unavailable") from exc
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

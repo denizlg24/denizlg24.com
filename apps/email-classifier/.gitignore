@@ -2,7 +2,8 @@
 .venv/
 .pytest_cache/
 .ruff_cache/
-tests/
+tests/*
+!tests/test_retrain.py
 __pycache__/
 *.pyc
 adjudicate-triage-with-codex.py
