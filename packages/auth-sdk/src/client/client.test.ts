@@ -152,3 +152,48 @@ describe("public client", () => {
     }
   });
 });
+
+describe("device sign-in", () => {
+  test("polls until approved, then signs in", async () => {
+    const c = client();
+    const device = await c.startDeviceSignIn();
+    expect(device.verificationUriComplete).toContain(device.userCode);
+    const done = device.complete();
+    await Bun.sleep(5);
+    expect(c.getState().status).toBe("signed-out");
+    issuer.decideDevice(device.userCode, "user-2");
+    expect(await done).toEqual({ id: "user-2", tenant: "acme" });
+    expect(c.getState().status).toBe("signed-in");
+    expect(await c.getAccessToken()).toBeString();
+  });
+
+  test("a denial is access_denied and leaves the device signed out", async () => {
+    const c = client();
+    const device = await c.startDeviceSignIn();
+    const done = device.complete();
+    issuer.decideDevice(device.userCode, null);
+    const error = await done.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AuthorizationResponseError);
+    expect((error as AuthorizationResponseError).reason).toBe("access_denied");
+    expect(c.getState().status).toBe("signed-out");
+  });
+
+  test("an outage while polling is retried", async () => {
+    const c = client();
+    const device = await c.startDeviceSignIn();
+    issuer.failNetwork(2);
+    const done = device.complete();
+    await Bun.sleep(5);
+    issuer.decideDevice(device.userCode, "user-3");
+    expect((await done).id).toBe("user-3");
+  });
+
+  test("aborting stops polling", async () => {
+    const c = client();
+    const device = await c.startDeviceSignIn();
+    const controller = new AbortController();
+    const done = device.complete(controller.signal);
+    controller.abort(new Error("left the screen"));
+    await expect(done).rejects.toThrow("left the screen");
+  });
+});

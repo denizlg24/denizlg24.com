@@ -173,6 +173,19 @@ await auth.handleCallback(await callback);
 On iOS/Android, use a private-scheme redirect (`com.example.app:/callback`)
 with an auth session API and the platform keychain as `storage`.
 
+A TV or other device without a browser signs in with a code someone
+approves on their phone (RFC 8628). The client needs the
+`urn:ietf:params:oauth:grant-type:device_code` grant:
+
+```ts
+const device = await auth.startDeviceSignIn();
+show(device.userCode, device.verificationUriComplete); // e.g. as a QR code
+await device.complete(signal); // polls until approved
+```
+
+`complete()` throws `AuthorizationResponseError` with reason `access_denied`
+or `expired`, and keeps polling through an unreachable issuer.
+
 `browserStorage()` keeps tokens in `localStorage`, which any script on the
 page can read. If your app has a server, the Next entry's HttpOnly cookie is
 the safer place.

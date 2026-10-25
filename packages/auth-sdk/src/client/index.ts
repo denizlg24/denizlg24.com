@@ -1,5 +1,9 @@
 import { decodeJwt } from "jose";
-import { AuthorizationResponseError, OAuthGrantError } from "../core/errors.js";
+import {
+  AuthorizationResponseError,
+  AuthUnavailableError,
+  OAuthGrantError,
+} from "../core/errors.js";
 import { randomToken } from "../core/pkce.js";
 import { createTokenClient, type FetchLike } from "../core/tokens.js";
 import { type AuthStorage, memoryStorage } from "./storage.js";
@@ -44,6 +48,21 @@ export interface SignInOptions {
   loginHint?: string;
 }
 
+/** A sign-in waiting for someone to approve `userCode` on another device. */
+export interface DeviceSignIn {
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  /** Epoch milliseconds. */
+  expiresAt: number;
+  /**
+   * Polls until approved and signs in. Throws `AuthorizationResponseError`
+   * `access_denied` or `expired`; an unreachable issuer is retried until the
+   * code expires. Aborting rejects with the signal's reason.
+   */
+  complete(signal?: AbortSignal): Promise<AuthUser>;
+}
+
 export interface PublicClient {
   getState(): AuthState;
   subscribe(listener: (state: AuthState) => void): () => void;
@@ -56,6 +75,8 @@ export interface PublicClient {
   /** True when a URL carries an authorization response (`state` plus `code` or `error`). */
   isCallback(url: string | URL): boolean;
   handleCallback(url: string | URL): Promise<AuthUser>;
+  /** RFC 8628, for a device without a browser or a keyboard. The client must allow the device-code grant. */
+  startDeviceSignIn(): Promise<DeviceSignIn>;
   /**
    * A current access token, refreshed when it is about to expire; null when
    * signed out. A refused refresh signs out; an unreachable issuer throws
@@ -77,6 +98,26 @@ interface PendingSignIn {
   state: string;
   verifier: string;
   redirectUri: string;
+}
+
+const SLOW_DOWN_SECONDS = 5;
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function userFrom(accessToken: string): AuthUser | null {
@@ -287,6 +328,66 @@ export function createPublicClient(options: PublicClientOptions): PublicClient {
         expiresAt: issued.expiresAt,
       });
       return user;
+    },
+
+    async startDeviceSignIn() {
+      await ready();
+      const device = await tokens.requestDeviceCode(options.scope);
+      return {
+        userCode: device.userCode,
+        verificationUri: device.verificationUri,
+        verificationUriComplete: device.verificationUriComplete,
+        expiresAt: device.expiresAt,
+
+        async complete(signal) {
+          let intervalMs = device.intervalSeconds * 1000;
+          for (;;) {
+            await sleep(intervalMs, signal);
+            if (Date.now() >= device.expiresAt) {
+              throw new AuthorizationResponseError("expired");
+            }
+            try {
+              const issued = await tokens.exchangeDeviceCode(device.deviceCode);
+              // React Native's AbortSignal has no throwIfAborted.
+              if (signal?.aborted) throw signal.reason;
+              const user = userFrom(issued.accessToken);
+              if (!user) {
+                throw new AuthorizationResponseError("authorization_error");
+              }
+              await persist({
+                accessToken: issued.accessToken,
+                refreshToken: issued.refreshToken,
+                expiresAt: issued.expiresAt,
+              });
+              return user;
+            } catch (error) {
+              if (error instanceof AuthUnavailableError) continue;
+              if (!(error instanceof OAuthGrantError)) throw error;
+              switch (error.code) {
+                case "authorization_pending":
+                  continue;
+                case "slow_down":
+                  intervalMs += SLOW_DOWN_SECONDS * 1000;
+                  continue;
+                case "access_denied":
+                  throw new AuthorizationResponseError(
+                    "access_denied",
+                    error.code,
+                    error.description,
+                  );
+                case "expired_token":
+                  throw new AuthorizationResponseError("expired", error.code);
+                default:
+                  throw new AuthorizationResponseError(
+                    "authorization_error",
+                    error.code,
+                    error.description,
+                  );
+              }
+            }
+          }
+        },
+      };
     },
 
     getAccessToken,

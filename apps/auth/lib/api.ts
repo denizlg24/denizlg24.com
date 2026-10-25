@@ -42,6 +42,13 @@ const publicClientSchema = z.object({
 });
 export type PublicClient = z.infer<typeof publicClientSchema>;
 
+const deviceRequestSchema = z.object({
+  user_code: z.string(),
+  status: z.enum(["pending", "approved", "denied"]),
+  client_id: z.string().optional(),
+});
+export type DeviceRequest = z.infer<typeof deviceRequestSchema>;
+
 const clientUpdateSchema = z.object({
   clientId: z.string(),
   disabled: z.boolean(),
@@ -56,7 +63,13 @@ function clientPath(clientId: string, suffix = ""): string {
  * with an `error` object beside it. Either becomes an ApiError.
  */
 async function flowError(response: Response): Promise<ApiError> {
-  const body: unknown = await response.json().catch(() => null);
+  return flowErrorFrom(
+    await response.json().catch(() => null),
+    response.status,
+  );
+}
+
+function flowErrorFrom(body: unknown, status: number): ApiError {
   const record =
     typeof body === "object" && body !== null
       ? (body as Record<string, unknown>)
@@ -69,8 +82,8 @@ async function flowError(response: Response): Promise<ApiError> {
   const message =
     typeof nested.message === "string"
       ? nested.message
-      : `Request failed (${response.status})`;
-  return new ApiError(code, message, response.status);
+      : `Request failed (${status})`;
+  return new ApiError(code, message, status);
 }
 
 /**
@@ -103,6 +116,51 @@ async function challengedPost(
   }
   if (!response.ok) throw await flowError(response);
   return response.json().catch(() => null);
+}
+
+/**
+ * The device-authorization routes answer RFC 8628's `{ error, error_description }`,
+ * or ours (`{ code, message }`) when the account is refused before approval.
+ */
+async function deviceRequest(
+  path: string,
+  init: { method: "GET" | "POST"; body?: unknown },
+): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, API_BASE_URL), {
+      method: init.method,
+      credentials: "include",
+      headers:
+        init.body === undefined
+          ? undefined
+          : { "Content-Type": "application/json" },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new ApiError(
+      "NETWORK",
+      "We couldn't reach the server. Try again.",
+      0,
+    );
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) return body;
+  const record =
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)
+      : {};
+  if (typeof record.error === "string") {
+    throw new ApiError(
+      record.error,
+      typeof record.error_description === "string"
+        ? record.error_description
+        : `Request failed (${response.status})`,
+      response.status,
+    );
+  }
+  throw flowErrorFrom(body, response.status);
 }
 
 export const api = {
@@ -167,6 +225,23 @@ export const api = {
     if (!response.ok) throw await flowError(response);
   },
   me: (): Promise<SafeUser> => requestData(safeUserSchema, "/api/me"),
+  /** Claims the code for this account and names the client behind it. */
+  verifyDevice: async (userCode: string): Promise<DeviceRequest> =>
+    deviceRequestSchema.parse(
+      await deviceRequest(
+        `/api/auth/device?user_code=${encodeURIComponent(userCode)}`,
+        { method: "GET" },
+      ),
+    ),
+  decideDevice: async (userCode: string, approve: boolean): Promise<void> => {
+    await deviceRequest(
+      approve ? "/api/auth/device/approve" : "/api/auth/device/deny",
+      {
+        method: "POST",
+        body: { userCode },
+      },
+    );
+  },
   completeSignup: (input: CompleteSignupInput): Promise<CompleteSignupResult> =>
     requestData(completeSignupResultSchema, "/api/auth/complete-signup", {
       method: "POST",

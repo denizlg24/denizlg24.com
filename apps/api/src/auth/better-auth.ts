@@ -1,5 +1,8 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { oauthProvider } from "@better-auth/oauth-provider";
+import {
+  oauthDeviceAuthorization,
+  oauthProvider,
+} from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import { type Database, hashPassword, verifyPassword } from "@repo/cloud-core";
 import * as schema from "@repo/cloud-core/db/schema";
@@ -51,6 +54,9 @@ const TRUST_DEVICE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 // refresh is indistinguishable from a stolen token being replayed, and the
 // whole grant is revoked.
 const REFRESH_REUSE_GRACE_SECONDS = 30;
+// Long enough to find a phone and sign in on it; the TV asks for a new code
+// after that.
+const DEVICE_CODE_EXPIRES_IN = "15m";
 
 // Dev ports, one per app: 3000 web, 3001 api, 3002 cloud, 3005 storage,
 // 3006 forge, 3007 status, 3008 auth.
@@ -556,6 +562,15 @@ export function createCloudAuth(options: CloudAuthOptions) {
           oauthConsent: { modelName: "authOauthConsent" },
           oauthClientAssertion: { modelName: "authOauthClientAssertion" },
         },
+      }),
+      // A TV signs in with a code someone approves on another device. Only a
+      // client whose grant_types list the device-code grant may ask for one,
+      // and issuance runs `customAccessTokenClaims` like any other grant.
+      oauthDeviceAuthorization({
+        verificationUri: `${authAppUrl}/device`,
+        expiresIn: DEVICE_CODE_EXPIRES_IN,
+        interval: "5s",
+        schema: { deviceCode: { modelName: "authDeviceCode" } },
       }),
     ] as const,
     session: {

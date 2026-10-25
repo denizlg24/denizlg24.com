@@ -34,7 +34,11 @@ import {
   users,
   validateApiKey,
 } from "@repo/cloud-core";
-import { authAccount, authUser } from "@repo/cloud-core/db/schema";
+import {
+  authAccount,
+  authDeviceCode,
+  authUser,
+} from "@repo/cloud-core/db/schema";
 import {
   ACTIVITY_ACTIONS,
   adminResetMfaInputSchema,
@@ -44,7 +48,7 @@ import {
   type PublicSignUpResult,
   publicSignUpInputSchema,
 } from "@repo/schemas/cloud";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import pkg from "../package.json";
@@ -293,6 +297,37 @@ function nativeLoopbackRegistration(
     return null;
   }
   return { ...parsed.data, application_type: "native" };
+}
+
+/** The OAuth client behind the user code a device-approval request names. */
+async function deviceCodeClientId(
+  db: Database,
+  request: Request,
+): Promise<string | null> {
+  const body: unknown = await request
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("userCode" in body) ||
+    typeof body.userCode !== "string"
+  ) {
+    return null;
+  }
+  // The plugin matches the code as typed, then with separators and case
+  // folded away.
+  const typed = body.userCode;
+  const normalized = typed.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  const row = await db.query.authDeviceCode.findFirst({
+    columns: { oauthClientId: true },
+    where: or(
+      eq(authDeviceCode.userCode, typed),
+      eq(authDeviceCode.userCode, normalized),
+    ),
+  });
+  return row?.oauthClientId ?? null;
 }
 
 /** The client an authorize, consent or continue request is about. */
@@ -583,6 +618,20 @@ export function createCloudApiApp(options: CloudApiOptions) {
   // open to whoever that tenant admits. Issuance applies the same rules, and
   // stopping a refused account here keeps a consent row or a code from ever
   // existing for it.
+  const authorizationDenial = async (
+    clientId: string | null,
+    userId: string,
+  ): Promise<ReturnType<typeof dualShapeError> | null> => {
+    const tenancy = clientId ? await clientTenancy(options.db, clientId) : null;
+    if (tenancy?.tenantId) {
+      const access = await tenantAccess(options.db, tenancy.tenantId, userId);
+      return access.ok ? null : tenantDenialError(access.reason);
+    }
+    return (await isActiveSuperuser(options.db, userId))
+      ? null
+      : dualShapeError("FORBIDDEN", "Superuser required");
+  };
+
   for (const path of [
     "/api/auth/oauth2/authorize",
     "/api/auth/oauth2/consent",
@@ -593,31 +642,26 @@ export function createCloudApiApp(options: CloudApiOptions) {
         headers: context.req.raw.headers,
       });
       if (!session) return next();
-      const clientId = await oauthRequestClientId(context.req.raw);
-      const tenancy = clientId
-        ? await clientTenancy(options.db, clientId)
-        : null;
-      if (tenancy?.tenantId) {
-        const access = await tenantAccess(
-          options.db,
-          tenancy.tenantId,
-          session.user.id,
-        );
-        if (access.ok) return next();
-        return refuseAuthorization(
-          context.req.raw,
-          tenantDenialError(access.reason),
-        );
-      }
-      if (!(await isActiveSuperuser(options.db, session.user.id))) {
-        return refuseAuthorization(
-          context.req.raw,
-          dualShapeError("FORBIDDEN", "Superuser required"),
-        );
-      }
-      return next();
+      const denial = await authorizationDenial(
+        await oauthRequestClientId(context.req.raw),
+        session.user.id,
+      );
+      return denial ? refuseAuthorization(context.req.raw, denial) : next();
     });
   }
+
+  // Issuance would refuse the same account anyway, but only once the TV
+  // polls; refusing the approval says so to the person holding the phone.
+  app.post("/api/auth/device/approve", async (context, next) => {
+    const session = await options.auth.api.getSession({
+      headers: context.req.raw.headers,
+    });
+    if (!session) return next();
+    const clientId = await deviceCodeClientId(options.db, context.req.raw);
+    if (!clientId) return next();
+    const denial = await authorizationDenial(clientId, session.user.id);
+    return denial ? context.json(denial, 403) : next();
+  });
 
   // Discovery documents are public and read by clients that live on other
   // origins (the MCP inspector runs in a browser), and the plugin marks them

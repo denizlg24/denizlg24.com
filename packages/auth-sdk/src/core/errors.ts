@@ -47,7 +47,8 @@ export class AuthorizationResponseError extends Error {
       | "missing_code"
       | "no_pending_sign_in"
       | "access_denied"
-      | "authorization_error",
+      | "authorization_error"
+      | "expired",
     readonly oauthError?: string,
     readonly description?: string,
   ) {
