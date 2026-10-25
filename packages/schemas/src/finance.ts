@@ -533,10 +533,28 @@ export type FinanceRecurringCommitment = z.infer<
   typeof financeRecurringCommitmentSchema
 >;
 
+/**
+ * Holdings outside the bank ledger, counted in net worth only. Balances,
+ * budgets and the forecast stay cash: a brokerage NAV moves with the market,
+ * and spending it is a sale, not a transaction.
+ */
+export const financeInvestmentSchema = z.object({
+  source: z.literal("ibkr"),
+  label: z.string().min(1),
+  asOf: isoDateSchema,
+  value: financeMoneySchema,
+  /** `value` in the finance base currency; absent when no rate applies. */
+  valueBase: financeMoneySchema.optional(),
+});
+export type FinanceInvestment = z.infer<typeof financeInvestmentSchema>;
+
 export const financeDashboardResponseSchema = z.object({
   accounts: z.array(financeAccountSchema),
   balances: z.array(financeBalanceSchema),
   aggregateBalances: z.array(financeMoneySchema),
+  investments: z.array(financeInvestmentSchema).default([]),
+  /** Cash plus investments: the base-currency total first, then anything unconverted. */
+  netWorth: z.array(financeMoneySchema).default([]),
   monthly: financeMoneySchema.extend({
     spendMinor: z.number().int().nonnegative(),
     incomeMinor: z.number().int().nonnegative(),

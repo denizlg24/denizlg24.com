@@ -95,6 +95,8 @@ export interface AdminRoutes {
   portfolios: string;
   /** Full path of the hour tracker, which payouts link across to. */
   hours: string;
+  /** Full path of the brokerage holdings page, which net worth links across to. */
+  holdings: string;
   courses: CourseRoutes;
   finance: FinanceRoutes;
   blog: EditableCollectionRoutes;

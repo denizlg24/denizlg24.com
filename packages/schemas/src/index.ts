@@ -4,6 +4,7 @@ export * from "./agent-tasks";
 export * from "./authenticator";
 export * from "./background-agent";
 export * from "./blog";
+export * from "./brokerage";
 export * from "./calendar";
 export * from "./changelog";
 export * from "./connectors";

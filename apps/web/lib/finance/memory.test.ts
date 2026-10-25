@@ -9,6 +9,8 @@ const dashboard: FinanceDashboardResponse = {
   deductionProfiles: [],
   settings: { baseCurrency: "EUR", fxSource: "frankfurter" },
   aggregateBalances: [{ amountMinor: 120_000, currency: "EUR" }],
+  investments: [],
+  netWorth: [{ amountMinor: 120_000, currency: "EUR" }],
   recurringCommitment: {
     currency: "EUR",
     expenseMinor: 0,

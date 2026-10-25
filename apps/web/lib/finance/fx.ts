@@ -3,6 +3,7 @@ import { convertMinorWithRate } from "@repo/utils";
 import type mongoose from "mongoose";
 import { z } from "zod";
 import { connectDB } from "@/lib/mongodb";
+import { BrokerageSnapshotModel } from "@/models/Brokerage";
 import {
   FinanceAccount,
   FinanceFxSnapshot,
@@ -100,12 +101,18 @@ export function createFinanceFxProvider(
 /** Every currency the ledger actually holds, so no rate is fetched needlessly. */
 export async function financeCurrenciesInUse(): Promise<string[]> {
   await connectDB();
-  const [accountCurrencies, ledgerCurrencies] = await Promise.all([
-    FinanceAccount.distinct("currency"),
-    FinanceLedgerEntry.distinct("currency"),
-  ]);
+  const [accountCurrencies, ledgerCurrencies, brokerageCurrencies] =
+    await Promise.all([
+      FinanceAccount.distinct("currency"),
+      FinanceLedgerEntry.distinct("currency"),
+      BrokerageSnapshotModel.distinct("baseCurrency"),
+    ]);
   return [
-    ...new Set([...accountCurrencies, ...ledgerCurrencies] as string[]),
+    ...new Set([
+      ...accountCurrencies,
+      ...ledgerCurrencies,
+      ...brokerageCurrencies,
+    ] as string[]),
   ].filter((code) => /^[A-Z]{3}$/.test(code));
 }
 

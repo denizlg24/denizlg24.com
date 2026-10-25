@@ -21,6 +21,7 @@ import {
   Home,
   Inbox,
   KeyRound,
+  Landmark,
   MessageSquare,
   NotebookPen,
   Server,
@@ -168,6 +169,11 @@ const items = [
     title: "Portfolios",
     url: "/admin/dashboard/markets/portfolios",
     icon: Wallet,
+  },
+  {
+    title: "Holdings",
+    url: "/admin/dashboard/holdings",
+    icon: Landmark,
   },
   {
     title: "Settings",
