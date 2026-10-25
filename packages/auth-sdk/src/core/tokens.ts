@@ -14,6 +14,18 @@ export interface TokenSet {
   idToken?: string;
 }
 
+/** RFC 8628: what a device shows while someone approves it elsewhere. */
+export interface DeviceAuthorization {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  /** The verification URI with the user code filled in, for a QR code. */
+  verificationUriComplete?: string;
+  /** Epoch milliseconds. */
+  expiresAt: number;
+  intervalSeconds: number;
+}
+
 export interface TokenClientOptions {
   issuer?: string;
   clientId: string;
@@ -54,6 +66,12 @@ export interface TokenClient {
    */
   refresh(refreshToken: string): Promise<TokenSet>;
   clientCredentials(scope?: string): Promise<TokenSet>;
+  requestDeviceCode(scope?: string): Promise<DeviceAuthorization>;
+  /**
+   * One poll. Refuses with `authorization_pending` until someone approves,
+   * `slow_down` when polled faster than the interval.
+   */
+  exchangeDeviceCode(deviceCode: string): Promise<TokenSet>;
   /** Best effort; resolves even when the server cannot be reached. */
   revoke(refreshToken: string): Promise<void>;
 }
@@ -83,6 +101,38 @@ export function parseTokenResponse(body: unknown, now = Date.now()): TokenSet {
     expiresAt: now + expiresIn * 1000,
     scope: stringField(record, "scope"),
     idToken: stringField(record, "id_token"),
+  };
+}
+
+export function parseDeviceAuthorization(
+  body: unknown,
+  now = Date.now(),
+): DeviceAuthorization {
+  const record =
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)
+      : {};
+  const deviceCode = stringField(record, "device_code");
+  const userCode = stringField(record, "user_code");
+  const verificationUri = stringField(record, "verification_uri");
+  const expiresIn = record.expires_in;
+  if (
+    !deviceCode ||
+    !userCode ||
+    !verificationUri ||
+    typeof expiresIn !== "number"
+  ) {
+    throw new AuthUnavailableError(
+      "Device authorization endpoint answered without a device code",
+    );
+  }
+  return {
+    deviceCode,
+    userCode,
+    verificationUri,
+    verificationUriComplete: stringField(record, "verification_uri_complete"),
+    expiresAt: now + expiresIn * 1000,
+    intervalSeconds: typeof record.interval === "number" ? record.interval : 5,
   };
 }
 
@@ -126,10 +176,11 @@ export function createTokenClient(options: TokenClientOptions): TokenClient {
     }
   }
 
-  async function tokenRequest(
+  async function formRequest(
+    url: string,
     params: Record<string, string>,
-  ): Promise<TokenSet> {
-    const response = await post(endpoints.token, new URLSearchParams(params));
+  ): Promise<unknown> {
+    const response = await post(url, new URLSearchParams(params));
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const record =
@@ -140,7 +191,7 @@ export function createTokenClient(options: TokenClientOptions): TokenClient {
       // A gateway error page is not the authorization server's verdict.
       if (response.status >= 500 || code === undefined) {
         throw new AuthUnavailableError(
-          `Token endpoint answered HTTP ${response.status}`,
+          `${url} answered HTTP ${response.status}`,
         );
       }
       throw new OAuthGrantError(
@@ -149,7 +200,13 @@ export function createTokenClient(options: TokenClientOptions): TokenClient {
         stringField(record, "error_description"),
       );
     }
-    return parseTokenResponse(body);
+    return body;
+  }
+
+  async function tokenRequest(
+    params: Record<string, string>,
+  ): Promise<TokenSet> {
+    return parseTokenResponse(await formRequest(endpoints.token, params));
   }
 
   return {
@@ -218,6 +275,23 @@ export function createTokenClient(options: TokenClientOptions): TokenClient {
       };
       if (scope) params.scope = scope;
       return tokenRequest(params);
+    },
+
+    async requestDeviceCode(scope) {
+      return parseDeviceAuthorization(
+        await formRequest(endpoints.deviceAuthorization, {
+          scope: scope ?? DEFAULT_SCOPE,
+          resource: options.resource,
+        }),
+      );
+    },
+
+    exchangeDeviceCode(deviceCode) {
+      return tokenRequest({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: deviceCode,
+        resource: options.resource,
+      });
     },
 
     async revoke(refreshToken) {

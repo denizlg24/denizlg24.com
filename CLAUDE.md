@@ -744,6 +744,17 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   cookie only ever reaches the API — Forge's edge strips it with the rest of
   `deniz-cloud.*`.
 
+- **A TV signs in by code (RFC 8628).** `oauthDeviceAuthorization` in
+  `better-auth.ts` (table `auth_device_code`, migration 0056) issues tokens
+  through the provider like any grant, so `customAccessTokenClaims` holds a
+  device token to the same tenant and superuser rules. Approval is
+  auth.denizlg24.com/device; `app.ts` refuses `/device/approve` for an
+  account the client's tenant would refuse, so the phone hears it rather
+  than the TV. Only a client whose `grant_types` list
+  `urn:ietf:params:oauth:grant-type:device_code` may ask for a code — a hand
+  edit of the row, like the redirect additions. `device.integration.test.ts`
+  covers the flow.
+
 Rollout order for anything touching this: apply cloud-core migrations (0043
 OAuth tables, 0044 issuer, 0045 remember-me, 0050 passkeys, 0051 passkey offer,
 0053 realms and tenants) → roll the API (manual approval) → deploy auth and

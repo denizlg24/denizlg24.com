@@ -1,6 +1,7 @@
 /**
  * The app icon, Android's adaptive foreground, the splash mark (a play
- * triangle on ink) and the film grain laid over full-bleed imagery.
+ * triangle on ink), the Google TV launcher banner and the film grain laid
+ * over full-bleed imagery.
  *
  *   bun scripts/render-icons.ts
  */
@@ -30,8 +31,17 @@ function mark(size: number, background: boolean, scale = 1) {
 </svg>`;
 }
 
+const DISPLAY_FONT = Bun.resolveSync(
+  "@expo-google-fonts/big-shoulders/900Black/BigShoulders_900Black.ttf",
+  import.meta.dir,
+);
+
 function render(svg: string, file: string) {
-  const png = new Resvg(svg).render().asPng();
+  const png = new Resvg(svg, {
+    font: { fontFiles: [DISPLAY_FONT], loadSystemFonts: false },
+  })
+    .render()
+    .asPng();
   writeFileSync(join(import.meta.dir, "..", "assets", file), png);
   console.log(file);
 }
@@ -39,6 +49,20 @@ function render(svg: string, file: string) {
 render(mark(1024, true), "icon.png");
 render(mark(1024, false, 0.72), "android-icon-foreground.png");
 render(mark(512, false), "splash-icon.png");
+
+/** Google TV's launcher tile: the wordmark on the icon's glow, 320 × 180 xhdpi. */
+const BANNER = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="45%" r="70%">
+      <stop offset="0" stop-color="${GLOW}"/>
+      <stop offset="1" stop-color="${NIGHT}"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="180" fill="url(#glow)"/>
+  <path d="M44 70 L80 90 L44 110 Z" fill="${EMBER}" stroke="${EMBER}" stroke-width="8" stroke-linejoin="round"/>
+  <text x="94" y="112" font-family="Big Shoulders" font-weight="900" font-size="58" fill="#efe9df">STREAM</text>
+</svg>`;
+render(BANNER, "tv-banner.png");
 
 /** Monochrome noise; drawn at 7 % opacity it reads as grain, not texture. */
 const GRAIN = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">

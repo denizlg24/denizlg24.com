@@ -1,0 +1,265 @@
+name: Release Stream Android
+
+# Pull requests and manual dispatch build a debug-signed APK with no secret in
+# reach. A version bump of apps/stream-mobile/package.json on main re-signs it
+# in the approved `stream-release` environment, whose signing secrets must be
+# environment secrets, and publishes `stream-android-v<version>`.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/stream-mobile/package.json"
+      - ".github/workflows/release-stream-mobile.yml"
+  pull_request:
+    paths:
+      - "apps/stream-mobile/app.config.ts"
+      - "apps/stream-mobile/package.json"
+      - "apps/stream-mobile/plugins/**"
+      - "apps/stream-mobile/modules/**"
+      - ".github/workflows/release-stream-mobile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A shared group outside pull requests would let a newer push replace a
+# pending version-bump run, or hold every later run behind one awaiting
+# approval.
+concurrency:
+  group: stream-mobile-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prepare:
+    name: Detect release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect version change
+        id: version
+        shell: bash
+        run: |
+          current_version="$(jq -r '.version' apps/stream-mobile/package.json)"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            previous_version="$(
+              git show "${{ github.event.before }}:apps/stream-mobile/package.json" 2>/dev/null |
+                jq -r '.version' || true
+            )"
+            if [[ "$current_version" != "$previous_version" ]]; then
+              tag="stream-android-v$current_version"
+              if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+                echo "::error::$tag already exists. Bump apps/stream-mobile/package.json."
+                exit 1
+              fi
+              publish=true
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Build APK
+    needs: prepare
+    if: github.event_name != 'push' || needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Monotonic across releases, which is all Android asks of it.
+      STREAM_ANDROID_VERSION_CODE: ${{ github.run_number }}
+      EXPO_PUBLIC_STREAM_API_URL: https://stream.denizlg24.com
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: stream-android-v${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        working-directory: apps/stream-mobile
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Gradle's "bundle JS" task runs the Expo CLI under node.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      # Through turbo, so the auth SDK's dist/ is built first (`^build`).
+      - name: Typecheck and test
+        run: bunx turbo run typecheck --filter=stream-mobile && bun test
+
+      - name: Generate the native project
+        run: bunx expo prebuild --platform android --clean --no-install
+
+      - name: Assemble
+        working-directory: apps/stream-mobile/android
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease \
+            --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+            -Dorg.gradle.jvmargs=-Xmx4g \
+            | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Package APK
+        shell: bash
+        run: |
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$apk" ]]; then
+            echo "::error::Gradle produced no app-release.apk"
+            exit 1
+          fi
+          if ! unzip -l "$apk" | grep -q 'assets/index.android.bundle'; then
+            echo "::error::The APK carries no embedded JS bundle"
+            exit 1
+          fi
+          mkdir -p build
+          cp "$apk" "build/Stream-$VERSION.apk"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --print-certs "build/Stream-$VERSION.apk"
+          ls -l build
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          previous_tag="$(
+            git tag --list 'stream-android-v*' --sort=-v:refname |
+              grep -Fvx "$TAG" |
+              head -n 1 ||
+              true
+          )"
+          if [[ -n "$previous_tag" ]]; then
+            git log --format='- %s' "$previous_tag..HEAD" -- . ../../packages/schemas/src/stream > build/release-notes.md
+          else
+            git log --format='- %s' -n 30 HEAD -- . > build/release-notes.md
+          fi
+          if [[ ! -s build/release-notes.md ]]; then
+            echo "- Maintenance release." > build/release-notes.md
+          fi
+          cat build/release-notes.md
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: stream-android-${{ needs.prepare.outputs.version }}
+          path: |
+            apps/stream-mobile/build/*.apk
+            apps/stream-mobile/build/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stream-android-gradle-log
+          path: ${{ runner.temp }}/gradle.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release-android:
+    name: Sign and publish APK
+    needs: [prepare, build-android]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: stream-release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: stream-android-v${{ needs.prepare.outputs.version }}
+      STREAM_ANDROID_KEYSTORE: ${{ secrets.STREAM_ANDROID_KEYSTORE }}
+      STREAM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.STREAM_ANDROID_KEYSTORE_PASSWORD }}
+      STREAM_ANDROID_KEY_ALIAS: ${{ secrets.STREAM_ANDROID_KEY_ALIAS }}
+      STREAM_ANDROID_KEY_PASSWORD: ${{ secrets.STREAM_ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Check signing secrets
+        id: signing
+        shell: bash
+        run: |
+          if [[ -n "$STREAM_ANDROID_KEYSTORE" && -n "$STREAM_ANDROID_KEYSTORE_PASSWORD" && -n "$STREAM_ANDROID_KEY_ALIAS" && -n "$STREAM_ANDROID_KEY_PASSWORD" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The STREAM_ANDROID_* signing secrets are not set, so $TAG was built but not published."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: stream-android-${{ needs.prepare.outputs.version }}
+          path: dist
+
+      # zipalign before apksigner: rewriting the archive after signing would
+      # invalidate it. -P 16 keeps native libraries on 16 KB pages.
+      - name: Sign with the release key
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          keystore="$RUNNER_TEMP/stream-release.keystore"
+          echo "$STREAM_ANDROID_KEYSTORE" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+
+          "$build_tools/zipalign" -f -P 16 4 "dist/Stream-$VERSION.apk" "$RUNNER_TEMP/aligned.apk"
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$STREAM_ANDROID_KEY_ALIAS" \
+            --ks-pass env:STREAM_ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:STREAM_ANDROID_KEY_PASSWORD \
+            --out "dist/Stream-$VERSION.apk" \
+            "$RUNNER_TEMP/aligned.apk"
+          rm -f "$keystore" "$RUNNER_TEMP/aligned.apk"
+
+          "$build_tools/apksigner" verify --print-certs "dist/Stream-$VERSION.apk" | tee "$RUNNER_TEMP/signature.txt"
+          if grep -q "CN=Android Debug" "$RUNNER_TEMP/signature.txt"; then
+            echo "::error::The release APK is still signed with the debug key."
+            exit 1
+          fi
+          signers="$(grep -E 'certificate SHA-256 digest:' "$RUNNER_TEMP/signature.txt" | awk '{print $NF}' | sort -u | wc -l | tr -d ' ')"
+          if [[ "$signers" != "1" ]]; then
+            echo "::error::The release APK has $signers signers; expected exactly one."
+            exit 1
+          fi
+
+      # Never "latest": the Envoy CLI's updater reads this repository's
+      # latest release.
+      - name: Create GitHub release
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Stream Android v$VERSION" \
+            --notes-file dist/release-notes.md \
+            --latest=false \
+            "dist/Stream-$VERSION.apk"

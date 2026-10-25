@@ -8,6 +8,7 @@ export interface IssuerEndpoints {
   authorization: string;
   token: string;
   revocation: string;
+  deviceAuthorization: string;
   jwks: string;
 }
 
@@ -22,6 +23,7 @@ export function issuerEndpoints(issuer?: string): IssuerEndpoints {
     authorization: `${base}/oauth2/authorize`,
     token: `${base}/oauth2/token`,
     revocation: `${base}/oauth2/revoke`,
+    deviceAuthorization: `${base}/device/code`,
     jwks: `${base}/jwks`,
   };
 }

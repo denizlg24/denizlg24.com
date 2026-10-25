@@ -44,8 +44,10 @@ SecureStore so a cold start offline still finds the session). PKCE through
   `AbortSignal.timeout` and a UTF-8 `TextDecoder` for `jose`. It is the
   root layout's first import; keep it first.
 - The SDK's exports point at `dist/`, which a clone does not have. `dev`,
-  `ios`, `android`, `bundle` and `typecheck` build it first (`auth-sdk`
-  script).
+  `ios`, `android` and `bundle` build it first (`auth-sdk` script);
+  typecheck through turbo (`bunx turbo typecheck --filter=stream-mobile`),
+  whose `^build` builds it once. Rebuilding it inside `typecheck` raced every
+  other package reading `dist/` in the same turbo run.
 - `GET /me`: 403 `not_a_member` → "not on the list" screen with Sign out;
   409 `needs_setup` → Welcome (name + colour, `POST /me`), then the sofa;
   anything else that fails (503 `auth_unavailable`, offline) → retry
@@ -99,6 +101,44 @@ before 95 % (`resumePosition`). The screen is landscape through the stack's
 `textTracks` are not used: expo-video cannot side-load subtitles, so the
 captions menu lists the stream's own tracks.
 
+## Google TV
+
+The same APK. `Platform.isTV` switches the root layout to its own stack
+(`app/tv/*` over `features/tv`): sign-in by code, "Who's watching?", Home
+(rails under a backdrop that follows focus), Search, My list, the title page
+and the player. Landscape throughout; overscan margins are `TV_SAFE`.
+
+- **Sign-in is RFC 8628, not PKCE** — a TV has no browser. The SDK's
+  `startDeviceSignIn()` asks `POST /api/auth/device/code`; the screen shows
+  the code and a QR of `verification_uri_complete`
+  (`auth.denizlg24.com/device`), and polls until someone approves on their
+  phone. The Stream client's `grant_types` must list
+  `urn:ietf:params:oauth:grant-type:device_code`, or the code request is a
+  400 and the TV says so.
+- **Focus is Android's own.** Core React Native moves focus between
+  focusable views and turns OK into `onPress`; no `react-native-tvos`.
+  `Focusable` draws the ring; `Button` and `IconButton` invert to paper when
+  focused. `preferred` (Android's `hasTVPreferredFocus`, typed as Apple TV
+  only) picks each screen's first focus.
+- **Remote keys come from `onHWKeyEvent`** (`features/tv/remote.ts`), which
+  React Native's root view emits for every D-pad and media key wherever focus
+  is. Back is `BackHandler`.
+- **The player never lets focus reach the picture.** Hidden controls leave
+  a full-screen catcher focused, so an embed's page cannot take a key (its
+  adverts included); the WebView is `focusable={false}` behind
+  `pointerEvents="none"`. The embed is driven like the web player: `play`,
+  `pause`, `seek<s>` posted to `player_iframe`, a clock interpolated between
+  `PLAYER_EVENT`s. The provider's landing page only builds its player on a
+  real tap, and Android injects scripts into the top frame only, so
+  `modules/stream-tv` (a local Expo module, Android only) dispatches a touch
+  at the middle of the WebView 3 s after load and on OK before it is ready.
+  The provider's own title strip and control bar are pushed off screen
+  (64/96 dp, as on the web). Arrow presses seek through `useSeekBuffer`: one
+  seek once they stop.
+- **`plugins/with-android-tv.js`** adds `LEANBACK_LAUNCHER`, the
+  `@drawable/tv_banner` (`assets/tv-banner.png`, drawn by `bun run icons`)
+  and leanback/touchscreen as optional features, so phones still install it.
+
 ## Android
 
 No `PlatformColor`, `ActionSheetIOS`, `Alert.prompt` or toolbar buttons
@@ -110,11 +150,17 @@ file name on Android (`ui/theme.ts`).
 ## Checks
 
 ```
-bun run typecheck && bun test
+bunx turbo typecheck --filter=stream-mobile && bun test
 bunx biome check apps/stream-mobile
 bunx expo export --platform ios --output-dir /tmp/stream-ios
 bunx expo export --platform android --output-dir /tmp/stream-android
 ```
+
+The APK is `release-stream-mobile.yml`: PRs touching native config build it
+debug-signed; a `package.json` version bump on main re-signs it in the
+`stream-release` environment (`STREAM_ANDROID_KEYSTORE`, `_KEYSTORE_PASSWORD`,
+`_KEY_ALIAS`, `_KEY_PASSWORD`) and publishes `stream-android-v<version>`, never
+"latest". Never rotate that key: Android refuses an update signed by another.
 
 `ios/` and `android/` are generated (`bun run prebuild`), never committed.
 `bun run icons` redraws the icon, splash mark and the film-grain tile.

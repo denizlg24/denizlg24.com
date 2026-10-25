@@ -393,6 +393,13 @@
       "when": 1792851530638,
       "tag": "0055_forge_cpu_ceiling",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792947300032,
+      "tag": "0056_auth_device_code",
+      "breakpoints": true
     }
   ]
 }

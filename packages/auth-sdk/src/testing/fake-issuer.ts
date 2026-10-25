@@ -23,6 +23,14 @@ interface PendingCode {
   resource: string;
 }
 
+interface PendingDevice {
+  clientId: string;
+  resource: string;
+  userCode: string;
+  status: "pending" | "approved" | "denied";
+  sub?: string;
+}
+
 interface Grant {
   sub: string;
   clientId: string;
@@ -43,6 +51,8 @@ export interface FakeIssuer {
     ttl?: number;
     tenant?: string;
   }): Promise<string>;
+  /** What someone signed in on another device does with the code a device shows. */
+  decideDevice(userCode: string, sub: string | null): void;
   /** Make the next n token requests fail at the network level. */
   failNetwork(times: number): void;
   /** Make the next token request answer a gateway error page. */
@@ -61,6 +71,7 @@ export async function createFakeIssuer(
   const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "EdDSA" };
   const keys = createLocalJWKSet({ keys: [jwk] });
   const codes = new Map<string, PendingCode>();
+  const devices = new Map<string, PendingDevice>();
   const refreshTokens = new Map<string, Grant>();
   const revoked = new Set<string>();
   const calls = { token: 0, revoke: 0 };
@@ -111,6 +122,14 @@ export async function createFakeIssuer(
       return callback.toString();
     },
 
+    decideDevice(userCode, sub) {
+      for (const device of devices.values()) {
+        if (device.userCode !== userCode) continue;
+        device.status = sub ? "approved" : "denied";
+        device.sub = sub ?? undefined;
+      }
+    },
+
     failNetwork(times) {
       networkFailures = times;
     },
@@ -133,6 +152,26 @@ export async function createFakeIssuer(
           refreshTokens.delete(token);
         }
         return new Response(null, { status: 200 });
+      }
+      if (url.pathname.endsWith("/device/code")) {
+        const clientId = body.get("client_id") ?? "";
+        if (!clients[clientId]) return oauthError(400, "invalid_client");
+        const deviceCode = `dc-${++counter}`;
+        const userCode = `USER${counter}`;
+        devices.set(deviceCode, {
+          clientId,
+          resource: body.get("resource") ?? "",
+          userCode,
+          status: "pending",
+        });
+        return Response.json({
+          device_code: deviceCode,
+          user_code: userCode,
+          verification_uri: "https://auth.test/device",
+          verification_uri_complete: `https://auth.test/device?user_code=${userCode}`,
+          expires_in: 1800,
+          interval: 0,
+        });
       }
       if (!url.pathname.endsWith("/oauth2/token")) {
         return new Response("not found", { status: 404 });
@@ -204,6 +243,21 @@ export async function createFakeIssuer(
             return oauthError(400, "invalid_grant");
           refreshTokens.delete(token);
           return issue(grant, true);
+        }
+        case "urn:ietf:params:oauth:grant-type:device_code": {
+          const deviceCode = body.get("device_code") ?? "";
+          const device = devices.get(deviceCode);
+          if (!device || device.clientId !== clientId)
+            return oauthError(400, "invalid_grant");
+          if (device.status === "pending")
+            return oauthError(400, "authorization_pending");
+          devices.delete(deviceCode);
+          if (device.status === "denied" || !device.sub)
+            return oauthError(400, "access_denied");
+          return issue(
+            { sub: device.sub, clientId, resource: device.resource },
+            true,
+          );
         }
         case "client_credentials":
           return issue(

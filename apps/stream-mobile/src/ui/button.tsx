@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import type { LucideIcon } from "lucide-react-native";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -25,6 +25,8 @@ export interface ButtonProps
   size?: "regular" | "large" | "classic";
   /** Solid glyphs, e.g. the play triangle. */
   filledIcon?: boolean;
+  /** On a TV, takes the remote's focus when it mounts. */
+  preferred?: boolean;
 }
 
 /** A repeat press within this window is dropped, so a write never runs twice. */
@@ -46,17 +48,25 @@ export function Button({
   disabled,
   onPress,
   filledIcon,
+  onFocus,
+  onBlur,
+  preferred,
   ...props
 }: ButtonProps) {
   const last = useRef(0);
-  const background =
-    variant === "primary"
+  // Only a TV remote focuses a button; it inverts to paper, the way TV
+  // interfaces mark the one thing OK will press.
+  const [focused, setFocused] = useState(false);
+  const background = focused
+    ? colors.paper
+    : variant === "primary"
       ? colors.amber
       : variant === "secondary"
         ? colors.fill
         : "transparent";
-  const foreground =
-    variant === "primary"
+  const foreground = focused
+    ? colors.ink
+    : variant === "primary"
       ? colors.onAmber
       : variant === "destructive"
         ? colors.danger
@@ -70,6 +80,17 @@ export function Button({
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       disabled={inactive}
+      // Typed as Apple TV only and deprecated, but Android's view manager
+      // still implements it: it requests focus when the prop turns true.
+      hasTVPreferredFocus={preferred}
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setFocused(false);
+        onBlur?.(event);
+      }}
       onPress={(event) => {
         const now = Date.now();
         if (now - last.current < REPEAT_MS) return;

@@ -109,4 +109,5 @@ jobs:
         run: cargo test --locked --manifest-path apps/stream-desktop/src-tauri/Cargo.toml
   # Forge's GitHub integration deploys the web target on main, using its
   # production environment and health check. Desktop releases are handled
-  # by release-stream-desktop.yml; native iOS compilation by personal-ios.yml.
+  # by release-stream-desktop.yml, the Android APK by release-stream-mobile.yml;
+  # native iOS compilation by personal-ios.yml.

@@ -521,7 +521,7 @@
     },
     "apps/macros-mobile": {
       "name": "macros-mobile",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@better-auth/expo": "1.7.12",
         "@expo/ui": "~57.0.20",
@@ -806,6 +806,7 @@
         "expo-video": "~57.0.5",
         "expo-web-browser": "~57.0.3",
         "lucide-react-native": "^1.60.0",
+        "qrcode": "1.5.4",
         "react": "19.2.7",
         "react-native": "0.86.3",
         "react-native-gesture-handler": "~2.32.0",
@@ -822,6 +823,7 @@
         "@repo/typescript-config": "workspace:*",
         "@resvg/resvg-js": "2.6.2",
         "@types/bun": "^1.4.3",
+        "@types/qrcode": "1.5.5",
         "@types/react": "19.2.18",
         "typescript": "5.9.3",
       },
@@ -5592,6 +5594,8 @@
     "simple-plist/bplist-parser": ["bplist-parser@0.3.1", "", { "dependencies": { "big-integer": "1.6.x" } }, "sha512-PyJxiNtA5T2PlLIeBot4lbp7rj4OadzjnMZD/G5zuBNt8ei/yCU7+wW0h2bag9vr8c+/WuRWmSxbqAl9hL1rBA=="],
 
     "source-map-support/source-map": ["source-map@0.6.1", "", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
+
+    "stream-mobile/@types/qrcode": ["@types/qrcode@1.5.5", "", { "dependencies": { "@types/node": "*" } }, "sha512-CdfBi/e3Qk+3Z/fXYShipBT13OJ2fDO2Q2w5CIP5anLTLIndQG9z6P1cnm+8zCWSpm5dnxMFd/uREtb0EXuQzg=="],
 
     "string-width/strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 

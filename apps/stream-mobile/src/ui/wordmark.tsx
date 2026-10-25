@@ -6,12 +6,9 @@ import { colors, fonts } from "./theme";
 /** STREAM in Big Shoulders Black, after a small filled amber play triangle. */
 export function Wordmark({ size = 26 }: { size?: number }) {
   return (
-    <View
-      style={styles.row}
-      accessible
-      accessibilityRole="header"
-      accessibilityLabel="Stream"
-    >
+    // The label sits on the text: an `accessible` View is a stop for a TV
+    // remote's focus on Android, and the wordmark has nothing to press.
+    <View style={styles.row}>
       <Play
         size={size * 0.62}
         color={colors.amber}
@@ -19,6 +16,8 @@ export function Wordmark({ size = 26 }: { size?: number }) {
         strokeWidth={1.5}
       />
       <Text
+        accessibilityRole="header"
+        accessibilityLabel="Stream"
         style={{
           fontFamily: fonts.display,
           fontSize: size,

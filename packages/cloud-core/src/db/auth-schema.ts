@@ -372,6 +372,29 @@ export const authOauthClientAssertion = pgTable("auth_oauth_client_assertion", {
   expiresAt: timestamp("expires_at").notNull(),
 });
 
+// RFC 8628 device codes (`oauthDeviceAuthorization`): a TV shows `user_code`,
+// someone approves it signed in on another device, the TV's poll is answered
+// with OAuth tokens. `oauth_client_id` and `resources` are the OAuth grant's
+// additions to the plugin's own fields.
+export const authDeviceCode = pgTable(
+  "auth_device_code",
+  {
+    id: text("id").primaryKey(),
+    deviceCode: text("device_code").notNull().unique(),
+    userCode: text("user_code").notNull().unique(),
+    userId: text("user_id"),
+    expiresAt: timestamp("expires_at").notNull(),
+    status: text("status").notNull(),
+    lastPolledAt: timestamp("last_polled_at"),
+    pollingInterval: integer("polling_interval"),
+    clientId: text("client_id"),
+    scope: text("scope"),
+    oauthClientId: text("oauth_client_id"),
+    resources: text("resources").array(),
+  },
+  (table) => [index("authDeviceCode_expiresAt_idx").on(table.expiresAt)],
+);
+
 export const authUserRelations = relations(authUser, ({ many }) => ({
   authSessions: many(authSession),
   authAccounts: many(authAccount),
