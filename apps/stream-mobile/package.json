@@ -10,7 +10,7 @@
     "android": "bun run auth-sdk && expo run:android",
     "prebuild": "expo prebuild --clean",
     "bundle": "bun run auth-sdk && expo export --output-dir dist",
-    "typecheck": "bun run auth-sdk && tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "bun test",
     "icons": "bun scripts/render-icons.ts"
   },
@@ -38,6 +38,7 @@
     "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.3",
     "lucide-react-native": "^1.60.0",
+    "qrcode": "1.5.4",
     "react": "19.2.7",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
@@ -54,6 +55,7 @@
     "@repo/typescript-config": "workspace:*",
     "@resvg/resvg-js": "2.6.2",
     "@types/bun": "^1.4.3",
+    "@types/qrcode": "1.5.5",
     "@types/react": "19.2.18",
     "typescript": "5.9.3"
   }
