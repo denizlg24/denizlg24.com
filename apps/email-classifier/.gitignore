@@ -5,6 +5,7 @@
 tests/*
 !tests/test_retrain.py
 !tests/test_storage.py
+!tests/test_partial.py
 __pycache__/
 *.pyc
 adjudicate-triage-with-codex.py

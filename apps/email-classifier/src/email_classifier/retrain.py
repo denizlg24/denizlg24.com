@@ -29,6 +29,11 @@ from email_classifier.data import (
     prepare_inference_row,
 )
 from email_classifier.evaluate import classification_metrics
+from email_classifier.partial import (
+    PartialCategoryClassifier,
+    adaptation_plan,
+    supported_training,
+)
 from email_classifier.paths import APP_ROOT
 from email_classifier.recovery import seed_dataset
 from email_classifier.runtime import RuntimeClassifier, load_runtime_classifier
@@ -247,17 +252,27 @@ def merge_corrections(
         unique[digest] = row
     merged = Dataset(base.path, tuple(rows + list(unique.values())))
     _validate_bundle(merged, evaluation)
-    if set(merged.labels) != set(LABELS):
-        raise ValueError("corrected training data must contain all seven labels")
     return merged, len(accepted)
 
 
 def promotion_reasons(
-    incumbent: dict[str, Any], candidate: dict[str, Any]
+    incumbent: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    supported: tuple[str, ...] | None = None,
 ) -> list[str]:
     reasons = []
-    if candidate["macro_f1"] < incumbent["macro_f1"] + 0.005:
-        reasons.append("macro-F1 must improve by at least 0.005")
+    if supported is None:
+        old_score, new_score = incumbent["macro_f1"], candidate["macro_f1"]
+    else:
+        old_score = sum(
+            incumbent["per_class"][label]["f1-score"] for label in supported
+        ) / len(supported)
+        new_score = sum(
+            candidate["per_class"][label]["f1-score"] for label in supported
+        ) / len(supported)
+    if new_score < old_score + 0.005:
+        reasons.append("supported-category macro-F1 must improve by at least 0.005")
     for label in LABELS:
         old, new = incumbent["per_class"][label], candidate["per_class"][label]
         if new["f1-score"] < old["f1-score"] - 0.02:
@@ -294,9 +309,16 @@ def execute(root: Path, run_id: str, report: dict[str, Any], store: RemoteStore)
         training_rows=len(training.rows),
         evaluation_rows=len(bundle.eval.rows),
     )
-    if any(count < 5 for count in bundle.eval.distribution.values()):
-        report["reason"] = "validation needs at least five examples per category"
+    adapted, reason = adaptation_plan(training, bundle.eval)
+    report.update(
+        adapted_categories=list(adapted),
+        frozen_categories=[label for label in LABELS if label not in adapted],
+    )
+    if reason:
+        report["reason"] = reason
         return "skipped"
+    training = supported_training(training, adapted)
+    report["training_rows"] = len(training.rows)
     implementation = hashlib.sha256()
     for source in sorted(Path(__file__).parent.glob("*.py")):
         implementation.update(source.name.encode())
@@ -320,22 +342,36 @@ def execute(root: Path, run_id: str, report: dict[str, Any], store: RemoteStore)
         return "skipped"
     incumbent = load_runtime_classifier()
     candidate = train_candidate(training, "logistic-regression")
+    model = (
+        candidate.pipeline
+        if set(adapted) == set(LABELS)
+        else PartialCategoryClassifier(incumbent.model, candidate.pipeline)
+    )
     runtime = RuntimeClassifier(
-        candidate.pipeline,
-        tuple(str(c) for c in candidate.pipeline.named_steps["classifier"].classes_),
+        model,
+        tuple(str(c) for c in model.named_steps["classifier"].classes_),
         run_id,
     )
     old_metrics, new_metrics = (
         score(incumbent, bundle.eval),
         score(runtime, bundle.eval),
     )
-    reasons = promotion_reasons(old_metrics, new_metrics)
+    reasons = promotion_reasons(old_metrics, new_metrics, supported=adapted)
     report.update(
         incumbent_version=incumbent.model_version,
         incumbent_metrics=old_metrics,
         candidate_metrics=new_metrics,
         rejection_reasons=reasons,
         training_seconds=candidate.training_seconds,
+        selection_metric="supported_category_macro_f1",
+        incumbent_supported_macro_f1=sum(
+            old_metrics["per_class"][label]["f1-score"] for label in adapted
+        )
+        / len(adapted),
+        candidate_supported_macro_f1=sum(
+            new_metrics["per_class"][label]["f1-score"] for label in adapted
+        )
+        / len(adapted),
     )
     # Keep an exact immutable training snapshot and report for each evaluated run.
     snapshot = root / "training.jsonl"
@@ -351,7 +387,7 @@ def execute(root: Path, run_id: str, report: dict[str, Any], store: RemoteStore)
     )
     if not reasons:
         path = root / "model.joblib"
-        joblib.dump(candidate.pipeline, path)
+        joblib.dump(model, path)
         with path.open("rb") as handle:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
         verify_artifact(path, digest)

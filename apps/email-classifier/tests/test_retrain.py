@@ -263,7 +263,10 @@ def test_execute_promotes_or_rejects_and_skips_unchanged_data(
     tmp_path, monkeypatch, improves
 ):
     monkeypatch.setenv("MONGODB_URI", "mongodb://unused/test")
-    train, _ = datasets(tmp_path)
+    train = Dataset(
+        tmp_path / "train.jsonl",
+        tuple(row(f"train-{label}-{i}", label) for label in LABELS for i in range(6)),
+    )
     evaluation = Dataset(
         tmp_path / "eval.jsonl",
         tuple(row(f"eval-{label}-{i}", label) for label in LABELS for i in range(5)),
@@ -285,7 +288,9 @@ def test_execute_promotes_or_rejects_and_skips_unchanged_data(
     trainer = Mock(return_value=candidate)
     monkeypatch.setattr(retrain, "train_candidate", trainer)
     old, new = metrics(), metrics()
-    new["macro_f1"] = 0.81 if improves else 0.8
+    for label in LABELS:
+        old["per_class"][label]["f1-score"] = 0.8
+        new["per_class"][label]["f1-score"] = 0.81 if improves else 0.8
     monkeypatch.setattr(retrain, "score", Mock(side_effect=[old, new]))
     previous = {"key": "retrain/old.joblib", "sha256": "a" * 64}
     remote.state["active_model"] = previous

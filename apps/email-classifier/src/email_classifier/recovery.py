@@ -21,7 +21,7 @@ from email_classifier.data import (
     _content_hash,
     load_datasets,
 )
-from email_classifier.train import local_training_splits
+from email_classifier.partial import adaptation_plan
 
 
 def _components(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -105,21 +105,16 @@ def recover_seed(
         "required_training_per_category": 5,
         "required_validation_per_category": 5,
     }
-    if any(train_counts[label] < 5 or eval_counts[label] < 5 for label in LABELS):
-        report["reason"] = (
-            "recovering missing seed data: review new emails across all "
-            "seven categories; need five training and five fresh "
-            "validation examples per category"
-        )
-        return None
-    try:
-        local_training_splits(
-            Dataset(root / "seed/train.jsonl", tuple(training)), seed=20260729
-        )
-    except DatasetError:
-        report["reason"] = (
-            "recovery needs more independent training threads per category"
-        )
+    train_dataset = Dataset(root / "seed/train.jsonl", tuple(training))
+    eval_dataset = Dataset(root / "seed/eval.jsonl", tuple(evaluation))
+    adapted, reason = adaptation_plan(train_dataset, eval_dataset)
+    report["recovery"].update(
+        adaptable_categories=list(adapted),
+        frozen_categories=[label for label in LABELS if label not in adapted],
+        required_adaptable_categories=2,
+    )
+    if reason:
+        report["reason"] = "recovering missing seed data: " + reason
         return None
     # Publish the complete set as one directory. Partial writes from a crash
     # never become the seed used by a later run.
@@ -144,7 +139,10 @@ def recover_seed(
             },
         )
         load_datasets(
-            stage / "train.jsonl", stage / "eval.jsonl", stage / "manifest.json"
+            stage / "train.jsonl",
+            stage / "eval.jsonl",
+            stage / "manifest.json",
+            require_all_labels=False,
         )
         stage.replace(root / "seed")
     finally:
@@ -152,7 +150,10 @@ def recover_seed(
             shutil.rmtree(stage)
     report["seed_recovered"] = True
     return load_datasets(
-        root / "seed/train.jsonl", root / "seed/eval.jsonl", root / "seed/manifest.json"
+        root / "seed/train.jsonl",
+        root / "seed/eval.jsonl",
+        root / "seed/manifest.json",
+        require_all_labels=False,
     )
 
 
@@ -175,7 +176,7 @@ def seed_dataset(
         )
     ]
     if all(path.exists() for path in paths):
-        return load_datasets(*paths)
+        return load_datasets(*paths, require_all_labels=False)
     if any(path.exists() for path in paths):
         raise DatasetError("partial seed dataset: restore or remove it before recovery")
     if paths != [path.resolve() for path in defaults]:

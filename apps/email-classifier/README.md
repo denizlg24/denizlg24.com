@@ -80,19 +80,28 @@ IMAP cannot qualify as fresh validation.
 
 Only explicit reviews and human recategorizations are evidence. Untouched model
 predictions are never treated as ground truth. Missing, truncated, and HTML-only
-bodies are excluded. Review both correct predictions and mistakes across all
-seven categories to fill gaps.
+bodies are excluded. Review both correct predictions and mistakes across the
+categories you receive. Rare categories do not need to meet the threshold for
+other categories to improve.
 
-Until each category has at least five training and five fresh validation examples,
-and training supports grouped cross-validation, runs report `skipped` and email
-per-category counts. Five validation examples are a minimum, not an accuracy
-guarantee. The current classifier keeps serving while data accumulates. No
-candidate is trained or promoted during recovery.
+A category can adapt when it has at least five training and five fresh validation
+examples. Training begins when at least **two** categories qualify and support
+grouped cross-validation. Other categories are frozen: the incumbent retains all
+its decisions for them, and the adapter cannot introduce new predictions into
+those categories. For example, zero spam examples will not block adapting FYI
+and purchases. The deployed model always retains its seven-category contract.
+
+Runs report `skipped` only while fewer than two categories qualify or supported
+categories lack independent training threads. Progress emails identify adaptable
+and frozen categories. Five validation examples are a minimum, not an accuracy
+guarantee. The current classifier keeps serving while fresh validation accumulates.
 
 Once enough data exists, the worker uploads and verifies all seed files before
 publishing their manifest in MongoDB. Validation membership is frozen thereafter.
 Exact duplicates and threads stay together, conflicting duplicate labels fail,
 and the existing leakage validator checks the training/evaluation boundary.
+Category support is measured on this frozen benchmark; a category absent from
+it stays frozen until the benchmark is deliberately extended with unseen data.
 Corrections replace matching training examples; validation IDs, content, and
 known groups are excluded from training. A separate final test set is still
 needed for an independent assessment of repeated validation results.
@@ -105,7 +114,8 @@ parameters through grouped cross-validation. Both incumbent and candidate are
 evaluated with production policy rules on the same frozen validation benchmark.
 Promotion requires:
 
-- Macro-F1 improvement of at least **0.005**.
+- Macro-F1 improvement of at least **0.005** across the supported categories.
+  Missing categories do not dilute the measured gain.
 - No per-category F1 drop larger than **0.02**.
 - No decline in `action-needed` or `scheduled` recall.
 - No increase in spam false positives.
@@ -115,6 +125,10 @@ under a new immutable key. A MongoDB update changes the active pointer only afte
 upload verification and only while the worker owns its lease. The previous pointer
 is retained. Failed uploads and rejected candidates leave the incumbent in place.
 An interrupted upload can leave an unreferenced object; it cannot become active.
+A partial model gates on the incumbent's decision and redistributes only the
+supported categories' probability mass. Frozen decisions and their probabilities
+remain unchanged. Repeated updates of the same supported set replace the adapter
+instead of nesting another complete model every week.
 
 Inference polls MongoDB every 30 seconds and downloads changed models into a
 checksum-verified local cache. Warm processes retain their last loaded model
