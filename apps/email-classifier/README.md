@@ -31,13 +31,11 @@ on its persistent volume, including manual triggers and concurrent requests.
 
 Setup before enabling the schedule:
 
-1. Mount a persistent volume at `/data/email-classifier` in Forge. Copy the
-   existing prepared `train.jsonl`, `eval.jsonl`, and `manifest.json` into its
-   `seed/` directory. Keep these seed files immutable; both splits must contain
-   all seven labels, with at least five evaluation examples per category.
-   The original evaluation split must have been excluded from
-   training the incumbent. This is now a recurring **validation** benchmark;
-   keep a separate test set for an independent final assessment.
+1. Mount a persistent volume at `/data/email-classifier` in Forge. **No existing
+   dataset files are required.** Leave `seed/` absent or empty to enable automatic
+   recovery from reviewed email records and saved bodies in MongoDB. The first
+   run starts the recovery clock; subsequent runs email progress until there
+   are enough reviewed examples. Keep this volume across deployments.
 2. Set the classifier's retraining variables from `.env.example`, enabling
    `EMAIL_CLASSIFIER_RETRAIN_ENABLED=true`. Copy `MONGODB_URI` and the existing
    web **`RESEND_API_KEY`** into this service's environment using your secret
@@ -57,6 +55,39 @@ metrics, and rejection reasons, never email bodies, subjects, senders, database
 URLs, or exception messages. Resend requests retry with an idempotency key.
 Notification failures appear in status and fail the monitoring workflow.
 
+### Recovering a lost dataset
+
+Missing default seed files trigger automatic recovery, rather than a failed
+run. Historical human-reviewed examples can supply training data. Validation
+uses a deterministic 20% of fresh thread/content groups whose message date and
+MongoDB ingestion time are both after the first recovery run. Old messages
+newly synced from IMAP cannot qualify as fresh validation. Untouched predictions
+are never used as ground truth, and training a model cannot reconstruct its
+original examples from the saved model artifact.
+
+Until every category has at least five training and five fresh validation
+examples, and training supports grouped cross-validation, runs report `skipped`
+and email counts for each category. Review both correct predictions and mistakes
+across all seven categories to fill gaps. Five validation examples are a minimum,
+not an accuracy guarantee. Keep using the existing deployed model while this
+data accumulates; no candidate is trained or promoted during recovery.
+
+Once ready, the worker automatically writes `seed/train.jsonl`, `seed/eval.jsonl`,
+and `seed/manifest.json`, publishing the complete directory atomically. It then
+continues with normal retraining. Recovery joins exact duplicates and threads
+before splitting, and refuses conflicting duplicate labels. The seed and
+validation membership remain frozen across later runs. Back up the volume:
+losing it restarts the collection period. A separate final test set is still
+needed for an independent assessment of repeated validation results.
+
+Existing prepared seed files are still supported: place all three in `seed/`
+before the first run, or use the path overrides in `.env.example`. Both splits
+must cover all categories, validation needs five examples per category, and
+the incumbent must not have trained on validation. Partial datasets and missing
+custom paths fail explicitly rather than being silently replaced. To recover
+after losing custom seed files, unset the three path overrides to use the
+default persistent-volume location.
+
 The worker reads saved email bodies and selects human recategorizations (the
 existing `llmCategory` snapshot) and explicitly reviewed labels. Untouched model
 predictions are not treated as ground truth. Missing, truncated, and HTML-only
@@ -69,10 +100,11 @@ export (`accountId:threadId`, falling back to message ID). Legacy IDs/content
 matches retain their original group IDs. Never include members of a held-out
 thread in seed training data.
 
-A dataset and implementation fingerprint avoids retraining unchanged data after a completed
-attempt. Failed attempts retry on the next trigger. Changes in labels or bodies
-change the fingerprint, as do classifier source changes. Keep seed training examples to retain coverage of
-correctly classified mail; this is not training exclusively on recent mistakes.
+A dataset and implementation fingerprint avoids retraining unchanged data after
+a completed attempt. Failed attempts retry on the next trigger. Changes in
+labels or bodies change the fingerprint, as do classifier source changes. Keep
+seed training examples to retain coverage of correctly classified mail; this
+is not training exclusively on recent mistakes.
 
 Candidates use the existing grouped cross-validation trainer with logistic
 regression. Both incumbent and candidate are evaluated with production policy

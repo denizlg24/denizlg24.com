@@ -27,11 +27,11 @@ from email_classifier.data import (
     Dataset,
     _content_hash,
     _validate_bundle,
-    load_datasets,
     prepare_inference_row,
 )
 from email_classifier.evaluate import classification_metrics
-from email_classifier.paths import APP_ROOT, EVAL_PATH, MANIFEST_PATH, TRAIN_PATH
+from email_classifier.paths import APP_ROOT
+from email_classifier.recovery import seed_dataset
 from email_classifier.runtime import RuntimeClassifier, load_runtime_classifier
 from email_classifier.train import train_candidate
 
@@ -155,6 +155,8 @@ def correction_rows(db: Any) -> tuple[list[dict[str, Any]], int]:
                 "email.from": 1,
                 "email.threadId": 1,
                 "email.messageId": 1,
+                "email.date": 1,
+                "email.createdAt": 1,
                 "body.text": 1,
                 "body.html": 1,
                 "body.attachmentCount": 1,
@@ -189,6 +191,13 @@ def correction_rows(db: Any) -> tuple[list[dict[str, Any]], int]:
                 "group_id": f"{doc['accountId']}:{thread}",
             }
         )
+        for source, field in (("date", "received_at"), ("createdAt", "ingested_at")):
+            value = email.get(source)
+            row[field] = (
+                value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC).isoformat()
+                if isinstance(value, datetime)
+                else ""
+            )
         rows.append(row)
     return rows, skipped
 
@@ -277,15 +286,6 @@ def score(classifier: RuntimeClassifier, dataset: Dataset) -> dict[str, Any]:
 
 
 def execute(root: Path, run_id: str, report: dict[str, Any]) -> str:
-    paths = [
-        Path(os.getenv(name) or default)
-        for name, default in (
-            ("EMAIL_CLASSIFIER_TRAIN_PATH", TRAIN_PATH),
-            ("EMAIL_CLASSIFIER_EVAL_PATH", EVAL_PATH),
-            ("EMAIL_CLASSIFIER_MANIFEST_PATH", MANIFEST_PATH),
-        )
-    ]
-    bundle = load_datasets(*paths)
     with MongoClient(
         os.environ["MONGODB_URI"],
         serverSelectionTimeoutMS=15_000,
@@ -293,6 +293,10 @@ def execute(root: Path, run_id: str, report: dict[str, Any]) -> str:
         socketTimeoutMS=120_000,
     ) as client:
         corrections, skipped = correction_rows(client.get_default_database("test"))
+    report.update(reviewed_examples=len(corrections), skipped_bodies=skipped)
+    bundle = seed_dataset(root, corrections, report)
+    if bundle is None:
+        return "skipped"
     training, count = merge_corrections(bundle.train, bundle.eval, corrections)
     report.update(
         human_examples=count,

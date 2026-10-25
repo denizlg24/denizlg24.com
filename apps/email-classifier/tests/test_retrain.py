@@ -226,7 +226,7 @@ def test_execute_promotes_or_rejects_and_skips_unchanged_data(
         tuple(row(f"eval-{label}-{i}", label) for label in LABELS for i in range(5)),
     )
     bundle = SimpleNamespace(train=train, eval=evaluation)
-    monkeypatch.setattr(retrain, "load_datasets", lambda *_: bundle)
+    monkeypatch.setattr(retrain, "seed_dataset", lambda *_: bundle)
     mongo = Mock()
     mongo.__enter__ = Mock(return_value=mongo)
     mongo.__exit__ = Mock(return_value=False)
@@ -344,3 +344,132 @@ def test_real_child_worker_records_failure_and_releases_lock(tmp_path, monkeypat
     assert report["notification_error"] == "KeyError"
     with (tmp_path / "worker.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def recovery_rows():
+    import hashlib
+
+    rows = []
+    for label in LABELS:
+        train_count, eval_count, index = 0, 0, 0
+        while train_count < 6 or eval_count < 5:
+            group = f"{label}-recovery-thread-{index}"
+            reserved = int(hashlib.sha256(group.encode()).hexdigest(), 16) % 5 == 0
+            index += 1
+            if reserved and eval_count >= 5 or not reserved and train_count >= 6:
+                continue
+            example = row(group, label)
+            example.update(
+                received_at="2040-01-01T00:00:00+00:00",
+                ingested_at="2040-01-01T00:00:00+00:00",
+            )
+            rows.append(example)
+            if reserved:
+                eval_count += 1
+            else:
+                train_count += 1
+    return rows
+
+
+def test_missing_seed_starts_recovery_and_emails_missing_category_counts(tmp_path):
+    from email_classifier.recovery import seed_dataset
+
+    report = {}
+    assert seed_dataset(tmp_path, [row("historical-review")], report) is None
+    assert (tmp_path / "recovery.json").exists()
+    assert not (tmp_path / "seed").exists()
+    assert report["recovery"]["training_per_category"]["fyi"] == 1
+    assert report["recovery"]["validation_per_category"]["fyi"] == 0
+    cutoff = report["recovery"]["validation_after"]
+    next_report = {}
+    seed_dataset(tmp_path, [], next_report)
+    assert next_report["recovery"]["validation_after"] == cutoff
+
+
+def test_recovery_builds_valid_seed_and_freezes_it(tmp_path):
+    from email_classifier.recovery import seed_dataset
+
+    write_json(tmp_path / "recovery.json", {"started_at": "2030-01-01T00:00:00+00:00"})
+    report = {}
+    bundle = seed_dataset(tmp_path, recovery_rows(), report)
+    assert report["seed_recovered"] is True
+    assert len(bundle.train.rows) == 42
+    assert len(bundle.eval.rows) == 35
+    assert not (set(bundle.train.groups) & set(bundle.eval.groups))
+    assert all(count == 5 for count in bundle.eval.distribution.values())
+    # Later database changes cannot silently regenerate the validation split.
+    second = seed_dataset(tmp_path, [], {})
+    assert second.eval.rows == bundle.eval.rows
+    assert second.manifest["source"] == "human-reviewed-mongodb-recovery"
+
+
+def test_historical_or_backfilled_mail_cannot_become_recovery_validation(tmp_path):
+    from email_classifier.recovery import recover_seed
+
+    write_json(tmp_path / "recovery.json", {"started_at": "2030-01-01T00:00:00+00:00"})
+    rows = recovery_rows()
+    for index, example in enumerate(rows):
+        if index % 2:
+            example["received_at"] = "2020-01-01T00:00:00+00:00"
+        else:
+            example["ingested_at"] = "2020-01-01T00:00:00+00:00"
+    report = {}
+    assert recover_seed(tmp_path, rows, report) is None
+    assert set(report["recovery"]["validation_per_category"].values()) == {0}
+
+
+def test_recovery_keeps_duplicate_content_and_threads_in_one_split(tmp_path):
+    from email_classifier.recovery import recover_seed
+
+    write_json(tmp_path / "recovery.json", {"started_at": "2030-01-01T00:00:00+00:00"})
+    rows = recovery_rows()
+    duplicate = {**rows[0], "id": "other-account-copy", "group_id": "other-thread"}
+    # A historical copy disqualifies the whole duplicate component from validation.
+    duplicate["received_at"] = "2020-01-01T00:00:00+00:00"
+    rows.append(duplicate)
+    report = {}
+    bundle = recover_seed(tmp_path, rows, report)
+    if bundle is not None:
+        from email_classifier.data import _content_hash
+
+        assert not (
+            {_content_hash(r) for r in bundle.train.rows}
+            & {_content_hash(r) for r in bundle.eval.rows}
+        )
+    else:
+        assert not (tmp_path / "seed").exists()
+
+
+def test_partial_or_missing_custom_seed_does_not_silently_rebuild(
+    tmp_path, monkeypatch
+):
+    from email_classifier.data import DatasetError
+    from email_classifier.recovery import seed_dataset
+
+    monkeypatch.setenv(
+        "EMAIL_CLASSIFIER_TRAIN_PATH", str(tmp_path / "custom/train.jsonl")
+    )
+    with pytest.raises(DatasetError, match="custom seed"):
+        seed_dataset(tmp_path, [], {})
+    monkeypatch.delenv("EMAIL_CLASSIFIER_TRAIN_PATH")
+    (tmp_path / "seed").mkdir()
+    (tmp_path / "seed/train.jsonl").write_text("")
+    with pytest.raises(DatasetError, match="partial seed"):
+        seed_dataset(tmp_path, [], {})
+
+
+def test_execute_without_seed_waits_for_reviews_without_training(tmp_path, monkeypatch):
+    monkeypatch.setenv("MONGODB_URI", "mongodb://unused/test")
+    mongo = Mock()
+    mongo.__enter__ = Mock(return_value=mongo)
+    mongo.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(retrain, "MongoClient", lambda *_args, **_kwargs: mongo)
+    monkeypatch.setattr(retrain, "correction_rows", lambda _: ([], 0))
+    trainer = Mock()
+    monkeypatch.setattr(retrain, "train_candidate", trainer)
+    report = {}
+    assert retrain.execute(tmp_path, "recovery-test", report) == "skipped"
+    assert "recovering missing seed data" in report["reason"]
+    assert report["recovery"]["training_per_category"]["spam"] == 0
+    trainer.assert_not_called()
+    assert not (tmp_path / "active.json").exists()
