@@ -52,7 +52,7 @@ export function pantryItemHref(
   { add = false }: { add?: boolean } = {},
 ) {
   return {
-    pathname: "/kitchen/pantry-item",
+    pathname: "/pantry-item",
     params: { id: food.id, name: food.name, ...(add ? { add: "1" } : {}) },
   } as const;
 }

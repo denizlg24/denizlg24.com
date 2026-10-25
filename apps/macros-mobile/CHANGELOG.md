@@ -7,6 +7,13 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.1.1 — 2026-10-25
+
+### Fixed
+- Stocking food in the pantry works again: the amount keypad and Save show
+  when you add something from search, a scan or the shopping list.
+- Long names in the pantry no longer push the stepper off the row.
+
 ## 0.1.0 — 2026-10-23
 
 ### Changed
