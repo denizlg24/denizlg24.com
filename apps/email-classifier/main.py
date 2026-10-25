@@ -232,6 +232,50 @@ def classify_email(email: EmailClassificationRequest) -> ClassificationResponse:
     )
 
 
+@app.post("/api/retrain", dependencies=[Depends(require_authorization)])
+def trigger_retraining() -> JSONResponse:
+    """Cron starts a worker on Forge; never run training in the HTTP request."""
+    if os.getenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED") != "true":
+        raise APIError(503, "retraining is disabled")
+    from email_classifier.retrain import start_retraining
+
+    try:
+        result = start_retraining()
+    except Exception as exc:
+        raise APIError(503, "retraining worker could not start") from exc
+    return JSONResponse(
+        result, status_code=202 if result["status"] == "accepted" else 200
+    )
+
+
+@app.get("/api/retrain", dependencies=[Depends(require_authorization)])
+def retraining_status() -> JSONResponse:
+    from email_classifier.storage import get_store
+
+    if os.getenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED") != "true":
+        raise APIError(503, "retraining is disabled")
+    try:
+        report = get_store().status()
+    except Exception as exc:
+        raise APIError(503, "retraining status unavailable") from exc
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/retrain/rollback", dependencies=[Depends(require_authorization)])
+def rollback_model() -> JSONResponse:
+    from email_classifier.storage import LeaseLost, get_store
+
+    if os.getenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED") != "true":
+        raise APIError(503, "retraining is disabled")
+    try:
+        result = get_store().rollback()
+    except (LeaseLost, ValueError) as exc:
+        raise APIError(409, "rollback unavailable or retraining is running") from exc
+    except Exception as exc:
+        raise APIError(503, "model rollback unavailable") from exc
+    return JSONResponse(result)
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root() -> FileResponse:
     """Serve the classification playground."""

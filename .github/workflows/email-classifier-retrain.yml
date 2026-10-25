@@ -1,0 +1,63 @@
+name: Retrain email classifier
+
+on:
+  schedule:
+    # Mondays at 03:17 UTC; minutes off the hour reduce scheduler congestion.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: email-classifier-retraining
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      CLASSIFIER_URL: ${{ vars.EMAIL_CLASSIFIER_SERVICE_URL }}
+      CLASSIFIER_TOKEN: ${{ secrets.EMAIL_CLASSIFIER_API_TOKEN }}
+    steps:
+      - name: Trigger and monitor retraining on Forge
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CLASSIFIER_URL:?Set EMAIL_CLASSIFIER_SERVICE_URL to the HTTPS service origin}"
+          : "${CLASSIFIER_TOKEN:?Set EMAIL_CLASSIFIER_API_TOKEN}"
+          if [[ "$CLASSIFIER_URL" != https://* ]]; then
+            echo '::error::Classifier URL must use HTTPS'
+            exit 1
+          fi
+          endpoint="${CLASSIFIER_URL%/}/api/retrain"
+          result=$(curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST -H "Authorization: Bearer $CLASSIFIER_TOKEN" "$endpoint")
+          echo "$result" | jq '{status, run_id}'
+          run_id=$(echo "$result" | jq -er '.run_id')
+          for ((attempt=0; attempt<260; attempt++)); do
+            sleep 30
+            result=$(curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer $CLASSIFIER_TOKEN" "$endpoint")
+            if [[ $(echo "$result" | jq -r '.run_id') != "$run_id" ]]; then
+              continue
+            fi
+            status=$(echo "$result" | jq -r '.status')
+            case "$status" in
+              promoted|rejected|skipped)
+                echo "$result" | jq .
+                if echo "$result" | jq -e 'has("notification_error")' >/dev/null; then
+                  echo '::error::Retraining finished but Resend notification failed'
+                  exit 1
+                fi
+                exit 0
+                ;;
+              failed)
+                echo "$result" | jq .
+                exit 1
+                ;;
+            esac
+          done
+          echo '::error::No terminal retraining status before the monitoring deadline'
+          exit 1

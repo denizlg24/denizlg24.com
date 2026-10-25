@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 import joblib
 
+from email_classifier.artifacts import active_model, verify_artifact
 from email_classifier.data import LABELS, prepare_inference_row
 from email_classifier.policy import (
     is_protected_sender,
@@ -263,9 +264,7 @@ def _download_s3_model() -> tuple[Path, str] | None:
             "EMAIL_CLASSIFIER_MODEL_S3_ENDPOINT must use HTTPS"
         )
 
-    expected_digest = _validate_sha256(
-        os.getenv("EMAIL_CLASSIFIER_MODEL_SHA256", "")
-    )
+    expected_digest = _validate_sha256(os.getenv("EMAIL_CLASSIFIER_MODEL_SHA256", ""))
     cached = _cached_model(expected_digest)
     if cached is not None:
         return cached, expected_digest
@@ -366,10 +365,13 @@ def _download_remote_model() -> tuple[Path, str]:
 
 def load_runtime_classifier() -> RuntimeClassifier:
     """Load and validate the configured probability model."""
-    resolved = _resolve_local_model()
+    promoted = active_model()
+    resolved = promoted or _resolve_local_model()
     if resolved is None:
         resolved = _download_s3_model()
     path, digest = resolved if resolved is not None else _download_remote_model()
+    if promoted is not None:
+        verify_artifact(path, digest)
 
     try:
         model = joblib.load(path)
@@ -398,8 +400,9 @@ def load_runtime_classifier() -> RuntimeClassifier:
 
     version = (
         os.getenv("EMAIL_CLASSIFIER_MODEL_VERSION", "").strip()
-        or f"sha256:{digest[:12]}"
-    )
+        if promoted is None
+        else ""
+    ) or f"sha256:{digest[:12]}"
     return RuntimeClassifier(
         model=model,
         classes=classes,
@@ -409,16 +412,23 @@ def load_runtime_classifier() -> RuntimeClassifier:
 
 _runtime_classifier: RuntimeClassifier | None = None
 _runtime_classifier_lock = threading.Lock()
+_runtime_revision: tuple[Path, str] | None = None
 
 
 def get_runtime_classifier() -> RuntimeClassifier:
     """Return one process-wide classifier for warm serverless invocations."""
-    global _runtime_classifier
-
-    if _runtime_classifier is not None:
-        return _runtime_classifier
+    global _runtime_classifier, _runtime_revision
 
     with _runtime_classifier_lock:
-        if _runtime_classifier is None:
-            _runtime_classifier = load_runtime_classifier()
+        try:
+            revision = active_model()
+            if _runtime_classifier is None or revision != _runtime_revision:
+                candidate = load_runtime_classifier()
+                _runtime_classifier = candidate
+                _runtime_revision = revision
+        except Exception:
+            # An unavailable or damaged remote artifact must not evict the model
+            # already serving requests. Cold starts still fail closed.
+            if _runtime_classifier is None:
+                raise
     return _runtime_classifier
