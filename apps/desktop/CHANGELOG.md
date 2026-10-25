@@ -7,6 +7,15 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 2.6.0 — 2026-10-25
+
+### Added
+- **Holdings**: the Interactive Brokers account, read-only from IBKR's daily
+  statements. Value, day and total P&L, time-weighted return, value against
+  deposits over time, positions, cash per currency and recent trades and
+  dividends.
+- Finance shows **net worth**: cash plus the brokerage account's latest value.
+
 ## 2.5.0 — 2026-10-16
 
 ### Added

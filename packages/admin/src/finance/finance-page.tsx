@@ -439,11 +439,17 @@ function Overview({
   range: RangeKey;
   onRangeChange: (next: RangeKey) => void;
 }) {
+  const { routes } = useAdmin();
   const today = todayKey();
   const currency = data.monthly.currency;
   const aggregate =
     data.aggregateBalances.find((item) => item.currency === currency) ??
     data.aggregateBalances[0];
+  const netWorth = data.netWorth.find((item) => item.currency === currency);
+  const invested = data.investments.reduce(
+    (total, row) => total + (row.valueBase?.amountMinor ?? 0),
+    0,
+  );
 
   const realized = useMemo(() => realizedLedger(data.ledger), [data.ledger]);
   const points = useMemo(
@@ -471,6 +477,17 @@ function Overview({
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap gap-x-12 gap-y-6">
+        {data.investments.length > 0 && netWorth && (
+          <Figure
+            label="Net worth"
+            value={money(netWorth.amountMinor, netWorth.currency)}
+            meta={
+              <Link href={routes.holdings} className="hover:text-foreground">
+                {money(invested, currency)} invested
+              </Link>
+            }
+          />
+        )}
         <Figure
           label="Net balance"
           value={

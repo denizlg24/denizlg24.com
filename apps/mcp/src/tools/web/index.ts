@@ -4,6 +4,7 @@ import { registerWebAgentMemory } from "./agent-memory";
 import { registerWebAgentTasks } from "./agent-tasks";
 import { registerWebAuthenticator } from "./authenticator";
 import { registerWebBackgroundAgent } from "./background-agent";
+import { registerWebBrokerage } from "./brokerage";
 import { registerWebCalendar } from "./calendar";
 import { registerWebContent } from "./content";
 import { registerWebConversations } from "./conversations";
@@ -50,6 +51,7 @@ export function registerWeb(server: McpServer, api: Api) {
   registerWebLatex(server, api);
   registerWebLlm(server, api);
   registerWebMarkets(server, api);
+  registerWebBrokerage(server, api);
   registerWebFinance(server, api);
   registerWebHours(server, api);
   registerWebSemantic(server, api);

@@ -18,6 +18,7 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
   markets: `${ROOT}/markets`,
   portfolios: `${ROOT}/markets/portfolios`,
   hours: `${ROOT}/hours`,
+  holdings: `${ROOT}/holdings`,
 
   courses: {
     root: `${ROOT}/courses`,

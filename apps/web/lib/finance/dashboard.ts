@@ -4,10 +4,12 @@ import type {
   FinanceCategory as FinanceCategoryWire,
   FinanceDashboardResponse,
   FinanceDeductionProfile as FinanceDeductionProfileWire,
+  FinanceInvestment,
   FinanceLedgerEntry as FinanceLedgerEntryWire,
   FinanceRecurringRule as FinanceRecurringRuleWire,
 } from "@repo/schemas";
-import { convertMinorWithRate } from "@repo/utils";
+import { convertMinorWithRate, majorToMinor } from "@repo/utils";
+import { getLatestBrokerageValuation } from "@/lib/brokerage/overview";
 import { connectDB } from "@/lib/mongodb";
 import {
   FinanceAccount,
@@ -276,6 +278,7 @@ export async function getFinanceDashboard(
     categories,
     settings,
     deductionProfiles,
+    brokerage,
   ] = await Promise.all([
     FinanceAccount.find().sort({ displayName: 1 }),
     FinanceBalance.find().sort({ fetchedAt: -1 }),
@@ -290,6 +293,7 @@ export async function getFinanceDashboard(
     FinanceCategory.find().sort({ sortOrder: 1, name: 1 }),
     getFinanceSettings(),
     FinanceDeductionProfile.find().sort({ name: 1 }),
+    getLatestBrokerageValuation(),
   ]);
   const ledger = ledgerRows.map(serializeFinanceLedgerEntry);
   const recurringRuleFingerprints = new Set(
@@ -323,6 +327,42 @@ export async function getFinanceDashboard(
       );
     } else {
       aggregateBaseMinor += converted;
+    }
+  }
+  const investments: FinanceInvestment[] = [];
+  if (brokerage) {
+    const value = {
+      amountMinor: majorToMinor(brokerage.nav, brokerage.baseCurrency),
+      currency: brokerage.baseCurrency,
+    };
+    const converted = convertMinorToBase(
+      value.amountMinor,
+      value.currency,
+      baseCurrency,
+      fxSnapshots,
+    );
+    investments.push({
+      source: "ibkr",
+      label: "Interactive Brokers",
+      asOf: brokerage.asOf,
+      value,
+      valueBase:
+        converted === undefined
+          ? undefined
+          : { amountMinor: converted, currency: baseCurrency },
+    });
+  }
+  const netWorthUnconverted = new Map(unconvertedByCurrency);
+  let netWorthBaseMinor = aggregateBaseMinor;
+  for (const investment of investments) {
+    if (investment.valueBase) {
+      netWorthBaseMinor += investment.valueBase.amountMinor;
+    } else {
+      netWorthUnconverted.set(
+        investment.value.currency,
+        (netWorthUnconverted.get(investment.value.currency) ?? 0) +
+          investment.value.amountMinor,
+      );
     }
   }
   const asOfDate = now.toISOString().slice(0, 10);
@@ -370,6 +410,14 @@ export async function getFinanceDashboard(
     aggregateBalances: [
       { currency: baseCurrency, amountMinor: aggregateBaseMinor },
       ...[...unconvertedByCurrency].map(([currency, amountMinor]) => ({
+        currency,
+        amountMinor,
+      })),
+    ],
+    investments,
+    netWorth: [
+      { currency: baseCurrency, amountMinor: netWorthBaseMinor },
+      ...[...netWorthUnconverted].map(([currency, amountMinor]) => ({
         currency,
         amountMinor,
       })),
