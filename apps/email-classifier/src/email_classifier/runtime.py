@@ -427,7 +427,7 @@ def get_runtime_classifier() -> RuntimeClassifier:
                 _runtime_classifier = candidate
                 _runtime_revision = revision
         except Exception:
-            # A damaged or partially restored volume must not evict the model
+            # An unavailable or damaged remote artifact must not evict the model
             # already serving requests. Cold starts still fail closed.
             if _runtime_classifier is None:
                 raise

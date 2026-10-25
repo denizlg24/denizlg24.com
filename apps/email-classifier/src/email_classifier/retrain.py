@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import logging
@@ -11,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime
@@ -19,9 +19,8 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 import joblib
-from pymongo import MongoClient
 
-from email_classifier.artifacts import retraining_root, verify_artifact, write_json
+from email_classifier.artifacts import verify_artifact, write_json
 from email_classifier.data import (
     LABELS,
     Dataset,
@@ -33,6 +32,7 @@ from email_classifier.evaluate import classification_metrics
 from email_classifier.paths import APP_ROOT
 from email_classifier.recovery import seed_dataset
 from email_classifier.runtime import RuntimeClassifier, load_runtime_classifier
+from email_classifier.storage import LeaseLost, RemoteStore, get_store, remote_enabled
 from email_classifier.train import train_candidate
 
 logger = logging.getLogger(__name__)
@@ -40,48 +40,42 @@ _children: list[subprocess.Popen] = []
 
 
 def start_retraining() -> dict[str, Any]:
-    """Return promptly; a child owns the OS lock until the worker exits."""
-    root = retraining_root()
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    """Acquire a durable lease before spawning a disposable training worker."""
+    if not remote_enabled():
+        raise RuntimeError("EMAIL_CLASSIFIER_RETRAIN_S3_PREFIX is required")
+    if not os.environ.get("RESEND_API_KEY"):
+        raise RuntimeError("RESEND_API_KEY is required")
+    store = get_store()
     _children[:] = [child for child in _children if child.poll() is None]
-    with (root / "worker.lock").open("a+") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            report = json.loads((root / "status.json").read_text())
-            return {"status": "already-running", "run_id": report["run_id"]}
-        run_id = (
-            datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    acquired, owner = store.acquire(run_id)
+    if not acquired:
+        return {"status": "already-running", "run_id": owner}
+    env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONPATH": os.pathsep.join(
+            (str(APP_ROOT / "src"), os.environ.get("PYTHONPATH", ""))
+        ),
+    }
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-m", "email_classifier.retrain", "--run-id", run_id],
+            env=env,
+            start_new_session=True,
+            # Only safe training progress is logged; never dump an exception.
+            stdout=None,
+            stderr=None,
         )
-        write_json(root / "status.json", {"run_id": run_id, "status": "queued"})
-        # No shell, no client-supplied executable/arguments, no secrets in argv.
-        env = {
-            **os.environ,
-            "OMP_NUM_THREADS": "1",
-            "OPENBLAS_NUM_THREADS": "1",
-            "PYTHONPATH": os.pathsep.join(
-                (str(APP_ROOT / "src"), os.environ.get("PYTHONPATH", ""))
-            ),
-        }
-        with (root / "worker.log").open("a") as output:
-            child = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "email_classifier.retrain",
-                    "--lock-fd",
-                    str(lock.fileno()),
-                    "--run-id",
-                    run_id,
-                ],
-                env=env,
-                stdout=output,
-                stderr=output,
-                pass_fds=(lock.fileno(),),
-                start_new_session=True,
-            )
-        _children.append(child)
-        return {"status": "accepted", "run_id": run_id}
+    except Exception as exc:
+        store.finish(
+            run_id,
+            {"run_id": run_id, "status": "failed", "error_type": type(exc).__name__},
+        )
+        raise
+    _children.append(child)
+    return {"status": "accepted", "run_id": run_id}
 
 
 def notify(run_id: str, status: str, details: dict[str, Any]) -> None:
@@ -285,16 +279,12 @@ def score(classifier: RuntimeClassifier, dataset: Dataset) -> dict[str, Any]:
     )
 
 
-def execute(root: Path, run_id: str, report: dict[str, Any]) -> str:
-    with MongoClient(
-        os.environ["MONGODB_URI"],
-        serverSelectionTimeoutMS=15_000,
-        connectTimeoutMS=15_000,
-        socketTimeoutMS=120_000,
-    ) as client:
-        corrections, skipped = correction_rows(client.get_default_database("test"))
+def execute(root: Path, run_id: str, report: dict[str, Any], store: RemoteStore) -> str:
+    store.prepare(root, run_id)
+    corrections, skipped = correction_rows(store.db)
     report.update(reviewed_examples=len(corrections), skipped_bodies=skipped)
     bundle = seed_dataset(root, corrections, report)
+    store.persist_seed(root, run_id)
     if bundle is None:
         return "skipped"
     training, count = merge_corrections(bundle.train, bundle.eval, corrections)
@@ -322,11 +312,7 @@ def execute(root: Path, run_id: str, report: dict[str, Any]) -> str:
         ).encode()
     ).hexdigest()
     report["dataset_sha256"] = fingerprint
-    state_path = root / "last-attempt.json"
-    if (
-        state_path.exists()
-        and json.loads(state_path.read_text()).get("dataset_sha256") == fingerprint
-    ):
+    if store.read().get("last_attempt", {}).get("dataset_sha256") == fingerprint:
         report["reason"] = "training data unchanged since the last completed attempt"
         return "skipped"
     if count < 10:
@@ -351,42 +337,41 @@ def execute(root: Path, run_id: str, report: dict[str, Any]) -> str:
         rejection_reasons=reasons,
         training_seconds=candidate.training_seconds,
     )
-    run_dir = root / "runs" / run_id
-    run_dir.mkdir(parents=True, mode=0o700)
-    write_json(run_dir / "metrics.json", report)
+    # Keep an exact immutable training snapshot and report for each evaluated run.
+    snapshot = root / "training.jsonl"
+    with snapshot.open("w") as handle:
+        for row in training.rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+    report["training_artifact"] = store.upload(
+        snapshot, f"runs/{run_id}/train.jsonl", limit=256 * 1024 * 1024
+    )
+    write_json(root / "metrics.json", report)
+    store.upload(
+        root / "metrics.json", f"runs/{run_id}/metrics.json", limit=4 * 1024 * 1024
+    )
     if not reasons:
-        path = run_dir / "model.joblib"
+        path = root / "model.joblib"
         joblib.dump(candidate.pipeline, path)
         with path.open("rb") as handle:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
         verify_artifact(path, digest)
-        # Deserialize and predict before changing the pointer used by inference.
         loaded = joblib.load(path)
         RuntimeClassifier(loaded, runtime.classes, run_id).predict(
             bundle.eval.inputs[0]
         )
-        pointer = root / "active.json"
-        if pointer.exists():
-            write_json(root / "previous.json", json.loads(pointer.read_text()))
-        write_json(
-            pointer,
-            {
-                "artifact": str(path.relative_to(root)),
-                "sha256": digest,
-                "run_id": run_id,
-                "promoted_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        pointer = store.upload(path, f"models/{run_id}.joblib", limit=100 * 1024 * 1024)
+        pointer.update(run_id=run_id, promoted_at=datetime.now(UTC).isoformat())
+        # The Mongo update is fenced by the lease, after upload verification.
+        store.promote(run_id, pointer)
         report["model_version"] = f"sha256:{digest[:12]}"
-    write_json(state_path, {"dataset_sha256": fingerprint, "run_id": run_id})
+    store.update(
+        run_id, {"last_attempt": {"dataset_sha256": fingerprint, "run_id": run_id}}
+    )
     return "rejected" if reasons else "promoted"
 
 
-def run_worker(lock_fd: int, run_id: str) -> int:
-    # Reap released child handles on the next API trigger; the OS lock also
-    # releases on crashes, SIGKILL, deploys, or timeout.
-    root = retraining_root()
-    os.fstat(lock_fd)
+def run_worker(run_id: str) -> int:
+    store = get_store()
     report: dict[str, Any] = {
         "run_id": run_id,
         "started_at": datetime.now(UTC).isoformat(),
@@ -400,11 +385,13 @@ def run_worker(lock_fd: int, run_id: str) -> int:
     signal.alarm(7200)
     status = "failed"
     try:
-        write_json(root / "status.json", {**report, "status": "started"})
+        store.update(run_id, {"run": {**report, "status": "started"}})
         notify(run_id, "started", report)
-        status = execute(root, run_id, report)
+        with tempfile.TemporaryDirectory(
+            prefix="email-classifier-training-"
+        ) as directory:
+            status = execute(Path(directory), run_id, report, store)
     except Exception as exc:
-        # Exception messages can contain Mongo credentials or email contents.
         report["error_type"] = type(exc).__name__
         logger.error("Retraining failed (%s)", type(exc).__name__)
     finally:
@@ -414,29 +401,38 @@ def run_worker(lock_fd: int, run_id: str) -> int:
             finished_at=datetime.now(UTC).isoformat(),
             duration_seconds=round(time.monotonic() - started, 2),
         )
-        write_json(root / "status.json", report)
         try:
-            notify(run_id, status, report)
-        except Exception as exc:
-            report["notification_error"] = type(exc).__name__
-            write_json(root / "status.json", report)
-            logger.error("Resend notification failed (%s)", type(exc).__name__)
-        os.close(lock_fd)
+            # Do not send misleading completion for a run superseded after expiry.
+            store.update(run_id, {"run": {**report, "status": "started"}})
+            try:
+                notify(run_id, status, report)
+            except Exception as exc:
+                report["notification_error"] = type(exc).__name__
+                logger.error("Resend notification failed (%s)", type(exc).__name__)
+            store.finish(run_id, report)
+        except LeaseLost:
+            logger.error("Worker lost its lease; no completion state published")
+            return 1
     return int(status == "failed" or "notification_error" in report)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lock-fd", type=int)
     parser.add_argument("--run-id")
+    parser.add_argument("--rollback", action="store_true")
     args = parser.parse_args()
-    if args.lock_fd is None:
-        print(json.dumps(start_retraining()))
+    if args.rollback:
+        print(json.dumps(get_store().rollback()))
         return 0
-    if not args.run_id:
-        parser.error("--run-id is required with --lock-fd")
-    return run_worker(args.lock_fd, args.run_id)
+    if args.run_id:
+        return run_worker(args.run_id)
+    print(json.dumps(start_retraining()))
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        logger.error("Retraining worker failed (%s)", type(exc).__name__)
+        raise SystemExit(1) from None

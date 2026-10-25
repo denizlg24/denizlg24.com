@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -14,8 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from email_classifier import retrain, runtime
-from email_classifier.artifacts import active_model, write_json
+from email_classifier import artifacts, retrain, runtime, storage
+from email_classifier.artifacts import write_json
 from email_classifier.data import LABELS, Dataset, prepare_inference_row
 from email_classifier.evaluate import classification_metrics
 
@@ -32,6 +31,40 @@ class ProbabilityModel:
         return np.array(
             [[1.0 if label == self.label else 0.0 for label in LABELS] for _ in rows]
         )
+
+
+class MemoryStore:
+    def __init__(self):
+        self.state = {}
+        self.db = Mock()
+        self.objects = {}
+
+    def read(self):
+        return copy.deepcopy(self.state)
+
+    def update(self, run_id, fields):
+        self.state.update(copy.deepcopy(fields))
+
+    def finish(self, run_id, report):
+        self.state["run"] = copy.deepcopy(report)
+
+    def prepare(self, root, run_id):
+        pass
+
+    def persist_seed(self, root, run_id):
+        pass
+
+    def status(self):
+        return self.state.get("run", {"status": "never-run"})
+
+    def upload(self, path, suffix, **kwargs):
+        data = path.read_bytes()
+        self.objects[suffix] = data
+        return {"key": "retrain/" + suffix, "sha256": hashlib.sha256(data).hexdigest()}
+
+    def promote(self, run_id, pointer):
+        self.state["previous_model"] = self.state.get("active_model")
+        self.state["active_model"] = pointer
 
 
 def row(identifier, label="fyi", group=None):
@@ -107,7 +140,6 @@ def test_promotion_requires_improvement_and_preserves_critical_categories():
 
 
 def test_model_hot_reload_and_corrupt_artifact_retains_incumbent(tmp_path, monkeypatch):
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
     monkeypatch.setattr(runtime, "_runtime_classifier", None)
     monkeypatch.setattr(runtime, "_runtime_revision", None)
     monkeypatch.setattr(
@@ -120,31 +152,43 @@ def test_model_hot_reload_and_corrupt_artifact_retains_incumbent(tmp_path, monke
         "load",
         lambda p: seed if Path(p).name == "seed" else original_load(p),
     )
+    revision = [None]
+    monkeypatch.setattr(runtime, "active_model", lambda: revision[0])
     assert runtime.get_runtime_classifier().model is seed
     model_path = tmp_path / "new.joblib"
     joblib.dump(ProbabilityModel("purchases"), model_path)
     digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
-    write_json(tmp_path / "active.json", {"artifact": "new.joblib", "sha256": digest})
+    revision[0] = (model_path, digest)
     promoted = runtime.get_runtime_classifier()
     assert promoted.model_version == f"sha256:{digest[:12]}"
     assert promoted.predict(row("check")).category == "purchases"
-    write_json(
-        tmp_path / "active.json", {"artifact": "broken.joblib", "sha256": "0" * 64}
-    )
+    revision[0] = (tmp_path / "broken.joblib", "0" * 64)
     assert runtime.get_runtime_classifier() is promoted
 
 
-def test_pointer_cannot_escape_volume(tmp_path, monkeypatch):
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
-    write_json(tmp_path / "active.json", {"artifact": "../outside", "sha256": "0" * 64})
-    with pytest.raises(ValueError, match="inside"):
-        active_model()
+def test_remote_pointer_refresh_retains_cache_on_backend_failure(monkeypatch, tmp_path):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_S3_PREFIX", "retrain/")
+    monkeypatch.setattr(artifacts, "_active_model", None)
+    monkeypatch.setattr(artifacts, "_active_checked_at", float("-inf"))
+    clock = [100.0]
+    monkeypatch.setattr(artifacts.time, "monotonic", lambda: clock[0])
+    remote = Mock()
+    pointer = (tmp_path / "model.joblib", "a" * 64)
+    remote.promoted_model.side_effect = [pointer, OSError("unavailable")]
+    monkeypatch.setattr(storage, "get_store", lambda: remote)
+    assert artifacts.active_model() == pointer
+    clock[0] += 1
+    assert artifacts.active_model() == pointer
+    assert remote.promoted_model.call_count == 1
+    clock[0] += 30
+    assert artifacts.active_model() == pointer
+    assert remote.promoted_model.call_count == 2
 
 
 def test_retrain_routes_require_auth_and_opt_in(tmp_path, monkeypatch):
     monkeypatch.setenv("EMAIL_CLASSIFIER_API_TOKEN", "test-token")
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
     monkeypatch.delenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED", raising=False)
+    monkeypatch.setattr(storage, "get_store", lambda: MemoryStore())
     client = TestClient(main.app)
     assert client.post("/api/retrain").status_code == 401
     headers = {"Authorization": "Bearer test-token"}
@@ -159,21 +203,19 @@ def test_retrain_routes_require_auth_and_opt_in(tmp_path, monkeypatch):
     assert client.get("/api/retrain", headers=headers).json()["status"] == "never-run"
 
 
-def test_concurrent_triggers_share_os_lock(tmp_path, monkeypatch):
-    import fcntl
-
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
-    write_json(tmp_path / "status.json", {"run_id": "current", "status": "started"})
-    with (tmp_path / "worker.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        assert retrain.start_retraining() == {
-            "status": "already-running",
-            "run_id": "current",
-        }
+def test_concurrent_triggers_share_database_lease(monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_S3_PREFIX", "retrain/")
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    remote = MemoryStore()
+    remote.acquire = Mock(return_value=(False, "current"))
+    monkeypatch.setattr(retrain, "get_store", lambda: remote)
+    assert retrain.start_retraining() == {
+        "status": "already-running",
+        "run_id": "current",
+    }
 
 
 def test_failed_worker_emails_failure_without_exception_details(tmp_path, monkeypatch):
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
     notices = []
     monkeypatch.setattr(
         retrain, "notify", lambda *args: notices.append(copy.deepcopy(args))
@@ -183,9 +225,10 @@ def test_failed_worker_emails_failure_without_exception_details(tmp_path, monkey
         "execute",
         Mock(side_effect=ValueError("secret@example.com mongodb://password")),
     )
-    lock_fd = os.open(tmp_path / "worker.lock", os.O_CREAT | os.O_RDWR)
-    assert retrain.run_worker(lock_fd, "failure-test") == 1
-    report = json.loads((tmp_path / "status.json").read_text())
+    remote = MemoryStore()
+    monkeypatch.setattr(retrain, "get_store", lambda: remote)
+    assert retrain.run_worker("failure-test") == 1
+    report = remote.state["run"]
     assert report["status"] == "failed"
     assert [notice[1] for notice in notices] == ["started", "failed"]
     assert "secret@example.com" not in json.dumps(notices)
@@ -227,10 +270,7 @@ def test_execute_promotes_or_rejects_and_skips_unchanged_data(
     )
     bundle = SimpleNamespace(train=train, eval=evaluation)
     monkeypatch.setattr(retrain, "seed_dataset", lambda *_: bundle)
-    mongo = Mock()
-    mongo.__enter__ = Mock(return_value=mongo)
-    mongo.__exit__ = Mock(return_value=False)
-    monkeypatch.setattr(retrain, "MongoClient", lambda *_args, **_kwargs: mongo)
+    remote = MemoryStore()
     monkeypatch.setattr(
         retrain,
         "correction_rows",
@@ -247,21 +287,21 @@ def test_execute_promotes_or_rejects_and_skips_unchanged_data(
     old, new = metrics(), metrics()
     new["macro_f1"] = 0.81 if improves else 0.8
     monkeypatch.setattr(retrain, "score", Mock(side_effect=[old, new]))
-    previous = {"artifact": "old.joblib", "sha256": "a" * 64}
-    write_json(tmp_path / "active.json", previous)
+    previous = {"key": "retrain/old.joblib", "sha256": "a" * 64}
+    remote.state["active_model"] = previous
     report = {}
-    assert retrain.execute(tmp_path, "integration-run", report) == (
+    assert retrain.execute(tmp_path, "integration-run", report, remote) == (
         "promoted" if improves else "rejected"
     )
-    pointer = json.loads((tmp_path / "active.json").read_text())
+    pointer = remote.state["active_model"]
     if improves:
-        assert pointer["artifact"] == "runs/integration-run/model.joblib"
-        assert json.loads((tmp_path / "previous.json").read_text()) == previous
-        assert (tmp_path / pointer["artifact"]).is_file()
+        assert pointer["key"] == "retrain/models/integration-run.joblib"
+        assert remote.state["previous_model"] == previous
+        assert "models/integration-run.joblib" in remote.objects
     else:
         assert pointer == previous
         assert report["rejection_reasons"]
-    assert retrain.execute(tmp_path, "unchanged-run", {}) == "skipped"
+    assert retrain.execute(tmp_path, "unchanged-run", {}, remote) == "skipped"
     assert trainer.call_count == 1
 
 
@@ -328,22 +368,20 @@ def test_export_requires_human_evidence_and_skips_incomplete_bodies():
     assert query["$or"][1] == {"userStatus": "reviewed", "reviewRequired": False}
 
 
-def test_real_child_worker_records_failure_and_releases_lock(tmp_path, monkeypatch):
-    import fcntl
-
-    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_DIR", str(tmp_path))
-    # Deliberately omit the key so this subprocess test cannot send real mail.
-    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+def test_trigger_spawns_worker_without_secrets_in_arguments(monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_S3_PREFIX", "retrain/")
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    remote = MemoryStore()
+    remote.acquire = lambda run_id: (True, run_id)
+    monkeypatch.setattr(retrain, "get_store", lambda: remote)
+    spawn = Mock()
+    monkeypatch.setattr(retrain.subprocess, "Popen", spawn)
     result = retrain.start_retraining()
     assert result["status"] == "accepted"
-    child = retrain._children[-1]
-    assert child.wait(timeout=15) == 1
-    report = json.loads((tmp_path / "status.json").read_text())
-    assert report["run_id"] == result["run_id"]
-    assert report["status"] == "failed"
-    assert report["notification_error"] == "KeyError"
-    with (tmp_path / "worker.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    argv = spawn.call_args.args[0]
+    assert argv[-2:] == ["--run-id", result["run_id"]]
+    assert "test-key" not in str(argv)
+    assert "pass_fds" not in spawn.call_args.kwargs
 
 
 def recovery_rows():
@@ -460,16 +498,43 @@ def test_partial_or_missing_custom_seed_does_not_silently_rebuild(
 
 def test_execute_without_seed_waits_for_reviews_without_training(tmp_path, monkeypatch):
     monkeypatch.setenv("MONGODB_URI", "mongodb://unused/test")
-    mongo = Mock()
-    mongo.__enter__ = Mock(return_value=mongo)
-    mongo.__exit__ = Mock(return_value=False)
-    monkeypatch.setattr(retrain, "MongoClient", lambda *_args, **_kwargs: mongo)
+    remote = MemoryStore()
     monkeypatch.setattr(retrain, "correction_rows", lambda _: ([], 0))
     trainer = Mock()
     monkeypatch.setattr(retrain, "train_candidate", trainer)
     report = {}
-    assert retrain.execute(tmp_path, "recovery-test", report) == "skipped"
+    assert retrain.execute(tmp_path, "recovery-test", report, remote) == "skipped"
     assert "recovering missing seed data" in report["reason"]
     assert report["recovery"]["training_per_category"]["spam"] == 0
     trainer.assert_not_called()
     assert not (tmp_path / "active.json").exists()
+
+
+def test_rollback_route_requires_auth_and_reports_busy_lease(monkeypatch):
+    monkeypatch.setenv("EMAIL_CLASSIFIER_API_TOKEN", "test-token")
+    monkeypatch.setenv("EMAIL_CLASSIFIER_RETRAIN_ENABLED", "true")
+    remote = Mock()
+    remote.rollback.return_value = {
+        "status": "rolled-back",
+        "model_version": "bootstrap",
+    }
+    monkeypatch.setattr(storage, "get_store", lambda: remote)
+    client = TestClient(main.app)
+    assert client.post("/api/retrain/rollback").status_code == 401
+    headers = {"Authorization": "Bearer test-token"}
+    response = client.post("/api/retrain/rollback", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["model_version"] == "bootstrap"
+    remote.rollback.side_effect = storage.LeaseLost("busy")
+    assert client.post("/api/retrain/rollback", headers=headers).status_code == 409
+
+
+def test_expired_worker_cannot_publish_or_send_completion(monkeypatch):
+    remote = Mock()
+    remote.update.side_effect = storage.LeaseLost("expired")
+    monkeypatch.setattr(retrain, "get_store", lambda: remote)
+    notify = Mock()
+    monkeypatch.setattr(retrain, "notify", notify)
+    assert retrain.run_worker("expired") == 1
+    remote.finish.assert_not_called()
+    notify.assert_not_called()

@@ -1,19 +1,14 @@
-"""Atomic pointers to locally promoted models on a persistent service volume."""
+"""Artifact verification, local scratch writes, and cached remote model lookup."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
-
-
-def retraining_root() -> Path:
-    value = os.environ.get("EMAIL_CLASSIFIER_RETRAIN_DIR", "").strip()
-    if not value:
-        raise RuntimeError("EMAIL_CLASSIFIER_RETRAIN_DIR must name a persistent volume")
-    return Path(value).resolve()
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -25,21 +20,31 @@ def write_json(path: Path, value: Any) -> None:
     temporary.replace(path)
 
 
+_active_model: tuple[Path, str] | None = None
+_active_checked_at = float("-inf")
+
+
 def active_model() -> tuple[Path, str] | None:
-    if not os.environ.get("EMAIL_CLASSIFIER_RETRAIN_DIR", "").strip():
+    """Poll durable state every 30 seconds; retain the cache on storage outages."""
+    global _active_model, _active_checked_at
+    from email_classifier.storage import get_store, remote_enabled
+
+    if not remote_enabled():
         return None
-    root = retraining_root()
-    pointer = root / "active.json"
-    if not pointer.exists():
-        return None
-    manifest = json.loads(pointer.read_text())
-    path = (root / manifest["artifact"]).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError("active model must be inside the retraining volume")
-    digest = manifest["sha256"]
-    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-        raise ValueError("invalid active model digest")
-    return path, digest
+    now = time.monotonic()
+    if now - _active_checked_at < 30:
+        return _active_model
+    try:
+        _active_model = get_store().promoted_model()
+        _active_checked_at = now
+    except Exception as exc:
+        # Warm processes retain their verified model. Cold processes can still
+        # load the configured bootstrap artifact and retry remote state shortly.
+        logging.getLogger(__name__).warning(
+            "Remote model refresh failed (%s)", type(exc).__name__
+        )
+        _active_checked_at = now - 25
+    return _active_model
 
 
 def verify_artifact(path: Path, digest: str) -> None:

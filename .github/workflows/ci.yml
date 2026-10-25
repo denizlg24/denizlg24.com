@@ -356,6 +356,18 @@ jobs:
     if: needs.changes.outputs.email_classifier == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    services:
+      mongodb:
+        image: mongo:8.2.11
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EMAIL_CLASSIFIER_TEST_MONGO_URI: mongodb://127.0.0.1:27017
     defaults:
       run:
         working-directory: apps/email-classifier
@@ -377,7 +389,7 @@ jobs:
       - name: Import API application
         run: uv run python -c 'from main import app; assert app.title == "Email Classifier API"'
       - name: Test retraining and inference contracts
-        run: uv run pytest tests/test_retrain.py
+        run: uv run pytest
       - name: Build Python package
         run: uv build
 
