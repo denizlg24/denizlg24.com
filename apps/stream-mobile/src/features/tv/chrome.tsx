@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Search } from "lucide-react-native";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { audienceNames } from "@/lib/audience";
 import { useAudience } from "@/lib/audience-store";
@@ -19,19 +19,26 @@ import {
   Text,
   Wordmark,
 } from "@/ui";
-import { Focusable } from "./focusable";
+import { FOCUS_ROOM, Focusable } from "./focusable";
 import { RAIL_GAP, RAIL_POSTER, TV_SAFE } from "./layout";
+import { type Spotlight, useSpot } from "./spotlight";
 
-export type TvSection = "home" | "search" | "list";
+export type TvSection = "home" | "tonight" | "ask" | "tune" | "search" | "list";
 
 const SECTIONS: { key: TvSection; label: string; href: string }[] = [
   { key: "home", label: "Home", href: "/tv" },
+  { key: "tonight", label: "Tonight", href: "/tv/tonight" },
+  { key: "ask", label: "Ask", href: "/tv/ask" },
+  { key: "tune", label: "Tune", href: "/tv/tune" },
   { key: "search", label: "Search", href: "/tv/search" },
   { key: "list", label: "My list", href: "/tv/list" },
 ];
 
-/** Along the top of every browsing screen: where you are, and who's watching. */
-export function TvNavBar({
+/**
+ * Along the top of every browsing screen: where you are, and who's watching.
+ * Memoised, since the spotlight beside it changes with focus.
+ */
+export const TvNavBar = memo(function TvNavBar({
   current,
   preferred = false,
 }: {
@@ -93,7 +100,7 @@ export function TvNavBar({
       </Focusable>
     </View>
   );
-}
+});
 
 /** The focused title's backdrop fills the screen, faded into ink below and left. */
 export function TvBackdrop({ title }: { title: TitleSummary | null }) {
@@ -160,6 +167,25 @@ export function TvSpotlight({
   );
 }
 
+/** The backdrop for whichever poster the remote rests on. */
+export function FocusedTitle({
+  spotlight,
+}: {
+  spotlight: Spotlight<TitleSummary>;
+}) {
+  return <TvBackdrop title={useSpot(spotlight)} />;
+}
+
+/** Name and facts for whichever poster the remote rests on. */
+export function FocusedSpotlight({
+  spotlight,
+}: {
+  spotlight: Spotlight<TitleSummary>;
+}) {
+  const spot = useSpot(spotlight);
+  return spot ? <TvSpotlight title={spot} /> : null;
+}
+
 export interface RailItem {
   key: string;
   title: TitleSummary;
@@ -169,8 +195,11 @@ export interface RailItem {
   onPress: () => void;
 }
 
-/** One labelled row of posters; Android scrolls it to keep focus in view. */
-export function TvRail({
+/**
+ * One labelled row of posters; Android scrolls it to keep focus in view.
+ * Memoised with a stable `onFocusItem`, so moving focus re-renders no row.
+ */
+export const TvRail = memo(function TvRail({
   label,
   items,
   onFocusItem,
@@ -216,23 +245,23 @@ export function TvRail({
       </ScrollView>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   nav: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xxxl,
+    gap: spacing.xl,
     paddingHorizontal: TV_SAFE.x,
     paddingTop: TV_SAFE.y,
     paddingBottom: spacing.md,
   },
-  sections: { flex: 1, flexDirection: "row", gap: spacing.md },
+  sections: { flex: 1, flexDirection: "row", gap: spacing.xs },
   section: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
   audience: {
@@ -241,18 +270,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xxs,
-    maxWidth: 300,
+    maxWidth: 220,
   },
   spotlight: {
     paddingHorizontal: TV_SAFE.x,
     gap: spacing.sm,
     maxWidth: 560,
   },
-  rail: { gap: spacing.md },
+  rail: { gap: spacing.xs },
   railLabel: { paddingHorizontal: TV_SAFE.x },
   railContent: {
     paddingHorizontal: TV_SAFE.x,
-    paddingVertical: spacing.sm,
+    paddingVertical: FOCUS_ROOM,
     gap: RAIL_GAP,
   },
 });

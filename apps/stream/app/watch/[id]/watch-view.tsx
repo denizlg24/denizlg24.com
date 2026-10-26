@@ -1,6 +1,6 @@
 "use client";
 
-import type { Episode, Playback } from "@repo/schemas/stream";
+import type { Episode, Playback, Subtitles } from "@repo/schemas/stream";
 import { StreamPlayer } from "@repo/stream-player";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
@@ -14,6 +14,8 @@ export function WatchView({
   episodeId,
   backdropUrl,
   playback,
+  captions,
+  subtitlePreference,
   tv,
 }: {
   titleId: string;
@@ -22,6 +24,8 @@ export function WatchView({
   episodeId: string | null;
   backdropUrl: string | null;
   playback: Playback;
+  captions: Subtitles | null;
+  subtitlePreference: string | null;
   tv: boolean;
 }) {
   const router = useRouter();
@@ -44,6 +48,8 @@ export function WatchView({
       <StreamPlayer
         key={`${episodeId ?? titleId}:${playback.trailer ? "trailer" : "film"}`}
         playback={playback}
+        captions={captions}
+        subtitlePreference={subtitlePreference}
         tv={tv}
         title={title}
         subtitle={subtitle}

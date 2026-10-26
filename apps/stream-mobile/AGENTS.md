@@ -99,15 +99,30 @@ Resume past 30 s and
 before 95 % (`resumePosition`). The screen is landscape through the stack's
 `orientation` option; every other screen asks for portrait. `/playback`'s
 `textTracks` are not used: expo-video cannot side-load subtitles, so the
-captions menu lists the stream's own tracks.
+captions menu lists the stream's own tracks. The phone's embed shows the
+provider's own control bar, captions included; only the TV and the web
+clip it and use `/subtitles` instead.
 
 ## Google TV
 
 The same APK. `Platform.isTV` switches the root layout to its own stack
 (`app/tv/*` over `features/tv`): sign-in by code, "Who's watching?", Home
-(rails under a backdrop that follows focus), Search, My list, the title page
+(rails under a backdrop that follows focus), Tonight (the sofa's programme,
+as on the web's front page), Ask, Tune (each dial a row of stops), Search,
+My list, the title page (trailer through the YouTube app, cast), actor pages
 and the player. Landscape throughout; overscan margins are `TV_SAFE`.
 
+- **Moving focus must re-render nothing.** `Focusable` animates its ring and
+  lift with shared values (a function child is the only thing that re-renders
+  on focus), and what the remote rests on lives in a `useSpotlight` store,
+  read only by the backdrop and spotlight (`useSpot`) and settled for 160 ms.
+  Rails and grids are memoised and take `spotlight.set`, which is stable.
+  Putting the focused title back in a screen's state re-renders every poster
+  on every press, which is what made the TV slow.
+- **The system's grey focus box is off** (`android:defaultFocusHighlightEnabled`
+  in the theme, from `with-android-tv`). It drew over every focused view at
+  its unscaled bounds, beside the amber ring. Scrolling rows leave
+  `FOCUS_ROOM` around their items so a lifted, ringed item is not clipped.
 - **Sign-in is RFC 8628, not PKCE** — a TV has no browser. The SDK's
   `startDeviceSignIn()` asks `POST /api/auth/device/code`; the screen shows
   the code and a QR of `verification_uri_complete`
@@ -135,6 +150,17 @@ and the player. Landscape throughout; overscan margins are `TV_SAFE`.
   The provider's own title strip and control bar are pushed off screen
   (64/96 dp, as on the web). Arrow presses seek through `useSeekBuffer`: one
   seek once they stop.
+- **Subtitles are ours.** The provider's own menu sits in the control bar
+  pushed off screen, so Subtitles in the controls opens `TvSubtitleMenu`
+  over `/titles/:id/subtitles`. The chosen file goes to the provider as
+  `sub_url` (`embedPlayerUrl`), which wins over everything it would pick;
+  Off is a file with no cues. Changing it reloads the embed and seeks back
+  to the same moment. The choice is per device (`lib/subtitle-preference.ts`,
+  `auto` | `off` | a language), resolved per title with `pickSubtitle` and
+  fixed once the WebView opens — a refetched list must never reload it.
+- **The WebView is `EmbedSurface`, memoised with stable callbacks.** The
+  player's clock ticks twice a second; the provider's page must not
+  re-render with it.
 - **`plugins/with-android-tv.js`** adds `LEANBACK_LAUNCHER`, the
   `@drawable/tv_banner` (`assets/tv-banner.png`, drawn by `bun run icons`)
   and leanback/touchscreen as optional features, so phones still install it.

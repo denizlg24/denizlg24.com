@@ -72,6 +72,7 @@ export function TvPlayerChrome({
   resumedAt,
   onStartOver,
   actions = [],
+  inactive = false,
 }: {
   transport: TvTransport;
   title: string;
@@ -89,6 +90,8 @@ export function TvPlayerChrome({
   resumedAt: number | null;
   onStartOver: () => void;
   actions?: TvAction[];
+  /** Something is open over the controls and takes the remote and Back. */
+  inactive?: boolean;
 }) {
   const [visible, setVisible] = useState(true);
   const [focusOn, setFocusOn] = useState<FocusTarget>("play");
@@ -107,7 +110,7 @@ export function TvPlayerChrome({
     commit: transport.seekTo,
   });
 
-  const keepOpen = !transport.playing || !!notice || counting;
+  const keepOpen = !transport.playing || !!notice || counting || inactive;
   const poke = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -154,7 +157,7 @@ export function TvPlayerChrome({
   }, [counting]);
 
   useRemote((key: RemoteKey) => {
-    if (notice) return;
+    if (notice || inactive) return;
     switch (key) {
       case "playPause":
         transport.toggle();
@@ -199,6 +202,7 @@ export function TvPlayerChrome({
   });
 
   useEffect(() => {
+    if (inactive) return;
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
@@ -209,7 +213,7 @@ export function TvPlayerChrome({
       },
     );
     return () => subscription.remove();
-  }, [counting, visible, notice, transport.playing, onClose]);
+  }, [counting, visible, notice, transport.playing, onClose, inactive]);
 
   const shown = seek.target ?? transport.position;
   const fraction = progressFraction(shown, transport.duration);
@@ -228,7 +232,7 @@ export function TvPlayerChrome({
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      {!visible ? (
+      {!visible && !inactive ? (
         <Pressable
           key={`catch:${focusKey}`}
           style={StyleSheet.absoluteFill}
@@ -254,7 +258,7 @@ export function TvPlayerChrome({
         />
       ) : null}
 
-      {visible ? (
+      {visible && !inactive ? (
         <>
           <LinearGradient
             pointerEvents="none"

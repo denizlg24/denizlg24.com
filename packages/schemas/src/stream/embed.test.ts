@@ -5,6 +5,7 @@ import {
   EMBED_BROWSER_SCRIPT,
   embedPlayerUrl,
   parseEmbedProgress,
+  pickSubtitle,
 } from "./embed";
 
 const url = "https://vidsrc.mov/embed/tv/tt0944947/2/3";
@@ -63,6 +64,20 @@ test("direct player URL removes the outer advertising wrapper while keeping medi
   expect(
     embedPlayerUrl("https://vidsrc.mov/embed/movie/tt17048514", false),
   ).toBe("https://vsembed.ru/embed/movie/tt17048514?autoplay=0");
+});
+test("a chosen subtitle is handed to the provider, which then picks none of its own", () => {
+  const player = new URL(
+    embedPlayerUrl(url, true, {
+      url: "https://stream.denizlg24.com/api/public/subtitles/off",
+      label: "Off",
+      language: "",
+    }),
+  );
+  expect(player.searchParams.get("sub_url")).toBe(
+    "https://stream.denizlg24.com/api/public/subtitles/off",
+  );
+  expect(player.searchParams.get("sub_label")).toBe("Off");
+  expect(player.pathname).toBe("/embed/tv/tt0944947/2-3");
 });
 test("actor routes decode encoded names and Unicode, preserve plus signs and tolerate literal percent signs", () => {
   expect(decodeActorName("Emilia%20Clarke")).toBe("Emilia Clarke");
@@ -138,4 +153,24 @@ test("native navigation keeps player frames working and rejects click traps and 
     { url: "javascript:alert(1)", isTopFrame: true },
   ])
     expect(allowEmbedNavigation(request, player)).toBe(false);
+});
+
+test("a preference resolves to off, a track in that language, or the provider's pick", () => {
+  const available = {
+    off: "https://stream.test/off",
+    tracks: [
+      { url: "https://stream.test/fr", label: "French", language: "fr" },
+      { url: "https://stream.test/en", label: "English", language: "en" },
+      {
+        url: "https://stream.test/en2",
+        label: "English, version 2",
+        language: "en",
+      },
+    ],
+  };
+  expect(pickSubtitle(available, "auto")).toBeNull();
+  expect(pickSubtitle(available, "off")?.url).toBe("https://stream.test/off");
+  expect(pickSubtitle(available, "en")?.url).toBe("https://stream.test/en");
+  expect(pickSubtitle(available, "pt")).toBeNull();
+  expect(pickSubtitle(null, "off")).toBeNull();
 });

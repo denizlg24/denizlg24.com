@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AndroidManifest } from "expo/config-plugins";
-import { addTelevision } from "./with-android-tv.js";
+import { addTelevision, withoutFocusHighlight } from "./with-android-tv.js";
 
 function template(): AndroidManifest {
   return {
@@ -68,5 +68,22 @@ describe("with-android-tv", () => {
       manifest.manifest.application?.[0]?.activity?.[0]?.["intent-filter"]?.[0]
         ?.category,
     ).toHaveLength(2);
+  });
+
+  test("turns off the system's grey focus box on the app theme", () => {
+    const styles = withoutFocusHighlight({
+      resources: {
+        style: [
+          { $: { name: "AppTheme", parent: "Theme.AppCompat" }, item: [] },
+        ],
+      },
+    });
+    const items = styles.resources.style?.find(
+      (style) => style.$.name === "AppTheme",
+    )?.item;
+    expect(items).toContainEqual({
+      $: { name: "android:defaultFocusHighlightEnabled" },
+      _: "false",
+    });
   });
 });

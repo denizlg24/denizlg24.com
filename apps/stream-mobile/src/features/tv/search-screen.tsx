@@ -1,6 +1,6 @@
 import type { TitleSummary } from "@repo/schemas/stream";
 import { Search, SearchX } from "lucide-react-native";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -11,9 +11,10 @@ import {
 import { useTitles } from "@/api/stream";
 import { EMPTY_FILTERS } from "@/lib/title-query";
 import { Button, colors, EmptyState, fonts, radius, spacing } from "@/ui";
-import { TvBackdrop, TvNavBar, TvSpotlight } from "./chrome";
+import { FocusedSpotlight, FocusedTitle, TvNavBar } from "./chrome";
 import { TV_SAFE } from "./layout";
 import { TvPosterGrid } from "./poster-grid";
+import { useSpotlight } from "./spotlight";
 
 /**
  * One field; OK opens the TV's own keyboard, which on Google TV also takes
@@ -23,12 +24,14 @@ export function TvSearchScreen() {
   const input = useRef<TextInput>(null);
   const [q, setQ] = useState("");
   const [focused, setFocused] = useState(false);
-  const [spot, setSpot] = useState<TitleSummary | null>(null);
+  const spotlight = useSpotlight<TitleSummary>();
   const deferred = useDeferredValue(q.trim());
   const titles = useTitles({ ...EMPTY_FILTERS, q: deferred });
-  const items = deferred
-    ? (titles.data?.pages.flatMap((page) => page.titles) ?? [])
-    : [];
+  const items = useMemo(
+    () =>
+      deferred ? (titles.data?.pages.flatMap((page) => page.titles) ?? []) : [],
+    [deferred, titles.data],
+  );
 
   // Android's preferred focus is a view-group prop a text field ignores, so
   // the field is focused by hand; on a TV that also brings up the keyboard,
@@ -39,7 +42,7 @@ export function TvSearchScreen() {
 
   return (
     <View style={styles.screen}>
-      <TvBackdrop title={spot} />
+      <FocusedTitle spotlight={spotlight} />
       <TvNavBar current="search" />
       <View style={[styles.field, focused ? styles.fieldFocused : null]}>
         <Search color={focused ? colors.amber : colors.muted} size={22} />
@@ -57,7 +60,7 @@ export function TvSearchScreen() {
           style={styles.input}
         />
       </View>
-      {spot ? <TvSpotlight title={spot} /> : null}
+      <FocusedSpotlight spotlight={spotlight} />
       <ScrollView
         style={styles.results}
         contentContainerStyle={styles.content}
@@ -73,7 +76,7 @@ export function TvSearchScreen() {
           />
         ) : (
           <>
-            <TvPosterGrid titles={items} onFocusTitle={setSpot} />
+            <TvPosterGrid titles={items} onFocusTitle={spotlight.set} />
             {titles.hasNextPage && deferred ? (
               <View style={styles.more}>
                 <Button

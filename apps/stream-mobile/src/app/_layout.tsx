@@ -18,11 +18,13 @@ import { TvWhoScreen } from "@/features/tv/who-screen";
 import { loadAudience } from "@/lib/audience-store";
 import { session, useSession } from "@/lib/auth";
 import { queryClient, wireFocus } from "@/lib/query";
+import { loadSubtitlePreference } from "@/lib/subtitle-preference";
 import { colors } from "@/ui";
 
 void SplashScreen.preventAutoHideAsync();
 void session.hydrate();
 void loadAudience();
+void loadSubtitlePreference();
 
 const theme: Theme = {
   ...DarkTheme,
@@ -85,10 +87,14 @@ export default function RootLayout() {
                       }}
                     >
                       <Stack.Screen name="tv/index" />
+                      <Stack.Screen name="tv/tonight" />
+                      <Stack.Screen name="tv/ask" />
+                      <Stack.Screen name="tv/tune" />
                       <Stack.Screen name="tv/search" />
                       <Stack.Screen name="tv/list" />
                       <Stack.Screen name="tv/who" />
                       <Stack.Screen name="tv/title/[id]" />
+                      <Stack.Screen name="tv/actor/[name]" />
                       <Stack.Screen
                         name="tv/watch/[id]"
                         options={{

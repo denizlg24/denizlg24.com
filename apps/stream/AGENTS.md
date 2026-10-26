@@ -82,6 +82,20 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   through `next/image`, which would proxy every poster through this host's
   memory. The attribution line in the Tonight footer is required by TMDB's
   terms.
+- **Subtitles come from Wyzie Subs, not the embed.** `GET
+  /api/v1/titles/:id/subtitles?episode=` searches by IMDb id with
+  `STREAM_WYZIE_KEY` (free key from store.wyzie.io/redeem, 1 000 requests a
+  day; searches and files are cached six hours) and answers tracks whose
+  `url` is `/api/public/subtitles/<token>`: the Wyzie download, as WebVTT,
+  with `Access-Control-Allow-Origin: *`, because the provider's player fetches
+  it from its own origin. The token is the base64url Wyzie URL and only
+  `https://sub.wyzie.io/c/*` decodes, so the route is no open proxy.
+  `/api/public/subtitles/off` has no cues. Clients pass the choice as
+  `sub_url` (`embedPlayerUrl`), which overrides the provider's own pick —
+  its menu is in the control bar the web and TV players clip. Without the key
+  `configured` is false and only Off and Automatic are offered. The web
+  player remembers the choice in the `stream-subtitles` cookie so the server
+  renders the same frame.
 - **TV:** `components/spatial-nav.tsx` moves focus between `[data-nav]` with
   the arrows. An element claims arrows with `data-nav-own` (dials, the map,
   the player). TV mode comes from the user agent or the `stream-tv` cookie

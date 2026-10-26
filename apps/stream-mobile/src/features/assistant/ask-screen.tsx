@@ -34,7 +34,7 @@ import {
 
 type Pick = AssistantResult["picks"][number];
 
-const IDEAS = [
+export const IDEAS = [
   "Something funny and short for tonight",
   "A gripping thriller like Gone Girl",
   "A feel-good film we can all watch together",
@@ -43,7 +43,7 @@ const IDEAS = [
   "A slow, beautiful drama",
 ];
 
-const KIDS_IDEAS = [
+export const KIDS_IDEAS = [
   "An animated adventure for the kids",
   "Something funny the whole family will enjoy",
   "A film about animals",
