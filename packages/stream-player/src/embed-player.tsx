@@ -2,11 +2,16 @@
 
 import {
   type EmbedProgress,
+  type EmbedSubtitle,
   embedPlayerUrl,
   parseEmbedProgress,
+  pickSubtitle,
+  SUBTITLE_COOKIE,
+  subtitlePreferenceSchema,
 } from "@repo/schemas/stream";
 import {
   ArrowLeft,
+  Captions,
   Check,
   Maximize,
   Minimize,
@@ -34,6 +39,7 @@ import {
 } from "./embed-environment";
 import { useHoldSeek } from "./hold-seek";
 import { type Direction, SEEK_STEP_S } from "./keyboard";
+import { PlayerMenu } from "./menu";
 import { SeekBar } from "./seek-bar";
 import type { StreamPlayerProps } from "./stream-player";
 import { cx, iconSize } from "./styles";
@@ -69,6 +75,11 @@ type Clock = {
   running: boolean;
 };
 
+/** A cookie, not storage: the server renders the frame with the same choice. */
+function storeSubtitlePreference(value: string): void {
+  document.cookie = `${SUBTITLE_COOKIE}=${value}; path=/; max-age=31536000; samesite=lax`;
+}
+
 export function EmbedPlayer({
   playback,
   title,
@@ -80,6 +91,8 @@ export function EmbedPlayer({
   autoPlay = true,
   nextCountdownS = 10,
   tv = false,
+  captions = null,
+  subtitlePreference,
 }: StreamPlayerProps) {
   const environment = useSyncExternalStore(
     subscribeEmbedEnvironment,
@@ -110,10 +123,23 @@ export function EmbedPlayer({
   const [dismissed, setDismissed] = useState(false);
   const started = useRef(false);
   const restored = useRef(false);
+  /** Where a reload for new subtitles should pick up. */
+  const resumeAt = useRef<number | null>(null);
   const lastSent = useRef(0);
   const latest = useRef({ onProgress, progress, completed });
   latest.current = { onProgress, progress, completed };
-  const url = embedPlayerUrl(playback.embed!.url, autoPlay);
+  const [captionsOpen, setCaptionsOpen] = useState(false);
+  // Chosen once, so a re-render never reloads the frame; the provider's own
+  // menu is in the control bar clipped off below, so this replaces it.
+  // Chosen once, so a re-render never reloads the frame; the provider's own
+  // menu is in the control bar clipped off below, so this replaces it.
+  const [caption, setCaption] = useState<EmbedSubtitle | null>(() =>
+    pickSubtitle(
+      captions,
+      subtitlePreferenceSchema.catch("auto").parse(subtitlePreference),
+    ),
+  );
+  const url = embedPlayerUrl(playback.embed!.url, autoPlay, caption);
   const origin = new URL(url).origin;
   const shieldUp = shielded && armed && !unlocked;
   const chrome = useAutoHide(!clock?.running || scrubbing);
@@ -140,13 +166,18 @@ export function EmbedPlayer({
       if (!restored.current) {
         restored.current = true;
         const resume = playback.resume;
+        const target =
+          resumeAt.current ??
+          (resume && !resume.completed && resume.positionS >= 30
+            ? resume.positionS
+            : null);
+        resumeAt.current = null;
         if (
-          resume &&
-          !resume.completed &&
-          resume.positionS >= 30 &&
-          resume.positionS < update.duration - 10
+          target !== null &&
+          target < update.duration - 10 &&
+          Math.abs(target - update.position) > 5
         ) {
-          command(`seek${Math.floor(resume.positionS)}`);
+          command(`seek${Math.floor(target)}`);
           return;
         }
       }
@@ -313,6 +344,43 @@ export function EmbedPlayer({
     };
   });
 
+  const reload = (at: number | null) => {
+    resumeAt.current = at;
+    restored.current = false;
+    setArmed(false);
+    setClock(null);
+    setAttempt((value) => value + 1);
+  };
+  const captionItems = captions
+    ? [
+        { value: "off", label: "Off" },
+        { value: "auto", label: "Automatic" },
+        ...captions.tracks.map((track) => ({
+          value: track.id,
+          label: track.label,
+        })),
+      ]
+    : [];
+  const captionValue = !caption
+    ? "auto"
+    : caption.url === captions?.off
+      ? "off"
+      : (captions?.tracks.find((track) => track.url === caption.url)?.id ??
+        "auto");
+  const chooseCaption = (value: string) => {
+    if (!captions || value === captionValue) return;
+    const track = captions.tracks.find((item) => item.id === value);
+    const next =
+      value === "off"
+        ? { url: captions.off, label: "Off", language: "" }
+        : track
+          ? { url: track.url, label: track.label, language: track.language }
+          : null;
+    storeSubtitlePreference(track ? track.language : value);
+    setCaption(next);
+    reload(clock && position >= 5 ? position : null);
+  };
+
   const save = async () => {
     if (!onViewing) return;
     setSaving(true);
@@ -367,12 +435,7 @@ export function EmbedPlayer({
           type="button"
           data-nav
           data-player-nav=""
-          onClick={() => {
-            restored.current = false;
-            setArmed(false);
-            setClock(null);
-            setAttempt((value) => value + 1);
-          }}
+          onClick={() => reload(clock ? position : null)}
           className="flex items-center gap-2 rounded-full px-3 py-2 hover:bg-paper/10"
         >
           <RotateCw className="size-4" />
@@ -383,45 +446,47 @@ export function EmbedPlayer({
         ref={stage}
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
       >
-        <iframe
-          ref={iframe}
-          key={`${url}:${attempt}`}
-          src={url}
-          title={subtitle ? `${title}: ${subtitle}` : title}
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          allowFullScreen
-          referrerPolicy="strict-origin-when-cross-origin"
-          className={
-            shieldUp
-              ? "absolute inset-x-0 w-full border-0"
-              : "size-full border-0"
-          }
-          style={
-            shieldUp
-              ? {
-                  top: -PROVIDER_TOP_PX,
-                  height: `calc(100% + ${PROVIDER_TOP_PX + PROVIDER_BOTTOM_PX}px)`,
-                }
-              : undefined
-          }
-          onLoad={() => {
-            if (!started.current) {
-              started.current = true;
-              void onViewing?.(false)
-                .then((ok) => {
-                  if (!ok)
+        {caption === undefined ? null : (
+          <iframe
+            ref={iframe}
+            key={`${url}:${attempt}`}
+            src={url}
+            title={subtitle ? `${title}: ${subtitle}` : title}
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+            className={
+              shieldUp
+                ? "absolute inset-x-0 w-full border-0"
+                : "size-full border-0"
+            }
+            style={
+              shieldUp
+                ? {
+                    top: -PROVIDER_TOP_PX,
+                    height: `calc(100% + ${PROVIDER_TOP_PX + PROVIDER_BOTTOM_PX}px)`,
+                  }
+                : undefined
+            }
+            onLoad={() => {
+              if (!started.current) {
+                started.current = true;
+                void onViewing?.(false)
+                  .then((ok) => {
+                    if (!ok)
+                      setError(
+                        "Your progress couldn't be saved. Try reloading the player.",
+                      );
+                  })
+                  .catch(() =>
                     setError(
                       "Your progress couldn't be saved. Try reloading the player.",
-                    );
-                })
-                .catch(() =>
-                  setError(
-                    "Your progress couldn't be saved. Try reloading the player.",
-                  ),
-                );
-            }
-          }}
-        />
+                    ),
+                  );
+              }
+            }}
+          />
+        )}
         {shieldUp ? (
           <>
             <div
@@ -477,6 +542,21 @@ export function EmbedPlayer({
                   onScrubChange={setScrubbing}
                 />
               </div>
+              {captionItems.length > 0 ? (
+                <PlayerMenu
+                  label="Subtitles"
+                  triggerLabel={`Subtitles: ${
+                    captionItems.find((item) => item.value === captionValue)
+                      ?.label ?? "Automatic"
+                  }`}
+                  trigger={<Captions className={iconSize} />}
+                  items={captionItems}
+                  selected={captionValue}
+                  open={captionsOpen}
+                  onOpenChange={setCaptionsOpen}
+                  onSelect={chooseCaption}
+                />
+              ) : null}
               <ControlButton
                 label={muted ? "Unmute" : "Mute"}
                 onClick={toggleMute}

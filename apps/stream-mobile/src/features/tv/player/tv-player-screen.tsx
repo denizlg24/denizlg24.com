@@ -2,12 +2,15 @@ import {
   allowEmbedNavigation,
   EMBED_BROWSER_SCRIPT,
   type EmbedProgress,
+  type EmbedSubtitle,
   type Episode,
   embedPlayerUrl,
   type Playback,
   type PlaybackSource,
   type Progress,
   parseEmbedProgress,
+  pickSubtitle,
+  type SubtitlePreference,
   tmdbImage,
 } from "@repo/schemas/stream";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,7 +18,15 @@ import { useEvent } from "expo";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { findNodeHandle, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 import {
@@ -23,6 +34,7 @@ import {
   usePlayback,
   useRecordProgress,
   useRecordViewing,
+  useSubtitles,
   useTitle,
 } from "@/api/stream";
 import {
@@ -33,9 +45,15 @@ import { pickSource } from "@/features/player/player-screen";
 import { useProgressReporter } from "@/features/player/use-progress-reporter";
 import { useVideoController } from "@/features/player/use-video-controller";
 import { useAudience } from "@/lib/audience-store";
+import { API_URL } from "@/lib/config";
 import { episodeLabel } from "@/lib/format";
+import {
+  setSubtitlePreference,
+  useSubtitlePreference,
+} from "@/lib/subtitle-preference";
 import { resumePosition } from "@/lib/time";
 import { tapCenter } from "../../../../modules/stream-tv";
+import { type SubtitleOption, TvSubtitleMenu } from "./subtitle-menu";
 import { type TvAction, TvPlayerChrome, type TvTransport } from "./tv-chrome";
 
 const RESUME_NOTICE_MS = 6000;
@@ -277,11 +295,20 @@ type Clock = {
   running: boolean;
 };
 
+/** A language preference waits this long for the list before playing without it. */
+const SUBTITLE_WAIT_MS = 3000;
+
+function sameSubtitle(a: EmbedSubtitle | null, b: EmbedSubtitle | null) {
+  return (a?.url ?? null) === (b?.url ?? null);
+}
+
 /**
  * A VidSrc embed in a WebView that never takes focus: the remote drives it
  * through the provider's message API (`play`, `pause`, `seek<seconds>`), the
  * way the web player does, and its `PLAYER_EVENT`s keep a clock that runs
  * between them. Progress and viewing are recorded for everyone on the sofa.
+ * Subtitles are ours: the chosen file goes to the provider as `sub_url`, so
+ * changing them reloads the player at the same moment.
  */
 function TvEmbedPlayer({
   playback,
@@ -302,6 +329,8 @@ function TvEmbedPlayer({
   const surface = useRef<View>(null);
   const started = useRef(false);
   const restored = useRef(false);
+  /** Where a reload for new subtitles should pick up. */
+  const resumeAt = useRef<number | null>(null);
   const lastSent = useRef(0);
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -311,11 +340,38 @@ function TvEmbedPlayer({
   const [now, setNow] = useState(() => Date.now());
   const [progress, setProgress] = useState<EmbedProgress | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [menu, setMenu] = useState(false);
   const episodeId = playback.episode?.id ?? null;
   const latest = useRef({ progress, completed, report, profileIds });
   latest.current = { progress, completed, report, profileIds };
-  const url = embedPlayerUrl(playback.embed!.url);
-  const origin = new URL(url).origin;
+
+  const preference = useSubtitlePreference();
+  const subtitles = useSubtitles(titleId, episodeId);
+  const [waited, setWaited] = useState(false);
+  // Fixed once the player opens: a refetched list must never reload it.
+  const [subtitle, setSubtitle] = useState<EmbedSubtitle | null | undefined>(
+    undefined,
+  );
+  const available = subtitles.data ?? {
+    off: `${API_URL}/api/public/subtitles/off`,
+    tracks: [],
+  };
+  useEffect(() => {
+    const timer = setTimeout(() => setWaited(true), SUBTITLE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    if (subtitle !== undefined || preference === undefined) return;
+    const needsList = preference !== "auto" && preference !== "off";
+    if (needsList && subtitles.isPending && !waited) return;
+    setSubtitle(pickSubtitle(available, preference));
+  }, [subtitle, preference, subtitles.isPending, waited, available]);
+
+  const url =
+    subtitle === undefined
+      ? null
+      : embedPlayerUrl(playback.embed!.url, true, subtitle);
+  const origin = new URL(embedPlayerUrl(playback.embed!.url)).origin;
   const armed = clock !== null;
 
   const command = useCallback((action: string) => {
@@ -323,14 +379,6 @@ function TvEmbedPlayer({
       `(function () { var f = document.getElementById('player_iframe'); if (f && f.contentWindow) f.contentWindow.postMessage({ player: true, action: ${JSON.stringify(action)} }, new URL(f.src).origin); })(); true;`,
     );
   }, []);
-
-  const send = (update: EmbedProgress) =>
-    report.mutate({
-      titleId,
-      episodeId,
-      positionS: update.position,
-      durationS: update.duration,
-    });
 
   useEffect(
     () => () => {
@@ -414,7 +462,8 @@ function TvEmbedPlayer({
     };
   }, [armed, clock, position, command]);
 
-  const reload = () => {
+  const reload = (at: number | null) => {
+    resumeAt.current = at;
     setFailed(false);
     setLoaded(false);
     setSlow(false);
@@ -423,8 +472,126 @@ function TvEmbedPlayer({
     setAttempt((value) => value + 1);
   };
 
+  const choose = (next: EmbedSubtitle | null, remember: SubtitlePreference) => {
+    setSubtitlePreference(remember);
+    setMenu(false);
+    if (sameSubtitle(next, subtitle ?? null)) return;
+    setSubtitle(next);
+    reload(armed && position >= 5 ? position : null);
+  };
+
+  // Stable for the memoised surface: the clock ticks twice a second, and the
+  // WebView should not re-render with it.
+  const handlers = useRef<{
+    onLoad: () => void;
+    onMessage: (data: string, from: string) => void;
+  } | null>(null);
+  handlers.current = {
+    onLoad: () => {
+      setLoaded(true);
+      if (!started.current) {
+        started.current = true;
+        viewing.mutate({ titleId, episodeId, completed: false });
+      }
+    },
+    onMessage: (data, from) => {
+      try {
+        if (new URL(from).origin !== origin) return;
+      } catch {
+        return;
+      }
+      const update = parseEmbedProgress(data, playback.embed!.url);
+      if (!update) return;
+      if (!restored.current) {
+        restored.current = true;
+        const resume = playback.resume;
+        // A reload for subtitles goes back to where it was; a fresh start
+        // resumes only past the first 30 s, like the file player.
+        const target =
+          resumeAt.current ??
+          (resume && !resume.completed && resume.positionS >= 30
+            ? resume.positionS
+            : null);
+        resumeAt.current = null;
+        if (
+          target !== null &&
+          target < update.duration - 10 &&
+          Math.abs(target - update.position) > 5
+        ) {
+          command(`seek${Math.floor(target)}`);
+          return;
+        }
+      }
+      const at = Date.now();
+      setNow(at);
+      setClock((previous) => ({
+        position: update.position,
+        duration: update.duration,
+        at,
+        running:
+          update.status === "playing" ||
+          (update.status === "seeked" && (previous?.running ?? false)),
+      }));
+      setProgress(update);
+      if (update.status === "completed") setCompleted(true);
+      else if (
+        (update.status === "playing" || update.status === "seeked") &&
+        update.position < update.duration - 2
+      )
+        setCompleted(false);
+      if (
+        update.status !== "playing" ||
+        at - lastSent.current >= EMBED_REPORT_MS
+      ) {
+        lastSent.current = at;
+        report.mutate({
+          titleId,
+          episodeId,
+          positionS: update.position,
+          durationS: update.duration,
+        });
+      }
+    },
+  };
+  const onLoad = useCallback(() => handlers.current?.onLoad(), []);
+  const onMessage = useCallback(
+    (data: string, from: string) => handlers.current?.onMessage(data, from),
+    [],
+  );
+  const onError = useCallback(() => setFailed(true), []);
+  const closeMenu = useCallback(() => setMenu(false), []);
+
+  const options: SubtitleOption[] = [
+    {
+      key: "off",
+      label: "Off",
+      selected: subtitle?.url === available.off,
+      onPress: () =>
+        choose({ url: available.off, label: "Off", language: "" }, "off"),
+    },
+    {
+      key: "auto",
+      label: "Automatic",
+      detail: "Whatever the player picks, usually English",
+      selected: subtitle === null,
+      onPress: () => choose(null, "auto"),
+    },
+    ...available.tracks.map((track) => ({
+      key: track.id,
+      label: track.label,
+      detail: track.release,
+      selected: subtitle?.url === track.url,
+      onPress: () =>
+        choose(
+          { url: track.url, label: track.label, language: track.language },
+          track.language,
+        ),
+    })),
+  ];
+
   const actions: TvAction[] = [
-    { label: "Reload player", onPress: reload },
+    { label: "Subtitles", onPress: () => setMenu(true) },
+    { label: "Reload player", onPress: () => reload(armed ? position : null) },
     {
       label: completed ? "Watched" : "Mark watched",
       disabled: viewing.isPending || completed,
@@ -438,94 +605,16 @@ function TvEmbedPlayer({
 
   return (
     <>
-      {failed ? null : (
-        <View
-          style={styles.stage}
-          pointerEvents="none"
-          importantForAccessibility="no-hide-descendants"
-        >
-          <View ref={surface} style={styles.video} collapsable={false}>
-            <WebView
-              ref={webview}
-              key={attempt}
-              source={{ uri: url }}
-              style={styles.video}
-              focusable={false}
-              originWhitelist={["*"]}
-              allowsFullscreenVideo
-              allowsInlineMediaPlayback
-              mediaPlaybackRequiresUserAction={false}
-              javaScriptCanOpenWindowsAutomatically={false}
-              setSupportMultipleWindows
-              onOpenWindow={() => undefined}
-              injectedJavaScriptBeforeContentLoaded={EMBED_BROWSER_SCRIPT}
-              injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-              injectedJavaScript={EMBED_BROWSER_SCRIPT}
-              injectedJavaScriptForMainFrameOnly={false}
-              onShouldStartLoadWithRequest={(request) =>
-                allowEmbedNavigation(request, url)
-              }
-              onError={() => setFailed(true)}
-              onLoad={() => {
-                setLoaded(true);
-                if (!started.current) {
-                  started.current = true;
-                  viewing.mutate({ titleId, episodeId, completed: false });
-                }
-              }}
-              onMessage={(event) => {
-                try {
-                  if (new URL(event.nativeEvent.url).origin !== origin) return;
-                } catch {
-                  return;
-                }
-                const update = parseEmbedProgress(
-                  event.nativeEvent.data,
-                  playback.embed!.url,
-                );
-                if (!update) return;
-                if (!restored.current) {
-                  restored.current = true;
-                  const resume = playback.resume;
-                  if (
-                    resume &&
-                    !resume.completed &&
-                    resume.positionS >= 30 &&
-                    resume.positionS < update.duration - 10
-                  ) {
-                    command(`seek${Math.floor(resume.positionS)}`);
-                    return;
-                  }
-                }
-                const at = Date.now();
-                setNow(at);
-                setClock((previous) => ({
-                  position: update.position,
-                  duration: update.duration,
-                  at,
-                  running:
-                    update.status === "playing" ||
-                    (update.status === "seeked" &&
-                      (previous?.running ?? false)),
-                }));
-                setProgress(update);
-                if (update.status === "completed") setCompleted(true);
-                else if (
-                  (update.status === "playing" || update.status === "seeked") &&
-                  update.position < update.duration - 2
-                )
-                  setCompleted(false);
-                if (
-                  update.status !== "playing" ||
-                  at - lastSent.current >= EMBED_REPORT_MS
-                ) {
-                  lastSent.current = at;
-                  send(update);
-                }
-              }}
-            />
-          </View>
-        </View>
+      {failed || url === null ? null : (
+        <EmbedSurface
+          key={`${attempt}:${url}`}
+          url={url}
+          surface={surface}
+          webview={webview}
+          onLoad={onLoad}
+          onMessage={onMessage}
+          onError={onError}
+        />
       )}
       <TvPlayerChrome
         transport={transport}
@@ -544,11 +633,83 @@ function TvEmbedPlayer({
             : null
         }
         actions={actions}
+        inactive={menu}
         {...chrome}
       />
+      {menu ? (
+        <TvSubtitleMenu
+          options={options}
+          note={
+            subtitles.data?.configured === false
+              ? "Only the player's own subtitles are available on this TV for now."
+              : subtitles.isError
+                ? "The list of subtitles didn't load. Off and Automatic still work."
+                : available.tracks.length === 0 && !subtitles.isPending
+                  ? "We didn't find any subtitles for this one."
+                  : null
+          }
+          onClose={closeMenu}
+        />
+      ) : null}
     </>
   );
 }
+
+/**
+ * The provider's page, behind everything and unreachable by focus. Memoised:
+ * its props are stable, so the player's clock never re-renders it.
+ */
+const EmbedSurface = memo(function EmbedSurface({
+  url,
+  surface,
+  webview,
+  onLoad,
+  onMessage,
+  onError,
+}: {
+  url: string;
+  surface: RefObject<View | null>;
+  webview: RefObject<WebView | null>;
+  onLoad: () => void;
+  onMessage: (data: string, from: string) => void;
+  onError: () => void;
+}) {
+  return (
+    <View
+      style={styles.stage}
+      pointerEvents="none"
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View ref={surface} style={styles.video} collapsable={false}>
+        <WebView
+          ref={webview}
+          source={{ uri: url }}
+          style={styles.video}
+          focusable={false}
+          originWhitelist={["*"]}
+          allowsFullscreenVideo
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          javaScriptCanOpenWindowsAutomatically={false}
+          setSupportMultipleWindows
+          onOpenWindow={() => undefined}
+          injectedJavaScriptBeforeContentLoaded={EMBED_BROWSER_SCRIPT}
+          injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+          injectedJavaScript={EMBED_BROWSER_SCRIPT}
+          injectedJavaScriptForMainFrameOnly={false}
+          onShouldStartLoadWithRequest={(request) =>
+            allowEmbedNavigation(request, url)
+          }
+          onError={onError}
+          onLoad={onLoad}
+          onMessage={(event) =>
+            onMessage(event.nativeEvent.data, event.nativeEvent.url)
+          }
+        />
+      </View>
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#000000" },

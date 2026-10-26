@@ -56,12 +56,51 @@ export function parseEmbedProgress(
   return { position: Math.min(position, duration), duration, status };
 }
 
-/** The provider behind VidSrc's wrapper relays PLAYER_EVENT and player commands. */
-export function embedPlayerUrl(embedUrl: string, autoPlay = true): string {
+/** What the provider draws as subtitles: a file it fetches with CORS. */
+export interface EmbedSubtitle {
+  url: string;
+  label: string;
+  language: string;
+}
+
+/** Where a remembered preference lands for one film: `null` lets the provider pick. */
+export function pickSubtitle(
+  available: {
+    off: string;
+    tracks: { url: string; label: string; language: string }[];
+  } | null,
+  preference: string,
+): EmbedSubtitle | null {
+  if (preference === "auto" || !available) return null;
+  if (preference === "off")
+    return { url: available.off, label: "Off", language: "" };
+  const track = available.tracks.find((item) => item.language === preference);
+  return track
+    ? { url: track.url, label: track.label, language: track.language }
+    : null;
+}
+
+/**
+ * The provider behind VidSrc's wrapper relays PLAYER_EVENT and player commands.
+ * `sub_url` wins over every track the provider would pick for itself, and a
+ * file with no cues leaves it showing none, which is how "Off" works: its own
+ * menu sits in the control bar the clients push off screen. Without a
+ * subtitle the provider auto-picks English.
+ */
+export function embedPlayerUrl(
+  embedUrl: string,
+  autoPlay = true,
+  subtitle: EmbedSubtitle | null = null,
+): string {
   const url = new URL(embedUrl);
   url.hostname = "vsembed.ru";
   url.pathname = url.pathname.replace(/\/(\d+)\/(\d+)$/, "/$1-$2");
   url.searchParams.set("autoplay", autoPlay ? "1" : "0");
+  if (subtitle) {
+    url.searchParams.set("sub_url", subtitle.url);
+    url.searchParams.set("sub_label", subtitle.label);
+    url.searchParams.set("sub_lang", subtitle.language);
+  }
   return url.toString();
 }
 

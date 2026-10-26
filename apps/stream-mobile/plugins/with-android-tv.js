@@ -5,6 +5,7 @@ const path = require("node:path");
 const {
   AndroidConfig,
   withAndroidManifest,
+  withAndroidStyles,
   withDangerousMod,
 } = require("expo/config-plugins");
 
@@ -52,9 +53,30 @@ function addTelevision(manifest) {
   return manifest;
 }
 
+/**
+ * Android 8+ draws a translucent grey box over any focused view that has no
+ * focused drawable of its own, which is every React Native view. It sat over
+ * the app's amber ring, offset from it by the lift, on every screen.
+ *
+ * @param {import("expo/config-plugins").AndroidConfig.Resources.ResourceXML} styles
+ */
+function withoutFocusHighlight(styles) {
+  const theme = AndroidConfig.Styles.getAppThemeGroup();
+  return AndroidConfig.Styles.assignStylesValue(styles, {
+    add: true,
+    parent: theme,
+    name: "android:defaultFocusHighlightEnabled",
+    value: "false",
+  });
+}
+
 /** @type {import("expo/config-plugins").ConfigPlugin} */
 module.exports = (config) => {
-  const withManifest = withAndroidManifest(config, (next) => {
+  const withStyles = withAndroidStyles(config, (next) => {
+    next.modResults = withoutFocusHighlight(next.modResults);
+    return next;
+  });
+  const withManifest = withAndroidManifest(withStyles, (next) => {
     next.modResults = addTelevision(next.modResults);
     return next;
   });
@@ -77,3 +99,4 @@ module.exports = (config) => {
 };
 
 module.exports.addTelevision = addTelevision;
+module.exports.withoutFocusHighlight = withoutFocusHighlight;

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Episode, Playback } from "@repo/schemas/stream";
+import type { Episode, Playback, Subtitles } from "@repo/schemas/stream";
 import {
   type PointerEvent,
   type ReactNode,
@@ -50,6 +50,10 @@ export interface StreamPlayerProps {
   onViewing?: (completed: boolean) => Promise<boolean>;
   /** Remote control: 30 s skips that keep moving while held. */
   tv?: boolean;
+  /** Subtitle files for an embed, which its player draws instead of its own. */
+  captions?: Subtitles | null;
+  /** The `stream-subtitles` cookie, which the player writes when it changes. */
+  subtitlePreference?: string | null;
 }
 
 export function StreamPlayer(props: StreamPlayerProps) {

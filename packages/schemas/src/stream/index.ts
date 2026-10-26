@@ -5,8 +5,10 @@ export {
   decodeActorName,
   EMBED_BROWSER_SCRIPT,
   type EmbedProgress,
+  type EmbedSubtitle,
   embedPlayerUrl,
   parseEmbedProgress,
+  pickSubtitle,
 } from "./embed";
 
 /**
@@ -388,6 +390,44 @@ export const textTrackSchema = z.object({
   label: z.string(),
 });
 export type TextTrack = z.infer<typeof textTrackSchema>;
+
+/**
+ * `GET /titles/:id/subtitles?episode=`: subtitle files for one film or
+ * episode, served from this app with CORS so the embed's own player can fetch
+ * them. `off` is a file with no cues. `configured` is false when no subtitle
+ * source is set up, and then `tracks` is always empty.
+ */
+export const subtitleTrackSchema = z.object({
+  id: z.string(),
+  url: z.url(),
+  /** ISO 639-1. */
+  language: z.string(),
+  label: z.string(),
+  hearingImpaired: z.boolean(),
+  release: z.string().nullable(),
+});
+export type SubtitleTrack = z.infer<typeof subtitleTrackSchema>;
+
+export const subtitlesSchema = z.object({
+  configured: z.boolean(),
+  off: z.url(),
+  tracks: z.array(subtitleTrackSchema),
+});
+export type Subtitles = z.infer<typeof subtitlesSchema>;
+
+/**
+ * What a device remembers between titles: no choice (the provider's own
+ * English pick), no subtitles, or a language whose best track is used.
+ */
+/** The web player keeps the preference here, so the server renders the same frame. */
+export const SUBTITLE_COOKIE = "stream-subtitles";
+
+export const subtitlePreferenceSchema = z.union([
+  z.literal("auto"),
+  z.literal("off"),
+  z.string().regex(/^[a-z]{2}$/),
+]);
+export type SubtitlePreference = z.infer<typeof subtitlePreferenceSchema>;
 
 export const playbackSchema = z.object({
   embed: z

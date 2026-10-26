@@ -52,8 +52,8 @@ import {
 } from "./dials";
 import { RangeBand, TunerBand } from "./tuner-band";
 
-/** The dials survive leaving the tab. */
-const tuning = createStore<TitleFilters>(EMPTY_FILTERS);
+/** The dials survive leaving the tab; the TV's Tune keeps them the same way. */
+export const tuning = createStore<TitleFilters>(EMPTY_FILTERS);
 const set = (patch: Partial<TitleFilters>) =>
   tuning.update((current) => ({ ...current, ...patch }));
 

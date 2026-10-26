@@ -18,6 +18,8 @@ Never set `STREAM_DEV_SUBJECT` in production.
 `STREAM_WEB_OAUTH_CLIENT_ID/SECRET` enable the recommendation service; the
 local preference ranking remains available if that service is unreachable.
 `STREAM_CRON_SECRET` protects the ingest and enrichment job endpoints.
+`STREAM_WYZIE_KEY` (a free key from store.wyzie.io/redeem) enables subtitle
+search; without it the TV and web players offer only Off and Automatic.
 
 Before deploying a schema change, run `bun run db:migrate` with the production
 `STREAM_DATABASE_URL` in the environment. Forge does not run migrations.

@@ -1,26 +1,26 @@
 import type { TitleSummary } from "@repo/schemas/stream";
 import { Bookmark } from "lucide-react-native";
-import { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { useWatchlist } from "@/api/stream";
 import { useAudience } from "@/lib/audience-store";
 import { Button, colors, EmptyState, spacing } from "@/ui";
-import { TvBackdrop, TvNavBar, TvSpotlight } from "./chrome";
+import { FocusedSpotlight, FocusedTitle, TvNavBar } from "./chrome";
 import { TV_SAFE } from "./layout";
 import { TvPosterGrid } from "./poster-grid";
+import { useSpotlight } from "./spotlight";
 
 /** The lead profile's list, newest first. */
 export function TvListScreen() {
   const { lead } = useAudience();
   const list = useWatchlist(lead.id);
-  const [spot, setSpot] = useState<TitleSummary | null>(null);
+  const spotlight = useSpotlight<TitleSummary>();
   const titles = list.data ?? [];
 
   return (
     <View style={styles.screen}>
-      <TvBackdrop title={spot} />
+      <FocusedTitle spotlight={spotlight} />
       <TvNavBar current="list" preferred={titles.length === 0} />
-      <TvSpotlight title={spot} />
+      <FocusedSpotlight spotlight={spotlight} />
       {list.isPending ? (
         <ActivityIndicator
           color={colors.muted}
@@ -52,7 +52,7 @@ export function TvListScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <TvPosterGrid titles={titles} onFocusTitle={setSpot} />
+          <TvPosterGrid titles={titles} onFocusTitle={spotlight.set} />
         </ScrollView>
       )}
     </View>

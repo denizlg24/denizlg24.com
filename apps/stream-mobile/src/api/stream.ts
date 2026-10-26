@@ -12,6 +12,7 @@ import {
   profileSchema,
   type progressInputSchema,
   progressSchema,
+  subtitlesSchema,
   type TitleSummary,
   titleDetailSchema,
   titlePageSchema,
@@ -241,6 +242,20 @@ export function usePlayback(
       }),
     staleTime: 0,
     gcTime: 0,
+  });
+}
+
+/** Subtitle files for one film or episode; the list rarely changes. */
+export function useSubtitles(id: string, episode: string | null) {
+  return useQuery({
+    queryKey: ["subtitles", id, episode],
+    queryFn: ({ signal }) =>
+      api(`titles/${id}/subtitles`, subtitlesSchema, {
+        query: { episode },
+        signal,
+      }),
+    staleTime: 60 * 60_000,
+    retry: 1,
   });
 }
 
