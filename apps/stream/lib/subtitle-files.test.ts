@@ -52,6 +52,37 @@ test("SRT becomes WebVTT with dotted milliseconds", () => {
   );
 });
 
+test("versions are numbered within the name shown, not the language code", () => {
+  const tracks = toTracks(
+    [
+      result({
+        id: "pt1",
+        display: "Portuguese",
+        language: "pt",
+        downloadCount: 9,
+      }),
+      result({
+        id: "br1",
+        display: "Brazilian",
+        language: "pt",
+        downloadCount: 8,
+      }),
+      result({
+        id: "br2",
+        display: "Brazilian",
+        language: "pt",
+        downloadCount: 7,
+      }),
+    ],
+    "https://stream.test",
+  );
+  expect(tracks.map((track) => track.label)).toEqual([
+    "Brazilian",
+    "Brazilian, version 2",
+    "Portuguese",
+  ]);
+});
+
 test("tracks rank human, plain and popular first, keep three a language, sort by name", () => {
   const tracks = toTracks(
     [

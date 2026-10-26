@@ -14,16 +14,20 @@ export const TvPosterGrid = memo(function TvPosterGrid({
   titles,
   onFocusTitle,
   onOpen = openTvTitle,
+  preferFirst = false,
 }: {
   titles: TitleSummary[];
   onFocusTitle?: (title: TitleSummary) => void;
   onOpen?: (id: string) => void;
+  /** The first poster takes focus: for a screen that is nothing but the grid. */
+  preferFirst?: boolean;
 }) {
   return (
     <View style={styles.grid}>
-      {titles.map((title) => (
+      {titles.map((title, index) => (
         <Focusable
           key={title.id}
+          preferred={preferFirst && index === 0}
           accessibilityRole="button"
           accessibilityLabel={title.title}
           onPress={() => onOpen(title.id)}

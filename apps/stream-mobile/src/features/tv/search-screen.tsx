@@ -12,6 +12,7 @@ import { useTitles } from "@/api/stream";
 import { EMPTY_FILTERS } from "@/lib/title-query";
 import { Button, colors, EmptyState, fonts, radius, spacing } from "@/ui";
 import { FocusedSpotlight, FocusedTitle, TvNavBar } from "./chrome";
+import { useFieldEscape } from "./field-escape";
 import { TV_SAFE } from "./layout";
 import { TvPosterGrid } from "./poster-grid";
 import { useSpotlight } from "./spotlight";
@@ -24,6 +25,7 @@ export function TvSearchScreen() {
   const input = useRef<TextInput>(null);
   const [q, setQ] = useState("");
   const [focused, setFocused] = useState(false);
+  const escape = useFieldEscape(input, focused);
   const spotlight = useSpotlight<TitleSummary>();
   const deferred = useDeferredValue(q.trim());
   const titles = useTitles({ ...EMPTY_FILTERS, q: deferred });
@@ -43,13 +45,16 @@ export function TvSearchScreen() {
   return (
     <View style={styles.screen}>
       <FocusedTitle spotlight={spotlight} />
-      <TvNavBar current="search" />
+      <TvNavBar current="search" preferred={escape.navPreferred} />
       <View style={[styles.field, focused ? styles.fieldFocused : null]}>
         <Search color={focused ? colors.amber : colors.muted} size={22} />
         <TextInput
           value={q}
           onChangeText={setQ}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            escape.onFieldFocus();
+          }}
           onBlur={() => setFocused(false)}
           placeholder="Search for a film or series"
           placeholderTextColor={colors.faint}

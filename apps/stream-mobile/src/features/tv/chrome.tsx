@@ -21,6 +21,7 @@ import {
 } from "@/ui";
 import { FOCUS_ROOM, Focusable } from "./focusable";
 import { RAIL_GAP, RAIL_POSTER, TV_SAFE } from "./layout";
+import { useRowScroll } from "./row-scroll";
 import { type Spotlight, useSpot } from "./spotlight";
 
 export type TvSection = "home" | "tonight" | "ask" | "tune" | "search" | "list";
@@ -196,7 +197,7 @@ export interface RailItem {
 }
 
 /**
- * One labelled row of posters; Android scrolls it to keep focus in view.
+ * One labelled row of posters, scrolled to keep focus at the left margin.
  * Memoised with a stable `onFocusItem`, so moving focus re-renders no row.
  */
 export const TvRail = memo(function TvRail({
@@ -208,6 +209,7 @@ export const TvRail = memo(function TvRail({
   items: RailItem[];
   onFocusItem: (item: RailItem) => void;
 }) {
+  const row = useRowScroll();
   if (items.length === 0) return null;
   return (
     <View style={styles.rail}>
@@ -215,17 +217,22 @@ export const TvRail = memo(function TvRail({
         {label}
       </Text>
       <ScrollView
+        ref={row.ref}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.railContent}
       >
-        {items.map((item) => (
+        {items.map((item, index) => (
           <Focusable
             key={item.key}
             accessibilityRole="button"
             accessibilityLabel={item.title.title}
             onPress={item.onPress}
-            onFocus={() => onFocusItem(item)}
+            onLayout={row.layout(index)}
+            onFocus={() => {
+              row.focus(index);
+              onFocusItem(item);
+            }}
             radius={4}
           >
             {item.progress ? (
@@ -256,7 +263,7 @@ const styles = StyleSheet.create({
     paddingTop: TV_SAFE.y,
     paddingBottom: spacing.md,
   },
-  sections: { flex: 1, flexDirection: "row", gap: spacing.xs },
+  sections: { flex: 1, flexDirection: "row", gap: spacing.md },
   section: {
     flexDirection: "row",
     alignItems: "center",

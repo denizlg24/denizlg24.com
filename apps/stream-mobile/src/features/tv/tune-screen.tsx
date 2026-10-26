@@ -28,6 +28,7 @@ import { FocusedSpotlight, FocusedTitle, TvNavBar } from "./chrome";
 import { FOCUS_ROOM, Focusable } from "./focusable";
 import { TV_SAFE } from "./layout";
 import { TvPosterGrid } from "./poster-grid";
+import { useRowScroll } from "./row-scroll";
 import { useSpotlight } from "./spotlight";
 
 const set = (patch: Partial<TitleFilters>) =>
@@ -193,12 +194,14 @@ function Stops({
   options: { label: string; selected: boolean; onPress: () => void }[];
   preferred?: boolean;
 }) {
+  const row = useRowScroll();
   return (
     <View style={styles.dial}>
       <Text variant="callout" color="muted" style={styles.dialLabel}>
         {label}
       </Text>
       <ScrollView
+        ref={row.ref}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.stops}
@@ -210,6 +213,8 @@ function Stops({
             accessibilityLabel={`${label}: ${option.label}`}
             accessibilityState={{ selected: option.selected }}
             onPress={option.onPress}
+            onLayout={row.layout(index)}
+            onFocus={() => row.focus(index)}
             preferred={preferred && index === 0}
             style={[styles.stop, option.selected ? styles.stopOn : null]}
             radius={radius.pill}

@@ -206,7 +206,9 @@ export async function titleDetail(row: TitleRow): Promise<TitleDetail> {
     cast: row.cast,
     seasons: seasons.flatMap(({ season }) => (season === null ? [] : [season])),
     episodeCount,
-    available: false,
+    // `selectPlayback` gives every film an embed, and a series one once it
+    // has a numbered episode; clients disable Play on false.
+    available: row.type === "movie" || seasons.length > 0,
   };
 }
 

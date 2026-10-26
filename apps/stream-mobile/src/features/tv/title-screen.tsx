@@ -38,6 +38,7 @@ import { TvBackdrop } from "./chrome";
 import { FOCUS_ROOM, Focusable } from "./focusable";
 import { TV_SAFE } from "./layout";
 import { playOnTv } from "./open";
+import { useRowScroll } from "./row-scroll";
 
 const STILL = 224;
 
@@ -51,6 +52,8 @@ export function TvTitleScreen({ id }: { id: string }) {
     query.data?.progress?.episodeId ?? null,
   );
   const [season, setSeason] = useState<number | null>(null);
+  const episodeRow = useRowScroll();
+  const castRow = useRowScroll();
   const activeSeason =
     season ?? currentEpisode.data?.season ?? detail?.seasons[0] ?? null;
   const episodes = useEpisodes(
@@ -189,11 +192,12 @@ export function TvTitleScreen({ id }: { id: string }) {
               <ActivityIndicator color={colors.muted} style={styles.pad} />
             ) : (
               <ScrollView
+                ref={episodeRow.ref}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.rail}
               >
-                {(episodes.data ?? []).map((episode) => {
+                {(episodes.data ?? []).map((episode, index) => {
                   const still = tmdbImage(episode.stillPath ?? null, "w780");
                   const current = episode.id === progress?.episodeId;
                   return (
@@ -202,6 +206,8 @@ export function TvTitleScreen({ id }: { id: string }) {
                       accessibilityRole="button"
                       accessibilityLabel={`${episodeLabel(episode.season, episode.episode)} ${episode.title ?? ""}`}
                       onPress={() => playOnTv(id, episode.id)}
+                      onLayout={episodeRow.layout(index)}
+                      onFocus={() => episodeRow.focus(index)}
                       style={styles.episode}
                       radius={4}
                     >
@@ -239,11 +245,12 @@ export function TvTitleScreen({ id }: { id: string }) {
               Cast
             </Text>
             <ScrollView
+              ref={castRow.ref}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.rail}
             >
-              {detail.cast.map((person) => (
+              {detail.cast.map((person, index) => (
                 <Focusable
                   key={`${person.name}:${person.character}`}
                   accessibilityRole="button"
@@ -254,6 +261,8 @@ export function TvTitleScreen({ id }: { id: string }) {
                       params: { name: person.name },
                     })
                   }
+                  onLayout={castRow.layout(index)}
+                  onFocus={() => castRow.focus(index)}
                   style={styles.person}
                   radius={radius.md}
                   grow={1.04}

@@ -90,10 +90,13 @@ export function toTracks(results: Result[], base: string): SubtitleTrack[] {
       .filter((item) => decodeSubtitleToken(encodeSubtitleToken(item.url)))
       .map((item) => {
         const language = item.language as string;
-        const ordinal = seen.get(language) ?? 0;
-        seen.set(language, ordinal + 1);
+        const name = item.display || language.toUpperCase();
+        // Numbered by the name shown: one code can carry two names
+        // ("Portuguese", "Brazilian"), which read as a gap in the versions.
+        const ordinal = seen.get(name) ?? 0;
+        seen.set(name, ordinal + 1);
         return {
-          name: item.display || language.toUpperCase(),
+          name,
           track: {
             id: item.id,
             url: `${base}/api/public/subtitles/${encodeSubtitleToken(item.url)}`,

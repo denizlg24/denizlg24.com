@@ -23,6 +23,7 @@ import {
   TvRail,
   TvSpotlight,
 } from "./chrome";
+import { useFieldEscape } from "./field-escape";
 import { FOCUS_ROOM, Focusable } from "./focusable";
 import { TV_SAFE } from "./layout";
 import { openTvTitle } from "./open";
@@ -39,6 +40,7 @@ export function TvAskScreen() {
   const [draft, setDraft] = useState("");
   const [asked, setAsked] = useState("");
   const [focused, setFocused] = useState(false);
+  const escape = useFieldEscape(input, focused, true);
   const answer = useAssistant(key, asked);
   const spotlight = useSpotlight<RailItem>();
   const kids = audience.some((profile) => profile.kids);
@@ -64,14 +66,18 @@ export function TvAskScreen() {
   return (
     <View style={styles.screen}>
       <AskBackdrop spotlight={spotlight} />
-      <TvNavBar current="ask" preferred />
+      <TvNavBar current="ask" preferred={escape.navPreferred} />
       <ScrollView
         style={styles.fill}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.head}>
-          <Text variant="hero">What do you feel like watching?</Text>
+          {/* With an answer on screen the question has done its job, and
+              the picks need its height to fit without scrolling. */}
+          {asked ? null : (
+            <Text variant="hero">What do you feel like watching?</Text>
+          )}
           <View style={styles.row}>
             <View style={[styles.field, focused ? styles.fieldFocused : null]}>
               <Sparkles
@@ -86,7 +92,10 @@ export function TvAskScreen() {
                   if (!text.trim()) setAsked("");
                 }}
                 onSubmitEditing={() => ask(draft)}
-                onFocus={() => setFocused(true)}
+                onFocus={() => {
+                  setFocused(true);
+                  escape.onFieldFocus();
+                }}
                 onBlur={() => setFocused(false)}
                 maxLength={ASSISTANT_PROMPT_MAX}
                 placeholder="A cosy mystery, something like Paddington"

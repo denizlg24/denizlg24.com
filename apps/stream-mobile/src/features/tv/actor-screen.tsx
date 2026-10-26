@@ -61,7 +61,11 @@ export function TvActorScreen({ name }: { name: string }) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <TvPosterGrid titles={titles} onFocusTitle={spotlight.set} />
+          <TvPosterGrid
+            titles={titles}
+            onFocusTitle={spotlight.set}
+            preferFirst
+          />
           {result.hasNextPage ? (
             <View style={styles.more}>
               <Button
