@@ -1,3 +1,4 @@
+import { HEALTH_DISCLAIMER } from "@repo/macros-core/citations";
 import type { MacrosCaloriePreference } from "@repo/schemas/macros";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -139,6 +140,17 @@ export function SettingsScreen() {
             chevron
             separator={false}
             onPress={() => void openBrowserAsync(`${API_URL}/terms`)}
+          />
+        </Section>
+
+        <Section title="Health information" footer={HEALTH_DISCLAIMER}>
+          <Row
+            icon="book-open"
+            title="Sources"
+            subtitle="Where targets, expenditure and nutrient references come from"
+            chevron
+            separator={false}
+            onPress={() => router.push("/more/sources")}
           />
         </Section>
 

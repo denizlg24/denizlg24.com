@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { type StatisticsExportFormat, useStatistics } from "@/api/statistics";
+import { SourcesLinks } from "@/components/sources-link";
 import { errorMessage } from "@/lib/api";
 import {
   type EnergyUnit,
@@ -243,6 +244,7 @@ function StatisticsBody({
       <TopFoodsSection data={data} energyUnit={energyUnit} />
       <ShortfallsSection data={data} />
       <TargetHistorySection data={data} energyUnit={energyUnit} />
+      <SourcesLinks topics={["energy", "nutrients"]} />
     </>
   );
 }
@@ -745,7 +747,7 @@ function ShortfallsSection({ data }: { data: MacrosStatistics }) {
   return (
     <Section
       title="Shortfalls"
-      footer="Nutrients averaging under 80% of the WHO reference, counting only days with data for them."
+      footer="Nutrients averaging under 80% of the daily reference, counting only days with data for them."
     >
       {shortfalls.length === 0 ? (
         <Text variant="subheadline" tone="secondary">

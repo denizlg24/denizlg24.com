@@ -1,3 +1,4 @@
+import type { CitationTopicKey } from "@repo/macros-core/citations";
 import { useQueryClient } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import type { ReactNode } from "react";
@@ -5,6 +6,7 @@ import { Alert, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useProfile } from "@/api/profile";
+import { SourcesLinks } from "@/components/sources-link";
 import { signOut } from "@/lib/session";
 import {
   Button,
@@ -32,6 +34,8 @@ export interface StepScaffoldProps {
   error?: string | null;
   /** Optional answers still empty after a first Continue (`useStep`). */
   skipped?: string | null;
+  /** Citation topics for the figures this step calculates. */
+  sources?: CitationTopicKey[];
 }
 
 /**
@@ -49,6 +53,7 @@ export function StepScaffold({
   busy = false,
   error,
   skipped,
+  sources,
 }: StepScaffoldProps) {
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardInset();
@@ -72,6 +77,7 @@ export function StepScaffold({
             </Text>
           ) : null}
           {children}
+          {sources?.length ? <SourcesLinks topics={sources} /> : null}
         </VStack>
       </Screen>
       <Animated.View style={[styles.footer, footerStyle]}>

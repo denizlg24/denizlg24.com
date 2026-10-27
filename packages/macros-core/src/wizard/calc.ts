@@ -34,7 +34,7 @@ export const PROTEIN_PROFILES: ProteinProfileDef[] = [
   {
     value: "high_protein",
     label: "High Protein",
-    description: "2.2g/kg — optimal for muscle building",
+    description: "2.2 g/kg, the top of the range studied for muscle gain",
     proteinPerKg: 2.2,
     fatPct: 0.25,
   },

@@ -51,6 +51,7 @@ export function TargetsStep() {
   return (
     <StepScaffold
       step="targets"
+      sources={["energy", "pace", "protein", "macros"]}
       intro="Calculated from your answers. Adjust anything that doesn’t look right."
       onContinue={() => advance()}
     >

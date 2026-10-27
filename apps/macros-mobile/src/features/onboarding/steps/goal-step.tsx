@@ -34,6 +34,7 @@ export function GoalStep() {
   return (
     <StepScaffold
       step="goal"
+      sources={["pace"]}
       intro="Pick a direction. A target and a date are optional; together they set your pace."
       skipped={skipped}
       onContinue={() => advance()}

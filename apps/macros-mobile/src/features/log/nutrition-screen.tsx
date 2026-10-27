@@ -15,6 +15,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useNutritionOverview } from "@/api/food-log";
 import { useProfile } from "@/api/profile";
 import { MacroBars } from "@/components/macro-bars";
+import { SourcesLinks } from "@/components/sources-link";
 import { errorMessage } from "@/lib/api";
 import { deviceTimeZone, useToday } from "@/lib/day";
 import {
@@ -198,6 +199,7 @@ function OverviewBody({
           </Section>
         );
       })}
+      <SourcesLinks topics={["nutrients"]} />
     </VStack>
   );
 }

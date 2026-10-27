@@ -21,6 +21,7 @@ import {
   useSubmitCheckIn,
 } from "@/api/strategy";
 import { useWeightOverview } from "@/api/weight";
+import { SourcesLinks } from "@/components/sources-link";
 import { errorMessage } from "@/lib/api";
 import {
   type EnergyUnit,
@@ -372,6 +373,8 @@ function CheckInForm({
             weightUnit={weightUnit}
             energyUnit={energyUnit}
           />
+
+          <SourcesLinks topics={["energy", "pace", "protein", "macros"]} />
         </VStack>
       </ScrollScreen>
     </>
