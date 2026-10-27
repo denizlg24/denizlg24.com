@@ -6,8 +6,8 @@
   "reason": "Recovery-only baseline: use the versions already running on the x86_64 Forge host for the shared host runtime. Source hosts keep their installed versions. All unlisted package disagreements remain fatal.",
   "overrides": {
     "cloudflared": {
-      "acceptedSourceVersions": ["2026.3.0", "2026.7.3"],
-      "targetVersion": "2026.7.3"
+      "acceptedSourceVersions": ["2026.3.0", "2026.7.3", "2026.10.4"],
+      "targetVersion": "2026.10.4"
     },
     "docker-ce": {
       "acceptedSourceVersions": [
