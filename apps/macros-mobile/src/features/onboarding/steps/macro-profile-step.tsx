@@ -11,6 +11,7 @@ export function MacroProfileStep() {
   return (
     <StepScaffold
       step="macros"
+      sources={["protein", "macros"]}
       intro="A starting split between protein, carbs and fat. You can fine-tune it next."
       continueLabel="Calculate targets"
       onContinue={() => advance((current) => withSuggestedTargets(current))}

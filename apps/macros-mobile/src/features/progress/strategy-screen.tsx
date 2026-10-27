@@ -13,6 +13,7 @@ import {
   useNutritionProgram,
   useStrategy,
 } from "@/api/strategy";
+import { SourcesLinks } from "@/components/sources-link";
 import { errorMessage } from "@/lib/api";
 import {
   type EnergyUnit,
@@ -162,6 +163,8 @@ export function StrategyScreen() {
               />
 
               <CheckInHistory issues={issues} energyUnit={energyUnit} />
+
+              <SourcesLinks topics={["energy", "pace", "protein", "macros"]} />
             </>
           )}
         </VStack>

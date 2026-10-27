@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useProfile } from "@/api/profile";
 import { MacroBars } from "@/components/macro-bars";
+import { SourcesLink } from "@/components/sources-link";
 import {
   type EnergyUnit,
   energyLabel,
@@ -179,6 +180,7 @@ export function NutritionBreakdown({
             Percentages use your targets for energy and macros, and dietary
             reference intakes for your sex and age for everything else.
           </Text>
+          <SourcesLink topic="nutrients" />
         </View>
       ) : null}
     </View>

@@ -106,6 +106,7 @@ export function SummaryStep() {
   return (
     <StepScaffold
       step="summary"
+      sources={["energy", "pace", "protein", "macros"]}
       intro="Your starting targets. Tap any answer to change it before you begin."
       continueLabel="Start tracking"
       busy={complete.isPending}

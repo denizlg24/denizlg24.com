@@ -7,6 +7,14 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.1.2 — 2026-10-27
+
+### Added
+- **Sources.** Every calculated figure — starting targets, expenditure, pace, protein and nutrient references — links to the research and guidelines it comes from. All of them are listed in Settings → Sources.
+
+### Changed
+- The nutrient shortfalls in Statistics now say what they're measured against: the daily reference intakes, not WHO figures.
+
 ## 0.1.1 — 2026-10-25
 
 ### Fixed

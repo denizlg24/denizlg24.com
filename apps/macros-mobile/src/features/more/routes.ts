@@ -1,6 +1,7 @@
 import {
   compactSheet,
   detentSheet,
+  formModal,
   type ModalRoute,
   tabStackOptions,
 } from "@/features/shell/routes";
@@ -30,4 +31,5 @@ export const moreRoutes: ModalRoute[] = [
   { name: "more/activity", options: compactSheet },
   { name: "more/habit", options: detentSheet },
   { name: "more/delete-account", options: compactSheet },
+  { name: "more/sources", options: { ...formModal, title: "Sources" } },
 ];

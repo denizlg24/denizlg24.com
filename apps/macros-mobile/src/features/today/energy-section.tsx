@@ -7,6 +7,7 @@ import { format, parseISO } from "date-fns";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Svg, { Line, Rect } from "react-native-svg";
+import { SourcesLink } from "@/components/sources-link";
 import { type EnergyUnit, energyLabel, formatEnergy } from "@/lib/format";
 import {
   Hairline,
@@ -223,11 +224,17 @@ export function EnergySection({
         </View>
         <Meter progress={adherence ?? 0} color={macroColors.calories} />
       </Pressable>
+      <View style={styles.sources}>
+        <SourcesLink topic="energy" />
+      </View>
     </Section>
   );
 }
 
 const styles = StyleSheet.create({
+  sources: {
+    marginTop: spacing.md,
+  },
   block: {
     flexDirection: "row",
     alignItems: "center",

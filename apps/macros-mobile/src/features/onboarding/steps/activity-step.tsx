@@ -10,6 +10,7 @@ export function ActivityStep() {
   return (
     <StepScaffold
       step="activity"
+      sources={["energy"]}
       intro="Your typical week of training and movement. Optional — skip it if you’re unsure."
       skipped={skipped}
       onContinue={() => advance()}
