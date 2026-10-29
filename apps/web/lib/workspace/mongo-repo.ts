@@ -94,7 +94,7 @@ export const mongoWorkspaceRepo: WorkspaceRepo = {
   },
 
   async replacePage(expectedRev, page) {
-    const { _id, ...fields } = toDoc(page);
+    const { _id, compatBase: _base, ...fields } = toDoc(page);
     const result = await WorkspacePageModel.updateOne(
       { _id, rev: expectedRev },
       { $set: fields },
@@ -178,9 +178,17 @@ export const mongoWorkspaceRepo: WorkspaceRepo = {
   },
 
   async savePrefs(prefs) {
+    const { compatBase: _base, ...fields } = prefs;
     await WorkspacePrefsModel.updateOne(
       { _id: PREFS_ID },
-      { $set: prefs },
+      { $set: fields },
+    ).exec();
+  },
+
+  async setPrefsCompatBase(base) {
+    await WorkspacePrefsModel.updateOne(
+      { _id: PREFS_ID },
+      { $set: { compatBase: base } },
     ).exec();
   },
 

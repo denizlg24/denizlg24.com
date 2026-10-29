@@ -47,7 +47,11 @@ export interface WorkspaceRepo {
   pagesChangedSince(since: Date): Promise<StoredPage[]>;
   /** False when a page with this id already exists. */
   insertPage(page: StoredPage): Promise<boolean>;
-  /** Compare-and-set on the stored rev; false when it moved on. */
+  /**
+   * Compare-and-set on the stored rev; false when it moved on. Leaves
+   * `compatBase` as stored: `setCompatBase` moves it without a rev, so a
+   * write that read the page earlier would otherwise put back an old one.
+   */
   replacePage(expectedRev: number, page: StoredPage): Promise<boolean>;
   setCompatBase(id: string, base: WorkspacePage | null): Promise<void>;
   /** Idempotent on (pageId, rev). */
@@ -71,7 +75,9 @@ export interface WorkspaceRepo {
   getPrefs(): Promise<StoredPrefs | null>;
   /** False when the singleton already exists. */
   insertPrefs(prefs: StoredPrefs): Promise<boolean>;
+  /** Leaves `compatBase` as stored, for the reason `replacePage` does. */
   savePrefs(prefs: StoredPrefs): Promise<void>;
+  setPrefsCompatBase(base: WorkspacePrefsInput | null): Promise<void>;
   /** The v1 `DesktopWorkspace` document's data, unparsed. */
   loadLegacy(): Promise<unknown>;
 }

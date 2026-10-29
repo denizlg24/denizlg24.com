@@ -1002,6 +1002,105 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(after?.rev).toBe(4);
     });
 
+    test("a write that read the page before a GET does not undo the base that GET recorded", async () => {
+      await migrated();
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reading = () => {};
+      const read = new Promise<void>((resolve) => {
+        reading = resolve;
+      });
+      const slow = createWorkspaceService({
+        ...mongoWorkspaceRepo,
+        async replacePage(expectedRev, next) {
+          reading();
+          await gate;
+          return mongoWorkspaceRepo.replacePage(expectedRev, next);
+        },
+      });
+      const writing = slow.applyOps(
+        "alpha",
+        {
+          baseRev: 1,
+          ops: [{ op: "update", id: "a-h", set: { text: "Agent" } }],
+        },
+        AGENT,
+      );
+      await read;
+      const held = await compatGet();
+      release();
+      await writing;
+
+      expect((await storedPage("alpha"))?.compatBase).toEqual(
+        held.pages.alpha as WorkspacePage,
+      );
+
+      // 3.0.0 deleted a block meanwhile; the agent's edit to another stays.
+      const alpha = held.pages.alpha;
+      if (!alpha) throw new Error("alpha missing");
+      await compatPut({
+        ...held,
+        pages: {
+          ...held.pages,
+          alpha: {
+            ...alpha,
+            blocks: alpha.blocks.filter((b) => b.id !== "a-t"),
+          },
+        },
+      });
+      expect((await storedPage("alpha"))?.blocks).toEqual([
+        { id: "a-h", span: 6, type: "heading", text: "Agent" },
+      ]);
+    });
+
+    test("a GET never writes back prefs older than a concurrent prefs PUT", async () => {
+      const service = await migrated();
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reading = () => {};
+      const read = new Promise<void>((resolve) => {
+        reading = resolve;
+      });
+      let armed = false;
+      const slow = createWorkspaceService({
+        ...mongoWorkspaceRepo,
+        async getPrefs() {
+          const prefs = await mongoWorkspaceRepo.getPrefs();
+          if (armed) {
+            armed = false;
+            reading();
+            await gate;
+          }
+          return prefs;
+        },
+      });
+      await slow.ensureMigrated();
+      armed = true;
+      const getting = slow.compatGet();
+      await read;
+      const current = await service.getPrefs();
+      await service.putPrefs({
+        favorites: ["page:beta"],
+        recents: current.recents,
+        sidebar: { ...current.sidebar, width: 320 },
+      });
+      release();
+      const served = await getting;
+
+      const prefs = await WorkspacePrefsModel.findById("singleton").lean();
+      expect(prefs?.favorites).toEqual(["page:beta"]);
+      expect(prefs?.sidebar.width).toBe(320);
+      expect(prefs?.compatBase).toEqual({
+        favorites: served.favorites,
+        recents: served.recents,
+        sidebar: served.sidebar,
+      });
+    });
+
     test("a page missing from the PUT is purged only when trashed and unchanged", async () => {
       await migrated();
       const held = await compatGet();

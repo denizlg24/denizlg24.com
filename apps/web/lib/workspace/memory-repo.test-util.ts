@@ -33,7 +33,7 @@ export function memoryWorkspaceRepo(legacy: unknown = null) {
     async replacePage(expectedRev, page) {
       const current = pages.get(page.id);
       if (!current || current.rev !== expectedRev) return false;
-      pages.set(page.id, clone(page));
+      pages.set(page.id, { ...clone(page), compatBase: current.compatBase });
       return true;
     },
     async setCompatBase(id, base) {
@@ -91,7 +91,10 @@ export function memoryWorkspaceRepo(legacy: unknown = null) {
       return true;
     },
     async savePrefs(next) {
-      prefs = clone(next);
+      if (prefs) prefs = { ...clone(next), compatBase: prefs.compatBase };
+    },
+    async setPrefsCompatBase(base) {
+      if (prefs) prefs.compatBase = clone(base);
     },
     async loadLegacy() {
       return clone(legacy);

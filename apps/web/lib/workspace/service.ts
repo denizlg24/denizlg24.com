@@ -414,6 +414,7 @@ export function createWorkspaceService(
       compatBase: null,
     };
     if (await repo.replacePage(stored.rev, tombstone)) {
+      await repo.setCompatBase(stored.id, null);
       await repo.deleteRevisions(stored.id);
     }
   }
@@ -1016,7 +1017,7 @@ export function createWorkspaceService(
       if (!prefs)
         throw new WorkspaceError(500, "NOT_MIGRATED", "Prefs missing");
       const input = prefsInputOf(prefs);
-      await repo.savePrefs({ ...prefs, compatBase: input });
+      await repo.setPrefsCompatBase(input);
       return {
         version: 1,
         savedAt: now().toISOString(),
@@ -1062,7 +1063,7 @@ export function createWorkspaceService(
         sidebar: workspace.sidebar,
       };
       const base = prefs.compatBase;
-      const next: StoredPrefs = { ...prefs, compatBase: incoming };
+      const next: StoredPrefs = { ...prefs };
       let changed = false;
       if (base) {
         for (const key of ["favorites", "recents", "sidebar"] as const) {
@@ -1079,8 +1080,9 @@ export function createWorkspaceService(
         const at = now();
         next.updatedAt = at.toISOString();
         next.changedAt = at;
+        await repo.savePrefs(next);
       }
-      await repo.savePrefs(next);
+      await repo.setPrefsCompatBase(incoming);
     },
   };
 
