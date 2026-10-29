@@ -13,11 +13,12 @@ import { FilePlus, PanelLeft, SearchIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
-import { PageIcon, RefIcon } from "@/components/workspace/page-icon";
-import { OPEN_COMMAND_PALETTE } from "@/components/workspace/sidebar";
-import { MODULE_SECTIONS, MODULES } from "@/lib/workspace/modules";
-import { pageHref, pageTitle, resolveRef } from "@/lib/workspace/refs";
-import { pageAncestors, useWorkspaceStore } from "@/stores/workspace";
+import { MODULE_SECTIONS } from "./modules";
+import { PageIcon, RefIcon } from "./page-icon";
+import { pageTitle } from "./refs";
+import { OPEN_COMMAND_PALETTE } from "./sidebar";
+import { pageAncestors, useWorkspaceStore } from "./store";
+import { useWorkspaceNav } from "./use-workspace-nav";
 
 function fuzzyScore(value: string, search: string): number {
   const v = value.toLowerCase();
@@ -134,6 +135,7 @@ export function CommandPalette() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 120);
   const router = useRouter();
+  const { modules, pageHref, resolveRef } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const recents = useWorkspaceStore((s) => s.workspace.recents);
   const createPage = useWorkspaceStore((s) => s.createPage);
@@ -245,8 +247,9 @@ export function CommandPalette() {
               </CommandGroup>
               {MODULE_SECTIONS.map((section) => (
                 <CommandGroup key={section.id} heading={section.label}>
-                  {MODULES.filter((m) => m.section === section.id).map(
-                    (module) => {
+                  {modules
+                    .filter((m) => m.section === section.id)
+                    .map((module) => {
                       const Icon = module.icon;
                       return (
                         <CommandItem
@@ -259,8 +262,7 @@ export function CommandPalette() {
                           <span>{module.label}</span>
                         </CommandItem>
                       );
-                    },
-                  )}
+                    })}
                 </CommandGroup>
               ))}
               <CommandGroup heading="Actions">

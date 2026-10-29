@@ -1,1 +1,1 @@
-export { SidebarTrigger } from "@/components/workspace/sidebar-trigger";
+export { SidebarTrigger } from "@repo/admin/workspace/sidebar-trigger";

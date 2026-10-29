@@ -4,8 +4,8 @@ import { Button } from "@repo/ui/button";
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 import { cn } from "@repo/ui/utils";
 import { PanelLeft } from "lucide-react";
-import { useWorkspaceStore } from "@/stores/workspace";
 import { useMobileSidebar } from "./mobile-sidebar";
+import { useWorkspaceStore } from "./store";
 
 /**
  * Sits in every page header's leading slot. Only visible while there is no

@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  HOME_PAGE_ID,
+  moduleRef,
+  SIDEBAR_DEFAULT_WIDTH,
+  type WorkspacePage,
+} from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +15,7 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { Kbd } from "@repo/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Sheet, SheetContent, SheetTitle } from "@repo/ui/sheet";
 import { cn } from "@repo/ui/utils";
 import {
   ChevronRight,
@@ -26,7 +33,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   type ComponentProps,
   type DragEvent,
@@ -39,42 +46,15 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  DASHBOARD_PREFIX,
-  MODULE_SECTIONS,
-  moduleForPath,
-  SIDEBAR_MODULES,
-} from "@/lib/workspace/modules";
-import {
-  PAGE_ROUTE,
-  pageHref,
-  pageTitle,
-  resolveRef,
-} from "@/lib/workspace/refs";
-import {
-  HOME_PAGE_ID,
-  moduleRef,
-  SIDEBAR_DEFAULT_WIDTH,
-  type WorkspacePage,
-} from "@/lib/workspace/schema";
-import { childPages, useWorkspaceStore } from "@/stores/workspace";
+import { useMobileSidebar } from "./mobile-sidebar";
+import { MODULE_SECTIONS } from "./modules";
 import { PageMenuItems } from "./page-actions";
 import { PageIcon, RefIcon } from "./page-icon";
+import { pageTitle } from "./refs";
+import { childPages, useWorkspaceStore } from "./store";
+import { useActiveLocation, useWorkspaceNav } from "./use-workspace-nav";
 
 export const OPEN_COMMAND_PALETTE = "command-palette:open";
-
-/** Where the app is: a workspace page id, or a module path. */
-export function useActiveLocation() {
-  const pathname = usePathname();
-  const params = useSearchParams();
-  const pageId =
-    pathname === DASHBOARD_PREFIX
-      ? HOME_PAGE_ID
-      : pathname === PAGE_ROUTE
-        ? params.get("id")
-        : null;
-  return { pathname, pageId };
-}
 
 const ROW =
   "group/item relative flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-[13px] text-foreground transition-colors hover:bg-surface hover:text-accent-strong";
@@ -228,6 +208,7 @@ function PageTreeRow({
   activePageId: string | null;
 }) {
   const router = useRouter();
+  const { pageHref } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const expanded = useWorkspaceStore((s) =>
     s.workspace.sidebar.expandedPages.includes(page.id),
@@ -451,6 +432,7 @@ function TrashPopover() {
 }
 
 function HiddenModulesPopover() {
+  const { sidebarModules } = useWorkspaceNav();
   const hidden = useWorkspaceStore((s) => s.workspace.sidebar.hiddenModules);
   const setModuleHidden = useWorkspaceStore((s) => s.setModuleHidden);
   if (hidden.length === 0) return null;
@@ -466,26 +448,28 @@ function HiddenModulesPopover() {
         </button>
       </PopoverTrigger>
       <PopoverContent side="right" align="end" className="w-64 p-1.5">
-        {SIDEBAR_MODULES.filter((m) => hidden.includes(m.id)).map((module) => {
-          const Icon = module.icon;
-          return (
-            <div
-              key={module.id}
-              className="flex h-8 items-center gap-2 rounded-md px-1.5 text-[13px] hover:bg-surface"
-            >
-              <Icon className="size-4 text-muted-foreground" />
-              <span className="flex-1 truncate text-accent-strong">
-                {module.label}
-              </span>
-              <RowIconButton
-                label="Show"
-                onClick={() => setModuleHidden(module.id, false)}
+        {sidebarModules
+          .filter((m) => hidden.includes(m.id))
+          .map((module) => {
+            const Icon = module.icon;
+            return (
+              <div
+                key={module.id}
+                className="flex h-8 items-center gap-2 rounded-md px-1.5 text-[13px] hover:bg-surface"
               >
-                <Eye className="size-3.5" />
-              </RowIconButton>
-            </div>
-          );
-        })}
+                <Icon className="size-4 text-muted-foreground" />
+                <span className="flex-1 truncate text-accent-strong">
+                  {module.label}
+                </span>
+                <RowIconButton
+                  label="Show"
+                  onClick={() => setModuleHidden(module.id, false)}
+                >
+                  <Eye className="size-3.5" />
+                </RowIconButton>
+              </div>
+            );
+          })}
       </PopoverContent>
     </Popover>
   );
@@ -498,6 +482,8 @@ export function WorkspaceSidebarContent({
   onNavigate?: () => void;
 }) {
   const router = useRouter();
+  const { pageHref, resolveRef, moduleForPath, sidebarModules, routes } =
+    useWorkspaceNav();
   const { pathname, pageId: activePageId } = useActiveLocation();
   const workspace = useWorkspaceStore((s) => s.workspace);
   const toggleSidebar = useWorkspaceStore((s) => s.toggleSidebar);
@@ -630,7 +616,7 @@ export function WorkspaceSidebarContent({
         </div>
 
         {MODULE_SECTIONS.map((section) => {
-          const modules = SIDEBAR_MODULES.filter(
+          const modules = sidebarModules.filter(
             (m) =>
               m.section === section.id && !sidebar.hiddenModules.includes(m.id),
           );
@@ -698,8 +684,8 @@ export function WorkspaceSidebarContent({
         <HiddenModulesPopover />
         <TrashPopover />
         <SidebarRow
-          href={`${DASHBOARD_PREFIX}/settings`}
-          active={pathname.startsWith(`${DASHBOARD_PREFIX}/settings`)}
+          href={routes.settings}
+          active={pathname.startsWith(routes.settings)}
           icon={<Settings className="size-4" />}
           label="Settings"
         />
@@ -770,5 +756,24 @@ export function WorkspaceSidebar() {
         className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize transition-colors hover:bg-border/60 active:bg-border"
       />
     </aside>
+  );
+}
+
+/** The sidebar on narrow windows: a sheet opened from the page header's trigger. */
+export function WorkspaceMobileSidebar() {
+  const open = useMobileSidebar((s) => s.open);
+  const setOpen = useMobileSidebar((s) => s.setOpen);
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent
+        side="left"
+        showCloseButton={false}
+        className="w-72 gap-0 p-0 sm:max-w-72"
+        aria-describedby={undefined}
+      >
+        <SheetTitle className="sr-only">Navigation</SheetTitle>
+        <WorkspaceSidebarContent onNavigate={() => setOpen(false)} />
+      </SheetContent>
+    </Sheet>
   );
 }

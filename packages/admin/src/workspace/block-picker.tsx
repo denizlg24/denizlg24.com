@@ -1,5 +1,6 @@
 "use client";
 
+import { BLOCK_TYPES, type BlockType } from "@repo/schemas";
 import {
   Command,
   CommandEmpty,
@@ -9,7 +10,6 @@ import {
   CommandList,
 } from "@repo/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@repo/ui/dialog";
-import { BLOCK_TYPES, type BlockType } from "@/lib/workspace/schema";
 import { BLOCK_CATALOG, BLOCK_CATEGORIES } from "./block-catalog";
 
 /** The "/" menu: every block type, grouped, searchable by name and keyword. */

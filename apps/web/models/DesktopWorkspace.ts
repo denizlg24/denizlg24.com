@@ -2,7 +2,7 @@ import type { Workspace } from "@repo/schemas";
 import mongoose from "mongoose";
 
 /**
- * The desktop app's workspace as one document. It is validated by
+ * The workspace desktop and web share, as one document. It is validated by
  * `workspaceSchema` on the way in and replaced whole on every save, so Mongo
  * holds it as an opaque value rather than a mirrored schema.
  */

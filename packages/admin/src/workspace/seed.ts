@@ -1,4 +1,3 @@
-import { MODULE_SECTIONS, type ModuleSectionId } from "./modules";
 import {
   type Block,
   type BlockSpan,
@@ -8,7 +7,12 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   type Workspace,
   type WorkspacePage,
-} from "./schema";
+} from "@repo/schemas";
+import {
+  MODULE_SECTIONS,
+  type ModuleId,
+  type ModuleSectionId,
+} from "./modules";
 
 export function newId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -97,7 +101,7 @@ function page(
   };
 }
 
-function links(ids: string[], title?: string): Block {
+function links(ids: ModuleId[], title?: string): Block {
   return {
     id: newId(),
     type: "links",

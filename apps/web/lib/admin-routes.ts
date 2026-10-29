@@ -87,4 +87,45 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
       withQuery(`${ROOT}/markets/portfolios`, { portfolio: portfolioId }),
     ticker: (symbol) => withQuery(`${ROOT}/markets`, { ticker: symbol }),
   },
+
+  workspace: {
+    page: (pageId) => withSegments(`${ROOT}/page`, pageId),
+    pageAt: (pathname) => {
+      const prefix = `${ROOT}/page/`;
+      if (!pathname.startsWith(prefix)) return null;
+      return decodeURIComponent(pathname.slice(prefix.length)) || null;
+    },
+    // Only the modules this app has a surface for; the rest stay desktop-only.
+    modules: {
+      inbox: `${ROOT}/inbox`,
+      contacts: `${ROOT}/contacts`,
+      calendar: `${ROOT}/calendar`,
+      timetable: `${ROOT}/timetable`,
+      courses: `${ROOT}/courses`,
+      hours: `${ROOT}/hours`,
+      notes: `${ROOT}/notes`,
+      papers: `${ROOT}/papers`,
+      latex: `${ROOT}/latex`,
+      explored: `${ROOT}/explored`,
+      finance: `${ROOT}/finance`,
+      budget: `${ROOT}/finance?tab=budget`,
+      markets: `${ROOT}/markets`,
+      portfolios: `${ROOT}/markets/portfolios`,
+      holdings: `${ROOT}/holdings`,
+      blog: `${ROOT}/blogs`,
+      "blog-new": `${ROOT}/blogs/new`,
+      comments: `${ROOT}/blogs/comments`,
+      projects: `${ROOT}/projects`,
+      "projects-new": `${ROOT}/projects/new`,
+      timeline: `${ROOT}/timeline`,
+      now: `${ROOT}/now-page`,
+      cv: `${ROOT}/cv`,
+      resources: `${ROOT}/resources`,
+      authenticator: `${ROOT}/authenticator`,
+      "agent-memory": `${ROOT}/agent-memory`,
+      "agent-tasks": `${ROOT}/agent-tasks`,
+      "llm-usage": `${ROOT}/llm-usage`,
+      settings: `${ROOT}/settings`,
+    },
+  },
 };

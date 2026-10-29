@@ -1,12 +1,12 @@
-import { Kbd, KbdGroup } from "@repo/ui/kbd";
+import { SidebarTrigger } from "@repo/admin/workspace/sidebar-trigger";
+import { Button } from "@repo/ui/button";
 import { PageHeader } from "@repo/ui/page-header";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, LogOut } from "lucide-react";
 import type { Metadata } from "next";
-import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { requireAdminPage } from "@/lib/require-admin";
 import { CalendarPreloader } from "./_components/calendar-preloader";
 import { WebAgentDock } from "./_components/web-agent-dock";
+import { WebWorkspaceShell } from "./_components/web-workspace-shell";
 import { DASHBOARD_APP_SCOPE } from "./pwa-config";
 
 export const metadata: Metadata = {
@@ -21,20 +21,25 @@ export default async function RootLayout({
   await requireAdminPage(DASHBOARD_APP_SCOPE);
 
   return (
-    <SidebarProvider>
+    <WebWorkspaceShell>
       <CalendarPreloader />
-      <AppSidebar />
-      <main className="-mt-26 flex min-h-[calc(100dvh-1.75rem)] max-h-screen min-w-0 w-full flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <PageHeader
           icon={<LayoutDashboard className="size-4 text-muted-foreground" />}
           title="Admin"
           leading={<SidebarTrigger />}
         >
-          <KbdGroup className="hidden sm:flex">
-            <Kbd>Ctrl</Kbd>
-            <span>+</span>
-            <Kbd>B</Kbd>
-          </KbdGroup>
+          <form action="/auth/logout" method="post">
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Sign out"
+              className="text-muted-foreground"
+            >
+              <LogOut />
+            </Button>
+          </form>
         </PageHeader>
         <WebAgentDock>
           <section className="h-full min-h-0 w-full overflow-x-hidden px-3 pt-4 pb-6 sm:px-4">
@@ -42,6 +47,6 @@ export default async function RootLayout({
           </section>
         </WebAgentDock>
       </main>
-    </SidebarProvider>
+    </WebWorkspaceShell>
   );
 }

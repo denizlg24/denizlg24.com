@@ -1,5 +1,6 @@
 "use client";
 
+import { HOME_PAGE_ID, pageRef } from "@repo/schemas";
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -18,14 +19,10 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { pageHref, pageTitle } from "@/lib/workspace/refs";
-import { HOME_PAGE_ID, pageRef } from "@/lib/workspace/schema";
-import {
-  childPages,
-  descendantIds,
-  useWorkspaceStore,
-} from "@/stores/workspace";
 import { PageIcon } from "./page-icon";
+import { pageTitle } from "./refs";
+import { childPages, descendantIds, useWorkspaceStore } from "./store";
+import { useWorkspaceNav } from "./use-workspace-nav";
 
 /** The menu a page offers everywhere it appears: sidebar row, page header. */
 export function PageMenuItems({
@@ -36,6 +33,7 @@ export function PageMenuItems({
   onRename?: () => void;
 }) {
   const router = useRouter();
+  const { pageHref, routes } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const favorites = useWorkspaceStore((s) => s.workspace.favorites);
   const toggleFavorite = useWorkspaceStore((s) => s.toggleFavorite);
@@ -136,7 +134,12 @@ export function PageMenuItems({
                     useWorkspaceStore.getState().restorePage(pageId),
                 },
               });
-              if (window.location.search.includes(pageId)) {
+              const { pathname, search } = window.location;
+              const open = routes.workspace.pageAt(
+                pathname,
+                new URLSearchParams(search),
+              );
+              if (open === pageId) {
                 router.push(parent ? pageHref(parent) : pageHref(HOME_PAGE_ID));
               }
             }}

@@ -1,6 +1,12 @@
 "use client";
 
-import { AgentPanel } from "@repo/admin/agent/agent-panel";
+import {
+  type Block,
+  type BlockOf,
+  moduleRef,
+  pageRef,
+  type TodoItem,
+} from "@repo/schemas";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
   Command,
@@ -24,23 +30,13 @@ import { Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useMemo, useState } from "react";
-import { formatMinor } from "@/lib/workspace/format";
-import {
-  DASHBOARD_PREFIX,
-  MODULE_SECTIONS,
-  SIDEBAR_MODULES,
-} from "@/lib/workspace/modules";
-import { pageHref, pageTitle, resolveRef } from "@/lib/workspace/refs";
-import {
-  type Block,
-  type BlockOf,
-  moduleRef,
-  pageRef,
-  type TodoItem,
-} from "@/lib/workspace/schema";
-import { newId } from "@/lib/workspace/seed";
-import { childPages, useWorkspaceStore } from "@/stores/workspace";
+import { AgentPanel } from "../agent/agent-panel";
+import { formatMinor } from "./format";
+import { MODULE_SECTIONS } from "./modules";
 import { PageIcon, RefIcon } from "./page-icon";
+import { pageTitle } from "./refs";
+import { newId } from "./seed";
+import { childPages, useWorkspaceStore } from "./store";
 import {
   useBudgetAlerts,
   useDashboardStats,
@@ -48,6 +44,7 @@ import {
   useSemesterOverview,
   useUpcomingTasks,
 } from "./use-workspace-data";
+import { useWorkspaceNav } from "./use-workspace-nav";
 
 export type BlockProps<T extends Block["type"]> = {
   block: BlockOf<T>;
@@ -75,14 +72,39 @@ function Failed({ error }: { error: string }) {
   return <p className="py-2 text-xs text-destructive">{error}</p>;
 }
 
-function More({ count, href }: { count: number; href: string }) {
+function More({ count, href }: { count: number; href: string | undefined }) {
   if (count <= 0) return null;
+  if (!href) {
+    return (
+      <span className="mt-1 self-start text-xs text-muted-foreground">
+        +{count} more
+      </span>
+    );
+  }
   return (
     <Link
       href={href}
       className="mt-1 self-start text-xs text-muted-foreground hover:text-accent-strong"
     >
       +{count} more
+    </Link>
+  );
+}
+
+/** A link when the host has the surface, plain content when it does not. */
+function MaybeLink({
+  href,
+  className,
+  children,
+}: {
+  href: string | undefined;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!href) return <>{children}</>;
+  return (
+    <Link href={href} className={className}>
+      {children}
     </Link>
   );
 }
@@ -256,6 +278,7 @@ function RefPicker({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const { sidebarModules } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const livePages = Object.values(pages).filter(
     (p) => !p.deletedAt && !exclude.has(pageRef(p.id)),
@@ -286,8 +309,9 @@ function RefPicker({
               </CommandGroup>
             ) : null}
             <CommandGroup heading="Modules">
-              {SIDEBAR_MODULES.filter((m) => !exclude.has(moduleRef(m.id))).map(
-                (module) => {
+              {sidebarModules
+                .filter((m) => !exclude.has(moduleRef(m.id)))
+                .map((module) => {
                   const Icon = module.icon;
                   return (
                     <CommandItem
@@ -302,8 +326,7 @@ function RefPicker({
                       {module.label}
                     </CommandItem>
                   );
-                },
-              )}
+                })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -352,6 +375,7 @@ const TILE_GRID =
   "grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-2 gap-y-0.5 -mx-2.5";
 
 function LinksBlock({ block, editing, onChange }: BlockProps<"links">) {
+  const { resolveRef } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const resolved = block.refs
     .map((ref) => resolveRef(ref, pages))
@@ -395,6 +419,7 @@ function LinksBlock({ block, editing, onChange }: BlockProps<"links">) {
 
 function SubpagesBlock({ pageId }: BlockProps<"subpages">) {
   const router = useRouter();
+  const { pageHref } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const createPage = useWorkspaceStore((s) => s.createPage);
   const children = childPages(pages, pageId);
@@ -419,6 +444,7 @@ function SubpagesBlock({ pageId }: BlockProps<"subpages">) {
 }
 
 function ModulesBlock({ block }: BlockProps<"modules">) {
+  const { sidebarModules } = useWorkspaceNav();
   const sections = block.sections.length
     ? MODULE_SECTIONS.filter((s) => block.sections.includes(s.id))
     : MODULE_SECTIONS;
@@ -430,8 +456,9 @@ function ModulesBlock({ block }: BlockProps<"modules">) {
             {section.label}
           </span>
           <div className="-mx-2.5 flex flex-col">
-            {SIDEBAR_MODULES.filter((m) => m.section === section.id).map(
-              (module) => {
+            {sidebarModules
+              .filter((m) => m.section === section.id)
+              .map((module) => {
                 const Icon = module.icon;
                 return (
                   <Tile
@@ -441,8 +468,7 @@ function ModulesBlock({ block }: BlockProps<"modules">) {
                     label={module.label}
                   />
                 );
-              },
-            )}
+              })}
           </div>
         </div>
       ))}
@@ -480,14 +506,20 @@ function GreetingBlock() {
 }
 
 function StatsBlock() {
+  const { moduleHref, routes } = useWorkspaceNav();
   const stats = useDashboardStats();
   const today = useDashboardToday();
   if (stats.error) return <Failed error={stats.error} />;
   if (!stats.data) return <RowsSkeleton rows={2} />;
   const s = stats.data;
   const counts = today.data?.counts;
-  const item = (label: string, value: number, href: string, alert = false) => (
-    <Link
+  const item = (
+    label: string,
+    value: number,
+    href: string | undefined,
+    alert = false,
+  ) => (
+    <MaybeLink
       href={href}
       className="rounded-md transition-opacity hover:opacity-75"
     >
@@ -496,41 +528,38 @@ function StatsBlock() {
         value={value}
         tone={alert && value > 0 ? "critical" : "default"}
       />
-    </Link>
+    </MaybeLink>
   );
   return (
     <StatGroup>
-      {item("Unread mail", s.emails.unread, `${DASHBOARD_PREFIX}/inbox`)}
+      {item("Unread mail", s.emails.unread, moduleHref("inbox"))}
       {item(
         "Action needed",
         counts?.actionNeeded ?? s.triage.actionRequired,
-        `${DASHBOARD_PREFIX}/triage`,
+        moduleHref("triage"),
         true,
       )}
       {item(
         "Today",
         s.calendar.todayEvents + s.timetable.length,
-        `${DASHBOARD_PREFIX}/calendar`,
+        moduleHref("calendar"),
       )}
-      {item("New contacts", s.contacts.unread, `${DASHBOARD_PREFIX}/contacts`)}
-      {item(
-        "Comments",
-        s.comments.pending,
-        `${DASHBOARD_PREFIX}/blog/comments`,
-      )}
+      {item("New contacts", s.contacts.unread, moduleHref("contacts"))}
+      {item("Comments", s.comments.pending, moduleHref("comments"))}
       {item(
         "Budget alerts",
         counts?.budgetAlerts ?? 0,
-        `${DASHBOARD_PREFIX}/finance/alerts`,
+        `${routes.finance.root}/alerts`,
         true,
       )}
-      {item("Notes", s.notes.total, `${DASHBOARD_PREFIX}/notes`)}
-      {item("Projects", s.projects.total, `${DASHBOARD_PREFIX}/projects`)}
+      {item("Notes", s.notes.total, moduleHref("notes"))}
+      {item("Projects", s.projects.total, moduleHref("projects"))}
     </StatGroup>
   );
 }
 
 function AgendaBlock() {
+  const { moduleHref } = useWorkspaceNav();
   const today = useDashboardToday();
   if (today.error) return <Failed error={today.error} />;
   if (!today.data) return <RowsSkeleton />;
@@ -564,15 +593,13 @@ function AgendaBlock() {
           />
         );
       })}
-      <More
-        count={items.length - MAX_ROWS}
-        href={`${DASHBOARD_PREFIX}/calendar`}
-      />
+      <More count={items.length - MAX_ROWS} href={moduleHref("calendar")} />
     </List>
   );
 }
 
 function NowBlock() {
+  const { routes } = useWorkspaceNav();
   const today = useDashboardToday();
   if (today.error) return <Failed error={today.error} />;
   if (!today.data) return <RowsSkeleton rows={2} />;
@@ -585,7 +612,7 @@ function NowBlock() {
       ) : null}
       {shift ? (
         <Link
-          href={`${DASHBOARD_PREFIX}/hours`}
+          href={routes.hours}
           className="flex items-center gap-2 text-xs text-muted-foreground hover:text-accent-strong"
         >
           <StatusDot tone={shift.onBreak ? "warning" : "good"} />
@@ -598,6 +625,7 @@ function NowBlock() {
 }
 
 function BoardBlock() {
+  const { moduleHref } = useWorkspaceNav();
   const today = useDashboardToday();
   if (today.error) return <Failed error={today.error} />;
   if (!today.data) return <RowsSkeleton rows={3} />;
@@ -622,7 +650,7 @@ function BoardBlock() {
       ))}
       <More
         count={todos.length - MAX_ROWS}
-        href={`${DASHBOARD_PREFIX}/whiteboard/today`}
+        href={moduleHref("whiteboard-today")}
       />
     </List>
   );
@@ -639,6 +667,7 @@ function AgentBlock() {
 /* ───────────── Work ───────────── */
 
 function TasksBlock() {
+  const { moduleHref } = useWorkspaceNav();
   const upcoming = useUpcomingTasks();
   const cards = useMemo(
     () =>
@@ -679,10 +708,7 @@ function TasksBlock() {
           }
         />
       ))}
-      <More
-        count={cards.length - MAX_ROWS}
-        href={`${DASHBOARD_PREFIX}/kanban`}
-      />
+      <More count={cards.length - MAX_ROWS} href={moduleHref("kanban")} />
     </List>
   );
 }
@@ -738,6 +764,8 @@ function SemesterBlock() {
 }
 
 function NotesBlock() {
+  const { moduleHref } = useWorkspaceNav();
+  const notesHref = moduleHref("notes");
   const stats = useDashboardStats();
   if (stats.error) return <Failed error={stats.error} />;
   if (!stats.data) return <RowsSkeleton />;
@@ -746,15 +774,17 @@ function NotesBlock() {
   return (
     <List>
       {notes.slice(0, MAX_ROWS).map((note) => (
-        <Link
+        <MaybeLink
           key={note._id}
-          href={`${DASHBOARD_PREFIX}/notes?note=${encodeURIComponent(note._id)}`}
+          href={
+            notesHref && `${notesHref}?note=${encodeURIComponent(note._id)}`
+          }
         >
           <ListRow
             title={note.title || "Untitled"}
             meta={formatDistanceToNowStrict(new Date(note.updatedAt))}
           />
-        </Link>
+        </MaybeLink>
       ))}
     </List>
   );
@@ -822,6 +852,7 @@ const SEVERITY_TONE: Record<"info" | "warning" | "critical", StatusTone> = {
 };
 
 function AlertsBlock() {
+  const { routes } = useWorkspaceNav();
   const alerts = useBudgetAlerts();
   if (alerts.error) return <Failed error={alerts.error} />;
   if (!alerts.data) return <RowsSkeleton rows={3} />;
@@ -845,7 +876,7 @@ function AlertsBlock() {
       ))}
       <More
         count={alerts.data.length - MAX_ROWS}
-        href={`${DASHBOARD_PREFIX}/finance/alerts`}
+        href={`${routes.finance.root}/alerts`}
       />
     </List>
   );

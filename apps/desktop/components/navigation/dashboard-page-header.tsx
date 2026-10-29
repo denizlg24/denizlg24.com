@@ -1,8 +1,8 @@
 "use client";
 
+import { SidebarTrigger } from "@repo/admin/workspace/sidebar-trigger";
 import { PageHeader } from "@repo/ui/page";
 import type { ComponentProps } from "react";
-import { SidebarTrigger } from "@/components/workspace/sidebar-trigger";
 
 /**
  * @repo/ui's PageHeader with the sidebar trigger in the leading slot; a

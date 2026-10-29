@@ -1,9 +1,9 @@
 "use client";
 
+import { WorkspacePageView } from "@repo/admin/workspace/page-view";
+import { HOME_PAGE_ID } from "@repo/schemas";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { WorkspacePageView } from "@/components/workspace/page-view";
-import { HOME_PAGE_ID } from "@/lib/workspace/schema";
 
 function PageById() {
   const id = useSearchParams().get("id") ?? HOME_PAGE_ID;

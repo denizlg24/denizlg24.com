@@ -115,9 +115,8 @@ export const sidebarPrefsSchema = z.object({
 export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
 
 /**
- * The desktop app's Notion-style workspace: pages of blocks, favorites,
- * recents and sidebar layout. One document, stored whole — the owner is the
- * only writer, so the newer `savedAt` wins.
+ * The Notion-style workspace desktop and web share: pages of blocks,
+ * favorites, recents and sidebar layout. One document, stored whole.
  */
 export const workspaceSchema = z.object({
   version: z.literal(1),
@@ -129,6 +128,17 @@ export const workspaceSchema = z.object({
   sidebar: sidebarPrefsSchema,
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
+
+/**
+ * A save: the workspace plus the `savedAt` of the server copy it was edited
+ * from (null when the server held none). Two clients write this document, so
+ * the server refuses a save whose base is no longer what it stores. A body
+ * without `baseSavedAt` (desktop 3.0.0) is written unconditionally.
+ */
+export const workspaceSaveSchema = workspaceSchema.extend({
+  baseSavedAt: z.string().nullable().optional(),
+});
+export type WorkspaceSave = z.infer<typeof workspaceSaveSchema>;
 
 export const HOME_PAGE_ID = "home";
 export const SIDEBAR_MIN_WIDTH = 200;

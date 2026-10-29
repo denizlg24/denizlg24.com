@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { cn } from "@repo/ui/utils";
 import { FileText } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import type { ResolvedRef } from "@/lib/workspace/refs";
+import type { ResolvedRef } from "./refs";
 
 export function PageIcon({
   icon,

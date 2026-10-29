@@ -16,6 +16,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { Block, BlockSpan, WorkspacePage } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -45,16 +46,16 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { pageHref, pageTitle } from "@/lib/workspace/refs";
-import type { Block, BlockSpan, WorkspacePage } from "@/lib/workspace/schema";
-import { createBlock } from "@/lib/workspace/seed";
-import { pageAncestors, useWorkspaceStore } from "@/stores/workspace";
+import { useAdmin } from "../provider";
 import { BLOCK_CATALOG } from "./block-catalog";
 import { BlockPicker } from "./block-picker";
 import { BlockBody } from "./blocks";
 import { PageMenuItems } from "./page-actions";
 import { IconPicker, PageIcon } from "./page-icon";
-import { SidebarTrigger } from "./sidebar-trigger";
+import { pageTitle } from "./refs";
+import { createBlock } from "./seed";
+import { pageAncestors, useWorkspaceStore } from "./store";
+import { useWorkspaceNav } from "./use-workspace-nav";
 
 const SPAN_CLASS: Record<BlockSpan, string> = {
   2: "@3xl:col-span-2",
@@ -94,8 +95,10 @@ function BlockFrame({
   const duplicateBlock = useWorkspaceStore((s) => s.duplicateBlock);
   const setBlockSpan = useWorkspaceStore((s) => s.setBlockSpan);
   const sortable = useSortable({ id: block.id, disabled: !editing });
+  const nav = useWorkspaceNav();
   const meta = BLOCK_CATALOG[block.type];
   const label = block.title ?? (meta.headerless ? "" : meta.label);
+  const href = meta.href?.(nav);
 
   return (
     <div
@@ -198,9 +201,9 @@ function BlockFrame({
               }}
               className="w-40 min-w-0 bg-transparent text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground outline-none focus:text-accent-strong"
             />
-          ) : meta.href ? (
+          ) : href ? (
             <Link
-              href={meta.href}
+              href={href}
               className="group/label flex shrink-0 items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:text-accent-strong"
             >
               {label}
@@ -273,7 +276,12 @@ function TitleArea({ page }: { page: WorkspacePage }) {
 
 export function WorkspacePageView({ pageId }: { pageId: string }) {
   const router = useRouter();
+  const { slots } = useAdmin();
+  const { pageHref } = useWorkspaceNav();
+  const sidebarTrigger = slots?.sidebarTrigger;
   const ready = useWorkspaceStore((s) => s.ready);
+  const error = useWorkspaceStore((s) => s.error);
+  const refresh = useWorkspaceStore((s) => s.refresh);
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const updatePage = useWorkspaceStore((s) => s.updatePage);
   const addBlock = useWorkspaceStore((s) => s.addBlock);
@@ -315,12 +323,29 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
     return () => window.removeEventListener("keydown", keydown);
   }, [locked]);
 
-  if (!ready) return null;
+  if (!ready) {
+    if (!error) return null;
+    return (
+      <Page>
+        <PageHeader leading={sidebarTrigger} title="Workspace" />
+        <PageBody>
+          <EmptyState
+            label={error}
+            action={
+              <Button variant="outline" onClick={() => void refresh()}>
+                Retry
+              </Button>
+            }
+          />
+        </PageBody>
+      </Page>
+    );
+  }
 
   if (!page) {
     return (
       <Page>
-        <PageHeader leading={<SidebarTrigger />} title="Not found" />
+        <PageHeader leading={sidebarTrigger} title="Not found" />
         <PageBody>
           <EmptyState label="This page doesn't exist" />
         </PageBody>
@@ -331,7 +356,7 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
   if (page.deletedAt) {
     return (
       <Page>
-        <PageHeader leading={<SidebarTrigger />} title={pageTitle(page)} />
+        <PageHeader leading={sidebarTrigger} title={pageTitle(page)} />
         <PageBody>
           <EmptyState
             icon={<Trash2 />}
@@ -360,7 +385,7 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
   return (
     <Page>
       <PageHeader
-        leading={<SidebarTrigger />}
+        leading={sidebarTrigger}
         crumbs={ancestors.map((a) => ({
           label: (
             <span className="flex items-center gap-1.5">

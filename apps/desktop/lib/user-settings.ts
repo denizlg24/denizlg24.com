@@ -1,6 +1,7 @@
+import { resolveModules } from "@repo/admin/workspace/modules";
 import { z } from "zod";
+import { DESKTOP_ADMIN_ROUTES } from "./admin-routes";
 import { loadKeyValueStore } from "./platform-store";
-import { DASHBOARD_PREFIX, MODULES } from "./workspace/modules";
 
 const STORE_FILENAME = "settings.json";
 
@@ -71,8 +72,11 @@ export const settingsFieldMeta: Record<keyof UserSettings, SettingsFieldMeta> =
       description: "The page to show when opening the app.",
       type: "select",
       options: [
-        { label: "Home", value: DASHBOARD_PREFIX },
-        ...MODULES.map((m) => ({ label: m.label, value: m.href })),
+        { label: "Home", value: DESKTOP_ADMIN_ROUTES.dashboardRoot },
+        ...resolveModules(DESKTOP_ADMIN_ROUTES.workspace.modules).map((m) => ({
+          label: m.label,
+          value: m.href,
+        })),
       ],
     },
   };

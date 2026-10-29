@@ -1,3 +1,4 @@
+import type { BlockType } from "@repo/schemas";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -22,8 +23,7 @@ import {
   Type,
   UserSquare,
 } from "lucide-react";
-import { DASHBOARD_PREFIX } from "@/lib/workspace/modules";
-import type { BlockType } from "@/lib/workspace/schema";
+import type { WorkspaceNav } from "./refs";
 
 export type BlockCategory = "Basic" | "Today" | "Work" | "Money" | "System";
 
@@ -31,14 +31,12 @@ export type BlockMeta = {
   label: string;
   icon: LucideIcon;
   category: BlockCategory;
-  /** The module the block summarises; its header links there. */
-  href?: string;
+  /** Where the block's header links: the surface it summarises, when the host has one. */
+  href?: (nav: WorkspaceNav) => string | undefined;
   keywords?: string[];
   /** Content blocks have no section header by default. */
   headerless?: boolean;
 };
-
-const p = (path: string) => `${DASHBOARD_PREFIX}${path}`;
 
 export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
   heading: {
@@ -103,21 +101,21 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     label: "Agenda",
     icon: CalendarClock,
     category: "Today",
-    href: p("/calendar"),
+    href: (nav) => nav.moduleHref("calendar"),
     keywords: ["schedule", "calendar", "events", "classes"],
   },
   now: {
     label: "Now",
     icon: Clock,
     category: "Today",
-    href: p("/now"),
+    href: (nav) => nav.moduleHref("now"),
     keywords: ["shift", "hours", "status"],
   },
   board: {
     label: "Today's board",
     icon: PenTool,
     category: "Today",
-    href: p("/whiteboard/today"),
+    href: (nav) => nav.moduleHref("whiteboard-today"),
     keywords: ["whiteboard", "todos"],
   },
   agent: {
@@ -130,55 +128,55 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     label: "Tasks",
     icon: KanbanSquare,
     category: "Work",
-    href: p("/kanban"),
+    href: (nav) => nav.moduleHref("kanban"),
     keywords: ["kanban", "due"],
   },
   semester: {
     label: "Semester",
     icon: GraduationCap,
     category: "Work",
-    href: p("/courses"),
+    href: (nav) => nav.moduleHref("courses"),
     keywords: ["courses", "deadlines", "grades"],
   },
   notes: {
     label: "Recent notes",
     icon: FileText,
     category: "Work",
-    href: p("/notes"),
+    href: (nav) => nav.moduleHref("notes"),
   },
   contacts: {
     label: "Contacts",
     icon: UserSquare,
     category: "Work",
-    href: p("/contacts"),
+    href: (nav) => nav.moduleHref("contacts"),
     keywords: ["messages", "tickets"],
   },
   budget: {
     label: "Budget",
     icon: PiggyBank,
     category: "Money",
-    href: p("/finance/budget"),
+    href: (nav) => nav.moduleHref("budget"),
     keywords: ["envelopes", "spend"],
   },
   alerts: {
     label: "Budget alerts",
     icon: AlertTriangle,
     category: "Money",
-    href: p("/finance/alerts"),
+    href: (nav) => `${nav.routes.finance.root}/alerts`,
     keywords: ["finance", "warnings"],
   },
   resources: {
     label: "Resources",
     icon: Activity,
     category: "System",
-    href: p("/resources"),
+    href: (nav) => nav.moduleHref("resources"),
     keywords: ["uptime", "health", "servers"],
   },
   llm: {
     label: "LLM spend",
     icon: Coins,
     category: "System",
-    href: p("/llm-usage"),
+    href: (nav) => nav.moduleHref("llm-usage"),
     keywords: ["tokens", "cost", "usage"],
   },
 };

@@ -1,7 +1,5 @@
-import { z } from "zod";
-import { create } from "zustand";
-import { denizApi } from "@/lib/api-wrapper";
-import { loadKeyValueStore } from "@/lib/platform-store";
+"use client";
+
 import {
   type Block,
   type BlockSpan,
@@ -14,20 +12,41 @@ import {
   type WorkspacePage,
   type WorkspaceRef,
   workspaceSchema,
-} from "@/lib/workspace/schema";
-import { newId, seedWorkspace } from "@/lib/workspace/seed";
+} from "@repo/schemas";
+import { toast } from "sonner";
+import { z } from "zod";
+import { create } from "zustand";
+import { AdminApiError, type AdminClient } from "../client";
+import { newId, seedWorkspace } from "./seed";
 
-const STORE_FILENAME = "workspace.json";
-const STORE_KEY = "workspace";
 const SAVE_DEBOUNCE_MS = 400;
+const SERVER_DEBOUNCE_MS = 1500;
+const SERVER_ENDPOINT = "workspace";
 const MAX_RECENTS = 12;
 /** Trashed pages older than this are purged on load, as Notion does. */
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** A copy kept on the device so launch never waits on the network. */
+export interface WorkspaceLocalCopy {
+  load: () => Promise<unknown>;
+  save: (workspace: Workspace) => Promise<void>;
+}
+
+export interface WorkspacePersistence {
+  client: AdminClient;
+  /** Desktop keeps one; web has only the server. */
+  local?: WorkspaceLocalCopy;
+}
+
 type WorkspaceState = {
+  /** A copy worth editing is loaded: the local one, or the server's. */
   ready: boolean;
+  /** Set when there is no local copy and the server could not be read. */
+  error: string | null;
   workspace: Workspace;
-  hydrate: () => Promise<void>;
+  hydrate: (persistence: WorkspacePersistence) => Promise<void>;
+  /** Adopts the server copy when it was written elsewhere since this one's base. */
+  refresh: () => Promise<void>;
 
   createPage: (parentId: string | null, title?: string) => string;
   updatePage: (
@@ -62,50 +81,188 @@ type WorkspaceState = {
   setModuleHidden: (moduleId: string, hidden: boolean) => void;
 };
 
-const SERVER_ENDPOINT = "workspace";
-const SERVER_DEBOUNCE_MS = 1500;
-const api = new denizApi();
-
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/*
+ * Sync state lives beside the store rather than in it: none of it renders.
+ *
+ * `base` is the `savedAt` of the server copy this one descends from. Every
+ * save sends it, and the server refuses one whose base it no longer holds —
+ * desktop and web both write this document. `undefined` means the server has
+ * not answered yet, so a save reconciles first; `null` means it holds none.
+ */
+let persistence: WorkspacePersistence | null = null;
+let base: string | null | undefined;
+/** `savedAt` of the newest copy on this device: the local file, or the last edit. */
+let localAt = "";
+/** The newest edit the server has not accepted yet. */
+let pending: Workspace | null = null;
+let inflight: Promise<void> | null = null;
+let localTimer: ReturnType<typeof setTimeout> | null = null;
 let serverTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function writeLocal(workspace: Workspace) {
-  const store = await loadKeyValueStore(STORE_FILENAME, {});
-  await store.set(STORE_KEY, workspace);
+const remoteResponseSchema = z.object({
+  workspace: workspaceSchema.nullable(),
+});
+
+async function fetchRemote(client: AdminClient): Promise<Workspace | null> {
+  return remoteResponseSchema.parse(await client.get(SERVER_ENDPOINT))
+    .workspace;
+}
+
+function clearTimers() {
+  if (localTimer) clearTimeout(localTimer);
+  if (serverTimer) clearTimeout(serverTimer);
+  localTimer = null;
+  serverTimer = null;
+}
+
+/** Replaces whatever is here with the server's copy, unsaved edits included. */
+function adopt(remote: Workspace) {
+  clearTimers();
+  pending = null;
+  base = remote.savedAt ?? null;
+  localAt = remote.savedAt ?? "";
+  const ws = normalize(remote);
+  useWorkspaceStore.setState({ workspace: ws, ready: true, error: null });
+  persistence?.local
+    ?.save(ws)
+    .catch((error) => console.error("Failed to save workspace:", error));
+}
+
+function stamp(workspace: Workspace): Workspace {
+  const stamped = { ...workspace, savedAt: new Date().toISOString() };
+  localAt = stamped.savedAt;
+  return stamped;
 }
 
 /**
- * Persists to the local file quickly and to the server a little later. A
- * failed server write is left for the next save to carry — the local copy
- * holds it meanwhile, and reconciliation on launch prefers the newer one.
+ * The launch-time merge, and the one after an offline start: the newer copy
+ * wins. A later edit on this device is pushed with the server's stamp as its
+ * base; an older one is replaced. Throws when the server cannot be read,
+ * leaving `base` unknown.
  */
+async function reconcile() {
+  if (!persistence) return;
+  const remote = await fetchRemote(persistence.client);
+  const remoteAt = remote?.savedAt ?? "";
+  if (remote && remoteAt > localAt) {
+    adopt(remote);
+    return;
+  }
+  base = remote ? (remote.savedAt ?? null) : null;
+  useWorkspaceStore.setState({ ready: true, error: null });
+  if (!remote || localAt > remoteAt) {
+    pending ??= stamp(useWorkspaceStore.getState().workspace);
+    void flush();
+  }
+}
+
+/** Sends the pending edit, one request at a time so each carries the base the last one set. */
+function flush(): Promise<void> {
+  if (inflight) return inflight;
+  const p = persistence;
+  if (!p || !pending) return Promise.resolve();
+  let sent: Workspace | null = null;
+  inflight = (async () => {
+    if (base === undefined) await reconcile();
+    const copy = pending;
+    if (!copy || base === undefined) return;
+    sent = copy;
+    try {
+      const { savedAt } = await p.client.put<{ savedAt: string }>(
+        SERVER_ENDPOINT,
+        { ...copy, baseSavedAt: base },
+      );
+      base = savedAt;
+      if (pending === copy) pending = null;
+    } catch (error) {
+      if (error instanceof AdminApiError && error.code === 409) {
+        const remote = workspaceSchema.safeParse(error.details?.workspace);
+        if (remote.success) {
+          adopt(remote.data);
+          toast("Workspace changed elsewhere — reloaded");
+          return;
+        }
+      }
+      throw error;
+    }
+  })()
+    // Left for the next edit to carry; a local copy holds it meanwhile.
+    .catch((error) => console.error("Failed to sync workspace:", error))
+    .finally(() => {
+      inflight = null;
+      if (sent && pending && pending !== sent && !serverTimer) void flush();
+    });
+  return inflight;
+}
+
+/** Persists to the device quickly and to the server a little later. */
 function scheduleSave(workspace: Workspace) {
-  if (typeof window === "undefined") return;
-  const stamped = { ...workspace, savedAt: new Date().toISOString() };
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    writeLocal(stamped).catch((error) =>
-      console.error("Failed to save workspace:", error),
-    );
-  }, SAVE_DEBOUNCE_MS);
+  if (!persistence) return;
+  const stamped = stamp(workspace);
+  pending = stamped;
+  const local = persistence.local;
+  if (local) {
+    if (localTimer) clearTimeout(localTimer);
+    localTimer = setTimeout(() => {
+      localTimer = null;
+      local
+        .save(stamped)
+        .catch((error) => console.error("Failed to save workspace:", error));
+    }, SAVE_DEBOUNCE_MS);
+  }
   if (serverTimer) clearTimeout(serverTimer);
   serverTimer = setTimeout(() => {
-    void api
-      .PUT<{ savedAt: string }>({ endpoint: SERVER_ENDPOINT, body: stamped })
-      .then((result) => {
-        if ("code" in result) {
-          console.error("Failed to sync workspace:", result.message);
-        }
-      });
+    serverTimer = null;
+    void flush();
   }, SERVER_DEBOUNCE_MS);
 }
 
-async function fetchServerWorkspace(): Promise<Workspace | null> {
-  const result = await api.GET({
-    endpoint: SERVER_ENDPOINT,
-    schema: z.object({ workspace: workspaceSchema.nullable() }),
-  });
-  return "code" in result ? null : result.workspace;
+async function refreshFromServer() {
+  if (!persistence) return;
+  if (base === undefined) {
+    if (inflight) return;
+    await reconcile().catch((error) => {
+      if (!persistence?.local) {
+        useWorkspaceStore.setState({
+          error: error instanceof Error ? error.message : "Failed to load",
+        });
+      }
+    });
+    return;
+  }
+  // An edit on its way settles this itself: the server answers it with 409.
+  if (pending || inflight) return;
+  const remote = await fetchRemote(persistence.client).catch(() => null);
+  if (remote && (remote.savedAt ?? null) !== base && !pending) adopt(remote);
+}
+
+let listening = false;
+
+function listenForReturn() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  const onReturn = () => {
+    if (document.visibilityState === "visible") void refreshFromServer();
+  };
+  window.addEventListener("focus", onReturn);
+  document.addEventListener("visibilitychange", onReturn);
+}
+
+/** Forgets the persistence and sync state, so a test can hydrate again. */
+export function resetWorkspaceSync() {
+  clearTimers();
+  persistence = null;
+  base = undefined;
+  localAt = "";
+  pending = null;
+  inflight = null;
+}
+
+/** Sends any pending edit now instead of after the debounce. */
+export function flushWorkspace(): Promise<void> {
+  if (serverTimer) clearTimeout(serverTimer);
+  serverTimer = null;
+  return flush();
 }
 
 function normalize(workspace: Workspace): Workspace {
@@ -211,30 +368,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     ready: false,
     workspace: seedWorkspace(),
 
-    hydrate: async () => {
-      if (get().ready || typeof window === "undefined") return;
-      let local: Workspace | null = null;
-      try {
-        const store = await loadKeyValueStore(STORE_FILENAME, {});
-        const parsed = workspaceSchema.safeParse(await store.get(STORE_KEY));
-        if (parsed.success) local = normalize(parsed.data);
-      } catch (error) {
-        console.error("Failed to load workspace:", error);
-      }
-      if (local) set({ workspace: local });
-      set({ ready: true });
+    error: null,
 
-      // The server copy follows this owner across machines; the newer wins.
-      const remote = await fetchServerWorkspace().catch(() => null);
-      const localAt = local?.savedAt ?? "";
-      if (remote && (remote.savedAt ?? "") > localAt) {
-        const ws = normalize(remote);
-        set({ workspace: ws });
-        void writeLocal(ws).catch(() => {});
-      } else if (!remote || localAt > (remote.savedAt ?? "")) {
-        scheduleSave(get().workspace);
+    hydrate: async (config) => {
+      if (persistence) return;
+      persistence = config;
+      listenForReturn();
+      if (config.local) {
+        try {
+          const parsed = workspaceSchema.safeParse(await config.local.load());
+          if (parsed.success) {
+            localAt = parsed.data.savedAt ?? "";
+            set({ workspace: normalize(parsed.data) });
+          }
+        } catch (error) {
+          console.error("Failed to load workspace:", error);
+        }
+        set({ ready: true });
       }
+      await refreshFromServer();
     },
+
+    refresh: refreshFromServer,
 
     createPage: (parentId, title = "") => {
       const id = newId();

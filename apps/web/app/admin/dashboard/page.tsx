@@ -1,13 +1,11 @@
-import { requireAdminPage } from "@/lib/require-admin";
-import { DashboardOverview } from "./_components/dashboard-overview";
-import { DASHBOARD_APP_SCOPE } from "./pwa-config";
+import { WorkspacePageView } from "@repo/admin/workspace/page-view";
+import { HOME_PAGE_ID } from "@repo/schemas";
+import { AdminFeatureShell } from "./_components/admin-feature-shell";
 
-export default async function Page() {
-  await requireAdminPage(DASHBOARD_APP_SCOPE);
-
+export default function Page() {
   return (
-    <div className="w-full mx-auto">
-      <DashboardOverview />
-    </div>
+    <AdminFeatureShell>
+      <WorkspacePageView pageId={HOME_PAGE_ID} />
+    </AdminFeatureShell>
   );
 }

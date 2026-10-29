@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { HOME_PAGE_ID, pageRef } from "@/lib/workspace/schema";
-import { seedWorkspace } from "@/lib/workspace/seed";
-import { childPages, pageAncestors, useWorkspaceStore } from "./workspace";
+import { HOME_PAGE_ID, pageRef } from "@repo/schemas";
+import { seedWorkspace } from "./seed";
+import { childPages, pageAncestors, useWorkspaceStore } from "./store";
 
 const store = () => useWorkspaceStore.getState();
 const pages = () => store().workspace.pages;

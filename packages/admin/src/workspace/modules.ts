@@ -36,8 +36,6 @@ import {
   Wallet,
 } from "lucide-react";
 
-export const DASHBOARD_PREFIX = "/dashboard";
-
 export type ModuleSectionId =
   | "portfolio"
   | "communication"
@@ -57,26 +55,26 @@ export const MODULE_SECTIONS: ModuleSection[] = [
   { id: "system", label: "System" },
 ];
 
-export type ModuleDef = {
+type ModuleSpec = {
   id: string;
   label: string;
-  /** Absolute app path. */
-  href: string;
   icon: LucideIcon;
   section: ModuleSectionId;
   /** Extra words the command palette matches on. */
-  keywords?: string[];
+  keywords?: readonly string[];
   /** A secondary entry point (e.g. "new post") — listed in search, not the sidebar. */
   shortcut?: boolean;
 };
 
-const p = (path: string) => `${DASHBOARD_PREFIX}${path}`;
-
-export const MODULES: ModuleDef[] = [
+/**
+ * Every module either host can open. Where each one lives is the host's
+ * business (`routes.workspace.modules`); a module the host has no surface
+ * for is dropped from the sidebar, search and blocks alike.
+ */
+const MODULE_SPECS = [
   {
     id: "inbox",
     label: "Inbox",
-    href: p("/inbox"),
     icon: Inbox,
     section: "communication",
     keywords: ["email", "mail"],
@@ -84,7 +82,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "triage",
     label: "Triage",
-    href: p("/triage"),
     icon: Brain,
     section: "communication",
     keywords: ["email", "suggestions"],
@@ -92,7 +89,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "contacts",
     label: "Contacts",
-    href: p("/contacts"),
     icon: UserSquare,
     section: "communication",
     keywords: ["tickets", "messages"],
@@ -100,7 +96,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "people",
     label: "People",
-    href: p("/people"),
     icon: UsersRound,
     section: "communication",
     keywords: ["crm", "friends"],
@@ -109,7 +104,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "calendar",
     label: "Calendar",
-    href: p("/calendar"),
     icon: Calendar,
     section: "schedule",
     keywords: ["events"],
@@ -117,7 +111,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "timetable",
     label: "Timetable",
-    href: p("/timetable"),
     icon: CalendarDays,
     section: "schedule",
     keywords: ["classes"],
@@ -125,7 +118,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "courses",
     label: "Courses",
-    href: p("/courses"),
     icon: GraduationCap,
     section: "schedule",
     keywords: ["semester", "grades", "university"],
@@ -133,7 +125,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "kanban",
     label: "Kanban",
-    href: p("/kanban"),
     icon: Kanban,
     section: "schedule",
     keywords: ["tasks", "boards", "todo"],
@@ -141,7 +132,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "hours",
     label: "Hours",
-    href: p("/hours"),
     icon: Timer,
     section: "schedule",
     keywords: ["shifts", "work", "clock"],
@@ -149,7 +139,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "pomodoro",
     label: "Pomodoro",
-    href: p("/pomodoro"),
     icon: AlarmClock,
     section: "schedule",
     keywords: ["focus", "timer"],
@@ -158,14 +147,12 @@ export const MODULES: ModuleDef[] = [
   {
     id: "notes",
     label: "Notes",
-    href: p("/notes"),
     icon: FileText,
     section: "knowledge",
   },
   {
     id: "journal",
     label: "Journal",
-    href: p("/journal"),
     icon: NotebookTabs,
     section: "knowledge",
     keywords: ["diary"],
@@ -173,7 +160,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "voice-notes",
     label: "Voice notes",
-    href: p("/voice-notes"),
     icon: Mic,
     section: "knowledge",
     keywords: ["recordings", "transcripts"],
@@ -181,7 +167,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "papers",
     label: "Reading",
-    href: p("/papers"),
     icon: BookOpen,
     section: "knowledge",
     keywords: ["papers", "books"],
@@ -189,7 +174,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "whiteboard",
     label: "Whiteboards",
-    href: p("/whiteboard"),
     icon: PenTool,
     section: "knowledge",
     keywords: ["draw", "canvas"],
@@ -197,7 +181,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "whiteboard-today",
     label: "Today's board",
-    href: p("/whiteboard/today"),
     icon: PenTool,
     section: "knowledge",
     keywords: ["whiteboard", "daily"],
@@ -206,7 +189,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "spreadsheets",
     label: "Spreadsheets",
-    href: p("/spreadsheets"),
     icon: Table,
     section: "knowledge",
     keywords: ["sheets", "tables"],
@@ -214,7 +196,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "latex",
     label: "LaTeX",
-    href: p("/latex"),
     icon: FileCode2,
     section: "knowledge",
     keywords: ["tex", "documents"],
@@ -222,7 +203,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "explored",
     label: "Explored",
-    href: p("/explored"),
     icon: Earth,
     section: "knowledge",
     keywords: ["map", "location", "travel"],
@@ -231,7 +211,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "finance",
     label: "Finance",
-    href: p("/finance"),
     icon: CircleDollarSign,
     section: "money",
     keywords: ["ledger", "money"],
@@ -239,7 +218,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "budget",
     label: "Budget",
-    href: p("/finance/budget"),
     icon: PiggyBank,
     section: "money",
     keywords: ["envelopes", "finance"],
@@ -247,7 +225,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "markets",
     label: "Markets",
-    href: p("/markets"),
     icon: ChartCandlestick,
     section: "money",
     keywords: ["stocks", "quotes"],
@@ -255,7 +232,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "portfolios",
     label: "Portfolios",
-    href: p("/markets/portfolios"),
     icon: Wallet,
     section: "money",
     keywords: ["markets", "paper trading"],
@@ -263,7 +239,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "holdings",
     label: "Holdings",
-    href: p("/holdings"),
     icon: Landmark,
     section: "money",
     keywords: ["ibkr", "brokerage", "net worth"],
@@ -272,7 +247,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "blog",
     label: "Blog",
-    href: p("/blog"),
     icon: NotebookPen,
     section: "portfolio",
     keywords: ["posts"],
@@ -280,7 +254,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "blog-new",
     label: "New post",
-    href: p("/blog/new"),
     icon: NotebookPen,
     section: "portfolio",
     keywords: ["blog", "write"],
@@ -289,7 +262,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "comments",
     label: "Comments",
-    href: p("/blog/comments"),
     icon: MessageCircle,
     section: "portfolio",
     keywords: ["blog", "moderation"],
@@ -297,14 +269,12 @@ export const MODULES: ModuleDef[] = [
   {
     id: "projects",
     label: "Projects",
-    href: p("/projects"),
     icon: FolderGit2,
     section: "portfolio",
   },
   {
     id: "projects-new",
     label: "New project",
-    href: p("/projects/new"),
     icon: FolderGit2,
     section: "portfolio",
     keywords: ["projects"],
@@ -313,7 +283,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "timeline",
     label: "Timeline",
-    href: p("/timeline"),
     icon: Briefcase,
     section: "portfolio",
     keywords: ["experience", "career"],
@@ -321,14 +290,12 @@ export const MODULES: ModuleDef[] = [
   {
     id: "now",
     label: "Now page",
-    href: p("/now"),
     icon: Clock,
     section: "portfolio",
   },
   {
     id: "cv",
     label: "CV",
-    href: p("/cv"),
     icon: FileUser,
     section: "portfolio",
     keywords: ["resume"],
@@ -337,7 +304,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "resources",
     label: "Resources",
-    href: p("/resources"),
     icon: Radio,
     section: "system",
     keywords: ["uptime", "servers", "health"],
@@ -345,7 +311,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "authenticator",
     label: "Authenticator",
-    href: p("/authenticator"),
     icon: KeyRound,
     section: "system",
     keywords: ["totp", "2fa", "codes"],
@@ -353,7 +318,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "agent-memory",
     label: "Agent memory",
-    href: p("/agent-memory"),
     icon: BrainCircuit,
     section: "system",
     keywords: ["memories"],
@@ -361,7 +325,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "agent-tasks",
     label: "Agent tasks",
-    href: p("/agent-tasks"),
     icon: Brain,
     section: "system",
     keywords: ["cron", "scheduled"],
@@ -369,7 +332,6 @@ export const MODULES: ModuleDef[] = [
   {
     id: "llm-usage",
     label: "Token usage",
-    href: p("/llm-usage"),
     icon: DollarSign,
     section: "system",
     keywords: ["llm", "cost", "spend"],
@@ -377,26 +339,39 @@ export const MODULES: ModuleDef[] = [
   {
     id: "settings",
     label: "Settings",
-    href: p("/settings"),
     icon: Settings,
     section: "system",
     keywords: ["preferences"],
   },
-];
+] as const satisfies readonly ModuleSpec[];
 
-const MODULE_BY_ID = new Map(MODULES.map((m) => [m.id, m]));
+export type ModuleId = (typeof MODULE_SPECS)[number]["id"];
 
-export function getModule(id: string): ModuleDef | undefined {
-  return MODULE_BY_ID.get(id);
+export type ModuleDef = ModuleSpec & {
+  id: ModuleId;
+  /** Absolute path in the current host. */
+  href: string;
+};
+
+/** The modules this host has, in registry order. */
+export function resolveModules(
+  hrefs: Partial<Record<ModuleId, string>>,
+): ModuleDef[] {
+  const out: ModuleDef[] = [];
+  for (const spec of MODULE_SPECS) {
+    const href = hrefs[spec.id];
+    if (href) out.push({ ...spec, href });
+  }
+  return out;
 }
 
-/** Sidebar entries: every module that is a destination rather than a shortcut. */
-export const SIDEBAR_MODULES = MODULES.filter((m) => !m.shortcut);
-
 /** The module a path belongs to — the longest href that prefixes it. */
-export function moduleForPath(pathname: string): ModuleDef | undefined {
+export function moduleForPath(
+  modules: ModuleDef[],
+  pathname: string,
+): ModuleDef | undefined {
   let best: ModuleDef | undefined;
-  for (const m of MODULES) {
+  for (const m of modules) {
     if (pathname === m.href || pathname.startsWith(`${m.href}/`)) {
       if (!best || m.href.length > best.href.length) best = m;
     }

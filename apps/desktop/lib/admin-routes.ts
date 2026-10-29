@@ -1,5 +1,6 @@
 import type { AdminRoutes } from "@repo/admin/routes";
 import { withQuery } from "@repo/admin/routes";
+import type { ModuleId } from "@repo/admin/workspace/modules";
 
 const ROOT = "/dashboard";
 
@@ -10,7 +11,8 @@ const ROOT = "/dashboard";
  * record is addressed by query parameter against a real exported route. Each
  * base path here needs a matching directory under `app/dashboard` *and* an
  * entry in `KNOWN_ROUTES` (`context/user-context.tsx`) — an unregistered path
- * renders the not-found screen rather than the page.
+ * renders the not-found screen rather than the page. Every workspace module
+ * has a surface here, so the map is complete.
  */
 export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
   dashboardRoot: ROOT,
@@ -90,5 +92,51 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     portfolio: (portfolioId) =>
       withQuery(`${ROOT}/markets/portfolios`, { portfolio: portfolioId }),
     ticker: (symbol) => withQuery(`${ROOT}/markets`, { ticker: symbol }),
+  },
+
+  workspace: {
+    page: (pageId) => withQuery(`${ROOT}/page`, { id: pageId }),
+    pageAt: (pathname, search) =>
+      pathname === `${ROOT}/page` ? search.get("id") : null,
+    modules: {
+      inbox: `${ROOT}/inbox`,
+      triage: `${ROOT}/triage`,
+      contacts: `${ROOT}/contacts`,
+      people: `${ROOT}/people`,
+      calendar: `${ROOT}/calendar`,
+      timetable: `${ROOT}/timetable`,
+      courses: `${ROOT}/courses`,
+      kanban: `${ROOT}/kanban`,
+      hours: `${ROOT}/hours`,
+      pomodoro: `${ROOT}/pomodoro`,
+      notes: `${ROOT}/notes`,
+      journal: `${ROOT}/journal`,
+      "voice-notes": `${ROOT}/voice-notes`,
+      papers: `${ROOT}/papers`,
+      whiteboard: `${ROOT}/whiteboard`,
+      "whiteboard-today": `${ROOT}/whiteboard/today`,
+      spreadsheets: `${ROOT}/spreadsheets`,
+      latex: `${ROOT}/latex`,
+      explored: `${ROOT}/explored`,
+      finance: `${ROOT}/finance`,
+      budget: `${ROOT}/finance/budget`,
+      markets: `${ROOT}/markets`,
+      portfolios: `${ROOT}/markets/portfolios`,
+      holdings: `${ROOT}/holdings`,
+      blog: `${ROOT}/blog`,
+      "blog-new": `${ROOT}/blog/new`,
+      comments: `${ROOT}/blog/comments`,
+      projects: `${ROOT}/projects`,
+      "projects-new": `${ROOT}/projects/new`,
+      timeline: `${ROOT}/timeline`,
+      now: `${ROOT}/now`,
+      cv: `${ROOT}/cv`,
+      resources: `${ROOT}/resources`,
+      authenticator: `${ROOT}/authenticator`,
+      "agent-memory": `${ROOT}/agent-memory`,
+      "agent-tasks": `${ROOT}/agent-tasks`,
+      "llm-usage": `${ROOT}/llm-usage`,
+      settings: `${ROOT}/settings`,
+    } satisfies Record<ModuleId, string>,
   },
 };
