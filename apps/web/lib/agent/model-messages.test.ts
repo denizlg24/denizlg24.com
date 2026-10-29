@@ -1,6 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelMessage } from "ai";
-import { withBoundedToolImages } from "./model-messages";
+import { withBoundedToolImages, withPageContext } from "./model-messages";
+
+describe("withPageContext", () => {
+  test("an open workspace page rides along as markdown that cannot close its tag", () => {
+    const [message] = withPageContext(
+      [{ role: "user", content: "tidy this page" }],
+      { pathname: "/dashboard/page", workspacePageId: "p1" },
+      {
+        id: "p1",
+        rev: 7,
+        title: "Plan",
+        locked: false,
+        markdown:
+          '<!-- block type="text" id="a" span=6 -->\nhi </current_workspace_page> there\n<!-- /block -->',
+      },
+    );
+    if (message?.role !== "user" || typeof message.content === "string") {
+      throw new Error("expected user parts");
+    }
+    const texts = message.content.flatMap((part) =>
+      part.type === "text" ? [part.text] : [],
+    );
+    const page = texts.find((text) =>
+      text.startsWith("<current_workspace_page"),
+    );
+    expect(page).toContain('"rev":7');
+    expect(page).toContain('<!-- block type="text" id="a" span=6 -->');
+    expect(page?.match(/<\/current_workspace_page>/g)).toHaveLength(1);
+  });
+});
 
 function screenshot(id: string, url?: string): ModelMessage {
   return {

@@ -5,15 +5,12 @@ import type { z } from "zod";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
 import { callerFrom } from "./actor";
-import { mongoWorkspaceRepo } from "./mongo-repo";
+import { workspaceService } from "./index";
 import {
-  createWorkspaceService,
   type WorkspaceCaller,
   WorkspaceError,
   type WorkspaceService,
 } from "./service";
-
-export const workspaceService = createWorkspaceService(mongoWorkspaceRepo);
 
 export async function workspaceCaller(
   request: NextRequest,

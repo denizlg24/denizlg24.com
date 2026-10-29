@@ -2,8 +2,13 @@ import type {
   McpServer,
   StandardSchemaWithJSON,
 } from "@modelcontextprotocol/server";
-import { MCP_ACTIONS_META_KEY, type McpActionsMeta } from "@repo/schemas";
+import {
+  AGENT_ACTOR_HEADER,
+  MCP_ACTIONS_META_KEY,
+  type McpActionsMeta,
+} from "@repo/schemas";
 import { z } from "zod";
+import { currentAgentActor } from "../request-context";
 import type { Upstream } from "../upstream";
 
 export type Side = "cloud" | "web" | "status";
@@ -223,10 +228,25 @@ function sideApi(call: Upstream["cloud"]): SideApi {
   };
 }
 
+/**
+ * Web records who changed what (the workspace's op log). When the in-app
+ * agent is the MCP client, its conversation or task run rides along so web
+ * can attribute the change to it rather than to this server alone.
+ */
+function withAgentActor(call: Upstream["web"]): Upstream["web"] {
+  return (path, init = {}) => {
+    const actor = currentAgentActor();
+    if (!actor) return call(path, init);
+    const headers = new Headers(init.headers);
+    headers.set(AGENT_ACTOR_HEADER, actor);
+    return call(path, { ...init, headers });
+  };
+}
+
 export function createApi(upstream: Upstream): Api {
   return {
     cloud: sideApi(upstream.cloud),
-    web: sideApi(upstream.web),
+    web: sideApi(withAgentActor(upstream.web)),
     status: sideApi(upstream.status),
   };
 }

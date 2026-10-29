@@ -1,9 +1,17 @@
-import type { BackgroundAgentPageContext } from "@repo/schemas";
+import { type BackgroundAgentPageContext, HOME_PAGE_ID } from "@repo/schemas";
 
 const MAX_VISIBLE_TEXT = 6_000;
 
 export function captureAgentPageContext(
-  options: { includeVisibleText?: boolean; dashboardRoot?: string } = {},
+  options: {
+    includeVisibleText?: boolean;
+    dashboardRoot?: string;
+    /** The host's `routes.workspace.pageAt`, so a workspace page is named by id. */
+    workspacePageAt?: (
+      pathname: string,
+      search: Pick<URLSearchParams, "get">,
+    ) => string | null;
+  } = {},
 ): BackgroundAgentPageContext {
   const fallback = options.dashboardRoot ?? "/dashboard";
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -26,8 +34,17 @@ export function captureAgentPageContext(
       .slice(0, MAX_VISIBLE_TEXT);
   }
 
+  const pathname = window.location.pathname || fallback;
+  const workspacePageId =
+    pathname === options.dashboardRoot
+      ? HOME_PAGE_ID
+      : (options.workspacePageAt?.(
+          pathname,
+          new URLSearchParams(window.location.search),
+        ) ?? undefined);
   return {
-    pathname: window.location.pathname || fallback,
+    pathname,
+    ...(workspacePageId ? { workspacePageId } : {}),
     title: document.title || undefined,
     ...(selection ? { selection } : {}),
     ...(visibleText ? { details: { visibleText } } : {}),

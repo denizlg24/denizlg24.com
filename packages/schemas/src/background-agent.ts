@@ -8,6 +8,11 @@ export const backgroundAgentPageContextSchema = z.object({
   title: z.string().trim().max(300).optional(),
   selection: z.string().trim().max(8_000).optional(),
   details: z.record(z.string(), z.unknown()).optional(),
+  /** The workspace page on screen; the server adds its rev and markdown. */
+  workspacePageId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/)
+    .optional(),
 });
 export type BackgroundAgentPageContext = z.infer<
   typeof backgroundAgentPageContextSchema

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { auth, createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import {
+  AGENT_ACTOR_HEADER,
   type ConnectorAuthorizeResponse,
   type Connector as ConnectorDto,
   type ConnectorOAuthClientInput,
@@ -356,6 +357,12 @@ export function agentSessionKey(session: string): string {
 export interface ConnectorClientOptions {
   /** A conversation or run id; hashed before it is sent. */
   session?: string;
+  /**
+   * `conversation:<id>` or `task-run:<id>`. Sent only to the primary
+   * connector, which forwards it to web so changes made through it are
+   * attributed to this run; a third party never sees a raw id.
+   */
+  actor?: string;
 }
 
 function connectorTransport(
@@ -370,7 +377,9 @@ function connectorTransport(
       return {
         type: "http",
         url: connector.url,
-        headers,
+        headers: options.actor
+          ? { ...headers, [AGENT_ACTOR_HEADER]: options.actor }
+          : headers,
         fetch: primaryConnectorFetch(),
       };
     case "none":

@@ -138,6 +138,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
         return captureAgentPageContext({
           includeVisibleText: true,
           dashboardRoot: currentRoutes.dashboardRoot,
+          workspacePageAt: currentRoutes.workspace.pageAt,
         });
       }
       if (tool === "read_current_page_aloud") {
