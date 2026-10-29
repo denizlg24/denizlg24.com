@@ -1,17 +1,64 @@
 import { describe, expect, test } from "bun:test";
-import { genBlocks, rng } from "./workspace-gen.test-util";
+import type { Block } from "@repo/schemas";
+import { genBlocks, genRichText, rng } from "./workspace-gen.test-util";
 import { blocksToMarkdown, markdownToBlocks } from "./workspace-markdown";
+import { deepEqual } from "./workspace-ops";
+import { markdownToRuns, runsToMarkdown } from "./workspace-rich-text";
 
 let fresh = 0;
 const newId = () => `new${++fresh}`;
 
+describe("inline rich text", () => {
+  test("runsToMarkdown then markdownToRuns is lossless (property)", () => {
+    for (let seed = 1; seed <= 3000; seed++) {
+      const runs = genRichText(rng(seed));
+      const markdown = runsToMarkdown(runs);
+      const parsed = markdownToRuns(markdown);
+      if (!deepEqual(parsed, runs)) {
+        throw new Error(
+          `seed ${seed} did not round-trip\n${markdown}\n${JSON.stringify(runs)}\n${JSON.stringify(parsed)}`,
+        );
+      }
+    }
+  });
+
+  test("hand-written marks, links and mentions", () => {
+    expect(
+      markdownToRuns(
+        "a **bold** _it_ ~~gone~~ `x` [site](https://a.b) [@Ana](person:p1) [@](page:home) snake_case",
+      ),
+    ).toEqual([
+      { type: "text", text: "a " },
+      { type: "text", text: "bold", bold: true },
+      { type: "text", text: " " },
+      { type: "text", text: "it", italic: true },
+      { type: "text", text: " " },
+      { type: "text", text: "gone", strike: true },
+      { type: "text", text: " " },
+      { type: "text", text: "x", code: true },
+      { type: "text", text: " " },
+      { type: "text", text: "site", link: "https://a.b" },
+      { type: "text", text: " " },
+      { type: "mention", kind: "person", id: "p1", label: "Ana" },
+      { type: "text", text: " " },
+      { type: "mention", kind: "page", id: "home" },
+      { type: "text", text: " snake_case" },
+    ]);
+  });
+});
+
 describe("workspace markdown", () => {
-  test("blocksToMarkdown then markdownToBlocks is lossless (property)", () => {
-    for (let seed = 1; seed <= 2000; seed++) {
+  test("blocksToMarkdown then markdownToBlocks is lossless for nested trees (property)", () => {
+    for (let seed = 1; seed <= 1500; seed++) {
       const blocks = genBlocks(rng(seed));
       const markdown = blocksToMarkdown(blocks);
-      const parsed = markdownToBlocks(markdown, { newId });
-      if (JSON.stringify(parsed) !== JSON.stringify(blocks)) {
+      let parsed: Block[];
+      try {
+        parsed = markdownToBlocks(markdown, { newId });
+      } catch (error) {
+        throw new Error(`seed ${seed} failed to parse: ${error}\n${markdown}`);
+      }
+      if (!deepEqual(parsed, blocks)) {
         throw new Error(
           `seed ${seed} did not round-trip\n${markdown}\n${JSON.stringify(blocks)}\n${JSON.stringify(parsed)}`,
         );
@@ -20,7 +67,7 @@ describe("workspace markdown", () => {
   });
 
   test("markdown → blocks → markdown is stable for its own output (property)", () => {
-    for (let seed = 1; seed <= 500; seed++) {
+    for (let seed = 1; seed <= 400; seed++) {
       const markdown = blocksToMarkdown(genBlocks(rng(seed)));
       expect(blocksToMarkdown(markdownToBlocks(markdown, { newId }))).toBe(
         markdown,
@@ -28,59 +75,110 @@ describe("workspace markdown", () => {
     }
   });
 
-  test("heading, text and todo read as ordinary markdown", () => {
+  test("text blocks read as ordinary markdown", () => {
     const markdown = blocksToMarkdown([
-      { id: "h", span: 6, type: "heading", text: "Week" },
-      { id: "t", span: 6, type: "text", markdown: "Ship **v2**." },
       {
-        id: "d",
-        span: 3,
-        type: "todo",
-        items: [{ id: "i1", text: "Write tests", done: true }],
+        id: "h",
+        type: "heading",
+        level: 2,
+        text: [{ type: "text", text: "Week" }],
       },
-      { id: "a", span: 3, type: "agenda" },
+      {
+        id: "p",
+        type: "paragraph",
+        text: [
+          { type: "text", text: "Ship " },
+          { type: "text", text: "v2", bold: true },
+        ],
+      },
+      {
+        id: "b",
+        type: "bullet",
+        text: [{ type: "text", text: "parent" }],
+        children: [
+          {
+            id: "t",
+            type: "todo",
+            text: [{ type: "text", text: "Write tests" }],
+            checked: true,
+            children: [],
+          },
+        ],
+      },
+      { id: "a", type: "agenda" },
     ]);
-    expect(markdown).toContain("## Week");
-    expect(markdown).toContain("Ship **v2**.");
-    expect(markdown).toContain("- [x] Write tests");
-    expect(markdown).toContain(':::block{type="agenda" id="a" span=3}');
+    expect(markdown).toContain('## Week <!-- id="h" -->');
+    expect(markdown).toContain("Ship **v2**");
+    expect(markdown).toContain('- parent <!-- id="b" -->\n  - [x] Write tests');
+    expect(markdown).toContain(':::block{type="agenda" id="a"}');
   });
 
-  test("hand-written markdown splits into blocks with fresh ids", () => {
+  test("toggles are <details>, columns are directives", () => {
+    const markdown = blocksToMarkdown([
+      {
+        id: "t",
+        type: "toggle",
+        text: [{ type: "text", text: "More" }],
+        children: [
+          {
+            id: "p",
+            type: "paragraph",
+            text: [{ type: "text", text: "inside" }],
+          },
+        ],
+      },
+      {
+        id: "c",
+        type: "columns",
+        children: [
+          {
+            id: "c1",
+            type: "column",
+            width: 0.5,
+            children: [{ id: "g", type: "greeting" }],
+          },
+          { id: "c2", type: "column", width: 0.5, children: [] },
+        ],
+      },
+    ]);
+    expect(markdown).toContain("<details>");
+    expect(markdown).toContain("<summary>More</summary>");
+    expect(markdown).toContain(':::columns{id="c"}');
+    expect(markdown).toContain(':::column{id="c1" width=0.5}');
+  });
+
+  test("hand-written markdown nests lists and gets fresh ids", () => {
     const blocks = markdownToBlocks(
-      '# Plan\n\nFirst paragraph\nstill first\n\nSecond\n\n- [ ] a\n- [x] b\n\n---\n\n:::block{type="links"}\n{"refs":["page:home"]}\n:::',
+      '# Plan\n\nFirst paragraph\nstill first\n\n- a\n  - a.1\n    - [x] done\n- b\n\n1. one\n2. two\n\n> quoted\n\n```ts\nconst x = 1;\n```\n\n---\n\n<details><summary>Hidden</summary>\n\nbody\n</details>\n\n:::block{type="links"}\n{"refs":["page:home"]}\n:::',
       { newId },
     );
     expect(blocks.map((b) => b.type)).toEqual([
       "heading",
-      "text",
-      "todo",
+      "paragraph",
+      "bullet",
+      "bullet",
+      "numbered",
+      "numbered",
+      "quote",
+      "code",
       "divider",
+      "toggle",
       "links",
     ]);
-    const text = blocks[1];
-    expect(text?.type === "text" && text.markdown).toBe(
-      "First paragraph\nstill first\n\nSecond",
+    const nested = blocks[2];
+    expect(nested?.type === "bullet" && nested.children[0]?.type).toBe(
+      "bullet",
     );
-    const links = blocks[4];
-    expect(links?.type === "links" && links.refs).toEqual(["page:home"]);
-    expect(links?.span).toBe(6);
-  });
-
-  test("markdown appended after a text block becomes new blocks", () => {
-    const markdown = blocksToMarkdown([
-      { id: "t", span: 6, type: "text", markdown: "## inside\nbody" },
+    const deeper =
+      nested?.type === "bullet" && nested.children[0]?.type === "bullet"
+        ? nested.children[0].children[0]
+        : null;
+    expect(deeper?.type === "todo" && deeper.checked).toBe(true);
+    const para = blocks[1];
+    expect(para?.type === "paragraph" && para.text).toEqual([
+      { type: "text", text: "First paragraph\nstill first" },
     ]);
-    const blocks = markdownToBlocks(`${markdown}\n\n## After\n\nMore`, {
-      newId,
-    });
-    expect(blocks.map((b) => [b.id.startsWith("new"), b.type])).toEqual([
-      [false, "text"],
-      [true, "heading"],
-      [true, "text"],
-    ]);
-    const first = blocks[0];
-    expect(first?.type === "text" && first.markdown).toBe("## inside\nbody");
+    expect(blocks.every((b) => b.id.startsWith("new"))).toBe(true);
   });
 
   test("an invalid directive is refused with its line", () => {

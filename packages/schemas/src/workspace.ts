@@ -27,63 +27,329 @@ export function parseRef(
   return { kind, id };
 }
 
-const todoItemSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  done: z.boolean(),
-});
-export type TodoItem = z.infer<typeof todoItemSchema>;
+// ---------------------------------------------------------------------------
+// Inline rich text: what every text-bearing block holds.
+// ---------------------------------------------------------------------------
 
-const base = {
-  id: z.string(),
-  span: blockSpanSchema,
-  /** Overrides the block's default label; empty hides the header. */
-  title: z.string().optional(),
-};
+/** Marks are present only when on, so equal text compares equal. */
+export const textRunSchema = z.object({
+  type: z.literal("text"),
+  text: z.string().min(1),
+  bold: z.literal(true).optional(),
+  italic: z.literal(true).optional(),
+  strike: z.literal(true).optional(),
+  code: z.literal(true).optional(),
+  link: z.string().min(1).max(2048).optional(),
+});
+export type TextRun = z.infer<typeof textRunSchema>;
+
+export const MENTION_KINDS = ["page", "person", "date"] as const;
+export const mentionKindSchema = z.enum(MENTION_KINDS);
+export type MentionKind = z.infer<typeof mentionKindSchema>;
+
+/**
+ * A page (live title), a person (`label` is the name when mentioned) or a
+ * date (`id` is `YYYY-MM-DD`).
+ */
+export const mentionRunSchema = z.object({
+  type: z.literal("mention"),
+  kind: mentionKindSchema,
+  id: z.string().min(1).max(128),
+  label: z.string().max(200).optional(),
+});
+export type MentionRun = z.infer<typeof mentionRunSchema>;
+
+export const inlineRunSchema = z.discriminatedUnion("type", [
+  textRunSchema,
+  mentionRunSchema,
+]);
+export type InlineRun = z.infer<typeof inlineRunSchema>;
+
+export const richTextSchema = z.array(inlineRunSchema);
+export type RichText = z.infer<typeof richTextSchema>;
+
+// ---------------------------------------------------------------------------
+// Blocks: a page is a flow of them, nested where a type has `children`.
+// ---------------------------------------------------------------------------
+
+export const CALLOUT_COLORS = [
+  "default",
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+] as const;
+export const calloutColorSchema = z.enum(CALLOUT_COLORS);
+export type CalloutColor = z.infer<typeof calloutColorSchema>;
+
+export const headingLevelSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+]);
+export type HeadingLevel = z.infer<typeof headingLevelSchema>;
+
+const id = { id: z.string().min(1).max(64) };
+/** Widgets keep v1's header override; empty hides the header. */
+const widget = { ...id, title: z.string().optional() };
+const text = { ...id, text: richTextSchema };
+
+const paragraphSchema = z.object({
+  ...text,
+  type: z.literal("paragraph"),
+});
+const headingSchema = z.object({
+  ...text,
+  type: z.literal("heading"),
+  level: headingLevelSchema,
+});
+// Recursive schemas spell their fields out: a spread beside a getter makes
+// TypeScript resolve the getter's type eagerly and give up on the cycle.
+const bulletSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("bullet"),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const numberedSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("numbered"),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const todoSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("todo"),
+  checked: z.boolean().default(false),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+/** With `level` it is a toggle heading. */
+const toggleSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("toggle"),
+  level: headingLevelSchema.optional(),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const calloutSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("callout"),
+  emoji: z.string().max(32).default("💡"),
+  color: calloutColorSchema.default("default"),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const quoteSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: richTextSchema,
+  type: z.literal("quote"),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const codeSchema = z.object({
+  ...id,
+  type: z.literal("code"),
+  code: z.string(),
+  language: z.string().max(40).default(""),
+});
+const dividerSchema = z.object({ ...id, type: z.literal("divider") });
+const imageSchema = z.object({
+  ...id,
+  type: z.literal("image"),
+  /** Empty until something is uploaded or linked. */
+  url: z.string().max(4096),
+  caption: richTextSchema.default([]),
+});
+const fileSchema = z.object({
+  ...id,
+  type: z.literal("file"),
+  url: z.string().max(4096),
+  name: z.string().max(500),
+  size: z.number().int().min(0).optional(),
+});
+/** Title and the rest come from the server's unfurl; absent until it answered. */
+const bookmarkSchema = z.object({
+  ...id,
+  type: z.literal("bookmark"),
+  url: z.string().max(4096),
+  title: z.string().max(500).optional(),
+  description: z.string().max(2000).optional(),
+  image: z.string().max(4096).optional(),
+  siteName: z.string().max(200).optional(),
+});
+const equationSchema = z.object({
+  ...id,
+  type: z.literal("equation"),
+  /** KaTeX source, display mode. */
+  expression: z.string(),
+});
+const tableSchema = z.object({
+  ...id,
+  type: z.literal("table"),
+  /** Rows of cells; every row has the same number of cells. */
+  rows: z.array(z.array(richTextSchema)),
+  headerRow: z.boolean().default(true),
+});
+const tocSchema = z.object({ ...id, type: z.literal("toc") });
+const breadcrumbSchema = z.object({ ...id, type: z.literal("breadcrumb") });
+/** Renders `blockId` from `pageId`; edits go to that page. Empty until a source is picked. */
+const syncedSchema = z.object({
+  ...id,
+  type: z.literal("synced"),
+  pageId: z.string().max(64),
+  blockId: z.string().max(64),
+});
+/** A share of its row: the widths of a `columns` block's columns are normalised to sum to 1. */
+const columnSchema = z.object({
+  id: z.string().min(1).max(64),
+  type: z.literal("column"),
+  width: z.number().positive().max(1),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
+const columnsSchema = z.object({
+  id: z.string().min(1).max(64),
+  type: z.literal("columns"),
+  get children(): z.ZodDefault<z.ZodArray<typeof columnSchema>> {
+    return z.array(columnSchema).default([]);
+  },
+});
 
 export const blockSchema = z.discriminatedUnion("type", [
-  z.object({ ...base, type: z.literal("heading"), text: z.string() }),
-  z.object({ ...base, type: z.literal("text"), markdown: z.string() }),
-  z.object({ ...base, type: z.literal("divider") }),
+  paragraphSchema,
+  headingSchema,
+  bulletSchema,
+  numberedSchema,
+  todoSchema,
+  toggleSchema,
+  calloutSchema,
+  quoteSchema,
+  codeSchema,
+  dividerSchema,
+  imageSchema,
+  fileSchema,
+  bookmarkSchema,
+  equationSchema,
+  tableSchema,
+  tocSchema,
+  breadcrumbSchema,
+  syncedSchema,
+  columnsSchema,
+  columnSchema,
   z.object({
-    ...base,
-    type: z.literal("todo"),
-    items: z.array(todoItemSchema),
-  }),
-  z.object({
-    ...base,
+    ...widget,
     type: z.literal("links"),
     refs: z.array(workspaceRefSchema),
   }),
-  z.object({ ...base, type: z.literal("subpages") }),
-  z.object({ ...base, type: z.literal("greeting") }),
-  z.object({ ...base, type: z.literal("stats") }),
-  z.object({ ...base, type: z.literal("agenda") }),
-  z.object({ ...base, type: z.literal("tasks") }),
-  z.object({ ...base, type: z.literal("semester") }),
-  z.object({ ...base, type: z.literal("alerts") }),
-  z.object({ ...base, type: z.literal("budget") }),
-  z.object({ ...base, type: z.literal("resources") }),
-  z.object({ ...base, type: z.literal("llm") }),
-  z.object({ ...base, type: z.literal("notes") }),
-  z.object({ ...base, type: z.literal("contacts") }),
-  z.object({ ...base, type: z.literal("now") }),
-  z.object({ ...base, type: z.literal("board") }),
-  z.object({ ...base, type: z.literal("agent") }),
+  z.object({ ...widget, type: z.literal("subpages") }),
+  z.object({ ...widget, type: z.literal("greeting") }),
+  z.object({ ...widget, type: z.literal("stats") }),
+  z.object({ ...widget, type: z.literal("agenda") }),
+  z.object({ ...widget, type: z.literal("tasks") }),
+  z.object({ ...widget, type: z.literal("semester") }),
+  z.object({ ...widget, type: z.literal("alerts") }),
+  z.object({ ...widget, type: z.literal("budget") }),
+  z.object({ ...widget, type: z.literal("resources") }),
+  z.object({ ...widget, type: z.literal("llm") }),
+  z.object({ ...widget, type: z.literal("notes") }),
+  z.object({ ...widget, type: z.literal("contacts") }),
+  z.object({ ...widget, type: z.literal("now") }),
+  z.object({ ...widget, type: z.literal("board") }),
+  z.object({ ...widget, type: z.literal("agent") }),
   z.object({
-    ...base,
+    ...widget,
     type: z.literal("modules"),
     /** Section ids to show; empty shows every section. */
     sections: z.array(z.string()),
   }),
 ]);
 export type Block = z.infer<typeof blockSchema>;
+/** A block as a client or agent may send it: defaults (children, checked…) optional. */
+export type BlockInput = z.input<typeof blockSchema>;
 export type BlockType = Block["type"];
 export type BlockOf<T extends BlockType> = Extract<Block, { type: T }>;
+export type ContainerBlock = Extract<Block, { children: unknown }>;
+export type TextBlock = Extract<Block, { text: RichText }>;
 
 export const BLOCK_TYPES: BlockType[] = blockSchema.options.map(
   (option) => option.shape.type.value,
 );
+export const blockTypeSchema = z.enum(
+  BLOCK_TYPES as [BlockType, ...BlockType[]],
+);
+
+export const CONTAINER_TYPES = [
+  "bullet",
+  "numbered",
+  "todo",
+  "toggle",
+  "callout",
+  "quote",
+  "columns",
+  "column",
+] as const satisfies readonly ContainerBlock["type"][];
+
+export const TEXT_TYPES = [
+  "paragraph",
+  "heading",
+  "bullet",
+  "numbered",
+  "todo",
+  "toggle",
+  "callout",
+  "quote",
+] as const satisfies readonly TextBlock["type"][];
+
+export const WIDGET_TYPES = [
+  "links",
+  "subpages",
+  "greeting",
+  "stats",
+  "agenda",
+  "tasks",
+  "semester",
+  "alerts",
+  "budget",
+  "resources",
+  "llm",
+  "notes",
+  "contacts",
+  "now",
+  "board",
+  "agent",
+  "modules",
+] as const satisfies readonly BlockType[];
+export type WidgetType = (typeof WIDGET_TYPES)[number];
+
+export function isContainer(block: Block): block is ContainerBlock {
+  return "children" in block;
+}
+
+export function isTextBlock(block: Block): block is TextBlock {
+  return "text" in block;
+}
+
+export function isWidgetType(type: BlockType): type is WidgetType {
+  return (WIDGET_TYPES as readonly BlockType[]).includes(type);
+}
 
 export const pageSchema = z.object({
   id: z.string(),
@@ -95,7 +361,7 @@ export const pageSchema = z.object({
   order: z.number(),
   blocks: z.array(blockSchema),
   fullWidth: z.boolean(),
-  /** Locked pages refuse layout edits until unlocked. */
+  /** Locked pages are read-only to everyone but an unlocking owner. */
   locked: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -103,6 +369,68 @@ export const pageSchema = z.object({
   deletedAt: z.string().nullable(),
 });
 export type WorkspacePage = z.infer<typeof pageSchema>;
+
+// ---------------------------------------------------------------------------
+// v1: the grid desktop 3.0.0 still reads and writes through GET|PUT /workspace.
+// Frozen; nothing new is stored in this shape.
+// ---------------------------------------------------------------------------
+
+const legacyTodoItemSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  done: z.boolean(),
+});
+export type LegacyTodoItem = z.infer<typeof legacyTodoItemSchema>;
+
+const legacyBase = {
+  id: z.string(),
+  span: blockSpanSchema,
+  /** Overrides the block's default label; empty hides the header. */
+  title: z.string().optional(),
+};
+
+export const legacyBlockSchema = z.discriminatedUnion("type", [
+  z.object({ ...legacyBase, type: z.literal("heading"), text: z.string() }),
+  z.object({ ...legacyBase, type: z.literal("text"), markdown: z.string() }),
+  z.object({ ...legacyBase, type: z.literal("divider") }),
+  z.object({
+    ...legacyBase,
+    type: z.literal("todo"),
+    items: z.array(legacyTodoItemSchema),
+  }),
+  z.object({
+    ...legacyBase,
+    type: z.literal("links"),
+    refs: z.array(workspaceRefSchema),
+  }),
+  z.object({ ...legacyBase, type: z.literal("subpages") }),
+  z.object({ ...legacyBase, type: z.literal("greeting") }),
+  z.object({ ...legacyBase, type: z.literal("stats") }),
+  z.object({ ...legacyBase, type: z.literal("agenda") }),
+  z.object({ ...legacyBase, type: z.literal("tasks") }),
+  z.object({ ...legacyBase, type: z.literal("semester") }),
+  z.object({ ...legacyBase, type: z.literal("alerts") }),
+  z.object({ ...legacyBase, type: z.literal("budget") }),
+  z.object({ ...legacyBase, type: z.literal("resources") }),
+  z.object({ ...legacyBase, type: z.literal("llm") }),
+  z.object({ ...legacyBase, type: z.literal("notes") }),
+  z.object({ ...legacyBase, type: z.literal("contacts") }),
+  z.object({ ...legacyBase, type: z.literal("now") }),
+  z.object({ ...legacyBase, type: z.literal("board") }),
+  z.object({ ...legacyBase, type: z.literal("agent") }),
+  z.object({
+    ...legacyBase,
+    type: z.literal("modules"),
+    sections: z.array(z.string()),
+  }),
+]);
+export type LegacyBlock = z.infer<typeof legacyBlockSchema>;
+export type LegacyBlockType = LegacyBlock["type"];
+
+export const legacyPageSchema = pageSchema.extend({
+  blocks: z.array(legacyBlockSchema),
+});
+export type LegacyPage = z.infer<typeof legacyPageSchema>;
 
 export const sidebarPrefsSchema = z.object({
   width: z.number(),
@@ -115,14 +443,27 @@ export const sidebarPrefsSchema = z.object({
 export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
 
 /**
- * The Notion-style workspace desktop and web share: pages of blocks,
- * favorites, recents and sidebar layout, as one document. Storage is per page
- * (below); this shape survives as `GET|PUT /workspace` for desktop 3.0.0 and
- * as the desktop's device cache.
+ * The whole v1 document: what `GET|PUT /workspace` exchanges with desktop
+ * 3.0.0, and what the `DesktopWorkspace` singleton held before pages.
  */
-export const workspaceSchema = z.object({
+export const legacyWorkspaceSchema = z.object({
   version: z.literal(1),
   /** When this copy was last written; reconciles local and server copies. */
+  savedAt: z.string().optional(),
+  pages: z.record(z.string(), legacyPageSchema),
+  favorites: z.array(workspaceRefSchema),
+  recents: z.array(workspaceRefSchema),
+  sidebar: sidebarPrefsSchema,
+});
+export type LegacyWorkspace = z.infer<typeof legacyWorkspaceSchema>;
+
+/**
+ * The workspace as a client holds it: pages of blocks, favorites, recents and
+ * sidebar layout. Storage is per page (below); this is the client's state and
+ * desktop's device cache. A 3.0.0 cache (version 1) is not read.
+ */
+export const workspaceSchema = z.object({
+  version: z.literal(2),
   savedAt: z.string().optional(),
   pages: z.record(z.string(), pageSchema),
   favorites: z.array(workspaceRefSchema),
@@ -146,13 +487,14 @@ const ACTOR_ID = "[A-Za-z0-9_.-]{1,96}";
 /**
  * Who made a change. `owner` is a signed-in session (web, desktop, an API
  * key); `mcp:<clientId>` a service client with no finer attribution;
- * `conversation:` and `task-run:` the in-app agent, forwarded by the MCP server.
+ * `conversation:` and `task-run:` the in-app agent, forwarded by the MCP
+ * server; `migration` the server turning a v1 grid page into a flow.
  */
 export const workspaceActorSchema = z
   .string()
   .regex(
     new RegExp(
-      `^(owner|conversation:${ACTOR_ID}|task-run:${ACTOR_ID}|mcp:${ACTOR_ID})$`,
+      `^(owner|migration|conversation:${ACTOR_ID}|task-run:${ACTOR_ID}|mcp:${ACTOR_ID})$`,
     ),
   );
 export type WorkspaceActor = z.infer<typeof workspaceActorSchema>;
@@ -168,19 +510,21 @@ export const blockIdSchema = z
   .regex(/^[A-Za-z0-9_-]{1,64}$/)
   .describe("Block id");
 
-/** Null or absent is the page itself; nested parents arrive with document blocks. */
+/** Null or absent is the page itself; otherwise a container block. */
 const blockParentSchema = z
   .string()
   .nullable()
   .optional()
-  .describe("Parent block id; null or absent is the page root");
+  .describe(
+    "Parent block id (toggle, list item, callout, quote, column; a column's parent is a columns block); null or absent is the page root",
+  );
 
-/** Absent appends; null puts the block first; an id puts it right after that block. */
+/** Absent appends; null puts the block first; an id puts it right after that sibling. */
 const blockAnchorSchema = z
   .string()
   .nullable()
   .optional()
-  .describe("Place after this block id; null is first, absent is last");
+  .describe("Place after this sibling block id; null is first, absent is last");
 
 export const pageMetaPatchSchema = z
   .object({
@@ -203,10 +547,13 @@ const pageStructurePatchSchema = z
 
 const blockFieldsSchema = z
   .record(z.string(), z.unknown())
-  .describe("Block fields to set; id and type never change");
+  .describe(
+    "Block fields to set; id never changes and children move only through insert, move and delete",
+  );
 
 const insertOpSchema = z.object({
   op: z.literal("insert"),
+  /** With its subtree: every id in it must be new to the page. */
   block: blockSchema,
   parentId: blockParentSchema,
   after: blockAnchorSchema,
@@ -217,6 +564,8 @@ const updateOpSchema = z.object({
   set: blockFieldsSchema,
   /** Replaces every field instead of merging into the current block. */
   replace: z.boolean().optional(),
+  /** Turns the block into another type, keeping its id; its children must fit the new type. */
+  type: blockTypeSchema.optional(),
 });
 const moveOpSchema = z.object({
   op: z.literal("move"),
@@ -378,6 +727,19 @@ export const workspaceChangesSchema = z.object({
   prefsUpdatedAt: z.string().nullable(),
 });
 export type WorkspaceChanges = z.infer<typeof workspaceChangesSchema>;
+
+export const workspaceUnfurlRequestSchema = z.object({
+  url: z.url({ protocol: /^https?$/ }).max(4096),
+});
+
+export const workspaceUnfurlSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  image: z.string().optional(),
+  siteName: z.string().optional(),
+});
+export type WorkspaceUnfurl = z.infer<typeof workspaceUnfurlSchema>;
 
 export const HOME_PAGE_ID = "home";
 export const SIDEBAR_MIN_WIDTH = 200;

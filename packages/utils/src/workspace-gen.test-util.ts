@@ -1,4 +1,16 @@
-import type { Block, BlockSpan, BlockType, WorkspacePage } from "@repo/schemas";
+import type {
+  Block,
+  BlockOf,
+  BlockType,
+  InlineRun,
+  LegacyBlock,
+  LegacyBlockType,
+  RichText,
+  WorkspacePage,
+} from "@repo/schemas";
+import { CALLOUT_COLORS, WIDGET_TYPES } from "@repo/schemas";
+import { normalizeRuns } from "./workspace-rich-text";
+import { canContain, isContainerType } from "./workspace-tree";
 
 /** Mulberry32: a seeded generator, so a failing case can be replayed. */
 export function rng(seed: number) {
@@ -27,26 +39,40 @@ const FRAGMENTS = [
   "plain",
   "## heading-like",
   "- [ ] todo-like",
-  "- [x] done-like",
+  "1. numbered-like",
+  "> quote-like",
   "<!-- block -->",
-  '<!-- block id="x" -->',
+  '<!-- id="x" -->',
+  "<details>",
+  "</summary>",
   "\\<!-- block",
   ':::block{type="agenda"}',
   ":::",
+  "$$",
+  "```",
   "---",
   "-->",
+  "*",
+  "**",
+  "_",
+  "~~",
+  "`",
+  "[",
+  "](x)",
+  "@",
+  "![",
+  "&#32;",
+  "&amp;",
+  "<br>",
   '"quoted"',
   "back\\slash",
   "{json}",
-  "[array]",
   "emoji 🧭",
   "tab\tchar",
   "\r",
   "trailing ",
   "  leading",
 ];
-
-const SPANS: BlockSpan[] = [2, 3, 4, 6];
 
 export function genText(r: Rng, multiline: boolean): string {
   const parts: string[] = [];
@@ -65,76 +91,239 @@ export function genId(r: Rng): string {
   return `b${counter.toString(36)}${r.int(1000).toString(36)}`;
 }
 
-const TYPES: BlockType[] = [
-  "heading",
-  "text",
-  "divider",
-  "todo",
-  "links",
-  "subpages",
-  "greeting",
-  "stats",
-  "agenda",
-  "tasks",
-  "semester",
-  "alerts",
-  "budget",
-  "resources",
-  "llm",
-  "notes",
-  "contacts",
-  "now",
-  "board",
-  "agent",
-  "modules",
+const HREFS = [
+  "https://example.com",
+  "https://example.com/a_(b)",
+  "with space",
+  "page:x",
+  "<odd>",
 ];
 
-export function genBlock(r: Rng): Block {
-  const type = r.pick(TYPES);
-  const base = {
+export function genRichText(r: Rng): RichText {
+  const runs: InlineRun[] = [];
+  const count = r.int(5);
+  for (let i = 0; i < count; i++) {
+    if (r.next() < 0.15) {
+      const kind = r.pick(["page", "person", "date"] as const);
+      runs.push({
+        type: "mention",
+        kind,
+        id: kind === "date" ? "2026-10-29" : r.pick(["p1", "a b", "x)y"]),
+        ...(r.next() < 0.6 ? { label: genText(r, false) || "Name" } : {}),
+      });
+      continue;
+    }
+    const text = genText(r, r.next() < 0.2);
+    if (!text) continue;
+    runs.push({
+      type: "text",
+      text,
+      ...(r.next() < 0.3 ? { bold: true as const } : {}),
+      ...(r.next() < 0.3 ? { italic: true as const } : {}),
+      ...(r.next() < 0.2 ? { strike: true as const } : {}),
+      ...(r.next() < 0.2 ? { code: true as const } : {}),
+      ...(r.next() < 0.2 ? { link: r.pick(HREFS) } : {}),
+    });
+  }
+  return normalizeRuns(runs);
+}
+
+const LEAF_TYPES: BlockType[] = [
+  "paragraph",
+  "heading",
+  "code",
+  "divider",
+  "image",
+  "file",
+  "bookmark",
+  "equation",
+  "table",
+  "toc",
+  "breadcrumb",
+  "synced",
+  ...WIDGET_TYPES,
+];
+const CONTAINER_CHOICES: BlockType[] = [
+  "bullet",
+  "numbered",
+  "todo",
+  "toggle",
+  "callout",
+  "quote",
+  "columns",
+];
+
+function genChildren(r: Rng, parent: BlockType, depth: number): Block[] {
+  if (parent === "columns") {
+    const n = 1 + r.int(3);
+    return Array.from({ length: n }, () => genColumn(r, depth + 1, 1 / n));
+  }
+  if (depth >= 3) return [];
+  return genBlocks(r, 3, depth + 1, parent);
+}
+
+function genColumn(r: Rng, depth: number, width: number): BlockOf<"column"> {
+  return {
     id: genId(r),
-    span: r.pick(SPANS),
-    ...(r.next() < 0.3 ? { title: genText(r, r.next() < 0.3) } : {}),
+    type: "column",
+    width,
+    children: depth >= 3 ? [] : genBlocks(r, 3, depth + 1, "column"),
   };
+}
+
+export function genBlock(
+  r: Rng,
+  depth = 0,
+  parent: BlockType | null = null,
+): Block {
+  if (parent === "columns") return genColumn(r, depth, 0.5);
+  let type: BlockType;
+  do {
+    type =
+      r.next() < 0.35 && depth < 3
+        ? r.pick(CONTAINER_CHOICES)
+        : r.pick(LEAF_TYPES);
+  } while (!canContain(parent, type));
+  const id = genId(r);
+  const children = isContainerType(type) ? genChildren(r, type, depth) : [];
+  const title = r.next() < 0.3 ? { title: genText(r, r.next() < 0.3) } : {};
   switch (type) {
+    case "paragraph":
+      return { id, type, text: genRichText(r) };
     case "heading":
-      return { ...base, type, text: genText(r, r.next() < 0.2) };
-    case "text":
-      return { ...base, type, markdown: genText(r, true) };
+      return {
+        id,
+        type,
+        level: r.pick([1, 2, 3] as const),
+        text: genRichText(r),
+      };
+    case "bullet":
+    case "numbered":
+    case "quote":
+      return { id, type, text: genRichText(r), children };
     case "todo":
       return {
-        ...base,
+        id,
         type,
-        items: Array.from({ length: r.int(4) }, () => ({
-          id: genId(r),
-          text: genText(r, r.next() < 0.2),
-          done: r.next() < 0.5,
-        })),
+        text: genRichText(r),
+        checked: r.next() < 0.5,
+        children,
       };
+    case "toggle":
+      return {
+        id,
+        type,
+        text: genRichText(r),
+        ...(r.next() < 0.4 ? { level: r.pick([1, 2, 3] as const) } : {}),
+        children,
+      };
+    case "callout":
+      return {
+        id,
+        type,
+        text: genRichText(r),
+        emoji: r.pick(["💡", "⚠️", "🧭"]),
+        color: r.pick(CALLOUT_COLORS),
+        children,
+      };
+    case "columns":
+      return {
+        id,
+        type,
+        children: children.filter(
+          (c): c is BlockOf<"column"> => c.type === "column",
+        ),
+      };
+    case "code":
+      return {
+        id,
+        type,
+        code: genText(r, true),
+        language: r.pick(["", "ts", "c++", "with space", "<x>"]),
+      };
+    case "divider":
+    case "toc":
+    case "breadcrumb":
+      return { id, type };
+    case "image":
+      return {
+        id,
+        type,
+        url: r.pick([
+          "",
+          "https://x.y/a.png",
+          "with space.png",
+          "a(b).png",
+          "<odd>",
+        ]),
+        caption: genRichText(r),
+      };
+    case "file":
+      return {
+        id,
+        type,
+        url: "https://x.y/f.pdf",
+        name: genText(r, false),
+        ...(r.next() < 0.5 ? { size: r.int(100000) } : {}),
+      };
+    case "bookmark":
+      return {
+        id,
+        type,
+        url: "https://x.y",
+        ...(r.next() < 0.5 ? { title: genText(r, false) } : {}),
+        ...(r.next() < 0.5 ? { description: genText(r, true) } : {}),
+      };
+    case "equation":
+      return { id, type, expression: genText(r, true) };
+    case "table": {
+      const cols = 1 + r.int(3);
+      return {
+        id,
+        type,
+        rows: Array.from({ length: r.int(3) }, () =>
+          Array.from({ length: cols }, () => genRichText(r)),
+        ),
+        headerRow: r.next() < 0.5,
+      };
+    }
+    case "synced":
+      return { id, type, pageId: "p2", blockId: genId(r) };
     case "links":
       return {
-        ...base,
+        id,
         type,
         refs: Array.from({ length: r.int(3) }, () =>
           r.next() < 0.5 ? `page:${genId(r)}` : `module:${genId(r)}`,
         ),
+        ...title,
       };
     case "modules":
       return {
-        ...base,
+        id,
         type,
         sections: Array.from({ length: r.int(3) }, () => genText(r, false)),
+        ...title,
       };
+    case "column":
+      return genColumn(r, depth, 1);
     default:
-      return { ...base, type };
+      return { id, type, ...title };
   }
 }
 
-export function genBlocks(r: Rng, max = 8): Block[] {
-  return Array.from({ length: r.int(max + 1) }, () => genBlock(r));
+export function genBlocks(
+  r: Rng,
+  max = 8,
+  depth = 0,
+  parent: BlockType | null = null,
+): Block[] {
+  return Array.from({ length: r.int(max + 1) }, () =>
+    genBlock(r, depth, parent),
+  );
 }
 
-export function genPage(r: Rng, blocks = genBlocks(r)): WorkspacePage {
+export function genPage(r: Rng, blocks: Block[] = genBlocks(r)): WorkspacePage {
   return {
     id: "p1",
     title: genText(r, false),
@@ -148,4 +337,46 @@ export function genPage(r: Rng, blocks = genBlocks(r)): WorkspacePage {
     updatedAt: "2026-10-01T00:00:00.000Z",
     deletedAt: null,
   };
+}
+
+const LEGACY_TYPES: LegacyBlockType[] = [
+  "heading",
+  "text",
+  "divider",
+  "todo",
+  "links",
+  "agenda",
+  "stats",
+  "modules",
+];
+
+export function genLegacyBlock(r: Rng): LegacyBlock {
+  const type = r.pick(LEGACY_TYPES);
+  const base = {
+    id: genId(r),
+    span: r.pick([2, 3, 4, 6] as const),
+    ...(r.next() < 0.3 ? { title: genText(r, false) } : {}),
+  };
+  switch (type) {
+    case "heading":
+      return { ...base, type, text: genText(r, false) };
+    case "text":
+      return { ...base, type, markdown: genText(r, true) };
+    case "todo":
+      return {
+        ...base,
+        type,
+        items: Array.from({ length: r.int(4) }, () => ({
+          id: genId(r),
+          text: genText(r, false),
+          done: r.next() < 0.5,
+        })),
+      };
+    case "links":
+      return { ...base, type, refs: [`page:${genId(r)}`] };
+    case "modules":
+      return { ...base, type, sections: [] };
+    default:
+      return { ...base, type };
+  }
 }

@@ -9,7 +9,11 @@
     "./apns": "./src/apns.ts",
     "./agent-stream": "./src/agent-stream.ts",
     "./workspace-ops": "./src/workspace-ops.ts",
-    "./workspace-markdown": "./src/workspace-markdown.ts"
+    "./workspace-markdown": "./src/workspace-markdown.ts",
+    "./workspace-rich-text": "./src/workspace-rich-text.ts",
+    "./workspace-tree": "./src/workspace-tree.ts",
+    "./workspace-legacy": "./src/workspace-legacy.ts",
+    "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
