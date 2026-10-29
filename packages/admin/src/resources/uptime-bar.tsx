@@ -7,12 +7,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@repo/ui/tooltip";
+import { cn } from "@repo/ui/utils";
 
 const STATUS_COLORS: Record<DailyUptimeEntry["status"], string> = {
-  up: "bg-accent",
-  degraded: "bg-amber-400",
-  down: "bg-red-500",
-  unknown: "bg-muted-foreground/30",
+  up: "bg-status-good",
+  degraded: "bg-status-warning",
+  down: "bg-status-critical",
+  unknown: "bg-border",
 };
 
 function formatDuration(ms: number): string {
@@ -49,12 +50,15 @@ export function UptimeBar({ history }: { history: DailyUptimeEntry[] }) {
 
   return (
     <TooltipProvider delayDuration={100}>
-      <div className="flex gap-0.5 items-end h-5">
+      <div className="flex h-5 items-end gap-0.5">
         {padded.map((entry, i) => (
           <Tooltip key={i}>
             <TooltipTrigger asChild>
               <div
-                className={`flex-1 min-w-1 max-w-2 h-full rounded-[2px] transition-opacity hover:opacity-80 ${STATUS_COLORS[entry.status]}`}
+                className={cn(
+                  "h-full min-w-1 max-w-2 flex-1 rounded-[2px] transition-opacity hover:opacity-80",
+                  STATUS_COLORS[entry.status],
+                )}
               />
             </TooltipTrigger>
             {entry.date && (

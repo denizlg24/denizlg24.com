@@ -1,8 +1,11 @@
 "use client";
 
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { FilePlus2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
@@ -37,6 +40,8 @@ export default function NewNotePage() {
     const group = searchParams.get("group");
     return createDraftNote(group ? [group] : []);
   });
+  const draftRef = useRef(draftNote);
+  draftRef.current = draftNote;
   const [groups, setGroups] = useState<INoteGroup[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -74,45 +79,41 @@ export default function NewNotePage() {
         return result.note;
       }
 
-      let nextNote: INote | null = null;
+      const current = draftRef.current;
+      const next: INote = {
+        ...current,
+        updatedAt: new Date().toISOString(),
+      };
 
-      setDraftNote((current) => {
-        const next: INote = {
-          ...current,
-          updatedAt: new Date().toISOString(),
-        };
+      if (typeof body.title === "string") next.title = body.title;
+      if (typeof body.content === "string") next.content = body.content;
+      if (typeof body.description === "string")
+        next.description = body.description;
+      if (typeof body.class === "string") {
+        next.class = body.class.trim().length > 0 ? body.class : undefined;
+      }
+      if (Array.isArray(body.tags)) {
+        next.tags = body.tags.filter(
+          (tag): tag is string => typeof tag === "string",
+        );
+      }
+      if (Array.isArray(body.groupIds)) {
+        next.groupIds = body.groupIds.filter(
+          (groupId): groupId is string => typeof groupId === "string",
+        );
+      }
+      if (body.status === "open" || body.status === "archived") {
+        next.status = body.status;
+      }
+      if (body.publishedDate === null) {
+        next.publishedDate = undefined;
+      } else if (typeof body.publishedDate === "string") {
+        next.publishedDate = body.publishedDate;
+      }
 
-        if (typeof body.title === "string") next.title = body.title;
-        if (typeof body.content === "string") next.content = body.content;
-        if (typeof body.description === "string")
-          next.description = body.description;
-        if (typeof body.class === "string") {
-          next.class = body.class.trim().length > 0 ? body.class : undefined;
-        }
-        if (Array.isArray(body.tags)) {
-          next.tags = body.tags.filter(
-            (tag): tag is string => typeof tag === "string",
-          );
-        }
-        if (Array.isArray(body.groupIds)) {
-          next.groupIds = body.groupIds.filter(
-            (groupId): groupId is string => typeof groupId === "string",
-          );
-        }
-        if (body.status === "open" || body.status === "archived") {
-          next.status = body.status;
-        }
-        if (body.publishedDate === null) {
-          next.publishedDate = undefined;
-        } else if (typeof body.publishedDate === "string") {
-          next.publishedDate = body.publishedDate;
-        }
-
-        nextNote = next;
-        return next;
-      });
-
-      return nextNote;
+      draftRef.current = next;
+      setDraftNote(next);
+      return next;
     },
     [api, savedNoteId],
   );
@@ -175,7 +176,7 @@ export default function NewNotePage() {
         );
       }
     },
-    [api, draftNote, groups, submitting],
+    [api, draftNote, submitting],
   );
 
   const handleDelete = useCallback(async () => {
@@ -197,22 +198,34 @@ export default function NewNotePage() {
   const isSaved = savedNoteId !== null;
 
   return (
-    <NoteDetail
-      note={draftNote}
-      allNotes={isSaved ? [draftNote] : []}
-      groups={groups}
-      edges={[]}
-      suggestions={suggestions}
-      onPatch={handleDraftPatch}
-      onDelete={handleDelete}
-      onBack={() => router.push("/dashboard/notes")}
-      onSelectNote={() => {}}
-      onSuggestionsChange={setSuggestions}
-      onUpdated={(note) => setDraftNote(note)}
-      api={isSaved ? api : null}
-      mode={isSaved ? "existing" : "draft"}
-      onSaveDraft={handleCreateNote}
-      savingDraft={submitting}
-    />
+    <Page>
+      <PageHeader
+        leading={<SidebarTrigger className="-ml-1 size-7 md:hidden" />}
+        icon={<FilePlus2 />}
+        title={draftNote.title.trim() || "New note"}
+        crumbs={[
+          { label: "Notes", onClick: () => router.push("/dashboard/notes") },
+        ]}
+      />
+      <PageBody bleed className="flex flex-col">
+        <NoteDetail
+          note={draftNote}
+          allNotes={isSaved ? [draftNote] : []}
+          groups={groups}
+          edges={[]}
+          suggestions={suggestions}
+          onPatch={handleDraftPatch}
+          onDelete={handleDelete}
+          onBack={() => router.push("/dashboard/notes")}
+          onSelectNote={() => {}}
+          onSuggestionsChange={setSuggestions}
+          onUpdated={(note) => setDraftNote(note)}
+          api={isSaved ? api : null}
+          mode={isSaved ? "existing" : "draft"}
+          onSaveDraft={handleCreateNote}
+          savingDraft={submitting}
+        />
+      </PageBody>
+    </Page>
   );
 }

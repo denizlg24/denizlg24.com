@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@repo/ui/utils";
+
 interface CountdownRingProps {
   remaining: number;
   period: number;
@@ -46,15 +48,17 @@ export function CountdownRing({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className={`transition-[stroke-dashoffset] duration-1000 linear ${
-            isUrgent ? "text-destructive" : "text-accent"
-          }`}
+          className={cn(
+            "transition-[stroke-dashoffset] duration-1000 ease-linear",
+            isUrgent ? "text-status-critical" : "text-accent-strong/70",
+          )}
         />
       </svg>
       <span
-        className={`absolute inset-0 flex items-center justify-center text-[10px] font-mono tabular-nums ${
-          isUrgent ? "text-destructive" : "text-muted-foreground"
-        }`}
+        className={cn(
+          "absolute inset-0 flex items-center justify-center font-mono text-[10px] tabular-nums",
+          isUrgent ? "text-status-critical" : "text-muted-foreground",
+        )}
       >
         {remaining}
       </span>

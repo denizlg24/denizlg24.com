@@ -5,8 +5,11 @@ import {
   type IVoiceNoteSummary,
   VOICE_NOTE_MAX_TAGS,
 } from "@repo/schemas";
+import { EmptyState } from "@repo/ui/empty-state";
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
-import { Sheet, SheetContent, SheetTitle } from "@repo/ui/sheet";
+import { Page, PageToolbar } from "@repo/ui/page";
+import { SplitView } from "@repo/ui/split-view";
+import { Mic } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -325,8 +328,14 @@ export function VoiceNotesWorkspace() {
     />
   );
 
+  const retryableCount = checkedRows.filter(
+    (row) =>
+      row.transcription.status === "failed" ||
+      row.transcription.status === "untranscribed",
+  ).length;
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Page>
       <VoiceNotesHeader
         api={api}
         counts={
@@ -338,8 +347,6 @@ export function VoiceNotesWorkspace() {
               }
             : undefined
         }
-        query={query}
-        onQueryChange={setQuery}
         refreshing={list.refreshing && list.status === "ready"}
         onRefresh={() => {
           void list.refresh();
@@ -349,99 +356,81 @@ export function VoiceNotesWorkspace() {
       />
       <RecordingStrip />
       <UnsavedRecordingStrip />
-      <VoiceNotesFilterBar
-        filters={filters}
-        facets={facets}
-        onChange={setFilters}
-      />
+      <PageToolbar>
+        <VoiceNotesFilterBar
+          query={query}
+          onQueryChange={setQuery}
+          filters={filters}
+          facets={facets}
+          onChange={setFilters}
+        />
+      </PageToolbar>
 
-      <div className="flex min-h-0 flex-1">
-        <section className="flex min-h-0 w-full flex-col select-none md:w-[22rem] md:shrink-0 md:border-r lg:w-[26rem]">
-          {checkedRows.length > 0 && (
-            <VoiceNotesBulkBar
-              count={checkedRows.length}
-              loadedCount={list.rows.length}
-              retryableCount={
-                checkedRows.filter(
-                  (row) =>
-                    row.transcription.status === "failed" ||
-                    row.transcription.status === "untranscribed",
-                ).length
-              }
-              totalDurationMs={checkedRows.reduce(
-                (sum, row) => sum + (row.durationMs ?? 0),
-                0,
-              )}
-              totalBytes={checkedRows.reduce(
-                (sum, row) => sum + row.sizeBytes,
-                0,
-              )}
-              busy={bulkBusy}
-              tagSuggestions={tagSuggestions}
-              onToggleAll={() =>
-                setCheckedIds(
-                  checkedRows.length === list.rows.length
-                    ? new Set()
-                    : new Set(rowIds),
-                )
-              }
-              onRetry={() => void bulkRetry()}
-              onAddTag={(tag) => void bulkTag(tag)}
-              onDelete={() => void bulkDelete()}
-              onClear={() => setCheckedIds(new Set())}
-            />
-          )}
-          <VoiceNoteList
-            listRef={listRef}
-            rows={list.rows}
-            status={list.status}
-            grouped={isChronological(filters.sort)}
-            selectedId={selectedId}
-            checkedIds={checkedIds}
-            terms={terms}
-            hasMore={list.hasMore}
-            loadingMore={list.loadingMore}
-            total={list.total}
-            onLoadMore={() => void list.loadMore()}
-            onActivate={activateRow}
-            onCheck={checkRow}
-            onRetry={retryRow}
-          />
-        </section>
-
-        {!isMobile && (
-          <section className="hidden min-h-0 min-w-0 flex-1 flex-col md:flex">
-            {selectedId ? (
-              renderDetail(selectedId)
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-                —
-              </div>
+      <SplitView
+        detailOpen={Boolean(selectedId)}
+        listWidth="md:w-[22rem] lg:w-[26rem]"
+        className="select-none"
+        list={
+          <>
+            {checkedRows.length > 0 && (
+              <VoiceNotesBulkBar
+                count={checkedRows.length}
+                loadedCount={list.rows.length}
+                retryableCount={retryableCount}
+                totalDurationMs={checkedRows.reduce(
+                  (sum, row) => sum + (row.durationMs ?? 0),
+                  0,
+                )}
+                totalBytes={checkedRows.reduce(
+                  (sum, row) => sum + row.sizeBytes,
+                  0,
+                )}
+                busy={bulkBusy}
+                tagSuggestions={tagSuggestions}
+                onToggleAll={() =>
+                  setCheckedIds(
+                    checkedRows.length === list.rows.length
+                      ? new Set()
+                      : new Set(rowIds),
+                  )
+                }
+                onRetry={() => void bulkRetry()}
+                onAddTag={(tag) => void bulkTag(tag)}
+                onDelete={() => void bulkDelete()}
+                onClear={() => setCheckedIds(new Set())}
+              />
             )}
-          </section>
-        )}
-      </div>
-
-      {isMobile && (
-        <Sheet
-          open={Boolean(selectedId)}
-          onOpenChange={(open) => {
-            if (!open) select(null);
-          }}
-        >
-          <SheetContent
-            side="right"
-            showCloseButton={false}
-            aria-describedby={undefined}
-            className="w-full gap-0 p-0 sm:max-w-none"
-          >
-            <SheetTitle className="sr-only">
-              {selectedSummary?.title ?? "Voice note"}
-            </SheetTitle>
-            {selectedId && renderDetail(selectedId, () => select(null))}
-          </SheetContent>
-        </Sheet>
-      )}
-    </div>
+            <VoiceNoteList
+              listRef={listRef}
+              rows={list.rows}
+              status={list.status}
+              grouped={isChronological(filters.sort)}
+              selectedId={selectedId}
+              checkedIds={checkedIds}
+              terms={terms}
+              hasMore={list.hasMore}
+              loadingMore={list.loadingMore}
+              total={list.total}
+              onLoadMore={() => void list.loadMore()}
+              onActivate={activateRow}
+              onCheck={checkRow}
+              onRetry={retryRow}
+            />
+          </>
+        }
+        detail={
+          selectedId ? (
+            <div className="flex min-h-0 flex-1 flex-col select-text">
+              {renderDetail(
+                selectedId,
+                isMobile ? () => select(null) : undefined,
+              )}
+            </div>
+          ) : (
+            <EmptyState icon={<Mic />} label="No note selected" />
+          )
+        }
+      />
+    </Page>
   );
 }

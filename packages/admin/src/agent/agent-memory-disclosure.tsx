@@ -2,6 +2,7 @@
 
 import type { AgentRetrievalTrace } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
@@ -110,6 +111,7 @@ export function AgentMemoryDisclosure({ traceId }: { traceId: string }) {
   const [correcting, setCorrecting] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
   const [recorded, setRecorded] = useState<Record<string, FeedbackKind>>({});
+  const [forgetting, setForgetting] = useState<string | null>(null);
 
   const loadTrace = async () => {
     if (trace || loading) return;
@@ -129,12 +131,6 @@ export function AgentMemoryDisclosure({ traceId }: { traceId: string }) {
 
   const submitFeedback = async (kind: FeedbackKind, memoryId: string) => {
     if (pendingMemoryId) return;
-    if (
-      kind === "forget" &&
-      !window.confirm("Forget this memory and remove it from retrieval?")
-    ) {
-      return;
-    }
     const replacement = correction.trim();
     if (kind === "correction" && !replacement) return;
     setPendingMemoryId(memoryId);
@@ -303,9 +299,7 @@ export function AgentMemoryDisclosure({ traceId }: { traceId: string }) {
                         <Button
                           variant="ghost"
                           size="xs"
-                          onClick={() =>
-                            void submitFeedback("forget", candidate.memoryId)
-                          }
+                          onClick={() => setForgetting(candidate.memoryId)}
                           disabled={pending}
                           className="text-destructive hover:text-destructive"
                         >
@@ -326,6 +320,20 @@ export function AgentMemoryDisclosure({ traceId }: { traceId: string }) {
           )}
         </div>
       </DialogContent>
+      <ConfirmDialog
+        open={forgetting !== null}
+        onOpenChange={(next) => {
+          if (!next) setForgetting(null);
+        }}
+        title="Forget this memory?"
+        description="It is removed from retrieval."
+        actionLabel="Forget"
+        destructive
+        onConfirm={() => {
+          if (forgetting) void submitFeedback("forget", forgetting);
+          setForgetting(null);
+        }}
+      />
     </Dialog>
   );
 }

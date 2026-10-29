@@ -1,25 +1,15 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { FormDialog } from "@repo/ui/form-dialog";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import {
-  FileUp,
-  Loader2,
-  MonitorUp,
-  QrCode,
-  ScanLine,
-  Square,
-} from "lucide-react";
+import { FilterTabs } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import { FileUp, MonitorUp, QrCode, ScanLine, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+type ImportTab = "qr" | "text";
 
 interface ImportDialogProps {
   open: boolean;
@@ -32,7 +22,7 @@ export function ImportDialog({
   onOpenChange,
   onImport,
 }: ImportDialogProps) {
-  const [tab, setTab] = useState("qr");
+  const [tab, setTab] = useState<ImportTab>("qr");
   const [uriText, setUriText] = useState("");
   const [importing, setImporting] = useState(false);
   const [qrResult, setQrResult] = useState<string | null>(null);
@@ -89,9 +79,7 @@ export function ImportDialog({
     setQrError(null);
     setQrResult(null);
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      setQrError(
-        "Tab capture is not available in this browser. Upload a QR image instead.",
-      );
+      setQrError("Tab capture unavailable");
       return;
     }
 
@@ -163,7 +151,7 @@ export function ImportDialog({
             stopTabCapture();
             return;
           }
-          setQrError("QR code does not contain a valid otpauth:// URI.");
+          setQrError("No otpauth:// URI in QR");
           stopTabCapture();
         } catch {
           // Most frames do not contain a readable QR code; keep scanning.
@@ -180,13 +168,9 @@ export function ImportDialog({
         return;
       stopTabCapture();
       if (error instanceof DOMException && error.name === "NotAllowedError") {
-        setQrError(
-          "Tab sharing was canceled. Choose a tab containing the QR code to try again.",
-        );
+        setQrError("Tab sharing canceled");
       } else {
-        setQrError(
-          "Could not scan this tab. Try uploading a QR code image instead.",
-        );
+        setQrError("Could not scan tab");
       }
     } finally {
       captureStartingRef.current = false;
@@ -223,9 +207,7 @@ export function ImportDialog({
         () => {},
       );
     } catch {
-      setQrError(
-        "Could not access camera. Try uploading a QR code image instead.",
-      );
+      setQrError("Camera unavailable");
       setScannerActive(false);
     }
   };
@@ -247,18 +229,16 @@ export function ImportDialog({
       if (result.startsWith("otpauth://")) {
         setQrResult(result);
       } else {
-        setQrError("QR code does not contain a valid otpauth:// URI.");
+        setQrError("No otpauth:// URI in QR");
       }
     } catch {
-      setQrError("Could not read QR code from image.");
+      setQrError("Could not read QR");
     }
 
     event.target.value = "";
   };
 
   const handleImport = async () => {
-    setImporting(true);
-
     let uris: string[] = [];
 
     if (tab === "qr" && qrResult) {
@@ -270,11 +250,23 @@ export function ImportDialog({
         .filter((l) => l.startsWith("otpauth://"));
     }
 
-    if (uris.length > 0) {
+    if (uris.length === 0) return;
+    setImporting(true);
+    try {
       await onImport(uris);
+    } finally {
+      setImporting(false);
     }
+  };
 
-    setImporting(false);
+  const switchTab = (value: ImportTab) => {
+    tabRef.current = value;
+    stopTabCapture();
+    if (value !== "qr" && html5QrRef.current) {
+      void html5QrRef.current.stop().catch(() => {});
+      setScannerActive(false);
+    }
+    setTab(value);
   };
 
   const textUriCount = uriText
@@ -282,169 +274,135 @@ export function ImportDialog({
     .filter((l) => l.trim().startsWith("otpauth://")).length;
 
   const canImport =
-    (tab === "qr" && qrResult) || (tab === "text" && textUriCount > 0);
+    (tab === "qr" && qrResult !== null) || (tab === "text" && textUriCount > 0);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>Import Accounts</DialogTitle>
-          <DialogDescription>
-            Import from a QR code or paste otpauth:// URIs.
-          </DialogDescription>
-        </DialogHeader>
-
-        <Tabs
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Import accounts"
+      onSubmit={handleImport}
+      submitLabel={
+        tab === "text" && textUriCount > 1 ? `Import ${textUriCount}` : "Import"
+      }
+      submitDisabled={!canImport}
+      pending={importing}
+      footerStart={
+        <FilterTabs
           value={tab}
-          onValueChange={(value) => {
-            tabRef.current = value;
-            stopTabCapture();
-            if (value !== "qr" && html5QrRef.current) {
-              void html5QrRef.current.stop().catch(() => {});
-              setScannerActive(false);
-            }
-            setTab(value);
-          }}
-          className="w-full"
-        >
-          <TabsList className="w-full">
-            <TabsTrigger value="qr" className="flex-1">
-              <QrCode className="size-3.5 mr-1.5" />
-              QR Code
-            </TabsTrigger>
-            <TabsTrigger value="text" className="flex-1">
-              <FileUp className="size-3.5 mr-1.5" />
-              Text / File
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="qr" className="mt-4 w-full">
-            <div className="flex flex-col gap-3">
-              <div
-                id="qr-reader"
-                className={`rounded-lg overflow-hidden bg-accent-strong/5 ${
-                  scannerActive ? "min-h-70" : "hidden"
-                }`}
-              />
-              <div id="qr-reader-file" className="hidden" />
-              <div id="qr-reader-tab" className="hidden" />
-
-              <div className={tabCaptureActive ? "space-y-2" : "hidden"}>
-                <video
-                  ref={tabVideoRef}
-                  muted
-                  playsInline
-                  className="w-full max-h-56 rounded-lg border bg-black object-contain"
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    Scanning the shared tab for a QR code…
-                  </p>
-                  <Button variant="outline" size="sm" onClick={stopTabCapture}>
-                    <Square className="size-3.5" /> Stop
-                  </Button>
-                </div>
-              </div>
-
-              {!scannerActive && !tabCaptureActive && !qrResult && (
-                <div className="flex flex-col items-center gap-3 py-8 border border-dashed border-border rounded-lg">
-                  <QrCode className="size-10 text-muted-foreground/30" />
-                  <div className="flex flex-col gap-1 items-center">
-                    <Button variant="outline" size="sm" onClick={startCamera}>
-                      <ScanLine className="size-3.5 mr-1.5" />
-                      Scan with Camera
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void startTabCapture()}
-                      disabled={captureStarting}
-                    >
-                      {captureStarting ? (
-                        <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                      ) : (
-                        <MonitorUp className="size-3.5 mr-1.5" />
-                      )}
-                      {captureStarting
-                        ? "Opening tab picker…"
-                        : "Scan Open Tab"}
-                    </Button>
-                    <Button variant="outline" size="sm" asChild>
-                      <label className="cursor-pointer">
-                        <FileUp className="size-3.5 mr-1.5" />
-                        Upload Image
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleFileUpload}
-                        />
-                      </label>
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {qrResult && (
-                <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2.5">
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Detected URI
-                  </p>
-                  <p className="text-xs font-mono break-all text-accent-strong">
-                    {qrResult}
-                  </p>
-                </div>
-              )}
-
-              {qrError && (
-                <p className="text-xs text-destructive text-center">
-                  {qrError}
-                </p>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="text" className="mt-4 w-full">
-            <div className="flex flex-col gap-2">
-              <Textarea
-                placeholder={
-                  "otpauth://totp/GitHub:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=GitHub\notpauth://totp/GitLab:user@example.com?secret=..."
-                }
-                rows={6}
-                value={uriText}
-                onChange={(e) => setUriText(e.target.value)}
-                className="font-mono text-xs resize-none break-all field-sizing-fixed"
-              />
-              {textUriCount > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {textUriCount} valid URI{textUriCount !== 1 ? "s" : ""}{" "}
-                  detected
-                </p>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={importing}
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleImport} disabled={importing || !canImport}>
-            {importing ? (
-              <>
-                <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                Importing...
-              </>
-            ) : (
-              `Import${tab === "text" && textUriCount > 1 ? ` (${textUriCount})` : ""}`
+          onChange={switchTab}
+          options={[
+            { value: "qr", label: "QR code" },
+            { value: "text", label: "URIs" },
+          ]}
+        />
+      }
+    >
+      {tab === "qr" ? (
+        <div className="flex flex-col gap-3">
+          <div
+            id="qr-reader"
+            className={cn(
+              "overflow-hidden rounded-lg bg-surface",
+              scannerActive ? "min-h-70" : "hidden",
             )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          />
+          <div id="qr-reader-file" className="hidden" />
+          <div id="qr-reader-tab" className="hidden" />
+
+          <div className={tabCaptureActive ? "flex flex-col gap-2" : "hidden"}>
+            <video
+              ref={tabVideoRef}
+              muted
+              playsInline
+              className="max-h-80 w-full rounded-lg bg-black object-contain"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Spinner className="size-3" /> Scanning
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={stopTabCapture}
+              >
+                <Square /> Stop
+              </Button>
+            </div>
+          </div>
+
+          {!scannerActive && !tabCaptureActive && !qrResult && (
+            <div className="flex flex-col items-center gap-4 py-10">
+              <QrCode className="size-8 text-muted-foreground/60" />
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={startCamera}
+                >
+                  <ScanLine /> Camera
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void startTabCapture()}
+                  disabled={captureStarting}
+                >
+                  {captureStarting ? (
+                    <Spinner className="size-3.5" />
+                  ) : (
+                    <MonitorUp />
+                  )}
+                  Tab
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <label className="cursor-pointer">
+                    <FileUp /> Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {qrResult && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                Detected
+              </span>
+              <p className="break-all font-mono text-xs text-accent-strong">
+                {qrResult}
+              </p>
+            </div>
+          )}
+
+          {qrError && (
+            <p className="text-center text-xs text-destructive">{qrError}</p>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            placeholder="otpauth://totp/…"
+            rows={12}
+            value={uriText}
+            onChange={(e) => setUriText(e.target.value)}
+            className="field-sizing-fixed resize-none break-all font-mono text-xs"
+            aria-label="otpauth URIs"
+          />
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {textUriCount} URI{textUriCount === 1 ? "" : "s"}
+          </span>
+        </div>
+      )}
+    </FormDialog>
   );
 }

@@ -120,27 +120,27 @@ export function VoiceNoteAttachments({
           <PopoverTrigger asChild>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-6 gap-1 px-2 text-[10px]"
+              className="text-muted-foreground"
               disabled={loading || saving}
               aria-expanded={open}
             >
               {loading || saving ? (
-                <Loader2 className="size-3 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <Mic className="size-3" />
+                <Mic />
               )}
               Attach
-              <ChevronsUpDown className="size-3 opacity-50" />
+              <ChevronsUpDown className="opacity-50" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
             <Command filter={matchKeywords}>
-              <CommandInput placeholder="Search voice notes…" />
+              <CommandInput placeholder="Search" />
               <CommandList>
                 <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                  —
+                  No voice notes
                 </CommandEmpty>
                 <CommandGroup>
                   {voiceNotes.map((voiceNote) => (
@@ -165,7 +165,7 @@ export function VoiceNoteAttachments({
                       />
                       <div className="min-w-0">
                         <p className="truncate text-xs">{voiceNote.title}</p>
-                        <p className="truncate text-[10px] tabular-nums text-muted-foreground">
+                        <p className="truncate text-[11px] tabular-nums text-muted-foreground">
                           {recordedLabel(voiceNote)}
                           {voiceNote.transcription.status !== "transcribed" &&
                             ` · ${voiceNote.transcription.status}`}

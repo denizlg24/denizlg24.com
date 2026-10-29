@@ -37,11 +37,11 @@ function SkipButton({
     <button
       type="button"
       onClick={onClick}
-      className="relative flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+      className="relative flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-surface hover:text-accent-strong"
       aria-label={seconds < 0 ? "Back 15 seconds" : "Forward 15 seconds"}
     >
       <Icon className="size-4" />
-      <span className="absolute font-mono text-[6px] font-semibold">
+      <span className="absolute text-[6px] font-semibold">
         {Math.abs(seconds)}
       </span>
     </button>
@@ -116,7 +116,7 @@ export function VoiceNotePlayer({
             className={cn(
               "min-w-px flex-1 rounded-[1px] transition-colors",
               (index + 0.5) / samples.length <= progress
-                ? "bg-foreground/80"
+                ? "bg-accent-strong/80"
                 : "bg-muted-foreground/30",
             )}
             style={{ height: `${Math.max(6, sample * 100)}%` }}
@@ -124,18 +124,18 @@ export function VoiceNotePlayer({
         ))}
         {progress > 0 && (
           <span
-            className="pointer-events-none absolute inset-y-0 w-px bg-red-500"
+            className="pointer-events-none absolute inset-y-0 w-px bg-status-critical"
             style={{ left: `${progress * 100}%` }}
           />
         )}
         {hoverFraction !== null && durationMs > 0 && (
           <>
             <span
-              className="pointer-events-none absolute inset-y-0 w-px bg-foreground/40"
+              className="pointer-events-none absolute inset-y-0 w-px bg-accent-strong/40"
               style={{ left: `${hoverFraction * 100}%` }}
             />
             <span
-              className="pointer-events-none absolute -top-4 -translate-x-1/2 rounded-sm bg-popover px-1 font-mono text-[10px] tabular-nums shadow-sm"
+              className="pointer-events-none absolute -top-4 -translate-x-1/2 rounded-sm bg-popover px-1 text-[10px] tabular-nums shadow-sm"
               style={{ left: `${hoverFraction * 100}%` }}
             >
               {formatClock((hoverFraction * durationMs) / 1_000, withHours)}
@@ -150,7 +150,7 @@ export function VoiceNotePlayer({
           type="button"
           onClick={() => void playback.togglePlayback()}
           disabled={playback.loadingAudio}
-          className="flex size-8 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/85 disabled:opacity-60"
+          className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/85 disabled:opacity-60"
           aria-label={playback.playing ? "Pause" : "Play"}
         >
           {playback.loadingAudio ? (
@@ -168,17 +168,17 @@ export function VoiceNotePlayer({
             playback.setPlaybackRate(nextRate(playback.playbackRate))
           }
           className={cn(
-            "ml-1 h-6 min-w-10 rounded-md px-1.5 font-mono text-[11px] tabular-nums hover:bg-muted",
+            "ml-1 h-7 min-w-10 rounded-md px-1.5 text-xs tabular-nums hover:bg-surface",
             playback.playbackRate === 1
               ? "text-muted-foreground"
-              : "text-foreground",
+              : "text-accent-strong",
           )}
           aria-label={`Playback speed ${playback.playbackRate}×`}
         >
           {playback.playbackRate}×
         </button>
-        <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
-          <span className="text-foreground">
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+          <span className="text-accent-strong">
             {formatClock(currentMs / 1_000, withHours)}
           </span>{" "}
           / {formatClock(durationMs / 1_000, withHours)}

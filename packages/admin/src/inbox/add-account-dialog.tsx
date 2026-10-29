@@ -2,20 +2,14 @@
 
 import type { IEmailAccount } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
+import { SectionLabel } from "@repo/ui/section";
 import { Switch } from "@repo/ui/switch";
-import type { LucideIcon } from "lucide-react";
-import {
-  Cloud,
-  ExternalLink,
-  Info,
-  Loader2,
-  Mail,
-  Settings,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FilterTabs } from "@repo/ui/toolbar";
+import { ExternalLink, Trash2 } from "lucide-react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -46,7 +40,6 @@ interface FormData {
 interface ProviderPreset {
   provider: Provider;
   label: string;
-  icon: LucideIcon;
   imap: { host: string; port: number; secure: boolean };
   smtp: { host: string; port: number; secure: boolean; requireTLS: boolean };
   setupLinks: { label: string; url: string }[];
@@ -57,7 +50,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     provider: "gmail",
     label: "Gmail",
-    icon: Mail,
     imap: { host: "imap.gmail.com", port: 993, secure: true },
     smtp: {
       host: "smtp.gmail.com",
@@ -75,7 +67,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     provider: "outlook",
     label: "Outlook",
-    icon: Mail,
     imap: { host: "outlook.office365.com", port: 993, secure: true },
     smtp: {
       host: "smtp-mail.outlook.com",
@@ -89,13 +80,11 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
         url: "https://support.microsoft.com/en-us/office/pop-imap-and-smtp-settings-for-outlook-com-d088b986-291d-42b8-9564-9c414e2aa040",
       },
     ],
-    warning:
-      "Some Outlook accounts require Modern Auth and may reject password SMTP.",
+    warning: "May require Modern Auth for SMTP",
   },
   {
     provider: "icloud",
     label: "iCloud",
-    icon: Cloud,
     imap: { host: "imap.mail.me.com", port: 993, secure: true },
     smtp: {
       host: "smtp.mail.me.com",
@@ -108,7 +97,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     provider: "yahoo",
     label: "Yahoo",
-    icon: Mail,
     imap: { host: "imap.mail.yahoo.com", port: 993, secure: true },
     smtp: {
       host: "smtp.mail.yahoo.com",
@@ -121,7 +109,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     provider: "custom",
     label: "Custom",
-    icon: Settings,
     imap: { host: "", port: 993, secure: true },
     smtp: { host: "", port: 587, secure: false, requireTLS: true },
     setupLinks: [],
@@ -173,6 +160,35 @@ interface AddAccountDialogProps {
   onOpenChange: (open: boolean) => void;
   onAccountAdded: (account?: IEmailAccount) => void | Promise<void>;
   account?: IEmailAccount | null;
+  onAccountDeleted?: (accountId: string) => void | Promise<void>;
+}
+
+function SwitchField({
+  id,
+  label,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  id: string;
+  label: ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex h-8 items-center justify-between gap-3 self-end">
+      <label htmlFor={id} className="text-sm text-accent-strong">
+        {label}
+      </label>
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  );
 }
 
 export function AddAccountDialog({
@@ -180,9 +196,13 @@ export function AddAccountDialog({
   onOpenChange,
   onAccountAdded,
   account,
+  onAccountDeleted,
 }: AddAccountDialogProps) {
   const { client, platform } = useAdmin();
+  const idPrefix = useId();
+  const fieldId = (name: keyof FormData) => `${idPrefix}-${name}`;
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isEditing = Boolean(account);
 
@@ -296,9 +316,7 @@ export function AddAccountDialog({
             "email-accounts",
             payload,
           );
-      toast.success(
-        account ? "Account updated successfully" : "Account added successfully",
-      );
+      toast.success(account ? "Account saved" : "Account added");
       reset(DEFAULT_FORM);
       onOpenChange(false);
       await onAccountAdded(result.account);
@@ -316,6 +334,21 @@ export function AddAccountDialog({
       setError(null);
     }
     onOpenChange(newOpen);
+  };
+
+  const handleDelete = async () => {
+    if (!account) return;
+    setDeleting(true);
+    try {
+      await client.del<{ message: string }>(`email-accounts/${account._id}`);
+      toast.success("Account deleted");
+      onOpenChange(false);
+      await onAccountDeleted?.(account._id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handlePresetSelect = (preset: ProviderPreset) => {
@@ -336,355 +369,257 @@ export function AddAccountDialog({
   };
 
   return (
-    <ResponsiveDialog
+    <FormDialog
       open={open}
       onOpenChange={handleOpenChange}
-      title={isEditing ? "Edit Email Account" : "Add Email Account"}
-      description={
-        isEditing
-          ? "Update SMTP sending settings for this account."
-          : "Connect inbox reading with IMAP and sending with SMTP."
-      }
-      className="sm:max-w-2xl"
-    >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Provider</Label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {PROVIDER_PRESETS.map((preset) => {
-              const Icon = preset.icon;
-              return (
-                <Button
-                  type="button"
-                  key={preset.provider}
-                  variant={provider === preset.provider ? "default" : "outline"}
-                  size="sm"
-                  className="justify-start gap-2 text-xs"
-                  onClick={() => handlePresetSelect(preset)}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {preset.label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-
-        {selectedPreset?.setupLinks.length ? (
-          <div className="flex flex-wrap gap-2">
-            {selectedPreset.setupLinks.map((link) => (
-              <Button
-                key={link.url}
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={() => platform.openExternal(link.url)}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                {link.label}
+      title={isEditing ? account?.displayName || account?.user : "Add account"}
+      onSubmit={handleSubmit(onSubmit)}
+      submitLabel={loading ? "Testing…" : isEditing ? "Save" : "Add"}
+      pending={loading || deleting}
+      footerStart={
+        isEditing && account ? (
+          <ConfirmButton
+            trigger={
+              <Button type="button" variant="ghost" disabled={loading}>
+                <Trash2 />
+                Delete
               </Button>
-            ))}
-          </div>
-        ) : null}
-
-        {selectedPreset?.warning ? (
-          <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2.5 text-xs text-muted-foreground">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p>{selectedPreset.warning}</p>
-          </div>
-        ) : null}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="displayName" className="text-xs">
-              Display Name
-            </Label>
-            <Input
-              id="displayName"
-              placeholder="Work"
-              className="h-9 text-sm"
-              {...register("displayName")}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="user" className="text-xs">
-              Email Address
-            </Label>
-            <Input
-              id="user"
-              type="email"
-              placeholder="you@example.com"
-              className="h-9 text-sm"
-              disabled={isEditing}
-              {...register("user", {
-                required: isEditing ? false : "Email is required",
-              })}
-            />
-            {errors.user && (
-              <p className="text-xs text-destructive">{errors.user.message}</p>
-            )}
-          </div>
+            }
+            title={`Delete ${account.user}?`}
+            description="Its stored mail is deleted with it."
+            actionLabel="Delete"
+            destructive
+            onConfirm={handleDelete}
+          />
+        ) : null
+      }
+    >
+      <FormField label="Provider" hint={selectedPreset?.warning}>
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterTabs
+            value={provider}
+            onChange={(value) => {
+              const preset = getProviderPreset(value);
+              if (preset) handlePresetSelect(preset);
+            }}
+            options={PROVIDER_PRESETS.map((preset) => ({
+              value: preset.provider,
+              label: preset.label,
+            }))}
+          />
+          {selectedPreset?.setupLinks.map((link) => (
+            <Button
+              key={link.url}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => platform.openExternal(link.url)}
+            >
+              <ExternalLink />
+              {link.label}
+            </Button>
+          ))}
         </div>
+      </FormField>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="password" className="text-xs">
-            IMAP Password
-          </Label>
+      <FormGrid>
+        <FormField label="Display name" htmlFor={fieldId("displayName")}>
           <Input
-            id="password"
-            type="password"
-            placeholder="App password or email password"
-            className="h-9 text-sm"
+            id={fieldId("displayName")}
+            placeholder="Work"
+            {...register("displayName")}
+          />
+        </FormField>
+        <FormField
+          label="Address"
+          htmlFor={fieldId("user")}
+          error={errors.user?.message}
+        >
+          <Input
+            id={fieldId("user")}
+            type="email"
+            placeholder="you@example.com"
             disabled={isEditing}
-            {...register("password", {
-              required: isEditing ? false : "Password is required",
+            {...register("user", {
+              required: isEditing ? false : "Required",
             })}
           />
-          {errors.password && (
-            <p className="text-xs text-destructive">
-              {errors.password.message}
-            </p>
-          )}
-        </div>
+        </FormField>
+      </FormGrid>
 
-        <div className="grid gap-3 sm:grid-cols-[1fr_110px_120px]">
-          <div className="space-y-1.5">
-            <Label htmlFor="host" className="text-xs">
-              IMAP Host
-            </Label>
+      <SectionLabel>IMAP</SectionLabel>
+      <FormGrid>
+        <FormField
+          label="Password"
+          htmlFor={fieldId("password")}
+          error={errors.password?.message}
+        >
+          <Input
+            id={fieldId("password")}
+            type="password"
+            placeholder={isEditing ? "••••••••" : "App password"}
+            disabled={isEditing}
+            {...register("password", {
+              required: isEditing ? false : "Required",
+            })}
+          />
+        </FormField>
+        <FormField
+          label="Mailbox"
+          htmlFor={fieldId("inboxName")}
+          error={errors.inboxName?.message}
+        >
+          <Input
+            id={fieldId("inboxName")}
+            disabled={isEditing}
+            {...register("inboxName", {
+              required: isEditing ? false : "Required",
+            })}
+          />
+        </FormField>
+        <FormField
+          label="Host"
+          htmlFor={fieldId("host")}
+          error={errors.host?.message}
+        >
+          <Input
+            id={fieldId("host")}
+            placeholder="imap.example.com"
+            disabled={isEditing}
+            {...register("host", {
+              required: isEditing ? false : "Required",
+            })}
+          />
+        </FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            label="Port"
+            htmlFor={fieldId("port")}
+            error={errors.port?.message}
+          >
             <Input
-              id="host"
-              placeholder="imap.gmail.com"
-              className="h-9 text-sm"
-              disabled={isEditing}
-              {...register("host", {
-                required: isEditing ? false : "Host is required",
-              })}
-            />
-            {errors.host && (
-              <p className="text-xs text-destructive">{errors.host.message}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="port" className="text-xs">
-              IMAP Port
-            </Label>
-            <Input
-              id="port"
+              id={fieldId("port")}
               type="number"
-              className="h-9 text-sm"
+              className="tabular-nums"
               disabled={isEditing}
               {...register("port", {
                 valueAsNumber: true,
-                required: isEditing ? false : "Port is required",
+                required: isEditing ? false : "Required",
                 min: { value: 1, message: "Invalid port" },
                 max: { value: 65535, message: "Invalid port" },
               })}
             />
-          </div>
-          <div className="flex items-end justify-between gap-3 pb-2">
-            <Label htmlFor="secure" className="text-xs">
-              IMAP SSL
-            </Label>
-            <Switch
-              id="secure"
-              checked={secure}
-              disabled={isEditing}
-              onCheckedChange={(checked) => setValue("secure", checked)}
-            />
-          </div>
+          </FormField>
+          <SwitchField
+            id={fieldId("secure")}
+            label="SSL"
+            checked={secure}
+            disabled={isEditing}
+            onCheckedChange={(checked) => setValue("secure", checked)}
+          />
         </div>
+      </FormGrid>
 
-        <div className="flex items-center justify-between rounded-md border px-3 py-2">
-          <Label htmlFor="smtpEnabled" className="cursor-pointer text-xs">
-            Enable SMTP sending
-          </Label>
+      <SectionLabel
+        actions={
           <Switch
-            id="smtpEnabled"
+            id={fieldId("smtpEnabled")}
+            aria-label="Send with SMTP"
             checked={smtpEnabled}
             onCheckedChange={(checked) => setValue("smtpEnabled", checked)}
           />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-[1fr_110px_120px]">
-          <div className="space-y-1.5">
-            <Label htmlFor="smtpHost" className="text-xs">
-              SMTP Host
-            </Label>
+        }
+      >
+        SMTP
+      </SectionLabel>
+      {smtpEnabled ? (
+        <FormGrid>
+          <FormField label="Host" htmlFor={fieldId("smtpHost")}>
             <Input
-              id="smtpHost"
-              placeholder="smtp.gmail.com"
-              className="h-9 text-sm"
-              disabled={!smtpEnabled}
+              id={fieldId("smtpHost")}
+              placeholder="smtp.example.com"
               {...register("smtpHost")}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="smtpPort" className="text-xs">
-              SMTP Port
-            </Label>
-            <Input
-              id="smtpPort"
-              type="number"
-              className="h-9 text-sm"
-              disabled={!smtpEnabled}
-              {...register("smtpPort", {
-                valueAsNumber: true,
-                min: { value: 1, message: "Invalid port" },
-                max: { value: 65535, message: "Invalid port" },
-              })}
+          </FormField>
+          <div className="grid grid-cols-3 gap-4">
+            <FormField
+              label="Port"
+              htmlFor={fieldId("smtpPort")}
+              error={errors.smtpPort?.message}
+            >
+              <Input
+                id={fieldId("smtpPort")}
+                type="number"
+                className="tabular-nums"
+                {...register("smtpPort", {
+                  valueAsNumber: true,
+                  min: { value: 1, message: "Invalid port" },
+                  max: { value: 65535, message: "Invalid port" },
+                })}
+              />
+            </FormField>
+            <SwitchField
+              id={fieldId("smtpSecure")}
+              label="SSL"
+              checked={smtpSecure}
+              onCheckedChange={(checked) => setValue("smtpSecure", checked)}
+            />
+            <SwitchField
+              id={fieldId("smtpRequireTls")}
+              label="TLS"
+              checked={smtpRequireTls}
+              onCheckedChange={(checked) => setValue("smtpRequireTls", checked)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3 pb-2 sm:flex sm:items-end sm:justify-between">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="smtpSecure" className="text-xs">
-                SSL
-              </Label>
-              <Switch
-                id="smtpSecure"
-                checked={smtpSecure}
-                disabled={!smtpEnabled}
-                onCheckedChange={(checked) => setValue("smtpSecure", checked)}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="smtpRequireTls" className="text-xs">
-                TLS
-              </Label>
-              <Switch
-                id="smtpRequireTls"
-                checked={smtpRequireTls}
-                disabled={!smtpEnabled}
-                onCheckedChange={(checked) =>
-                  setValue("smtpRequireTls", checked)
-                }
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border px-3 py-2">
-          <Label
-            htmlFor="useSameCredentialsForSending"
-            className="cursor-pointer text-xs"
-          >
-            Use same credentials for sending
-          </Label>
-          <Switch
-            id="useSameCredentialsForSending"
+          <FormField label="From name" htmlFor={fieldId("smtpFromName")}>
+            <Input
+              id={fieldId("smtpFromName")}
+              placeholder="Optional"
+              {...register("smtpFromName")}
+            />
+          </FormField>
+          <FormField label="From address" htmlFor={fieldId("smtpFromAddress")}>
+            <Input
+              id={fieldId("smtpFromAddress")}
+              type="email"
+              placeholder="Account address"
+              {...register("smtpFromAddress")}
+            />
+          </FormField>
+          <SwitchField
+            id={fieldId("useSameCredentialsForSending")}
+            label="IMAP credentials"
             checked={useSameCredentialsForSending}
-            disabled={!smtpEnabled}
             onCheckedChange={(checked) =>
               setValue("useSameCredentialsForSending", checked)
             }
           />
-        </div>
+          <div className="hidden sm:block" />
+          {!useSameCredentialsForSending ? (
+            <>
+              <FormField label="Username" htmlFor={fieldId("smtpUser")}>
+                <Input
+                  id={fieldId("smtpUser")}
+                  type="email"
+                  placeholder="sender@example.com"
+                  {...register("smtpUser")}
+                />
+              </FormField>
+              <FormField label="Password" htmlFor={fieldId("smtpPassword")}>
+                <Input
+                  id={fieldId("smtpPassword")}
+                  type="password"
+                  placeholder={isEditing ? "Unchanged" : ""}
+                  {...register("smtpPassword")}
+                />
+              </FormField>
+            </>
+          ) : null}
+        </FormGrid>
+      ) : null}
 
-        {smtpEnabled && !useSameCredentialsForSending && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="smtpUser" className="text-xs">
-                SMTP Username
-              </Label>
-              <Input
-                id="smtpUser"
-                type="email"
-                placeholder="sender@example.com"
-                className="h-9 text-sm"
-                disabled={!smtpEnabled}
-                {...register("smtpUser")}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="smtpPassword" className="text-xs">
-                SMTP Password
-              </Label>
-              <Input
-                id="smtpPassword"
-                type="password"
-                placeholder={isEditing ? "Leave blank to keep current" : ""}
-                className="h-9 text-sm"
-                disabled={!smtpEnabled}
-                {...register("smtpPassword")}
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="inboxName" className="text-xs">
-              Inbox
-            </Label>
-            <Input
-              id="inboxName"
-              className="h-9 text-sm"
-              disabled={isEditing}
-              {...register("inboxName", {
-                required: isEditing ? false : "Inbox name is required",
-              })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="smtpFromName" className="text-xs">
-              From Name
-            </Label>
-            <Input
-              id="smtpFromName"
-              placeholder="Optional"
-              className="h-9 text-sm"
-              disabled={!smtpEnabled}
-              {...register("smtpFromName")}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="smtpFromAddress" className="text-xs">
-              From Email
-            </Label>
-            <Input
-              id="smtpFromAddress"
-              type="email"
-              placeholder="Defaults to account"
-              className="h-9 text-sm"
-              disabled={!smtpEnabled}
-              {...register("smtpFromAddress")}
-            />
-          </div>
-        </div>
-
-        {error && (
-          <div className="rounded-md bg-destructive/10 p-2.5 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-
-        <div className="flex gap-2 pt-1">
-          <Button
-            type="submit"
-            disabled={loading}
-            className="flex-1 text-xs"
-            size="sm"
-          >
-            {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            {loading
-              ? "Testing connections..."
-              : isEditing
-                ? "Save Changes"
-                : "Add Account"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => handleOpenChange(false)}
-            disabled={loading}
-            size="sm"
-            className="text-xs"
-          >
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </ResponsiveDialog>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </FormDialog>
   );
 }

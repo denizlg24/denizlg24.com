@@ -28,6 +28,7 @@ const UserSettingsContext = createContext<UserSettingsContextType | null>(null);
 const KNOWN_ROUTES = new Set([
   "/",
   "/dashboard",
+  "/dashboard/page",
   "/dashboard/agent-memory",
   "/dashboard/agent-tasks",
   "/dashboard/blog",

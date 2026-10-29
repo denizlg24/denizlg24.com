@@ -1,4 +1,8 @@
-import type { FinanceForecast, FinanceLedgerEntry } from "@repo/schemas";
+import type {
+  FinanceDashboardResponse,
+  FinanceForecast,
+  FinanceLedgerEntry,
+} from "@repo/schemas";
 import { formatMoney, minorToMajor } from "@repo/utils";
 
 const DAY_MS = 86_400_000;
@@ -64,6 +68,32 @@ export function visibleLedger(ledger: FinanceLedgerEntry[]) {
 /** Rows where money actually moved — the basis for every chart. */
 export function realizedLedger(ledger: FinanceLedgerEntry[]) {
   return visibleLedger(ledger).filter((row) => row.origin !== "projected");
+}
+
+/**
+ * Realized rows restated in the base currency, for anything that adds rows of
+ * different accounts together. A row with no rate for its date is left out
+ * rather than counted at par — 100 DKK is not €100.
+ */
+export function baseLedger(
+  data: Pick<FinanceDashboardResponse, "ledger" | "baseAmounts" | "monthly">,
+) {
+  return realizedLedger(data.ledger).flatMap((row) => {
+    const amountMinor = data.baseAmounts[row.id];
+    if (amountMinor === undefined) return [];
+    return [{ ...row, amountMinor, currency: data.monthly.currency }];
+  });
+}
+
+/** `baseLedger` without reversal pairs: what counts as spend and income. */
+export function countedLedger(
+  data: Pick<
+    FinanceDashboardResponse,
+    "ledger" | "baseAmounts" | "monthly" | "reversalIds"
+  >,
+) {
+  const reversals = new Set(data.reversalIds);
+  return baseLedger(data).filter((row) => !reversals.has(row.id));
 }
 
 export type DayFlow = {

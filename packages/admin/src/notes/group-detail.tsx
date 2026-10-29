@@ -1,23 +1,26 @@
 "use client";
 
 import type { INote, INoteGroup } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { Textarea } from "@repo/ui/textarea";
-import { ArrowLeft, FileText, FolderTree, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { RowActions } from "@repo/ui/toolbar";
+import {
+  ArrowLeft,
+  CalendarClock,
+  FileText,
+  Folder,
+  FolderTree,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { formatDate, relativeDate } from "./format";
 import { GroupTreeCombobox } from "./group-tree-combobox";
 
 interface GroupDetailProps {
@@ -30,8 +33,6 @@ interface GroupDetailProps {
   onSelectNote: (note: INote) => void;
   onSelectGroup: (group: INoteGroup) => void;
 }
-
-const NONE_VALUE = "__none__";
 
 function descendantIds(rootId: string, groups: INoteGroup[]): Set<string> {
   const result = new Set<string>();
@@ -64,25 +65,12 @@ export function GroupDetail({
 }: GroupDetailProps) {
   const [name, setName] = useState(group.name);
   const [description, setDescription] = useState(group.description || "");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     setName(group.name);
     setDescription(group.description || "");
   }, [group.name, group.description]);
-
-  const parentOptions = useMemo(() => {
-    const forbidden = descendantIds(group._id, groups);
-    forbidden.add(group._id);
-
-    return groups
-      .filter((candidate) => !forbidden.has(candidate._id))
-      .sort((left, right) => left.name.localeCompare(right.name));
-  }, [group._id, groups]);
-
-  const parent = useMemo(() => {
-    if (!group.parentId) return null;
-    return groups.find((candidate) => candidate._id === group.parentId) ?? null;
-  }, [group.parentId, groups]);
 
   const subtreeIds = useMemo(() => {
     const result = descendantIds(group._id, groups);
@@ -90,28 +78,52 @@ export function GroupDetail({
     return result;
   }, [group._id, groups]);
 
+  const parentOptions = useMemo(
+    () =>
+      groups
+        .filter((candidate) => !subtreeIds.has(candidate._id))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [groups, subtreeIds],
+  );
+
+  const parent = useMemo(() => {
+    if (!group.parentId) return null;
+    return groups.find((candidate) => candidate._id === group.parentId) ?? null;
+  }, [group.parentId, groups]);
+
   const members = useMemo(
     () =>
-      notes.filter((note) =>
-        (note.groupIds ?? []).some((groupId) => subtreeIds.has(groupId)),
-      ),
+      notes
+        .filter((note) =>
+          (note.groupIds ?? []).some((groupId) => subtreeIds.has(groupId)),
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt).getTime() -
+            new Date(left.updatedAt).getTime(),
+        ),
     [notes, subtreeIds],
   );
 
   const directMemberCount = useMemo(
     () =>
       notes.filter((note) => (note.groupIds ?? []).includes(group._id)).length,
-    [group._id, notes],
+    [notes, group._id],
   );
+  const nestedMemberCount = members.length - directMemberCount;
 
   const children = groups.filter(
     (candidate) => candidate.parentId === group._id,
   );
-  const nestedMemberCount = members.length - directMemberCount;
 
   const saveName = () => {
-    if (name.trim() && name !== group.name) {
-      void onUpdate(group._id, { name: name.trim() });
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setName(group.name);
+      return;
+    }
+    if (trimmed !== group.name) {
+      void onUpdate(group._id, { name: trimmed });
     }
   };
 
@@ -121,193 +133,168 @@ export function GroupDetail({
     }
   };
 
-  const handleParentChange = (value: string) => {
-    const next = value === NONE_VALUE ? null : value;
+  const changeParent = (next: string | null) => {
     if ((group.parentId ?? null) === next) return;
     void onUpdate(group._id, { parentId: next });
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={onBack} title="Back">
-            <ArrowLeft className="size-4" />
-          </Button>
-          <FolderTree className="size-4 shrink-0" />
-          <div className="flex min-w-0 items-center gap-1.5 text-xs">
-            {parent && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onSelectGroup(parent)}
-                  className="truncate text-muted-foreground hover:text-foreground"
-                >
-                  {parent.name}
-                </button>
-                <span className="text-muted-foreground">/</span>
-              </>
-            )}
-            <span className="truncate font-medium">{group.name}</span>
-          </div>
-        </div>
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs text-destructive hover:text-destructive"
-            >
-              <Trash2 className="size-3.5" />
-              <span className="hidden sm:inline">Delete</span>
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent size="sm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete folder?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Child folders become top-level. Notes stay but lose this
-                membership.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => void onDelete(group._id)}
+      <div className="flex h-10 shrink-0 items-center gap-1.5 border-b px-3">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          aria-label="Back"
+        >
+          <ArrowLeft />
+        </Button>
+        <FolderTree className="size-4 shrink-0 text-muted-foreground" />
+        <div className="flex min-w-0 flex-1 items-center gap-1 text-xs">
+          {parent && (
+            <>
+              <button
+                type="button"
+                onClick={() => onSelectGroup(parent)}
+                className="truncate rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-surface hover:text-accent-strong"
               >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                {parent.name}
+              </button>
+              <span className="text-muted-foreground/50">/</span>
+            </>
+          )}
+          <span className="truncate px-1 text-accent-strong">{group.name}</span>
+        </div>
+        <RowActions label="Group actions">
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => setDeleteOpen(true)}
+          >
+            <Trash2 />
+            Delete
+          </DropdownMenuItem>
+        </RowActions>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl space-y-5 p-4 sm:p-6">
-          <div className="space-y-2">
-            <Label className="text-xs">Name</Label>
-            <Input
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-5 pt-8 pb-16 sm:px-10">
+          <div className="flex flex-col gap-2">
+            <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               onBlur={saveName}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  (event.target as HTMLInputElement).blur();
-                }
+                if (event.key === "Enter") event.currentTarget.blur();
               }}
-              className="h-8 text-xs"
+              aria-label="Name"
+              placeholder="Untitled"
+              className="w-full bg-transparent text-3xl font-semibold leading-tight tracking-tight text-accent-strong outline-none placeholder:text-muted-foreground/50"
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Description</Label>
-            <Textarea
+            <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               onBlur={saveDescription}
-              placeholder="What this folder is about..."
-              className="min-h-20 text-xs"
+              aria-label="Description"
+              placeholder="Description"
+              rows={2}
+              className="field-sizing-content min-h-6 w-full resize-none bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground/50 focus:text-accent-strong"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs">Parent folder</Label>
-            <GroupTreeCombobox
-              groups={[
-                {
-                  _id: NONE_VALUE,
-                  name: "None",
-                  autoCreated: false,
-                  createdAt: new Date().toDateString(),
-                  updatedAt: new Date().toDateString(),
-                },
-                ...parentOptions,
-              ]}
-              value={[parent ? parent._id : NONE_VALUE]}
-              onChange={(next) => {
-                const currentId = parent ? parent._id : NONE_VALUE;
-                if (next.length === 0) {
-                  handleParentChange(NONE_VALUE);
-                  return;
-                }
-                const added = next.find((id) => id !== currentId);
-                handleParentChange(added ?? NONE_VALUE);
-              }}
-              placeholder="None"
-              searchPlaceholder="Search group hierarchy..."
-              emptyMessage="No groups yet"
-            />
-          </div>
-
-          {children.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-xs">Sub-folders ({children.length})</Label>
-              <div className="flex flex-wrap gap-1">
-                {children.map((child) => (
-                  <button
-                    type="button"
-                    key={child._id}
-                    onClick={() => onSelectGroup(child)}
-                    className="max-w-full truncate rounded border px-2 py-0.5 text-[10px] hover:bg-muted"
-                  >
-                    {child.name}
-                  </button>
-                ))}
+          <Properties>
+            <Property icon={<Folder />} label="Parent">
+              <div className="flex flex-wrap items-center gap-1 py-1">
+                {parent && (
+                  <Badge variant="secondary" className="max-w-64">
+                    <span className="truncate">{parent.name}</span>
+                  </Badge>
+                )}
+                <GroupTreeCombobox
+                  groups={parentOptions}
+                  value={parent ? [parent._id] : []}
+                  onChange={(next) =>
+                    changeParent(next.find((id) => id !== parent?._id) ?? null)
+                  }
+                  placeholder={parent ? "Change" : "None"}
+                  searchPlaceholder="Search groups…"
+                  emptyMessage="No groups"
+                />
               </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label className="text-xs">
-              Members ({members.length})
-              {nestedMemberCount > 0 && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  {directMemberCount} direct, {nestedMemberCount} nested
-                </span>
-              )}
-            </Label>
-            <div className="divide-y rounded border">
-              {members.length === 0 ? (
-                <div className="p-3 text-xs text-muted-foreground">
-                  No notes in this folder.
+            </Property>
+            {children.length > 0 && (
+              <Property icon={<FolderTree />} label="Sub-groups">
+                <div className="flex flex-wrap gap-1 py-1">
+                  {children.map((child) => (
+                    <button
+                      type="button"
+                      key={child._id}
+                      onClick={() => onSelectGroup(child)}
+                      className="inline-flex h-6 items-center rounded-md bg-surface px-1.5 text-xs text-accent-strong transition-colors hover:bg-muted"
+                    >
+                      {child.name}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                members.map((note) => (
-                  <button
-                    type="button"
+              </Property>
+            )}
+            <Property
+              icon={group.autoCreated ? <Sparkles /> : <CalendarClock />}
+              label="Created"
+            >
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {formatDate(group.createdAt)}
+                {group.autoCreated ? " · auto" : ""}
+              </span>
+            </Property>
+          </Properties>
+
+          <Section
+            title="Notes"
+            count={
+              nestedMemberCount > 0
+                ? `${directMemberCount} + ${nestedMemberCount}`
+                : members.length
+            }
+          >
+            {members.length === 0 ? (
+              <EmptyState compact icon={<FileText />} label="No notes" />
+            ) : (
+              <List>
+                {members.map((note) => (
+                  <ListRow
                     key={note._id}
                     onClick={() => onSelectNote(note)}
-                    className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/40"
-                  >
-                    {note.favicon ? (
-                      <img
-                        src={note.favicon}
-                        alt=""
-                        className="size-3.5 shrink-0 rounded-sm"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="flex size-3.5 shrink-0 items-center justify-center rounded-sm bg-muted text-[8px] text-muted-foreground">
-                        <FileText className="size-3" />
-                      </div>
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-xs">
-                      {note.title}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="text-[10px] text-muted-foreground">
-            {group.autoCreated ? "Auto-created" : "Manually created"} -{" "}
-            {new Date(group.createdAt).toLocaleDateString()}
-          </div>
+                    leading={
+                      note.favicon ? (
+                        <img
+                          src={note.favicon}
+                          alt=""
+                          className="size-3.5 rounded-sm"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <FileText />
+                      )
+                    }
+                    title={note.title || "Untitled"}
+                    meta={relativeDate(note.updatedAt)}
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete group?"
+        description="Child groups move to the top level; notes keep their other groups."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => onDelete(group._id)}
+      />
     </div>
   );
 }

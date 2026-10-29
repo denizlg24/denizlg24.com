@@ -14,6 +14,7 @@ import type {
   FinanceEnvelopeStatus,
   FinanceLedgerEntry,
 } from "@repo/schemas";
+import { pickDisplayBalance } from "@repo/schemas";
 import type { Quote } from "@repo/schemas/markets";
 import { formatMoney } from "@repo/utils";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -142,7 +143,7 @@ function Overview({ finance }: { finance: FinanceDashboardResponse }) {
     (review) => review.status === "pending",
   );
   const balance = (accountId: string) =>
-    finance.balances.find((row) => row.accountId === accountId);
+    pickDisplayBalance(finance.balances, accountId);
   const recent = finance.ledger
     .filter((entry) => entry.origin !== "projected" && entry.state !== "void")
     .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate))

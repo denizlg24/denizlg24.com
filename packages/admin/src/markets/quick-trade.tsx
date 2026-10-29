@@ -14,6 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Skeleton } from "@repo/ui/skeleton";
+import { cn } from "@repo/ui/utils";
 import { useCallback, useEffect, useState } from "react";
 import { useAdmin } from "../provider";
 import { money, trimQuantity } from "./format";
@@ -119,10 +121,32 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
     performance?.positions.find((position) => position.ticker === ticker) ??
     null;
 
+  const picker = (
+    <div className="mb-3 flex items-center gap-2 border-b pb-3">
+      <Select value={selected} onValueChange={choose}>
+        <SelectTrigger size="sm" className="h-7 flex-1 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {portfolios.map((item) => (
+            <SelectItem key={item.id} value={item.id} className="text-xs">
+              {item.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {performance ? (
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {money(performance.metrics.cash)} {portfolio.baseCurrency}
+        </span>
+      ) : null}
+    </div>
+  );
+
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
       {held && held.quantity !== 0 ? (
-        <span className="text-[10px] text-muted-foreground tabular-nums">
+        <span className="mr-1 text-xs text-muted-foreground tabular-nums">
           {held.quantity < 0 ? "short " : ""}
           {trimQuantity(Math.abs(held.quantity))} @ {held.avgCost.toFixed(2)}
         </span>
@@ -146,40 +170,20 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
                 (!held || held.quantity <= 0) &&
                 !portfolio.allowShorts
               }
-              className={`h-7 px-2.5 text-xs ${
+              className={cn(
                 side === "buy"
-                  ? "border-emerald-600/40 text-emerald-700 hover:bg-emerald-600/10 dark:text-emerald-500"
-                  : "border-red-600/40 text-red-700 hover:bg-red-600/10 dark:text-red-500"
-              }`}
+                  ? "text-status-good hover:bg-status-good/10 hover:text-status-good"
+                  : "text-status-critical hover:bg-status-critical/10 hover:text-status-critical",
+              )}
             >
               {side === "buy" ? "Buy" : "Sell"}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <Select value={selected} onValueChange={choose}>
-                <SelectTrigger size="sm" className="h-7 flex-1 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {portfolios.map((item) => (
-                    <SelectItem
-                      key={item.id}
-                      value={item.id}
-                      className="text-xs"
-                    >
-                      {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {performance ? (
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {money(performance.metrics.cash)}
-                </span>
-              ) : null}
-            </div>
-
+          <PopoverContent
+            align="end"
+            className="max-h-[80vh] w-96 overflow-y-auto p-4"
+          >
+            {picker}
             <TradeTicket
               key={`${selected}:${ticker}:${side}`}
               baseCurrency={portfolio.baseCurrency}
@@ -205,28 +209,15 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
         onOpenChange={(next) => setOpen(next ? "order" : null)}
       >
         <PopoverTrigger asChild>
-          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+          <Button size="sm" variant="ghost">
             Order
           </Button>
         </PopoverTrigger>
         <PopoverContent
           align="end"
-          className="max-h-[70vh] w-80 overflow-y-auto p-3"
+          className="max-h-[80vh] w-96 overflow-y-auto p-4"
         >
-          <div className="mb-2 flex items-center gap-2">
-            <Select value={selected} onValueChange={choose}>
-              <SelectTrigger size="sm" className="h-7 flex-1 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {portfolios.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="text-xs">
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {picker}
           {performance ? (
             <OrderTicket
               key={`${selected}:${ticker}`}
@@ -241,7 +232,11 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
               onDone={() => setOpen(null)}
             />
           ) : (
-            <div className="text-muted-foreground text-xs">—</div>
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-7 w-full" />
+              <Skeleton className="h-7 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
           )}
         </PopoverContent>
       </Popover>

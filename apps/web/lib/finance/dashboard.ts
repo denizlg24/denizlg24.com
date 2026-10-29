@@ -8,6 +8,7 @@ import type {
   FinanceLedgerEntry as FinanceLedgerEntryWire,
   FinanceRecurringRule as FinanceRecurringRuleWire,
 } from "@repo/schemas";
+import { FINANCE_BALANCE_PREFERENCE } from "@repo/schemas";
 import { convertMinorWithRate, majorToMinor } from "@repo/utils";
 import { getLatestBrokerageValuation } from "@/lib/brokerage/overview";
 import { connectDB } from "@/lib/mongodb";
@@ -34,9 +35,9 @@ import {
   deduplicateLinkedLedger,
   detectRecurringFinanceCandidates,
 } from "./core";
+import { reversalPairIds } from "./envelope-math";
 import { getFinanceSettings, serializeFinanceSettings } from "./settings";
 
-const BALANCE_PREFERENCE = ["CLAV", "CLBD", "ITAV", "XPCD"];
 const LEDGER_WINDOW_DAYS = 400;
 const FX_SNAPSHOT_LIMIT = 2_000;
 
@@ -214,7 +215,7 @@ export function selectDisplayBalances(
     const accountBalances = balances.filter(
       (balance) => balance.accountId.toString() === accountId,
     );
-    for (const balanceType of BALANCE_PREFERENCE) {
+    for (const balanceType of FINANCE_BALANCE_PREFERENCE) {
       const balance = accountBalances.find(
         (candidate) => candidate.balanceType === balanceType,
       );
@@ -368,6 +369,7 @@ export async function getFinanceDashboard(
   const asOfDate = now.toISOString().slice(0, 10);
   const monthStart = `${asOfDate.slice(0, 7)}-01`;
   const unconvertedLedgerByCurrency = new Map<string, number>();
+  const baseAmounts: Record<string, number> = {};
   const forecastLedger = ledger.flatMap((row) => {
     const converted = convertMinorToBase(
       row.amountMinor,
@@ -386,10 +388,13 @@ export async function getFinanceDashboard(
       }
       return [];
     }
+    baseAmounts[row.id] = converted;
     return [{ ...row, amountMinor: converted, currency: baseCurrency }];
   });
+  const reversals = reversalPairIds(ledger);
   const counted = deduplicateLinkedLedger(forecastLedger).filter(
     (row) =>
+      !reversals.has(row.id) &&
       row.effectiveDate >= monthStart &&
       row.effectiveDate <= asOfDate &&
       row.currency === baseCurrency &&
@@ -432,6 +437,8 @@ export async function getFinanceDashboard(
       ),
     },
     ledger,
+    baseAmounts,
+    reversalIds: [...reversals],
     recurringRules: rules.map(serializeFinanceRecurringRule),
     recurringCommitment: computeRecurringCommitment({
       rules,

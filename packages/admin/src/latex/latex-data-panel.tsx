@@ -7,10 +7,12 @@ import type {
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
 import { ScrollArea } from "@repo/ui/scroll-area";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import { BookPlus, Check, ExternalLink, Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { BookPlus, Check, ExternalLink, Search, TextQuote } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 
@@ -73,11 +75,14 @@ export function LatexDataPanel({
   const [accepting, setAccepting] = useState<string | null>(null);
   const [acceptedKeys, setAcceptedKeys] = useState<Record<string, string>>({});
 
+  // Prefill once; refilling whenever the field is empty made it impossible
+  // to clear.
+  const prefilled = useRef(false);
   useEffect(() => {
-    if (!query && activeParagraph.trim().length >= 3) {
-      setQuery(activeParagraph.trim().slice(0, 2_000));
-    }
-  }, [activeParagraph, query]);
+    if (prefilled.current || activeParagraph.trim().length < 3) return;
+    prefilled.current = true;
+    setQuery((current) => current || activeParagraph.trim().slice(0, 2_000));
+  }, [activeParagraph]);
 
   const conflictingUnits = useMemo(() => {
     const byUnit = new Map<string, Set<string>>();
@@ -115,15 +120,15 @@ export function LatexDataPanel({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="min-w-0 space-y-2 border-b p-3">
+      <div className="flex min-w-0 flex-col gap-2 border-b p-3">
         <div className="flex min-w-0 gap-2">
           <Textarea
             name="data-point-query"
             aria-label="Data-point research question"
             autoComplete="off"
             value={query}
-            className="min-h-16 min-w-0 flex-1 resize-none text-xs"
-            placeholder="Metric, population, place, and period…"
+            className="min-h-16 min-w-0 flex-1 resize-none"
+            placeholder="Metric, population, place, period"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -133,52 +138,50 @@ export function LatexDataPanel({
             }}
           />
           <Button
-            size="icon-sm"
+            variant="outline"
+            size="icon"
             className="shrink-0"
             aria-label="Search verified data points"
             disabled={searching || query.trim().length < 3}
             onClick={() => void search()}
           >
-            {searching ? <Loader2 className="animate-spin" /> : <Search />}
+            {searching ? <Spinner className="size-3.5" /> : <Search />}
           </Button>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-          {activeParagraph.trim() ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[10px]"
-              onClick={() => setQuery(activeParagraph.trim().slice(0, 2_000))}
-            >
-              Use active paragraph
-            </Button>
-          ) : null}
-          <span>Exact passage, value, and unit must agree.</span>
-        </div>
+        {activeParagraph.trim() ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="self-start text-muted-foreground"
+            onClick={() => setQuery(activeParagraph.trim().slice(0, 2_000))}
+          >
+            <TextQuote /> Active paragraph
+          </Button>
+        ) : null}
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 flex-1">
-        <div className="min-w-0 divide-y">
+        <div className="flex min-w-0 flex-col divide-y divide-border/70 px-3">
           {result ? (
-            <div className="space-y-1.5 px-3 py-2 text-[10px] text-muted-foreground">
+            <div className="flex flex-col gap-1 py-3 text-xs text-muted-foreground">
               <p className="line-clamp-2 break-words">
-                <span className="font-medium text-foreground">Intent:</span>{" "}
-                {result.intent.metric}
+                <span className="text-accent-strong">
+                  {result.intent.metric}
+                </span>
                 {result.intent.desiredUnit
                   ? ` · ${result.intent.desiredUnit}`
                   : ""}
               </p>
-              <p>
-                Inspected {result.inspectedPassages} abstract passages ·{" "}
-                {result.candidates.length} verified candidates
+              <p className="tabular-nums">
+                {result.inspectedPassages} passages · {result.candidates.length}{" "}
+                verified
                 {result.rejectedCandidates
-                  ? ` · rejected ${result.rejectedCandidates}`
+                  ? ` · ${result.rejectedCandidates} rejected`
                   : ""}
               </p>
               {conflictingUnits.length > 0 ? (
-                <p className="font-medium text-amber-700 dark:text-amber-400">
-                  Conflicting estimates found for {conflictingUnits.join(", ")}
-                  {"; compare their populations and methods."}
+                <p className="text-status-warning">
+                  Conflicting estimates: {conflictingUnits.join(", ")}
                 </p>
               ) : null}
             </div>
@@ -188,49 +191,48 @@ export function LatexDataPanel({
             const identity = candidateIdentity(candidate);
             const citationKey =
               acceptedKeys[identity] ?? candidate.reference.citationKey;
+            const url = candidate.reference.url;
             return (
-              <article key={candidate.id} className="min-w-0 space-y-2 p-3">
+              <article
+                key={candidate.id}
+                className="flex min-w-0 flex-col gap-1.5 py-3"
+              >
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold tabular-nums">
+                    <p className="truncate font-calistoga text-lg leading-tight tabular-nums text-accent-strong">
                       {candidate.value} {candidate.unit}
                     </p>
                     <h3
-                      className="mt-0.5 line-clamp-2 break-words text-[11px] font-medium"
+                      className="mt-0.5 line-clamp-2 break-words text-xs text-accent-strong"
                       title={candidate.reference.title}
                     >
                       {candidate.reference.title}
                     </h3>
                   </div>
-                  <Badge variant="outline" className="shrink-0 text-[9px]">
+                  <Badge variant="good" className="shrink-0">
                     Verified
                   </Badge>
                 </div>
                 {sourceLine(candidate) ? (
-                  <p className="line-clamp-2 break-words text-[10px] text-muted-foreground">
+                  <p className="line-clamp-2 break-words text-xs text-muted-foreground">
                     {sourceLine(candidate)}
                   </p>
                 ) : null}
-                <blockquote className="min-w-0 border-l-2 pl-2 text-[10px] leading-4 text-muted-foreground">
+                <blockquote className="min-w-0 border-l-2 pl-2 text-xs leading-5 text-muted-foreground">
                   <span className="line-clamp-5 break-words">
                     {candidate.supportingPassage}
                   </span>
                 </blockquote>
-                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-1 pt-0.5">
                   {citationKey ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 min-w-0 text-[10px]"
-                      disabled
-                    >
-                      <Check />
-                      <span className="truncate">{citationKey}</span>
-                    </Button>
+                    <span className="flex min-w-0 items-center gap-1 px-1 text-xs text-status-good">
+                      <Check className="size-3.5 shrink-0" />
+                      <span className="truncate font-mono">{citationKey}</span>
+                    </span>
                   ) : (
                     <Button
-                      size="sm"
-                      className="h-7 min-w-0 text-[10px]"
+                      variant="outline"
+                      size="xs"
                       disabled={accepting === identity}
                       onClick={() => {
                         setAccepting(identity);
@@ -248,17 +250,16 @@ export function LatexDataPanel({
                       }}
                     >
                       {accepting === identity ? (
-                        <Loader2 className="animate-spin" />
+                        <Spinner className="size-3" />
                       ) : (
                         <BookPlus />
                       )}
-                      <span className="truncate">Add source</span>
+                      Add source
                     </Button>
                   )}
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px]"
+                    size="xs"
                     onClick={() => onInsertText(valueWithUnit(candidate))}
                   >
                     Insert value
@@ -267,16 +268,14 @@ export function LatexDataPanel({
                     <>
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px]"
+                        size="xs"
                         onClick={() => onInsertText(`\\cite{${citationKey}}`)}
                       >
                         Cite
                       </Button>
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px]"
+                        size="xs"
                         onClick={() =>
                           onInsertText(
                             `${valueWithUnit(candidate)} & \\cite{${citationKey}} \\\\\n`,
@@ -287,14 +286,13 @@ export function LatexDataPanel({
                       </Button>
                     </>
                   ) : null}
-                  {candidate.reference.url ? (
+                  {url ? (
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-xs"
+                      className="text-muted-foreground"
                       aria-label="Open evidence source"
-                      onClick={() =>
-                        platform.openExternal(candidate.reference.url as string)
-                      }
+                      onClick={() => platform.openExternal(url)}
                     >
                       <ExternalLink />
                     </Button>
@@ -305,16 +303,7 @@ export function LatexDataPanel({
           })}
 
           {!searching && result && result.candidates.length === 0 ? (
-            <div className="px-6 py-12 text-center text-xs text-muted-foreground">
-              No exact numerical evidence was found in the inspected abstracts.
-              Try a more specific metric, population, or period.
-            </div>
-          ) : null}
-          {!searching && !result ? (
-            <div className="px-6 py-12 text-center text-xs text-muted-foreground">
-              Search project references and OpenAlex for inspectable numerical
-              evidence.
-            </div>
+            <EmptyState compact icon={<Search />} label="No verified values" />
           ) : null}
         </div>
       </ScrollArea>

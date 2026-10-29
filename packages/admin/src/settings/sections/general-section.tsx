@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@repo/ui/spinner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../../provider";
@@ -90,38 +90,34 @@ function TimeZoneSetting() {
     value !== deviceTimeZone && timeZones.includes(deviceTimeZone);
 
   return (
-    <SettingsRow
-      label="Timezone"
-      hint="Day boundaries, schedules and reminders on the backend."
-    >
+    <SettingsRow label="Timezone">
       {!settings ? (
         <Skeleton className="h-8 w-full" />
       ) : (
-        <div className="flex items-center gap-1.5">
+        <div className="flex w-full items-center gap-1.5">
           {saving && (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+            <Spinner className="size-3.5 shrink-0 text-muted-foreground" />
           )}
           {canUseDevice && (
             <Button
               variant="outline"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
+              className="shrink-0"
               onClick={() => void commit(deviceTimeZone)}
             >
               Use device
             </Button>
           )}
           <Select value={value} onValueChange={(next) => void commit(next)}>
-            <SelectTrigger className="h-8 w-full min-w-0 text-xs">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" className="max-h-72">
-              <SelectItem value={TIMEZONE_DEFAULT} className="text-xs">
+              <SelectItem value={TIMEZONE_DEFAULT}>
                 Server default
                 {settings.timeZone ? "" : ` (${settings.effectiveTimeZone})`}
               </SelectItem>
               {timeZones.map((zone) => (
-                <SelectItem key={zone} value={zone} className="text-xs">
+                <SelectItem key={zone} value={zone}>
                   {zone.replaceAll("_", " ")}
                 </SelectItem>
               ))}
@@ -180,14 +176,15 @@ function HolidayCountrySetting() {
     };
   }, [client]);
 
-  // Nothing stored yet: pre-select the host's region so saving is one click.
-  useEffect(() => {
-    if (stored?.holidayCountryCode || value !== COUNTRY_NONE) return;
-    if (countries.length === 0 || typeof navigator === "undefined") return;
+  // Nothing stored yet: offer the host's region as a one-click save. Selecting
+  // it in the picker instead would show a country the backend never stored.
+  const suggestedRegion = useMemo(() => {
+    if (stored?.holidayCountryCode || value !== COUNTRY_NONE) return null;
+    if (countries.length === 0 || typeof navigator === "undefined") return null;
     const region = regionFromLocale(navigator.language);
-    if (region && countries.some((entry) => entry.countryCode === region)) {
-      setValue(region);
-    }
+    return region && countries.some((entry) => entry.countryCode === region)
+      ? region
+      : null;
   }, [countries, stored?.holidayCountryCode, value]);
 
   const commit = async (next: string) => {
@@ -209,35 +206,38 @@ function HolidayCountrySetting() {
   };
 
   return (
-    <SettingsRow
-      label="Holiday calendar"
-      hint="Country whose public holidays the backend generates events for."
-    >
+    <SettingsRow label="Holidays">
       {loading ? (
         <Skeleton className="h-8 w-full" />
       ) : (
-        <div className="flex items-center gap-1.5">
+        <div className="flex w-full items-center gap-1.5">
           {saving && (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+            <Spinner className="size-3.5 shrink-0 text-muted-foreground" />
           )}
           {countriesFailed && (
-            <span className="shrink-0 text-[11px] text-status-warning">
+            <span className="shrink-0 text-xs text-status-warning">
               Countries unavailable
             </span>
           )}
+          {suggestedRegion && (
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => void commit(suggestedRegion)}
+            >
+              Use {suggestedRegion}
+            </Button>
+          )}
           <Select value={value} onValueChange={(next) => void commit(next)}>
-            <SelectTrigger className="h-8 w-full min-w-0 text-xs">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" className="max-h-72">
-              <SelectItem value={COUNTRY_NONE} className="text-xs">
-                No holiday sync
-              </SelectItem>
+              <SelectItem value={COUNTRY_NONE}>None</SelectItem>
               {countries.map((country) => (
                 <SelectItem
                   key={country.countryCode}
                   value={country.countryCode}
-                  className="text-xs"
                 >
                   {country.name} ({country.countryCode})
                 </SelectItem>

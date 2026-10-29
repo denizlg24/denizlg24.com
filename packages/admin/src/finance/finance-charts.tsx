@@ -377,20 +377,3 @@ export function Sparkline({
     </svg>
   );
 }
-
-export function Meter({
-  share,
-  className,
-}: {
-  share: number;
-  className?: string;
-}) {
-  return (
-    <div className={cn("h-px w-full bg-border", className)}>
-      <div
-        className="h-px bg-foreground/70"
-        style={{ width: `${Math.min(100, Math.max(0, share * 100))}%` }}
-      />
-    </div>
-  );
-}

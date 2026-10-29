@@ -153,19 +153,20 @@ export function CandleChart({
       price.current = null;
     }
 
+    const { up, down, line } = palette(container.current);
     price.current =
       kind === "candles"
         ? instance.addSeries(CandlestickSeries, {
-            upColor: "#16a34a",
-            downColor: "#dc2626",
-            wickUpColor: "#16a34a",
-            wickDownColor: "#dc2626",
+            upColor: up,
+            downColor: down,
+            wickUpColor: up,
+            wickDownColor: down,
             borderVisible: false,
           })
         : instance.addSeries(AreaSeries, {
-            lineColor: "#2563eb",
-            topColor: "rgba(37,99,235,0.28)",
-            bottomColor: "rgba(37,99,235,0.02)",
+            lineColor: line,
+            topColor: withAlpha(line, 0.28),
+            bottomColor: withAlpha(line, 0.02),
             lineWidth: 2,
           });
   }, [kind]);
@@ -212,14 +213,13 @@ export function CandleChart({
       );
     }
 
+    const { up, down } = palette(container.current);
     volume.current?.setData(
       bars.map((bar, i) => ({
         time: times[i] as UTCTimestamp,
         value: bar.volume,
         color:
-          bar.close >= bar.open
-            ? "rgba(22,163,74,0.35)"
-            : "rgba(220,38,38,0.35)",
+          bar.close >= bar.open ? withAlpha(up, 0.35) : withAlpha(down, 0.35),
       })),
     );
   }, [bars, kind]);
@@ -286,6 +286,28 @@ export function CandleChart({
       className={`w-full overflow-hidden ${height === undefined ? "h-full" : ""}`}
     />
   );
+}
+
+/**
+ * The canvas cannot read CSS variables, so the status tokens are resolved when
+ * a series is created. A theme switch takes effect on the next rebuild.
+ */
+function palette(element: HTMLElement | null) {
+  const style = element ? getComputedStyle(element) : null;
+  const token = (name: string, fallback: string) =>
+    style?.getPropertyValue(name).trim() || fallback;
+  return {
+    up: token("--status-good", "#0ca30c"),
+    down: token("--status-critical", "#d03b3b"),
+    line: token("--status-info", "#4a7ab0"),
+  };
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match?.[1]) return hex;
+  const value = Number.parseInt(match[1], 16);
+  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
 }
 
 function toTime(iso: string): number {

@@ -16,9 +16,12 @@ import {
   PopoverTrigger,
 } from "@repo/ui/popover";
 import { Check, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 interface Props {
+  /** `toolbar` renders a filter pill for PageToolbar. */
+  variant?: "inline" | "toolbar";
+  icon?: ReactNode;
   value: string[];
   onChange: (next: string[]) => void;
   suggestions: string[];
@@ -37,7 +40,16 @@ function formatSelectionLabel(count: number, placeholder: string) {
   return `${count} tag${count === 1 ? "" : "s"}`;
 }
 
+const TRIGGER_CLASS = {
+  inline:
+    "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-accent-strong",
+  toolbar:
+    "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-surface/60 hover:text-accent-strong data-[active]:bg-surface data-[active]:text-accent-strong dark:data-[active]:bg-muted",
+} as const;
+
 export function TagAutocomplete({
+  variant = "inline",
+  icon,
   value,
   onChange,
   suggestions,
@@ -96,9 +108,12 @@ export function TagAutocomplete({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
+              data-active={
+                variant === "toolbar" && value.length > 0 ? "" : undefined
+              }
+              className={TRIGGER_CLASS[variant]}
             >
-              <Plus className="size-2.5" />
+              {icon ?? <Plus className="size-3" />}
               {triggerLabel}
             </button>
           </PopoverTrigger>
@@ -138,7 +153,7 @@ export function TagAutocomplete({
                     addTag(query);
                     setOpen(false);
                   }}
-                  className="w-full px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  className="w-full px-2 py-1.5 text-left text-xs hover:bg-surface"
                 >
                   Create &ldquo;{query.trim()}&rdquo;
                 </button>

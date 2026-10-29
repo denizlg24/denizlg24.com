@@ -66,12 +66,12 @@ export function VoiceNoteBar({
   );
 
   return (
-    <div className="group/bar flex h-9 items-center gap-2 rounded-full border bg-muted/20 pr-2 pl-1">
+    <div className="group/bar flex h-9 items-center gap-2 rounded-md bg-surface/60 pr-2 pl-1 dark:bg-surface">
       <audio {...audioProps} />
       <button
         type="button"
         onClick={() => void togglePlayback()}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-surface"
+        className="flex size-7 shrink-0 items-center justify-center rounded-md text-accent-strong transition-colors hover:bg-background"
         aria-label={playing ? "Pause" : "Play"}
       >
         {loadingAudio ? (
@@ -83,7 +83,7 @@ export function VoiceNoteBar({
         )}
       </button>
 
-      <span className="min-w-0 max-w-40 shrink truncate text-[11px]">
+      <span className="min-w-0 max-w-40 shrink truncate text-xs text-accent-strong">
         {voiceNote.title}
       </span>
 
@@ -123,14 +123,16 @@ export function VoiceNoteBar({
           <span
             key={index}
             className={`w-full rounded-full transition-colors ${
-              index / BARS <= progress ? "bg-foreground/70" : "bg-foreground/20"
+              index / BARS <= progress
+                ? "bg-accent-strong/70"
+                : "bg-accent-strong/20"
             }`}
             style={{ height: `${Math.max(12, level * 100)}%` }}
           />
         ))}
       </button>
 
-      <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
         {formatDuration(currentMs)}/{formatDuration(durationMs)}
       </span>
 
@@ -146,7 +148,7 @@ export function VoiceNoteBar({
           type="button"
           onClick={onDetach}
           aria-label={`Detach ${voiceNote.title}`}
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/bar:opacity-100"
+          className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-accent-strong focus-visible:opacity-100 group-hover/bar:opacity-100"
         >
           <X className="size-3.5" />
         </button>

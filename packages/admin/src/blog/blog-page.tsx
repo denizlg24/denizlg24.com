@@ -1,37 +1,30 @@
 "use client";
 
 import type { IBlog } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import { SortHeader } from "@repo/ui/data-table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { PageHeader } from "@repo/ui/page-header";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
-import { Separator } from "@repo/ui/separator";
 import { Skeleton } from "@repo/ui/skeleton";
-import { TableSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { TableSkeleton } from "@repo/ui/skeleton-blocks";
+import {
+  FilterTabs,
+  RowActions,
+  SearchField,
+  ToolbarSpacer,
+} from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Eye,
   EyeOff,
-  MoreHorizontal,
   NotebookPen,
   Pencil,
   Plus,
@@ -40,69 +33,68 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
+import { formatRelativeDate } from "../projects/document-editor";
 import { useAdmin } from "../provider";
 
 type StatusFilter = "all" | "published" | "draft";
 
-function formatRelativeDate(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
+const ICON = <NotebookPen />;
 
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
+function BlogHeader({ children }: { children?: ReactNode }) {
+  const { slots } = useAdmin();
+  return (
+    <PageHeader leading={slots?.sidebarTrigger} icon={ICON} title="Blog">
+      {children}
+    </PageHeader>
+  );
 }
 
 export function BlogSkeleton() {
-  const { slots } = useAdmin();
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<NotebookPen className="size-4 text-muted-foreground" />}
-        title="Blog Posts"
-      />
-      <div className="px-4 flex flex-col gap-6 pt-3">
-        <div className="flex items-baseline gap-8">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <Skeleton className="h-3 w-14" />
-              <Skeleton className="h-6 w-8" />
-            </div>
-          ))}
-        </div>
-        <TabStripSkeleton widths={["w-10", "w-20", "w-14"]} />
+    <Page>
+      <BlogHeader />
+      <PageToolbar>
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-5 w-48" />
+      </PageToolbar>
+      <PageBody width="wide">
         <TableSkeleton
-          rows={5}
-          widths={["flex-1", "w-16", "w-16", "w-12", "w-16", "w-8"]}
+          rows={8}
+          widths={["flex-1", "w-24", "w-16", "w-10", "w-16", "w-8"]}
         />
-      </div>
-    </div>
+      </PageBody>
+    </Page>
+  );
+}
+
+function matchesQuery(blog: IBlog, query: string): boolean {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return (
+    blog.title.toLowerCase().includes(needle) ||
+    blog.slug.toLowerCase().includes(needle) ||
+    (blog.tags ?? []).some((tag) => tag.includes(needle))
   );
 }
 
 export function BlogPage() {
-  const { client, slots, routes } = useAdmin();
+  const { client, routes } = useAdmin();
   const router = useRouter();
 
   const [blogs, setBlogs] = useState<IBlog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<IBlog | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const fetchBlogs = useCallback(async () => {
     try {
@@ -112,331 +104,257 @@ export function BlogPage() {
       toast.error("Failed to load posts");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [client]);
 
   useEffect(() => {
-    fetchBlogs();
+    void fetchBlogs();
   }, [fetchBlogs]);
 
-  const stats = useMemo(() => {
+  const counts = useMemo(() => {
     const published = blogs.filter((b) => b.isActive).length;
-    return { total: blogs.length, published, draft: blogs.length - published };
+    return { all: blogs.length, published, draft: blogs.length - published };
   }, [blogs]);
 
-  const filteredBlogs = useMemo(() => {
-    if (filter === "all") return blogs;
-    if (filter === "published") return blogs.filter((b) => b.isActive);
-    return blogs.filter((b) => !b.isActive);
-  }, [blogs, filter]);
+  const visibleBlogs = useMemo(
+    () =>
+      blogs.filter((blog) => {
+        if (filter === "published" && !blog.isActive) return false;
+        if (filter === "draft" && blog.isActive) return false;
+        return matchesQuery(blog, query.trim());
+      }),
+    [blogs, filter, query],
+  );
 
-  const handleToggleActive = async (e: React.MouseEvent, blog: IBlog) => {
-    e.stopPropagation();
-
-    setBlogs((prev) =>
-      prev.map((b) =>
-        b._id === blog._id ? { ...b, isActive: !b.isActive } : b,
-      ),
-    );
-
-    try {
-      await client.patch<{ blog: IBlog }>(`blogs/${blog._id}`, {
-        toggleActive: true,
-      });
-    } catch {
-      toast.error("Failed to update status");
+  const handleToggleActive = useCallback(
+    async (blog: IBlog) => {
       setBlogs((prev) =>
         prev.map((b) =>
-          b._id === blog._id ? { ...b, isActive: blog.isActive } : b,
+          b._id === blog._id ? { ...b, isActive: !blog.isActive } : b,
         ),
       );
-    }
-  };
+      try {
+        await client.patch<{ blog: IBlog }>(`blogs/${blog._id}`, {
+          toggleActive: true,
+        });
+      } catch {
+        toast.error("Failed to update status");
+        setBlogs((prev) =>
+          prev.map((b) =>
+            b._id === blog._id ? { ...b, isActive: blog.isActive } : b,
+          ),
+        );
+      }
+    },
+    [client],
+  );
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
     try {
-      await client.del<{ message: string }>(`blogs/${deleteTarget._id}`);
-      setBlogs((prev) => prev.filter((b) => b._id !== deleteTarget._id));
+      await client.del<{ message: string }>(`blogs/${target._id}`);
+      setBlogs((prev) => prev.filter((b) => b._id !== target._id));
       toast.success("Post deleted");
     } catch {
       toast.error("Failed to delete post");
     }
-    setDeleting(false);
-    setDeleteTarget(null);
   };
 
-  const handleRowClick = (blog: IBlog) => {
-    router.push(routes.blog.edit(blog._id));
-  };
+  const openPost = useCallback(
+    (blog: IBlog) => router.push(routes.blog.edit(blog._id)),
+    [router, routes],
+  );
 
-  const columns: ColumnDef<IBlog, unknown>[] = [
-    {
-      accessorKey: "title",
-      header: ({ column }) => <SortHeader label="Title" column={column} />,
-      cell: ({ row }) => (
-        <div className="min-w-0">
-          <span className="font-medium block truncate max-w-[300px]">
-            {row.getValue("title")}
-          </span>
-          <span className="text-[10px] text-muted-foreground font-mono">
-            /{row.original.slug}
-          </span>
-        </div>
-      ),
-    },
-    {
-      accessorKey: "tags",
-      meta: { className: "hidden lg:table-cell" },
-      header: "Tags",
-      cell: ({ row }) => {
-        const tags = row.original.tags ?? [];
-        if (!tags.length)
-          return <span className="text-muted-foreground">-</span>;
-        return (
-          <div className="flex gap-1 flex-wrap max-w-[150px]">
-            {tags.slice(0, 3).map((tag) => (
-              <Badge
-                key={tag}
-                variant="secondary"
-                className="text-[10px] px-1.5 py-0"
-              >
-                {tag}
-              </Badge>
-            ))}
-            {tags.length > 3 && (
-              <span className="text-[10px] text-muted-foreground">
-                +{tags.length - 3}
-              </span>
-            )}
+  const columns = useMemo<ColumnDef<IBlog, unknown>[]>(
+    () => [
+      {
+        accessorKey: "title",
+        header: ({ column }) => <SortHeader label="Title" column={column} />,
+        cell: ({ row }) => (
+          <div className="flex min-w-0 flex-col">
+            <span className="max-w-[28rem] truncate text-accent-strong">
+              {row.original.title}
+            </span>
+            <span className="truncate font-mono text-[11px] text-muted-foreground">
+              /{row.original.slug}
+            </span>
           </div>
-        );
-      },
-    },
-    {
-      accessorKey: "isActive",
-      header: "Status",
-      cell: ({ row }) =>
-        row.original.isActive ? (
-          <Badge variant="default" className="text-[10px]">
-            Published
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px]">
-            Draft
-          </Badge>
         ),
-    },
-    {
-      accessorKey: "timeToRead",
-      meta: { className: "hidden md:table-cell" },
-      header: "Read",
-      cell: ({ row }) => (
-        <span className="text-muted-foreground tabular-nums">
-          {row.original.timeToRead}m
-        </span>
-      ),
-    },
-    {
-      accessorKey: "createdAt",
-      meta: { className: "hidden md:table-cell" },
-      header: ({ column }) => <SortHeader label="Created" column={column} />,
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">
-          {formatRelativeDate(row.getValue("createdAt"))}
-        </span>
-      ),
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => {
-        const blog = row.original;
-        return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRowClick(blog);
-                }}
-              >
-                <Pencil className="size-3.5" />
+      },
+      {
+        accessorKey: "tags",
+        meta: { className: "hidden lg:table-cell" },
+        header: "Tags",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const tags = row.original.tags ?? [];
+          if (!tags.length)
+            return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="flex max-w-56 flex-wrap gap-1">
+              {tags.slice(0, 3).map((tag) => (
+                <Badge key={tag} variant="secondary">
+                  {tag}
+                </Badge>
+              ))}
+              {tags.length > 3 ? (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  +{tags.length - 3}
+                </span>
+              ) : null}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "isActive",
+        header: "Status",
+        cell: ({ row }) =>
+          row.original.isActive ? (
+            <Badge variant="good">Published</Badge>
+          ) : (
+            <Badge variant="outline">Draft</Badge>
+          ),
+      },
+      {
+        accessorKey: "timeToRead",
+        meta: { className: "hidden md:table-cell" },
+        header: ({ column }) => <SortHeader label="Read" column={column} />,
+        cell: ({ row }) => (
+          <span className="tabular-nums text-muted-foreground">
+            {row.original.timeToRead}m
+          </span>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        meta: { className: "hidden md:table-cell" },
+        header: ({ column }) => <SortHeader label="Created" column={column} />,
+        cell: ({ row }) => (
+          <span className="tabular-nums text-muted-foreground">
+            {formatRelativeDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        meta: { className: "w-10" },
+        cell: ({ row }) => {
+          const blog = row.original;
+          return (
+            <RowActions>
+              <DropdownMenuItem onClick={() => openPost(blog)}>
+                <Pencil />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => handleToggleActive(e, blog)}>
-                {blog.isActive ? (
-                  <>
-                    <EyeOff className="size-3.5" />
-                    Unpublish
-                  </>
-                ) : (
-                  <>
-                    <Eye className="size-3.5" />
-                    Publish
-                  </>
-                )}
+              <DropdownMenuItem onClick={() => void handleToggleActive(blog)}>
+                {blog.isActive ? <EyeOff /> : <Eye />}
+                {blog.isActive ? "Unpublish" : "Publish"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget(blog);
-                }}
+                variant="destructive"
+                onClick={() => setDeleteTarget(blog)}
               >
-                <Trash2 className="size-3.5" />
+                <Trash2 />
                 Delete
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
+            </RowActions>
+          );
+        },
       },
-    },
-  ];
+    ],
+    [handleToggleActive, openPost],
+  );
 
-  if (loading) {
-    return <BlogSkeleton />;
-  }
+  if (loading) return <BlogSkeleton />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<NotebookPen className="size-4 text-muted-foreground" />}
-        title="Blog Posts"
-      >
+    <Page>
+      <BlogHeader>
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={refreshing}
           onClick={() => {
-            setLoading(true);
-            fetchBlogs();
+            setRefreshing(true);
+            void fetchBlogs();
           }}
-          title="Refresh"
         >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
         </Button>
-        <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={routes.blog.new} title="New Post">
-            <Plus className="size-3.5" />
-            <span className="hidden sm:inline">New Post</span>
+        <Button size="sm" asChild>
+          <Link href={routes.blog.new}>
+            <Plus />
+            New post
           </Link>
         </Button>
-      </PageHeader>
+      </BlogHeader>
 
-      <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
-        <div className="flex items-baseline gap-8 flex-wrap">
-          <Stat label="Total" value={stats.total} />
-          <Stat label="Published" value={stats.published} />
-          <Stat
-            label="Drafts"
-            value={stats.draft}
-            highlight={stats.draft > 0}
-          />
-        </div>
-
-        <Separator />
-
-        <Tabs
+      <PageToolbar>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search title, slug, tag"
+          className="w-64"
+        />
+        <FilterTabs<StatusFilter>
           value={filter}
-          onValueChange={(v) => setFilter(v as StatusFilter)}
-        >
-          <TabsList variant="line">
-            <TabsTrigger value="all">
-              All
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.total}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="published">
-              Published
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.published}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="draft">
-              Drafts
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.draft}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          onChange={setFilter}
+          options={[
+            { value: "all", label: "All", count: counts.all },
+            { value: "published", label: "Published", count: counts.published },
+            { value: "draft", label: "Drafts", count: counts.draft },
+          ]}
+        />
+        <ToolbarSpacer />
+      </PageToolbar>
 
-        <div className="min-h-0 flex-1">
+      <PageBody width="wide">
+        {blogs.length === 0 ? (
+          <EmptyState
+            icon={ICON}
+            label="No posts"
+            action={
+              <Button size="sm" variant="outline" asChild>
+                <Link href={routes.blog.new}>
+                  <Plus />
+                  New post
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
           <PaginatedDataTable
             columns={columns}
-            data={filteredBlogs}
-            emptyMessage="No posts found"
+            data={visibleBlogs}
+            emptyMessage="No matching posts"
             initialSorting={[{ id: "createdAt", desc: true }]}
-            onRowClick={handleRowClick}
-            searchPlaceholder="Search title, tags..."
+            onRowClick={openPost}
           />
-        </div>
-      </div>
+        )}
+      </PageBody>
 
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete post?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete &ldquo;{deleteTarget?.title}&rdquo;.
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={`text-lg font-semibold tabular-nums tracking-tight ${
-          highlight ? "text-primary" : ""
-        }`}
-      >
-        {value}
-      </p>
-    </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete post?"
+        description={
+          deleteTarget
+            ? `“${deleteTarget.title}” will be permanently deleted.`
+            : undefined
+        }
+        actionLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+      />
+    </Page>
   );
 }

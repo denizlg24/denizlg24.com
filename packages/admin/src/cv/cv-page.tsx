@@ -4,10 +4,10 @@ import { LatexEditor, type LatexProject } from "@repo/latex-editor";
 import { createDefaultLatexProject } from "@repo/latex-editor/project";
 import type { CvResponse, ICvFile } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { PageHeader } from "@repo/ui/page-header";
+import { Page, PageBody } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
-import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
-import { ExternalLink, FileUser, Loader2, RefreshCw } from "lucide-react";
+import { Spinner } from "@repo/ui/spinner";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ const CvPdfPreview = dynamic(() => import("./cv-pdf-preview"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full min-h-80 items-center justify-center">
-      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      <Spinner className="size-4 text-muted-foreground" />
     </div>
   ),
 });
@@ -44,17 +44,22 @@ function formatUpdatedAt(dateStr: string): string {
 
 export function CvSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-2">
-      <HeaderBarSkeleton
-        icon={<FileUser className="size-4 text-muted-foreground" />}
-        title="CV"
-        actions={["w-20"]}
-      />
-      <div className="flex flex-1 flex-col gap-3 px-4 pt-3 pb-4">
-        <Skeleton className="h-4 w-56" />
-        <Skeleton className="min-h-[620px] w-full flex-1 rounded-lg" />
+    <Page>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+        <Skeleton className="size-7" />
+        <Skeleton className="size-7" />
+        <Skeleton className="h-4 w-24" />
+        <div className="flex-1" />
+        <Skeleton className="hidden h-4 w-40 md:block" />
+        <Skeleton className="size-7" />
+        <Skeleton className="h-7 w-20" />
       </div>
-    </div>
+      <PageBody bleed className="flex">
+        <Skeleton className="hidden h-full w-56 rounded-none border-r md:block" />
+        <Skeleton className="h-full flex-1 rounded-none opacity-60" />
+        <Skeleton className="hidden h-full flex-1 rounded-none border-l lg:block" />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -88,47 +93,45 @@ export function CvPage() {
   if (loading || !project) return <CvSkeleton />;
 
   return (
-    <div className="flex h-full flex-col gap-2 pb-4">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<FileUser className="size-4 text-muted-foreground" />}
-        title="CV"
-      >
-        {cv && (
-          <div className="hidden items-baseline gap-2 text-[10px] text-muted-foreground md:flex">
-            <span className="font-medium text-foreground">{cv.filename}</span>
-            <span className="tabular-nums">
-              {formatBytes(cv.size)} · {formatUpdatedAt(cv.updatedAt)}
-            </span>
-          </div>
-        )}
-        {cv && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Open CV"
-            onClick={() => platform.openExternal(cv.url)}
-          >
-            <ExternalLink />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs"
-          disabled={refreshing}
-          onClick={() => {
-            setRefreshing(true);
-            void fetchCv();
-          }}
-        >
-          <RefreshCw className={refreshing ? "animate-spin" : ""} />
-          Refresh
-        </Button>
-      </PageHeader>
-
-      <div className="flex min-h-0 flex-1 px-4 pt-1">
+    <Page>
+      <PageBody bleed className="flex">
         <LatexEditor
+          className="h-full min-h-0 rounded-none border-0"
+          headerLeading={slots?.sidebarTrigger}
+          headerTrailing={
+            <>
+              {cv && (
+                <div className="mr-1 hidden items-baseline gap-2 text-xs text-muted-foreground md:flex">
+                  <span className="text-accent-strong">{cv.filename}</span>
+                  <span className="tabular-nums">
+                    {formatBytes(cv.size)} · {formatUpdatedAt(cv.updatedAt)}
+                  </span>
+                </div>
+              )}
+              {cv && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Open CV"
+                  onClick={() => platform.openExternal(cv.url)}
+                >
+                  <ExternalLink />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Refresh"
+                disabled={refreshing}
+                onClick={() => {
+                  setRefreshing(true);
+                  void fetchCv();
+                }}
+              >
+                <RefreshCw className={refreshing ? "animate-spin" : ""} />
+              </Button>
+            </>
+          }
           project={project}
           onChange={setProject}
           onSave={async (nextProject) => {
@@ -168,7 +171,7 @@ export function CvPage() {
             />
           }
         />
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

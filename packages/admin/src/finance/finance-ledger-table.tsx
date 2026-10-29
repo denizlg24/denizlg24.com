@@ -8,6 +8,7 @@ import type {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { DatePicker } from "@repo/ui/date-picker";
+import { EmptyState } from "@repo/ui/empty-state";
 import { Input } from "@repo/ui/input";
 import {
   Select,
@@ -16,13 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { SearchField } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import { minorToMajor } from "@repo/utils";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Search,
+  Receipt,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -102,8 +104,8 @@ function SortButton({
       type="button"
       onClick={() => onSort(sortKey)}
       className={cn(
-        "flex items-center gap-1 transition-colors hover:text-foreground",
-        active ? "text-foreground" : "text-muted-foreground",
+        "flex items-center gap-1 uppercase tracking-[0.08em] transition-colors hover:text-accent-strong",
+        active ? "text-accent-strong" : "text-muted-foreground",
         className,
       )}
     >
@@ -132,9 +134,16 @@ export function FinanceLedgerTable({
   categories: FinanceCategory[];
   onSelect: (entry: FinanceLedgerEntry) => void;
 }) {
-  const [filters, setFilters] = useState<LedgerFilters>(EMPTY_FILTERS);
+  const [filters, setFiltersState] = useState<LedgerFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
+
+  function setFilters(
+    next: LedgerFilters | ((current: LedgerFilters) => LedgerFilters),
+  ) {
+    setFiltersState(next);
+    setVisible(PAGE_SIZE);
+  }
   const [sort, setSort] = useState<{
     key: SortKey;
     direction: SortDirection;
@@ -237,17 +246,18 @@ export function FinanceLedgerTable({
     });
   }, [entries, filters, sort, accountsById]);
 
+  // Per currency: the ledger spans accounts in different currencies, and a
+  // single total would add DKK to EUR at par.
   const totals = useMemo(() => {
-    let spend = 0;
-    let income = 0;
+    const byCurrency = new Map<string, { spend: number; income: number }>();
     for (const row of rows) {
-      if (row.amountMinor < 0) spend += Math.abs(row.amountMinor);
-      else income += row.amountMinor;
+      const total = byCurrency.get(row.currency) ?? { spend: 0, income: 0 };
+      if (row.amountMinor < 0) total.spend += Math.abs(row.amountMinor);
+      else total.income += row.amountMinor;
+      byCurrency.set(row.currency, total);
     }
-    return { spend, income };
+    return [...byCurrency.entries()];
   }, [rows]);
-
-  const currency = rows[0]?.currency ?? accounts[0]?.currency ?? "EUR";
 
   function toggleSort(key: SortKey) {
     setSort((current) =>
@@ -258,30 +268,23 @@ export function FinanceLedgerTable({
   }
 
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-0 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={filters.search}
-            onChange={(event) => {
-              setFilters((current) => ({
-                ...current,
-                search: event.target.value,
-              }));
-              setVisible(PAGE_SIZE);
-            }}
-            placeholder="Search ledger"
-            aria-label="Search ledger"
-            className="h-8 w-full border-0 border-b border-border bg-transparent pl-5 text-sm outline-none placeholder:text-muted-foreground focus:border-foreground"
-          />
-        </div>
+        <SearchField
+          value={filters.search}
+          onChange={(search) =>
+            setFilters((current) => ({ ...current, search }))
+          }
+          placeholder="Search ledger"
+          className="flex-1"
+        />
         <Button
-          size="xs"
+          size="sm"
           variant={showFilters || activeFilterCount > 0 ? "secondary" : "ghost"}
+          aria-pressed={showFilters}
           onClick={() => setShowFilters((open) => !open)}
         >
-          <SlidersHorizontal className="size-3" />
+          <SlidersHorizontal />
           Filters
           {activeFilterCount > 0 && (
             <span className="tabular-nums">{activeFilterCount}</span>
@@ -289,20 +292,20 @@ export function FinanceLedgerTable({
         </Button>
         {activeFilterCount > 0 && (
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             aria-label="Clear filters"
             onClick={() =>
               setFilters({ ...EMPTY_FILTERS, search: filters.search })
             }
           >
-            <X className="size-3.5" />
+            <X />
           </Button>
         )}
       </div>
 
       {showFilters && (
-        <div className="grid gap-2 border-b pb-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Select
             value={filters.accountId}
             onValueChange={(value) =>
@@ -433,7 +436,7 @@ export function FinanceLedgerTable({
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <table className="w-full min-w-[34rem] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-background">
-            <tr className="border-b text-[10px] font-medium uppercase tracking-[0.14em]">
+            <tr className="border-b text-[11px] font-medium">
               <th className="py-1.5 pr-3 text-left font-medium">
                 <SortButton
                   label="Date"
@@ -486,7 +489,7 @@ export function FinanceLedgerTable({
                       onSelect(entry);
                     }
                   }}
-                  className="cursor-pointer border-b border-border/60 outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40"
+                  className="cursor-pointer border-b border-border/60 outline-none transition-colors hover:bg-surface/70 focus-visible:bg-surface/70"
                 >
                   <td className="py-1.5 pr-3 align-top whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                     {shortDay(entry.effectiveDate)}
@@ -496,8 +499,9 @@ export function FinanceLedgerTable({
                       <span
                         className={cn(
                           "min-w-0 truncate",
-                          entry.origin === "projected" &&
-                            "text-muted-foreground",
+                          entry.origin === "projected"
+                            ? "text-muted-foreground"
+                            : "text-accent-strong",
                         )}
                       >
                         {entry.descriptor}
@@ -509,21 +513,18 @@ export function FinanceLedgerTable({
                               ? "outline"
                               : "secondary"
                           }
-                          className="h-4 shrink-0 px-1 text-[9px]"
+                          className="shrink-0"
                         >
                           {KIND_LABEL[kind]}
                         </Badge>
                       )}
                       {entry.transferId && (
-                        <Badge
-                          variant="secondary"
-                          className="h-4 shrink-0 px-1 text-[9px]"
-                        >
+                        <Badge variant="info" className="shrink-0">
                           transfer
                         </Badge>
                       )}
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground md:hidden">
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
                       {entry.category ?? "—"}
                     </div>
                   </td>
@@ -547,8 +548,11 @@ export function FinanceLedgerTable({
                   <td
                     className={cn(
                       "py-1.5 text-right align-top whitespace-nowrap font-medium tabular-nums",
-                      entry.amountMinor > 0 && "text-status-good",
-                      entry.origin === "projected" && "text-muted-foreground",
+                      entry.origin === "projected"
+                        ? "text-muted-foreground"
+                        : entry.amountMinor > 0
+                          ? "text-status-good"
+                          : "text-accent-strong",
                     )}
                   >
                     {money(entry.amountMinor, entry.currency)}
@@ -558,11 +562,8 @@ export function FinanceLedgerTable({
             })}
             {rows.length === 0 && (
               <tr>
-                <td
-                  colSpan={5}
-                  className="py-10 text-center text-xs text-muted-foreground"
-                >
-                  No entries
+                <td colSpan={5}>
+                  <EmptyState compact icon={<Receipt />} label="No entries" />
                 </td>
               </tr>
             )}
@@ -570,18 +571,22 @@ export function FinanceLedgerTable({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
         <span>
           {rows.length} {rows.length === 1 ? "entry" : "entries"}
         </span>
-        <span>out {money(-totals.spend, currency)}</span>
-        <span>in {money(totals.income, currency)}</span>
-        <span className="text-foreground">
-          net {money(totals.income - totals.spend, currency)}
-        </span>
+        {totals.map(([currency, total]) => (
+          <span key={currency} className="flex gap-3">
+            <span>out {money(-total.spend, currency)}</span>
+            <span>in {money(total.income, currency)}</span>
+            <span className="text-accent-strong">
+              net {money(total.income - total.spend, currency)}
+            </span>
+          </span>
+        ))}
         {visible < rows.length && (
           <Button
-            size="xs"
+            size="sm"
             variant="ghost"
             className="ml-auto"
             onClick={() => setVisible((count) => count + PAGE_SIZE)}

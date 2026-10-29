@@ -1151,8 +1151,28 @@ if (!("code" in result)) { /* success */ }
 ### UI Components Available
 All in `components/ui/`: accordion, alert, alert-dialog, avatar, badge, button, card, carousel, chart, checkbox, collapsible, combobox, command, context-menu, dialog, drawer, dropdown-menu, form, input, label, popover, progress, scroll-area, select, separator, sheet, skeleton, slider, table, tabs, textarea, toggle, tooltip, sidebar, sonner (toasts).
 
-### Navigation
-Sidebar groups defined in `components/navigation/navigation-menu.tsx`. Routes registered in `context/user-context.tsx` `KNOWN_ROUTES` set.
+### Navigation and the workspace
+The app is a Notion-style workspace. `lib/workspace/modules.ts` is the one
+registry of modules (sidebar sections, ⌘P search, default-page options);
+routes still need an entry in `context/user-context.tsx` `KNOWN_ROUTES`. The
+sidebar (`components/workspace/sidebar.tsx`) shows favorites, the page tree
+and the modules; every page header's leading slot is
+`components/workspace/sidebar-trigger.tsx`, visible only while the sidebar is
+collapsed or in its mobile sheet.
+
+- **Pages are blocks.** `/dashboard` is the Home page and
+  `/dashboard/page?id=` any other; `components/workspace/page-view.tsx`
+  renders a page's blocks (`blocks.tsx`, catalogue in `block-catalog.ts`) on
+  a 6-column grid. Block types are the `blockSchema` union in
+  `@repo/schemas` `workspace` — a new type means a schema entry, a catalogue
+  entry, a `createBlock` case and a renderer.
+- **The workspace is one document**, kept in `stores/workspace.ts`: a local
+  `workspace.json` for an instant launch and `GET|PUT /api/admin/workspace`
+  (web, `DesktopWorkspace` singleton) so it follows the owner across
+  machines. Saves stamp `savedAt`; on launch the newer copy wins. Live
+  blocks share fetches through `components/workspace/use-workspace-data.ts`.
+- **UI is built from `@repo/ui`'s page system** — see `packages/ui/DESIGN.md`
+  before adding a page, dialog or list.
 
 ### Type Definitions
 Canonical API contract lives in `packages/schemas` (zod schemas; all TS types are `z.infer`): IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc. Desktop's `lib/data-types.ts` is a re-export shim (plus desktop-only UI-state types). Change schemas FIRST; `turbo typecheck` surfaces both apps' breakages. Don't reintroduce local wire types or hand-written response interfaces.

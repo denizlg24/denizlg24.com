@@ -3,13 +3,12 @@
 import type { INote, INoteGroup } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
 import { ScrollArea } from "@repo/ui/scroll-area";
+import { RowActions } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
   ChevronRight,
@@ -21,20 +20,12 @@ import {
   FolderPlus,
   Globe,
   Home,
-  MoreHorizontal,
   Settings2,
   Trash2,
 } from "lucide-react";
 import { useMemo } from "react";
+import { relativeDate, safeHostname } from "./format";
 import { buildDescendantIdMap } from "./group-tree";
-
-function safeHostname(url: string) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
 
 interface NoteFolderViewProps {
   notes: INote[];
@@ -128,10 +119,10 @@ export function NoteFolderView({
       <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b px-2 text-xs sm:px-3">
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           disabled={activeId === null}
           onClick={() => onCurrentIdChange(current?.parentId ?? null)}
-          title="Up one level"
+          aria-label="Up one level"
         >
           <CornerLeftUp />
         </Button>
@@ -139,9 +130,9 @@ export function NoteFolderView({
           type="button"
           onClick={() => onCurrentIdChange(null)}
           className={cn(
-            "inline-flex h-7 shrink-0 items-center gap-1 rounded px-1.5 hover:bg-muted",
+            "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-surface",
             activeId === null
-              ? "font-medium text-foreground"
+              ? "font-medium text-accent-strong"
               : "text-muted-foreground",
           )}
         >
@@ -155,9 +146,9 @@ export function NoteFolderView({
               type="button"
               onClick={() => onCurrentIdChange(group._id)}
               className={cn(
-                "max-w-40 truncate rounded px-1.5 py-1 hover:bg-muted",
+                "h-6 max-w-40 truncate rounded-md px-1.5 transition-colors hover:bg-surface",
                 index === breadcrumb.length - 1
-                  ? "font-medium text-foreground"
+                  ? "font-medium text-accent-strong"
                   : "text-muted-foreground",
               )}
             >
@@ -169,26 +160,29 @@ export function NoteFolderView({
           {current && (
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
+              className="text-muted-foreground"
               onClick={() => onSelectGroup(current)}
-              title="Folder details"
+              aria-label="Folder details"
             >
               <Settings2 />
             </Button>
           )}
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
+            className="text-muted-foreground"
             onClick={() => onCreateFolderHere(activeId)}
-            title="New folder here"
+            aria-label="New folder here"
           >
             <FolderPlus />
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
+            className="text-muted-foreground"
             onClick={() => onCreateNoteHere(activeId)}
-            title="New note here"
+            aria-label="New note here"
           >
             <FilePlus2 />
           </Button>
@@ -197,11 +191,9 @@ export function NoteFolderView({
 
       <ScrollArea className="min-h-0 flex-1">
         {isEmpty ? (
-          <div className="flex h-48 items-center justify-center px-6 text-center text-xs text-muted-foreground">
-            This folder is empty.
-          </div>
+          <EmptyState icon={<FolderOpen />} label="Empty" />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2 p-3 sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] sm:p-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-1 p-3 sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] sm:p-4">
             {childFolders.map((group) => (
               <FolderTile
                 key={group._id}
@@ -247,7 +239,7 @@ function FolderTile({
   onDelete: () => void;
 }) {
   return (
-    <div className="relative min-h-[8.5rem] rounded-md border border-transparent transition-colors hover:border-border hover:bg-muted/50">
+    <div className="group relative min-h-[8.5rem] rounded-md transition-colors hover:bg-surface/70">
       <button
         type="button"
         onClick={onOpen}
@@ -260,7 +252,7 @@ function FolderTile({
           fill={group.color ?? "currentColor"}
           fillOpacity={0.15}
         />
-        <span className="line-clamp-2 w-full break-words text-xs font-medium leading-tight">
+        <span className="line-clamp-2 w-full break-words text-xs font-medium leading-tight text-accent-strong">
           {group.name}
         </span>
         <span className="text-[10px] tabular-nums text-muted-foreground">
@@ -268,44 +260,32 @@ function FolderTile({
         </span>
       </button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="absolute right-1 top-1 bg-background/80"
-            title="Folder actions"
-          >
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onOpen}>
-            <FolderOpen className="size-3.5" />
-            Open
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onCreateNote}>
-            <FilePlus2 className="size-3.5" />
-            New note here
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onCreateFolder}>
-            <FolderPlus className="size-3.5" />
-            New subfolder
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onDetails}>
-            <Settings2 className="size-3.5" />
-            Details
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <RowActions
+        label="Folder actions"
+        className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+      >
+        <DropdownMenuItem onClick={onOpen}>
+          <FolderOpen className="size-3.5" />
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onCreateNote}>
+          <FilePlus2 className="size-3.5" />
+          New note here
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onCreateFolder}>
+          <FolderPlus className="size-3.5" />
+          New subfolder
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onDetails}>
+          <Settings2 className="size-3.5" />
+          Details
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2 className="size-3.5" />
+          Delete
+        </DropdownMenuItem>
+      </RowActions>
     </div>
   );
 }
@@ -320,7 +300,7 @@ function NoteTile({
   onDelete: () => void;
 }) {
   return (
-    <div className="relative min-h-[8.5rem] rounded-md border border-transparent transition-colors hover:border-border hover:bg-muted/50">
+    <div className="group relative min-h-[8.5rem] rounded-md transition-colors hover:bg-surface/70">
       <button
         type="button"
         onClick={onOpen}
@@ -344,40 +324,28 @@ function NoteTile({
             />
           )}
         </span>
-        <span className="line-clamp-2 w-full break-words text-xs font-medium leading-tight">
+        <span className="line-clamp-2 w-full break-words text-xs font-medium leading-tight text-accent-strong">
           {note.title}
         </span>
         <span className="w-full truncate text-[10px] text-muted-foreground">
-          {note.url ? safeHostname(note.url) : "note"}
+          {note.url ? safeHostname(note.url) : relativeDate(note.updatedAt)}
         </span>
       </button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="absolute right-1 top-1 bg-background/80"
-            title="Note actions"
-          >
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onOpen}>
-            <FileText className="size-3.5" />
-            Open
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <RowActions
+        label="Note actions"
+        className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+      >
+        <DropdownMenuItem onClick={onOpen}>
+          <FileText className="size-3.5" />
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2 className="size-3.5" />
+          Delete
+        </DropdownMenuItem>
+      </RowActions>
     </div>
   );
 }

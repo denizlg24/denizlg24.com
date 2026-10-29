@@ -9,7 +9,13 @@ import type {
   TextFontFamily,
 } from "@repo/schemas";
 import { whiteboardElementKind } from "@repo/schemas";
-import { useCallback, useRef, useState } from "react";
+import {
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   anchorForHandle,
   boundsOf,
@@ -42,6 +48,8 @@ function newId(): string {
 }
 
 const MIN_SIZE = 8;
+/** Screen pixels a press may wander before it counts as a drag, not a click. */
+const DRAG_THRESHOLD = 3;
 
 export interface DrawSettings {
   color: string;
@@ -55,140 +63,231 @@ export interface DrawSettings {
   onSetBackground?: (color: string) => void;
 }
 
+type Point = { x: number; y: number };
+
+interface TextStyle {
+  color: string;
+  fontSize: number;
+  fontWeight: number;
+  fontFamily: TextFontFamily;
+  align: "left" | "center" | "right";
+}
+
+/* One gesture at a time, from pointerdown to pointerup. `latest` holds what a
+   transform last wrote so the history entry records it, rather than whatever
+   the last render happened to see. */
+type Gesture =
+  | { kind: "pan"; last: Point }
+  | {
+      kind: "move";
+      origin: Point;
+      screen: Point;
+      originals: IWhiteboardElement[];
+      latest: IWhiteboardElement[] | null;
+      /** Selection to apply if the press ends without dragging. */
+      onClick: Set<string> | null;
+    }
+  | { kind: "marquee"; origin: Point; base: Set<string> }
+  | { kind: "erase"; last: Point; touched: Set<string> }
+  | { kind: "text-box"; origin: Point; style: TextStyle }
+  | { kind: "edit-text"; id: string }
+  | { kind: "draw"; element: IWhiteboardElement }
+  | {
+      kind: "resize";
+      handle: ResizeHandle;
+      originals: IWhiteboardElement[];
+      latest: IWhiteboardElement[] | null;
+    }
+  | {
+      kind: "rotate";
+      original: IWhiteboardElement;
+      center: Point;
+      startAngle: number;
+      latest: IWhiteboardElement | null;
+    };
+
+const CREATION_TOOLS: ReadonlySet<WhiteboardTool> = new Set([
+  "pen",
+  "highlighter",
+  "eraser",
+  "text",
+  "rectangle",
+  "square",
+  "circle",
+  "arrow",
+  "line",
+  "bucket",
+]);
+
+/** Tools that author content; picking one drops the current selection. */
+export function isCreationTool(tool: WhiteboardTool): boolean {
+  return CREATION_TOOLS.has(tool);
+}
+
 function screenToWorld(sx: number, sy: number, view: ViewState) {
   return { x: (sx - view.x) / view.zoom, y: (sy - view.y) / view.zoom };
+}
+
+function sameIds(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
 }
 
 export function useWhiteboardCanvas(
   history: ReturnType<typeof useWhiteboardHistory>,
 ) {
-  const { elements, addElements, removeElements, updateElements, pushAction } =
-    history;
+  const {
+    elements,
+    getElements,
+    setElements,
+    addElements,
+    removeElements,
+    updateElements,
+    pushAction,
+  } = history;
 
-  const [viewState, setViewState] = useState<ViewState>({
+  /* View, selection and the text box are mirrored into refs for the same
+     reason the elements are: two pointer events can arrive before React
+     re-renders, and a handler reading render-time state then acts on a
+     selection or view that is already gone. */
+  const [viewState, setViewStateRaw] = useState<ViewState>({
     x: 0,
     y: 0,
     zoom: 1,
   });
+  const viewRef = useRef(viewState);
+  const setViewState = useCallback((action: SetStateAction<ViewState>) => {
+    const next =
+      typeof action === "function" ? action(viewRef.current) : action;
+    viewRef.current = next;
+    setViewStateRaw(next);
+  }, []);
+
+  const [selectedElementIds, setSelectedRaw] = useState<Set<string>>(new Set());
+  const selectionRef = useRef(selectedElementIds);
+  const setSelectedElementIds = useCallback(
+    (action: SetStateAction<Set<string>>) => {
+      const next =
+        typeof action === "function" ? action(selectionRef.current) : action;
+      if (sameIds(next, selectionRef.current)) return;
+      selectionRef.current = next;
+      setSelectedRaw(next);
+    },
+    [],
+  );
+
+  const [textBox, setTextBoxRaw] = useState<TextBoxState | null>(null);
+  const textBoxRef = useRef(textBox);
+  const setTextBox = useCallback((next: TextBoxState | null) => {
+    textBoxRef.current = next;
+    setTextBoxRaw(next);
+  }, []);
+
   const [activeDrawing, setActiveDrawing] = useState<IWhiteboardElement | null>(
     null,
-  );
-  const [selectedElementIds, setSelectedElementIds] = useState<Set<string>>(
-    new Set(),
   );
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(
     null,
   );
-  const [textBox, setTextBox] = useState<TextBoxState | null>(null);
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
 
-  const isPanning = useRef(false);
-  const panStart = useRef({ x: 0, y: 0 });
+  const gesture = useRef<Gesture | null>(null);
+  const gesturePointer = useRef<number | null>(null);
   const spacePan = useRef(false);
-
-  const isDrawing = useRef(false);
-  const drawingRef = useRef<IWhiteboardElement | null>(null);
-
-  const isMarquee = useRef(false);
-  const marqueeStart = useRef({ x: 0, y: 0 });
-  const marqueeBaseIds = useRef<Set<string>>(new Set());
-
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const dragOriginals = useRef<IWhiteboardElement[]>([]);
-
-  const isErasing = useRef(false);
-  const eraserLast = useRef({ x: 0, y: 0 });
-  const eraserTouched = useRef<Set<string>>(new Set());
-
-  const isResizing = useRef(false);
-  const resizeHandle = useRef<ResizeHandle | null>(null);
-  const resizeOriginals = useRef<IWhiteboardElement[]>([]);
-  const resizeShift = useRef(false);
-
-  const isRotating = useRef(false);
-  const rotateOriginal = useRef<IWhiteboardElement | null>(null);
-  const rotateCenter = useRef({ x: 0, y: 0 });
-  const rotateStartAngle = useRef(0);
-  const rotateShift = useRef(false);
-
-  const isDrawingTextBox = useRef(false);
-  /* Editing must start on pointer-up: mounting the editor during pointerdown
-     (while the SVG holds pointer capture) gets it blurred by the ensuing
-     pointerup, which instantly commits and closes it. */
-  const pendingEditId = useRef<string | null>(null);
-  const textBoxOrigin = useRef({ x: 0, y: 0 });
-  const textStyle = useRef<{
-    color: string;
-    fontSize: number;
-    fontWeight: number;
-    fontFamily: TextFontFamily;
-    align: "left" | "center" | "right";
-  }>({
-    color: "#18181b",
-    fontSize: 24,
-    fontWeight: 400,
-    fontFamily: "handwriting",
-    align: "left",
-  });
 
   const clipboard = useRef<IWhiteboardElement[]>([]);
   const lastWorld = useRef({ x: 0, y: 0 });
-  const lastClick = useRef<{ id: string; t: number }>({ id: "", t: 0 });
+
+  /* Undo, redo and the eraser remove elements without going through the
+     selection, so ids that no longer exist are dropped here. */
+  useEffect(() => {
+    const sel = selectionRef.current;
+    if (sel.size === 0) return;
+    const live = new Set(elements.map((el) => el.id));
+    const pruned = new Set([...sel].filter((id) => live.has(id)));
+    if (pruned.size !== sel.size) setSelectedElementIds(pruned);
+  }, [elements, setSelectedElementIds]);
 
   const getNextZIndex = useCallback((): number => {
     let max = 0;
-    for (const el of elements) if (el.zIndex > max) max = el.zIndex;
+    for (const el of getElements()) if (el.zIndex > max) max = el.zIndex;
     return max + 1;
-  }, [elements]);
+  }, [getElements]);
 
-  const toWorld = useCallback(
-    (e: React.PointerEvent | React.MouseEvent) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      return screenToWorld(
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-        viewState,
+  const toWorld = useCallback((e: React.PointerEvent | React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return screenToWorld(
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+      viewRef.current,
+    );
+  }, []);
+
+  const topmostHit = useCallback(
+    (p: Point, tolerance: number, skipId?: string | null) => {
+      const sorted = [...getElements()].sort((a, b) => b.zIndex - a.zIndex);
+      return (
+        sorted.find(
+          (el) => el.id !== skipId && hitTest(el, p.x, p.y, tolerance),
+        ) ?? null
       );
     },
-    [viewState],
+    [getElements],
   );
 
   const setSpacePan = useCallback((on: boolean) => {
     spacePan.current = on;
   }, []);
 
-  const startResize = useCallback(
-    (handle: ResizeHandle, shift: boolean) => {
-      const originals = elements.filter((el) => selectedElementIds.has(el.id));
-      if (originals.length === 0) return;
-      isResizing.current = true;
-      resizeHandle.current = handle;
-      resizeOriginals.current = originals.map((el) => ({ ...el }));
-      resizeShift.current = shift;
+  const updateLive = useCallback(
+    (updated: IWhiteboardElement[]) => {
+      const map = new Map(updated.map((el) => [el.id, el]));
+      setElements((prev) => prev.map((el) => map.get(el.id) ?? el));
     },
-    [elements, selectedElementIds],
+    [setElements],
+  );
+
+  const startResize = useCallback(
+    (handle: ResizeHandle) => {
+      if (gesture.current) return;
+      const sel = selectionRef.current;
+      const originals = getElements().filter((el) => sel.has(el.id));
+      if (originals.length === 0) return;
+      gesture.current = {
+        kind: "resize",
+        handle,
+        originals: originals.map((el) => ({ ...el })),
+        latest: null,
+      };
+    },
+    [getElements],
   );
 
   const startRotate = useCallback(
     (worldX: number, worldY: number) => {
-      if (selectedElementIds.size !== 1) return;
-      const id = [...selectedElementIds][0];
-      const orig = elements.find((el) => el.id === id);
+      if (gesture.current) return;
+      const sel = selectionRef.current;
+      if (sel.size !== 1) return;
+      const id = [...sel][0];
+      const orig = getElements().find((el) => el.id === id);
       if (!orig) return;
-      isRotating.current = true;
-      rotateOriginal.current = { ...orig };
       const c = centerOf(boundsOf(orig, false));
-      rotateCenter.current = c;
-      rotateStartAngle.current = Math.atan2(worldY - c.y, worldX - c.x);
+      gesture.current = {
+        kind: "rotate",
+        original: { ...orig },
+        center: c,
+        startAngle: Math.atan2(worldY - c.y, worldX - c.x),
+        latest: null,
+      };
     },
-    [elements, selectedElementIds],
+    [getElements],
   );
 
   const commitBucket = useCallback(
     (wx: number, wy: number, settings: DrawSettings) => {
-      const tolerance = 6 / viewState.zoom;
-      const sorted = [...elements].sort((a, b) => b.zIndex - a.zIndex);
+      const tolerance = 6 / viewRef.current.zoom;
+      const sorted = [...getElements()].sort((a, b) => b.zIndex - a.zIndex);
       for (const el of sorted) {
         if (whiteboardElementKind(el) !== "shape") continue;
         if (!hitTest(el, wx, wy, tolerance)) continue;
@@ -206,12 +305,12 @@ export function useWhiteboardCanvas(
       }
       settings.onSetBackground?.(settings.color);
     },
-    [elements, viewState.zoom, updateElements],
+    [getElements, updateElements],
   );
 
   const beginEditText = useCallback(
     (elementId: string) => {
-      const el = elements.find((e) => e.id === elementId);
+      const el = getElements().find((e) => e.id === elementId);
       if (!el || whiteboardElementKind(el) !== "text") return;
       const d = el.data as unknown as ITextData;
       setSelectedElementIds(new Set());
@@ -230,7 +329,7 @@ export function useWhiteboardCanvas(
         initialText: d.text,
       });
     },
-    [elements],
+    [getElements, setSelectedElementIds, setTextBox],
   );
 
   const onPointerDown = useCallback(
@@ -239,15 +338,21 @@ export function useWhiteboardCanvas(
       tool: WhiteboardTool,
       settings: DrawSettings,
     ) => {
+      /* A second finger or pen while a gesture runs, and the context-menu
+         button, are not gestures of their own. */
+      if (gesture.current || (e.button !== 0 && e.button !== 1)) return;
+      if (e.button === 1) e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
+      gesturePointer.current = e.pointerId;
       const w = toWorld(e);
       lastWorld.current = w;
 
       if (spacePan.current || tool === "hand" || e.button === 1) {
-        isPanning.current = true;
-        panStart.current = { x: e.clientX, y: e.clientY };
+        gesture.current = { kind: "pan", last: { x: e.clientX, y: e.clientY } };
         return;
       }
+
+      if (isCreationTool(tool)) setSelectedElementIds(new Set());
 
       if (tool === "bucket") {
         commitBucket(w.x, w.y, settings);
@@ -255,101 +360,92 @@ export function useWhiteboardCanvas(
       }
 
       if (tool === "pointer") {
-        const tolerance = 8 / viewState.zoom;
-        const additive = e.shiftKey;
-        const sorted = [...elements].sort((a, b) => b.zIndex - a.zIndex);
-        let hit: IWhiteboardElement | null = null;
-        for (const el of sorted) {
-          if (hitTest(el, w.x, w.y, tolerance)) {
-            hit = el;
-            break;
-          }
-        }
+        const additive = e.shiftKey || e.metaKey;
+        const sel = selectionRef.current;
+        const hit = topmostHit(
+          w,
+          8 / viewRef.current.zoom,
+          textBoxRef.current?.editingId,
+        );
 
         if (hit) {
-          const target = hit;
-          const now = Date.now();
-          if (
-            !additive &&
-            whiteboardElementKind(target) === "text" &&
-            lastClick.current.id === target.id &&
-            now - lastClick.current.t < 350
-          ) {
-            lastClick.current = { id: "", t: 0 };
-            pendingEditId.current = target.id;
-            return;
-          }
-          lastClick.current = { id: target.id, t: now };
+          const selected = sel.has(hit.id);
+          let next: Set<string>;
+          let onClick: Set<string> | null = null;
           if (additive) {
-            setSelectedElementIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(target.id)) next.delete(target.id);
-              else next.add(target.id);
-              return next;
-            });
-            return;
+            next = selected ? sel : new Set([...sel, hit.id]);
+            /* Shift-clicking a selected element removes it, but only once it
+               is clear the press was a click: dragging moves the selection. */
+            if (selected) {
+              onClick = new Set(sel);
+              onClick.delete(hit.id);
+            }
+          } else {
+            next = selected ? sel : new Set([hit.id]);
+            if (selected && sel.size > 1) onClick = new Set([hit.id]);
           }
-          const nextSel = selectedElementIds.has(target.id)
-            ? selectedElementIds
-            : new Set([target.id]);
-          if (!selectedElementIds.has(target.id))
-            setSelectedElementIds(nextSel);
-          isDragging.current = true;
-          dragStart.current = { x: w.x, y: w.y };
-          dragOriginals.current = elements.filter((el) => nextSel.has(el.id));
+          setSelectedElementIds(next);
+          gesture.current = {
+            kind: "move",
+            origin: w,
+            screen: { x: e.clientX, y: e.clientY },
+            originals: getElements().filter((el) => next.has(el.id)),
+            latest: null,
+            onClick,
+          };
           return;
         }
 
-        isMarquee.current = true;
-        marqueeStart.current = { x: w.x, y: w.y };
-        marqueeBaseIds.current = additive
-          ? new Set(selectedElementIds)
-          : new Set();
-        if (!additive) setSelectedElementIds(new Set());
+        const base = additive ? new Set(sel) : new Set<string>();
+        if (!additive) setSelectedElementIds(base);
+        gesture.current = { kind: "marquee", origin: w, base };
         setSelectionRect({ x: w.x, y: w.y, width: 0, height: 0 });
         return;
       }
 
       if (tool === "eraser") {
-        const tolerance = 2 / viewState.zoom;
-        isErasing.current = true;
-        eraserLast.current = { x: w.x, y: w.y };
-        eraserTouched.current = new Set();
-        for (const el of elements) {
+        const tolerance = 2 / viewRef.current.zoom;
+        const touched = new Set<string>();
+        for (const el of getElements()) {
           if (eraserHitsElement(w.x, w.y, w.x, w.y, el, tolerance)) {
-            eraserTouched.current.add(el.id);
+            touched.add(el.id);
           }
         }
+        gesture.current = { kind: "erase", last: w, touched };
         return;
       }
 
       if (tool === "text") {
-        const tolerance = 8 / viewState.zoom;
-        const existing = [...elements]
+        const tolerance = 8 / viewRef.current.zoom;
+        const existing = [...getElements()]
           .sort((a, b) => b.zIndex - a.zIndex)
           .find(
             (el) =>
               whiteboardElementKind(el) === "text" &&
               hitTest(el, w.x, w.y, tolerance),
           );
+        /* Editing must start on pointer-up: mounting the editor during
+           pointerdown (while the canvas holds pointer capture) gets it blurred
+           by the ensuing pointerup, which instantly commits and closes it. */
         if (existing) {
-          pendingEditId.current = existing.id;
+          gesture.current = { kind: "edit-text", id: existing.id };
           return;
         }
-        isDrawingTextBox.current = true;
-        textBoxOrigin.current = { x: w.x, y: w.y };
-        textStyle.current = {
-          color: settings.color,
-          fontSize: settings.fontSize,
-          fontWeight: settings.fontWeight,
-          fontFamily: settings.fontFamily,
-          align: settings.align,
+        gesture.current = {
+          kind: "text-box",
+          origin: w,
+          style: {
+            color: settings.color,
+            fontSize: settings.fontSize,
+            fontWeight: settings.fontWeight,
+            fontFamily: settings.fontFamily,
+            align: settings.align,
+          },
         };
         setTextDraft({ x: w.x, y: w.y, width: 0, height: 0 });
         return;
       }
 
-      isDrawing.current = true;
       const id = newId();
 
       if (tool === "pen" || tool === "highlighter") {
@@ -370,7 +466,7 @@ export function useWhiteboardCanvas(
             brush: tool === "highlighter" ? "highlighter" : "pen",
           } satisfies IDrawingData as unknown as Record<string, unknown>,
         };
-        drawingRef.current = el;
+        gesture.current = { kind: "draw", element: el };
         setActiveDrawing(el);
         return;
       }
@@ -405,32 +501,26 @@ export function useWhiteboardCanvas(
           y2: 0,
         } satisfies IShapeData as unknown as Record<string, unknown>,
       };
-      drawingRef.current = el;
+      gesture.current = { kind: "draw", element: el };
       setActiveDrawing(el);
     },
     [
       toWorld,
-      viewState.zoom,
-      elements,
-      selectedElementIds,
+      topmostHit,
+      getElements,
       getNextZIndex,
       commitBucket,
+      setSelectedElementIds,
     ],
   );
 
-  const updateLive = useCallback(
-    (updated: IWhiteboardElement[]) => {
-      const map = new Map(updated.map((el) => [el.id, el]));
-      history.setElements((prev) => prev.map((el) => map.get(el.id) ?? el));
-    },
-    [history],
-  );
-
-  const applyResize = useCallback(
-    (w: { x: number; y: number }) => {
-      const handle = resizeHandle.current;
-      const originals = resizeOriginals.current;
-      if (!handle || originals.length === 0) return;
+  const resizeTo = useCallback(
+    (
+      handle: ResizeHandle,
+      originals: IWhiteboardElement[],
+      w: Point,
+      shift: boolean,
+    ): IWhiteboardElement[] => {
       const isCorner = handleAffectsX(handle) && handleAffectsY(handle);
 
       if (originals.length === 1 && originals[0]) {
@@ -440,14 +530,8 @@ export function useWhiteboardCanvas(
         const oc = centerOf(ob);
         const anchor = anchorForHandle(ob, handle);
         const pl = rotatePoint(w.x, w.y, oc.x, oc.y, -rot);
-        const { sx, sy } = computeScale(
-          ob,
-          anchor,
-          handle,
-          pl,
-          resizeShift.current,
-        );
-        let scaled = scaleElementAbout(
+        const { sx, sy } = computeScale(ob, anchor, handle, pl, shift);
+        const scaled = scaleElementAbout(
           orig,
           anchor.x,
           anchor.y,
@@ -455,138 +539,138 @@ export function useWhiteboardCanvas(
           sy,
           isCorner,
         );
-        scaled = reanchorRotated(orig, scaled, anchor.x, anchor.y);
-        updateLive([scaled]);
-        return;
+        return [reanchorRotated(orig, scaled, anchor.x, anchor.y)];
       }
 
       const gb = unionBounds(originals);
-      if (!gb) return;
+      if (!gb) return originals;
       const anchor = anchorForHandle(gb, handle);
-      const { sx, sy } = computeScale(
-        gb,
-        anchor,
-        handle,
-        w,
-        resizeShift.current,
-      );
-      const scaled = originals.map((o) =>
+      const { sx, sy } = computeScale(gb, anchor, handle, w, shift);
+      return originals.map((o) =>
         scaleElementAbout(o, anchor.x, anchor.y, sx, sy, isCorner),
       );
-      updateLive(scaled);
     },
-    [updateLive],
+    [],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, _tool: WhiteboardTool) => {
+      if (
+        gesturePointer.current !== null &&
+        e.pointerId !== gesturePointer.current
+      )
+        return;
       const w = toWorld(e);
       lastWorld.current = w;
+      const g = gesture.current;
+      if (!g) return;
 
-      if (isPanning.current) {
-        const dx = e.clientX - panStart.current.x;
-        const dy = e.clientY - panStart.current.y;
-        panStart.current = { x: e.clientX, y: e.clientY };
-        setViewState((prev) => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
-        return;
-      }
-
-      if (isRotating.current && rotateOriginal.current) {
-        const c = rotateCenter.current;
-        const angle = Math.atan2(w.y - c.y, w.x - c.x);
-        let deg =
-          (rotateOriginal.current.rotation ?? 0) +
-          ((angle - rotateStartAngle.current) * 180) / Math.PI;
-        if (rotateShift.current) deg = Math.round(deg / 15) * 15;
-        const next = { ...rotateOriginal.current, rotation: deg };
-        updateLive([next]);
-        return;
-      }
-
-      if (isResizing.current) {
-        applyResize(w);
-        return;
-      }
-
-      if (isDragging.current) {
-        const dx = w.x - dragStart.current.x;
-        const dy = w.y - dragStart.current.y;
-        const moved = dragOriginals.current.map((el) => ({
-          ...el,
-          x: el.x + dx,
-          y: el.y + dy,
-        }));
-        updateLive(moved);
-        return;
-      }
-
-      if (isMarquee.current) {
-        const sx = marqueeStart.current.x;
-        const sy = marqueeStart.current.y;
-        const rect: SelectionRect = {
-          x: Math.min(sx, w.x),
-          y: Math.min(sy, w.y),
-          width: Math.abs(w.x - sx),
-          height: Math.abs(w.y - sy),
-        };
-        setSelectionRect(rect);
-        const next = new Set(marqueeBaseIds.current);
-        for (const el of elements) if (marqueeHits(el, rect)) next.add(el.id);
-        setSelectedElementIds(next);
-        return;
-      }
-
-      if (isErasing.current) {
-        const tolerance = 2 / viewState.zoom;
-        for (const el of elements) {
-          if (eraserTouched.current.has(el.id)) continue;
-          if (
-            eraserHitsElement(
-              eraserLast.current.x,
-              eraserLast.current.y,
-              w.x,
-              w.y,
-              el,
-              tolerance,
-            )
-          ) {
-            eraserTouched.current.add(el.id);
-          }
+      switch (g.kind) {
+        case "pan": {
+          const dx = e.clientX - g.last.x;
+          const dy = e.clientY - g.last.y;
+          g.last = { x: e.clientX, y: e.clientY };
+          setViewState((prev) => ({
+            ...prev,
+            x: prev.x + dx,
+            y: prev.y + dy,
+          }));
+          return;
         }
-        eraserLast.current = { x: w.x, y: w.y };
-        return;
-      }
-
-      if (isDrawingTextBox.current) {
-        const ox = textBoxOrigin.current.x;
-        const oy = textBoxOrigin.current.y;
-        setTextDraft({
-          x: Math.min(ox, w.x),
-          y: Math.min(oy, w.y),
-          width: Math.abs(w.x - ox),
-          height: Math.abs(w.y - oy),
-        });
-        return;
-      }
-
-      if (isDrawing.current && drawingRef.current) {
-        const el = drawingRef.current;
-        const kind = whiteboardElementKind(el);
-        if (kind === "pen") {
-          const d = el.data as unknown as IDrawingData;
-          const updated: IWhiteboardElement = {
+        case "rotate": {
+          const angle = Math.atan2(w.y - g.center.y, w.x - g.center.x);
+          let deg =
+            (g.original.rotation ?? 0) +
+            ((angle - g.startAngle) * 180) / Math.PI;
+          if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+          g.latest = { ...g.original, rotation: deg };
+          updateLive([g.latest]);
+          return;
+        }
+        case "resize": {
+          g.latest = resizeTo(g.handle, g.originals, w, e.shiftKey);
+          updateLive(g.latest);
+          return;
+        }
+        case "move": {
+          if (
+            !g.latest &&
+            Math.hypot(e.clientX - g.screen.x, e.clientY - g.screen.y) <
+              DRAG_THRESHOLD
+          )
+            return;
+          const dx = w.x - g.origin.x;
+          const dy = w.y - g.origin.y;
+          g.latest = g.originals.map((el) => ({
             ...el,
-            data: {
-              ...d,
-              points: [...d.points, { x: w.x - el.x, y: w.y - el.y }],
-            } as unknown as Record<string, unknown>,
+            x: el.x + dx,
+            y: el.y + dy,
+          }));
+          updateLive(g.latest);
+          return;
+        }
+        case "marquee": {
+          const rect: SelectionRect = {
+            x: Math.min(g.origin.x, w.x),
+            y: Math.min(g.origin.y, w.y),
+            width: Math.abs(w.x - g.origin.x),
+            height: Math.abs(w.y - g.origin.y),
           };
-          drawingRef.current = updated;
-          setActiveDrawing(updated);
-        } else {
+          setSelectionRect(rect);
+          const next = new Set(g.base);
+          for (const el of getElements())
+            if (marqueeHits(el, rect)) next.add(el.id);
+          setSelectedElementIds(next);
+          return;
+        }
+        case "erase": {
+          const tolerance = 2 / viewRef.current.zoom;
+          for (const el of getElements()) {
+            if (g.touched.has(el.id)) continue;
+            if (
+              eraserHitsElement(g.last.x, g.last.y, w.x, w.y, el, tolerance)
+            ) {
+              g.touched.add(el.id);
+            }
+          }
+          g.last = w;
+          return;
+        }
+        case "text-box": {
+          setTextDraft({
+            x: Math.min(g.origin.x, w.x),
+            y: Math.min(g.origin.y, w.y),
+            width: Math.abs(w.x - g.origin.x),
+            height: Math.abs(w.y - g.origin.y),
+          });
+          return;
+        }
+        case "draw": {
+          const el = g.element;
+          if (whiteboardElementKind(el) === "pen") {
+            const d = el.data as unknown as IDrawingData;
+            g.element = {
+              ...el,
+              data: {
+                ...d,
+                points: [...d.points, { x: w.x - el.x, y: w.y - el.y }],
+              } as unknown as Record<string, unknown>,
+            };
+            setActiveDrawing(g.element);
+            return;
+          }
           const s = el.data as unknown as IShapeData;
-          const dx = w.x - el.x;
-          const dy = w.y - el.y;
+          /* `el.x/y` is re-anchored below for negative boxes, so the drag
+             is measured from where the press began, which never moves. */
+          const start = {
+            x: el.x - Math.min(0, s.x2 ?? 0),
+            y: el.y - Math.min(0, s.y2 ?? 0),
+          };
+          const isSegment = s.shapeType === "arrow" || s.shapeType === "line";
+          const ox = isSegment ? el.x : start.x;
+          const oy = isSegment ? el.y : start.y;
+          const dx = w.x - ox;
+          const dy = w.y - oy;
           let width = dx;
           let height = dy;
           if (s.shapeType === "square") {
@@ -594,8 +678,10 @@ export function useWhiteboardCanvas(
             width = dx < 0 ? -size : size;
             height = dy < 0 ? -size : size;
           }
-          const updated: IWhiteboardElement = {
+          g.element = {
             ...el,
+            x: isSegment ? ox : ox + Math.min(0, width),
+            y: isSegment ? oy : oy + Math.min(0, height),
             width: Math.abs(width),
             height: Math.abs(height),
             data: {
@@ -604,159 +690,210 @@ export function useWhiteboardCanvas(
               y2: height,
             } as unknown as Record<string, unknown>,
           };
-          if (
-            s.shapeType !== "arrow" &&
-            s.shapeType !== "line" &&
-            (width < 0 || height < 0)
-          ) {
-            updated.x = el.x + Math.min(0, width);
-            updated.y = el.y + Math.min(0, height);
-          }
-          drawingRef.current = updated;
-          setActiveDrawing(updated);
+          setActiveDrawing(g.element);
+          return;
         }
+        case "edit-text":
+          return;
       }
     },
-    [toWorld, viewState.zoom, elements, applyResize, updateLive],
+    [
+      toWorld,
+      getElements,
+      resizeTo,
+      updateLive,
+      setViewState,
+      setSelectedElementIds,
+    ],
   );
 
   const commitTransform = useCallback(
-    (originals: IWhiteboardElement[]) => {
-      if (originals.length === 0) return;
-      const current = elements.filter((el) =>
-        originals.some((o) => o.id === el.id),
-      );
-      const changed = current.some((cur) => {
+    (originals: IWhiteboardElement[], latest: IWhiteboardElement[] | null) => {
+      if (!latest || originals.length === 0) return;
+      const changed = latest.some((cur) => {
         const orig = originals.find((o) => o.id === cur.id);
         return orig && JSON.stringify(orig) !== JSON.stringify(cur);
       });
-      if (changed) {
-        pushAction({ type: "update", before: originals, after: current });
-      }
+      if (changed)
+        pushAction({ type: "update", before: originals, after: latest });
     },
-    [elements, pushAction],
+    [pushAction],
   );
 
+  /** Ends the current gesture and returns the id of an element it created. */
   const onPointerUp = useCallback(
-    (_e: React.PointerEvent<HTMLDivElement>, _tool: WhiteboardTool) => {
-      if (pendingEditId.current) {
-        const id = pendingEditId.current;
-        pendingEditId.current = null;
-        beginEditText(id);
-        return;
-      }
-      if (isPanning.current) {
-        isPanning.current = false;
-        return;
-      }
-      if (isRotating.current) {
-        isRotating.current = false;
-        if (rotateOriginal.current) commitTransform([rotateOriginal.current]);
-        rotateOriginal.current = null;
-        return;
-      }
-      if (isResizing.current) {
-        isResizing.current = false;
-        commitTransform(resizeOriginals.current);
-        resizeHandle.current = null;
-        resizeOriginals.current = [];
-        return;
-      }
-      if (isDragging.current) {
-        isDragging.current = false;
-        commitTransform(dragOriginals.current);
-        dragOriginals.current = [];
-        return;
-      }
-      if (isMarquee.current) {
-        isMarquee.current = false;
-        setSelectionRect(null);
-        return;
-      }
-      if (isErasing.current) {
-        isErasing.current = false;
-        if (eraserTouched.current.size > 0)
-          removeElements(eraserTouched.current);
-        eraserTouched.current = new Set();
-        return;
-      }
-      if (isDrawingTextBox.current) {
-        isDrawingTextBox.current = false;
-        setTextDraft(null);
-        const style = textStyle.current;
-        const ox = textBoxOrigin.current;
-        const last = lastWorld.current;
-        const dw = Math.abs(last.x - ox.x);
-        const dh = Math.abs(last.y - ox.y);
-        const dragged = dw > 8 || dh > 8;
-        setTextBox({
-          worldX: dragged ? Math.min(ox.x, last.x) : ox.x,
-          worldY: dragged ? Math.min(ox.y, last.y) : ox.y,
-          width: dragged ? Math.max(dw, 40) : 40,
-          height: dragged
-            ? Math.max(dh, style.fontSize * 1.4)
-            : style.fontSize * 1.4,
-          autoSize: !dragged,
-          editingId: null,
-          color: style.color,
-          fontSize: style.fontSize,
-          fontWeight: style.fontWeight,
-          fontFamily: style.fontFamily,
-          align: style.align,
-          initialText: "",
-        });
-        return;
-      }
-      if (isDrawing.current && drawingRef.current) {
-        isDrawing.current = false;
-        const el = drawingRef.current;
-        const kind = whiteboardElementKind(el);
-        const hasSubstance =
-          kind === "pen"
-            ? (el.data as unknown as IDrawingData).points.length > 1
-            : Math.abs(el.width ?? 0) > 2 || Math.abs(el.height ?? 0) > 2;
-        if (hasSubstance) addElements([el]);
-        drawingRef.current = null;
-        setActiveDrawing(null);
+    (
+      e: React.PointerEvent<HTMLDivElement>,
+      _tool: WhiteboardTool,
+    ): string | null => {
+      if (
+        gesturePointer.current !== null &&
+        e.pointerId !== gesturePointer.current
+      )
+        return null;
+      const g = gesture.current;
+      gesture.current = null;
+      gesturePointer.current = null;
+      if (!g) return null;
+
+      switch (g.kind) {
+        case "pan":
+          return null;
+        case "edit-text":
+          beginEditText(g.id);
+          return null;
+        case "rotate":
+          commitTransform([g.original], g.latest ? [g.latest] : null);
+          return null;
+        case "resize":
+          commitTransform(g.originals, g.latest);
+          return null;
+        case "move":
+          if (g.latest) commitTransform(g.originals, g.latest);
+          else if (g.onClick) setSelectedElementIds(g.onClick);
+          return null;
+        case "marquee":
+          setSelectionRect(null);
+          return null;
+        case "erase":
+          if (g.touched.size > 0) removeElements(g.touched);
+          return null;
+        case "text-box": {
+          setTextDraft(null);
+          const { style, origin: ox } = g;
+          const last = lastWorld.current;
+          const dw = Math.abs(last.x - ox.x);
+          const dh = Math.abs(last.y - ox.y);
+          const dragged = dw > 8 || dh > 8;
+          setTextBox({
+            worldX: dragged ? Math.min(ox.x, last.x) : ox.x,
+            worldY: dragged ? Math.min(ox.y, last.y) : ox.y,
+            width: dragged ? Math.max(dw, 40) : 40,
+            height: dragged
+              ? Math.max(dh, style.fontSize * 1.4)
+              : style.fontSize * 1.4,
+            autoSize: !dragged,
+            editingId: null,
+            color: style.color,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            fontFamily: style.fontFamily,
+            align: style.align,
+            initialText: "",
+          });
+          return null;
+        }
+        case "draw": {
+          const el = g.element;
+          setActiveDrawing(null);
+          const kind = whiteboardElementKind(el);
+          const hasSubstance =
+            kind === "pen"
+              ? (el.data as unknown as IDrawingData).points.length > 1
+              : Math.abs(el.width ?? 0) > 2 || Math.abs(el.height ?? 0) > 2;
+          if (!hasSubstance) return null;
+          addElements([el]);
+          /* A shape hands over to the select tool with itself selected; a
+             stroke leaves nothing selected so the next stroke can follow. */
+          if (kind !== "pen") setSelectedElementIds(new Set([el.id]));
+          return el.id;
+        }
       }
     },
-    [addElements, removeElements, commitTransform, beginEditText],
+    [
+      addElements,
+      removeElements,
+      commitTransform,
+      beginEditText,
+      setSelectedElementIds,
+      setTextBox,
+    ],
   );
 
-  const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const delta = -e.deltaY * 0.001;
-      setViewState((prev) => {
-        const newZoom = Math.max(0.1, Math.min(5, prev.zoom * (1 + delta)));
-        const scale = newZoom / prev.zoom;
-        return {
-          x: mx - (mx - prev.x) * scale,
-          y: my - (my - prev.y) * scale,
-          zoom: newZoom,
-        };
-      });
-    } else {
-      setViewState((prev) => ({
-        ...prev,
-        x: prev.x - e.deltaX,
-        y: prev.y - e.deltaY,
-      }));
+  /** Abandons the current gesture, putting transformed elements back. */
+  const cancelGesture = useCallback((): boolean => {
+    const g = gesture.current;
+    gesture.current = null;
+    gesturePointer.current = null;
+    if (!g) return false;
+    switch (g.kind) {
+      case "move":
+      case "resize":
+        if (g.latest) updateLive(g.originals);
+        break;
+      case "rotate":
+        if (g.latest) updateLive([g.original]);
+        break;
+      case "marquee":
+        setSelectionRect(null);
+        setSelectedElementIds(g.base);
+        break;
+      case "text-box":
+        setTextDraft(null);
+        break;
+      case "draw":
+        setActiveDrawing(null);
+        break;
+      default:
+        break;
     }
-  }, []);
+    return true;
+  }, [updateLive, setSelectedElementIds]);
 
+  const onWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const delta = -e.deltaY * 0.001;
+        setViewState((prev) => {
+          const newZoom = Math.max(0.1, Math.min(5, prev.zoom * (1 + delta)));
+          const scale = newZoom / prev.zoom;
+          return {
+            x: mx - (mx - prev.x) * scale,
+            y: my - (my - prev.y) * scale,
+            zoom: newZoom,
+          };
+        });
+      } else {
+        setViewState((prev) => ({
+          ...prev,
+          x: prev.x - e.deltaX,
+          y: prev.y - e.deltaY,
+        }));
+      }
+    },
+    [setViewState],
+  );
+
+  /** Opens the topmost element under a double-click for editing if it is
+   *  text; returns whether it did. */
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>): boolean => {
+      if (textBoxRef.current) return false;
+      const hit = topmostHit(toWorld(e), 8 / viewRef.current.zoom);
+      if (!hit || whiteboardElementKind(hit) !== "text") return false;
+      beginEditText(hit.id);
+      return true;
+    },
+    [topmostHit, toWorld, beginEditText],
+  );
+
+  /** Commits the open text box. `select` leaves the result selected, which is
+   *  what an explicit exit (Escape, Cmd+Enter) wants; a blur caused by
+   *  pressing elsewhere leaves selection to that press. Safe to call twice:
+   *  the unmount that follows a commit can blur the textarea again. */
   const commitText = useCallback(
-    (text: string, width: number, height: number) => {
-      const box = textBox;
-      setTextBox(null);
+    (text: string, width: number, height: number, select: boolean) => {
+      const box = textBoxRef.current;
       if (!box) return;
+      setTextBox(null);
       const trimmed = text.replace(/\s+$/g, "");
 
       if (box.editingId) {
-        const orig = elements.find((el) => el.id === box.editingId);
+        const orig = getElements().find((el) => el.id === box.editingId);
         if (!orig) return;
         if (!trimmed) {
           removeElements(new Set([box.editingId]));
@@ -769,7 +906,9 @@ export function useWhiteboardCanvas(
           height,
           data: { ...d, text } as unknown as Record<string, unknown>,
         };
-        updateElements([after]);
+        if (JSON.stringify(after) !== JSON.stringify(orig))
+          updateElements([after]);
+        if (select) setSelectedElementIds(new Set([orig.id]));
         return;
       }
 
@@ -792,18 +931,20 @@ export function useWhiteboardCanvas(
         } satisfies ITextData as unknown as Record<string, unknown>,
       };
       addElements([el]);
+      if (select) setSelectedElementIds(new Set([el.id]));
     },
     [
-      textBox,
-      elements,
+      getElements,
       addElements,
       updateElements,
       removeElements,
       getNextZIndex,
+      setSelectedElementIds,
+      setTextBox,
     ],
   );
 
-  const cancelText = useCallback(() => setTextBox(null), []);
+  const cancelText = useCallback(() => setTextBox(null), [setTextBox]);
 
   const findFreePosition = useCallback(
     (tw: number, th: number, px: number, py: number) => {
@@ -871,7 +1012,13 @@ export function useWhiteboardCanvas(
       addElements([el]);
       setSelectedElementIds(new Set([el.id]));
     },
-    [viewportCenter, findFreePosition, getNextZIndex, addElements],
+    [
+      viewportCenter,
+      findFreePosition,
+      getNextZIndex,
+      addElements,
+      setSelectedElementIds,
+    ],
   );
 
   const updateComponentData = useCallback(
@@ -880,22 +1027,20 @@ export function useWhiteboardCanvas(
       newData: Record<string, unknown>,
       size?: { width?: number; height?: number },
     ) => {
-      history.setElements((prev) => {
-        const el = prev.find((e) => e.id === elementId);
-        if (!el) return prev;
-        // A component that reports a size derives it from its content, so the
-        // value is applied as given. Only the axis it reports is touched.
-        const after = {
+      const el = getElements().find((e) => e.id === elementId);
+      if (!el) return;
+      // A component that reports a size derives it from its content, so the
+      // value is applied as given. Only the axis it reports is touched.
+      updateElements([
+        {
           ...el,
           data: newData,
           width: size?.width ?? el.width,
           height: size?.height ?? el.height,
-        };
-        pushAction({ type: "update", before: [el], after: [after] });
-        return prev.map((e) => (e.id === elementId ? after : e));
-      });
+        },
+      ]);
     },
-    [history, pushAction],
+    [getElements, updateElements],
   );
 
   const addImage = useCallback(
@@ -930,7 +1075,7 @@ export function useWhiteboardCanvas(
       };
       img.src = src;
     },
-    [viewportCenter, getNextZIndex, addElements],
+    [viewportCenter, getNextZIndex, addElements, setSelectedElementIds],
   );
 
   const copySelected = useCallback(() => {
@@ -966,14 +1111,14 @@ export function useWhiteboardCanvas(
     }));
     addElements(pasted);
     setSelectedElementIds(new Set(pasted.map((el) => el.id)));
-  }, [getNextZIndex, addElements]);
+  }, [getNextZIndex, addElements, setSelectedElementIds]);
 
   const cutSelected = useCallback(() => {
     if (selectedElementIds.size === 0) return;
     copySelected();
     removeElements(selectedElementIds);
     setSelectedElementIds(new Set());
-  }, [selectedElementIds, copySelected, removeElements]);
+  }, [selectedElementIds, copySelected, removeElements, setSelectedElementIds]);
 
   const duplicateSelected = useCallback(() => {
     if (selectedElementIds.size === 0) return;
@@ -988,7 +1133,13 @@ export function useWhiteboardCanvas(
     }));
     addElements(dupes);
     setSelectedElementIds(new Set(dupes.map((el) => el.id)));
-  }, [elements, selectedElementIds, getNextZIndex, addElements]);
+  }, [
+    elements,
+    selectedElementIds,
+    getNextZIndex,
+    addElements,
+    setSelectedElementIds,
+  ]);
 
   const pasteImage = useCallback((src: string) => addImage(src), [addImage]);
   const hasClipboard = useCallback(() => clipboard.current.length > 0, []);
@@ -997,11 +1148,11 @@ export function useWhiteboardCanvas(
     if (selectedElementIds.size === 0) return;
     removeElements(selectedElementIds);
     setSelectedElementIds(new Set());
-  }, [selectedElementIds, removeElements]);
+  }, [selectedElementIds, removeElements, setSelectedElementIds]);
 
   const selectAll = useCallback(() => {
     setSelectedElementIds(new Set(elements.map((el) => el.id)));
-  }, [elements]);
+  }, [elements, setSelectedElementIds]);
 
   const nudgeSelected = useCallback(
     (dx: number, dy: number) => {
@@ -1103,10 +1254,13 @@ export function useWhiteboardCanvas(
         return next;
       });
     },
-    [removeElements],
+    [removeElements, setSelectedElementIds],
   );
 
-  const initializeView = useCallback((vs: ViewState) => setViewState(vs), []);
+  const initializeView = useCallback(
+    (vs: ViewState) => setViewState(vs),
+    [setViewState],
+  );
 
   return {
     viewState,
@@ -1121,7 +1275,9 @@ export function useWhiteboardCanvas(
     onPointerDown,
     onPointerMove,
     onPointerUp,
+    cancelGesture,
     onWheel,
+    onDoubleClick,
     setSpacePan,
     startResize,
     startRotate,

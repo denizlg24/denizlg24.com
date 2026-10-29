@@ -13,7 +13,9 @@ import type {
 import { Button } from "@repo/ui/button";
 import { CurrencySelect } from "@repo/ui/currency-select";
 import { DatePicker } from "@repo/ui/date-picker";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -21,8 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Toggle } from "@repo/ui/toggle";
-import { cn } from "@repo/ui/utils";
+import { FilterTabs } from "@repo/ui/toolbar";
 import {
   computePayout,
   describeRecurrence,
@@ -36,7 +37,6 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { createFinanceRule, updateFinanceRule } from "./finance-data";
-import { FieldRow } from "./finance-primitives";
 import { money, shortDay, todayKey } from "./finance-series";
 
 const CADENCE_LABEL: Record<FinanceCadence, string> = {
@@ -46,6 +46,10 @@ const CADENCE_LABEL: Record<FinanceCadence, string> = {
   monthly: "Monthly",
   yearly: "Yearly",
 };
+
+const CADENCES = Object.keys(CADENCE_LABEL) as FinanceCadence[];
+
+type RuleKind = "expense" | "income" | "payout";
 
 const WEEKDAYS = [
   "Sunday",
@@ -242,8 +246,13 @@ function payoutDefaults(
   };
 }
 
+function dayOfMonth(value: number) {
+  return Math.min(31, Math.max(1, Math.round(value) || 1));
+}
+
 function buildRecurrence(draft: RuleDraft): FinanceRecurrence {
   const interval = Math.max(1, Number(draft.interval) || 1);
+  const day = dayOfMonth(draft.dayOfMonth);
   switch (draft.cadence) {
     case "daily":
       return { cadence: "daily", interval };
@@ -252,17 +261,17 @@ function buildRecurrence(draft: RuleDraft): FinanceRecurrence {
     case "semiMonthly":
       return {
         cadence: "semiMonthly",
-        firstDay: draft.dayOfMonth,
-        secondDay: draft.secondDayOfMonth,
+        firstDay: day,
+        secondDay: dayOfMonth(draft.secondDayOfMonth),
       };
     case "monthly":
-      return { cadence: "monthly", interval, dayOfMonth: draft.dayOfMonth };
+      return { cadence: "monthly", interval, dayOfMonth: day };
     case "yearly":
       return {
         cadence: "yearly",
         interval,
         month: draft.month,
-        dayOfMonth: draft.dayOfMonth,
+        dayOfMonth: day,
       };
   }
 }
@@ -333,11 +342,12 @@ export function RuleForm({
   const selectedProfile = profiles.find(
     (profile) => profile.id === draft.deductionProfileId,
   );
-  const payoutReady = draft.isPayout
-    ? draft.payoutSource === "hours"
+  const amountMajor = Number(draft.amount);
+  const amountValid = Number.isFinite(amountMajor) && amountMajor > 0;
+  const payoutReady =
+    draft.isPayout && draft.payoutSource === "hours"
       ? Boolean(selectedJob)
-      : Boolean(draft.amount)
-    : Boolean(draft.amount);
+      : amountValid;
   const ready = Boolean(
     draft.accountId && draft.name.trim() && payoutReady && draft.anchorDate,
   );
@@ -361,7 +371,7 @@ export function RuleForm({
     }));
   }, [draft, preview, recurrence]);
   const salaryPreview =
-    draft.isPayout && draft.payoutSource === "fixed" && draft.amount
+    draft.isPayout && draft.payoutSource === "fixed" && amountValid
       ? computePayout(
           Math.abs(majorToMinor(Number(draft.amount), draft.currency)),
           selectedProfile?.lines ?? [],
@@ -374,7 +384,7 @@ export function RuleForm({
     draft.cadence === "semiMonthly";
 
   async function save() {
-    if (!ready) return;
+    if (!ready || saving) return;
     setSaving(true);
     try {
       const currency =
@@ -432,9 +442,35 @@ export function RuleForm({
     }
   }
 
+  const kind: RuleKind = draft.isPayout ? "payout" : draft.direction;
+  const kindOptions: { value: RuleKind; label: string }[] = [
+    { value: "expense", label: "Expense" },
+    { value: "income", label: "Income" },
+    ...(rule ? [] : [{ value: "payout" as const, label: "Payout" }]),
+  ];
+
+  function selectKind(next: RuleKind) {
+    if (next === "payout") {
+      setDraft((current) => {
+        const defaults = payoutDefaults(true, jobs, profiles, todayKey());
+        return {
+          ...current,
+          ...defaults,
+          name: current.name || defaults.name || "",
+        };
+      });
+      return;
+    }
+    patch({ direction: next, isPayout: false });
+  }
+
   return (
-    <div
-      className="space-y-5"
+    <form
+      className="flex flex-col gap-8"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
@@ -442,65 +478,117 @@ export function RuleForm({
         }
       }}
     >
-      {seed && !rule && (
-        <div className="flex items-baseline gap-2 text-[11px] tabular-nums text-muted-foreground">
-          <span>every {seed.intervalDays}d</span>
-          <span>·</span>
-          <span>{Math.round(seed.confidence * 100)}% confidence</span>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          {!rule?.payout && (
+            <FilterTabs
+              value={kind}
+              onChange={selectKind}
+              options={kindOptions}
+            />
+          )}
+          {seed && !rule && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              every {seed.intervalDays}d · {Math.round(seed.confidence * 100)}%
+              confidence
+            </span>
+          )}
         </div>
-      )}
+        <FormGrid>
+          <FormField label="Name" htmlFor="rule-name" className="sm:col-span-2">
+            <Input
+              id="rule-name"
+              value={draft.name}
+              onChange={(event) => patch({ name: event.target.value })}
+            />
+          </FormField>
 
-      {!rule?.payout && (
-        <div className="flex gap-1">
-          {(rule
-            ? (["expense", "income"] as const)
-            : (["expense", "income", "payout"] as const)
-          ).map((value) => (
-            <Toggle
-              key={value}
-              size="sm"
-              variant="outline"
-              pressed={
-                value === "payout"
-                  ? draft.isPayout
-                  : !draft.isPayout && draft.direction === value
-              }
-              onPressedChange={() =>
-                value === "payout"
-                  ? setDraft((current) => ({
-                      ...current,
-                      ...payoutDefaults(true, jobs, profiles, todayKey()),
-                      name:
-                        current.name ||
-                        payoutDefaults(true, jobs, profiles, todayKey()).name ||
-                        "",
-                    }))
-                  : patch({ direction: value, isPayout: false })
-              }
-              className="flex-1 capitalize"
+          {!draft.isPayout && (
+            <>
+              <FormField label="Amount" htmlFor="rule-amount">
+                <Input
+                  id="rule-amount"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={draft.amount}
+                  onChange={(event) => patch({ amount: event.target.value })}
+                  className="text-right font-medium tabular-nums"
+                  placeholder="0.00"
+                />
+              </FormField>
+              <FormField label="Currency">
+                <CurrencySelect
+                  value={draft.currency}
+                  onValueChange={(value) =>
+                    patch({ currency: value, currencyPinned: true })
+                  }
+                />
+              </FormField>
+            </>
+          )}
+
+          <FormField label={draft.isPayout ? "Paid into" : "Account"}>
+            <Select
+              value={draft.accountId}
+              onValueChange={(value) => {
+                const account = accounts.find((item) => item.id === value);
+                patch({
+                  accountId: value,
+                  // Switching account re-suggests its currency, unless the
+                  // currency was picked deliberately.
+                  currency:
+                    draft.currencyPinned || !account
+                      ? draft.currency
+                      : account.currency,
+                });
+              }}
             >
-              {value}
-            </Toggle>
-          ))}
-        </div>
-      )}
-
-      <FieldRow label="Name" htmlFor="rule-name">
-        <Input
-          id="rule-name"
-          value={draft.name}
-          onChange={(event) => patch({ name: event.target.value })}
-        />
-      </FieldRow>
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          {!draft.isPayout && (
+            <FormField label="Kind">
+              <Select
+                value={draft.amountKind}
+                onValueChange={(value) =>
+                  patch({
+                    amountKind: value === "variable" ? "variable" : "fixed",
+                  })
+                }
+              >
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed">Fixed</SelectItem>
+                  <SelectItem value="variable">Variable</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
+        </FormGrid>
+      </div>
 
       {draft.isPayout && (
-        <div className="space-y-3 border-y py-4">
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Gross from" className="min-w-0">
+        <Section title="Payout">
+          <FormGrid>
+            <FormField label="Gross from">
               <Select
                 value={draft.payoutSource}
                 onValueChange={(value) => {
-                  const source = value as RuleDraft["payoutSource"];
+                  const source: RuleDraft["payoutSource"] =
+                    value === "fixed" ? "fixed" : "hours";
                   const job = jobs.find((item) => item.id === draft.jobId);
                   const account = accounts.find(
                     (item) => item.id === draft.accountId,
@@ -526,9 +614,9 @@ export function RuleForm({
                   <SelectItem value="fixed">Fixed salary</SelectItem>
                 </SelectContent>
               </Select>
-            </FieldRow>
+            </FormField>
             {draft.payoutSource === "hours" ? (
-              <FieldRow label="Job" className="min-w-0">
+              <FormField label="Job">
                 <Select
                   value={draft.jobId}
                   onValueChange={(value) => {
@@ -551,15 +639,16 @@ export function RuleForm({
                     ))}
                   </SelectContent>
                 </Select>
-              </FieldRow>
+              </FormField>
             ) : (
-              <FieldRow label="Monthly gross" className="col-span-2 min-w-0">
+              <FormField label="Monthly gross">
                 <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
                   <Input
                     type="number"
                     inputMode="decimal"
                     min="0"
                     step="0.01"
+                    aria-label="Monthly gross"
                     value={draft.amount}
                     onChange={(event) => patch({ amount: event.target.value })}
                     className="min-w-0 text-right font-medium tabular-nums"
@@ -572,29 +661,27 @@ export function RuleForm({
                     }
                   />
                 </div>
-              </FieldRow>
+              </FormField>
             )}
-          </div>
-          <FieldRow label="Deductions">
-            <Select
-              value={draft.deductionProfileId}
-              onValueChange={(value) => patch({ deductionProfileId: value })}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_PROFILE}>None</SelectItem>
-                {profiles.map((profile) => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FieldRow>
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Hours close on" htmlFor="rule-close-day">
+            <FormField label="Deductions" className="sm:col-span-2">
+              <Select
+                value={draft.deductionProfileId}
+                onValueChange={(value) => patch({ deductionProfileId: value })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROFILE}>None</SelectItem>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Hours close on" htmlFor="rule-close-day">
               <Input
                 id="rule-close-day"
                 type="number"
@@ -606,8 +693,8 @@ export function RuleForm({
                 }
                 className="tabular-nums"
               />
-            </FieldRow>
-            <FieldRow label="Employed from">
+            </FormField>
+            <FormField label="Employed from">
               <DatePicker
                 value={draft.employmentStart}
                 onValueChange={(value) =>
@@ -615,194 +702,106 @@ export function RuleForm({
                 }
                 aria-label="Employment start"
               />
-            </FieldRow>
-          </div>
+            </FormField>
+          </FormGrid>
           {salaryPreview && (
-            <div className="space-y-0.5 text-[11px] tabular-nums text-muted-foreground">
+            <div className="flex flex-col gap-0.5 text-xs tabular-nums text-muted-foreground">
               {salaryPreview.lines.map((line) => (
                 <div key={line.lineId} className="flex justify-between">
                   <span>{line.name}</span>
                   <span>−{money(line.amountMinor, draft.currency)}</span>
                 </div>
               ))}
-              <div className="flex justify-between font-medium text-foreground">
+              <div className="flex justify-between border-t pt-1 font-medium text-accent-strong">
                 <span>Net / month</span>
                 <span>{money(salaryPreview.netMinor, draft.currency)}</span>
               </div>
             </div>
           )}
-        </div>
+        </Section>
       )}
 
-      {!draft.isPayout && (
-        <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-          <FieldRow label="Amount" htmlFor="rule-amount" className="min-w-0">
-            <Input
-              id="rule-amount"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={draft.amount}
-              onChange={(event) => patch({ amount: event.target.value })}
-              className="text-right font-medium tabular-nums"
-              placeholder="0.00"
-            />
-          </FieldRow>
-          <FieldRow label="Currency" className="min-w-0">
-            <CurrencySelect
-              value={draft.currency}
-              onValueChange={(value) =>
-                patch({ currency: value, currencyPinned: true })
-              }
-            />
-          </FieldRow>
-        </div>
-      )}
-
-      <div
-        className={cn(
-          "grid gap-3",
-          !draft.isPayout && "grid-cols-[minmax(0,1fr)_7rem]",
-        )}
-      >
-        <FieldRow
-          label={draft.isPayout ? "Paid into" : "Account"}
-          className="min-w-0"
-        >
-          <Select
-            value={draft.accountId}
-            onValueChange={(value) => {
-              const account = accounts.find((item) => item.id === value);
-              patch({
-                accountId: value,
-                // Switching account re-suggests its currency, unless the
-                // currency was picked deliberately.
-                currency:
-                  draft.currencyPinned || !account
-                    ? draft.currency
-                    : account.currency,
-              });
-            }}
-          >
-            <SelectTrigger className="w-full min-w-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {accounts.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FieldRow>
-        {!draft.isPayout && (
-          <FieldRow label="Kind" className="min-w-0">
-            <Select
-              value={draft.amountKind}
-              onValueChange={(value) =>
-                patch({ amountKind: value as RuleDraft["amountKind"] })
-              }
-            >
-              <SelectTrigger className="w-full min-w-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fixed">Fixed</SelectItem>
-                <SelectItem value="variable">Variable</SelectItem>
-              </SelectContent>
-            </Select>
-          </FieldRow>
-        )}
-      </div>
-
-      <div className="space-y-3 border-y py-4">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-          <FieldRow label="Cadence" className="min-w-0">
+      <Section title="Schedule">
+        <FormGrid>
+          <FormField label="Cadence">
             <Select
               value={draft.cadence}
-              onValueChange={(value) =>
-                patch({ cadence: value as FinanceCadence })
-              }
+              onValueChange={(value) => {
+                const cadence = CADENCES.find((item) => item === value);
+                if (cadence) patch({ cadence });
+              }}
             >
               <SelectTrigger className="w-full min-w-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(CADENCE_LABEL) as FinanceCadence[]).map(
-                  (cadence) => (
-                    <SelectItem key={cadence} value={cadence}>
-                      {CADENCE_LABEL[cadence]}
-                    </SelectItem>
-                  ),
-                )}
+                {CADENCES.map((cadence) => (
+                  <SelectItem key={cadence} value={cadence}>
+                    {CADENCE_LABEL[cadence]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-          </FieldRow>
+          </FormField>
           {showsInterval && (
-            <FieldRow label="Every" htmlFor="rule-interval">
-              <div className="flex items-center gap-2">
-                <Input
-                  id="rule-interval"
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={draft.interval}
-                  onChange={(event) => patch({ interval: event.target.value })}
-                  className="w-16 tabular-nums"
-                />
-                <span className="text-xs text-muted-foreground">
-                  {INTERVAL_UNIT[draft.cadence]}
-                </span>
-              </div>
-            </FieldRow>
+            <FormField
+              label={`Every (${INTERVAL_UNIT[draft.cadence]})`}
+              htmlFor="rule-interval"
+            >
+              <Input
+                id="rule-interval"
+                type="number"
+                min={1}
+                max={99}
+                value={draft.interval}
+                onChange={(event) => patch({ interval: event.target.value })}
+                className="tabular-nums"
+              />
+            </FormField>
           )}
-        </div>
 
-        {draft.cadence === "weekly" && (
-          <FieldRow label="On">
-            <Select
-              value={String(draft.weekday)}
-              onValueChange={(value) => patch({ weekday: Number(value) })}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {WEEKDAYS.map((name, index) => (
-                  <SelectItem key={name} value={String(index)}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FieldRow>
-        )}
+          {draft.cadence === "weekly" && (
+            <FormField label="On">
+              <Select
+                value={String(draft.weekday)}
+                onValueChange={(value) => patch({ weekday: Number(value) })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WEEKDAYS.map((name, index) => (
+                    <SelectItem key={name} value={String(index)}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
 
-        {draft.cadence === "yearly" && (
-          <FieldRow label="Month">
-            <Select
-              value={String(draft.month)}
-              onValueChange={(value) => patch({ month: Number(value) })}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONTHS.map((name, index) => (
-                  <SelectItem key={name} value={String(index + 1)}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FieldRow>
-        )}
+          {draft.cadence === "yearly" && (
+            <FormField label="Month">
+              <Select
+                value={String(draft.month)}
+                onValueChange={(value) => patch({ month: Number(value) })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONTHS.map((name, index) => (
+                    <SelectItem key={name} value={String(index + 1)}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
 
-        {showsDayOfMonth && (
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow
+          {showsDayOfMonth && (
+            <FormField
               label={draft.cadence === "semiMonthly" ? "First day" : "Day"}
               htmlFor="rule-day"
             >
@@ -817,27 +816,25 @@ export function RuleForm({
                 }
                 className="tabular-nums"
               />
-            </FieldRow>
-            {draft.cadence === "semiMonthly" && (
-              <FieldRow label="Second day" htmlFor="rule-day-2">
-                <Input
-                  id="rule-day-2"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={draft.secondDayOfMonth}
-                  onChange={(event) =>
-                    patch({ secondDayOfMonth: Number(event.target.value) })
-                  }
-                  className="tabular-nums"
-                />
-              </FieldRow>
-            )}
-          </div>
-        )}
+            </FormField>
+          )}
+          {draft.cadence === "semiMonthly" && (
+            <FormField label="Second day" htmlFor="rule-day-2">
+              <Input
+                id="rule-day-2"
+                type="number"
+                min={1}
+                max={31}
+                value={draft.secondDayOfMonth}
+                onChange={(event) =>
+                  patch({ secondDayOfMonth: Number(event.target.value) })
+                }
+                className="tabular-nums"
+              />
+            </FormField>
+          )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <FieldRow label={draft.isPayout ? "First payout" : "Starts"}>
+          <FormField label={draft.isPayout ? "First payout" : "Starts"}>
             <DatePicker
               value={draft.anchorDate}
               onValueChange={(value) =>
@@ -845,8 +842,8 @@ export function RuleForm({
               }
               aria-label="Anchor date"
             />
-          </FieldRow>
-          <FieldRow label="Ends">
+          </FormField>
+          <FormField label="Ends">
             <DatePicker
               clearable
               value={draft.endDate}
@@ -854,71 +851,73 @@ export function RuleForm({
               placeholder="Never"
               aria-label="End date"
             />
-          </FieldRow>
+          </FormField>
+        </FormGrid>
+
+        <div className="flex flex-col gap-0.5 text-xs tabular-nums text-muted-foreground">
+          <span className="text-accent-strong">
+            {describeRecurrence(recurrence)}
+          </span>
+          {preview.length === 0 ? (
+            <span>No upcoming dates</span>
+          ) : (
+            preview.map((date) => {
+              const period = payoutPreview.find((row) => row.date === date);
+              return (
+                <span key={date}>
+                  → {shortDay(date)}
+                  {period &&
+                    ` · hours ${shortDay(period.periodStart)} – ${shortDay(period.periodEnd)}${period.partial ? " (partial)" : ""}`}
+                </span>
+              );
+            })
+          )}
         </div>
+      </Section>
 
-        <div className="space-y-1 text-[11px] text-muted-foreground">
-          <div>{describeRecurrence(recurrence)}</div>
-          <div className="flex flex-col gap-0.5 tabular-nums">
-            {preview.length === 0 ? (
-              <span>no upcoming dates</span>
-            ) : (
-              preview.map((date) => {
-                const period = payoutPreview.find((row) => row.date === date);
-                return (
-                  <span key={date}>
-                    → {shortDay(date)}
-                    {period &&
-                      ` · hours ${shortDay(period.periodStart)} – ${shortDay(period.periodEnd)}${period.partial ? " (partial)" : ""}`}
-                  </span>
-                );
-              })
-            )}
-          </div>
-        </div>
+      <Section title="Matching">
+        <FormGrid>
+          <FormField label="Tolerance %" htmlFor="rule-tolerance">
+            <Input
+              id="rule-tolerance"
+              type="number"
+              min={0}
+              max={100}
+              value={draft.tolerancePercent}
+              onChange={(event) =>
+                patch({ tolerancePercent: event.target.value })
+              }
+              className="tabular-nums"
+            />
+          </FormField>
+          <FormField label="Match window (days)" htmlFor="rule-window">
+            <Input
+              id="rule-window"
+              type="number"
+              min={0}
+              max={60}
+              value={draft.matchWindowDays}
+              onChange={(event) =>
+                patch({ matchWindowDays: event.target.value })
+              }
+              className="tabular-nums"
+            />
+          </FormField>
+        </FormGrid>
+      </Section>
+
+      <div className="flex justify-end border-t pt-4">
+        <Button type="submit" disabled={saving || !ready}>
+          {saving && <Loader2 className="animate-spin" />}
+          {rule
+            ? draft.isPayout
+              ? "Save payout"
+              : "Save rule"
+            : draft.isPayout
+              ? "Add payout"
+              : "Add rule"}
+        </Button>
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <FieldRow label="Tolerance %" htmlFor="rule-tolerance">
-          <Input
-            id="rule-tolerance"
-            type="number"
-            min={0}
-            max={100}
-            value={draft.tolerancePercent}
-            onChange={(event) =>
-              patch({ tolerancePercent: event.target.value })
-            }
-            className="tabular-nums"
-          />
-        </FieldRow>
-        <FieldRow label="Match window (d)" htmlFor="rule-window">
-          <Input
-            id="rule-window"
-            type="number"
-            min={0}
-            max={60}
-            value={draft.matchWindowDays}
-            onChange={(event) => patch({ matchWindowDays: event.target.value })}
-            className="tabular-nums"
-          />
-        </FieldRow>
-      </div>
-
-      <Button
-        className="w-full"
-        onClick={() => void save()}
-        disabled={saving || !ready}
-      >
-        {saving && <Loader2 className="size-4 animate-spin" />}
-        {rule
-          ? draft.isPayout
-            ? "Save payout"
-            : "Save rule"
-          : draft.isPayout
-            ? "Add payout"
-            : "Add rule"}
-      </Button>
-    </div>
+    </form>
   );
 }

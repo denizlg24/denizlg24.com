@@ -1,49 +1,30 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { PageBody, PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import { Textarea } from "@repo/ui/textarea";
+import { RowActions } from "@repo/ui/toolbar";
 import { ArrowLeft, FolderTree, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import type { IPerson, IPersonGroup } from "@/lib/data-types";
+import { buildDescendantIdMap } from "@/lib/note-group-tree";
+import { PersonAvatar } from "./person-avatar";
 
 interface Props {
   group: IPersonGroup;
   groups: IPersonGroup[];
   people: IPerson[];
-  onBack: () => void;
+  onBack?: () => void;
   onUpdate: (id: string, patch: Partial<IPersonGroup>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSelectPerson: (person: IPerson) => void;
-}
-
-function descendantIds(rootId: string, groups: IPersonGroup[]) {
-  const result = new Set<string>();
-  const stack = [rootId];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-    for (const group of groups) {
-      if (group.parentId === current && !result.has(group._id)) {
-        result.add(group._id);
-        stack.push(group._id);
-      }
-    }
-  }
-  return result;
 }
 
 export function PersonGroupDetail({
@@ -57,92 +38,96 @@ export function PersonGroupDetail({
 }: Props) {
   const [name, setName] = useState(group.name);
   const [description, setDescription] = useState(group.description || "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     setName(group.name);
     setDescription(group.description || "");
   }, [group]);
 
+  const descendants = useMemo(() => buildDescendantIdMap(groups), [groups]);
+
   const parentOptions = useMemo(() => {
-    const forbidden = descendantIds(group._id, groups);
+    const forbidden = new Set(descendants.get(group._id) ?? [group._id]);
     forbidden.add(group._id);
     return groups.filter((candidate) => !forbidden.has(candidate._id));
-  }, [group._id, groups]);
+  }, [descendants, group._id, groups]);
+
+  const childGroups = useMemo(
+    () => groups.filter((candidate) => candidate.parentId === group._id),
+    [group._id, groups],
+  );
 
   const members = useMemo(
-    () => people.filter((person) => person.groupIds.includes(group._id)),
+    () =>
+      people
+        .filter((person) => person.groupIds.includes(group._id))
+        .sort((left, right) => left.name.localeCompare(right.name)),
     [group._id, people],
   );
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={onBack}>
-            <ArrowLeft className="size-4" />
-          </Button>
-          <FolderTree className="size-4" />
-          <h1 className="text-sm font-medium">{group.name}</h1>
-        </div>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="size-3.5" />
-              Delete
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this group?</AlertDialogTitle>
-              <AlertDialogDescription>
-                People stay but lose this membership. Child groups become
-                top-level.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => void onDelete(group._id)}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
+  const commitName = () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setName(group.name);
+      return;
+    }
+    if (trimmed !== group.name) void onUpdate(group._id, { name: trimmed });
+  };
 
-      <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-5 overflow-y-auto p-6">
-        <div className="space-y-2">
-          <Label className="text-xs">Name</Label>
-          <Input
+  return (
+    <PageBody width="narrow">
+      <PageTitle
+        icon={<FolderTree />}
+        title={
+          <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            onBlur={() => {
-              if (name.trim() && name !== group.name) {
-                void onUpdate(group._id, { name: name.trim() });
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                setName(group.name);
+                event.currentTarget.blur();
               }
             }}
+            aria-label="Group name"
+            className="w-full bg-transparent outline-none"
           />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs">Description</Label>
-          <Textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            onBlur={() => {
-              if (description !== (group.description || "")) {
-                void onUpdate(group._id, { description });
-              }
-            }}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs">Parent group</Label>
+        }
+        meta={
+          <span className="tabular-nums">
+            {members.length} {members.length === 1 ? "person" : "people"}
+          </span>
+        }
+        actions={
+          <>
+            {onBack ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Back"
+                className="md:hidden"
+                onClick={onBack}
+              >
+                <ArrowLeft />
+              </Button>
+            ) : null}
+            <RowActions>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => setConfirmDelete(true)}
+              >
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </RowActions>
+          </>
+        }
+      />
+
+      <Properties>
+        <Property icon={<FolderTree />} label="Parent">
           <GroupTreeCombobox
             groups={parentOptions}
             value={group.parentId ? [group.parentId] : []}
@@ -150,25 +135,64 @@ export function PersonGroupDetail({
               void onUpdate(group._id, { parentId: value.at(-1) ?? null })
             }
             placeholder="None"
-            searchPlaceholder="Search group hierarchy…"
+            searchPlaceholder="Search groups…"
           />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs">Members ({members.length})</Label>
-          <div className="divide-y rounded border">
+        </Property>
+        {childGroups.length > 0 ? (
+          <Property label="Subgroups">
+            <span className="truncate">
+              {childGroups.map((child) => child.name).join(", ")}
+            </span>
+          </Property>
+        ) : null}
+      </Properties>
+
+      <Textarea
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+        onBlur={() => {
+          if (description !== (group.description || "")) {
+            void onUpdate(group._id, { description });
+          }
+        }}
+        placeholder="Description"
+        aria-label="Description"
+        className="min-h-20 resize-none border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
+      />
+
+      <Section title="Members" count={members.length}>
+        {members.length === 0 ? (
+          <EmptyState compact label="No members" />
+        ) : (
+          <List>
             {members.map((person) => (
-              <button
-                type="button"
+              <ListRow
                 key={person._id}
                 onClick={() => onSelectPerson(person)}
-                className="flex w-full px-3 py-2 text-left text-sm hover:bg-muted/40"
-              >
-                {person.name}
-              </button>
+                leading={
+                  <PersonAvatar
+                    size="xs"
+                    photo={person.photos[0]}
+                    name={person.name}
+                  />
+                }
+                title={person.name}
+                description={person.placeMet || undefined}
+              />
             ))}
-          </div>
-        </div>
-      </div>
-    </div>
+          </List>
+        )}
+      </Section>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${group.name}?`}
+        description="Members stay; subgroups move to the top level."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => onDelete(group._id)}
+      />
+    </PageBody>
   );
 }

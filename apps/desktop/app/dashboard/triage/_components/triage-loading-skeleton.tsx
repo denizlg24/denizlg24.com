@@ -1,71 +1,66 @@
+import { Page, PageBody, PageToolbar } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
+import { SplitView } from "@repo/ui/split-view";
 import { Brain } from "lucide-react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 
-const FILTER_WIDTHS = ["w-24", "w-28", "w-20", "w-24", "w-14"] as const;
+const FILTER_WIDTHS = ["w-20", "w-24", "w-16", "w-28", "w-10"] as const;
 
-// Widths alternate so the loading list reads as varied subjects rather than a
-// block of identical bars.
+// Alternating widths so the placeholder reads as varied senders and subjects.
 const ROW_WIDTHS = [
-  "w-64",
-  "w-48",
-  "w-72",
-  "w-56",
-  "w-60",
-  "w-44",
-  "w-80",
-  "w-52",
+  ["w-28", "w-52"],
+  ["w-36", "w-44"],
+  ["w-24", "w-56"],
+  ["w-32", "w-48"],
+  ["w-28", "w-40"],
+  ["w-40", "w-52"],
+  ["w-24", "w-44"],
+  ["w-32", "w-56"],
 ] as const;
 
-function TriageContentSkeleton() {
+export function TriageListSkeleton() {
   return (
-    <div className="divide-y">
-      {ROW_WIDTHS.map((width, index) => (
+    <div className="flex flex-col gap-1">
+      {ROW_WIDTHS.map(([title, subject], index) => (
         <div
-          key={width + String(index)}
-          className="flex items-center gap-3 py-2.5 pl-3 pr-1"
+          key={`${title}-${subject}-${String(index)}`}
+          className="flex items-center gap-3 py-1.5"
         >
-          <div className="min-w-0 flex-1">
-            <Skeleton className={`h-3.5 max-w-full ${width}`} />
-            <div className="mt-2 flex items-center gap-2">
-              <Skeleton className="h-2.5 w-16" />
-              <Skeleton className="h-2.5 w-28" />
-            </div>
+          <Skeleton className="ml-2 h-4 w-0.5" />
+          <div className="ml-2 flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className={`h-3 max-w-full ${title}`} />
+            <Skeleton className={`h-2.5 max-w-full ${subject}`} />
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Skeleton className="h-2.5 w-8" />
-            <Skeleton className="h-[3px] w-10 rounded-full" />
-            <Skeleton className="h-2.5 w-6" />
-          </div>
+          <Skeleton className="h-2.5 w-7" />
         </div>
       ))}
     </div>
   );
 }
 
-export function TriageLoadingSkeleton({
-  contentOnly = false,
-}: {
-  contentOnly?: boolean;
-}) {
-  if (contentOnly) {
-    return <TriageContentSkeleton />;
-  }
-
+export function TriageLoadingSkeleton() {
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="flex-1 text-sm font-semibold">Triage</span>
-        <Skeleton className="h-7 w-24" />
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-4 pt-2">
-        <div className="flex shrink-0 gap-4 border-b pb-2">
-          {FILTER_WIDTHS.map((width, index) => (
-            <Skeleton key={index} className={`h-3 ${width}`} />
-          ))}
-        </div>
-        <TriageContentSkeleton />
-      </div>
-    </div>
+    <Page>
+      <DashboardPageHeader icon={<Brain />} title="Triage">
+        <Skeleton className="h-7 w-20" />
+      </DashboardPageHeader>
+      <PageToolbar>
+        {FILTER_WIDTHS.map((width) => (
+          <Skeleton key={width} className={`h-4 ${width}`} />
+        ))}
+      </PageToolbar>
+      <PageBody bleed className="flex">
+        <SplitView
+          listWidth="md:w-[26rem]"
+          detailOpen={false}
+          list={
+            <div className="p-2">
+              <TriageListSkeleton />
+            </div>
+          }
+          detail={null}
+        />
+      </PageBody>
+    </Page>
   );
 }

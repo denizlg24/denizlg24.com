@@ -76,22 +76,24 @@ export function VoiceNoteTranscript({
           className={cn(
             "-mx-2 flex gap-3 rounded-md px-2 py-1.5 transition-colors duration-700",
             flashIndex === index
-              ? "bg-amber-400/15"
-              : index === activeIndex && "bg-muted/50",
+              ? "bg-status-warning/15"
+              : index === activeIndex && "bg-surface/70",
           )}
         >
           <button
             type="button"
             onClick={() => onSeek(block.startSecond * 1_000)}
             className={cn(
-              "h-5 shrink-0 rounded-sm px-1 font-mono text-[10px] tabular-nums hover:bg-muted hover:text-foreground",
-              index === activeIndex ? "text-red-500" : "text-muted-foreground",
+              "h-5 shrink-0 rounded-sm px-1 text-[11px] tabular-nums hover:bg-surface hover:text-accent-strong",
+              index === activeIndex
+                ? "text-status-critical"
+                : "text-muted-foreground",
             )}
             aria-label={`Play from ${formatClock(block.startSecond, withHours)}`}
           >
             {formatClock(block.startSecond, withHours)}
           </button>
-          <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs leading-relaxed">
+          <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-accent-strong">
             <HighlightedText text={block.text} terms={terms} />
           </p>
         </li>

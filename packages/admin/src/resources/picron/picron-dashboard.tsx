@@ -7,16 +7,15 @@ import {
   type PiCronStats,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { Loader2, Plus, Search } from "lucide-react";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListGroupLabel } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { SearchField } from "@repo/ui/toolbar";
+import { Clock, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../../provider";
@@ -74,7 +73,6 @@ export function PiCronDashboard({
   const [editingJob, setEditingJob] = useState<PiCronJob | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PiCronJob | null>(null);
   const [historyJob, setHistoryJob] = useState<PiCronJob | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const basePath = `resources/${resourceId}/capabilities/${capability._id}/picron`;
 
@@ -156,19 +154,14 @@ export function PiCronDashboard({
     }
   };
 
-  const handleDeleteJob = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  const handleDeleteJob = async (target: PiCronJob) => {
     try {
-      await client.del(`${basePath}/jobs/${deleteTarget.id}`);
-      setJobs((prev) => prev.filter((j) => j.id !== deleteTarget.id));
-      setDeleteTarget(null);
+      await client.del(`${basePath}/jobs/${target.id}`);
+      setJobs((prev) => prev.filter((j) => j.id !== target.id));
       toast.success("Job deleted");
       refreshStats();
     } catch {
       toast.error("Failed to delete job");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -209,14 +202,6 @@ export function PiCronDashboard({
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [filteredJobs]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   const renderRow = (job: PiCronJob) => (
     <PiCronJobRow
       key={job.id}
@@ -231,101 +216,69 @@ export function PiCronDashboard({
   );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium flex items-center gap-2">
-          Cron Jobs
-          {refreshing && (
-            <Loader2 className="size-3 animate-spin text-muted-foreground/40" />
+    <Section
+      title={capability.label}
+      count={jobs.length > 0 ? jobs.length : undefined}
+      actions={
+        <>
+          {refreshing && <Spinner className="size-3 text-muted-foreground" />}
+          {jobs.length > 5 && (
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              placeholder="Filter jobs"
+              className="w-48"
+            />
           )}
-        </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 text-xs gap-1 text-muted-foreground"
-          onClick={() => setCreateOpen(true)}
-        >
-          <Plus className="size-3" /> New Job
-        </Button>
-      </div>
-
-      {stats && (
-        <div className="flex items-center gap-6 mb-4 pb-4 border-b border-border/30">
-          <div>
-            <p className="text-lg font-mono font-semibold tabular-nums">
-              {stats.total_jobs}
-            </p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-              total
-            </p>
-          </div>
-          <div>
-            <p className="text-lg font-mono font-semibold tabular-nums text-accent">
-              {stats.active_jobs}
-            </p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-              active
-            </p>
-          </div>
-          <div>
-            <p className="text-lg font-mono font-semibold tabular-nums">
-              {stats.total_executions}
-            </p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-              runs
-            </p>
-          </div>
-          <div>
-            <p
-              className={`text-lg font-mono font-semibold tabular-nums ${stats.failed_executions_24h > 0 ? "text-red-500" : ""}`}
-            >
-              {stats.failed_executions_24h}
-            </p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-              fails 24h
-            </p>
-          </div>
-        </div>
-      )}
-
-      {jobs.length > 5 && (
-        <div className="relative mb-3">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/50" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by name, URL, or schedule…"
-            className="h-7 pl-7 text-xs"
-          />
-        </div>
-      )}
-
-      {jobs.length === 0 ? (
-        <p className="text-xs text-muted-foreground/60 text-center py-8">
-          No cron jobs configured
-        </p>
-      ) : filteredJobs.length === 0 ? (
-        <p className="text-xs text-muted-foreground/60 text-center py-8">
-          No jobs match &quot;{query}&quot;
-        </p>
-      ) : hostGroups.length === 1 ? (
-        <div className="flex flex-col gap-0.5">
-          {hostGroups[0]?.[1].map(renderRow)}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {hostGroups.map(([host, hostJobs]) => (
-            <div key={host}>
-              <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/50 px-3 mb-1">
-                {host}
-                <span className="ml-1.5 normal-case">· {hostJobs.length}</span>
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {hostJobs.map(renderRow)}
-              </div>
-            </div>
+          <Button variant="ghost" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus /> Job
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full" />
           ))}
         </div>
+      ) : (
+        <>
+          {stats && (
+            <StatGroup>
+              <Stat label="Jobs" value={stats.total_jobs} />
+              <Stat label="Active" value={stats.active_jobs} />
+              <Stat label="Runs" value={stats.total_executions} />
+              <Stat
+                label="Fails 24h"
+                value={stats.failed_executions_24h}
+                tone={stats.failed_executions_24h > 0 ? "critical" : "default"}
+              />
+            </StatGroup>
+          )}
+
+          {jobs.length === 0 ? (
+            <EmptyState compact icon={<Clock />} label="No jobs" />
+          ) : filteredJobs.length === 0 ? (
+            <EmptyState compact label="0 results" />
+          ) : hostGroups.length === 1 ? (
+            <List>{hostGroups[0]?.[1].map(renderRow)}</List>
+          ) : (
+            <List>
+              {hostGroups.map(([host, hostJobs]) => (
+                <div key={host} className="flex flex-col">
+                  <ListGroupLabel>
+                    <span className="font-mono normal-case">{host}</span>
+                    <span className="ml-1.5 tabular-nums">
+                      {hostJobs.length}
+                    </span>
+                  </ListGroupLabel>
+                  {hostJobs.map(renderRow)}
+                </div>
+              ))}
+            </List>
+          )}
+        </>
       )}
 
       <JobFormDialog
@@ -354,7 +307,7 @@ export function PiCronDashboard({
       {historyJob && (
         <JobHistoryDialog
           open={!!historyJob}
-          key={historyJob?.id ?? "historyDialog"}
+          key={historyJob.id}
           onOpenChange={(o) => !o && setHistoryJob(null)}
           jobId={historyJob.id}
           jobName={historyJob.name}
@@ -363,36 +316,16 @@ export function PiCronDashboard({
         />
       )}
 
-      <Dialog
+      <ConfirmDialog
         open={!!deleteTarget}
-        key={deleteTarget?.id ?? "deleteDialog"}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Job</DialogTitle>
-            <DialogDescription>
-              Delete &quot;{deleteTarget?.name}&quot;? This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteJob}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting…" : "Delete Job"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        title={`Delete ${deleteTarget?.name ?? "job"}?`}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDeleteJob(deleteTarget);
+        }}
+      />
+    </Section>
   );
 }

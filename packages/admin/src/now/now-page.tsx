@@ -2,65 +2,60 @@
 
 import type { INowPage } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
-import { PageHeader } from "@repo/ui/page-header";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
-import { HeaderBarSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { Textarea } from "@repo/ui/textarea";
-import { Clock, Loader2, RefreshCw, Save } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Spinner } from "@repo/ui/spinner";
+import { cn } from "@repo/ui/utils";
+import { Clock, RefreshCw } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import {
+  formatRelativeDate,
+  MarkdownSection,
+} from "../projects/document-editor";
 import { useAdmin } from "../provider";
 
-function formatLastUpdated(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
+const ICON = <Clock />;
 
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
+function NowHeader({ children }: { children?: ReactNode }) {
+  const { slots } = useAdmin();
+  return (
+    <PageHeader leading={slots?.sidebarTrigger} icon={ICON} title="Now">
+      {children}
+    </PageHeader>
+  );
 }
 
 export function NowSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-2">
-      <HeaderBarSkeleton
-        icon={<Clock className="size-4 text-muted-foreground" />}
-        title="Now Page"
-        actions={["w-24", "w-20", "w-16"]}
-      />
-      <div className="px-4 flex min-h-0 flex-1 flex-col gap-4 pt-3 pb-4">
-        <TabStripSkeleton widths={["w-12", "w-16"]} />
-        <Skeleton className="w-full flex-1 rounded-md" />
-      </div>
-    </div>
+    <Page>
+      <NowHeader />
+      <PageBody width="narrow">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-11/12" />
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-4 w-3/5" />
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
 export function NowPage() {
-  const { client, slots } = useAdmin();
+  const { client } = useAdmin();
 
   const [content, setContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchNowPage = useCallback(async () => {
     try {
-      const result = await client.get<{ item: INowPage }>("now-page");
+      const result = await client.get<{ item: INowPage | null }>("now-page");
       if (result.item) {
         setContent(result.item.content);
         setOriginalContent(result.item.content);
@@ -70,11 +65,12 @@ export function NowPage() {
       toast.error("Failed to load now page");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [client]);
 
   useEffect(() => {
-    fetchNowPage();
+    void fetchNowPage();
   }, [fetchNowPage]);
 
   const hasChanges = content !== originalContent;
@@ -94,78 +90,37 @@ export function NowPage() {
     }
   };
 
-  if (loading) {
-    return <NowSkeleton />;
-  }
+  if (loading) return <NowSkeleton />;
 
   return (
-    <div className="flex flex-col gap-2 pb-8 h-full">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<Clock className="size-4 text-muted-foreground" />}
-        title="Now Page"
-      >
-        {updatedAt && (
-          <span className="text-[10px] text-muted-foreground">
-            Updated {formatLastUpdated(updatedAt)}
+    <Page>
+      <NowHeader>
+        {updatedAt ? (
+          <span className="px-1 text-xs tabular-nums text-muted-foreground">
+            {hasChanges ? "Edited" : formatRelativeDate(updatedAt)}
           </span>
-        )}
-
+        ) : null}
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={refreshing || hasChanges}
           onClick={() => {
-            setLoading(true);
-            fetchNowPage();
+            setRefreshing(true);
+            void fetchNowPage();
           }}
         >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
         </Button>
-
-        <Button
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-        >
-          {saving ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Save className="size-3.5" />
-          )}
+        <Button size="sm" onClick={handleSave} disabled={!hasChanges || saving}>
+          {saving ? <Spinner className="size-3.5" /> : null}
           Save
         </Button>
-      </PageHeader>
+      </NowHeader>
 
-      <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
-        <Tabs defaultValue="write" className="flex flex-col flex-1 min-h-0">
-          <TabsList variant="line" className="mb-2">
-            <TabsTrigger value="write">Write</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-          </TabsList>
-          <TabsContent value="write" className="flex-1 min-h-0">
-            <Textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Write what you're up to now in markdown..."
-              className="font-mono text-sm h-full min-h-[400px] resize-none"
-            />
-          </TabsContent>
-          <TabsContent value="preview" className="flex-1 min-h-0">
-            {content.trim() ? (
-              <div className="rounded-md border p-4 min-h-[400px] overflow-y-auto">
-                <MarkdownRenderer content={content} />
-              </div>
-            ) : (
-              <div className="rounded-md border p-4 min-h-[400px] flex items-center justify-center text-muted-foreground text-sm">
-                Nothing to preview
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+      <PageBody width="narrow">
+        <MarkdownSection title="Now" value={content} onChange={setContent} />
+      </PageBody>
+    </Page>
   );
 }

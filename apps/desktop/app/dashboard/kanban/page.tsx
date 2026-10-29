@@ -1,46 +1,28 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageToolbar } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
 import { Textarea } from "@repo/ui/textarea";
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowLeft,
-  Bug,
-  CheckSquare,
-  Code2,
-  LayoutGrid,
-  Megaphone,
-  MoreHorizontal,
-  Pencil,
-  PenLine,
-  Plus,
-  Square,
-  Trash2,
-} from "lucide-react";
+import { RowActions, SearchField } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import { LayoutGrid, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IKanbanBoard } from "@/lib/data-types";
+import { SwatchPicker } from "./_components/column-customization";
 import { KanbanBoard } from "./_components/kanban-board";
 
 const BOARD_COLORS = [
@@ -59,84 +41,62 @@ const BOARD_COLORS = [
 interface KanbanTemplate {
   id: string;
   name: string;
-  description: string;
-  icon: LucideIcon;
   color: string;
   columns: string[];
 }
 
 const TEMPLATES: KanbanTemplate[] = [
-  {
-    id: "blank",
-    name: "Blank Board",
-    description: "Start from scratch",
-    icon: Square,
-    color: "#64748b",
-    columns: [],
-  },
+  { id: "blank", name: "Blank", color: "#64748b", columns: [] },
   {
     id: "software",
-    name: "Software Dev",
-    description: "Features, bugs & reviews",
-    icon: Code2,
+    name: "Software",
     color: "#6366f1",
     columns: ["Backlog", "To Do", "In Progress", "In Review", "Done"],
   },
   {
     id: "personal",
-    name: "Personal Tasks",
-    description: "Simple personal tracking",
-    icon: CheckSquare,
+    name: "Personal",
     color: "#a1bc98",
     columns: ["To Do", "In Progress", "Done"],
   },
   {
     id: "content",
-    name: "Content Calendar",
-    description: "Plan & publish content",
-    icon: PenLine,
+    name: "Content",
     color: "#ec4899",
     columns: ["Ideas", "Writing", "In Review", "Published"],
   },
   {
     id: "bugs",
-    name: "Bug Tracker",
-    description: "Track & resolve issues",
-    icon: Bug,
+    name: "Bugs",
     color: "#ef4444",
     columns: ["Reported", "Triaged", "In Progress", "Fixed", "Closed"],
   },
   {
     id: "marketing",
     name: "Marketing",
-    description: "Plan & launch campaigns",
-    icon: Megaphone,
     color: "#f97316",
     columns: ["Planning", "Design", "In Review", "Launched"],
   },
 ];
 
-function ColorPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (c: string) => void;
-}) {
+function relativeTime(value: Date | string): string {
+  const date = new Date(value);
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function BoardDot({ color }: { color?: string }) {
   return (
-    <div className="flex gap-2 flex-wrap">
-      {BOARD_COLORS.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          className={`size-7 rounded-full border-2 transition-all hover:scale-110 ${
-            value === c ? "border-foreground scale-110" : "border-transparent"
-          }`}
-          style={{ backgroundColor: c }}
-        />
-      ))}
-    </div>
+    <span
+      className="size-2.5 rounded-full bg-muted-foreground/40"
+      style={color ? { backgroundColor: color } : undefined}
+    />
   );
 }
 
@@ -145,78 +105,129 @@ function TemplatePicker({
   onSelect,
 }: {
   selected: string;
-  onSelect: (id: string) => void;
+  onSelect: (template: KanbanTemplate) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-      {TEMPLATES.map((t) => (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {TEMPLATES.map((template) => (
         <button
-          key={t.id}
+          key={template.id}
           type="button"
-          onClick={() => onSelect(t.id)}
-          className={`flex flex-col gap-1.5 p-3 rounded-xl border-2 text-left transition-all hover:border-primary/40 hover:bg-accent/50 ${
-            selected === t.id
-              ? "border-primary bg-primary/5"
-              : "border-border bg-card"
-          }`}
-        >
-          <div
-            className="size-8 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: `${t.color}20`, color: t.color }}
-          >
-            <t.icon className="size-4" />
-          </div>
-          <span className="text-xs font-semibold leading-snug">{t.name}</span>
-          <span className="text-[10px] text-muted-foreground leading-snug">
-            {t.description}
-          </span>
-          {t.columns.length > 0 && (
-            <div className="flex gap-1 flex-wrap mt-0.5">
-              {t.columns.slice(0, 3).map((col) => (
-                <span
-                  key={col}
-                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground leading-none"
-                >
-                  {col}
-                </span>
-              ))}
-              {t.columns.length > 3 && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground leading-none">
-                  +{t.columns.length - 3}
-                </span>
-              )}
-            </div>
+          aria-pressed={selected === template.id}
+          onClick={() => onSelect(template)}
+          className={cn(
+            "flex flex-col gap-1.5 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            selected === template.id
+              ? "border-ring/60 bg-surface dark:bg-muted"
+              : "border-border/70 hover:bg-surface/70",
           )}
+        >
+          <span className="flex items-center gap-2 text-sm text-accent-strong">
+            <BoardDot color={template.color} />
+            {template.name}
+          </span>
+          <span className="truncate text-xs text-muted-foreground">
+            {template.columns.length ? template.columns.join(" · ") : "—"}
+          </span>
         </button>
       ))}
     </div>
   );
 }
 
-export default function KanbanPage() {
-  const { settings, loading: loadingSettings } = useUserSettings();
+type BoardDraft = {
+  title: string;
+  description: string;
+  color: string;
+  template: string;
+};
 
-  const API = useMemo(() => {
-    if (loadingSettings) return null;
-    return new denizApi();
-  }, [settings, loadingSettings]);
+const EMPTY_DRAFT: BoardDraft = {
+  title: "",
+  description: "",
+  color: BOARD_COLORS[0],
+  template: "blank",
+};
+
+function BoardFields({
+  draft,
+  onChange,
+  idPrefix,
+}: {
+  draft: BoardDraft;
+  onChange: (draft: BoardDraft) => void;
+  idPrefix: string;
+}) {
+  return (
+    <FormGrid>
+      <FormField label="Name" htmlFor={`${idPrefix}-title`}>
+        <Input
+          id={`${idPrefix}-title`}
+          autoFocus
+          value={draft.title}
+          onChange={(e) => onChange({ ...draft, title: e.target.value })}
+        />
+      </FormField>
+      <FormField label="Color">
+        <div className="flex h-8 items-center">
+          <SwatchPicker
+            colors={BOARD_COLORS}
+            value={draft.color}
+            onChange={(color) => onChange({ ...draft, color })}
+          />
+        </div>
+      </FormField>
+      <FormField
+        label="Description"
+        htmlFor={`${idPrefix}-description`}
+        className="sm:col-span-2"
+      >
+        <Textarea
+          id={`${idPrefix}-description`}
+          value={draft.description}
+          onChange={(e) => onChange({ ...draft, description: e.target.value })}
+          rows={3}
+        />
+      </FormField>
+    </FormGrid>
+  );
+}
+
+function BoardsSkeleton() {
+  return (
+    <div className="flex flex-col">
+      {["w-40", "w-56", "w-32", "w-48", "w-36"].map((width) => (
+        <div key={width} className="flex h-12 items-center gap-3">
+          <Skeleton className="size-2.5 rounded-full" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className={cn("h-3.5", width)} />
+            <Skeleton className="h-3 w-24" />
+          </div>
+          <Skeleton className="h-3 w-12" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function KanbanPage() {
+  const { loading: loadingSettings } = useUserSettings();
+
+  const API = useMemo(
+    () => (loadingSettings ? null : new denizApi()),
+    [loadingSettings],
+  );
 
   const [boards, setBoards] = useState<IKanbanBoard[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState("blank");
-  const [newTitle, setNewTitle] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [newColor, setNewColor] = useState(BOARD_COLORS[0]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [createDraft, setCreateDraft] = useState<BoardDraft>(EMPTY_DRAFT);
   const [editingBoard, setEditingBoard] = useState<IKanbanBoard | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editColor, setEditColor] = useState(BOARD_COLORS[0]);
-
+  const [editDraft, setEditDraft] = useState<BoardDraft>(EMPTY_DRAFT);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IKanbanBoard | null>(null);
 
   useEffect(() => {
@@ -236,28 +247,36 @@ export default function KanbanPage() {
   };
 
   useEffect(() => {
-    if (!API || !initialLoading) return;
+    if (!API) return;
     API.GET<{ boards: IKanbanBoard[] }>({ endpoint: "kanban/boards" })
       .then((result) => {
-        if (!("code" in result)) setBoards(result.boards ?? []);
+        if ("code" in result) toast.error("Failed to load boards");
+        else setBoards(result.boards ?? []);
       })
       .finally(() => setInitialLoading(false));
-  }, [API, initialLoading]);
+  }, [API]);
+
+  const filteredBoards = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return boards;
+    return boards.filter(
+      (board) =>
+        board.title.toLowerCase().includes(q) ||
+        board.description?.toLowerCase().includes(q),
+    );
+  }, [boards, query]);
 
   const handleCreate = async () => {
-    if (!API || !newTitle.trim()) return;
+    if (!API || !createDraft.title.trim()) return;
     setIsSubmitting(true);
     try {
-      const template = TEMPLATES.find((t) => t.id === selectedTemplate);
-      const color =
-        template?.id !== "blank" ? (template?.color ?? newColor) : newColor;
-
+      const template = TEMPLATES.find((t) => t.id === createDraft.template);
       const result = await API.POST<{ board: IKanbanBoard }>({
         endpoint: "kanban/boards",
         body: {
-          title: newTitle.trim(),
-          description: newDescription.trim() || undefined,
-          color,
+          title: createDraft.title.trim(),
+          description: createDraft.description.trim() || undefined,
+          color: createDraft.color,
         },
       });
       if ("code" in result) {
@@ -267,24 +286,18 @@ export default function KanbanPage() {
       const board = result.board;
       setBoards((prev) => [...prev, board]);
 
-      if (template && template.columns.length > 0) {
-        for (const colTitle of template.columns) {
-          await API.POST({
-            endpoint: `kanban/boards/${board._id}/columns`,
-            body: {
-              title: colTitle,
-              isDoneColumn: colTitle.trim().toLowerCase() === "done",
-            },
-          });
-        }
+      for (const colTitle of template?.columns ?? []) {
+        await API.POST({
+          endpoint: `kanban/boards/${board._id}/columns`,
+          body: {
+            title: colTitle,
+            isDoneColumn: colTitle.trim().toLowerCase() === "done",
+          },
+        });
       }
 
       setCreateOpen(false);
-      setNewTitle("");
-      setNewDescription("");
-      setNewColor(BOARD_COLORS[0]);
-      setSelectedTemplate("blank");
-      toast.success("Board created");
+      setCreateDraft(EMPTY_DRAFT);
       selectBoard(board._id);
     } finally {
       setIsSubmitting(false);
@@ -292,398 +305,233 @@ export default function KanbanPage() {
   };
 
   const handleUpdate = async () => {
-    if (!API || !editingBoard || !editTitle.trim()) return;
+    if (!API || !editingBoard || !editDraft.title.trim()) return;
     setIsSubmitting(true);
     try {
+      const patch = {
+        title: editDraft.title.trim(),
+        description: editDraft.description.trim() || undefined,
+        color: editDraft.color,
+      };
       const result = await API.PATCH<{ board: IKanbanBoard }>({
         endpoint: `kanban/boards/${editingBoard._id}`,
-        body: {
-          title: editTitle.trim(),
-          description: editDescription.trim() || undefined,
-          color: editColor,
-        },
+        body: patch,
       });
       if ("code" in result) {
         toast.error("Failed to update board");
         return;
       }
       setBoards((prev) =>
-        prev.map((b) =>
-          b._id === editingBoard._id
-            ? {
-                ...b,
-                title: editTitle.trim(),
-                description: editDescription.trim() || undefined,
-                color: editColor,
-              }
-            : b,
-        ),
+        prev.map((b) => (b._id === editingBoard._id ? { ...b, ...patch } : b)),
       );
       setEditingBoard(null);
-      toast.success("Board updated");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!API || !deleteTarget) return;
-    setIsSubmitting(true);
-    try {
-      const result = await API.DELETE<{ success: true }>({
-        endpoint: `kanban/boards/${deleteTarget._id}`,
-      });
-      if ("code" in result) {
-        toast.error("Failed to delete board");
-        return;
-      }
-      setBoards((prev) => prev.filter((b) => b._id !== deleteTarget._id));
-      if (selectedBoardId === deleteTarget._id) selectBoard(null);
-      setDeleteTarget(null);
-      toast.success("Board deleted");
-    } finally {
-      setIsSubmitting(false);
+  const handleDelete = async (board: IKanbanBoard) => {
+    if (!API) return;
+    const result = await API.DELETE<{ success: true }>({
+      endpoint: `kanban/boards/${board._id}`,
+    });
+    if ("code" in result) {
+      toast.error("Failed to delete board");
+      return;
     }
+    setBoards((prev) => prev.filter((b) => b._id !== board._id));
+    if (selectedBoardId === board._id) selectBoard(null);
+    setDeleteTarget(null);
   };
 
   const openEditDialog = (board: IKanbanBoard) => {
     setEditingBoard(board);
-    setEditTitle(board.title);
-    setEditDescription(board.description ?? "");
-    setEditColor(board.color ?? BOARD_COLORS[0]);
-  };
-
-  const handleTemplateSelect = (id: string) => {
-    setSelectedTemplate(id);
-    const t = TEMPLATES.find((t) => t.id === id);
-    if (t && t.id !== "blank") setNewColor(t.color);
+    setEditDraft({
+      title: board.title,
+      description: board.description ?? "",
+      color: board.color ?? BOARD_COLORS[0],
+      template: "blank",
+    });
   };
 
   const selectedBoard = boards.find((b) => b._id === selectedBoardId);
+  const loading = !API || initialLoading;
 
-  if (loadingSettings || !API || initialLoading) {
+  // Menu clicks bubble through the portal to the row's own onClick.
+  const boardMenu = (board: IKanbanBoard) => (
+    <>
+      <DropdownMenuItem
+        onClick={(event) => {
+          event.stopPropagation();
+          openEditDialog(board);
+        }}
+      >
+        <Pencil /> Edit
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        variant="destructive"
+        onClick={(event) => {
+          event.stopPropagation();
+          setDeleteTarget(board);
+        }}
+      >
+        <Trash2 /> Delete
+      </DropdownMenuItem>
+    </>
+  );
+
+  const dialogs = (
+    <>
+      <FormDialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setCreateDraft(EMPTY_DRAFT);
+        }}
+        title="New board"
+        submitLabel="Create"
+        submitDisabled={!createDraft.title.trim()}
+        pending={isSubmitting}
+        onSubmit={handleCreate}
+      >
+        <FormField label="Template">
+          <TemplatePicker
+            selected={createDraft.template}
+            onSelect={(template) =>
+              setCreateDraft((prev) => ({
+                ...prev,
+                template: template.id,
+                color: template.id === "blank" ? prev.color : template.color,
+              }))
+            }
+          />
+        </FormField>
+        <BoardFields
+          draft={createDraft}
+          onChange={setCreateDraft}
+          idPrefix="create-board"
+        />
+      </FormDialog>
+
+      <FormDialog
+        open={editingBoard !== null}
+        onOpenChange={(open) => !open && setEditingBoard(null)}
+        title="Edit board"
+        submitDisabled={!editDraft.title.trim()}
+        pending={isSubmitting}
+        onSubmit={handleUpdate}
+        footerStart={
+          editingBoard ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => {
+                setDeleteTarget(editingBoard);
+                setEditingBoard(null);
+              }}
+            >
+              <Trash2 /> Delete
+            </Button>
+          ) : null
+        }
+      >
+        <BoardFields
+          draft={editDraft}
+          onChange={setEditDraft}
+          idPrefix="edit-board"
+        />
+      </FormDialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Delete ${deleteTarget?.title ?? "board"}?`}
+        description="Every column and card on it is deleted."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
+    </>
+  );
+
+  if (selectedBoardId && API) {
     return (
-      <div className="flex flex-col h-full">
+      <Page>
         <DashboardPageHeader
-          title={<div className="h-4 w-32 bg-muted rounded animate-pulse" />}
+          crumbs={[{ label: "Kanban", onClick: () => selectBoard(null) }]}
+          icon={<BoardDot color={selectedBoard?.color} />}
+          title={
+            selectedBoard?.title ?? (
+              <Skeleton className="h-4 w-32" aria-hidden />
+            )
+          }
         >
-          <div className="h-7 w-24 bg-muted rounded animate-pulse" />
+          {selectedBoard && (
+            <RowActions label="Board actions">
+              {boardMenu(selectedBoard)}
+            </RowActions>
+          )}
         </DashboardPageHeader>
-        <div className="flex-1 overflow-auto p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="rounded-2xl border bg-card overflow-hidden animate-pulse"
-              >
-                <div className="h-20 bg-muted" />
-                <div className="p-4 flex flex-col gap-2">
-                  <div className="h-4 w-3/4 bg-muted rounded" />
-                  <div className="h-3 w-full bg-muted rounded" />
-                  <div className="h-3 w-2/3 bg-muted rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        <PageBody bleed>
+          <KanbanBoard API={API} boardId={selectedBoardId} />
+        </PageBody>
+        {dialogs}
+      </Page>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-screen">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-        {selectedBoard ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={() => selectBoard(null)}
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-            {selectedBoard.color && (
-              <div
-                className="size-3 rounded-full shrink-0"
-                style={{ backgroundColor: selectedBoard.color }}
-              />
-            )}
-            <span className="text-sm font-semibold flex-1 truncate">
-              {selectedBoard.title}
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7">
-                  <MoreHorizontal className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openEditDialog(selectedBoard)}>
-                  <Pencil className="size-3.5 mr-2" /> Edit board
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={() => setDeleteTarget(selectedBoard)}
-                >
-                  <Trash2 className="size-3.5 mr-2" /> Delete board
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        ) : (
-          <>
-            <LayoutGrid className="size-4 text-muted-foreground" />
-            <span className="text-sm font-semibold flex-1">Kanban Boards</span>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus /> New Board
-            </Button>
-          </>
-        )}
-      </div>
-
-      {selectedBoardId ? (
-        <div className="flex-1 min-h-0 overflow-x-auto min-w-0 max-w-screen">
-          <KanbanBoard API={API} boardId={selectedBoardId} />
-        </div>
-      ) : (
-        <div className="flex-1 overflow-auto p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {boards.map((board) => (
-              <div
-                key={board._id}
-                role="button"
-                tabIndex={0}
-                onClick={() => selectBoard(board._id)}
-                onKeyDown={(e) => e.key === "Enter" && selectBoard(board._id)}
-                className="group rounded-2xl border bg-card overflow-hidden cursor-pointer hover:shadow-md transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <div
-                  className="h-16 relative"
-                  style={{
-                    backgroundColor: board.color ?? "#6366f1",
-                    backgroundImage: board.color
-                      ? `linear-gradient(135deg, ${board.color}dd, ${board.color}88)`
-                      : undefined,
-                  }}
-                >
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="absolute top-2 right-2 size-6 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center "
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreHorizontal className="size-3.5 text-white" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditDialog(board);
-                        }}
-                      >
-                        <Pencil className="size-3.5 mr-2" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteTarget(board);
-                        }}
-                      >
-                        <Trash2 className="size-3.5 mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <div className="p-4">
-                  <p className="text-sm font-semibold leading-snug line-clamp-1">
-                    {board.title}
-                  </p>
-                  {board.description && (
-                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
-                      {board.description}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="rounded-2xl border-2 border-dashed bg-transparent hover:bg-muted/50 transition-colors h-full min-h-29 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
-            >
-              <div className="size-8 rounded-full border-2 border-dashed flex items-center justify-center">
-                <Plus className="size-4" />
-              </div>
-              <span className="text-xs font-medium">New Board</span>
-            </button>
-          </div>
-        </div>
+    <Page>
+      <DashboardPageHeader icon={<LayoutGrid />} title="Kanban">
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus /> New
+        </Button>
+      </DashboardPageHeader>
+      {boards.length > 0 && (
+        <PageToolbar>
+          <SearchField value={query} onChange={setQuery} />
+        </PageToolbar>
       )}
-
-      <ResponsiveDialog
-        open={createOpen}
-        onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) {
-            setSelectedTemplate("blank");
-            setNewTitle("");
-            setNewDescription("");
-            setNewColor(BOARD_COLORS[0]);
-          }
-        }}
-        title="New Board"
-        description="Choose a template or start blank."
-        className="sm:max-w-lg"
-      >
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-              Template
-            </Label>
-            <TemplatePicker
-              selected={selectedTemplate}
-              onSelect={handleTemplateSelect}
-            />
-          </div>
-
-          <div className="flex flex-col gap-4 pt-1 border-t">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="create-title">Board name</Label>
-              <Input
-                id="create-title"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder={
-                  TEMPLATES.find((t) => t.id === selectedTemplate)?.name ??
-                  "e.g. Project Alpha"
+      <PageBody width="narrow">
+        {loading ? (
+          <BoardsSkeleton />
+        ) : boards.length === 0 ? (
+          <EmptyState
+            icon={<LayoutGrid />}
+            label="No boards"
+            action={
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus /> New board
+              </Button>
+            }
+          />
+        ) : filteredBoards.length === 0 ? (
+          <EmptyState compact label="0 results" />
+        ) : (
+          <List>
+            {filteredBoards.map((board) => (
+              <ListRow
+                key={board._id}
+                onClick={() => selectBoard(board._id)}
+                leading={<BoardDot color={board.color} />}
+                title={board.title}
+                description={board.description}
+                meta={relativeTime(board.updatedAt)}
+                trailing={
+                  <RowActions className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100">
+                    {boardMenu(board)}
+                  </RowActions>
                 }
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="create-desc">
-                Description{" "}
-                <span className="text-muted-foreground font-normal">
-                  (optional)
-                </span>
-              </Label>
-              <Textarea
-                id="create-desc"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="What is this board for?"
-                rows={2}
-                className="resize-none"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Color</Label>
-              <ColorPicker value={newColor} onChange={setNewColor} />
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setCreateOpen(false)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCreate}
-            disabled={isSubmitting || !newTitle.trim()}
-          >
-            {isSubmitting ? "Creating…" : "Create Board"}
-          </Button>
-        </DialogFooter>
-      </ResponsiveDialog>
-
-      <ResponsiveDialog
-        open={!!editingBoard}
-        onOpenChange={(open) => !open && setEditingBoard(null)}
-        title="Edit Board"
-        className="sm:max-w-md"
-      >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-title">Title</Label>
-            <Input
-              id="edit-title"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-desc">Description</Label>
-            <Textarea
-              id="edit-desc"
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              rows={2}
-              className="resize-none"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Color</Label>
-            <ColorPicker value={editColor} onChange={setEditColor} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setEditingBoard(null)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleUpdate}
-            disabled={isSubmitting || !editTitle.trim()}
-          >
-            {isSubmitting ? "Saving…" : "Save Changes"}
-          </Button>
-        </DialogFooter>
-      </ResponsiveDialog>
-
-      <Dialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Board</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;{deleteTarget?.title}&quot;?
-              All columns and cards will be permanently deleted. This action
-              cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Deleting…" : "Delete Board"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+            ))}
+          </List>
+        )}
+      </PageBody>
+      {dialogs}
+    </Page>
   );
 }

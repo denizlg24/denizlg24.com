@@ -7,23 +7,17 @@ import {
   CommandItem,
   CommandList,
   CommandPrimitive,
+  CommandShortcut,
 } from "@repo/ui/command";
-import { HomeIcon, SearchIcon } from "lucide-react";
+import { FilePlus, PanelLeft, SearchIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
-import {
-  DASHBOARD_PREFIX,
-  GROUPS,
-  type NavGroup,
-} from "@/components/navigation/navigation-menu";
-
-type CommandEntry = {
-  label: string;
-  parent?: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
+import { PageIcon, RefIcon } from "@/components/workspace/page-icon";
+import { OPEN_COMMAND_PALETTE } from "@/components/workspace/sidebar";
+import { MODULE_SECTIONS, MODULES } from "@/lib/workspace/modules";
+import { pageHref, pageTitle, resolveRef } from "@/lib/workspace/refs";
+import { pageAncestors, useWorkspaceStore } from "@/stores/workspace";
 
 function fuzzyScore(value: string, search: string): number {
   const v = value.toLowerCase();
@@ -121,25 +115,6 @@ function fuzzyScore(value: string, search: string): number {
   return 0;
 }
 
-function flattenGroup(group: NavGroup): CommandEntry[] {
-  const entries: CommandEntry[] = [];
-  for (const item of group.items) {
-    if (item.children) {
-      for (const child of item.children) {
-        entries.push({
-          label: child.label,
-          parent: item.label,
-          href: child.href,
-          icon: child.icon,
-        });
-      }
-    } else if (item.href) {
-      entries.push({ label: item.label, href: item.href, icon: item.icon });
-    }
-  }
-  return entries;
-}
-
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
@@ -157,136 +132,160 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search, 150);
+  const debouncedSearch = useDebouncedValue(search, 120);
   const router = useRouter();
+  const pages = useWorkspaceStore((s) => s.workspace.pages);
+  const recents = useWorkspaceStore((s) => s.workspace.recents);
+  const createPage = useWorkspaceStore((s) => s.createPage);
+  const toggleSidebar = useWorkspaceStore((s) => s.toggleSidebar);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === "p" && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "p" || e.key === "k") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
     };
+    const openPalette = () => setOpen(true);
     window.addEventListener("keydown", down);
-    return () => window.removeEventListener("keydown", down);
+    window.addEventListener(OPEN_COMMAND_PALETTE, openPalette);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener(OPEN_COMMAND_PALETTE, openPalette);
+    };
   }, []);
 
-  const handleSelect = (href: string) => {
+  const go = (href: string) => {
     setOpen(false);
-    router.push(DASHBOARD_PREFIX + href);
+    router.push(href);
   };
 
   const handleOpenChange = (value: boolean) => {
     setOpen(value);
-    if (!value) {
-      setSearch("");
-      setShowAll(false);
-    }
+    if (!value) setSearch("");
   };
 
-  const [showAll, setShowAll] = useState(false);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-
-  useEffect(() => {
-    if (!open) {
-      setShowAll(false);
-      return;
-    }
-
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (search.trim().length > 0) {
-      setShowAll(false);
-      return;
-    }
-    idleTimerRef.current = setTimeout(() => setShowAll(true), 2000);
-    return () => {
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, [open, search]);
-
-  const showResults = debouncedSearch.trim().length > 0 || showAll;
+  const searching = debouncedSearch.trim().length > 0;
+  const livePages = Object.values(pages)
+    .filter((p) => !p.deletedAt)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const recentRows = recents
+    .map((ref) => resolveRef(ref, pages))
+    .filter((r) => r !== null)
+    .slice(0, 6);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[110] bg-black/30 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed top-[20%] left-1/2 z-50 w-full max-w-xl -translate-x-1/2 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-200"
+          className="fixed top-[16%] left-1/2 z-[110] w-full max-w-2xl -translate-x-1/2 overflow-hidden rounded-xl border bg-popover shadow-2xl shadow-black/15 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-150"
           aria-describedby={undefined}
         >
           <DialogPrimitive.Title className="sr-only">
-            Command Palette
+            Search
           </DialogPrimitive.Title>
           <Command
-            className="overflow-visible bg-transparent"
-            filter={showAll ? () => 1 : fuzzyScore}
+            className="bg-transparent"
+            filter={(value, term, keywords) =>
+              fuzzyScore([value, ...(keywords ?? [])].join(" "), term)
+            }
           >
-            <div className="flex items-center gap-3 rounded-full border bg-popover px-5 shadow-lg">
-              <SearchIcon className="size-5 shrink-0 text-muted-foreground" />
+            <div className="flex items-center gap-3 border-b px-4">
+              <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
               <CommandPrimitive.Input
                 value={search}
                 onValueChange={setSearch}
-                placeholder="Search pages..."
-                className="flex h-14 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
+                placeholder="Search pages and modules"
+                className="flex h-12 w-full bg-transparent text-[15px] text-accent-strong outline-none placeholder:text-muted-foreground"
               />
             </div>
-
-            <div
-              className={`mt-2 rounded-xl border bg-popover shadow-lg overflow-hidden transition-all duration-200 ease-out origin-top ${
-                showResults
-                  ? "opacity-100 scale-y-100 translate-y-0"
-                  : "opacity-0 scale-y-95 -translate-y-1 pointer-events-none max-h-0 border-transparent mt-0"
-              }`}
-            >
-              <CommandList className="max-h-75">
-                <CommandEmpty>No results found.</CommandEmpty>
-                <CommandGroup heading="General">
-                  <CommandItem
-                    value="Home"
-                    onSelect={() => {
-                      setOpen(false);
-                      router.push(DASHBOARD_PREFIX);
-                    }}
-                  >
-                    <HomeIcon className="size-4 shrink-0" />
-                    <span>Home</span>
-                  </CommandItem>
-                </CommandGroup>
-                {GROUPS.map((group) => {
-                  const entries = flattenGroup(group);
-                  if (entries.length === 0) return null;
-                  return (
-                    <CommandGroup
-                      key={group.groupLabel}
-                      heading={group.groupLabel}
+            <CommandList className="max-h-[min(60vh,28rem)] p-1.5">
+              <CommandEmpty>No results</CommandEmpty>
+              {!searching && recentRows.length > 0 ? (
+                <CommandGroup heading="Recent">
+                  {recentRows.map((r) => (
+                    <CommandItem
+                      key={`recent-${r.ref}`}
+                      value={`recent ${r.ref}`}
+                      keywords={[r.label]}
+                      onSelect={() => go(r.href)}
                     >
-                      {entries.map((entry) => {
-                        const Icon = entry.icon;
-                        const uniqueValue = entry.parent
-                          ? `${entry.parent} ${entry.label}`
-                          : entry.label;
-                        return (
-                          <CommandItem
-                            key={entry.href}
-                            value={uniqueValue}
-                            onSelect={() => handleSelect(entry.href)}
-                            className={entry.parent ? "pl-6" : ""}
-                          >
-                            <Icon className="size-4 shrink-0" />
-                            <span>{entry.label}</span>
-                            {entry.parent && (
-                              <span className="ml-auto text-xs text-muted-foreground">
-                                {entry.parent}
-                              </span>
-                            )}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
+                      <RefIcon resolved={r} className="text-muted-foreground" />
+                      <span className="truncate">{r.label}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              <CommandGroup heading="Pages">
+                {livePages.map((page) => {
+                  const path = pageAncestors(pages, page.id)
+                    .map(pageTitle)
+                    .join(" / ");
+                  return (
+                    <CommandItem
+                      key={page.id}
+                      value={`page ${page.id}`}
+                      keywords={[pageTitle(page), path]}
+                      onSelect={() => go(pageHref(page.id))}
+                    >
+                      <PageIcon
+                        icon={page.icon}
+                        className="text-muted-foreground"
+                      />
+                      <span className="truncate">{pageTitle(page)}</span>
+                      {path ? (
+                        <span className="ml-auto truncate text-xs text-muted-foreground">
+                          {path}
+                        </span>
+                      ) : null}
+                    </CommandItem>
                   );
                 })}
-              </CommandList>
-            </div>
+              </CommandGroup>
+              {MODULE_SECTIONS.map((section) => (
+                <CommandGroup key={section.id} heading={section.label}>
+                  {MODULES.filter((m) => m.section === section.id).map(
+                    (module) => {
+                      const Icon = module.icon;
+                      return (
+                        <CommandItem
+                          key={module.id}
+                          value={`module ${module.id}`}
+                          keywords={[module.label, ...(module.keywords ?? [])]}
+                          onSelect={() => go(module.href)}
+                        >
+                          <Icon className="text-muted-foreground" />
+                          <span>{module.label}</span>
+                        </CommandItem>
+                      );
+                    },
+                  )}
+                </CommandGroup>
+              ))}
+              <CommandGroup heading="Actions">
+                <CommandItem
+                  value="action new-page"
+                  keywords={["New page", "create"]}
+                  onSelect={() => go(pageHref(createPage(null)))}
+                >
+                  <FilePlus className="text-muted-foreground" />
+                  New page
+                </CommandItem>
+                <CommandItem
+                  value="action toggle-sidebar"
+                  keywords={["Toggle sidebar"]}
+                  onSelect={() => {
+                    toggleSidebar();
+                    setOpen(false);
+                  }}
+                >
+                  <PanelLeft className="text-muted-foreground" />
+                  Toggle sidebar
+                  <CommandShortcut>⌘\</CommandShortcut>
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
           </Command>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

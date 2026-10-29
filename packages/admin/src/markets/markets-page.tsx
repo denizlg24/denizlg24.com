@@ -25,7 +25,11 @@ import type {
 import { isIntraday } from "@repo/markets/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { ScrollArea } from "@repo/ui/scroll-area";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListGroupLabel, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import {
   Sheet,
   SheetContent,
@@ -35,10 +39,22 @@ import {
 } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { ListTree, Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
+import { FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import {
+  CandlestickChart,
+  FileText,
+  ListTree,
+  Plus,
+  RefreshCw,
+  Star,
+  Wallet,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
+import { toneClass } from "./format";
 import { QuickTrade } from "./quick-trade";
 import { SymbolSearch } from "./symbol-search";
 import { useLiveRefresh } from "./use-live-refresh";
@@ -62,6 +78,10 @@ const INDICATORS = [
 ] as const;
 
 type IndicatorKey = (typeof INDICATORS)[number]["key"];
+
+const INDICATOR_COLOR = Object.fromEntries(
+  INDICATORS.map((indicator) => [indicator.key, indicator.color]),
+) as Record<IndicatorKey, string>;
 
 /**
  * Refresh cadences. None of these decide what a provider request costs — the
@@ -90,7 +110,7 @@ export interface MarketsPageProps {
 }
 
 export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
-  const { client, routes } = useAdmin();
+  const { client, routes, slots } = useAdmin();
   const [selected, setSelected] = useState(ticker ?? "AAPL");
   const [range, setRange] = useState(RANGES[4] as (typeof RANGES)[number]);
   const [kind, setKind] = useState<ChartKind>("candles");
@@ -304,23 +324,31 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
     const closes = bars.map((bar) => bar.close);
     const result: Overlay[] = [];
     if (active.has("sma20")) {
-      result.push({ key: "sma20", color: "#f59e0b", values: sma(closes, 20) });
+      result.push({
+        key: "sma20",
+        color: INDICATOR_COLOR.sma20,
+        values: sma(closes, 20),
+      });
     }
     if (active.has("sma50")) {
-      result.push({ key: "sma50", color: "#8b5cf6", values: sma(closes, 50) });
+      result.push({
+        key: "sma50",
+        color: INDICATOR_COLOR.sma50,
+        values: sma(closes, 50),
+      });
     }
     if (active.has("ema200")) {
       result.push({
         key: "ema200",
-        color: "#06b6d4",
+        color: INDICATOR_COLOR.ema200,
         values: ema(closes, 200),
       });
     }
     if (active.has("bb")) {
       const bands = bollinger(closes, 20, 2);
       result.push(
-        { key: "bbUpper", color: "#64748b", values: bands.upper },
-        { key: "bbLower", color: "#64748b", values: bands.lower },
+        { key: "bbUpper", color: INDICATOR_COLOR.bb, values: bands.upper },
+        { key: "bbLower", color: INDICATOR_COLOR.bb, values: bands.lower },
       );
     }
     return result;
@@ -359,16 +387,14 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
     volume: quote?.volume ?? daily?.volume,
   };
 
-  const watchlistPanel = (
-    <ScrollArea className="h-full">
-      {watchlists.length === 0 ? (
-        <div className="px-3 py-2 text-muted-foreground text-xs">—</div>
-      ) : (
-        watchlists.map((list) => (
-          <div key={list.id} className="py-1">
-            <div className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-              {list.name}
-            </div>
+  const watchlistPanel =
+    watchlists.length === 0 ? (
+      <EmptyState compact icon={<Star />} label="No watchlists" />
+    ) : (
+      <List>
+        {watchlists.map((list) => (
+          <div key={list.id}>
+            <ListGroupLabel className="px-2">{list.name}</ListGroupLabel>
             {list.tickers.map((item) => (
               <WatchRow
                 key={item}
@@ -380,200 +406,198 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               />
             ))}
           </div>
-        ))
-      )}
-    </ScrollArea>
-  );
+        ))}
+      </List>
+    );
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 sm:gap-3 sm:px-4 lg:flex-nowrap lg:py-0">
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<CandlestickChart />}
+        title="Markets"
+      >
+        <div className="mr-1 hidden items-center gap-3 sm:flex">
+          <SessionIndicator session={session} />
+          <TransportIndicator transport={transport} upstream={upstream} />
+          {series?.freshness.stale ? (
+            <Badge variant="warning">stale</Badge>
+          ) : null}
+          {budget ? <BudgetReadout budget={budget} /> : null}
+        </div>
+        {universe === 0 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={seeding}
+            onClick={() => void seed()}
+          >
+            <RefreshCw className={cn(seeding && "animate-spin")} />
+            Seed universe
+          </Button>
+        ) : null}
+        <Button size="sm" variant="ghost" asChild>
+          <a href={routes.portfolios}>
+            <Wallet />
+            <span className="hidden sm:inline">Portfolios</span>
+          </a>
+        </Button>
+      </PageHeader>
+
+      <PageToolbar>
         <Sheet>
           <SheetTrigger asChild>
             <Button
               size="icon-sm"
               variant="ghost"
-              className="size-8 lg:hidden"
+              className="lg:hidden"
               aria-label="Watchlists"
             >
-              <ListTree className="size-4" />
+              <ListTree />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 p-0">
-            <SheetHeader className="border-b px-3 py-2">
-              <SheetTitle className="text-sm">Watchlists</SheetTitle>
+          <SheetContent side="left" className="w-72 gap-0 p-0">
+            <SheetHeader className="border-b p-3 pr-12">
+              <SheetTitle>Watchlists</SheetTitle>
             </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {watchlistPanel}
             </div>
           </SheetContent>
         </Sheet>
-        <SymbolSearch onSelect={choose} />
-        {universe === 0 ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            disabled={seeding}
-            onClick={() => void seed()}
-          >
-            <RefreshCw className={`size-3 ${seeding ? "animate-spin" : ""}`} />
-            Seed universe
-          </Button>
-        ) : null}
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <SessionBadge session={session} />
-          <a
-            href={routes.portfolios}
-            className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
-          >
-            <Wallet className="size-3.5" />
-            <span className="hidden sm:inline">Portfolios</span>
-          </a>
-          <TransportDot transport={transport} upstream={upstream} />
-          {series?.freshness.stale ? (
-            <Badge variant="outline" className="text-amber-600">
-              stale
-            </Badge>
-          ) : null}
-          {budget ? <BudgetMeter budget={budget} /> : null}
+        <SymbolSearch onSelect={choose} className="w-56" />
+        <FilterTabs
+          value={range.label}
+          onChange={(value) => {
+            const next = RANGES.find((item) => item.label === value);
+            if (next) setRange(next);
+          }}
+          options={RANGES.map((item) => ({
+            value: item.label,
+            label: item.label,
+          }))}
+        />
+        <FilterTabs<ChartKind>
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: "candles", label: "Candles" },
+            { value: "area", label: "Line" },
+          ]}
+        />
+        <ToolbarSpacer />
+        <div className="flex flex-wrap items-center gap-0.5">
+          {INDICATORS.map((indicator) => {
+            const on = active.has(indicator.key);
+            return (
+              <Button
+                key={indicator.key}
+                size="sm"
+                variant="ghost"
+                aria-pressed={on}
+                className={cn(
+                  "text-muted-foreground",
+                  on && "bg-surface text-accent-strong dark:bg-muted",
+                )}
+                onClick={() =>
+                  setActive((current) => {
+                    const next = new Set(current);
+                    if (next.has(indicator.key)) next.delete(indicator.key);
+                    else next.add(indicator.key);
+                    return next;
+                  })
+                }
+              >
+                <span
+                  className={cn(
+                    "inline-block size-2 rounded-full",
+                    !on && "opacity-40",
+                  )}
+                  style={{ background: indicator.color }}
+                />
+                {indicator.label}
+              </Button>
+            );
+          })}
         </div>
-      </div>
+      </PageToolbar>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-56 shrink-0 border-r lg:block">
+      <PageBody bleed className="flex">
+        <aside className="hidden w-60 shrink-0 overflow-y-auto overscroll-contain border-r p-2 lg:block">
           {watchlistPanel}
         </aside>
 
         {/* Scrolls at every width. `lg:overflow-hidden` assumed the quote strip,
             chart and detail panel always fit above lg; on a short window they do
             not, and what did not fit could not be reached. */}
-        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 sm:px-4">
-            <CompanyLogo
-              url={detail?.profile?.logoUrl}
-              name={detail?.profile?.name ?? selected}
-              size={22}
-            />
-            <span className="font-semibold text-lg tabular-nums">
-              {selected}
-            </span>
-            {detail?.symbol ? (
-              <span className="hidden max-w-56 truncate text-muted-foreground text-xs sm:inline">
-                {detail.symbol.name}
-              </span>
-            ) : null}
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="size-6"
-              aria-label={watching ? "Unwatch" : "Watch"}
-              onClick={() => void toggleWatch(selected)}
-            >
-              {watching ? (
-                <Star className="size-3.5 fill-amber-500 text-amber-500" />
-              ) : (
-                <Plus className="size-3.5" />
-              )}
-            </Button>
-            <span className="text-2xl tabular-nums">
-              {last === null ? "—" : last.toFixed(2)}
-            </span>
-            {change !== null && changePercent !== null ? (
-              <span
-                className={`text-sm tabular-nums ${
-                  change >= 0 ? "text-emerald-600" : "text-red-600"
-                }`}
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          <div className="flex flex-col gap-3 border-b px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <CompanyLogo
+                url={detail?.profile?.logoUrl}
+                name={detail?.profile?.name ?? selected}
+                size={24}
+              />
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="font-semibold text-accent-strong text-lg">
+                  {selected}
+                </span>
+                {detail?.symbol ? (
+                  <span className="hidden max-w-64 truncate text-muted-foreground text-xs sm:inline">
+                    {detail.symbol.name}
+                  </span>
+                ) : null}
+              </div>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={watching ? "Unwatch" : "Watch"}
+                aria-pressed={watching}
+                className={cn(
+                  watching ? "text-status-warning" : "text-muted-foreground",
+                )}
+                onClick={() => void toggleWatch(selected)}
               >
-                {change >= 0 ? "+" : ""}
-                {change.toFixed(2)} ({changePercent.toFixed(2)}%)
-              </span>
-            ) : null}
-            <QuickTrade ticker={selected} lastPrice={last} />
-            <div className="flex w-full flex-wrap items-center gap-x-3 text-muted-foreground text-xs tabular-nums sm:ml-auto sm:w-auto sm:justify-end">
-              {detail?.profile?.sector ? (
-                <span className="hidden max-w-40 truncate xl:inline">
-                  {detail.profile.sector}
+                {watching ? <Star className="fill-current" /> : <Plus />}
+              </Button>
+              <div className="flex items-baseline gap-2">
+                <span className="font-calistoga text-2xl text-accent-strong tabular-nums leading-none">
+                  {last === null ? "—" : last.toFixed(2)}
                 </span>
-              ) : null}
-              {detail?.profile?.marketCap ? (
-                <span className="hidden lg:inline">
-                  {compact(detail.profile.marketCap)}
-                </span>
-              ) : null}
-              <Stat label="O" value={sessionStats.open} />
-              <Stat label="H" value={sessionStats.high} />
-              <Stat label="L" value={sessionStats.low} />
-              <Stat label="C" value={sessionStats.close} />
-              <span className="hidden sm:inline">
-                Vol{" "}
-                {sessionStats.volume === undefined
-                  ? "—"
-                  : compact(sessionStats.volume)}
-              </span>
-              <Stat label="RSI" value={strength ?? undefined} digits={1} />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5 sm:px-4">
-            <Tabs
-              value={range.label}
-              onValueChange={(value) => {
-                const next = RANGES.find((item) => item.label === value);
-                if (next) setRange(next);
-              }}
-            >
-              <TabsList variant="line" className="h-7">
-                {RANGES.map((item) => (
-                  <TabsTrigger
-                    key={item.label}
-                    value={item.label}
-                    className="px-2 text-xs"
-                  >
-                    {item.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-
-            <Tabs
-              value={kind}
-              onValueChange={(value) => setKind(value as ChartKind)}
-            >
-              <TabsList variant="line" className="h-7">
-                <TabsTrigger value="candles" className="px-2 text-xs">
-                  Candles
-                </TabsTrigger>
-                <TabsTrigger value="area" className="px-2 text-xs">
-                  Line
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <div className="flex flex-wrap gap-1 sm:ml-auto sm:flex-nowrap">
-              {INDICATORS.map((indicator) => (
-                <Button
-                  key={indicator.key}
-                  size="sm"
-                  variant={active.has(indicator.key) ? "secondary" : "ghost"}
-                  className="h-7 px-2 text-xs"
-                  onClick={() =>
-                    setActive((current) => {
-                      const next = new Set(current);
-                      if (next.has(indicator.key)) next.delete(indicator.key);
-                      else next.add(indicator.key);
-                      return next;
-                    })
-                  }
-                >
+                {change !== null && changePercent !== null ? (
                   <span
-                    className="mr-1.5 inline-block h-2 w-2 rounded-full"
-                    style={{ background: indicator.color }}
-                  />
-                  {indicator.label}
-                </Button>
-              ))}
+                    className={cn("text-sm tabular-nums", toneClass(change))}
+                  >
+                    {change >= 0 ? "+" : ""}
+                    {change.toFixed(2)} ({changePercent.toFixed(2)}%)
+                  </span>
+                ) : null}
+              </div>
+              <div className="ml-auto">
+                <QuickTrade ticker={selected} lastPrice={last} />
+              </div>
             </div>
+            <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <Figure label="Open" value={fixed(sessionStats.open)} />
+              <Figure label="High" value={fixed(sessionStats.high)} />
+              <Figure label="Low" value={fixed(sessionStats.low)} />
+              <Figure label="Prev" value={fixed(sessionStats.close)} />
+              <Figure
+                label="Vol"
+                value={
+                  sessionStats.volume === undefined
+                    ? "—"
+                    : compact(sessionStats.volume)
+                }
+              />
+              <Figure label="RSI" value={fixed(strength ?? undefined, 1)} />
+              {detail?.profile?.marketCap ? (
+                <Figure label="Cap" value={compact(detail.profile.marketCap)} />
+              ) : null}
+              {detail?.profile?.sector ? (
+                <Figure label="Sector" value={detail.profile.sector} />
+              ) : null}
+            </dl>
           </div>
 
           {/* Below lg the chart takes a definite height and the column scrolls,
@@ -584,9 +608,17 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             {loading ? (
               <Skeleton className="h-full w-full" />
             ) : error ? (
-              <div className="px-2 py-4 text-red-600 text-xs">{error}</div>
+              <EmptyState
+                icon={<CandlestickChart />}
+                label={<span className="text-destructive">{error}</span>}
+                className="h-full"
+              />
             ) : bars.length === 0 ? (
-              <div className="px-2 py-4 text-muted-foreground text-xs">—</div>
+              <EmptyState
+                icon={<CandlestickChart />}
+                label="No bars"
+                className="h-full"
+              />
             ) : (
               <CandleChart
                 bars={bars}
@@ -603,8 +635,8 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             profile={detail?.profile ?? null}
           />
         </main>
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -631,7 +663,7 @@ function CompanyLogo({
   if (!url || failed) {
     return (
       <span
-        className="flex shrink-0 items-center justify-center rounded bg-muted font-medium text-[10px] text-muted-foreground"
+        className="flex shrink-0 items-center justify-center rounded bg-surface font-medium text-[10px] text-muted-foreground dark:bg-muted"
         style={{ width: size, height: size }}
         aria-hidden="true"
       >
@@ -640,6 +672,8 @@ function CompanyLogo({
     );
   }
 
+  // The white plate is deliberate: most marks are drawn for a light background
+  // and vanish against the dark theme without one.
   return (
     <img
       src={url}
@@ -654,19 +688,20 @@ function CompanyLogo({
   );
 }
 
-function Stat({
-  label,
-  value,
-  digits = 2,
-}: {
-  label: string;
-  value?: number;
-  digits?: number;
-}) {
+function fixed(value: number | undefined, digits = 2): string {
+  return value === undefined ? "—" : value.toFixed(digits);
+}
+
+function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <span>
-      {label} {value === undefined ? "—" : value.toFixed(digits)}
-    </span>
+    <div className="flex min-w-0 items-baseline gap-1.5">
+      <dt className="text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
+        {label}
+      </dt>
+      <dd className="max-w-40 truncate text-accent-strong text-xs tabular-nums">
+        {value}
+      </dd>
+    </div>
   );
 }
 
@@ -689,43 +724,38 @@ function WatchRow({
       : null;
 
   return (
-    <div
-      className={`group flex items-center gap-1 pr-1 hover:bg-muted/60 ${
-        active ? "bg-muted" : ""
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => onSelect(ticker)}
-        className="flex min-w-0 flex-1 items-baseline justify-between px-3 py-1 text-left text-xs"
-      >
-        <span className="font-medium">{ticker}</span>
-        <span className="flex items-baseline gap-2 tabular-nums">
-          <span>{quote?.last?.toFixed(2) ?? "—"}</span>
-          <span
-            className={
-              change === null
-                ? "text-muted-foreground"
-                : change >= 0
-                  ? "text-emerald-600"
-                  : "text-red-600"
-            }
-          >
+    <ListRow
+      selected={active}
+      onClick={() => onSelect(ticker)}
+      className="mx-0 min-h-8 py-1"
+      title={<span className="font-medium text-xs">{ticker}</span>}
+      meta={
+        <>
+          <span className="text-accent-strong">
+            {quote?.last?.toFixed(2) ?? "—"}
+          </span>
+          <span className={cn("w-14 text-right", toneClass(change))}>
             {change === null
               ? "—"
               : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
           </span>
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${ticker}`}
-        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
-      >
-        <X className="size-3" />
-      </button>
-    </div>
+        </>
+      }
+      trailing={
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label={`Remove ${ticker}`}
+          className="text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+        >
+          <X />
+        </Button>
+      }
+    />
   );
 }
 
@@ -744,21 +774,13 @@ function useMarketSession(): MarketSession {
   return session;
 }
 
-const SESSION_LABELS: Record<MarketSession["state"], string> = {
-  pre: "pre",
-  open: "open",
-  after: "after",
-  closed: "closed",
-};
+function Dot({ className }: { className: string }) {
+  return (
+    <span className={cn("inline-block size-1.5 rounded-full", className)} />
+  );
+}
 
-function SessionBadge({ session }: { session: MarketSession }) {
-  const colour =
-    session.state === "open"
-      ? "bg-emerald-500"
-      : session.state === "closed"
-        ? "bg-muted-foreground"
-        : "bg-amber-500";
-
+function SessionIndicator({ session }: { session: MarketSession }) {
   const change = session.nextChangeAt ? new Date(session.nextChangeAt) : null;
   const relative = change ? untilLabel(change) : null;
 
@@ -771,11 +793,19 @@ function SessionBadge({ session }: { session: MarketSession }) {
           : undefined
       }
     >
-      <span className={`inline-block size-1.5 rounded-full ${colour}`} />
-      {SESSION_LABELS[session.state]}
+      <Dot
+        className={
+          session.state === "open"
+            ? "bg-status-good"
+            : session.state === "closed"
+              ? "bg-muted-foreground"
+              : "bg-status-warning"
+        }
+      />
+      {session.state}
       {relative ? <span className="hidden md:inline">{relative}</span> : null}
       {session.earlyClose ? (
-        <span className="hidden text-amber-600 lg:inline">½</span>
+        <span className="hidden text-status-warning lg:inline">½</span>
       ) : null}
     </span>
   );
@@ -790,7 +820,7 @@ function untilLabel(target: Date): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-function TransportDot({
+function TransportIndicator({
   transport,
   upstream,
 }: {
@@ -798,30 +828,33 @@ function TransportDot({
   upstream: "connected" | "connecting" | "disconnected" | null;
 }) {
   const live = transport === "ws" && upstream === "connected";
-  const colour = live
-    ? "bg-emerald-500"
-    : transport === "ws"
-      ? "bg-amber-500"
-      : "bg-muted-foreground";
-
   return (
     <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-      <span className={`inline-block size-1.5 rounded-full ${colour}`} />
+      <Dot
+        className={
+          live
+            ? "bg-status-good"
+            : transport === "ws"
+              ? "bg-status-warning"
+              : "bg-muted-foreground"
+        }
+      />
       {live ? "live" : transport === "ws" ? (upstream ?? "…") : "poll"}
     </span>
   );
 }
 
-function BudgetMeter({ budget }: { budget: ProviderBudget }) {
-  const hour = (budget.hourUsed / budget.hourLimit) * 100;
-  const day = (budget.dayUsed / budget.dayLimit) * 100;
-  const critical = hour > 80 || day > 80;
-
+function BudgetReadout({ budget }: { budget: ProviderBudget }) {
+  const hour = budget.hourUsed / budget.hourLimit;
+  const day = budget.dayUsed / budget.dayLimit;
   return (
     <span
-      className={`text-xs tabular-nums ${
-        critical ? "text-amber-600" : "text-muted-foreground"
-      }`}
+      className={cn(
+        "text-xs tabular-nums",
+        hour > 0.8 || day > 0.8
+          ? "text-status-warning"
+          : "text-muted-foreground",
+      )}
     >
       {budget.hourUsed}/{budget.hourLimit}h · {budget.dayUsed}/{budget.dayLimit}
       d
@@ -830,6 +863,14 @@ function BudgetMeter({ budget }: { budget: ProviderBudget }) {
 }
 
 type DetailTab = "company" | "fundamentals" | "filings" | "actions" | "news";
+
+const DETAIL_TABS: { value: DetailTab; label: string }[] = [
+  { value: "company", label: "Company" },
+  { value: "fundamentals", label: "Fundamentals" },
+  { value: "filings", label: "Filings" },
+  { value: "actions", label: "Actions" },
+  { value: "news", label: "News" },
+];
 
 function SymbolDetail({
   ticker,
@@ -943,42 +984,40 @@ function SymbolDetail({
   });
 
   const latest = periods[0];
+  const income = latest
+    ? latest.facts.filter((fact) => fact.statement === "income").slice(0, 8)
+    : [];
+  const sortedActions = [...actions].sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return (
-    <div className="flex h-56 shrink-0 flex-col border-t max-lg:h-64">
+    <div className="flex h-60 shrink-0 flex-col border-t max-lg:h-72">
       {/* `pb-1.5` is not spacing. The line-variant trigger paints its active
           underline at `bottom-[-5px]`, five pixels below the list's own box, and
           `overflow-x-auto` here forces overflow-y to non-visible — so with no
           bottom padding the underline was clipped and the strip grew a scrollbar
           for the couple of pixels it could not contain. */}
-      <div className="flex shrink-0 items-center overflow-x-auto px-3 pt-1 pb-1.5 sm:px-4">
+      <div className="flex shrink-0 items-center overflow-x-auto px-4 pt-1 pb-1.5 sm:px-5">
         <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
           <TabsList variant="line" className="h-7">
-            <TabsTrigger value="company" className="px-2 text-xs">
-              Company
-            </TabsTrigger>
-            <TabsTrigger value="fundamentals" className="px-2 text-xs">
-              Fundamentals
-            </TabsTrigger>
-            <TabsTrigger value="filings" className="px-2 text-xs">
-              Filings
-            </TabsTrigger>
-            <TabsTrigger value="actions" className="px-2 text-xs">
-              Actions
-            </TabsTrigger>
-            <TabsTrigger value="news" className="px-2 text-xs">
-              News
-            </TabsTrigger>
+            {DETAIL_TABS.map((item) => (
+              <TabsTrigger
+                key={item.value}
+                value={item.value}
+                className="px-2 text-xs"
+              >
+                {item.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
         {tab === "company" ? (
           <Company ticker={ticker} symbol={symbol} profile={profile} />
         ) : tab === "fundamentals" ? (
-          <div className="grid grid-cols-1 gap-4 px-4 py-2 text-xs md:grid-cols-2">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <div className="grid grid-cols-1 gap-x-10 gap-y-4 md:grid-cols-2">
+            <Properties>
               <Ratio label="P/E" value={ratios?.peRatio} />
               <Ratio label="P/B" value={ratios?.priceToBook} />
               <Ratio label="P/S" value={ratios?.priceToSales} />
@@ -987,117 +1026,108 @@ function SymbolDetail({
               <Ratio label="Net margin" value={ratios?.netMargin} percent />
               <Ratio label="ROE" value={ratios?.returnOnEquity} percent />
               <Ratio label="D/E" value={ratios?.debtToEquity} />
-            </div>
-            <div className="space-y-1">
-              {latest ? (
-                <>
-                  <div className="text-muted-foreground">
-                    {latest.form} · {latest.fiscalPeriod} {latest.fiscalYear} ·{" "}
+            </Properties>
+            {latest ? (
+              <Section
+                title={`${latest.form} · ${latest.fiscalPeriod} ${latest.fiscalYear}`}
+                actions={
+                  <span className="text-muted-foreground text-xs tabular-nums">
                     {latest.periodEnd}
-                  </div>
-                  {latest.facts
-                    .filter((fact) => fact.statement === "income")
-                    .slice(0, 8)
-                    .map((fact) => (
-                      <div
-                        key={fact.key}
-                        className="flex justify-between gap-2"
-                      >
-                        <span className="text-muted-foreground">
-                          {fact.label}
-                        </span>
-                        <span className="tabular-nums">
-                          {compact(fact.value)}
-                        </span>
-                      </div>
-                    ))}
-                </>
-              ) : (
-                <div className="text-muted-foreground">—</div>
-              )}
-            </div>
+                  </span>
+                }
+              >
+                <Properties>
+                  {income.map((fact) => (
+                    <Property key={fact.key} label={fact.label}>
+                      <span className="tabular-nums">
+                        {compact(fact.value)}
+                      </span>
+                    </Property>
+                  ))}
+                </Properties>
+              </Section>
+            ) : (
+              <EmptyState compact label="No reported periods" />
+            )}
           </div>
         ) : tab === "filings" ? (
-          <div className="space-y-1 px-4 py-2 text-xs">
-            {filings.length === 0 ? (
-              <div className="text-muted-foreground">—</div>
-            ) : (
-              filings.map((filing) => (
+          filings.length === 0 ? (
+            <EmptyState compact label="No filings" />
+          ) : (
+            <List>
+              {filings.map((filing) => (
                 <a
                   key={filing.accession}
                   href={filing.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-baseline gap-3 hover:underline"
                 >
-                  <span className="w-16 shrink-0 font-medium">
-                    {filing.form}
-                  </span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {filing.filed}
-                  </span>
-                  <span className="truncate text-muted-foreground">
-                    {filing.accession}
-                  </span>
+                  <ListRow
+                    className="min-h-8 py-1"
+                    leading={<FileText />}
+                    title={<span className="font-medium">{filing.form}</span>}
+                    meta={
+                      <>
+                        <span className="hidden sm:inline">
+                          {filing.accession}
+                        </span>
+                        <span>{filing.filed}</span>
+                      </>
+                    }
+                  />
                 </a>
-              ))
-            )}
-          </div>
+              ))}
+            </List>
+          )
         ) : tab === "actions" ? (
-          <div className="space-y-1 px-4 py-2 text-xs">
-            {actions.length === 0 ? (
-              <div className="text-muted-foreground">—</div>
-            ) : (
-              [...actions]
-                .sort((a, b) => (a.date < b.date ? 1 : -1))
-                .map((action) => (
-                  <div
-                    key={`${action.date}:${action.divCash}:${action.splitFactor}`}
-                    className="flex items-baseline gap-3"
-                  >
-                    <span className="w-20 shrink-0 text-muted-foreground tabular-nums">
-                      {action.date}
+          sortedActions.length === 0 ? (
+            <EmptyState compact label="No corporate actions" />
+          ) : (
+            <List>
+              {sortedActions.map((action) => (
+                <ListRow
+                  key={`${action.date}:${action.divCash}:${action.splitFactor}`}
+                  className="min-h-8 py-1"
+                  title={
+                    <span className="flex gap-3 tabular-nums">
+                      {action.divCash !== 0 ? (
+                        <span>Dividend {action.divCash.toFixed(4)}</span>
+                      ) : null}
+                      {action.splitFactor !== 1 ? (
+                        <span>Split ×{action.splitFactor}</span>
+                      ) : null}
                     </span>
-                    {action.divCash !== 0 ? (
-                      <span className="tabular-nums">
-                        div {action.divCash.toFixed(4)}
-                      </span>
-                    ) : null}
-                    {action.splitFactor !== 1 ? (
-                      <span className="tabular-nums">
-                        split ×{action.splitFactor}
-                      </span>
-                    ) : null}
-                  </div>
-                ))
-            )}
-          </div>
+                  }
+                  meta={action.date}
+                />
+              ))}
+            </List>
+          )
+        ) : news.length === 0 ? (
+          <EmptyState compact label="No news" />
         ) : (
-          <div className="space-y-1.5 px-4 py-2 text-xs">
-            {news.length === 0 ? (
-              <div className="text-muted-foreground">—</div>
-            ) : (
-              news.map((item) => (
-                <a
-                  key={item.id}
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-baseline gap-3 hover:underline"
-                >
-                  <span className="w-24 shrink-0 text-muted-foreground tabular-nums">
-                    {item.publishedAt.slice(5, 16).replace("T", " ")}
-                  </span>
-                  <span className="min-w-0 truncate">{item.headline}</span>
-                  <span className="ml-auto shrink-0 text-muted-foreground">
-                    {item.source}
-                  </span>
-                </a>
-              ))
-            )}
-          </div>
+          <List>
+            {news.map((item) => (
+              <a key={item.id} href={item.url} target="_blank" rel="noreferrer">
+                <ListRow
+                  className="min-h-8 py-1"
+                  title={item.headline}
+                  meta={
+                    <>
+                      <span className="hidden max-w-32 truncate sm:inline">
+                        {item.source}
+                      </span>
+                      <span>
+                        {item.publishedAt.slice(5, 16).replace("T", " ")}
+                      </span>
+                    </>
+                  }
+                />
+              </a>
+            ))}
+          </List>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -1112,78 +1142,82 @@ function Company({
   profile: CompanyProfile | null;
 }) {
   if (!symbol && !profile) {
-    return <div className="px-4 py-2 text-muted-foreground text-xs">—</div>;
+    return <EmptyState compact label="No profile" />;
   }
 
+  const website = profile?.website;
+
   return (
-    <div className="flex gap-4 px-4 py-3 text-xs">
-      <CompanyLogo
-        url={profile?.logoUrl}
-        name={profile?.name ?? symbol?.name ?? ticker}
-        size={48}
-      />
-      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
-        <Field label="Name" value={profile?.name ?? symbol?.name} />
-        <Field label="Exchange" value={symbol?.exchange} />
-        <Field label="Type" value={symbol?.assetType} />
-        <Field label="Sector" value={profile?.sector} />
-        <Field label="Country" value={profile?.country} />
-        <Field label="Currency" value={symbol?.currency} />
-        <Field
-          label="Market cap"
-          value={profile?.marketCap ? compact(profile.marketCap) : undefined}
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-4">
+        <CompanyLogo
+          url={profile?.logoUrl}
+          name={profile?.name ?? symbol?.name ?? ticker}
+          size={40}
         />
-        <Field
-          label="Shares"
-          value={
-            profile?.sharesOutstanding
-              ? compact(profile.sharesOutstanding)
-              : undefined
-          }
-        />
-        <Field
-          label="Employees"
-          value={profile?.employees?.toLocaleString("en-GB")}
-        />
-        <Field label="IPO" value={profile?.ipoDate} />
-        <Field label="CIK" value={symbol?.cik} />
-        <Field label="Listed" value={symbol?.startDate} />
-        {profile?.website ? (
-          <div className="col-span-2 min-w-0 md:col-span-3">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Site
-            </div>
-            {/* `block` is what makes `truncate` work at all: overflow does not
-                apply to an inline box, so a long URL simply ran past the grid
-                column instead of ellipsing. */}
-            <a
-              href={profile.website}
-              target="_blank"
-              rel="noreferrer"
-              className="block truncate hover:underline"
-            >
-              {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-            </a>
-          </div>
-        ) : null}
-        {profile?.description ? (
-          <p className="col-span-2 pt-1 text-muted-foreground md:col-span-3">
-            {profile.description}
-          </p>
-        ) : null}
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-x-10 md:grid-cols-2">
+          <Properties>
+            <Field label="Name" value={profile?.name ?? symbol?.name} />
+            <Field label="Exchange" value={symbol?.exchange} />
+            <Field label="Type" value={symbol?.assetType} />
+            <Field label="Sector" value={profile?.sector} />
+            <Field label="Country" value={profile?.country} />
+            <Field label="Currency" value={symbol?.currency} />
+            {website ? (
+              <Property label="Site">
+                {/* `block` is what makes `truncate` work at all: overflow does
+                    not apply to an inline box, so a long URL simply ran past the
+                    column instead of ellipsing. */}
+                <a
+                  href={website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block truncate hover:underline"
+                >
+                  {website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                </a>
+              </Property>
+            ) : null}
+          </Properties>
+          <Properties>
+            <Field
+              label="Market cap"
+              value={
+                profile?.marketCap ? compact(profile.marketCap) : undefined
+              }
+            />
+            <Field
+              label="Shares"
+              value={
+                profile?.sharesOutstanding
+                  ? compact(profile.sharesOutstanding)
+                  : undefined
+              }
+            />
+            <Field
+              label="Employees"
+              value={profile?.employees?.toLocaleString("en-GB")}
+            />
+            <Field label="IPO" value={profile?.ipoDate} />
+            <Field label="CIK" value={symbol?.cik} />
+            <Field label="Listed" value={symbol?.startDate} />
+          </Properties>
+        </div>
       </div>
+      {profile?.description ? (
+        <p className="max-w-3xl text-muted-foreground text-xs leading-relaxed">
+          {profile.description}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="min-w-0">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        {label}
-      </div>
-      <div className="truncate">{value || "—"}</div>
-    </div>
+    <Property label={label} className="min-h-7 text-xs">
+      <span className="block truncate">{value || "—"}</span>
+    </Property>
   );
 }
 
@@ -1197,8 +1231,7 @@ function Ratio({
   percent?: boolean;
 }) {
   return (
-    <div className="flex justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
+    <Property label={label} className="min-h-7 text-xs">
       <span className="tabular-nums">
         {value === null || value === undefined
           ? "—"
@@ -1206,7 +1239,7 @@ function Ratio({
             ? `${(value * 100).toFixed(1)}%`
             : value.toFixed(2)}
       </span>
-    </div>
+    </Property>
   );
 }
 
@@ -1221,21 +1254,30 @@ function compact(value: number): string {
 
 export function MarketsSkeleton() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center border-b px-4">
-        <Skeleton className="h-8 w-72" />
-      </div>
-      <div className="flex flex-1">
-        <div className="hidden w-56 space-y-2 border-r p-3 lg:block">
-          {Array.from({ length: 8 }, (_, i) => (
-            <Skeleton key={`row-${i}`} className="h-4 w-full" />
+    <Page>
+      <PageHeader icon={<CandlestickChart />} title="Markets" />
+      <PageToolbar>
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-7 w-64" />
+        <Skeleton className="h-7 w-32" />
+      </PageToolbar>
+      <PageBody bleed className="flex">
+        <div className="hidden w-60 shrink-0 flex-col gap-2 border-r p-3 lg:flex">
+          {Array.from({ length: 10 }, (_, i) => (
+            <Skeleton key={`row-${i}`} className="h-5 w-full" />
           ))}
         </div>
-        <div className="flex-1 space-y-3 p-4">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-[420px] w-full" />
+        <div className="flex flex-1 flex-col gap-3 p-4 sm:px-5">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-6" />
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-7 w-28" />
+          </div>
+          <Skeleton className="h-4 w-96 max-w-full" />
+          <Skeleton className="min-h-72 w-full flex-1" />
+          <Skeleton className="h-48 w-full" />
         </div>
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

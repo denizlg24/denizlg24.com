@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { loadKeyValueStore } from "./platform-store";
+import { DASHBOARD_PREFIX, MODULES } from "./workspace/modules";
 
 const STORE_FILENAME = "settings.json";
 
@@ -70,25 +71,8 @@ export const settingsFieldMeta: Record<keyof UserSettings, SettingsFieldMeta> =
       description: "The page to show when opening the app.",
       type: "select",
       options: [
-        { label: "Home", value: "/dashboard" },
-        { label: "All Posts", value: "/dashboard/blog" },
-        { label: "New Post", value: "/dashboard/blog/new" },
-        { label: "Comments", value: "/dashboard/blog/comments" },
-        { label: "All Projects", value: "/dashboard/projects" },
-        { label: "New Project", value: "/dashboard/projects/new" },
-        { label: "Timeline", value: "/dashboard/timeline" },
-        { label: "Now Page", value: "/dashboard/now" },
-        { label: "Contacts", value: "/dashboard/contacts" },
-        { label: "Inbox", value: "/dashboard/inbox" },
-        { label: "Calendar", value: "/dashboard/calendar" },
-        { label: "Timetable", value: "/dashboard/timetable" },
-        { label: "Notes", value: "/dashboard/notes" },
-        { label: "People", value: "/dashboard/people" },
-        { label: "Whiteboards", value: "/dashboard/whiteboard" },
-        { label: "Today's Board", value: "/dashboard/whiteboard/today" },
-        { label: "Kanban Boards", value: "/dashboard/kanban" },
-        { label: "Resources", value: "/dashboard/resources" },
-        { label: "Settings", value: "/dashboard/settings" },
+        { label: "Home", value: DASHBOARD_PREFIX },
+        ...MODULES.map((m) => ({ label: m.label, value: m.href })),
       ],
     },
   };

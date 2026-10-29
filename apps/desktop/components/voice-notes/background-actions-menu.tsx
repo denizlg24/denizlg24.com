@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { DiscardUnsavedDialog } from "./discard-unsaved-dialog";
 import { formatBytes } from "./format";
 import { formatDuration, useVoiceRecorder } from "./voice-recorder-provider";
@@ -41,20 +43,25 @@ export function BackgroundActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
-            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground hover:bg-surface/70 hover:text-accent-strong"
             aria-label="Background actions"
             onPointerDown={(event) => event.stopPropagation()}
           >
             {active ? (
               <span
-                className={`size-1.5 rounded-full ${
-                  paused ? "bg-amber-500" : "animate-pulse bg-red-500"
-                }`}
+                className={cn(
+                  "size-1.5 rounded-full",
+                  paused
+                    ? "bg-status-warning"
+                    : "animate-pulse bg-status-critical",
+                )}
               />
             ) : unsaved ? (
-              <span className="size-1.5 rounded-full bg-destructive" />
+              <span className="size-1.5 rounded-full bg-status-critical" />
             ) : (
               <Loader className="size-3" />
             )}
@@ -64,16 +71,16 @@ export function BackgroundActionsMenu({
               </span>
             )}
             <ChevronDown className="size-2.5" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} className="w-56">
-          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Background actions
+          <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Background
           </DropdownMenuLabel>
           {unsaved && (
             <>
-              <DropdownMenuLabel className="flex items-center gap-1.5 py-1 font-mono text-[10px] font-normal tabular-nums text-destructive">
-                <span className="size-1.5 rounded-full bg-destructive" />
+              <DropdownMenuLabel className="flex items-center gap-1.5 py-1 text-xs font-normal tabular-nums text-destructive">
+                <span className="size-1.5 rounded-full bg-status-critical" />
                 Unsaved · {formatDuration(unsaved.durationMs)} ·{" "}
                 {formatBytes(unsaved.sizeBytes)}
               </DropdownMenuLabel>

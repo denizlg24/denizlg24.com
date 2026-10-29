@@ -2,14 +2,16 @@
 
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Label } from "@repo/ui/label";
+import { EmptyState } from "@repo/ui/empty-state";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@repo/ui/sheet";
+import { Skeleton } from "@repo/ui/skeleton";
+import { FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
 import { BrainCircuit, Check, Loader2, RefreshCcw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -29,6 +31,8 @@ function isApiError<T>(value: T | { code: number; message: string }): value is {
 } {
   return Boolean(value && typeof value === "object" && "code" in value);
 }
+
+const ALL_TYPES = "__all__";
 
 function suggestionTypeLabel(type: ISemanticSuggestion["type"]) {
   return type.replace(/-/g, " ");
@@ -134,185 +138,166 @@ export function SemanticPanel({ api, onClose, onChanged }: Props) {
     }
   };
 
-  return (
-    <div className="absolute inset-y-0 right-0 z-20 flex w-full max-w-md flex-col border-l bg-background shadow-xl">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <BrainCircuit className="size-4" />
-          <h2 className="text-sm font-medium">Semantic Notes</h2>
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2"
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </Button>
-      </div>
+  const types = [...new Set(suggestions.map((s) => s.type))];
+  const visible = suggestions.filter((suggestion) =>
+    selectedType ? suggestion.type === selectedType : true,
+  );
+  const busy = running || bulkAction !== null;
 
-      <div className="flex flex-col gap-2 border-b p-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Classification
-          </span>
-          <span className="text-[11px] text-muted-foreground">Server LLM</span>
-        </div>
-        <Button
-          size="sm"
-          className="h-7 w-full justify-center"
-          onClick={() => void runSync()}
-          disabled={running || bulkAction !== null}
-        >
-          {running ? (
-            <Loader2 className="size-3.5 animate-spin" />
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent className="w-full gap-0 sm:max-w-lg">
+        <SheetHeader className="h-11 flex-row items-center gap-2 border-b px-4 py-0 pr-12">
+          <BrainCircuit className="size-4 text-muted-foreground" />
+          <SheetTitle className="text-sm">Semantic</SheetTitle>
+          <SheetDescription className="sr-only">
+            Pending suggestions
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
+          {types.length > 1 ? (
+            <FilterTabs
+              value={selectedType ?? ALL_TYPES}
+              onChange={(value) =>
+                setSelectedType(value === ALL_TYPES ? null : value)
+              }
+              options={[
+                { value: ALL_TYPES, label: "All", count: suggestions.length },
+                ...types.map((type) => ({
+                  value: type,
+                  label: (
+                    <span className="capitalize">
+                      {suggestionTypeLabel(type)}
+                    </span>
+                  ),
+                  count: suggestions.filter((s) => s.type === type).length,
+                })),
+              ]}
+            />
           ) : (
-            <RefreshCcw className="size-3.5" />
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {suggestions.length} pending
+            </span>
           )}
-          {running ? (stage ?? "Running") : "Run sync"}
-        </Button>
-        {suggestions.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
+          <ToolbarSpacer />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void runSync()}
+            disabled={busy}
+          >
+            {running ? <Loader2 className="animate-spin" /> : <RefreshCcw />}
+            {running ? (stage ?? "Running") : "Sync"}
+          </Button>
+        </div>
+
+        {visible.length > 0 && (
+          <div className="flex shrink-0 items-center justify-end gap-1 border-b px-4 py-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void decideAll("dismiss")}
+              disabled={busy}
+            >
+              {bulkAction === "dismiss" ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <X />
+              )}
+              Dismiss {visible.length}
+            </Button>
             <Button
               size="sm"
               variant="outline"
-              className="h-7 justify-center text-xs"
-              onClick={() => void decideAll("dismiss")}
-              disabled={running || bulkAction !== null}
-            >
-              {bulkAction === "dismiss" ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <X className="size-3.5" />
-              )}
-              Dismiss all
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 justify-center text-xs"
               onClick={() => void decideAll("accept")}
-              disabled={running || bulkAction !== null}
+              disabled={busy}
             >
               {bulkAction === "accept" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <Check className="size-3.5" />
+                <Check />
               )}
-              Accept all
+              Accept {visible.length}
             </Button>
-            {[...new Set(suggestions.map((s) => s.type))].length > 1 && (
-              <div className="col-span-2 w-full flex flex-col items-start gap-1">
-                <Label className="shrink-0 text-left text-[10px] text-muted-foreground w-fit">
-                  Suggestion Type:
-                </Label>
-
-                <Select
-                  onValueChange={(value) => setSelectedType(value || null)}
-                  value={selectedType ?? ""}
-                >
-                  <SelectTrigger className="w-full grow capitalize">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent className="w-full" position="popper">
-                    {[...new Set(suggestions.map((s) => s.type))].map(
-                      (type) => (
-                        <SelectItem
-                          className="capitalize"
-                          key={type}
-                          value={type}
-                        >
-                          {suggestionTypeLabel(type)}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
         )}
-      </div>
 
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : suggestions.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-            <BrainCircuit className="size-6 text-muted-foreground/50" />
-            <p className="text-xs text-muted-foreground">
-              No pending suggestions.
-            </p>
-            <p className="text-[10px] text-muted-foreground/70">
-              Run a sync to surface new groups, tags, and links.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {suggestions
-              .filter((suggestion) =>
-                selectedType ? suggestion.type === selectedType : true,
-              )
-              .map((suggestion) => (
-                <div key={suggestion._id} className="p-3">
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <Badge
-                      variant="outline"
-                      className="h-5 rounded-md px-1.5 text-[10px] uppercase tracking-wide"
-                    >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {loading ? (
+            <div className="flex flex-col gap-4 p-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="flex flex-col gap-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <EmptyState icon={<BrainCircuit />} label="No suggestions" />
+          ) : (
+            <div className="flex flex-col divide-y divide-border/70">
+              {visible.map((suggestion) => (
+                <div
+                  key={suggestion._id}
+                  className="flex flex-col gap-1.5 px-4 py-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
                       {suggestionTypeLabel(suggestion.type)}
-                    </Badge>
-                    <span className="text-[10px] tabular-nums text-muted-foreground">
-                      {Math.round(suggestion.confidence * 100)}% match
+                    </span>
+                    <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                      {Math.round(suggestion.confidence * 100)}%
                     </span>
                   </div>
                   {suggestion.proposedName && (
-                    <div className="mb-1 text-sm font-medium">
+                    <div className="text-sm font-medium text-accent-strong">
                       {suggestion.proposedName}
                     </div>
                   )}
                   {suggestion.proposedTags?.length ? (
-                    <div className="mb-2 flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1">
                       {suggestion.proposedTags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                        >
+                        <Badge key={tag} variant="outline">
                           {tag}
-                        </span>
+                        </Badge>
                       ))}
                     </div>
                   ) : null}
-                  <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
                     {suggestion.reason}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex justify-end gap-1 pt-1">
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 flex-1 text-xs"
                       onClick={() => void decide(suggestion, "dismiss")}
-                      disabled={bulkAction !== null}
+                      disabled={busy}
                     >
-                      <X className="size-3.5" />
                       Dismiss
                     </Button>
                     <Button
                       size="sm"
-                      className="h-7 flex-1 text-xs"
+                      variant="outline"
                       onClick={() => void decide(suggestion, "accept")}
-                      disabled={bulkAction !== null}
+                      disabled={busy}
                     >
-                      <Check className="size-3.5" />
+                      <Check />
                       Accept
                     </Button>
                   </div>
                 </div>
               ))}
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

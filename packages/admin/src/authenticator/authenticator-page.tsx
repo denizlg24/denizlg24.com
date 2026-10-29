@@ -6,19 +6,13 @@ import type {
   TotpAlgorithm,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { PageHeader } from "@repo/ui/page-header";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
-import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
-import { Download, KeyRound, Loader2, Plus, Search } from "lucide-react";
+import { SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
+import { Download, KeyRound, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -27,29 +21,39 @@ import { AuthenticatorAccountRow } from "./authenticator-account";
 import { ImportDialog } from "./import-dialog";
 
 export function AuthenticatorSkeleton() {
+  const { slots } = useAdmin();
   return (
-    <div className="flex flex-col h-full">
-      <HeaderBarSkeleton
-        icon={<KeyRound className="size-4 text-muted-foreground" />}
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<KeyRound />}
         title="Authenticator"
-        actions={["w-20", "w-16"]}
-      />
-      <div className="flex-1 overflow-auto">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-4 px-4 py-3 border-b border-border/50"
-          >
-            <div className="flex-1 flex flex-col gap-1.5">
-              <Skeleton className="h-3.5 w-28" />
-              <Skeleton className="h-2.5 w-40" />
+      >
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-16" />
+      </PageHeader>
+      <PageToolbar>
+        <Skeleton className="h-7 w-56" />
+      </PageToolbar>
+      <PageBody>
+        <div className="flex flex-col">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex min-h-14 items-center gap-3 border-b border-border/70 py-2.5"
+            >
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-2.5 w-40" />
+              </div>
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="size-7 rounded-full" />
+              <Skeleton className="size-7" />
             </div>
-            <Skeleton className="h-5 w-30" />
-            <Skeleton className="size-8 rounded-full" />
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -67,7 +71,6 @@ export function AuthenticatorPage() {
     useState<IAuthenticatorAccount | null>(null);
   const [deleteTarget, setDeleteTarget] =
     useState<IAuthenticatorAccount | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const accountsLoadedRef = useRef(false);
@@ -168,18 +171,13 @@ export function AuthenticatorPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  const handleDelete = async (target: IAuthenticatorAccount) => {
     try {
-      await client.del(`authenticator/${deleteTarget._id}`);
-      setAccounts((prev) => prev.filter((a) => a._id !== deleteTarget._id));
-      setDeleteTarget(null);
+      await client.del(`authenticator/${target._id}`);
+      setAccounts((prev) => prev.filter((a) => a._id !== target._id));
       toast.success("Account deleted");
     } catch {
       toast.error("Failed to delete account");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -235,12 +233,13 @@ export function AuthenticatorPage() {
     }
   };
 
-  const filtered = search.trim()
+  const needle = search.trim().toLowerCase();
+  const filtered = needle
     ? accounts.filter(
         (a) =>
-          a.label.toLowerCase().includes(search.toLowerCase()) ||
-          a.issuer.toLowerCase().includes(search.toLowerCase()) ||
-          a.accountName.toLowerCase().includes(search.toLowerCase()),
+          a.label.toLowerCase().includes(needle) ||
+          a.issuer.toLowerCase().includes(needle) ||
+          a.accountName.toLowerCase().includes(needle),
       )
     : accounts;
 
@@ -249,84 +248,66 @@ export function AuthenticatorPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<KeyRound className="size-4 text-muted-foreground" />}
+        icon={<KeyRound />}
         title="Authenticator"
       >
-        <div className="hidden sm:flex items-center gap-3 mr-3 text-xs">
-          <span className="font-mono text-muted-foreground/70 tabular-nums">
-            {accounts.length}{" "}
-            <span className="text-[9px] uppercase tracking-wider">
-              account{accounts.length !== 1 ? "s" : ""}
-            </span>
-          </span>
-        </div>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setImportOpen(true)}
-          className="gap-1.5 text-muted-foreground"
-        >
-          <Download className="size-3" />
-          Import
+        <Button variant="ghost" size="sm" onClick={() => setImportOpen(true)}>
+          <Download /> Import
         </Button>
         <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="size-3" /> Add
+          <Plus /> Add
         </Button>
       </PageHeader>
 
       {accounts.length > 0 && (
-        <div className="px-4 py-2 border-b border-border/50">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search accounts..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-sm"
-            />
-          </div>
-        </div>
+        <PageToolbar>
+          <SearchField
+            value={search}
+            onChange={setSearch}
+            placeholder="Search accounts"
+            className="w-64"
+          />
+          <ToolbarSpacer />
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {needle ? `${filtered.length}/${accounts.length}` : accounts.length}
+          </span>
+        </PageToolbar>
       )}
 
-      {accounts.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground/60">
-          <KeyRound className="size-8 opacity-30" />
-          <p className="text-sm">No authenticator accounts yet</p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setImportOpen(true)}
-            >
-              <Download className="size-3" /> Import
-            </Button>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="size-3" /> Add Account
-            </Button>
-          </div>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground/60">
-          <Search className="size-6 opacity-30" />
-          <p className="text-sm">No matches for &quot;{search}&quot;</p>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          {filtered.map((account) => (
-            <AuthenticatorAccountRow
-              key={account._id}
-              account={account}
-              codeData={codes.find((c) => c._id === account._id)}
-              onEdit={() => setEditingAccount(account)}
-              onDelete={() => setDeleteTarget(account)}
-            />
-          ))}
-        </div>
-      )}
+      <PageBody>
+        {accounts.length === 0 ? (
+          <EmptyState
+            icon={<KeyRound />}
+            label="No accounts"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
+                <Download /> Import
+              </Button>
+            }
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState label="0 results" />
+        ) : (
+          <List divided>
+            {filtered.map((account) => (
+              <AuthenticatorAccountRow
+                key={account._id}
+                account={account}
+                codeData={codes.find((c) => c._id === account._id)}
+                onEdit={() => setEditingAccount(account)}
+                onDelete={() => setDeleteTarget(account)}
+              />
+            ))}
+          </List>
+        )}
+      </PageBody>
 
       <AddAccountDialog
         open={addOpen}
@@ -349,43 +330,17 @@ export function AuthenticatorPage() {
         onImport={handleImport}
       />
 
-      <Dialog
+      <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Account</DialogTitle>
-            <DialogDescription>
-              Delete &quot;{deleteTarget?.label}&quot;? The TOTP secret will be
-              permanently removed and cannot be recovered.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete Account"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        title={`Delete ${deleteTarget?.label ?? "account"}?`}
+        description="The secret cannot be recovered."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
+    </Page>
   );
 }

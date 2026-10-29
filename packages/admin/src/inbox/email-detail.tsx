@@ -1,22 +1,31 @@
 "use client";
 
-import type { IEmail, IEmailAttachment, IFullEmail } from "@repo/schemas";
+import type {
+  IEmail,
+  IEmailAccount,
+  IEmailAttachment,
+  IFullEmail,
+} from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { Separator } from "@repo/ui/separator";
+import { List, ListRow } from "@repo/ui/list";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import { format } from "date-fns";
-import {
-  ArrowLeft,
-  Download,
-  File,
-  Forward,
-  Loader2,
-  Paperclip,
-  Reply,
-} from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Download, File, Forward, Reply } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { EmailIframe } from "./email-iframe";
+import { senderLabel } from "./email-list";
+
+export type ComposeDraft = {
+  to?: string;
+  subject?: string;
+  body?: string;
+};
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,81 +33,132 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function prefixSubject(prefix: "Re" | "Fwd", subject: string) {
+  const pattern = prefix === "Re" ? /^re:/i : /^(fwd?|fw):/i;
+  return pattern.test(subject.trim()) ? subject : `${prefix}: ${subject}`;
+}
+
+function forwardBody(email: IEmail, full: IFullEmail | null) {
+  const from = email.from
+    .map((entry) =>
+      entry.name ? `${entry.name} <${entry.address}>` : entry.address,
+    )
+    .join(", ");
+  return [
+    "",
+    "",
+    "---------- Forwarded message ---------",
+    `From: ${from}`,
+    `Date: ${format(new Date(email.date), "EEE, MMM d, yyyy 'at' HH:mm")}`,
+    `Subject: ${email.subject}`,
+    "",
+    full?.textBody ?? "",
+  ].join("\n");
+}
+
+export function EmailBody({
+  loading,
+  html,
+  text,
+}: {
+  loading: boolean;
+  html?: string;
+  text?: string;
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-3 py-2">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-11/12" />
+        <Skeleton className="h-3 w-4/5" />
+        <Skeleton className="h-3 w-2/3" />
+      </div>
+    );
+  }
+  if (html) return <EmailIframe html={html} />;
+  if (text) {
+    return (
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-accent-strong">
+        {text}
+      </pre>
+    );
+  }
+  return <p className="text-sm text-muted-foreground">—</p>;
+}
+
 interface EmailDetailProps {
   email: IEmail;
-  accountId: string;
+  account: IEmailAccount | undefined;
   onBack: () => void;
-  onCompose: (replyTo?: { address: string; subject: string }) => void;
+  onCompose: (draft?: ComposeDraft) => void;
   emailCache: React.RefObject<Map<string, IFullEmail>>;
   attachmentCache: React.RefObject<Map<string, IEmailAttachment[]>>;
 }
 
 export function EmailDetail({
   email,
-  accountId,
+  account,
   onBack,
   onCompose,
   emailCache,
   attachmentCache,
 }: EmailDetailProps) {
   const { client, platform } = useAdmin();
+  const accountId = email.accountId;
   const [fullEmail, setFullEmail] = useState<IFullEmail | null>(
-    emailCache.current.get(email._id) ?? null,
+    () => emailCache.current.get(email._id) ?? null,
   );
   const [attachments, setAttachments] = useState<IEmailAttachment[]>(
-    attachmentCache.current.get(email._id) ?? [],
+    () => attachmentCache.current.get(email._id) ?? [],
   );
-  const [loadingContent, setLoadingContent] = useState(!fullEmail);
-  const [loadingAttachments, setLoadingAttachments] = useState(
-    !attachmentCache.current.has(email._id),
+  const [loadingContent, setLoadingContent] = useState(
+    () => !emailCache.current.has(email._id),
   );
   const [downloadingIdx, setDownloadingIdx] = useState<number | null>(null);
 
-  const fetchContent = useCallback(async () => {
-    const cached = emailCache.current.get(email._id);
-    if (cached) {
-      setFullEmail(cached);
-      setLoadingContent(false);
-      return;
-    }
-
-    setLoadingContent(true);
-    try {
-      const result = await client.get<{ email: IFullEmail }>(
-        `email-accounts/${accountId}/emails/${email._id}`,
-      );
-      emailCache.current.set(email._id, result.email);
-      setFullEmail(result.email);
-    } catch {
-      toast.error("Failed to load email");
-    }
-    setLoadingContent(false);
-  }, [client, accountId, email._id, emailCache]);
-
-  const fetchAttachments = useCallback(async () => {
-    const cached = attachmentCache.current.get(email._id);
-    if (cached) {
-      setAttachments(cached);
-      setLoadingAttachments(false);
-      return;
-    }
-
-    setLoadingAttachments(false);
-    try {
-      const result = await client.get<{ attachments: IEmailAttachment[] }>(
-        `email-accounts/${accountId}/emails/${email._id}/attachments`,
-      );
-      attachmentCache.current.set(email._id, result.attachments);
-      setAttachments(result.attachments);
-    } catch {
-      // attachments are optional; ignore failures
-    }
-  }, [client, accountId, email._id, attachmentCache]);
-
   useEffect(() => {
-    fetchContent();
-    fetchAttachments();
-  }, [fetchContent, fetchAttachments]);
+    let cancelled = false;
+
+    const cachedEmail = emailCache.current.get(email._id);
+    setFullEmail(cachedEmail ?? null);
+    setLoadingContent(!cachedEmail);
+    if (!cachedEmail) {
+      client
+        .get<{ email: IFullEmail }>(
+          `email-accounts/${accountId}/emails/${email._id}`,
+        )
+        .then((result) => {
+          emailCache.current.set(email._id, result.email);
+          if (!cancelled) setFullEmail(result.email);
+        })
+        .catch(() => {
+          if (!cancelled) toast.error("Failed to load email");
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingContent(false);
+        });
+    }
+
+    const cachedAttachments = attachmentCache.current.get(email._id);
+    setAttachments(cachedAttachments ?? []);
+    if (!cachedAttachments) {
+      client
+        .get<{ attachments: IEmailAttachment[] }>(
+          `email-accounts/${accountId}/emails/${email._id}/attachments`,
+        )
+        .then((result) => {
+          attachmentCache.current.set(email._id, result.attachments);
+          if (!cancelled) setAttachments(result.attachments);
+        })
+        .catch(() => {
+          // attachments are optional
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, accountId, email._id, emailCache, attachmentCache]);
 
   const handleDownload = async (attachment: IEmailAttachment) => {
     setDownloadingIdx(attachment.index);
@@ -116,134 +176,114 @@ export function EmailDetail({
     }
   };
 
-  const senderName = email.from[0]?.name || email.from[0]?.address || "Unknown";
-  const senderAddress = email.from[0]?.address || "";
-  const senderInitial = senderName[0]?.toUpperCase() ?? "?";
+  const sender = email.from[0];
+  const subject = email.subject || "(No subject)";
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-5 py-2.5 border-b shrink-0">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b px-3">
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
+          className="md:hidden"
+          aria-label="Back"
           onClick={onBack}
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft />
         </Button>
-
         <div className="flex-1" />
-
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
+          disabled={!sender}
           onClick={() =>
             onCompose({
-              address: senderAddress,
-              subject: email.subject,
+              to: sender?.address,
+              subject: prefixSubject("Re", email.subject),
             })
           }
         >
-          <Reply className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Reply</span>
+          <Reply />
+          Reply
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() => onCompose()}
+          onClick={() =>
+            onCompose({
+              subject: prefixSubject("Fwd", email.subject),
+              body: forwardBody(email, fullEmail),
+            })
+          }
         >
-          <Forward className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Forward</span>
+          <Forward />
+          Forward
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="w-full mx-auto px-4 py-5 sm:px-8 sm:py-6">
-          <h1 className="text-lg font-semibold leading-snug sm:text-xl">
-            {email.subject || "(No Subject)"}
-          </h1>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-6 sm:px-8">
+          <PageTitle
+            title={subject}
+            meta={
+              <span className="tabular-nums">
+                {format(new Date(email.date), "EEE, MMM d, yyyy 'at' HH:mm")}
+              </span>
+            }
+          />
 
-          <div className="flex items-center gap-3 mt-5">
-            <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
-              {senderInitial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-baseline gap-2">
-                <span className="truncate text-sm font-medium">
-                  {senderName}
+          <Properties>
+            <Property label="From">
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate">{senderLabel(email)}</span>
+                {sender?.name ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {sender.address}
+                  </span>
+                ) : null}
+              </span>
+            </Property>
+            {account ? (
+              <Property label="Account">
+                <span className="truncate">
+                  {account.displayName || account.user}
                 </span>
-                {senderName !== senderAddress && (
-                  <span className="text-xs text-muted-foreground truncate">
-                    &lt;{senderAddress}&gt;
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {format(new Date(email.date), "EEEE, MMM d, yyyy 'at' h:mm a")}
-              </p>
-            </div>
-          </div>
+              </Property>
+            ) : null}
+          </Properties>
 
-          <Separator className="my-5" />
+          <EmailBody
+            loading={loadingContent}
+            html={fullEmail?.htmlBody}
+            text={fullEmail?.textBody}
+          />
 
-          {loadingContent ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : fullEmail?.htmlBody ? (
-            <EmailIframe html={fullEmail.htmlBody} />
-          ) : fullEmail?.textBody ? (
-            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
-              {fullEmail.textBody}
-            </pre>
-          ) : (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No email body available
-            </p>
-          )}
-
-          {!loadingAttachments && attachments.length > 0 && (
-            <>
-              <Separator className="my-5" />
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Paperclip className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">
-                    {attachments.length} attachment
-                    {attachments.length !== 1 && "s"}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {attachments.map((att) => (
-                    <button
-                      key={att.index}
-                      type="button"
-                      onClick={() => handleDownload(att)}
-                      disabled={downloadingIdx === att.index}
-                      className="flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left hover:bg-muted/50 transition-colors max-w-60 group"
-                    >
-                      <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate">
-                          {att.filename}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {formatFileSize(att.size)}
-                        </p>
-                      </div>
-                      {downloadingIdx === att.index ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+          {attachments.length > 0 ? (
+            <Section title="Attachments" count={attachments.length}>
+              <List>
+                {attachments.map((attachment) => (
+                  <ListRow
+                    key={attachment.index}
+                    leading={<File />}
+                    title={attachment.filename}
+                    meta={formatFileSize(attachment.size)}
+                    onClick={
+                      downloadingIdx === attachment.index
+                        ? undefined
+                        : () => void handleDownload(attachment)
+                    }
+                    trailing={
+                      downloadingIdx === attachment.index ? (
+                        <Spinner className="size-3.5 text-muted-foreground" />
                       ) : (
-                        <Download className="h-3.5 w-3.5 text-muted-foreground  shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+                        <Download className="size-3.5 text-muted-foreground" />
+                      )
+                    }
+                  />
+                ))}
+              </List>
+            </Section>
+          ) : null}
         </div>
       </div>
     </div>

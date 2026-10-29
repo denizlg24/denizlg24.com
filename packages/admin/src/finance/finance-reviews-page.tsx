@@ -2,16 +2,20 @@
 
 import type { FinanceDashboardResponse } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
 import { Check, GitMerge, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DetailPageShell } from "../detail-page-shell";
 import { useAdmin } from "../provider";
 import { resolveFinanceMatch } from "./finance-data";
-import { Empty } from "./finance-primitives";
+
 import { money } from "./finance-series";
 
-const ICON = <GitMerge className="size-4 text-muted-foreground" />;
+const ICON = <GitMerge />;
 
 /**
  * The projection↔bank match queue.
@@ -34,13 +38,16 @@ export function FinanceReviewsPage({
     null,
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const data = dashboard ?? loadedData;
 
   const load = useCallback(async () => {
     try {
       if (onReload) await onReload();
       else setLoadedData(await client.get<FinanceDashboardResponse>("finance"));
+      setFailed(false);
     } catch {
+      setFailed(true);
       toast.error("Failed to load reviews");
     }
   }, [client, onReload]);
@@ -71,11 +78,27 @@ export function FinanceReviewsPage({
 
   const content =
     data === null ? (
-      <Empty label="Loading…" />
+      failed ? (
+        <EmptyState
+          icon={<GitMerge />}
+          label="Reviews unavailable"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-12 w-full" />
+          ))}
+        </div>
+      )
     ) : reviews.length === 0 ? (
-      <Empty label="Queue clear" />
+      <EmptyState icon={<GitMerge />} label="Queue clear" />
     ) : (
-      <div className="divide-y">
+      <List divided>
         {reviews.map((review) => {
           const source = ledger.get(review.sourceLedgerId);
           const bank = ledger.get(review.candidateBankLedgerId);
@@ -86,7 +109,8 @@ export function FinanceReviewsPage({
           return (
             <div
               key={review.id}
-              className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center"
+              role="listitem"
+              className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center"
             >
               <div className="grid min-w-0 flex-1 gap-1.5 sm:grid-cols-2">
                 {[
@@ -94,20 +118,20 @@ export function FinanceReviewsPage({
                   { row: bank, tag: "bank" },
                 ].map(({ row, tag }) => (
                   <div key={tag} className="flex min-w-0 items-baseline gap-2">
-                    <span className="w-10 shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <span className="w-10 shrink-0 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
                       {tag}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm">
+                    <span className="min-w-0 flex-1 truncate text-sm text-accent-strong">
                       {row?.descriptor ?? "—"}
                     </span>
-                    <span className="shrink-0 text-sm font-medium tabular-nums">
+                    <span className="shrink-0 text-sm font-medium tabular-nums text-accent-strong">
                       {row ? money(row.amountMinor, row.currency) : "—"}
                     </span>
                   </div>
                 ))}
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <span className="text-[11px] tabular-nums text-muted-foreground">
+                <span className="text-xs tabular-nums text-muted-foreground">
                   {Math.round(review.confidence * 100)}%
                   {drift > 0
                     ? ` · Δ ${money(drift, source?.currency ?? data.monthly.currency)}`
@@ -115,22 +139,23 @@ export function FinanceReviewsPage({
                 </span>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
                   disabled={busy === review.id}
                   onClick={() => void resolve(review.id, "reject")}
                 >
-                  <X className="size-3" />
+                  <X />
                   Reject
                 </Button>
                 <Button
-                  size="xs"
+                  variant="outline"
+                  size="sm"
                   disabled={busy === review.id}
                   onClick={() => void resolve(review.id, "accept")}
                 >
                   {busy === review.id ? (
-                    <Loader2 className="size-3 animate-spin" />
+                    <Loader2 className="animate-spin" />
                   ) : (
-                    <Check className="size-3" />
+                    <Check />
                   )}
                   Match
                 </Button>
@@ -138,21 +163,27 @@ export function FinanceReviewsPage({
             </div>
           );
         })}
-      </div>
+      </List>
     );
 
   if (embedded) {
-    return <div className="mx-auto max-w-5xl px-4 py-5">{content}</div>;
+    return (
+      <Section title="Match review" count={reviews.length || undefined}>
+        {content}
+      </Section>
+    );
   }
 
   return (
     <DetailPageShell
       icon={ICON}
-      title={`Match review${reviews.length ? ` · ${reviews.length}` : ""}`}
+      title="Match review"
       backTo={routes.finance.root}
       backLabel="Finance"
     >
-      {content}
+      <Section title="Queue" count={reviews.length}>
+        {content}
+      </Section>
     </DetailPageShell>
   );
 }

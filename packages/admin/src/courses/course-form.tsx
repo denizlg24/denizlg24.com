@@ -10,13 +10,14 @@ import type {
   ICourseOptions,
   ICourseTriageContext,
 } from "@repo/schemas";
-import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import { DatePicker } from "@repo/ui/date-picker";
 import { DateTimePicker } from "@repo/ui/date-time-picker";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -24,14 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Separator } from "@repo/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
+import { FilterTabs, SearchField } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
   BookOpen,
   CalendarDays,
-  CheckSquare,
   Clock,
   ExternalLink,
   FileText,
@@ -39,8 +39,8 @@ import {
   Link as LinkIcon,
   Plus,
   Radio,
-  Trash2,
   UsersRound,
+  X,
 } from "lucide-react";
 import type * as React from "react";
 import { useMemo, useState } from "react";
@@ -105,11 +105,13 @@ function toDateInput(value?: string) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Local wall time, the shape DateTimePicker reads and `new Date()` parses back as local. */
 function toDateTimeInput(value?: string) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 16);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function fromDateTimeInput(value: string) {
@@ -191,6 +193,40 @@ function toggleId(ids: string[], id: string) {
     : [...ids, id];
 }
 
+function isCourseStatus(value: string): value is CourseStatus {
+  return value === "active" || value === "archived";
+}
+
+function RemoveButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      className="shrink-0 text-muted-foreground hover:text-destructive"
+      onClick={onClick}
+    >
+      <X />
+    </Button>
+  );
+}
+
+function AddButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="button" variant="ghost" size="xs" onClick={onClick}>
+      <Plus />
+      Add
+    </Button>
+  );
+}
+
 function LinkedPicker({
   label,
   icon,
@@ -216,30 +252,25 @@ function LinkedPicker({
   }, [options, query]);
 
   return (
-    <div className="rounded-md border">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        {icon}
-        <span className="text-sm font-medium">{label}</span>
-        <Badge variant="secondary" className="ml-auto">
-          {selectedIds.length}
-        </Badge>
-      </div>
-      <div className="p-2">
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter"
-          className="h-8"
-        />
-      </div>
-      <div className="max-h-48 overflow-y-auto px-2 pb-2">
+    <Section
+      title={
+        <span className="flex items-center gap-1.5 [&_svg]:size-3.5">
+          {icon}
+          {label}
+        </span>
+      }
+      count={`${selectedIds.length}/${options.length}`}
+      className="min-w-0"
+    >
+      <SearchField value={query} onChange={setQuery} placeholder="Filter" />
+      <div className="max-h-56 overflow-y-auto">
         {filtered.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-muted-foreground">No matches</p>
+          <p className="py-2 text-xs text-muted-foreground">No matches</p>
         ) : (
           filtered.map((option) => (
             <label
               key={option._id}
-              className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 hover:bg-muted/60"
+              className="-mx-2 flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-surface/70"
             >
               <Checkbox
                 checked={selectedIds.includes(option._id)}
@@ -249,7 +280,9 @@ function LinkedPicker({
                 className="mt-0.5"
               />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm">{option.title}</span>
+                <span className="block truncate text-sm text-accent-strong">
+                  {option.title}
+                </span>
                 {(option.subtitle || option.meta) && (
                   <span className="block truncate text-xs text-muted-foreground">
                     {[option.subtitle, option.meta].filter(Boolean).join(" · ")}
@@ -260,9 +293,11 @@ function LinkedPicker({
           ))
         )}
       </div>
-    </div>
+    </Section>
   );
 }
+
+type FormTab = "profile" | "records" | "deadlines";
 
 export function CourseForm({
   initialCourse,
@@ -273,6 +308,7 @@ export function CourseForm({
   mode,
 }: CourseFormProps) {
   const [values, setValues] = useState(() => formDefaults(initialCourse));
+  const [tab, setTab] = useState<FormTab>("profile");
 
   const setField = <K extends keyof CourseFormValues>(
     field: K,
@@ -281,110 +317,148 @@ export function CourseForm({
     setValues((current) => ({ ...current, [field]: value }));
   };
 
+  const updateAt = <
+    K extends "links" | "customFields" | "triageContext" | "manualDeadlines",
+  >(
+    field: K,
+    index: number,
+    patch: Partial<CourseFormValues[K][number]>,
+  ) => {
+    setValues((current) => ({
+      ...current,
+      [field]: current[field].map((item, i) =>
+        i === index ? { ...item, ...patch } : item,
+      ),
+    }));
+  };
+
+  const removeAt = (
+    field: "links" | "customFields" | "triageContext" | "manualDeadlines",
+    index: number,
+  ) => {
+    setValues((current) => ({
+      ...current,
+      [field]: current[field].filter((_, i) => i !== index),
+    }));
+  };
+
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!values.name.trim()) return;
     await onSubmit(normalizeSubmit(values));
   };
 
-  return (
-    <form onSubmit={submit} className="flex min-h-0 flex-col gap-4">
-      <Tabs defaultValue="profile" className="min-h-0">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="records">Records</TabsTrigger>
-          <TabsTrigger value="deadlines">Deadlines</TabsTrigger>
-        </TabsList>
+  const linkedCount =
+    values.timetableEntryIds.length +
+    values.calendarEventIds.length +
+    values.kanbanBoardIds.length +
+    values.noteIds.length +
+    values.personIds.length +
+    values.resourceIds.length;
 
-        <TabsContent value="profile" className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="course-name">Name</Label>
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-8">
+      <FilterTabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "profile", label: "Profile" },
+          { value: "records", label: "Records", count: linkedCount },
+          {
+            value: "deadlines",
+            label: "Deadlines",
+            count: values.manualDeadlines.length,
+          },
+        ]}
+      />
+
+      {tab === "profile" && (
+        <>
+          <FormGrid>
+            <FormField
+              label="Name"
+              htmlFor="course-name"
+              className="sm:col-span-2"
+            >
               <Input
                 id="course-name"
                 value={values.name}
                 onChange={(event) => setField("name", event.target.value)}
-                placeholder="Course name"
                 required
+                autoFocus={mode === "create"}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-code">Code</Label>
+            </FormField>
+            <FormField label="Code" htmlFor="course-code">
               <Input
                 id="course-code"
                 value={values.code ?? ""}
                 onChange={(event) => setField("code", event.target.value)}
                 placeholder="CS 301"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-semester">Semester</Label>
+            </FormField>
+            <FormField label="Semester" htmlFor="course-semester">
               <Input
                 id="course-semester"
                 value={values.semester ?? ""}
                 onChange={(event) => setField("semester", event.target.value)}
                 placeholder="Fall 2026"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-instructor">Instructor</Label>
+            </FormField>
+            <FormField label="Instructor" htmlFor="course-instructor">
               <Input
                 id="course-instructor"
                 value={values.instructorName ?? ""}
                 onChange={(event) =>
                   setField("instructorName", event.target.value)
                 }
-                placeholder="Instructor"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-location">Location</Label>
+            </FormField>
+            <FormField label="Location" htmlFor="course-location">
               <Input
                 id="course-location"
                 value={values.location ?? ""}
                 onChange={(event) => setField("location", event.target.value)}
-                placeholder="Room / campus"
               />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="course-homepage">Homepage</Label>
+            </FormField>
+            <FormField
+              label="Homepage"
+              htmlFor="course-homepage"
+              className="sm:col-span-2"
+            >
               <Input
                 id="course-homepage"
                 value={values.homepageUrl ?? ""}
                 onChange={(event) =>
                   setField("homepageUrl", event.target.value)
                 }
-                placeholder="https://..."
+                placeholder="https://"
                 type="url"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-start">Starts</Label>
+            </FormField>
+            <FormField label="Starts" htmlFor="course-start">
               <DatePicker
                 id="course-start"
                 value={values.startsOn || undefined}
                 onValueChange={(next) => setField("startsOn", next ?? "")}
                 clearable
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="course-end">Ends</Label>
+            </FormField>
+            <FormField label="Ends" htmlFor="course-end">
               <DatePicker
                 id="course-end"
                 value={values.endsOn || undefined}
                 onValueChange={(next) => setField("endsOn", next ?? "")}
                 clearable
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Status</Label>
+            </FormField>
+            <FormField label="Status" htmlFor="course-status">
               <Select
                 value={values.status}
-                onValueChange={(value) =>
-                  setField("status", value as CourseStatus)
-                }
+                onValueChange={(value) => {
+                  if (isCourseStatus(value)) setField("status", value);
+                }}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="course-status" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
@@ -392,29 +466,32 @@ export function CourseForm({
                   <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Color</Label>
-              <div className="flex flex-wrap gap-2">
+            </FormField>
+            <FormField label="Colour">
+              <div className="flex h-8 flex-wrap items-center gap-2">
                 {COURSE_COLORS.map((color) => (
                   <button
                     key={color}
                     type="button"
                     aria-label={color}
+                    aria-pressed={values.color === color}
                     onClick={() => setField("color", color)}
                     className={cn(
-                      "size-7 rounded-full border transition-transform hover:scale-105",
+                      "size-6 rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       values.color === color
-                        ? "border-foreground ring-2 ring-ring/30"
+                        ? "border-accent-strong ring-2 ring-ring/30 ring-offset-1 ring-offset-background"
                         : "border-border",
                     )}
                     style={{ backgroundColor: color }}
                   />
                 ))}
               </div>
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="course-description">Description</Label>
+            </FormField>
+            <FormField
+              label="Description"
+              htmlFor="course-description"
+              className="sm:col-span-2"
+            >
               <Textarea
                 id="course-description"
                 value={values.description ?? ""}
@@ -423,257 +500,212 @@ export function CourseForm({
                 }
                 rows={4}
               />
-            </div>
-          </div>
+            </FormField>
+          </FormGrid>
 
-          <Separator />
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Links</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
+          <Section
+            title="Links"
+            count={values.links.length}
+            actions={
+              <AddButton
                 onClick={() =>
                   setField("links", [
                     ...values.links,
                     { label: "", url: "", icon: "" },
                   ])
                 }
-              >
-                <Plus className="size-3.5" />
-                Add
-              </Button>
-            </div>
+              />
+            }
+          >
             {values.links.map((link, index) => (
-              <div key={link._id ?? index} className="flex gap-2">
+              <div key={link._id ?? `new-${index}`} className="flex gap-2">
                 <Input
                   value={link.label}
                   placeholder="Label"
-                  onChange={(event) => {
-                    const links = [...values.links];
-                    links[index] = { ...link, label: event.target.value };
-                    setField("links", links);
-                  }}
+                  aria-label="Link label"
+                  className="flex-1"
+                  onChange={(event) =>
+                    updateAt("links", index, { label: event.target.value })
+                  }
                 />
                 <Input
                   value={link.url}
-                  placeholder="https://..."
-                  onChange={(event) => {
-                    const links = [...values.links];
-                    links[index] = { ...link, url: event.target.value };
-                    setField("links", links);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() =>
-                    setField(
-                      "links",
-                      values.links.filter((_, current) => current !== index),
-                    )
+                  placeholder="https://"
+                  aria-label="Link URL"
+                  className="flex-[2]"
+                  onChange={(event) =>
+                    updateAt("links", index, { url: event.target.value })
                   }
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+                />
+                <RemoveButton
+                  label="Remove link"
+                  onClick={() => removeAt("links", index)}
+                />
               </div>
             ))}
-          </div>
+          </Section>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Custom Fields</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
+          <Section
+            title="Custom fields"
+            count={values.customFields.length}
+            actions={
+              <AddButton
                 onClick={() =>
                   setField("customFields", [
                     ...values.customFields,
                     { label: "", value: "" },
                   ])
                 }
-              >
-                <Plus className="size-3.5" />
-                Add
-              </Button>
-            </div>
+              />
+            }
+          >
             {values.customFields.map((field, index) => (
-              <div key={field._id ?? index} className="flex gap-2">
+              <div key={field._id ?? `new-${index}`} className="flex gap-2">
                 <Input
                   value={field.label}
                   placeholder="Label"
-                  onChange={(event) => {
-                    const fields = [...values.customFields];
-                    fields[index] = { ...field, label: event.target.value };
-                    setField("customFields", fields);
-                  }}
+                  aria-label="Field label"
+                  className="flex-1"
+                  onChange={(event) =>
+                    updateAt("customFields", index, {
+                      label: event.target.value,
+                    })
+                  }
                 />
                 <Input
                   value={field.value}
                   placeholder="Value"
-                  onChange={(event) => {
-                    const fields = [...values.customFields];
-                    fields[index] = { ...field, value: event.target.value };
-                    setField("customFields", fields);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() =>
-                    setField(
-                      "customFields",
-                      values.customFields.filter(
-                        (_, current) => current !== index,
-                      ),
-                    )
+                  aria-label="Field value"
+                  className="flex-[2]"
+                  onChange={(event) =>
+                    updateAt("customFields", index, {
+                      value: event.target.value,
+                    })
                   }
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+                />
+                <RemoveButton
+                  label="Remove field"
+                  onClick={() => removeAt("customFields", index)}
+                />
               </div>
             ))}
-          </div>
+          </Section>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Triage Context</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
+          <Section
+            title="Triage context"
+            count={values.triageContext.length}
+            actions={
+              <AddButton
                 onClick={() =>
                   setField("triageContext", [
                     ...values.triageContext,
                     { label: "", value: "", includeInTriage: false },
                   ])
                 }
-              >
-                <Plus className="size-3.5" />
-                Add
-              </Button>
-            </div>
+              />
+            }
+          >
             {values.triageContext.map((field, index) => (
-              <div key={field._id ?? index} className="rounded-md border p-2">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-[0.8fr_1fr_auto]">
-                  <Input
-                    value={field.label}
-                    placeholder="Label"
-                    onChange={(event) => {
-                      const triageContext = [...values.triageContext];
-                      triageContext[index] = {
-                        ...field,
-                        label: event.target.value,
-                      };
-                      setField("triageContext", triageContext);
-                    }}
-                  />
-                  <Input
-                    value={field.value}
-                    placeholder="Value"
-                    onChange={(event) => {
-                      const triageContext = [...values.triageContext];
-                      triageContext[index] = {
-                        ...field,
-                        value: event.target.value,
-                      };
-                      setField("triageContext", triageContext);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      setField(
-                        "triageContext",
-                        values.triageContext.filter(
-                          (_, current) => current !== index,
-                        ),
-                      )
-                    }
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
-                <label className="mt-2 flex items-center gap-2 text-sm">
+              <div
+                key={field._id ?? `new-${index}`}
+                className="flex flex-wrap items-center gap-2 sm:flex-nowrap"
+              >
+                <Input
+                  value={field.label}
+                  placeholder="Label"
+                  aria-label="Context label"
+                  className="flex-1"
+                  onChange={(event) =>
+                    updateAt("triageContext", index, {
+                      label: event.target.value,
+                    })
+                  }
+                />
+                <Input
+                  value={field.value}
+                  placeholder="Value"
+                  aria-label="Context value"
+                  className="flex-[2]"
+                  onChange={(event) =>
+                    updateAt("triageContext", index, {
+                      value: event.target.value,
+                    })
+                  }
+                />
+                <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                   <Checkbox
                     checked={field.includeInTriage}
-                    onCheckedChange={(checked) => {
-                      const triageContext = [...values.triageContext];
-                      triageContext[index] = {
-                        ...field,
+                    onCheckedChange={(checked) =>
+                      updateAt("triageContext", index, {
                         includeInTriage: checked === true,
-                      };
-                      setField("triageContext", triageContext);
-                    }}
+                      })
+                    }
                   />
-                  Use in triage
+                  Triage
                 </label>
+                <RemoveButton
+                  label="Remove context"
+                  onClick={() => removeAt("triageContext", index)}
+                />
               </div>
             ))}
-          </div>
-        </TabsContent>
+          </Section>
+        </>
+      )}
 
-        <TabsContent value="records">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <LinkedPicker
-              label="Timetable"
-              icon={<Clock className="size-4 text-muted-foreground" />}
-              options={options.timetableEntries}
-              selectedIds={values.timetableEntryIds}
-              onChange={(ids) => setField("timetableEntryIds", ids)}
-            />
-            <LinkedPicker
-              label="Calendar"
-              icon={<CalendarDays className="size-4 text-muted-foreground" />}
-              options={options.calendarEvents}
-              selectedIds={values.calendarEventIds}
-              onChange={(ids) => setField("calendarEventIds", ids)}
-            />
-            <LinkedPicker
-              label="Kanban"
-              icon={<Kanban className="size-4 text-muted-foreground" />}
-              options={options.kanbanBoards}
-              selectedIds={values.kanbanBoardIds}
-              onChange={(ids) => setField("kanbanBoardIds", ids)}
-            />
-            <LinkedPicker
-              label="Notes"
-              icon={<FileText className="size-4 text-muted-foreground" />}
-              options={options.notes}
-              selectedIds={values.noteIds}
-              onChange={(ids) => setField("noteIds", ids)}
-            />
-            <LinkedPicker
-              label="People"
-              icon={<UsersRound className="size-4 text-muted-foreground" />}
-              options={options.people}
-              selectedIds={values.personIds}
-              onChange={(ids) => setField("personIds", ids)}
-            />
-            <LinkedPicker
-              label="Resources"
-              icon={<Radio className="size-4 text-muted-foreground" />}
-              options={options.resources}
-              selectedIds={values.resourceIds}
-              onChange={(ids) => setField("resourceIds", ids)}
-            />
-          </div>
-        </TabsContent>
+      {tab === "records" && (
+        <div className="grid grid-cols-1 gap-x-8 gap-y-8 lg:grid-cols-2">
+          <LinkedPicker
+            label="Timetable"
+            icon={<Clock />}
+            options={options.timetableEntries}
+            selectedIds={values.timetableEntryIds}
+            onChange={(ids) => setField("timetableEntryIds", ids)}
+          />
+          <LinkedPicker
+            label="Calendar"
+            icon={<CalendarDays />}
+            options={options.calendarEvents}
+            selectedIds={values.calendarEventIds}
+            onChange={(ids) => setField("calendarEventIds", ids)}
+          />
+          <LinkedPicker
+            label="Kanban"
+            icon={<Kanban />}
+            options={options.kanbanBoards}
+            selectedIds={values.kanbanBoardIds}
+            onChange={(ids) => setField("kanbanBoardIds", ids)}
+          />
+          <LinkedPicker
+            label="Notes"
+            icon={<FileText />}
+            options={options.notes}
+            selectedIds={values.noteIds}
+            onChange={(ids) => setField("noteIds", ids)}
+          />
+          <LinkedPicker
+            label="People"
+            icon={<UsersRound />}
+            options={options.people}
+            selectedIds={values.personIds}
+            onChange={(ids) => setField("personIds", ids)}
+          />
+          <LinkedPicker
+            label="Resources"
+            icon={<Radio />}
+            options={options.resources}
+            selectedIds={values.resourceIds}
+            onChange={(ids) => setField("resourceIds", ids)}
+          />
+        </div>
+      )}
 
-        <TabsContent value="deadlines" className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label>Manual Deadlines</Label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
+      {tab === "deadlines" && (
+        <Section
+          title="Manual deadlines"
+          count={values.manualDeadlines.length}
+          actions={
+            <AddButton
               onClick={() =>
                 setField("manualDeadlines", [
                   ...values.manualDeadlines,
@@ -686,124 +718,98 @@ export function CourseForm({
                   },
                 ])
               }
-            >
-              <Plus className="size-3.5" />
-              Add
-            </Button>
-          </div>
+            />
+          }
+        >
           {values.manualDeadlines.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-              No manual deadlines
-            </div>
+            <EmptyState compact icon={<CalendarDays />} label="No deadlines" />
           ) : (
-            values.manualDeadlines.map((deadline, index) => (
-              <div
-                key={deadline._id ?? index}
-                className="rounded-md border p-3"
-              >
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_14rem_auto]">
-                  <Input
-                    value={deadline.title}
-                    placeholder="Title"
-                    onChange={(event) => {
-                      const deadlines = [...values.manualDeadlines];
-                      deadlines[index] = {
-                        ...deadline,
-                        title: event.target.value,
-                      };
-                      setField("manualDeadlines", deadlines);
-                    }}
-                  />
-                  <DateTimePicker
-                    value={deadline.dueAt || undefined}
-                    aria-label="Deadline due"
-                    onValueChange={(next) => {
-                      const deadlines = [...values.manualDeadlines];
-                      deadlines[index] = { ...deadline, dueAt: next ?? "" };
-                      setField("manualDeadlines", deadlines);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      setField(
-                        "manualDeadlines",
-                        values.manualDeadlines.filter(
-                          (_, current) => current !== index,
-                        ),
-                      )
-                    }
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Input
-                    value={deadline.url ?? ""}
-                    placeholder="URL"
-                    onChange={(event) => {
-                      const deadlines = [...values.manualDeadlines];
-                      deadlines[index] = {
-                        ...deadline,
-                        url: event.target.value,
-                      };
-                      setField("manualDeadlines", deadlines);
-                    }}
-                  />
-                  <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                    <Checkbox
-                      checked={deadline.completed}
-                      onCheckedChange={(checked) => {
-                        const deadlines = [...values.manualDeadlines];
-                        deadlines[index] = {
-                          ...deadline,
-                          completed: checked === true,
-                        };
-                        setField("manualDeadlines", deadlines);
-                      }}
+            <div className="flex flex-col divide-y divide-border/70">
+              {values.manualDeadlines.map((deadline, index) => (
+                <div
+                  key={deadline._id ?? `new-${index}`}
+                  className="flex flex-col gap-2 py-3 first:pt-0"
+                >
+                  <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                    <Input
+                      value={deadline.title}
+                      placeholder="Title"
+                      aria-label="Deadline title"
+                      className="min-w-48 flex-1"
+                      onChange={(event) =>
+                        updateAt("manualDeadlines", index, {
+                          title: event.target.value,
+                        })
+                      }
                     />
-                    <CheckSquare className="size-4 text-muted-foreground" />
-                    Completed
-                  </label>
+                    <DateTimePicker
+                      value={deadline.dueAt || undefined}
+                      aria-label="Deadline due"
+                      onValueChange={(next) =>
+                        updateAt("manualDeadlines", index, {
+                          dueAt: next ?? "",
+                        })
+                      }
+                    />
+                    <RemoveButton
+                      label="Remove deadline"
+                      onClick={() => removeAt("manualDeadlines", index)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                    <Input
+                      value={deadline.url ?? ""}
+                      placeholder="URL"
+                      aria-label="Deadline URL"
+                      className="flex-1"
+                      onChange={(event) =>
+                        updateAt("manualDeadlines", index, {
+                          url: event.target.value,
+                        })
+                      }
+                    />
+                    <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={deadline.completed}
+                        onCheckedChange={(checked) =>
+                          updateAt("manualDeadlines", index, {
+                            completed: checked === true,
+                          })
+                        }
+                      />
+                      Done
+                    </label>
+                  </div>
+                  <Textarea
+                    className="min-h-14"
+                    value={deadline.notes ?? ""}
+                    placeholder="Notes"
+                    aria-label="Deadline notes"
+                    onChange={(event) =>
+                      updateAt("manualDeadlines", index, {
+                        notes: event.target.value,
+                      })
+                    }
+                  />
                 </div>
-                <Textarea
-                  className="mt-2 min-h-14"
-                  value={deadline.notes ?? ""}
-                  placeholder="Notes"
-                  onChange={(event) => {
-                    const deadlines = [...values.manualDeadlines];
-                    deadlines[index] = {
-                      ...deadline,
-                      notes: event.target.value,
-                    };
-                    setField("manualDeadlines", deadlines);
-                  }}
-                />
-              </div>
-            ))
+              ))}
+            </div>
           )}
-        </TabsContent>
-      </Tabs>
+        </Section>
+      )}
 
-      <div className="flex justify-end gap-2 border-t bg-background px-1 py-3">
+      <div className="flex items-center justify-end gap-2 border-t pt-4">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           onClick={onCancel}
           disabled={isLoading}
         >
           Cancel
         </Button>
         <Button type="submit" disabled={isLoading || !values.name.trim()}>
-          {isLoading
-            ? mode === "edit"
-              ? "Saving..."
-              : "Creating..."
-            : mode === "edit"
-              ? "Save"
-              : "Create"}
+          {isLoading && <Spinner className="size-3.5" />}
+          {mode === "edit" ? "Save" : "Create"}
         </Button>
       </div>
     </form>

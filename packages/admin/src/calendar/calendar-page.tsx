@@ -4,35 +4,24 @@ import type {
   ICalendarEvent,
   ICalendarGoogleIntegrationStatus,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Calendar } from "@repo/ui/calendar";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { ConfirmButton, ConfirmDialog } from "@repo/ui/confirm-button";
+import { DatePicker } from "@repo/ui/date-picker";
+import { DateTimePicker } from "@repo/ui/date-time-picker";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { PageHeader } from "@repo/ui/page-header";
-import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -40,30 +29,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Separator } from "@repo/ui/separator";
+import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
+import { ToolbarSpacer } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import { format, formatDuration } from "date-fns";
 import {
   Bell,
   CalendarDays,
   CalendarIcon,
-  Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   ExternalLink,
   Link as LinkIcon,
-  Loader2,
   MapPin,
-  Pencil,
   Plane,
   Plus,
   RefreshCw,
-  Settings,
-  Trash2,
   Users,
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FaGoogle } from "react-icons/fa6";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -78,7 +76,15 @@ import {
   replaceCachedCalendarEvent,
   setCachedGoogleCalendarStatus,
 } from "./calendar-data";
-import { CalendarGrid } from "./calendar-grid";
+import {
+  CalendarGrid,
+  compareEvents,
+  EVENT_KIND_ACCENT,
+  EVENT_KIND_DOT,
+  eventDateKey,
+  toCalendarDateKey,
+} from "./calendar-grid";
+import { RecordDialog } from "./record-dialog";
 
 function getFaviconUrl(url: string) {
   try {
@@ -93,6 +99,33 @@ interface EventLink {
   label: string;
   url: string;
   icon?: string;
+}
+
+interface EventFormState {
+  title: string;
+  place: string;
+  /** `yyyy-MM-ddTHH:mm`, local. */
+  date: string;
+  isAllDay: boolean;
+  kind: ICalendarEvent["kind"];
+  status: ICalendarEvent["status"];
+  notifyBySlack: boolean;
+  notifyBeforeMinutes: number;
+  links: EventLink[];
+}
+
+function emptyEventForm(date: string): EventFormState {
+  return {
+    title: "",
+    place: "",
+    date,
+    isAllDay: false,
+    kind: "manual",
+    status: "scheduled",
+    notifyBySlack: false,
+    notifyBeforeMinutes: 30,
+    links: [],
+  };
 }
 
 type CalendarGoogleStatusPatchResult = Omit<
@@ -113,6 +146,43 @@ const USER_EVENT_KIND_OPTIONS = [
   { value: "birthday", label: "Birthday", icon: CalendarDays },
 ] as const;
 
+const EVENT_KINDS: readonly ICalendarEvent["kind"][] = [
+  "manual",
+  "meeting",
+  "flight",
+  "holiday",
+  "birthday",
+];
+
+const EVENT_STATUSES: readonly ICalendarEvent["status"][] = [
+  "scheduled",
+  "completed",
+  "canceled",
+];
+
+const STATUS_LABEL: Record<ICalendarEvent["status"], string> = {
+  scheduled: "Scheduled",
+  completed: "Completed",
+  canceled: "Canceled",
+};
+
+const STATUS_BADGE: Record<
+  ICalendarEvent["status"],
+  "info" | "good" | "secondary"
+> = {
+  scheduled: "info",
+  completed: "good",
+  canceled: "secondary",
+};
+
+function isEventKind(value: string): value is ICalendarEvent["kind"] {
+  return EVENT_KINDS.some((kind) => kind === value);
+}
+
+function isEventStatus(value: string): value is ICalendarEvent["status"] {
+  return EVENT_STATUSES.some((status) => status === value);
+}
+
 function getEventKindLabel(kind: ICalendarEvent["kind"]) {
   if (kind === "meeting") return "Meeting";
   if (kind === "flight") return "Flight";
@@ -122,7 +192,7 @@ function getEventKindLabel(kind: ICalendarEvent["kind"]) {
 }
 
 function getSmartNotificationOptions(dateStr: string) {
-  const date = new Date(dateStr);
+  const date = dateStr ? new Date(dateStr) : new Date();
   const hours = date.getHours();
   const eventMinutes = hours * 60 + date.getMinutes();
 
@@ -179,7 +249,7 @@ function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
+    const { message } = error;
     if (typeof message === "string") return message;
   }
   return "";
@@ -190,6 +260,359 @@ function isAbortError(error: unknown) {
 
   const message = getErrorMessage(error).toLowerCase();
   return message === "request cancelled" || message === "request canceled";
+}
+
+function formatNotifyLead(minutes: number) {
+  if (minutes === 0) return "at start";
+  return `${formatDuration(
+    { hours: Math.floor(minutes / 60), minutes: minutes % 60 },
+    { zero: false },
+  )} before`;
+}
+
+function LinkFavicon({ icon }: { icon?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!icon || failed) return <LinkIcon />;
+  return (
+    <Image
+      src={icon}
+      alt=""
+      width={16}
+      height={16}
+      className="size-4 shrink-0"
+      unoptimized
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function LinksField({
+  links,
+  onChange,
+}: {
+  links: EventLink[];
+  onChange: (links: EventLink[]) => void;
+}) {
+  const [draft, setDraft] = useState<EventLink>({ label: "", url: "" });
+  const canAdd = Boolean(draft.label.trim() && draft.url.trim());
+  const add = () => {
+    if (!canAdd) return;
+    onChange([
+      ...links,
+      {
+        label: draft.label.trim(),
+        url: draft.url.trim(),
+        icon: getFaviconUrl(draft.url.trim()) ?? undefined,
+      },
+    ]);
+    setDraft({ label: "", url: "" });
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {links.length > 0 && (
+        <List>
+          {links.map((link, index) => (
+            <ListRow
+              key={index}
+              leading={<LinkFavicon icon={link.icon} />}
+              title={link.label}
+              description={link.url}
+              trailing={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Remove ${link.label}`}
+                  onClick={() => onChange(links.filter((_, j) => j !== index))}
+                >
+                  <X />
+                </Button>
+              }
+            />
+          ))}
+        </List>
+      )}
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder="Label"
+          aria-label="Link label"
+          value={draft.label}
+          onChange={(e) => setDraft((l) => ({ ...l, label: e.target.value }))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canAdd) {
+              e.preventDefault();
+              add();
+            }
+          }}
+          className="flex-1"
+        />
+        <Input
+          placeholder="https://"
+          aria-label="Link URL"
+          type="url"
+          value={draft.url}
+          onChange={(e) => setDraft((l) => ({ ...l, url: e.target.value }))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canAdd) {
+              e.preventDefault();
+              add();
+            }
+          }}
+          className="flex-[2]"
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          aria-label="Add link"
+          disabled={!canAdd}
+          onClick={add}
+        >
+          <Plus />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EventFormFields({
+  idPrefix,
+  form,
+  setForm,
+  showStatus,
+}: {
+  idPrefix: string;
+  form: EventFormState;
+  setForm: Dispatch<SetStateAction<EventFormState>>;
+  showStatus: boolean;
+}) {
+  const notifyOptions = getSmartNotificationOptions(form.date);
+  const currentLead = form.notifyBeforeMinutes.toString();
+  const notifyValue = notifyOptions.some((o) => o.value === currentLead)
+    ? currentLead
+    : (notifyOptions[0]?.value ?? "15");
+
+  return (
+    <>
+      <FormGrid>
+        <FormField
+          label="Title"
+          htmlFor={`${idPrefix}-title`}
+          className="sm:col-span-2"
+        >
+          <Input
+            id={`${idPrefix}-title`}
+            value={form.title}
+            autoFocus
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+          />
+        </FormField>
+
+        <FormField label="Type" htmlFor={`${idPrefix}-kind`}>
+          <Select
+            value={form.kind}
+            onValueChange={(v) => {
+              if (isEventKind(v)) setForm((f) => ({ ...f, kind: v }));
+            }}
+          >
+            <SelectTrigger id={`${idPrefix}-kind`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              {form.kind === "holiday" && (
+                <SelectItem value="holiday">Holiday</SelectItem>
+              )}
+              {USER_EVENT_KIND_OPTIONS.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <SelectItem key={option.value} value={option.value}>
+                    <span className="flex items-center gap-2">
+                      <Icon className="size-3.5" />
+                      {option.label}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        {showStatus ? (
+          <FormField label="Status" htmlFor={`${idPrefix}-status`}>
+            <Select
+              value={form.status}
+              onValueChange={(v) => {
+                if (isEventStatus(v)) setForm((f) => ({ ...f, status: v }));
+              }}
+            >
+              <SelectTrigger id={`${idPrefix}-status`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {EVENT_STATUSES.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {STATUS_LABEL[status]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+        ) : (
+          <FormField label="Location" htmlFor={`${idPrefix}-place`}>
+            <Input
+              id={`${idPrefix}-place`}
+              value={form.place}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, place: e.target.value }))
+              }
+            />
+          </FormField>
+        )}
+
+        <FormField label={form.isAllDay ? "Date" : "Date and time"}>
+          {form.isAllDay ? (
+            <DatePicker
+              aria-label="Date"
+              value={form.date.slice(0, 10) || undefined}
+              onValueChange={(day) => {
+                if (!day) return;
+                setForm((f) => ({
+                  ...f,
+                  date: `${day}T${f.date.slice(11, 16) || "12:00"}`,
+                }));
+              }}
+            />
+          ) : (
+            <DateTimePicker
+              aria-label="Date"
+              value={form.date || undefined}
+              defaultTime="09:00"
+              onValueChange={(value) => {
+                if (value) setForm((f) => ({ ...f, date: value }));
+              }}
+            />
+          )}
+        </FormField>
+
+        <FormField label="All day" htmlFor={`${idPrefix}-all-day`}>
+          <div className="flex h-8 items-center">
+            <Switch
+              id={`${idPrefix}-all-day`}
+              checked={form.isAllDay}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, isAllDay: v }))}
+            />
+          </div>
+        </FormField>
+
+        {showStatus && (
+          <FormField
+            label="Location"
+            htmlFor={`${idPrefix}-place`}
+            className="sm:col-span-2"
+          >
+            <Input
+              id={`${idPrefix}-place`}
+              value={form.place}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, place: e.target.value }))
+              }
+            />
+          </FormField>
+        )}
+
+        <FormField label="Slack" htmlFor={`${idPrefix}-slack`}>
+          <div className="flex h-8 items-center">
+            <Switch
+              id={`${idPrefix}-slack`}
+              checked={form.notifyBySlack}
+              onCheckedChange={(v) =>
+                setForm((f) => ({ ...f, notifyBySlack: v }))
+              }
+            />
+          </div>
+        </FormField>
+
+        {form.notifyBySlack && (
+          <FormField label="Notify" htmlFor={`${idPrefix}-notify`}>
+            <Select
+              value={notifyValue}
+              onValueChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  notifyBeforeMinutes: Number.parseInt(v, 10),
+                }))
+              }
+            >
+              <SelectTrigger id={`${idPrefix}-notify`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {notifyOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+        )}
+      </FormGrid>
+
+      <FormField label="Links">
+        <LinksField
+          links={form.links}
+          onChange={(links) => setForm((f) => ({ ...f, links }))}
+        />
+      </FormField>
+    </>
+  );
+}
+
+function CalendarChrome({
+  actions,
+  toolbar,
+  children,
+}: {
+  actions?: ReactNode;
+  toolbar?: ReactNode;
+  children: ReactNode;
+}) {
+  const { slots } = useAdmin();
+  return (
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<CalendarIcon />}
+        title="Calendar"
+      >
+        {actions}
+      </PageHeader>
+      {toolbar ? <PageToolbar>{toolbar}</PageToolbar> : null}
+      <PageBody>{children}</PageBody>
+    </Page>
+  );
+}
+
+export function CalendarSkeleton() {
+  const now = new Date();
+  return (
+    <CalendarChrome
+      actions={
+        <Button size="sm" disabled>
+          <Plus />
+          Add
+        </Button>
+      }
+      toolbar={
+        <span className="px-1 text-sm font-medium text-accent-strong">
+          {format(now, "MMMM yyyy")}
+        </span>
+      }
+    >
+      <CalendarGrid year={now.getFullYear()} month={now.getMonth()} />
+    </CalendarChrome>
+  );
 }
 
 export function CalendarPage() {
@@ -230,34 +653,11 @@ export function CalendarPage() {
 
   const [viewEvent, setViewEvent] = useState<ICalendarEvent | null>(null);
   const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState<{
-    title: string;
-    place: string;
-    date: string;
-    isAllDay: boolean;
-    kind: ICalendarEvent["kind"];
-    status: ICalendarEvent["status"];
-    notifyBySlack: boolean;
-    notifyBeforeMinutes: number;
-    links: EventLink[];
-  }>({
-    title: "",
-    place: "",
-    date: "",
-    isAllDay: false,
-    kind: "manual",
-    status: "scheduled",
-    notifyBySlack: false,
-    notifyBeforeMinutes: 0,
-    links: [],
-  });
-  const [editNewLink, setEditNewLink] = useState<EventLink>({
-    label: "",
-    url: "",
-  });
+  const [editForm, setEditForm] = useState<EventFormState>(() =>
+    emptyEventForm(""),
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const replaceEventEverywhere = useCallback((event: ICalendarEvent) => {
     setViewEvent((current) => (current?._id === event._id ? event : current));
@@ -276,7 +676,6 @@ export function CalendarPage() {
   const openViewEvent = useCallback((e: ICalendarEvent) => {
     setViewEvent(e);
     setEditing(false);
-    setConfirmingDelete(false);
   }, []);
 
   const startEditing = useCallback(() => {
@@ -298,7 +697,6 @@ export function CalendarPage() {
         icon: l.icon,
       })),
     });
-    setEditNewLink({ label: "", url: "" });
     setEditing(true);
   }, [viewEvent]);
 
@@ -325,7 +723,7 @@ export function CalendarPage() {
       replaceEventEverywhere(result.event);
       setEditing(false);
     } catch (error) {
-      console.error("Failed to save event:", error);
+      toast.error(getErrorMessage(error) || "Failed to save event");
     } finally {
       setSaving(false);
     }
@@ -349,7 +747,6 @@ export function CalendarPage() {
       invalidateCache(startDate, endDate);
       removeEventEverywhere(eventId);
       setEditing(false);
-      setConfirmingDelete(false);
       toast.success("Event deleted");
     } catch (error) {
       toast.error(
@@ -391,27 +788,16 @@ export function CalendarPage() {
         if (statusMutationId.current === mutationId) {
           replaceEventEverywhere(previousEvent);
         }
-        console.error("Failed to update status:", error);
+        toast.error(getErrorMessage(error) || "Failed to update status");
       }
     },
     [client, viewEvent, replaceEventEverywhere],
   );
 
   const [addingEvent, setAddingEvent] = useState(false);
-  const [addForm, setAddForm] = useState({
-    title: "",
-    place: "",
-    date: "",
-    kind: "manual" as ICalendarEvent["kind"],
-    notifyBySlack: false,
-    isAllDay: false,
-    notifyBeforeMinutes: 30,
-    links: [] as EventLink[],
-  });
-  const [addNewLink, setAddNewLink] = useState<EventLink>({
-    label: "",
-    url: "",
-  });
+  const [addForm, setAddForm] = useState<EventFormState>(() =>
+    emptyEventForm(""),
+  );
   const [addSaving, setAddSaving] = useState(false);
 
   const fetchGoogleStatus = useCallback(
@@ -601,19 +987,9 @@ export function CalendarPage() {
   }, [client, fetchGoogleStatus]);
 
   const openAddEvent = useCallback((date?: Date) => {
-    setAddForm({
-      title: "",
-      place: "",
-      date: date
-        ? format(date, "yyyy-MM-dd'T'HH:mm")
-        : format(new Date(), "yyyy-MM-dd'T'HH:mm"),
-      kind: "manual",
-      notifyBySlack: false,
-      isAllDay: false,
-      notifyBeforeMinutes: 30,
-      links: [],
-    });
-    setAddNewLink({ label: "", url: "" });
+    setAddForm(
+      emptyEventForm(format(date ?? new Date(), "yyyy-MM-dd'T'HH:mm")),
+    );
     setAddingEvent(true);
   }, []);
 
@@ -637,7 +1013,7 @@ export function CalendarPage() {
       setEvents((prev) => [...prev, result.event]);
       setAddingEvent(false);
     } catch (error) {
-      console.error("Failed to create event:", error);
+      toast.error(getErrorMessage(error) || "Failed to create event");
     } finally {
       setAddSaving(false);
     }
@@ -647,18 +1023,10 @@ export function CalendarPage() {
 
   const dayViewEvents = useMemo(() => {
     if (!dayViewDate) return [];
+    const dayKey = toCalendarDateKey(dayViewDate);
     return events
-      .filter((e) => {
-        const key =
-          e.calendarDate ??
-          `${new Date(e.date).getFullYear()}-${String(new Date(e.date).getMonth() + 1).padStart(2, "0")}-${String(new Date(e.date).getDate()).padStart(2, "0")}`;
-        const dayKey = `${dayViewDate.getFullYear()}-${String(dayViewDate.getMonth() + 1).padStart(2, "0")}-${String(dayViewDate.getDate()).padStart(2, "0")}`;
-        return key === dayKey;
-      })
-      .sort((a, b) => {
-        if (a.isAllDay !== b.isAllDay) return a.isAllDay ? -1 : 1;
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
-      });
+      .filter((event) => eventDateKey(event) === dayKey)
+      .sort(compareEvents);
   }, [dayViewDate, events]);
 
   const openDayView = useCallback((date: Date) => {
@@ -780,1233 +1148,526 @@ export function CalendarPage() {
         ? "Google Calendar"
         : "Google Paused";
 
+  const shiftMonth = useCallback(
+    (delta: number) => {
+      const next = getCalendarMonthRange(startDate, delta);
+      handleMonthChange(next.start, next.end);
+    },
+    [handleMonthChange, startDate],
+  );
+
+  const goToToday = useCallback(() => {
+    const current = getCalendarMonthRange();
+    handleMonthChange(current.start, current.end);
+  }, [handleMonthChange]);
+
+  const now = new Date();
+  const isCurrentMonth =
+    startDate.getFullYear() === now.getFullYear() &&
+    startDate.getMonth() === now.getMonth();
+  const scheduledCount = events.filter((e) => e.status === "scheduled").length;
+  const googleAttention = Boolean(
+    googleStatus?.needsReauth || googleStatus?.lastSyncError,
+  );
+
+  const closeView = () => {
+    setViewEvent(null);
+    setEditing(false);
+  };
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-4">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<CalendarIcon className="size-4 text-muted-foreground" />}
-        title="Calendar"
-      >
-        <Button
-          onClick={() => {
-            if (googleStatus?.needsReauth || !googleStatus?.connected) {
-              void connectGoogleCalendar();
-            } else {
-              setGoogleSettingsOpen(true);
-            }
-          }}
-          size="sm"
-          variant={
-            googleStatus?.needsReauth || googleStatus?.lastSyncError
-              ? "destructive"
-              : "outline"
-          }
-          disabled={googleMutating}
-          title={googleButtonLabel}
-        >
-          {googleStatus?.lastSyncError ? <RefreshCw /> : <FaGoogle />}
-          <span className="hidden sm:inline">{googleButtonLabel}</span>
-        </Button>
-        <Button
-          onClick={() => {
-            openAddEvent();
-          }}
-          size={"sm"}
-          title="Add Event"
-        >
-          <Plus />
-          <span className="hidden sm:inline">Add Event</span>
-        </Button>
-      </PageHeader>
-      <div className="relative min-h-0 flex-1 overflow-y-auto pb-4">
-        {eventsLoading && (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
-            <div className="inline-flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur">
-              <Loader2 className="size-4 animate-spin" />
-              Loading calendar
-            </div>
-          </div>
-        )}
-        <CalendarGrid
-          events={events}
-          onMonthChange={handleMonthChange}
-          onEventClick={openViewEvent}
-          onDayClick={openDayView}
-        />
-      </div>
-
-      <Dialog open={googleSettingsOpen} onOpenChange={setGoogleSettingsOpen}>
-        <DialogContent className="max-w-md">
-          <div className="space-y-1.5">
-            <DialogTitle>Google Calendar</DialogTitle>
-            <DialogDescription>
-              Two-way sync imports upcoming Google events and mirrors app
-              events, meetings, flights, and birthdays back to Google.
-            </DialogDescription>
-          </div>
-
-          <Separator />
-
-          {!googleStatus?.connected ? (
-            <Button
-              onClick={connectGoogleCalendar}
-              disabled={googleMutating}
-              size="sm"
-              className="w-full"
-            >
-              <CalendarIcon className="h-3.5 w-3.5" />
-              Connect Google Calendar
+    <CalendarChrome
+      actions={
+        <>
+          {eventsLoading && (
+            <Spinner className="mr-1 size-3.5 text-muted-foreground" />
+          )}
+          <Button
+            onClick={() => {
+              if (googleStatus?.needsReauth || !googleStatus?.connected) {
+                void connectGoogleCalendar();
+              } else {
+                setGoogleSettingsOpen(true);
+              }
+            }}
+            size="sm"
+            variant="ghost"
+            disabled={googleMutating}
+            title={googleButtonLabel}
+            className={cn(googleAttention && "text-status-critical")}
+          >
+            {googleStatus?.lastSyncError ? <RefreshCw /> : <FaGoogle />}
+            <span className="hidden sm:inline">{googleButtonLabel}</span>
+          </Button>
+          <Button size="sm" onClick={() => openAddEvent()} title="Add event">
+            <Plus />
+            <span className="hidden sm:inline">Add</span>
+          </Button>
+        </>
+      }
+      toolbar={
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Previous month"
+            onClick={() => shiftMonth(-1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="min-w-32 text-center text-sm font-medium tabular-nums text-accent-strong">
+            {format(startDate, "MMMM yyyy")}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Next month"
+            onClick={() => shiftMonth(1)}
+          >
+            <ChevronRight />
+          </Button>
+          {!isCurrentMonth && (
+            <Button variant="ghost" size="sm" onClick={goToToday}>
+              Today
             </Button>
-          ) : (
-            <div className="space-y-4">
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">Account</span>
-                  <span className="truncate text-right">
-                    {googleStatus.accountEmail || "Connected"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">State</span>
-                  <Badge
-                    variant={
-                      googleStatus.needsReauth
-                        ? "destructive"
-                        : googleStatus.enabled
-                          ? "default"
-                          : "secondary"
-                    }
-                  >
-                    {googleStatus.needsReauth
-                      ? "Reauth required"
+          )}
+          <ToolbarSpacer />
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {events.length} events · {scheduledCount} scheduled
+          </span>
+        </>
+      }
+    >
+      <CalendarGrid
+        year={startDate.getFullYear()}
+        month={startDate.getMonth()}
+        events={events}
+        onEventClick={openViewEvent}
+        onDayClick={openDayView}
+      />
+
+      <FormDialog
+        open={googleSettingsOpen}
+        onOpenChange={setGoogleSettingsOpen}
+        title="Google Calendar"
+        onSubmit={saveGoogleCalendarSettings}
+        pending={googleMutating}
+        submitDisabled={!googleStatus?.connected}
+        footerStart={
+          googleStatus?.connected ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => setDisconnectDialogOpen(true)}
+              disabled={googleMutating}
+            >
+              Disconnect
+            </Button>
+          ) : null
+        }
+      >
+        {!googleStatus?.connected ? (
+          <EmptyState
+            compact
+            icon={<FaGoogle />}
+            label="Not connected"
+            action={
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void connectGoogleCalendar()}
+                disabled={googleMutating}
+              >
+                Connect
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <Properties>
+              <Property label="Account">
+                {googleStatus.accountEmail || "Connected"}
+              </Property>
+              <Property label="State">
+                <Badge
+                  variant={
+                    googleStatus.needsReauth
+                      ? "critical"
                       : googleStatus.enabled
-                        ? "Enabled"
-                        : "Paused"}
-                  </Badge>
-                </div>
-                {googleStatus.lastSyncAt && (
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">Last sync</span>
-                    <span className="text-right">
-                      {format(new Date(googleStatus.lastSyncAt), "PP p")}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {googleStatus.lastSyncError && (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive">
-                  {googleStatus.lastSyncError}
-                </div>
-              )}
-
-              {googleStatus.needsReauth && (
-                <Button
-                  type="button"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => void connectGoogleCalendar()}
-                  disabled={googleMutating}
+                        ? "good"
+                        : "secondary"
+                  }
                 >
-                  <FaGoogle className="h-3.5 w-3.5" />
-                  Reconnect
-                </Button>
-              )}
+                  {googleStatus.needsReauth
+                    ? "Reauth required"
+                    : googleStatus.enabled
+                      ? "Enabled"
+                      : "Paused"}
+                </Badge>
+              </Property>
+              <Property label="Last sync">
+                {googleStatus.lastSyncAt ? (
+                  <span className="tabular-nums">
+                    {format(new Date(googleStatus.lastSyncAt), "PP p")}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </Property>
+              <Property label="Queue">
+                <span className="tabular-nums">
+                  {googleStatus.pendingSyncCount} pending ·{" "}
+                  <span
+                    className={cn(
+                      googleStatus.failedSyncCount > 0 &&
+                        "text-status-critical",
+                    )}
+                  >
+                    {googleStatus.failedSyncCount} failed
+                  </span>
+                </span>
+              </Property>
+            </Properties>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="google-calendar-id">Calendar ID</Label>
+            {googleStatus.lastSyncError && (
+              <p className="text-xs text-destructive">
+                {googleStatus.lastSyncError}
+              </p>
+            )}
+
+            <FormGrid>
+              <FormField label="Calendar ID" htmlFor="google-calendar-id">
                 <Input
                   id="google-calendar-id"
                   value={googleCalendarId}
                   onChange={(event) => setGoogleCalendarId(event.target.value)}
                   placeholder="primary"
                 />
-              </div>
-
-              <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                <Label htmlFor="google-enabled" className="text-sm">
-                  Enable Google sync
-                </Label>
-                <Switch
-                  id="google-enabled"
-                  checked={googleStatus.enabled}
-                  disabled={googleMutating}
-                  onCheckedChange={(enabled) => void setGoogleEnabled(enabled)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={saveGoogleCalendarSettings}
-                  disabled={googleMutating}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={syncExistingGoogleEvents}
-                  disabled={googleSyncing || !googleStatus.enabled}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Push existing
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={retryGoogleCalendarSync}
-                  disabled={
-                    googleSyncing ||
-                    (!googleStatus.failedSyncCount &&
-                      !googleStatus.pendingSyncCount)
-                  }
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Retry
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setDisconnectDialogOpen(true)}
-                  disabled={googleMutating}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Disconnect
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={disconnectDialogOpen}
-        onOpenChange={(open) => {
-          if (!open && !googleMutating) setDisconnectDialogOpen(false);
-        }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Synced events stay, but they stop updating in both directions.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={googleMutating}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={googleMutating}
-              onClick={(event) => {
-                event.preventDefault();
-                void disconnectGoogleCalendar();
-              }}
-            >
-              {googleMutating ? "Disconnecting…" : "Disconnect"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog
-        open={viewEvent !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setViewEvent(null);
-            setEditing(false);
-            setConfirmingDelete(false);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-3xl max-h-[90dvh] overflow-y-auto gap-5 p-5 sm:p-8">
-          {!editing ? (
-            <>
-              <div className="space-y-3 pr-8">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {viewEvent ? getEventKindLabel(viewEvent.kind) : "Event"}
-                  </Badge>
-                  {viewEvent?.source && (
-                    <Badge variant="secondary">
-                      {viewEvent.source.provider === "google"
-                        ? "Google Calendar"
-                        : "Synced event"}
-                    </Badge>
-                  )}
-                </div>
-                <DialogTitle className="text-2xl leading-tight sm:text-3xl">
-                  {viewEvent?.title}
-                </DialogTitle>
-                <div className="flex items-center gap-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button type="button" className="shrink-0 cursor-pointer">
-                        <Badge
-                          variant={
-                            viewEvent?.status === "completed"
-                              ? "default"
-                              : viewEvent?.status === "canceled"
-                                ? "destructive"
-                                : "secondary"
-                          }
-                        >
-                          {viewEvent?.status}
-                          <ChevronDown className="w-3 h-3" />
-                        </Badge>
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem
-                        onClick={() => changeStatus("scheduled")}
-                      >
-                        Scheduled
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => changeStatus("completed")}
-                      >
-                        Completed
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => changeStatus("canceled")}
-                      >
-                        Canceled
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <DialogDescription>
-                  View the schedule, links and notifications, or edit this
-                  event.
-                </DialogDescription>
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border bg-muted/30 p-4">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <CalendarDays className="size-4" /> Date and time
-                  </div>
-                  <p className="text-lg font-semibold">
-                    {viewEvent &&
-                      format(
-                        new Date(`${viewEvent.calendarDate}T12:00:00`),
-                        "EEEE, MMMM d, yyyy",
-                      )}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {viewEvent?.isAllDay
-                      ? "All day"
-                      : viewEvent
-                        ? `${format(new Date(viewEvent.date), "p")}${viewEvent.endDate ? ` – ${format(new Date(viewEvent.endDate), "p")}` : ""}`
-                        : ""}
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-muted/30 p-4">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <MapPin className="size-4" /> Location
-                  </div>
-                  <p className="text-sm font-medium">
-                    {viewEvent?.place || "No location specified"}
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-muted/30 p-4 sm:col-span-2">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <Bell className="size-4" /> Notification
-                  </div>
-                  {viewEvent?.notifyBySlack ? (
-                    <p className="text-sm">
-                      Slack{" "}
-                      {formatDuration(
-                        {
-                          hours: Math.floor(viewEvent.notifyBeforeMinutes / 60),
-                          minutes: viewEvent.notifyBeforeMinutes % 60,
-                        },
-                        { zero: false },
-                      )}{" "}
-                      before
-                      {viewEvent.isNotificationSent ? " · sent" : " · pending"}
-                    </p>
-                  ) : (
-                    <p className="text-sm">No notifications</p>
-                  )}
-                </div>
-              </div>
-
-              {(viewEvent?.links?.length ?? 0) > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Links</p>
-                    {viewEvent?.links.map((link) => (
-                      <a
-                        key={link._id}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-                      >
-                        {link.icon ? (
-                          <Image
-                            src={link.icon}
-                            alt=""
-                            width={16}
-                            height={16}
-                            className="size-4 shrink-0"
-                            unoptimized
-                          />
-                        ) : (
-                          <ExternalLink className="w-4 h-4 shrink-0" />
-                        )}
-                        <span className="flex-1 truncate">{link.label}</span>
-                        <ExternalLink className="size-3.5" />
-                      </a>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              <Separator />
-
-              {confirmingDelete && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-destructive/40 bg-destructive/5 p-4"
-                >
-                  <p className="font-semibold">Delete this event?</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {viewEvent?.title} will be permanently deleted. This cannot
-                    be undone.
-                  </p>
-                  <div className="mt-4 flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setConfirmingDelete(false)}
-                      disabled={deleting}
-                    >
-                      Keep event
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={() => void deleteViewedEvent()}
-                      disabled={deleting}
-                    >
-                      {deleting ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-4" />
-                      )}
-                      {deleting ? "Deleting…" : "Delete event"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={startEditing}
-                  disabled={deleting}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Edit event
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setConfirmingDelete(true)}
-                  disabled={deleting}
-                  className={confirmingDelete ? "hidden" : undefined}
-                >
-                  {deleting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-3.5 h-3.5" />
-                  )}
-                  {deleting ? "Deleting..." : "Delete"}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <DialogTitle className="text-2xl">Edit event</DialogTitle>
-              <DialogDescription>
-                Update the schedule, details, status and notifications for{" "}
-                {viewEvent?.title}.
-              </DialogDescription>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-title">Title</Label>
-                  <Input
-                    id="edit-title"
-                    value={editForm.title}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, title: e.target.value }))
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Type</Label>
-                  <Select
-                    value={editForm.kind}
-                    onValueChange={(v) =>
-                      setEditForm((f) => ({
-                        ...f,
-                        kind: v as ICalendarEvent["kind"],
-                      }))
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      {editForm.kind === "holiday" && (
-                        <SelectItem value="holiday">Holiday</SelectItem>
-                      )}
-                      {USER_EVENT_KIND_OPTIONS.map((option) => {
-                        const Icon = option.icon;
-                        return (
-                          <SelectItem key={option.value} value={option.value}>
-                            <span className="flex items-center gap-2">
-                              <Icon className="size-3.5" />
-                              {option.label}
-                            </span>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>Date & time</Label>
-                  <div className="flex items-center gap-2">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="justify-start font-normal flex-1"
-                        >
-                          <CalendarDays className="w-4 h-4 shrink-0" />
-                          {editForm.date
-                            ? format(new Date(editForm.date), "PPP")
-                            : "Pick a date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={
-                            editForm.date ? new Date(editForm.date) : undefined
-                          }
-                          onSelect={(day) => {
-                            if (!day) return;
-                            const prev = editForm.date
-                              ? new Date(editForm.date)
-                              : new Date();
-                            day.setHours(prev.getHours(), prev.getMinutes());
-                            setEditForm((f) => ({
-                              ...f,
-                              date: format(day, "yyyy-MM-dd'T'HH:mm"),
-                            }));
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <Select
-                      value={
-                        editForm.date
-                          ? String(new Date(editForm.date).getHours())
-                          : "0"
-                      }
-                      onValueChange={(v) => {
-                        const d = editForm.date
-                          ? new Date(editForm.date)
-                          : new Date();
-                        d.setHours(Number(v));
-                        setEditForm((f) => ({
-                          ...f,
-                          date: format(d, "yyyy-MM-dd'T'HH:mm"),
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="w-18">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent position="popper" className="max-h-48">
-                        {Array.from({ length: 24 }, (_, i) => String(i)).map(
-                          (hour) => (
-                            <SelectItem key={hour} value={hour}>
-                              {hour.padStart(2, "0")}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-sm text-muted-foreground">:</span>
-                    <Select
-                      value={
-                        editForm.date
-                          ? String(new Date(editForm.date).getMinutes())
-                          : "0"
-                      }
-                      onValueChange={(v) => {
-                        const d = editForm.date
-                          ? new Date(editForm.date)
-                          : new Date();
-                        d.setMinutes(Number(v));
-                        setEditForm((f) => ({
-                          ...f,
-                          date: format(d, "yyyy-MM-dd'T'HH:mm"),
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="w-18">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent position="popper" className="max-h-48">
-                        {Array.from({ length: 60 }, (_, i) => String(i)).map(
-                          (minute) => (
-                            <SelectItem key={minute} value={minute}>
-                              {minute.padStart(2, "0")}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="edit-all-day">All-day event</Label>
+              </FormField>
+              <FormField label="Sync" htmlFor="google-enabled">
+                <div className="flex h-8 items-center">
                   <Switch
-                    id="edit-all-day"
-                    checked={editForm.isAllDay}
-                    onCheckedChange={(v) =>
-                      setEditForm((f) => ({ ...f, isAllDay: v }))
+                    id="google-enabled"
+                    checked={googleStatus.enabled}
+                    disabled={googleMutating}
+                    onCheckedChange={(enabled) =>
+                      void setGoogleEnabled(enabled)
                     }
                   />
                 </div>
+              </FormField>
+            </FormGrid>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-place">Location</Label>
-                  <Input
-                    id="edit-place"
-                    value={editForm.place}
-                    placeholder="No location"
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, place: e.target.value }))
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Status</Label>
-                  <Select
-                    value={editForm.status}
-                    onValueChange={(v) =>
-                      setEditForm((f) => ({
-                        ...f,
-                        status: v as ICalendarEvent["status"],
-                      }))
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectItem value="scheduled">Scheduled</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="canceled">Canceled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="edit-slack">Slack notification</Label>
-                  <Switch
-                    id="edit-slack"
-                    checked={editForm.notifyBySlack}
-                    onCheckedChange={(v) =>
-                      setEditForm((f) => ({ ...f, notifyBySlack: v }))
-                    }
-                  />
-                </div>
-
-                {editForm.notifyBySlack && (
-                  <div className="space-y-1.5">
-                    <Label>Notify me</Label>
-                    <Select
-                      value={(() => {
-                        const opts = getSmartNotificationOptions(editForm.date);
-                        const cur = editForm.notifyBeforeMinutes.toString();
-                        return opts.some((o) => o.value === cur)
-                          ? cur
-                          : (opts[0]?.value ?? "15");
-                      })()}
-                      onValueChange={(v) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          notifyBeforeMinutes: Number.parseInt(v, 10),
-                        }))
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent position="popper">
-                        {getSmartNotificationOptions(editForm.date).map(
-                          (opt, i) => (
-                            <SelectItem
-                              key={`${opt.value}-${i}`}
-                              value={opt.value}
-                            >
-                              {opt.label}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {googleStatus.needsReauth && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void connectGoogleCalendar()}
+                  disabled={googleMutating}
+                >
+                  <FaGoogle />
+                  Reconnect
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={syncExistingGoogleEvents}
+                disabled={googleSyncing || !googleStatus.enabled}
+              >
+                {googleSyncing ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <RefreshCw />
                 )}
-
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>Links</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="Label"
-                      value={editNewLink.label}
-                      onChange={(e) =>
-                        setEditNewLink((l) => ({
-                          ...l,
-                          label: e.target.value,
-                        }))
-                      }
-                      className="flex-1"
-                    />
-                    <Input
-                      placeholder="https://..."
-                      type="url"
-                      value={editNewLink.url}
-                      onChange={(e) =>
-                        setEditNewLink((l) => ({ ...l, url: e.target.value }))
-                      }
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="shrink-0"
-                      disabled={!editNewLink.label || !editNewLink.url}
-                      onClick={() => {
-                        const icon =
-                          getFaviconUrl(editNewLink.url) ?? undefined;
-                        setEditForm((f) => ({
-                          ...f,
-                          links: [...f.links, { ...editNewLink, icon }],
-                        }));
-                        setEditNewLink({ label: "", url: "" });
-                      }}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  {editForm.links.length > 0 && (
-                    <div className="space-y-1">
-                      {editForm.links.map((link, i) => (
-                        <div
-                          key={`${link.label}-${link.url}`}
-                          className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm"
-                        >
-                          {link.icon ? (
-                            <Image
-                              src={link.icon}
-                              alt=""
-                              width={16}
-                              height={16}
-                              className="size-4 shrink-0"
-                              unoptimized
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display =
-                                  "none";
-                              }}
-                            />
-                          ) : (
-                            <LinkIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                          )}
-                          <span className="flex-1 truncate">{link.label}</span>
-                          <a
-                            href={link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted-foreground hover:text-foreground truncate max-w-32 text-xs"
-                          >
-                            {link.url}
-                          </a>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="shrink-0 h-6 w-6"
-                            onClick={() =>
-                              setEditForm((f) => ({
-                                ...f,
-                                links: f.links.filter((_, j) => j !== i),
-                              }))
-                            }
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center gap-2 justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(false)}
-                  disabled={saving}
-                >
-                  <X className="w-3.5 h-3.5" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={saveEvent} disabled={saving}>
-                  <Check className="w-3.5 h-3.5" />
-                  {saving ? "Saving…" : "Save"}
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={addingEvent} onOpenChange={setAddingEvent}>
-        <DialogContent className="max-w-md">
-          <DialogTitle>New event</DialogTitle>
-          <DialogDescription className="sr-only">
-            Create a new calendar event
-          </DialogDescription>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="add-title">Title</Label>
-              <Input
-                id="add-title"
-                value={addForm.title}
-                placeholder="Event title"
-                onChange={(e) =>
-                  setAddForm((f) => ({ ...f, title: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <Select
-                value={addForm.kind}
-                onValueChange={(v) =>
-                  setAddForm((f) => ({
-                    ...f,
-                    kind: v as ICalendarEvent["kind"],
-                  }))
+                Push existing
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={retryGoogleCalendarSync}
+                disabled={
+                  googleSyncing ||
+                  (!googleStatus.failedSyncCount &&
+                    !googleStatus.pendingSyncCount)
                 }
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  {USER_EVENT_KIND_OPTIONS.map((option) => {
-                    const Icon = option.icon;
-                    return (
-                      <SelectItem key={option.value} value={option.value}>
-                        <span className="flex items-center gap-2">
-                          <Icon className="size-3.5" />
-                          {option.label}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+                <RefreshCw />
+                Retry
+              </Button>
             </div>
+          </>
+        )}
+      </FormDialog>
 
-            <div className="space-y-1.5">
-              <Label>{addForm.isAllDay ? "Date" : "Date & time"}</Label>
-              <div className="flex items-center gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="justify-start font-normal flex-1"
-                    >
-                      <CalendarDays className="w-4 h-4 shrink-0" />
-                      {addForm.date
-                        ? format(new Date(addForm.date), "PPP")
-                        : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={
-                        addForm.date ? new Date(addForm.date) : undefined
-                      }
-                      onSelect={(day) => {
-                        if (!day) return;
-                        const prev = addForm.date
-                          ? new Date(addForm.date)
-                          : new Date();
-                        day.setHours(prev.getHours(), prev.getMinutes());
-                        setAddForm((f) => ({
-                          ...f,
-                          date: format(day, "yyyy-MM-dd'T'HH:mm"),
-                        }));
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Select
-                  value={
-                    addForm.date
-                      ? String(new Date(addForm.date).getHours())
-                      : "0"
-                  }
-                  disabled={addForm.isAllDay}
-                  onValueChange={(v) => {
-                    const d = addForm.date
-                      ? new Date(addForm.date)
-                      : new Date();
-                    d.setHours(Number(v));
-                    setAddForm((f) => ({
-                      ...f,
-                      date: format(d, "yyyy-MM-dd'T'HH:mm"),
-                    }));
-                  }}
-                >
-                  <SelectTrigger className="w-18">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" className="max-h-48">
-                    {Array.from({ length: 24 }, (_, i) => String(i)).map(
-                      (hour) => (
-                        <SelectItem key={hour} value={hour}>
-                          {hour.padStart(2, "0")}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-muted-foreground">:</span>
-                <Select
-                  value={
-                    addForm.date
-                      ? String(new Date(addForm.date).getMinutes())
-                      : "0"
-                  }
-                  disabled={addForm.isAllDay}
-                  onValueChange={(v) => {
-                    const d = addForm.date
-                      ? new Date(addForm.date)
-                      : new Date();
-                    d.setMinutes(Number(v));
-                    setAddForm((f) => ({
-                      ...f,
-                      date: format(d, "yyyy-MM-dd'T'HH:mm"),
-                    }));
-                  }}
-                >
-                  <SelectTrigger className="w-18">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" className="max-h-48">
-                    {Array.from({ length: 60 }, (_, i) => String(i)).map(
-                      (minute) => (
-                        <SelectItem key={minute} value={minute}>
-                          {minute.padStart(2, "0")}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+      <ConfirmDialog
+        open={disconnectDialogOpen}
+        onOpenChange={(open) => {
+          if (!googleMutating) setDisconnectDialogOpen(open);
+        }}
+        title="Disconnect Google Calendar?"
+        description="Synced events stay but stop updating."
+        actionLabel="Disconnect"
+        destructive
+        pending={googleMutating}
+        onConfirm={disconnectGoogleCalendar}
+      />
 
-            <div className="space-y-1.5">
-              <Label htmlFor="add-place">Location</Label>
-              <Input
-                id="add-place"
-                value={addForm.place}
-                placeholder="Optional"
-                onChange={(e) =>
-                  setAddForm((f) => ({ ...f, place: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="add-all-day">All-day event</Label>
-              <Switch
-                id="add-all-day"
-                checked={addForm.isAllDay}
-                onCheckedChange={(value) =>
-                  setAddForm((form) => ({ ...form, isAllDay: value }))
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="add-slack">Slack notification</Label>
-              <Switch
-                id="add-slack"
-                checked={addForm.notifyBySlack}
-                onCheckedChange={(v) =>
-                  setAddForm((f) => ({ ...f, notifyBySlack: v }))
-                }
-              />
-            </div>
-
-            {addForm.notifyBySlack && (
-              <div className="space-y-1.5">
-                <Label>Notify me</Label>
-                <Select
-                  value={(() => {
-                    const opts = getSmartNotificationOptions(addForm.date);
-                    const cur = addForm.notifyBeforeMinutes.toString();
-                    return opts.some((o) => o.value === cur)
-                      ? cur
-                      : (opts[0]?.value ?? "15");
-                  })()}
-                  onValueChange={(v) =>
-                    setAddForm((f) => ({
-                      ...f,
-                      notifyBeforeMinutes: Number.parseInt(v, 10),
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper">
-                    {getSmartNotificationOptions(addForm.date).map((opt, i) => (
-                      <SelectItem key={`${opt.value}-${i}`} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>Links</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Label"
-                  value={addNewLink.label}
-                  onChange={(e) =>
-                    setAddNewLink((l) => ({ ...l, label: e.target.value }))
-                  }
-                  className="flex-1"
-                />
-                <Input
-                  placeholder="https://..."
-                  type="url"
-                  value={addNewLink.url}
-                  onChange={(e) =>
-                    setAddNewLink((l) => ({ ...l, url: e.target.value }))
-                  }
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="shrink-0"
-                  disabled={!addNewLink.label || !addNewLink.url}
-                  onClick={() => {
-                    const icon = getFaviconUrl(addNewLink.url) ?? undefined;
-                    setAddForm((f) => ({
-                      ...f,
-                      links: [...f.links, { ...addNewLink, icon }],
-                    }));
-                    setAddNewLink({ label: "", url: "" });
-                  }}
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-              {addForm.links.length > 0 && (
-                <div className="space-y-1">
-                  {addForm.links.map((link, i) => (
-                    <div
-                      key={`${link.label}-${link.url}`}
-                      className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm"
-                    >
-                      {link.icon ? (
-                        <Image
-                          src={link.icon}
-                          alt=""
-                          width={16}
-                          height={16}
-                          className="size-4 shrink-0"
-                          unoptimized
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display =
-                              "none";
-                          }}
-                        />
-                      ) : (
-                        <LinkIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="flex-1 truncate">{link.label}</span>
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground truncate max-w-32 text-xs"
-                      >
-                        {link.url}
-                      </a>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="shrink-0 h-6 w-6"
-                        onClick={() =>
-                          setAddForm((f) => ({
-                            ...f,
-                            links: f.links.filter((_, j) => j !== i),
-                          }))
-                        }
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+      {viewEvent && (
+        <RecordDialog
+          open={!editing}
+          onOpenChange={(open) => {
+            if (!open) closeView();
+          }}
+          title={
+            <span
+              className={cn(
+                viewEvent.status !== "scheduled" &&
+                  "text-muted-foreground line-through",
               )}
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-center gap-2 justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAddingEvent(false)}
-              disabled={addSaving}
             >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={createEvent}
-              disabled={addSaving || !addForm.title}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {addSaving ? "Creating…" : "Create"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={dayViewDate !== null}
-        onOpenChange={() => setDayViewDate(null)}
-      >
-        <DialogContent className="max-w-md">
-          <div className="flex items-center justify-between gap-2">
-            <div className="space-y-0.5">
-              <DialogTitle>
-                {dayViewDate ? format(dayViewDate, "EEEE, MMMM d") : ""}
-              </DialogTitle>
-              <DialogDescription>
-                {dayViewEvents.length === 0
-                  ? "No events"
-                  : `${dayViewEvents.length} event${dayViewEvents.length > 1 ? "s" : ""}`}
-              </DialogDescription>
-            </div>
-          </div>
-
-          {dayViewEvents.length > 0 && (
+              {viewEvent.title}
+            </span>
+          }
+          meta={
             <>
-              <Separator />
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {dayViewEvents.map((event) => (
+              <Badge
+                variant="outline"
+                className={cn("border-l-2", EVENT_KIND_ACCENT[viewEvent.kind])}
+              >
+                {getEventKindLabel(viewEvent.kind)}
+              </Badge>
+              {viewEvent.source && (
+                <Badge variant="secondary">
+                  {viewEvent.source.provider === "google" ? "Google" : "Synced"}
+                </Badge>
+              )}
+            </>
+          }
+          footerStart={
+            <ConfirmButton
+              trigger={
+                <Button
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={deleting}
+                >
+                  {deleting && <Spinner className="size-3.5" />}
+                  Delete
+                </Button>
+              }
+              title={`Delete "${viewEvent.title}"?`}
+              actionLabel="Delete"
+              destructive
+              pending={deleting}
+              onConfirm={deleteViewedEvent}
+            />
+          }
+          footer={
+            <Button onClick={startEditing} disabled={deleting}>
+              Edit
+            </Button>
+          }
+        >
+          <Properties>
+            <Property label="Status">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    key={event._id}
-                    onClick={() => {
-                      setDayViewDate(null);
-                      openViewEvent(event);
-                    }}
-                    className="flex items-center gap-3 w-full rounded-md px-2 py-1.5 text-left hover:bg-accent/50 transition-colors"
+                    className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   >
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span className="text-sm font-medium truncate">
-                        {event.title}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {event.isAllDay
-                          ? "All day"
-                          : format(new Date(event.date), "p")}
-                      </span>
-                    </div>
-                    <Badge
-                      variant={
-                        event.status === "completed"
-                          ? "default"
-                          : event.status === "canceled"
-                            ? "destructive"
-                            : "secondary"
-                      }
-                      className="shrink-0"
-                    >
-                      {event.status}
+                    <Badge variant={STATUS_BADGE[viewEvent.status]}>
+                      {STATUS_LABEL[viewEvent.status]}
+                      <ChevronDown />
                     </Badge>
                   </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {EVENT_STATUSES.map((status) => (
+                    <DropdownMenuItem
+                      key={status}
+                      onClick={() => void changeStatus(status)}
+                    >
+                      {STATUS_LABEL[status]}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </Property>
+            <Property icon={<CalendarDays />} label="Date">
+              {format(
+                new Date(`${eventDateKey(viewEvent)}T12:00:00`),
+                "EEEE, d MMMM yyyy",
+              )}
+            </Property>
+            <Property icon={<Clock />} label="Time">
+              <span className="tabular-nums">
+                {viewEvent.isAllDay
+                  ? "All day"
+                  : `${format(new Date(viewEvent.date), "HH:mm")}${viewEvent.endDate ? `–${format(new Date(viewEvent.endDate), "HH:mm")}` : ""}`}
+              </span>
+            </Property>
+            <Property icon={<MapPin />} label="Location">
+              {viewEvent.place || (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </Property>
+            <Property icon={<Bell />} label="Slack">
+              {viewEvent.notifyBySlack ? (
+                <span>
+                  {formatNotifyLead(viewEvent.notifyBeforeMinutes)}
+                  <span className="text-muted-foreground">
+                    {viewEvent.isNotificationSent ? " · sent" : " · pending"}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </Property>
+          </Properties>
+
+          {viewEvent.links.length > 0 && (
+            <Section title="Links" count={viewEvent.links.length}>
+              <List>
+                {viewEvent.links.map((link) => (
+                  <a
+                    key={link._id}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ListRow
+                      leading={<LinkFavicon icon={link.icon} />}
+                      title={link.label}
+                      description={link.url}
+                      trailing={
+                        <ExternalLink className="size-3.5 text-muted-foreground" />
+                      }
+                    />
+                  </a>
                 ))}
-              </div>
-            </>
+              </List>
+            </Section>
           )}
+        </RecordDialog>
+      )}
 
-          <Separator />
+      {viewEvent && editing && (
+        <FormDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditing(false);
+          }}
+          title="Edit event"
+          size="lg"
+          onSubmit={saveEvent}
+          pending={saving}
+          submitDisabled={!editForm.title.trim() || !editForm.date}
+        >
+          <EventFormFields
+            idPrefix="edit"
+            form={editForm}
+            setForm={setEditForm}
+            showStatus
+          />
+        </FormDialog>
+      )}
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setDayViewDate(null);
-              openAddEvent(dayViewDate ?? undefined);
-            }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add event
-          </Button>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <FormDialog
+        open={addingEvent}
+        onOpenChange={setAddingEvent}
+        title="New event"
+        size="lg"
+        submitLabel="Create"
+        onSubmit={createEvent}
+        pending={addSaving}
+        submitDisabled={!addForm.title.trim() || !addForm.date}
+      >
+        <EventFormFields
+          idPrefix="add"
+          form={addForm}
+          setForm={setAddForm}
+          showStatus={false}
+        />
+      </FormDialog>
+
+      {dayViewDate && (
+        <RecordDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setDayViewDate(null);
+          }}
+          title={format(dayViewDate, "EEEE, d MMMM")}
+          meta={
+            <span className="tabular-nums">
+              {dayViewEvents.length}{" "}
+              {dayViewEvents.length === 1 ? "event" : "events"}
+            </span>
+          }
+          footer={
+            <Button
+              onClick={() => {
+                setDayViewDate(null);
+                openAddEvent(dayViewDate);
+              }}
+            >
+              <Plus />
+              Add
+            </Button>
+          }
+        >
+          {dayViewEvents.length === 0 ? (
+            <EmptyState compact icon={<CalendarDays />} label="No events" />
+          ) : (
+            <List>
+              {dayViewEvents.map((event) => (
+                <ListRow
+                  key={event._id}
+                  leading={
+                    <span
+                      className={cn(
+                        "h-4 w-0.5 rounded-full",
+                        EVENT_KIND_DOT[event.kind],
+                      )}
+                    />
+                  }
+                  title={
+                    <span
+                      className={cn(
+                        event.status !== "scheduled" &&
+                          "text-muted-foreground line-through",
+                      )}
+                    >
+                      {event.title}
+                    </span>
+                  }
+                  description={event.place || undefined}
+                  meta={
+                    event.isAllDay
+                      ? "All day"
+                      : format(new Date(event.date), "HH:mm")
+                  }
+                  trailing={
+                    <Badge variant={STATUS_BADGE[event.status]}>
+                      {STATUS_LABEL[event.status]}
+                    </Badge>
+                  }
+                  onClick={() => {
+                    setDayViewDate(null);
+                    openViewEvent(event);
+                  }}
+                />
+              ))}
+            </List>
+          )}
+        </RecordDialog>
+      )}
+    </CalendarChrome>
   );
 }

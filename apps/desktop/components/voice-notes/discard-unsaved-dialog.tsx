@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import { useEffect } from "react";
 import { formatBytes } from "./format";
 import { formatDuration, useVoiceRecorder } from "./voice-recorder-provider";
@@ -36,27 +27,18 @@ export function DiscardUnsavedDialog({
   }, [hasUnsaved, onOpenChange, open]);
 
   return (
-    <AlertDialog open={open && hasUnsaved} onOpenChange={onOpenChange}>
-      <AlertDialogContent size="sm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard unsaved recording?</AlertDialogTitle>
-          {unsaved && (
-            <AlertDialogDescription className="font-mono text-xs tabular-nums">
-              {formatDuration(unsaved.durationMs)} ·{" "}
-              {formatBytes(unsaved.sizeBytes)}
-            </AlertDialogDescription>
-          )}
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={recorder.discardUnsaved}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={open && hasUnsaved}
+      onOpenChange={onOpenChange}
+      title="Discard unsaved recording?"
+      description={
+        unsaved
+          ? `${formatDuration(unsaved.durationMs)} · ${formatBytes(unsaved.sizeBytes)}`
+          : undefined
+      }
+      actionLabel="Discard"
+      destructive
+      onConfirm={recorder.discardUnsaved}
+    />
   );
 }

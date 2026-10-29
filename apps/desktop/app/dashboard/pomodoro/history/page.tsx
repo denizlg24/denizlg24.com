@@ -1,97 +1,120 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { format, isToday, startOfDay } from "date-fns";
-import { ArrowLeft, History, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListGroupLabel, ListRow } from "@repo/ui/list";
+import { Page, PageBody } from "@repo/ui/page";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { format, isToday, isYesterday, startOfDay } from "date-fns";
+import { History, Timer, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo } from "react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { type Session, usePomodoroStore } from "@/stores/pomodoro";
+import { formatFocusMinutes } from "../format";
 
 function groupSessionsByDate(sessions: Session[]) {
-  const groups = new Map<string, Session[]>();
+  const groups = new Map<number, Session[]>();
   for (const s of sessions) {
-    const dayKey = startOfDay(new Date(s.completedAt)).toISOString();
-    const existing = groups.get(dayKey) ?? [];
+    const day = startOfDay(new Date(s.completedAt)).getTime();
+    const existing = groups.get(day) ?? [];
     existing.push(s);
-    groups.set(dayKey, existing);
+    groups.set(day, existing);
   }
   return Array.from(groups.entries())
-    .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-    .map(([dayIso, items]) => ({
-      date: new Date(dayIso),
-      sessions: items.sort(
+    .sort(([a], [b]) => b - a)
+    .map(([day, items]) => ({
+      date: new Date(day),
+      sessions: [...items].sort(
         (a, b) =>
           new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime(),
       ),
-      totalFocusMinutes: items.reduce((acc, s) => acc + s.duration / 60, 0),
+      focusSeconds: items.reduce((acc, s) => acc + s.duration, 0),
     }));
 }
 
+function dayLabel(date: Date) {
+  if (isToday(date)) return "Today";
+  if (isYesterday(date)) return "Yesterday";
+  return format(date, "EEE, MMM d, yyyy");
+}
+
 export default function PomodoroHistoryRoute() {
+  const router = useRouter();
   const allSessions = usePomodoroStore((s) => s.allSessions);
   const clearAllSessions = usePomodoroStore((s) => s.clearAllSessions);
-  const grouped = groupSessionsByDate(allSessions);
+  const grouped = useMemo(
+    () => groupSessionsByDate(allSessions),
+    [allSessions],
+  );
+
+  const totalSeconds = useMemo(
+    () => allSessions.reduce((acc, s) => acc + s.duration, 0),
+    [allSessions],
+  );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="z-10 flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <History className="size-4 text-muted-foreground" />
-        <span className="flex-1 text-sm font-semibold">History</span>
-        {allSessions.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearAllSessions}
-            className="text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="size-3.5" />
-            <span className="text-xs">Clear</span>
-          </Button>
-        )}
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/dashboard/pomodoro">
-            <ArrowLeft className="size-3.5" />
-            Pomodoro
-          </Link>
-        </Button>
-      </div>
+    <Page>
+      <DashboardPageHeader
+        icon={<History />}
+        title="History"
+        crumbs={[
+          {
+            label: "Pomodoro",
+            onClick: () => router.push("/dashboard/pomodoro"),
+          },
+        ]}
+      >
+        {allSessions.length > 0 ? (
+          <ConfirmButton
+            trigger={
+              <Button variant="ghost" size="icon-sm" aria-label="Clear history">
+                <Trash2 />
+              </Button>
+            }
+            title="Clear history?"
+            description={`${allSessions.length} sessions`}
+            actionLabel="Clear"
+            destructive
+            onConfirm={clearAllSessions}
+          />
+        ) : null}
+      </DashboardPageHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-5">
-          {grouped.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">—</p>
-          ) : (
-            grouped.map((group) => (
-              <div key={group.date.toISOString()}>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {isToday(group.date)
-                      ? "Today"
-                      : format(group.date, "MMM d, yyyy")}
-                  </span>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {Math.round(group.totalFocusMinutes)}m
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  {group.sessions.map((session, i) => (
-                    <div
-                      key={`${session.completedAt}-${i}`}
-                      className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-secondary/50"
-                    >
-                      <span className="text-sm text-card-foreground">
-                        {format(new Date(session.startedAt), "h:mm a")}
-                      </span>
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {Math.round(session.duration / 60)}m
-                      </span>
-                    </div>
+      <PageBody width="narrow">
+        {grouped.length === 0 ? (
+          <EmptyState icon={<Timer />} label="No sessions" />
+        ) : (
+          <>
+            <StatGroup>
+              <Stat label="Sessions" value={allSessions.length} />
+              <Stat label="Focus" value={formatFocusMinutes(totalSeconds)} />
+              <Stat label="Days" value={grouped.length} />
+            </StatGroup>
+            <List>
+              {grouped.map((group) => (
+                <div key={group.date.getTime()} className="flex flex-col">
+                  <ListGroupLabel className="flex items-center justify-between">
+                    <span>{dayLabel(group.date)}</span>
+                    <span className="tabular-nums normal-case tracking-normal">
+                      {formatFocusMinutes(group.focusSeconds)}
+                    </span>
+                  </ListGroupLabel>
+                  {group.sessions.map((session) => (
+                    <ListRow
+                      key={`${session.completedAt}-${session.startedAt}`}
+                      leading={<Timer />}
+                      title={`${format(new Date(session.startedAt), "HH:mm")} – ${format(new Date(session.completedAt), "HH:mm")}`}
+                      meta={formatFocusMinutes(session.duration)}
+                    />
                   ))}
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+              ))}
+            </List>
+          </>
+        )}
+      </PageBody>
+    </Page>
   );
 }

@@ -1,12 +1,16 @@
 "use client";
 
-import { EmailIframe } from "@repo/admin/inbox/email-iframe";
+import { EmailBody } from "@repo/admin/inbox/email-detail";
 import {
   CATEGORY_ACCENT,
   CATEGORY_LABELS,
   TRIAGE_CATEGORIES,
 } from "@repo/admin/triage/category-meta";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
 import {
   Select,
   SelectContent,
@@ -14,14 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { format } from "date-fns";
 import {
   Archive,
   ArrowLeft,
   Check,
-  Loader2,
+  MailWarning,
   Paperclip,
   RotateCw,
   Undo2,
@@ -37,11 +41,8 @@ import {
   type TriageSuggestionType,
   triageDetailResponseSchema,
 } from "@/lib/data-types";
+import { isTriageCategory, triageSender } from "./triage-row";
 import { TriageSuggestions } from "./triage-suggestions";
-
-function isTriageCategory(value: string): value is TriageCategory {
-  return TRIAGE_CATEGORIES.some((category) => category === value);
-}
 
 export function TriageDetail({
   api,
@@ -274,201 +275,173 @@ export function TriageDetail({
   const displayTriage = detail?.triage ?? item;
   const displayEmail = detail?.email ?? item.email;
   const archived = displayTriage.userStatus === "archived";
+  const sender = displayEmail?.from[0];
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
         <Button
           variant="ghost"
-          size="icon"
-          className="-ml-1 size-8"
-          aria-label="Back to triage list"
+          size="icon-sm"
+          className="md:hidden"
+          aria-label="Back"
           onClick={onBack}
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft />
         </Button>
 
-        {displayTriage && (
-          <>
-            <Select
-              value={displayTriage.category}
-              disabled={savingCategory}
-              onValueChange={(value) => {
-                if (isTriageCategory(value)) void changeCategory(value);
-              }}
-            >
-              <SelectTrigger
-                size="sm"
-                aria-label="Category"
-                className={cn(
-                  "h-7 w-auto gap-1.5 border-none px-1.5 text-[10px] font-medium uppercase tracking-[0.12em] shadow-none",
-                  CATEGORY_ACCENT[displayTriage.category],
-                )}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TRIAGE_CATEGORIES.map((category) => (
-                  <SelectItem
-                    key={category}
-                    value={category}
-                    className="text-xs"
-                  >
-                    {CATEGORY_LABELS[category]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {savingCategory && (
-              <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+        <Select
+          value={displayTriage.category}
+          disabled={savingCategory}
+          onValueChange={(value) => {
+            if (isTriageCategory(value)) void changeCategory(value);
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            aria-label="Category"
+            className={cn(
+              "h-7 w-auto gap-1.5 border-none bg-transparent px-1.5 text-xs font-medium shadow-none",
+              CATEGORY_ACCENT[displayTriage.category],
             )}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TRIAGE_CATEGORIES.map((category) => (
+              <SelectItem key={category} value={category} className="text-xs">
+                {CATEGORY_LABELS[category]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-            {displayTriage.llmCategory ? (
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                was {CATEGORY_LABELS[displayTriage.llmCategory]}
-              </span>
-            ) : (
-              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                {(displayTriage.confidence * 100).toFixed(0)}%
-              </span>
-            )}
+        {savingCategory ? (
+          <Spinner className="size-3 text-muted-foreground" />
+        ) : null}
 
-            {displayTriage.attachmentTextUsed && (
-              <Paperclip
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-label="Attachment text used"
-              />
-            )}
-          </>
-        )}
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {displayTriage.llmCategory
+            ? `was ${CATEGORY_LABELS[displayTriage.llmCategory]}`
+            : `${Math.round(displayTriage.confidence * 100)}%`}
+        </span>
+
+        {displayTriage.attachmentTextUsed ? (
+          <Paperclip
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-label="Attachment text used"
+          />
+        ) : null}
 
         <div className="flex-1" />
 
-        {detail && (
+        {displayTriage.reviewRequired ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={updatingStatus}
+            onClick={confirmClassification}
+          >
+            {updatingStatus ? <Spinner className="size-3.5" /> : <Check />}
+            Confirm
+          </Button>
+        ) : null}
+
+        {detail ? (
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 text-xs"
             disabled={updatingStatus}
             onClick={() => changeStatus(archived ? "pending" : "archived")}
           >
-            {updatingStatus ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : archived ? (
-              <Undo2 className="size-3.5" />
-            ) : (
-              <Archive className="size-3.5" />
-            )}
+            {archived ? <Undo2 /> : <Archive />}
             {archived ? "Restore" : "Archive"}
           </Button>
-        )}
+        ) : null}
       </div>
 
       {loadFailed ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4">
-          <span className="text-sm text-muted-foreground">
-            Couldn't load this triage.
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={() => setReloadToken((token) => token + 1)}
-          >
-            <RotateCw className="size-3.5" />
-            Retry
-          </Button>
-        </div>
+        <EmptyState
+          icon={<MailWarning />}
+          label="Failed to load"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadToken((token) => token + 1)}
+            >
+              <RotateCw />
+              Retry
+            </Button>
+          }
+        />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {displayTriage.reviewRequired && (
-            <section className="flex flex-wrap items-center gap-2 border-b border-l-2 border-l-status-warning bg-status-warning/5 px-4 py-2.5 sm:px-8">
-              <span className="min-w-0 flex-1 text-xs font-medium">
-                Confirm the category
-              </span>
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                disabled={updatingStatus}
-                onClick={confirmClassification}
-              >
-                {updatingStatus ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Check className="size-3.5" />
-                )}
-                Confirm
-              </Button>
-            </section>
-          )}
-
-          {detail ? (
-            <TriageSuggestions
-              triage={detail.triage}
-              pendingIds={pendingIds}
-              onDecide={(id, type, action) => void decide(id, type, action)}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-6 sm:px-8">
+            <PageTitle
+              title={displayEmail?.subject || "(No subject)"}
+              meta={
+                <>
+                  {displayTriage.reviewRequired ? (
+                    <Badge variant="warning">Review</Badge>
+                  ) : null}
+                  {archived ? (
+                    <Badge variant="secondary">Archived</Badge>
+                  ) : null}
+                  {displayEmail ? (
+                    <span className="tabular-nums">
+                      {format(
+                        new Date(displayEmail.date),
+                        "EEE, MMM d, yyyy 'at' HH:mm",
+                      )}
+                    </span>
+                  ) : null}
+                </>
+              }
             />
-          ) : null}
 
-          {displayTriage.derivationStatus === "pending" ? (
-            <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-8">
-              extracting…
-            </p>
-          ) : null}
-
-          <div className="px-4 py-5 sm:px-8 sm:py-6">
-            <h1 className="text-lg font-semibold leading-snug sm:text-xl">
-              {displayEmail?.subject || "(No Subject)"}
-            </h1>
-
-            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-sm font-medium">
-                {displayEmail?.from[0]?.name ??
-                  displayEmail?.from[0]?.address ??
-                  "Unknown"}
-              </span>
-              {displayEmail?.from[0]?.name && (
-                <span className="text-xs text-muted-foreground">
-                  &lt;{displayEmail.from[0].address}&gt;
+            <Properties>
+              <Property label="From">
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="truncate">
+                    {triageSender({ email: displayEmail })}
+                  </span>
+                  {sender?.name ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {sender.address}
+                    </span>
+                  ) : null}
                 </span>
-              )}
-              <span className="text-muted-foreground/40">·</span>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {displayEmail
-                  ? format(
-                      new Date(displayEmail.date),
-                      "EEE, MMM d yyyy 'at' p",
-                    )
-                  : "—"}
-              </span>
-            </div>
+              </Property>
+              {displayTriage.summary ? (
+                <Property label="Summary" className="items-start py-1.5">
+                  <span className="text-sm leading-relaxed">
+                    {displayTriage.summary}
+                  </span>
+                </Property>
+              ) : null}
+            </Properties>
 
-            {displayTriage.summary && (
-              <p className="mt-4 border-l-2 pl-3 text-xs leading-relaxed text-muted-foreground">
-                {displayTriage.summary}
+            {detail ? (
+              <TriageSuggestions
+                triage={detail.triage}
+                pendingIds={pendingIds}
+                onDecide={(id, type, action) => void decide(id, type, action)}
+              />
+            ) : null}
+
+            {displayTriage.derivationStatus === "pending" ? (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Spinner className="size-3" />
+                Extracting
               </p>
-            )}
+            ) : null}
 
-            <hr className="my-5" />
-
-            {loading && !detail ? (
-              <div className="space-y-3 py-2">
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-11/12" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            ) : detail?.email.body?.html ? (
-              <EmailIframe html={detail.email.body.html} />
-            ) : detail?.email.body?.text ? (
-              <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
-                {detail.email.body.text}
-              </pre>
-            ) : (
-              <p className="py-8 text-center text-xs text-muted-foreground">
-                —
-              </p>
-            )}
+            <EmailBody
+              loading={loading && !detail}
+              html={detail?.email.body?.html}
+              text={detail?.email.body?.text}
+            />
           </div>
         </div>
       )}

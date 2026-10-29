@@ -11,16 +11,10 @@ import type {
   PaperType,
   ResolvedPaperMetadata,
 } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,14 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { Textarea } from "@repo/ui/textarea";
+import { FilterTabs } from "@repo/ui/toolbar";
 import {
-  ChevronRight,
+  ChevronDown,
   FileUp,
   Library,
-  Loader2,
   Search,
   Sigma,
   Upload,
@@ -399,381 +393,352 @@ export function PaperFormDialog({
     Boolean(doi || arxivId);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{paper ? "Edit reading" : "Add reading"}</DialogTitle>
-        </DialogHeader>
-
-        <Tabs
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={paper ? "Edit reading" : "Add reading"}
+      size="lg"
+      onSubmit={handleSubmit}
+      submitLabel={paper ? "Save" : "Add"}
+      submitDisabled={!title.trim()}
+      pending={saving}
+    >
+      <div className="flex flex-col gap-3">
+        <FilterTabs
           value={mode}
-          onValueChange={(value) => changeMode(value as FormMode)}
-        >
-          <TabsList variant="line" className="w-full justify-start">
-            {MODE_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
+          onChange={changeMode}
+          options={MODE_TABS.map((tab) => ({
+            value: tab.value,
+            label: (
+              <>
                 <tab.icon className="size-3.5" />
                 {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+              </>
+            ),
+          }))}
+        />
 
         {lookup && (
-          <div className="flex gap-2 rounded-md border bg-muted/20 p-2">
+          <div className="flex gap-2">
             <Input
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void handleLookup();
+                // Enter resolves here rather than submitting the form.
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                void handleLookup();
               }}
               placeholder={lookup.placeholder}
-              className="h-8 font-mono text-xs"
+              className="font-mono text-xs"
             />
             <Button
               type="button"
-              size="sm"
               variant="outline"
-              className="h-8"
               disabled={lookingUp || !identifier.trim()}
               onClick={() => void handleLookup()}
             >
-              {lookingUp ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Search className="size-3.5" />
-              )}
+              {lookingUp ? <Spinner className="size-3.5" /> : <Search />}
               Resolve
             </Button>
           </div>
         )}
+      </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="PDF" className="sm:col-span-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full justify-start font-normal"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileUp className="size-3.5" />
-              {pdfFile?.name ?? paper?.pdf?.fileName ?? "Choose PDF"}
-            </Button>
-          </Field>
-
-          <Field label="Title" className="sm:col-span-2">
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </Field>
-          <Field label="Authors" className="sm:col-span-2">
-            <Textarea
-              value={authors}
-              onChange={(event) => setAuthors(event.target.value)}
-              className="min-h-16 font-mono text-xs"
-              placeholder={"Family, Given — or a name as written, one per line"}
-            />
-          </Field>
-          <Field label="Type">
-            <Select
-              value={type}
-              onValueChange={(value) => {
-                setType(value as PaperType);
-                setTypeTouched(true);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAPER_TYPES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Year">
-            <Input
-              type="number"
-              min={1000}
-              max={3000}
-              value={year}
-              onChange={(event) => setYear(event.target.value)}
-            />
-          </Field>
-
-          {(showBookFields || showAcademicFields) && (
-            <Field label="Pages">
-              <Input
-                value={pages}
-                onChange={(event) => setPages(event.target.value)}
-              />
-            </Field>
-          )}
-
-          {showBookFields && (
-            <>
-              <Field label="Publisher">
-                <Input
-                  value={publisher}
-                  onChange={(event) => setPublisher(event.target.value)}
-                />
-              </Field>
-              <Field label="Edition">
-                <Input
-                  value={edition}
-                  onChange={(event) => setEdition(event.target.value)}
-                />
-              </Field>
-              <Field label="ISBN">
-                <Input
-                  value={isbn}
-                  onChange={(event) => setIsbn(event.target.value)}
-                  className="font-mono text-xs"
-                />
-              </Field>
-            </>
-          )}
-
-          {showAcademicFields && (
-            <>
-              <Field label="Venue">
-                <Input
-                  value={venue}
-                  onChange={(event) => setVenue(event.target.value)}
-                />
-              </Field>
-              <Field label="Volume / issue">
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    value={volume}
-                    onChange={(event) => setVolume(event.target.value)}
-                    placeholder="volume"
-                  />
-                  <Input
-                    value={issue}
-                    onChange={(event) => setIssue(event.target.value)}
-                    placeholder="issue"
-                  />
-                </div>
-              </Field>
-              <Field label="DOI">
-                <Input
-                  value={doi}
-                  onChange={(event) => setDoi(event.target.value)}
-                  className="font-mono text-xs"
-                />
-              </Field>
-              <Field label="arXiv">
-                <div className="grid grid-cols-[1fr_8rem] gap-2">
-                  <Input
-                    value={arxivId}
-                    onChange={(event) => setArxivId(event.target.value)}
-                    className="font-mono text-xs"
-                  />
-                  <Input
-                    value={arxivCategory}
-                    onChange={(event) => setArxivCategory(event.target.value)}
-                    placeholder="cs.HC"
-                    className="font-mono text-xs"
-                  />
-                </div>
-              </Field>
-            </>
-          )}
-
-          <Field label="Classes" className="sm:col-span-2">
-            <Select
-              value=""
-              disabled={linkableCourses.length === 0}
-              onValueChange={(courseId) =>
-                setCourseIds((current) =>
-                  current.includes(courseId) ? current : [...current, courseId],
-                )
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Link class" />
-              </SelectTrigger>
-              <SelectContent>
-                {linkableCourses.map((course) => (
-                  <SelectItem key={course._id} value={course._id}>
-                    {course.code ? `${course.code} · ` : ""}
-                    {course.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {courseIds.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {courseIds.map((courseId) => {
-                  const course = courses.find(
-                    (candidate) => candidate._id === courseId,
-                  );
-                  return (
-                    <span
-                      key={courseId}
-                      className="inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[10px]"
-                    >
-                      {course?.code || course?.name || courseId}
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() =>
-                          setCourseIds((current) =>
-                            current.filter((id) => id !== courseId),
-                          )
-                        }
-                        aria-label={`Unlink ${course?.name ?? "class"}`}
-                      >
-                        <X className="size-2.5" />
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </Field>
-
-          <Field label="Due">
-            <Input
-              type="date"
-              value={dueAt}
-              onChange={(event) => setDueAt(event.target.value)}
-            />
-          </Field>
-          <Field label="Priority">
-            <Select
-              value={priority}
-              onValueChange={(value) => setPriority(value as KanbanPriority)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PRIORITIES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field label="Tags" className="sm:col-span-2">
-            <Input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="comma separated"
-            />
-          </Field>
-
-          <Field label="Citable" className="sm:col-span-2">
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={citable}
-                onCheckedChange={(next) => {
-                  setCitable(next);
-                  setCitableTouched(true);
-                }}
-              />
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {citable ? "bibliography" : "reading only"}
-              </span>
-            </div>
-          </Field>
-
-          {!showAllFields && (
-            <button
-              type="button"
-              onClick={() => setShowAllFields(true)}
-              className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground sm:col-span-2"
-            >
-              <ChevronRight className="size-3" />
-              All fields
-            </button>
-          )}
-
-          {showAllFields && (
-            <>
-              <Field label="URL" className="sm:col-span-2">
-                <Input
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                />
-              </Field>
-              <Field label="Citation key">
-                <Input
-                  value={citationKey}
-                  onChange={(event) => setCitationKey(event.target.value)}
-                  placeholder="auto"
-                  className="font-mono text-xs"
-                />
-              </Field>
-              <Field label="ISSN">
-                <Input
-                  value={issn}
-                  onChange={(event) => setIssn(event.target.value)}
-                  className="font-mono text-xs"
-                />
-              </Field>
-              <Field label="Abstract" className="sm:col-span-2">
-                <Textarea
-                  value={abstract}
-                  onChange={(event) => setAbstract(event.target.value)}
-                  className="min-h-28"
-                />
-              </Field>
-            </>
-          )}
-        </div>
-
-        <DialogFooter>
+      <FormGrid>
+        <FormField label="PDF" className="sm:col-span-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
+          />
           <Button
+            type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
+            className="w-full justify-start font-normal"
+            onClick={() => fileInputRef.current?.click()}
           >
-            Cancel
+            <FileUp />
+            {pdfFile?.name ?? paper?.pdf?.fileName ?? "Choose PDF"}
           </Button>
-          <Button
-            onClick={() => void handleSubmit()}
-            disabled={saving || !title.trim()}
-          >
-            {saving && <Loader2 className="size-3.5 animate-spin" />}
-            {paper ? "Save" : "Add"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+        </FormField>
 
-function Field({
-  label,
-  className,
-  children,
-}: {
-  label: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={className}>
-      <Label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </Label>
-      {children}
-    </div>
+        <FormField label="Title" className="sm:col-span-2">
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Authors" className="sm:col-span-2">
+          <Textarea
+            value={authors}
+            onChange={(event) => setAuthors(event.target.value)}
+            className="min-h-16 font-mono text-xs"
+            placeholder="Family, Given — one per line"
+          />
+        </FormField>
+        <FormField label="Type">
+          <Select
+            value={type}
+            onValueChange={(value) => {
+              setType(value as PaperType);
+              setTypeTouched(true);
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAPER_TYPES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <FormField label="Year">
+          <Input
+            type="number"
+            min={1000}
+            max={3000}
+            value={year}
+            onChange={(event) => setYear(event.target.value)}
+          />
+        </FormField>
+
+        {(showBookFields || showAcademicFields) && (
+          <FormField label="Pages">
+            <Input
+              value={pages}
+              onChange={(event) => setPages(event.target.value)}
+            />
+          </FormField>
+        )}
+
+        {showBookFields && (
+          <>
+            <FormField label="Publisher">
+              <Input
+                value={publisher}
+                onChange={(event) => setPublisher(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Edition">
+              <Input
+                value={edition}
+                onChange={(event) => setEdition(event.target.value)}
+              />
+            </FormField>
+            <FormField label="ISBN">
+              <Input
+                value={isbn}
+                onChange={(event) => setIsbn(event.target.value)}
+                className="font-mono text-xs"
+              />
+            </FormField>
+          </>
+        )}
+
+        {showAcademicFields && (
+          <>
+            <FormField label="Venue">
+              <Input
+                value={venue}
+                onChange={(event) => setVenue(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Volume / issue">
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={volume}
+                  onChange={(event) => setVolume(event.target.value)}
+                  placeholder="volume"
+                />
+                <Input
+                  value={issue}
+                  onChange={(event) => setIssue(event.target.value)}
+                  placeholder="issue"
+                />
+              </div>
+            </FormField>
+            <FormField label="DOI">
+              <Input
+                value={doi}
+                onChange={(event) => setDoi(event.target.value)}
+                className="font-mono text-xs"
+              />
+            </FormField>
+            <FormField label="arXiv">
+              <div className="grid grid-cols-[1fr_8rem] gap-2">
+                <Input
+                  value={arxivId}
+                  onChange={(event) => setArxivId(event.target.value)}
+                  className="font-mono text-xs"
+                />
+                <Input
+                  value={arxivCategory}
+                  onChange={(event) => setArxivCategory(event.target.value)}
+                  placeholder="cs.HC"
+                  className="font-mono text-xs"
+                />
+              </div>
+            </FormField>
+          </>
+        )}
+
+        <FormField label="Classes" className="sm:col-span-2">
+          <Select
+            value=""
+            disabled={linkableCourses.length === 0}
+            onValueChange={(courseId) =>
+              setCourseIds((current) =>
+                current.includes(courseId) ? current : [...current, courseId],
+              )
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Link class" />
+            </SelectTrigger>
+            <SelectContent>
+              {linkableCourses.map((course) => (
+                <SelectItem key={course._id} value={course._id}>
+                  {course.code ? `${course.code} · ` : ""}
+                  {course.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {courseIds.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {courseIds.map((courseId) => {
+                const course = courses.find(
+                  (candidate) => candidate._id === courseId,
+                );
+                return (
+                  <Badge
+                    key={courseId}
+                    variant="secondary"
+                    className="h-6 gap-1 pr-0.5 text-xs font-normal"
+                  >
+                    {course?.code || course?.name || courseId}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="size-5 text-muted-foreground hover:text-destructive"
+                      onClick={() =>
+                        setCourseIds((current) =>
+                          current.filter((id) => id !== courseId),
+                        )
+                      }
+                      aria-label={`Unlink ${course?.name ?? "class"}`}
+                    >
+                      <X />
+                    </Button>
+                  </Badge>
+                );
+              })}
+            </div>
+          )}
+        </FormField>
+
+        <FormField label="Due">
+          <Input
+            type="date"
+            value={dueAt}
+            onChange={(event) => setDueAt(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Priority">
+          <Select
+            value={priority}
+            onValueChange={(value) => setPriority(value as KanbanPriority)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRIORITIES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <FormField label="Tags" className="sm:col-span-2">
+          <Input
+            value={tags}
+            onChange={(event) => setTags(event.target.value)}
+            placeholder="comma separated"
+          />
+        </FormField>
+
+        <FormField label="Citable" className="sm:col-span-2">
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={citable}
+              onCheckedChange={(next) => {
+                setCitable(next);
+                setCitableTouched(true);
+              }}
+            />
+            <span className="text-xs text-muted-foreground">
+              {citable ? "Bibliography" : "Reading only"}
+            </span>
+          </div>
+        </FormField>
+
+        {!showAllFields && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAllFields(true)}
+            className="justify-self-start text-muted-foreground sm:col-span-2"
+          >
+            <ChevronDown />
+            All fields
+          </Button>
+        )}
+
+        {showAllFields && (
+          <>
+            <FormField label="URL" className="sm:col-span-2">
+              <Input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Citation key">
+              <Input
+                value={citationKey}
+                onChange={(event) => setCitationKey(event.target.value)}
+                placeholder="auto"
+                className="font-mono text-xs"
+              />
+            </FormField>
+            <FormField label="ISSN">
+              <Input
+                value={issn}
+                onChange={(event) => setIssn(event.target.value)}
+                className="font-mono text-xs"
+              />
+            </FormField>
+            <FormField label="Abstract" className="sm:col-span-2">
+              <Textarea
+                value={abstract}
+                onChange={(event) => setAbstract(event.target.value)}
+                className="min-h-28"
+              />
+            </FormField>
+          </>
+        )}
+      </FormGrid>
+    </FormDialog>
   );
 }

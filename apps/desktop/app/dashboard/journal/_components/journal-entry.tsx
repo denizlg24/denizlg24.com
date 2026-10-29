@@ -2,24 +2,23 @@
 
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
 import { useTextareaEditor } from "@repo/ui/hooks/use-textarea-editor";
+import { List, ListRow } from "@repo/ui/list";
 import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
-import { Separator } from "@repo/ui/separator";
+import { PageBody, PageTitle } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import { Textarea } from "@repo/ui/textarea";
 import { format } from "date-fns";
 import {
   ArrowLeft,
   Calendar,
-  Clock,
-  Edit2,
   Eye,
   FileText,
   Loader2,
-  MapPin,
-  PenTool,
-  Save,
+  Pencil,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
@@ -34,6 +33,11 @@ interface JournalEntryProps {
   onJournalUpdate: (journal: IJournalLog) => void;
 }
 
+const STATUS_VARIANT = {
+  completed: "good",
+  canceled: "critical",
+} as const;
+
 export function JournalEntry({
   journal,
   date,
@@ -41,200 +45,148 @@ export function JournalEntry({
   API,
   onJournalUpdate,
 }: JournalEntryProps) {
-  const router = useRouter();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !journal.content.trim());
   const [content, setContent] = useState(journal.content);
   const [saving, setSaving] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { onKeyDown } = useTextareaEditor(textareaRef, content, setContent);
 
+  const isDirty = content !== journal.content;
+
   const handleSave = useCallback(async () => {
     if (!API) return;
     setSaving(true);
-    try {
-      const result = await API.PATCH<{ journal: IJournalLog }>({
-        endpoint: `journal/${journal._id}`,
-        body: { content },
-      });
-      if (!("code" in result)) {
-        onJournalUpdate(result.journal);
-        setEditing(false);
-        toast.success("Saved");
-      }
-    } catch {
-      toast.error("Failed to save");
-    } finally {
-      setSaving(false);
+    const result = await API.PATCH<{ journal: IJournalLog }>({
+      endpoint: `journal/${journal._id}`,
+      body: { content },
+    });
+    setSaving(false);
+    if ("code" in result) {
+      toast.error(result.message);
+      return;
     }
+    onJournalUpdate(result.journal);
+    setEditing(false);
+    toast.success("Saved");
   }, [API, journal._id, content, onJournalUpdate]);
 
-  const isDirty = content !== journal.content;
-  const hasEvents = journal.events.length > 0;
-  const hasNotes = journal.notes.length > 0;
-  const hasWhiteboard = !!journal.whiteboard;
-  const hasAppendix = hasEvents || hasNotes || hasWhiteboard;
-
   return (
-    <div className="flex flex-col h-full w-full max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 py-3 shrink-0">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-calistoga lowercase tracking-tight text-foreground truncate">
-            {format(date, "EEEE, MMMM d")}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            {format(date, "yyyy")}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setEditing((prev) => !prev)}
-          >
-            {editing ? (
-              <Eye className="size-4" />
-            ) : (
-              <Edit2 className="size-4" />
-            )}
-          </Button>
-          {editing && (
+    <PageBody width="narrow">
+      <PageTitle
+        title={format(date, "EEEE, MMMM d")}
+        meta={<span className="tabular-nums">{format(date, "yyyy")}</span>}
+        actions={
+          <>
             <Button
-              size="icon"
-              disabled={!isDirty || saving}
-              onClick={handleSave}
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Back"
+              className="md:hidden"
+              onClick={onBack}
             >
-              {saving ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Save className="size-4" />
-              )}
+              <ArrowLeft />
             </Button>
-          )}
-        </div>
-      </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={editing ? "Preview" : "Edit"}
+              onClick={() => setEditing((prev) => !prev)}
+            >
+              {editing ? <Eye /> : <Pencil />}
+            </Button>
+            {editing || isDirty ? (
+              <Button
+                size="sm"
+                disabled={!isDirty || saving}
+                onClick={() => void handleSave()}
+              >
+                {saving ? <Loader2 className="animate-spin" /> : null}
+                Save
+              </Button>
+            ) : null}
+          </>
+        }
+      />
 
-      <Separator />
+      {editing ? (
+        <Textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+              event.preventDefault();
+              if (isDirty && !saving) void handleSave();
+              return;
+            }
+            onKeyDown(event);
+          }}
+          aria-label="Entry"
+          className="min-h-[50vh] resize-none border-none bg-transparent px-0 font-mono text-sm shadow-none focus-visible:ring-0"
+        />
+      ) : content.trim() ? (
+        <MarkdownRenderer content={content} />
+      ) : (
+        <EmptyState compact label="Empty" />
+      )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {editing ? (
-          <Textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="font-mono text-sm w-full h-full min-h-75 rounded-none border-none! outline-none! ring-0! shadow-none! resize-none! py-4"
-          />
-        ) : (
-          <div className="py-4 px-1">
-            {content.trim() ? (
-              <MarkdownRenderer content={content} />
-            ) : (
-              <p className="text-sm text-muted-foreground/50 italic">
-                Nothing written yet. Click the edit button to start writing.
-              </p>
-            )}
+      {journal.events.length > 0 ? (
+        <Section title="Events" count={journal.events.length}>
+          <List>
+            {journal.events.map((event) => (
+              <EventRow key={event._id} event={event} />
+            ))}
+          </List>
+        </Section>
+      ) : null}
+
+      {journal.whiteboard ? (
+        <Section title="Whiteboard">
+          <div className="h-80 overflow-hidden rounded-md bg-surface/40">
+            <WhiteboardViewer whiteboard={journal.whiteboard} />
           </div>
-        )}
+        </Section>
+      ) : null}
 
-        {hasAppendix && (
-          <div className="mt-6 space-y-6 pb-6">
-            <Separator />
-
-            {hasEvents && (
-              <section className="space-y-3 px-1">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground/60">
-                  <Calendar className="size-3" />
-                  <span>Events</span>
-                </div>
-                <div className="space-y-2">
-                  {journal.events.map((event) => (
-                    <EventRow key={event._id} event={event} />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {hasWhiteboard && journal.whiteboard && (
-              <section className="space-y-3 px-1">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground/60">
-                  <PenTool className="size-3" />
-                  <span>Whiteboard</span>
-                </div>
-                <div className="rounded-lg border border-border/60 overflow-hidden h-80">
-                  <WhiteboardViewer whiteboard={journal.whiteboard} />
-                </div>
-              </section>
-            )}
-
-            {hasNotes && (
-              <section className="space-y-3 px-1">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground/60">
-                  <FileText className="size-3" />
-                  <span>Notes</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {journal.notes.map((noteId) => (
-                    <Badge
-                      key={noteId}
-                      variant="secondary"
-                      className="text-xs font-mono cursor-pointer hover:bg-accent transition-colors"
-                      onClick={() =>
-                        router.push(`/dashboard/notes?note=${noteId}`)
-                      }
-                    >
+      {journal.notes.length > 0 ? (
+        <Section title="Notes" count={journal.notes.length}>
+          <List>
+            {journal.notes.map((noteId) => (
+              <Link key={noteId} href={`/dashboard/notes?note=${noteId}`}>
+                <ListRow
+                  leading={<FileText />}
+                  title={
+                    <span className="font-mono text-xs">
                       {noteId.slice(-6)}
-                    </Badge>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+                    </span>
+                  }
+                />
+              </Link>
+            ))}
+          </List>
+        </Section>
+      ) : null}
+    </PageBody>
   );
 }
 
 function EventRow({ event }: { event: ICalendarEvent }) {
-  const eventDate = new Date(event.date);
-
+  const variant =
+    event.status === "completed" || event.status === "canceled"
+      ? STATUS_VARIANT[event.status]
+      : "secondary";
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-surface/50 px-3 py-2.5">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground truncate">
-            {event.title}
-          </p>
-          <Badge
-            variant={
-              event.status === "completed"
-                ? "default"
-                : event.status === "canceled"
-                  ? "destructive"
-                  : "secondary"
-            }
-            className="text-[10px] shrink-0"
-          >
-            {event.status}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Clock className="size-3" />
-            {format(eventDate, "p")}
-          </span>
-          {event.place && (
-            <span className="flex items-center gap-1 truncate">
-              <MapPin className="size-3" />
-              {event.place}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
+    <ListRow
+      leading={<Calendar />}
+      title={event.title}
+      description={event.place || undefined}
+      meta={
+        <>
+          <span>{format(new Date(event.date), "p")}</span>
+          <Badge variant={variant}>{event.status}</Badge>
+        </>
+      }
+    />
   );
 }

@@ -63,6 +63,24 @@ export type FinanceProviderBalance = z.infer<
   typeof financeProviderBalanceSchema
 >;
 
+/**
+ * Banks report several balance types per account and in no fixed order —
+ * Lunar sends ITBD, ITAV and an OTHR that is only the reserved amount — so
+ * every surface picks the one to show through this, never by position.
+ */
+export const FINANCE_BALANCE_PREFERENCE = ["CLAV", "CLBD", "ITAV", "XPCD"];
+
+export function pickDisplayBalance<
+  T extends { accountId: string; balanceType: string },
+>(balances: readonly T[], accountId: string): T | undefined {
+  const own = balances.filter((balance) => balance.accountId === accountId);
+  for (const balanceType of FINANCE_BALANCE_PREFERENCE) {
+    const match = own.find((balance) => balance.balanceType === balanceType);
+    if (match) return match;
+  }
+  return own[0];
+}
+
 export const financeProviderTransactionSchema = financeMoneySchema.extend({
   accountRef: z.string().min(1),
   providerTxnId: z.string().min(1).optional(),
@@ -561,6 +579,14 @@ export const financeDashboardResponseSchema = z.object({
     unconvertedByCurrency: z.array(financeMoneySchema),
   }),
   ledger: z.array(financeLedgerEntrySchema),
+  /**
+   * Each ledger row's amount in `monthly.currency` at its own date's rate,
+   * keyed by row id. A row with no applicable rate is absent, so anything that
+   * adds rows together must go through this and never through `amountMinor`.
+   */
+  baseAmounts: z.record(z.string(), z.number().int()).default({}),
+  /** Rows cancelled by an equal and opposite row: neither is spend or income. */
+  reversalIds: z.array(z.string()).default([]),
   recurringRules: z.array(financeRecurringRuleSchema),
   recurringCommitment: financeRecurringCommitmentSchema,
   recurringCandidates: z.array(financeRecurringCandidateSchema),

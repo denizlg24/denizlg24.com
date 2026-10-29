@@ -6,24 +6,29 @@ import type {
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
+import { List, ListRow } from "@repo/ui/list";
 import { NumericField } from "@repo/ui/numeric-field";
 import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
 import { formatMinutes, majorToMinor, minorToMajor } from "@repo/utils";
 import { ChevronDown, Link2, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { fetchFinancePayouts, setFinancePayoutOverride } from "./finance-data";
-import { Empty, FieldRow } from "./finance-primitives";
 import { money, shortDay } from "./finance-series";
 
-const PHASE_LABEL: Record<FinancePayoutPeriod["phase"], string> = {
-  upcoming: "upcoming",
-  open: "open",
-  closed: "closed",
-  paid: "paid",
+const PHASE_VARIANT: Record<
+  FinancePayoutPeriod["phase"],
+  "outline" | "info" | "warning" | "good"
+> = {
+  upcoming: "outline",
+  open: "info",
+  closed: "warning",
+  paid: "good",
 };
 
 function hoursInput(minutes: number | undefined) {
@@ -97,54 +102,73 @@ function OverrideEditor({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
-        <FieldRow label="Hours">
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <FormGrid className="sm:grid-cols-3">
+        <FormField label="Hours">
           <NumericField
             value={hours}
             onValueChange={(value) => setHours(value)}
             placeholder={hoursInput(period.projectedMinutes)}
-            className="h-8 text-right text-xs tabular-nums"
+            className="text-right tabular-nums"
           />
-        </FieldRow>
-        <FieldRow label="Gross">
+        </FormField>
+        <FormField label="Gross">
           <NumericField
             value={gross}
             onValueChange={(value) => setGross(value)}
             placeholder={moneyInput(period.grossMinor, period.currency)}
-            className="h-8 text-right text-xs tabular-nums"
+            className="text-right tabular-nums"
           />
-        </FieldRow>
-        <FieldRow label="Net">
+        </FormField>
+        <FormField label="Net">
           <NumericField
             value={net}
             onValueChange={(value) => setNet(value)}
             placeholder={moneyInput(period.netMinor, period.currency)}
-            className="h-8 text-right text-xs tabular-nums"
+            className="text-right tabular-nums"
           />
-        </FieldRow>
-      </div>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="flex-1"
-          disabled={saving}
-          onClick={() => void save()}
-        >
-          {saving && <Loader2 className="size-3.5 animate-spin" />}
-          Override
-        </Button>
+        </FormField>
+      </FormGrid>
+      <div className="flex justify-end gap-2">
         {override && (
           <Button
+            type="button"
             size="sm"
-            variant="outline"
+            variant="ghost"
             disabled={saving}
             onClick={() => void save(true)}
           >
             Clear
           </Button>
         )}
+        <Button type="submit" size="sm" variant="outline" disabled={saving}>
+          {saving && <Loader2 className="animate-spin" />}
+          Override
+        </Button>
       </div>
+    </form>
+  );
+}
+
+function BreakdownLine({
+  label,
+  value,
+  className,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex justify-between gap-3", className)}>
+      <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-accent-strong">{value}</span>
     </div>
   );
 }
@@ -166,131 +190,123 @@ function PeriodRow({
     amountMinor: period.netMinor,
     currency: period.currency,
   };
+  const comparableActual =
+    period.actual && period.actual.currency === period.currency
+      ? period.actual
+      : undefined;
 
   return (
-    <div className="py-2.5">
-      <button
-        type="button"
-        className="flex w-full min-w-0 items-center gap-3 text-left"
+    <div role="listitem" className="flex flex-col">
+      <ListRow
         onClick={() => setOpen((value) => !value)}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-sm">
+        aria-expanded={open}
+        title={
+          <span className="flex items-center gap-2">
             <span className="tabular-nums">{shortDay(period.payoutDate)}</span>
-            <Badge
-              variant={period.phase === "paid" ? "secondary" : "outline"}
-              className="h-4 px-1.5 text-[10px]"
-            >
-              {PHASE_LABEL[period.phase]}
-            </Badge>
-            {period.partial && (
-              <span className="text-[10px] text-muted-foreground">partial</span>
-            )}
-            {period.override && (
-              <span className="text-[10px] text-muted-foreground">edited</span>
-            )}
-          </div>
-          <div className="mt-0.5 text-[11px] text-pretty tabular-nums text-muted-foreground">
+            <Badge variant={PHASE_VARIANT[period.phase]}>{period.phase}</Badge>
+            {period.partial && <Badge variant="outline">partial</Badge>}
+            {period.override && <Badge variant="outline">edited</Badge>}
+          </span>
+        }
+        description={
+          <span className="tabular-nums">
             {shortDay(period.periodStart)} – {shortDay(period.periodEnd)} ·{" "}
             {formatMinutes(period.loggedMinutes)}
             {period.projectedMinutes !== period.loggedMinutes &&
               ` → ${formatMinutes(period.projectedMinutes)}`}{" "}
             h · gross {money(period.grossMinor, period.currency)}
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <div
-            className={cn(
-              "text-sm font-medium tabular-nums",
-              period.actual && "text-status-good",
-            )}
-          >
-            {money(shown.amountMinor, shown.currency)}
-          </div>
-          {period.varianceMinor !== undefined && period.varianceMinor !== 0 ? (
-            <div
+          </span>
+        }
+        meta={
+          <span className="flex flex-col items-end">
+            <span
               className={cn(
-                "text-[10px] tabular-nums",
-                period.varianceMinor < 0
-                  ? "text-status-critical"
-                  : "text-status-good",
+                "text-sm font-medium",
+                period.actual ? "text-status-good" : "text-accent-strong",
               )}
             >
-              {period.varianceMinor > 0 ? "+" : ""}
-              {money(period.varianceMinor, period.currency)}
-            </div>
-          ) : (
-            !period.actual && (
-              <div className="text-[10px] text-muted-foreground">est.</div>
-            )
-          )}
-        </div>
-        <ChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
+              {money(shown.amountMinor, shown.currency)}
+            </span>
+            {period.varianceMinor !== undefined &&
+            period.varianceMinor !== 0 ? (
+              <span
+                className={cn(
+                  "text-[11px]",
+                  period.varianceMinor < 0
+                    ? "text-status-critical"
+                    : "text-status-good",
+                )}
+              >
+                {period.varianceMinor > 0 ? "+" : ""}
+                {money(period.varianceMinor, period.currency)}
+              </span>
+            ) : (
+              !period.actual && <span className="text-[11px]">est.</span>
+            )}
+          </span>
+        }
+        trailing={
+          <ChevronDown
+            className={cn(
+              "size-3.5 text-muted-foreground transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        }
+      />
 
       {open && (
-        <div className="mt-3 space-y-4 border-l pl-3">
-          <div className="space-y-1 text-xs tabular-nums">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Gross
-                {period.hourlyRateMinor !== undefined &&
-                  ` · ${formatMinutes(period.projectedMinutes)} × ${money(period.hourlyRateMinor, period.currency)}`}
-              </span>
-              <span>{money(period.grossMinor, period.currency)}</span>
-            </div>
+        <div className="mb-3 ml-1 mt-1 flex flex-col gap-4 border-l pl-4">
+          <div className="flex flex-col gap-1 text-xs tabular-nums">
+            <BreakdownLine
+              label={`Gross${
+                period.hourlyRateMinor !== undefined
+                  ? ` · ${formatMinutes(period.projectedMinutes)} × ${money(period.hourlyRateMinor, period.currency)}`
+                  : ""
+              }`}
+              value={money(period.grossMinor, period.currency)}
+            />
             {period.lines.map((line) => (
-              <div key={line.lineId} className="flex justify-between">
-                <span className="text-muted-foreground">
-                  {line.name}
-                  <span className="ml-1 text-[10px]">
-                    on {money(line.baseMinor, period.currency)}
-                  </span>
-                </span>
-                <span>−{money(line.amountMinor, period.currency)}</span>
-              </div>
+              <BreakdownLine
+                key={line.lineId}
+                label={`${line.name} on ${money(line.baseMinor, period.currency)}`}
+                value={`−${money(line.amountMinor, period.currency)}`}
+              />
             ))}
-            <div className="flex justify-between border-t pt-1 font-medium">
-              <span>
-                Net{period.override?.netMinor !== undefined && " (set)"}
-              </span>
-              <span>{money(period.netMinor, period.currency)}</span>
-            </div>
+            <BreakdownLine
+              className="border-t pt-1 font-medium"
+              label={`Net${period.override?.netMinor !== undefined ? " (set)" : ""}`}
+              value={money(period.netMinor, period.currency)}
+            />
             {period.actual && (
-              <div className="flex justify-between">
-                <span className="truncate text-muted-foreground">
-                  {shortDay(period.actual.effectiveDate)} ·{" "}
-                  {period.actual.descriptor}
-                </span>
-                <span className="text-status-good">
-                  {money(period.actual.amountMinor, period.actual.currency)}
-                </span>
-              </div>
+              <BreakdownLine
+                label={`${shortDay(period.actual.effectiveDate)} · ${period.actual.descriptor}`}
+                value={
+                  <span className="text-status-good">
+                    {money(period.actual.amountMinor, period.actual.currency)}
+                  </span>
+                }
+              />
             )}
-            {period.actual && period.grossMinor > 0 && (
-              <div className="flex justify-between text-muted-foreground">
-                <span>Effective deduction</span>
-                <span>
-                  {Math.round(
-                    (1 - period.actual.amountMinor / period.grossMinor) * 1000,
-                  ) / 10}
-                  %
-                </span>
-              </div>
+            {comparableActual && period.grossMinor > 0 && (
+              <BreakdownLine
+                label="Effective deduction"
+                value={`${
+                  Math.round(
+                    (1 - comparableActual.amountMinor / period.grossMinor) *
+                      1000,
+                  ) / 10
+                }%`}
+              />
             )}
           </div>
 
           <OverrideEditor ruleId={ruleId} period={period} onSaved={onSaved} />
 
           {period.projectedLedgerId && (
-            <Button asChild size="xs" variant="ghost" className="-ml-2">
+            <Button asChild size="sm" variant="ghost" className="self-start">
               <Link href={routes.finance.entry(period.projectedLedgerId)}>
-                <Link2 className="size-3" />
+                <Link2 />
                 {period.actual ? "Ledger entry" : "Reconcile"}
               </Link>
             </Button>
@@ -334,19 +350,19 @@ export function FinancePayoutSchedule({
 
   if (!data) {
     return (
-      <div className="space-y-3 py-2">
+      <div className="flex flex-col gap-2">
         {[0, 1, 2].map((key) => (
-          <Skeleton key={key} className="h-9 w-full" />
+          <Skeleton key={key} className="h-10 w-full" />
         ))}
       </div>
     );
   }
 
   const periods = limit ? data.periods.slice(0, limit) : data.periods;
-  if (periods.length === 0) return <Empty label="No payouts" compact />;
+  if (periods.length === 0) return <EmptyState compact label="No payouts" />;
 
   return (
-    <div className="divide-y">
+    <List divided>
       {periods.map((period) => (
         <PeriodRow
           key={period.payoutDate}
@@ -355,6 +371,6 @@ export function FinancePayoutSchedule({
           onSaved={load}
         />
       ))}
-    </div>
+    </List>
   );
 }

@@ -2,9 +2,9 @@
 
 import type { IEmailAccount } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
+import { List, ListRow } from "@repo/ui/list";
 import {
   Select,
   SelectContent,
@@ -13,17 +13,18 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Textarea } from "@repo/ui/textarea";
-import { Loader2, Paperclip, Send, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import type { ComposeDraft } from "./email-detail";
 
 interface ComposeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: IEmailAccount[];
   selectedAccountId: string | null;
-  replyTo?: { address: string; subject: string };
+  draft?: ComposeDraft;
 }
 
 const MAX_ATTACHMENTS = 10;
@@ -60,6 +61,11 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Enter in a header field must not send a half-written message.
+function holdEnter(event: React.KeyboardEvent<HTMLInputElement>) {
+  if (event.key === "Enter") event.preventDefault();
+}
+
 function totalAttachmentBytes(files: File[]) {
   return files.reduce((total, file) => total + file.size, 0);
 }
@@ -69,7 +75,7 @@ export function ComposeDialog({
   onOpenChange,
   accounts,
   selectedAccountId,
-  replyTo,
+  draft,
 }: ComposeDialogProps) {
   const { client } = useAdmin();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -84,22 +90,29 @@ export function ComposeDialog({
       : (sendCapableAccounts[0]?._id ?? "");
 
   const [fromAccountId, setFromAccountId] = useState(preferredAccountId);
-  const [to, setTo] = useState(replyTo?.address ?? "");
-  const [subject, setSubject] = useState(
-    replyTo ? `Re: ${replyTo.subject}` : "",
-  );
-  const [body, setBody] = useState("");
+  const [to, setTo] = useState(draft?.to ?? "");
+  const [subject, setSubject] = useState(draft?.subject ?? "");
+  const [body, setBody] = useState(draft?.body ?? "");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
 
+  // Reset only when the dialog opens: the account list refetches on open, and
+  // re-running on that would wipe a message already being typed.
+  const preferredRef = useRef(preferredAccountId);
+  preferredRef.current = preferredAccountId;
   useEffect(() => {
     if (!open) return;
-    setFromAccountId(preferredAccountId);
-    setTo(replyTo?.address ?? "");
-    setSubject(replyTo ? `Re: ${replyTo.subject}` : "");
-    setBody("");
+    setFromAccountId(preferredRef.current);
+    setTo(draft?.to ?? "");
+    setSubject(draft?.subject ?? "");
+    setBody(draft?.body ?? "");
     setAttachments([]);
-  }, [open, preferredAccountId, replyTo]);
+  }, [open, draft]);
+
+  useEffect(() => {
+    if (!open || fromAccountId) return;
+    setFromAccountId(preferredAccountId);
+  }, [open, fromAccountId, preferredAccountId]);
 
   const selectedAccount = sendCapableAccounts.find(
     (account) => account._id === fromAccountId,
@@ -200,105 +213,17 @@ export function ComposeDialog({
   };
 
   return (
-    <ResponsiveDialog
+    <FormDialog
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (!sending) onOpenChange(nextOpen);
-      }}
-      title={replyTo ? "Reply" : "New Message"}
-      description="Write and send a new email"
-      className="sm:max-w-2xl"
-    >
-      <div className="flex flex-col">
-        {showFromSelector && (
-          <div className="flex items-center gap-3 border-b py-2">
-            <Label className="w-14 shrink-0 text-sm text-muted-foreground">
-              From:
-            </Label>
-            <Select value={fromAccountId} onValueChange={setFromAccountId}>
-              <SelectTrigger className="h-8 border-0 px-0 shadow-none focus:ring-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {sendCapableAccounts.map((account) => (
-                  <SelectItem key={account._id} value={account._id}>
-                    {account.smtpFromAddress || account.user}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {noSendingAccounts && (
-          <div className="border-b bg-muted/40 py-2 text-xs text-muted-foreground">
-            No account has SMTP sending configured.
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 border-b py-2">
-          <span className="w-14 shrink-0 text-sm text-muted-foreground">
-            To:
-          </span>
-          <Input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="recipient@email.com"
-            className="h-8 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 border-b py-2">
-          <span className="w-14 shrink-0 text-sm text-muted-foreground">
-            Subject:
-          </span>
-          <Input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            className="h-8 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
-          />
-        </div>
-
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write your message..."
-          className="min-h-70 resize-none rounded-none border-0 py-4 text-sm shadow-none focus-visible:ring-0"
-        />
-
-        {attachments.length > 0 && (
-          <div className="border-t py-2">
-            <div className="flex flex-wrap gap-2">
-              {attachments.map((file, index) => (
-                <div
-                  key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                  className="flex max-w-full items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs"
-                >
-                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="max-w-48 truncate">{file.name}</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {formatBytes(file.size)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 shrink-0"
-                    onClick={() => handleRemoveAttachment(index)}
-                    disabled={sending}
-                  >
-                    <X className="h-3 w-3" />
-                    <span className="sr-only">Remove attachment</span>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between border-t py-3">
-        <div>
+      onOpenChange={onOpenChange}
+      title={draft?.subject || "New message"}
+      size="lg"
+      onSubmit={handleSend}
+      submitLabel="Send"
+      submitDisabled={noSendingAccounts}
+      pending={sending}
+      footerStart={
+        <>
           <input
             ref={fileInputRef}
             type="file"
@@ -311,29 +236,107 @@ export function ComposeDialog({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="gap-2"
             onClick={() => fileInputRef.current?.click()}
             disabled={sending || noSendingAccounts}
           >
-            <Paperclip className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Attach</span>
+            <Paperclip />
+            Attach
           </Button>
-        </div>
-        <Button
-          size="sm"
-          onClick={handleSend}
-          className="gap-2"
-          disabled={sending || noSendingAccounts}
+        </>
+      }
+    >
+      <FormGrid>
+        <FormField
+          label="From"
+          htmlFor="compose-from"
+          error={noSendingAccounts ? "No account with SMTP" : undefined}
         >
-          {sending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {showFromSelector ? (
+            <Select value={fromAccountId} onValueChange={setFromAccountId}>
+              <SelectTrigger id="compose-from" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sendCapableAccounts.map((account) => (
+                  <SelectItem key={account._id} value={account._id}>
+                    {account.smtpFromAddress || account.user}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
-            <Send className="h-3.5 w-3.5" />
+            <Input
+              id="compose-from"
+              value={
+                selectedAccount
+                  ? selectedAccount.smtpFromAddress || selectedAccount.user
+                  : ""
+              }
+              disabled
+              readOnly
+            />
           )}
-          {sending ? "Sending..." : "Send"}
-        </Button>
-      </div>
-    </ResponsiveDialog>
+        </FormField>
+        <FormField label="To" htmlFor="compose-to">
+          <Input
+            id="compose-to"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="name@example.com"
+            autoComplete="off"
+            onKeyDown={holdEnter}
+          />
+        </FormField>
+        <FormField
+          label="Subject"
+          htmlFor="compose-subject"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="compose-subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            onKeyDown={holdEnter}
+          />
+        </FormField>
+        <FormField
+          label="Message"
+          htmlFor="compose-body"
+          className="sm:col-span-2"
+        >
+          <Textarea
+            id="compose-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="min-h-[22rem] resize-y text-sm leading-relaxed"
+          />
+        </FormField>
+      </FormGrid>
+
+      {attachments.length > 0 ? (
+        <List>
+          {attachments.map((file, index) => (
+            <ListRow
+              key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+              leading={<Paperclip />}
+              title={file.name}
+              meta={formatBytes(file.size)}
+              trailing={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => handleRemoveAttachment(index)}
+                  disabled={sending}
+                >
+                  <X />
+                </Button>
+              }
+            />
+          ))}
+        </List>
+      ) : null}
+    </FormDialog>
   );
 }

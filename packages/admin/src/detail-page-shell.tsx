@@ -1,20 +1,15 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
-import { PageHeader } from "@repo/ui/page-header";
-import { ArrowLeft } from "lucide-react";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { useAdmin } from "./provider";
 
 /**
- * The chrome every surface that used to be a sheet now shares: the standard
- * header bar, a back control pointing at the list it was opened from, and a
- * scrolling body.
- *
- * A sheet got its "close" affordance for free. A page has to carry one, and it
- * has to be the same one everywhere, which is the whole reason this exists
- * rather than each converted page rolling its own header.
+ * The chrome every record page shares: the header bar with a breadcrumb back
+ * to the list it was opened from, and a scrolling body. The breadcrumb is the
+ * "close" affordance a sheet used to give for free, the same everywhere.
  */
 export function DetailPageShell({
   icon,
@@ -24,6 +19,7 @@ export function DetailPageShell({
   actions,
   /** Constrains the body to a readable column. Full-bleed surfaces pass false. */
   contained = true,
+  width = "default",
   children,
 }: {
   icon?: ReactNode;
@@ -32,28 +28,27 @@ export function DetailPageShell({
   backLabel: string;
   actions?: ReactNode;
   contained?: boolean;
+  width?: ComponentProps<typeof PageBody>["width"];
   children: ReactNode;
 }) {
   const { slots } = useAdmin();
   const router = useRouter();
-
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader leading={slots?.sidebarTrigger} icon={icon} title={title}>
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        crumbs={[{ label: backLabel, onClick: () => router.push(backTo) }]}
+        icon={icon}
+        title={title}
+      >
         {actions}
-        <Button size="sm" variant="outline" onClick={() => router.push(backTo)}>
-          <ArrowLeft className="size-3.5" />
-          {backLabel}
-        </Button>
       </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {contained ? (
-          <div className="mx-auto max-w-5xl px-4 py-5">{children}</div>
-        ) : (
-          children
-        )}
-      </div>
-    </div>
+      {contained ? (
+        <PageBody width={width}>{children}</PageBody>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      )}
+    </Page>
   );
 }
 
@@ -106,16 +101,20 @@ export function DetailPageSkeleton({
       backTo={backTo}
       backLabel={backLabel}
     >
-      <div className="space-y-4">
-        <div className="h-20 animate-pulse rounded-md border bg-muted/30" />
-        <div className="grid gap-4 lg:grid-cols-2">
-          {Array.from({ length: rows }).map((_, index) => (
-            <div
-              key={index}
-              className="h-32 animate-pulse rounded-md border bg-muted/30"
-            />
-          ))}
-        </div>
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-8 w-2/5" />
+        <Skeleton className="h-3 w-1/4" />
+      </div>
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div
+            key={index}
+            className="grid grid-cols-[10rem_1fr] items-center gap-3"
+          >
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-4 w-3/5" />
+          </div>
+        ))}
       </div>
     </DetailPageShell>
   );

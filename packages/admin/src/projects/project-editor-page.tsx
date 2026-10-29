@@ -5,15 +5,11 @@ import { FolderGit2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  DetailNotFound,
-  DetailPageShell,
-  DetailPageSkeleton,
-} from "../detail-page-shell";
 import { useAdmin } from "../provider";
+import { DocumentEditorSkeleton, DocumentNotFound } from "./document-editor";
 import { ProjectForm } from "./project-form";
 
-const ICON = <FolderGit2 className="size-4 text-muted-foreground" />;
+const ICON = <FolderGit2 />;
 
 export function ProjectEditorPage({
   mode,
@@ -49,32 +45,24 @@ export function ProjectEditorPage({
     void load();
   }, [load]);
 
-  const title = mode === "edit" ? "Edit Project" : "New Project";
   const shell = { icon: ICON, backTo, backLabel: "Projects" } as const;
 
-  if (loading) return <DetailPageSkeleton {...shell} title={title} rows={2} />;
+  if (loading) {
+    return <DocumentEditorSkeleton {...shell} title="Project" properties={5} />;
+  }
 
   if (mode === "edit" && !project) {
-    return (
-      <DetailNotFound
-        {...shell}
-        title="Project not found"
-        message="This project could not be loaded."
-      />
-    );
+    return <DocumentNotFound {...shell} label="Project not found" />;
   }
 
   return (
-    <DetailPageShell
+    <ProjectForm
+      key={project?._id ?? "new"}
+      mode={mode}
+      project={project ?? undefined}
       {...shell}
-      title={mode === "edit" ? project?.title : title}
-    >
-      <ProjectForm
-        mode={mode}
-        project={project ?? undefined}
-        onSuccess={() => router.push(backTo)}
-        onCancel={() => router.push(backTo)}
-      />
-    </DetailPageShell>
+      onSuccess={() => router.push(backTo)}
+      onDeleted={() => router.push(backTo)}
+    />
   );
 }

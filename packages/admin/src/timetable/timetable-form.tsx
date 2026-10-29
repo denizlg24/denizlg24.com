@@ -1,11 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { TIMETABLE_COLORS } from "@repo/schemas";
+import { TIMETABLE_COLORS, type TimetableColor } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { Checkbox } from "@repo/ui/checkbox";
-import { DialogClose, DialogFooter } from "@repo/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@repo/ui/field";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
 import {
   Select,
@@ -14,103 +12,175 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Plus, Trash2 } from "lucide-react";
-import { Controller, useForm } from "react-hook-form";
+import { Switch } from "@repo/ui/switch";
+import { cn } from "@repo/ui/utils";
+import { Plus, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
 import * as z from "zod";
+import { TIMETABLE_COLOR_CLASSES } from "./timetable-grid";
 
-const COLOR_LABELS: Record<string, { label: string; hex: string }> = {
-  background: { label: "Background", hex: "#f9f8f6" },
-  surface: { label: "Surface", hex: "#f1f3e0" },
-  muted: { label: "Muted", hex: "#d2dcb6" },
-  accent: { label: "Accent", hex: "#a1bc98" },
-  "accent-strong": { label: "Accent Strong", hex: "#303630" },
-  foreground: { label: "Foreground", hex: "#778873" },
-  destructive: { label: "Destructive", hex: "#c0352b" },
+const COLOR_LABELS: Record<TimetableColor, string> = {
+  background: "Background",
+  surface: "Surface",
+  muted: "Muted",
+  accent: "Accent",
+  "accent-strong": "Accent strong",
+  foreground: "Foreground",
+  destructive: "Destructive",
 };
 
 const DAYS = [
-  { value: "0", label: "Monday" },
-  { value: "1", label: "Tuesday" },
-  { value: "2", label: "Wednesday" },
-  { value: "3", label: "Thursday" },
-  { value: "4", label: "Friday" },
-  { value: "5", label: "Saturday" },
-  { value: "6", label: "Sunday" },
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
 ];
 
-const timetableSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  dayOfWeek: z.number().min(0).max(6),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().min(1, "End time is required"),
-  place: z.string().optional(),
-  links: z
-    .array(
-      z.object({
-        label: z.string().min(1, "Label is required"),
-        url: z.string().min(1, "URL is required"),
-        icon: z.string().optional(),
-      }),
-    )
-    .optional(),
-  color: z.enum(TIMETABLE_COLORS),
-  isActive: z.boolean(),
-});
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 60 }, (_, i) =>
+  String(i).padStart(2, "0"),
+);
+
+const timetableSchema = z
+  .object({
+    title: z.string().trim().min(1, "Required"),
+    dayOfWeek: z.number().min(0).max(6),
+    startTime: z.string().min(1, "Required"),
+    endTime: z.string().min(1, "Required"),
+    place: z.string().optional(),
+    links: z
+      .array(
+        z.object({
+          label: z.string().trim().min(1, "Label required"),
+          url: z.string().trim().min(1, "URL required"),
+          icon: z.string().optional(),
+        }),
+      )
+      .optional(),
+    color: z.enum(TIMETABLE_COLORS),
+    isActive: z.boolean(),
+  })
+  .refine((values) => values.endTime > values.startTime, {
+    path: ["endTime"],
+    message: "Ends before it starts",
+  });
 
 export type TimetableFormValues = z.infer<typeof timetableSchema>;
 
-interface TimetableFormProps {
+function TimeSelect({
+  value,
+  fallback,
+  onChange,
+  id,
+}: {
+  value: string;
+  fallback: string;
+  onChange: (value: string) => void;
+  id?: string;
+}) {
+  const [fallbackHour = "00", fallbackMinute = "00"] = fallback.split(":");
+  const [h = fallbackHour, m = fallbackMinute] = value ? value.split(":") : [];
+  return (
+    <div className="flex items-center gap-1">
+      <Select value={h} onValueChange={(next) => onChange(`${next}:${m}`)}>
+        <SelectTrigger id={id} className="flex-1 tabular-nums">
+          <SelectValue placeholder="HH" />
+        </SelectTrigger>
+        <SelectContent className="max-h-48" position="popper">
+          {HOURS.map((hour) => (
+            <SelectItem key={hour} value={hour}>
+              {hour}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-sm text-muted-foreground">:</span>
+      <Select value={m} onValueChange={(next) => onChange(`${h}:${next}`)}>
+        <SelectTrigger className="flex-1 tabular-nums">
+          <SelectValue placeholder="MM" />
+        </SelectTrigger>
+        <SelectContent className="max-h-48" position="popper">
+          {MINUTES.map((minute) => (
+            <SelectItem key={minute} value={minute}>
+              {minute}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+interface TimetableFormDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   initialData?: Partial<TimetableFormValues>;
   onSubmit: (values: TimetableFormValues) => Promise<void>;
   isLoading: boolean;
   mode: "create" | "edit";
+  footerStart?: ReactNode;
 }
 
-export function TimetableForm({
+/** Mount with a `key` per record: defaults are read once. */
+export function TimetableFormDialog({
+  open,
+  onOpenChange,
   initialData,
   onSubmit,
   isLoading,
   mode,
-}: TimetableFormProps) {
+  footerStart,
+}: TimetableFormDialogProps) {
   const {
     control,
     handleSubmit,
-    setValue,
-    watch,
     formState: { errors },
   } = useForm<TimetableFormValues>({
     resolver: zodResolver(timetableSchema),
     defaultValues: {
-      title: initialData?.title || "",
+      title: initialData?.title ?? "",
       dayOfWeek: initialData?.dayOfWeek ?? 0,
       startTime: initialData?.startTime || "09:00",
       endTime: initialData?.endTime || "10:00",
-      place: initialData?.place || "",
-      links: initialData?.links || [],
-      color: initialData?.color || "accent",
+      place: initialData?.place ?? "",
+      links: initialData?.links ?? [],
+      color: initialData?.color ?? "accent",
       isActive: initialData?.isActive ?? true,
     },
   });
-
-  const links = watch("links") || [];
+  const links = useFieldArray({ control, name: "links" });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <Field data-invalid={!!errors.title}>
-        <FieldLabel htmlFor="title">Title</FieldLabel>
-        <Controller
-          name="title"
-          control={control}
-          render={({ field }) => (
-            <Input {...field} id="title" placeholder="e.g. Math Class" />
-          )}
-        />
-        {errors.title && <FieldError>{errors.title.message}</FieldError>}
-      </Field>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={mode === "edit" ? "Edit entry" : "New entry"}
+      submitLabel={mode === "edit" ? "Save" : "Create"}
+      pending={isLoading}
+      onSubmit={() => handleSubmit(onSubmit)()}
+      footerStart={footerStart}
+    >
+      <FormGrid>
+        <FormField
+          label="Title"
+          htmlFor="timetable-title"
+          error={errors.title?.message}
+          className="sm:col-span-2"
+        >
+          <Controller
+            name="title"
+            control={control}
+            render={({ field }) => (
+              <Input {...field} id="timetable-title" autoFocus />
+            )}
+          />
+        </FormField>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field data-invalid={!!errors.dayOfWeek}>
-          <FieldLabel htmlFor="dayOfWeek">Day</FieldLabel>
+        <FormField label="Day" htmlFor="timetable-day">
           <Controller
             name="dayOfWeek"
             control={control}
@@ -119,45 +189,93 @@ export function TimetableForm({
                 value={String(field.value)}
                 onValueChange={(v) => field.onChange(Number(v))}
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select day" />
+                <SelectTrigger id="timetable-day" className="w-full">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
-                  {DAYS.map((day) => (
-                    <SelectItem key={day.value} value={day.value}>
-                      {day.label}
+                  {DAYS.map((day, index) => (
+                    <SelectItem key={day} value={String(index)}>
+                      {day}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             )}
           />
-          {errors.dayOfWeek && (
-            <FieldError>{errors.dayOfWeek.message}</FieldError>
-          )}
-        </Field>
+        </FormField>
 
-        <Field data-invalid={!!errors.color}>
-          <FieldLabel htmlFor="color">Color</FieldLabel>
+        <FormField label="Place" htmlFor="timetable-place">
+          <Controller
+            name="place"
+            control={control}
+            render={({ field }) => (
+              <Input
+                {...field}
+                id="timetable-place"
+                value={field.value ?? ""}
+              />
+            )}
+          />
+        </FormField>
+
+        <FormField
+          label="Start"
+          htmlFor="timetable-start"
+          error={errors.startTime?.message}
+        >
+          <Controller
+            name="startTime"
+            control={control}
+            render={({ field }) => (
+              <TimeSelect
+                id="timetable-start"
+                value={field.value}
+                fallback="09:00"
+                onChange={field.onChange}
+              />
+            )}
+          />
+        </FormField>
+
+        <FormField
+          label="End"
+          htmlFor="timetable-end"
+          error={errors.endTime?.message}
+        >
+          <Controller
+            name="endTime"
+            control={control}
+            render={({ field }) => (
+              <TimeSelect
+                id="timetable-end"
+                value={field.value}
+                fallback="10:00"
+                onChange={field.onChange}
+              />
+            )}
+          />
+        </FormField>
+
+        <FormField label="Colour" htmlFor="timetable-color">
           <Controller
             name="color"
             control={control}
             render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select color" />
+                <SelectTrigger id="timetable-color" className="w-full">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
                   {TIMETABLE_COLORS.map((color) => (
                     <SelectItem key={color} value={color}>
                       <span className="flex items-center gap-2">
                         <span
-                          className="inline-block w-3 h-3 rounded-full border border-black/10"
-                          style={{
-                            backgroundColor: COLOR_LABELS[color].hex,
-                          }}
+                          className={cn(
+                            "inline-block size-3 rounded-full border border-border",
+                            TIMETABLE_COLOR_CLASSES[color].bg,
+                          )}
                         />
-                        {COLOR_LABELS[color].label}
+                        {COLOR_LABELS[color]}
                       </span>
                     </SelectItem>
                   ))}
@@ -165,219 +283,82 @@ export function TimetableForm({
               </Select>
             )}
           />
-        </Field>
-      </div>
+        </FormField>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field data-invalid={!!errors.startTime}>
-          <FieldLabel>Start Time</FieldLabel>
-          <Controller
-            name="startTime"
-            control={control}
-            render={({ field }) => {
-              const [h = "09", m = "00"] = field.value
-                ? field.value.split(":")
-                : [];
-              return (
-                <div className="flex items-center gap-1">
-                  <Select
-                    value={h}
-                    onValueChange={(v) => field.onChange(`${v}:${m}`)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="HH" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-48" position="popper">
-                      {Array.from({ length: 24 }, (_, i) => {
-                        const val = String(i).padStart(2, "0");
-                        return (
-                          <SelectItem key={val} value={val}>
-                            {val}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-sm text-muted-foreground">:</span>
-                  <Select
-                    value={m}
-                    onValueChange={(v) => field.onChange(`${h}:${v}`)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="MM" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-48" position="popper">
-                      {Array.from({ length: 60 }, (_, i) => {
-                        const val = String(i).padStart(2, "0");
-                        return (
-                          <SelectItem key={val} value={val}>
-                            {val}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              );
-            }}
-          />
-          {errors.startTime && (
-            <FieldError>{errors.startTime.message}</FieldError>
-          )}
-        </Field>
-
-        <Field data-invalid={!!errors.endTime}>
-          <FieldLabel>End Time</FieldLabel>
-          <Controller
-            name="endTime"
-            control={control}
-            render={({ field }) => {
-              const [h = "10", m = "00"] = field.value
-                ? field.value.split(":")
-                : [];
-              return (
-                <div className="flex items-center gap-1">
-                  <Select
-                    value={h}
-                    onValueChange={(v) => field.onChange(`${v}:${m}`)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="HH" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-48" position="popper">
-                      {Array.from({ length: 24 }, (_, i) => {
-                        const val = String(i).padStart(2, "0");
-                        return (
-                          <SelectItem key={val} value={val}>
-                            {val}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-sm text-muted-foreground">:</span>
-                  <Select
-                    value={m}
-                    onValueChange={(v) => field.onChange(`${h}:${v}`)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="MM" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-48" position="popper">
-                      {Array.from({ length: 60 }, (_, i) => {
-                        const val = String(i).padStart(2, "0");
-                        return (
-                          <SelectItem key={val} value={val}>
-                            {val}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              );
-            }}
-          />
-          {errors.endTime && <FieldError>{errors.endTime.message}</FieldError>}
-        </Field>
-      </div>
-
-      <Field>
-        <FieldLabel htmlFor="place">Place</FieldLabel>
-        <Controller
-          name="place"
-          control={control}
-          render={({ field }) => (
-            <Input
-              {...field}
-              id="place"
-              placeholder="e.g. Room 101"
-              value={field.value || ""}
-            />
-          )}
-        />
-      </Field>
-
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <FieldLabel>Links</FieldLabel>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setValue("links", [...links, { label: "", url: "", icon: "" }])
-            }
-          >
-            <Plus className="w-4 h-4" />
-            Add Link
-          </Button>
-        </div>
-        {links.map((_, index) => (
-          <div key={index} className="flex gap-2 items-start">
-            <div className="flex-1 grid grid-cols-2 gap-2">
-              <Controller
-                name={`links.${index}.label`}
-                control={control}
-                render={({ field }) => <Input {...field} placeholder="Label" />}
-              />
-              <Controller
-                name={`links.${index}.url`}
-                control={control}
-                render={({ field }) => <Input {...field} placeholder="URL" />}
-              />
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setValue(
-                  "links",
-                  links.filter((_, i) => i !== index),
-                )
-              }
-            >
-              <Trash2 className="w-4 h-4 text-destructive" />
-            </Button>
-          </div>
-        ))}
-      </div>
-
-      <Field>
-        <div className="flex items-center gap-2">
+        <FormField label="Active" htmlFor="timetable-active">
           <Controller
             name="isActive"
             control={control}
-            render={({ field: { value, onChange, ...field } }) => (
-              <Checkbox
-                {...field}
-                id="isActive"
-                checked={value}
-                onCheckedChange={onChange}
-              />
+            render={({ field }) => (
+              <div className="flex h-8 items-center">
+                <Switch
+                  id="timetable-active"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </div>
             )}
           />
-          <FieldLabel htmlFor="isActive" className="cursor-pointer">
-            Active (visible on timetable)
-          </FieldLabel>
-        </div>
-      </Field>
+        </FormField>
+      </FormGrid>
 
-      <DialogFooter className="mt-2">
-        <DialogClose asChild>
-          <Button type="button" variant="outline" disabled={isLoading}>
-            Cancel
+      <FormField label="Links">
+        <div className="flex flex-col gap-2">
+          {links.fields.map((link, index) => {
+            const linkErrors = errors.links?.[index];
+            return (
+              <div key={link.id} className="flex items-start gap-2">
+                <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2">
+                  <Controller
+                    name={`links.${index}.label`}
+                    control={control}
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        placeholder="Label"
+                        aria-label="Link label"
+                        aria-invalid={Boolean(linkErrors?.label)}
+                      />
+                    )}
+                  />
+                  <Controller
+                    name={`links.${index}.url`}
+                    control={control}
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        type="url"
+                        placeholder="https://"
+                        aria-label="Link URL"
+                        aria-invalid={Boolean(linkErrors?.url)}
+                      />
+                    )}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Remove link"
+                  onClick={() => links.remove(index)}
+                >
+                  <X />
+                </Button>
+              </div>
+            );
+          })}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={() => links.append({ label: "", url: "", icon: "" })}
+          >
+            <Plus />
+            Add link
           </Button>
-        </DialogClose>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading
-            ? `${mode === "edit" ? "Updating" : "Creating"}...`
-            : mode === "edit"
-              ? "Update"
-              : "Create"}
-        </Button>
-      </DialogFooter>
-    </form>
+        </div>
+      </FormField>
+    </FormDialog>
   );
 }

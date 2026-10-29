@@ -10,12 +10,13 @@ import { Shimmer } from "@repo/ui/ai-elements/shimmer";
 import { Button } from "@repo/ui/button";
 import { Marker, MarkerContent } from "@repo/ui/marker";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import { Textarea } from "@repo/ui/textarea";
 import { cn } from "@repo/ui/utils";
 import type { ChatStatus } from "ai";
 import { formatDistanceStrict } from "date-fns";
-import { Check, Loader2, Sparkles, ThumbsUp } from "lucide-react";
+import { Check, Sparkles, ThumbsUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -97,8 +98,8 @@ function RunHeader({ run }: { run: AgentTaskRun }) {
   const usage = run.tokenUsage;
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1.5 text-[11px] text-muted-foreground">
-      <span className="flex items-center gap-1.5 font-medium text-foreground">
+    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1.5 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1.5 font-medium text-accent-strong">
         <StatusDot
           tone={STATUS_TONE[run.status]}
           label={STATUS_LABEL[run.status]}
@@ -139,10 +140,12 @@ function FeedbackSection({
   if (run.feedback) {
     const learned = run.feedback.learnedProcedureIds.length;
     return (
-      <div className="flex items-start gap-2 border-t px-4 py-3 text-xs">
+      <div className="flex shrink-0 items-start gap-2 border-t px-4 py-3 text-xs">
         <Check className="mt-0.5 size-3.5 shrink-0 text-status-good" />
         <div className="min-w-0 flex-1">
-          <span className="font-medium capitalize">{run.feedback.verdict}</span>
+          <span className="font-medium capitalize text-accent-strong">
+            {run.feedback.verdict}
+          </span>
           <span className="ml-2 tabular-nums text-muted-foreground">
             {learned} {learned === 1 ? "procedure" : "procedures"}
           </span>
@@ -187,36 +190,30 @@ function FeedbackSection({
   };
 
   return (
-    <div className="border-t px-4 py-3">
+    <div className="shrink-0 border-t px-4 py-3">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
         <Textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder="Feedback"
           rows={2}
-          className="min-h-16 resize-y text-sm"
+          className="min-h-16 resize-y"
         />
         <div className="flex justify-end gap-2">
           <Button
             size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
+            variant="outline"
             disabled={submitting || !text.trim()}
             onClick={() => submit("useful")}
           >
-            <ThumbsUp className="size-3.5" /> Keep doing
+            <ThumbsUp /> Keep doing
           </Button>
           <Button
             size="sm"
-            className="h-7 gap-1.5 text-xs"
             disabled={submitting || !text.trim()}
             onClick={() => submit("correction")}
           >
-            {submitting ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="size-3.5" />
-            )}
+            {submitting ? <Spinner /> : <Sparkles />}
             Correct
           </Button>
         </div>
@@ -227,7 +224,7 @@ function FeedbackSection({
 
 function TranscriptSkeleton() {
   return (
-    <div className="space-y-3 px-4 py-4">
+    <div className="flex flex-col gap-3 px-4 py-4">
       <Skeleton className="h-4 w-2/3" />
       <Skeleton className="h-4 w-1/3" />
       <Skeleton className="h-24 w-full" />
@@ -308,7 +305,7 @@ export function RunTranscript({
     <div className="flex min-h-0 flex-1 flex-col">
       <RunHeader run={run} />
       {run.error ? (
-        <div className="border-b px-4 py-2 text-xs text-destructive">
+        <div className="shrink-0 border-b px-4 py-2 text-xs text-destructive">
           {run.error}
         </div>
       ) : null}

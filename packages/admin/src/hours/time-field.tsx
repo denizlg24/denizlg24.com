@@ -65,7 +65,7 @@ export function TimeField({
     <div
       className={cn(
         "flex min-w-0 items-stretch overflow-hidden rounded-md border bg-background",
-        large ? "h-16" : "h-11",
+        large ? "h-16" : "h-11 md:h-9",
         className,
       )}
     >
@@ -75,7 +75,7 @@ export function TimeField({
         disabled={!base}
         onClick={() => base && onValueChange(stepTime(base, step, -1))}
         className={cn(
-          "flex shrink-0 items-center justify-center text-muted-foreground transition-colors active:bg-muted disabled:opacity-40",
+          "flex shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-surface/70 hover:text-accent-strong active:bg-surface disabled:pointer-events-none disabled:opacity-40",
           large ? "w-16" : "w-10",
         )}
       >
@@ -84,8 +84,8 @@ export function TimeField({
       <label className="relative flex min-w-0 flex-1 items-center justify-center border-x">
         <span
           className={cn(
-            "pointer-events-none font-medium tabular-nums",
-            large ? "text-3xl tracking-tight" : "text-base",
+            "pointer-events-none font-medium tabular-nums text-accent-strong",
+            large ? "font-calistoga text-3xl" : "text-base md:text-sm",
             !value && "text-muted-foreground",
           )}
         >
@@ -113,7 +113,7 @@ export function TimeField({
           aria-label={`Clear ${ariaLabel}`}
           onClick={() => onValueChange("")}
           className={cn(
-            "flex shrink-0 items-center justify-center border-r text-muted-foreground transition-colors active:bg-muted",
+            "flex shrink-0 items-center justify-center border-r text-muted-foreground transition-colors hover:bg-surface/70 hover:text-accent-strong active:bg-surface",
             large ? "w-12" : "w-9",
           )}
         >
@@ -126,7 +126,7 @@ export function TimeField({
         disabled={!base}
         onClick={() => base && onValueChange(stepTime(base, step, 1))}
         className={cn(
-          "flex shrink-0 items-center justify-center text-muted-foreground transition-colors active:bg-muted disabled:opacity-40",
+          "flex shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-surface/70 hover:text-accent-strong active:bg-surface disabled:pointer-events-none disabled:opacity-40",
           large ? "w-16" : "w-10",
         )}
       >

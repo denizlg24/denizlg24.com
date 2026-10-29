@@ -2,7 +2,16 @@
 
 import type { AppSettingsResponse } from "@repo/schemas";
 import { defaultVoiceForModel, TTS_MODELS, voicesForModel } from "@repo/tts";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Textarea } from "@repo/ui/textarea";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useModelCatalog } from "../../llm/model-select";
@@ -66,143 +75,135 @@ export function ModelsSection() {
     [client, settings],
   );
 
+  const voices = settings ? voicesForModel(settings.effectiveTtsModel) : [];
+  const voice =
+    settings && voices.includes(settings.effectiveTtsVoice)
+      ? settings.effectiveTtsVoice
+      : settings
+        ? defaultVoiceForModel(settings.effectiveTtsModel)
+        : "";
+
+  const modelPicker = (
+    key: "semanticModel" | "unattendedModel",
+    effective: string,
+  ) =>
+    settings ? (
+      <SettingsModelPicker
+        value={settings[key]}
+        models={models}
+        loading={modelsLoading}
+        error={modelsError}
+        stale={stale}
+        onRetry={retry}
+        disabled={saving === key}
+        defaultLabel={`Default (${effective})`}
+        onChange={(value) => void update(key, value)}
+      />
+    ) : (
+      <Skeleton className="h-8 w-full" />
+    );
+
   return (
-    <div className="space-y-6">
+    <>
       <SettingsGroup
         label="Job models"
         actions={
           modelsLoading ? (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              Loading catalog…
-            </span>
+            <Spinner className="size-3 text-muted-foreground" />
           ) : (
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-              {models.length} models
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {models.length}
             </span>
           )
         }
       >
-        <div className="space-y-6">
-          <SettingsRow label="Semantic">
-            {settings ? (
-              <SettingsModelPicker
-                value={settings.semanticModel}
-                models={models}
-                loading={modelsLoading}
-                error={modelsError}
-                stale={stale}
-                onRetry={retry}
-                disabled={saving === "semanticModel"}
-                defaultLabel={`Default (${settings.effectiveSemanticModel})`}
-                onChange={(value) => void update("semanticModel", value)}
-              />
-            ) : (
-              <Skeleton className="h-8 w-full" />
-            )}
-          </SettingsRow>
+        <SettingsRow label="Semantic">
+          {modelPicker("semanticModel", settings?.effectiveSemanticModel ?? "")}
+        </SettingsRow>
+        <SettingsRow label="Unattended">
+          {modelPicker(
+            "unattendedModel",
+            settings?.effectiveUnattendedModel ?? "",
+          )}
+        </SettingsRow>
+      </SettingsGroup>
 
-          <SettingsRow label="Unattended">
-            {settings ? (
-              <SettingsModelPicker
-                value={settings.unattendedModel}
-                models={models}
-                loading={modelsLoading}
-                error={modelsError}
-                stale={stale}
-                onRetry={retry}
-                disabled={saving === "unattendedModel"}
-                defaultLabel={`Default (${settings.effectiveUnattendedModel})`}
-                onChange={(value) => void update("unattendedModel", value)}
-              />
-            ) : (
-              <Skeleton className="h-8 w-full" />
-            )}
-          </SettingsRow>
-        </div>
-      </SettingsGroup>
       <SettingsGroup label="Text to speech">
-        <div className="space-y-6">
-          <SettingsRow label="Model" htmlFor="tts-model">
-            {settings ? (
-              <select
-                id="tts-model"
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={settings.effectiveTtsModel}
-                disabled={saving !== null}
-                onChange={(event) =>
-                  void update("ttsModel", event.target.value)
-                }
-              >
+        <SettingsRow label="Model">
+          {settings ? (
+            <Select
+              value={settings.effectiveTtsModel}
+              disabled={saving !== null}
+              onValueChange={(value) => void update("ttsModel", value)}
+            >
+              <SelectTrigger className="w-full" aria-label="TTS model">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {TTS_MODELS.map((id) => (
-                  <option key={id} value={id}>
+                  <SelectItem key={id} value={id}>
                     {id}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-            ) : (
-              <Skeleton className="h-9 w-full" />
-            )}
-          </SettingsRow>
-          <SettingsRow label="Voice" htmlFor="tts-voice">
-            {settings ? (
-              <select
-                id="tts-voice"
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={
-                  voicesForModel(settings.effectiveTtsModel).includes(
-                    settings.effectiveTtsVoice,
-                  )
-                    ? settings.effectiveTtsVoice
-                    : defaultVoiceForModel(settings.effectiveTtsModel)
-                }
-                disabled={saving !== null}
-                onChange={(event) =>
-                  void update("ttsVoice", event.target.value)
-                }
-              >
-                {voicesForModel(settings.effectiveTtsModel).map((voice) => (
-                  <option key={voice} value={voice}>
-                    {voice}
-                  </option>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Skeleton className="h-8 w-full" />
+          )}
+        </SettingsRow>
+        <SettingsRow label="Voice">
+          {settings ? (
+            <Select
+              value={voice}
+              disabled={saving !== null}
+              onValueChange={(value) => void update("ttsVoice", value)}
+            >
+              <SelectTrigger className="w-full" aria-label="TTS voice">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {voices.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
                 ))}
-              </select>
-            ) : (
-              <Skeleton className="h-9 w-full" />
-            )}
-          </SettingsRow>
-          <SettingsRow label="Voice instructions" htmlFor="tts-instructions">
-            {settings ? (
-              <div className="space-y-2">
-                <textarea
-                  id="tts-instructions"
-                  className="min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={voiceInstructions}
-                  maxLength={1_000}
-                  disabled={saving !== null}
-                  placeholder="For example: Warm, relaxed, and speaking slowly"
-                  onChange={(event) => setVoiceInstructions(event.target.value)}
-                  onBlur={() => {
-                    if (
-                      voiceInstructions.trim() !==
-                      (settings.ttsInstructions ?? "")
-                    ) {
-                      void update(
-                        "ttsInstructions",
-                        voiceInstructions.trim() || null,
-                      );
-                    }
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Delivery instructions apply to Gemini voices.
-                </p>
-              </div>
-            ) : (
-              <Skeleton className="h-20 w-full" />
-            )}
-          </SettingsRow>
-        </div>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Skeleton className="h-8 w-full" />
+          )}
+        </SettingsRow>
+        <SettingsRow
+          label="Delivery"
+          hint="Gemini voices"
+          htmlFor="tts-instructions"
+          stacked
+        >
+          {settings ? (
+            <Textarea
+              id="tts-instructions"
+              className="min-h-20 w-full"
+              value={voiceInstructions}
+              maxLength={1_000}
+              disabled={saving !== null}
+              placeholder="Warm, relaxed, slow"
+              onChange={(event) => setVoiceInstructions(event.target.value)}
+              onBlur={() => {
+                if (
+                  voiceInstructions.trim() !== (settings.ttsInstructions ?? "")
+                ) {
+                  void update(
+                    "ttsInstructions",
+                    voiceInstructions.trim() || null,
+                  );
+                }
+              }}
+            />
+          ) : (
+            <Skeleton className="h-20 w-full" />
+          )}
+        </SettingsRow>
       </SettingsGroup>
-    </div>
+    </>
   );
 }

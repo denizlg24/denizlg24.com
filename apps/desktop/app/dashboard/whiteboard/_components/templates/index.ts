@@ -6,12 +6,20 @@ import {
   type LucideIcon,
   StickyNote,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import { MarkdownTemplate } from "./markdown-note";
-import { PdfViewerTemplate } from "./pdf-viewer";
 import { QuickLinksTemplate } from "./quick-links";
 import { StickyNoteTemplate } from "./sticky-note";
 import { TodoListTemplate } from "./todo-list";
+
+// react-pdf 11 loads pdfjs's viewer module at import time, and that module
+// reads `window` on evaluation — so any page reaching it statically fails to
+// prerender. Loading the template on the client only keeps it out of the build.
+const PdfViewerTemplate = dynamic(
+  () => import("./pdf-viewer").then((m) => m.PdfViewerTemplate),
+  { ssr: false },
+);
 
 interface TemplateDefinition {
   name: string;

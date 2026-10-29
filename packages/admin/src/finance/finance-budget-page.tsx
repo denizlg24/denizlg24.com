@@ -7,14 +7,17 @@ import type {
   FinanceEnvelopeStatus,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
 import { Input } from "@repo/ui/input";
-import { PageHeader } from "@repo/ui/page-header";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Stat, StatGroup } from "@repo/ui/stat";
 import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { majorToMinor } from "@repo/utils";
 import {
-  ArrowLeft,
   Check,
   Loader2,
   MessageCircle,
@@ -26,7 +29,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { AdminApiError } from "../client";
 import { useAdmin } from "../provider";
@@ -37,7 +46,7 @@ import {
   fetchFinanceEnvelopeDrafts,
   generateFinanceBudgetSuggestions,
 } from "./finance-budget-data";
-import { Empty, Figure, relative, SectionHead } from "./finance-primitives";
+import { relative } from "./finance-primitives";
 import { money, shortDay } from "./finance-series";
 
 const SEVERITY_TONE: Record<"info" | "warning" | "critical", StatusTone> = {
@@ -53,6 +62,14 @@ const PERIOD_SHORT: Record<FinanceEnvelopeStatus["period"], string> = {
   yearly: "yr",
 };
 
+const ROW =
+  "group/row -mx-2 flex w-[calc(100%+1rem)] flex-col gap-1.5 rounded-md px-2 py-2.5 text-left transition-colors";
+
+function withQueryParams(base: string, params: Record<string, string>) {
+  const query = new URLSearchParams(params).toString();
+  return `${base}${base.includes("?") ? "&" : "?"}${query}`;
+}
+
 /**
  * A limit bar that can exceed its track.
  *
@@ -60,7 +77,7 @@ const PERIOD_SHORT: Record<FinanceEnvelopeStatus["period"], string> = {
  * at 100%: the whole point of the row is to show by how much, and a full bar
  * reads identically at 101% and 300%.
  */
-function LimitBar({
+export function LimitBar({
   spentShare,
   committedShare,
 }: {
@@ -71,20 +88,56 @@ function LimitBar({
   const committed = Math.min(committedShare, Math.max(0, 1 - spent));
   const over = Math.max(0, spentShare - 1);
   return (
-    <div className="flex h-1 w-full overflow-hidden rounded-full bg-muted">
+    <div className="flex h-1 w-full overflow-hidden rounded-full bg-border">
       <div
         className={cn(
           "h-full",
-          over > 0 ? "bg-status-critical" : "bg-foreground",
+          over > 0 ? "bg-status-critical" : "bg-accent-strong/70",
         )}
         style={{ width: `${spent * 100}%` }}
       />
       {committed > 0 && (
         <div
-          className="h-full bg-foreground/30"
+          className="h-full bg-accent-strong/25"
           style={{ width: `${committed * 100}%` }}
         />
       )}
+    </div>
+  );
+}
+
+function RowFigures({
+  name,
+  value,
+  of,
+  share,
+  tone,
+}: {
+  name: string;
+  value: string;
+  of: string;
+  share: number;
+  tone?: "critical";
+}) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="min-w-0 flex-1 truncate text-sm text-accent-strong">
+        {name}
+      </span>
+      <span className="shrink-0 text-sm tabular-nums text-accent-strong">
+        {value}
+        <span className="text-muted-foreground"> / {of}</span>
+      </span>
+      <span
+        className={cn(
+          "w-12 shrink-0 text-right text-xs tabular-nums",
+          tone === "critical"
+            ? "text-status-critical"
+            : "text-muted-foreground",
+        )}
+      >
+        {Math.round(share * 100)}%
+      </span>
     </div>
   );
 }
@@ -103,35 +156,23 @@ function CappedRow({
     <button
       type="button"
       onClick={onOpen}
-      className="w-full border-b border-border/60 py-2.5 text-left last:border-b-0"
+      className={cn(
+        ROW,
+        "hover:bg-surface/70 focus-visible:bg-surface/70 focus-visible:outline-none",
+      )}
     >
-      <div className="flex items-baseline gap-3">
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          {status.name}
-        </span>
-        <span className="shrink-0 text-[13px] tabular-nums">
-          {money(status.spentMinor, status.currency)}
-          <span className="text-muted-foreground">
-            {" / "}
-            {money(allowance, status.currency)}
-          </span>
-        </span>
-        <span
-          className={cn(
-            "w-12 shrink-0 text-right text-[11px] tabular-nums",
-            over ? "text-status-critical" : "text-muted-foreground",
-          )}
-        >
-          {Math.round(share * 100)}%
-        </span>
-      </div>
-      <div className="mt-1.5">
-        <LimitBar
-          spentShare={share}
-          committedShare={allowance > 0 ? status.committedMinor / allowance : 0}
-        />
-      </div>
-      <div className="mt-1.5 flex items-center gap-2.5 text-[10px] text-muted-foreground">
+      <RowFigures
+        name={status.name}
+        value={money(status.spentMinor, status.currency)}
+        of={money(allowance, status.currency)}
+        share={share}
+        tone={over ? "critical" : undefined}
+      />
+      <LimitBar
+        spentShare={share}
+        committedShare={allowance > 0 ? status.committedMinor / allowance : 0}
+      />
+      <div className="flex w-full items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground">
         <span className={cn(over && "text-status-critical")}>
           {over
             ? `${money(-status.availableMinor, status.currency)} over`
@@ -171,32 +212,33 @@ function SinkingRow({
   const saved = status.savedMinor ?? 0;
   const share = status.limitMinor > 0 ? saved / status.limitMinor : 0;
   const required = status.requiredPerPeriodMinor ?? 0;
+  const value = Number(amount);
+  const valid = amount.trim() !== "" && Number.isFinite(value) && value !== 0;
 
   return (
-    <div className="border-b border-border/60 py-2.5 last:border-b-0">
+    <div role="listitem" className={ROW}>
       <button
         type="button"
         onClick={onOpen}
-        className="flex w-full items-baseline gap-3 text-left"
+        className="-mx-2 -my-1 rounded-md px-2 py-1 text-left transition-colors hover:bg-surface/70 focus-visible:bg-surface/70 focus-visible:outline-none"
       >
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          {status.name}
-        </span>
-        <span className="shrink-0 text-[13px] tabular-nums">
-          {money(saved, status.currency)}
-          <span className="text-muted-foreground">
-            {" / "}
-            {money(status.limitMinor, status.currency)}
-          </span>
-        </span>
-        <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-          {Math.round(share * 100)}%
-        </span>
+        <RowFigures
+          name={status.name}
+          value={money(saved, status.currency)}
+          of={money(status.limitMinor, status.currency)}
+          share={share}
+        />
       </button>
-      <div className="mt-1.5">
-        <LimitBar spentShare={share} committedShare={0} />
-      </div>
-      <div className="mt-1.5 flex items-center gap-2.5 text-[10px] text-muted-foreground">
+      <LimitBar spentShare={share} committedShare={0} />
+      <form
+        className="flex items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!valid || busy) return;
+          onContribute(value);
+          setAmount("");
+        }}
+      >
         {required > 0 ? (
           <span
             className={cn(status.onTrack === false && "text-status-warning")}
@@ -208,33 +250,26 @@ function SinkingRow({
         ) : (
           <span className="text-status-good">Funded</span>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1">
           <Input
             inputMode="decimal"
             value={amount}
             aria-label={`Contribute to ${status.name}`}
             onChange={(event) => setAmount(event.target.value)}
-            placeholder="Add"
-            className="h-6 w-20 px-2 text-[11px]"
+            placeholder={status.currency}
+            className="h-7 w-24 text-right text-xs tabular-nums"
           />
           <Button
+            type="submit"
             variant="ghost"
             size="icon-sm"
             aria-label="Record contribution"
-            disabled={busy || !Number.isFinite(Number(amount)) || amount === ""}
-            onClick={() => {
-              onContribute(Number(amount));
-              setAmount("");
-            }}
+            disabled={busy || !valid}
           >
-            {busy ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Plus className="size-3" />
-            )}
+            {busy ? <Loader2 className="animate-spin" /> : <Plus />}
           </Button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -253,17 +288,17 @@ function SuggestionRow({
 }) {
   const applicable = suggestion.action.kind !== "advice";
   return (
-    <div className="flex items-start gap-3 border-b border-border/60 py-2.5 last:border-b-0">
-      <div className="min-w-0 flex-1">
+    <div role="listitem" className="flex items-start gap-3 py-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-baseline gap-2">
-          <span className="truncate text-[13px] leading-tight">
+          <span className="truncate text-sm leading-tight text-accent-strong">
             {suggestion.title}
           </span>
           {suggestion.impactMinor !== undefined &&
             suggestion.impactMinor !== 0 && (
               <span
                 className={cn(
-                  "shrink-0 text-[11px] tabular-nums",
+                  "shrink-0 text-xs tabular-nums",
                   suggestion.impactMinor > 0
                     ? "text-status-good"
                     : "text-status-warning",
@@ -274,14 +309,14 @@ function SuggestionRow({
               </span>
             )}
         </div>
-        <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+        <div className="text-xs leading-snug text-muted-foreground">
           {suggestion.rationale}
         </div>
         {/* A refusal outlives the toast that used to carry it: the reason a
             well-formed suggestion cannot be applied belongs next to the
             button that failed, not in something that disappears. */}
         {refusal && (
-          <div className="mt-1.5 border-l-2 border-status-warning pl-2 text-[11px] leading-snug text-status-warning">
+          <div className="mt-1 border-l-2 border-status-warning pl-2 text-xs leading-snug text-status-warning">
             {refusal}
           </div>
         )}
@@ -291,26 +326,20 @@ function SuggestionRow({
           <Button
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5 text-xs"
             disabled={busy}
             onClick={() => onDecide("apply")}
           >
-            {busy ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Check className="size-3" />
-            )}
+            {busy ? <Loader2 className="animate-spin" /> : <Check />}
             Apply
           </Button>
         )}
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 text-xs"
           disabled={busy}
           onClick={() => onDecide("dismiss")}
         >
-          <X className="size-3" />
+          <X />
           Dismiss
         </Button>
       </div>
@@ -320,19 +349,19 @@ function SuggestionRow({
 
 export function BudgetPageSkeleton() {
   return (
-    <div className="space-y-8 p-4">
+    <div className="flex flex-col gap-8">
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-5">
         {["planned", "spent", "left", "projected", "loose"].map((key) => (
-          <div key={key} className="space-y-2">
-            <Skeleton className="h-2 w-14" />
+          <div key={key} className="flex flex-col gap-2">
+            <Skeleton className="h-2.5 w-14" />
             <Skeleton className="h-6 w-20" />
           </div>
         ))}
       </div>
-      <div className="space-y-3">
-        <Skeleton className="h-2 w-20" />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-2.5 w-20" />
         {["a", "b", "c"].map((key) => (
-          <Skeleton key={key} className="h-10 w-full" />
+          <Skeleton key={key} className="h-12 w-full" />
         ))}
       </div>
     </div>
@@ -400,362 +429,341 @@ export function FinanceBudgetPage({
     }
   }
 
-  const header = (
-    <PageHeader
-      leading={slots?.sidebarTrigger}
-      icon={<Wallet className="size-4 text-muted-foreground" />}
-      title="Budget"
-    >
-      <Button size="sm" variant="outline" className="h-8 text-xs" asChild>
-        <Link href={routes.finance.envelopeNew}>
-          <Plus className="size-3.5" />
-          Envelope
-        </Link>
-      </Button>
-      <Button size="sm" variant="outline" className="h-8 text-xs" asChild>
-        <Link href={routes.finance.root}>
-          <ArrowLeft className="size-3.5" />
-          Finance
-        </Link>
-      </Button>
-    </PageHeader>
+  async function coach() {
+    setCoaching(true);
+    try {
+      await generateFinanceBudgetSuggestions(client);
+      setRefusals({});
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Review failed");
+    } finally {
+      setCoaching(false);
+    }
+  }
+
+  async function decide(
+    suggestion: FinanceBudgetSuggestion,
+    action: "apply" | "dismiss",
+  ) {
+    setBusyId(suggestion.id);
+    setRefusals((prev) => {
+      const next = { ...prev };
+      delete next[suggestion.id];
+      return next;
+    });
+    try {
+      await decideFinanceBudgetSuggestion(client, suggestion.id, action);
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Action failed";
+      // 422 means the budget refused a well-formed suggestion, which is
+      // information about the budget rather than a failure to report and forget.
+      if (error instanceof AdminApiError && error.code === 422) {
+        setRefusals((prev) => ({ ...prev, [suggestion.id]: message }));
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const newEnvelope = (
+    <Button size="sm" variant={embedded ? "ghost" : "default"} asChild>
+      <Link href={routes.finance.envelopeNew}>
+        <Plus />
+        Envelope
+      </Link>
+    </Button>
   );
 
-  if (!data) {
-    const unavailable = loading ? (
-      <BudgetPageSkeleton />
-    ) : (
-      <div className="flex flex-col items-center gap-3 py-14">
-        <p className="text-sm text-muted-foreground">
-          {loadError ?? "Budget unavailable"}
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setLoading(true);
-            void load();
-          }}
-        >
-          <RefreshCw className="size-3.5" />
-          Retry
-        </Button>
-      </div>
-    );
-
-    if (embedded) return unavailable;
-
+  function frame(body: ReactNode) {
+    if (embedded) return body;
     return (
-      <div className="flex h-full min-h-0 flex-col">
-        {header}
-        <div className="min-h-0 flex-1 overflow-y-auto">{unavailable}</div>
-      </div>
+      <Page>
+        <PageHeader
+          leading={slots?.sidebarTrigger}
+          crumbs={[
+            {
+              label: "Finance",
+              onClick: () => router.push(routes.finance.root),
+            },
+          ]}
+          icon={<Wallet />}
+          title="Budget"
+        >
+          {newEnvelope}
+        </PageHeader>
+        <PageBody>{body}</PageBody>
+      </Page>
+    );
+  }
+
+  if (!data) {
+    return frame(
+      loading ? (
+        <BudgetPageSkeleton />
+      ) : (
+        <EmptyState
+          icon={<Wallet />}
+          label={loadError ?? "Budget unavailable"}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLoading(true);
+                void load();
+              }}
+            >
+              <RefreshCw />
+              Retry
+            </Button>
+          }
+        />
+      ),
     );
   }
 
   const { totals } = data;
   const overspending = totals.availableMinor < 0;
   const openAlerts = data.alerts.filter((alert) => alert.status === "open");
+  const alertsLabel =
+    openAlerts.length > 0 ? `${openAlerts.length} open` : "None open";
 
-  return (
-    <div className={embedded ? undefined : "flex h-full min-h-0 flex-col"}>
-      {embedded ? null : header}
-      <div className={embedded ? undefined : "min-h-0 flex-1 overflow-y-auto"}>
-        <div className="mx-auto max-w-5xl space-y-9 px-4 py-5">
-          {embedded ? (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                asChild
-              >
-                <Link href={routes.finance.envelopeNew}>
-                  <Plus className="size-3.5" />
-                  Envelope
-                </Link>
-              </Button>
-            </div>
-          ) : null}
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-5">
-            <Figure
-              label="Planned"
-              value={money(totals.plannedMinor, totals.currency)}
-              meta="per month"
-            />
-            <Figure
-              label="Spent"
-              value={money(totals.spentMinor, totals.currency)}
-              meta={
-                totals.committedMinor > 0
-                  ? `+ ${money(totals.committedMinor, totals.currency)} committed`
-                  : undefined
-              }
-            />
-            <Figure
-              label={overspending ? "Over" : "Left"}
-              value={money(Math.abs(totals.availableMinor), totals.currency)}
-              tone={overspending ? "critical" : undefined}
-            />
-            <Figure
-              label="Projected"
-              value={money(totals.projectedMinor, totals.currency)}
-              tone={
-                totals.projectedMinor > totals.plannedMinor
-                  ? "critical"
-                  : undefined
-              }
-              meta="month end"
-            />
-            <Figure
-              label="Unbudgeted"
-              value={money(totals.unbudgetedMinor, totals.currency)}
-              meta={
-                totals.incomeMinor > 0
-                  ? `${money(totals.incomeMinor, totals.currency)} income`
-                  : undefined
-              }
-            />
-          </div>
+  return frame(
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <StatGroup>
+          <Stat
+            label="Planned"
+            value={money(totals.plannedMinor, totals.currency)}
+            hint="per month"
+          />
+          <Stat
+            label="Spent"
+            value={money(totals.spentMinor, totals.currency)}
+            hint={
+              totals.committedMinor > 0
+                ? `+ ${money(totals.committedMinor, totals.currency)} committed`
+                : undefined
+            }
+          />
+          <Stat
+            label={overspending ? "Over" : "Left"}
+            value={money(Math.abs(totals.availableMinor), totals.currency)}
+            tone={overspending ? "critical" : "default"}
+          />
+          <Stat
+            label="Projected"
+            value={money(totals.projectedMinor, totals.currency)}
+            tone={
+              totals.projectedMinor > totals.plannedMinor
+                ? "critical"
+                : "default"
+            }
+            hint="month end"
+          />
+          <Stat
+            label="Unbudgeted"
+            value={money(totals.unbudgetedMinor, totals.currency)}
+            hint={
+              totals.incomeMinor > 0
+                ? `${money(totals.incomeMinor, totals.currency)} income`
+                : undefined
+            }
+          />
+        </StatGroup>
+        {data.unconvertedByCurrency.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Excluded, no rate:{" "}
+            {data.unconvertedByCurrency
+              .map((row) => money(row.amountMinor, row.currency))
+              .join(", ")}
+          </p>
+        )}
+      </div>
 
-          {data.unconvertedByCurrency.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              Excluded, no rate:{" "}
-              {data.unconvertedByCurrency
-                .map((row) => money(row.amountMinor, row.currency))
-                .join(", ")}
-            </p>
-          )}
-
-          <section className="space-y-1">
-            <SectionHead label="Alerts">
-              {embedded && onOpenAlerts ? (
-                <Button variant="ghost" size="sm" onClick={onOpenAlerts}>
-                  {openAlerts.length > 0
-                    ? `${openAlerts.length} open`
-                    : "None open"}
-                </Button>
-              ) : (
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={routes.finance.alerts}>
-                    {openAlerts.length > 0
-                      ? `${openAlerts.length} open`
-                      : "None open"}
-                  </Link>
-                </Button>
-              )}
-            </SectionHead>
-            {openAlerts.length === 0 ? (
-              <Empty label="—" compact />
-            ) : (
-              openAlerts.slice(0, 3).map((alert) => {
-                const contents = (
-                  <>
+      <Section
+        title="Alerts"
+        count={openAlerts.length}
+        actions={
+          embedded && onOpenAlerts ? (
+            <Button variant="ghost" size="sm" onClick={onOpenAlerts}>
+              {alertsLabel}
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={routes.finance.alerts}>{alertsLabel}</Link>
+            </Button>
+          )
+        }
+      >
+        {openAlerts.length === 0 ? (
+          <EmptyState compact label="No open alerts" />
+        ) : (
+          <List divided>
+            {openAlerts.slice(0, 3).map((alert) => {
+              const row = (
+                <ListRow
+                  key={alert.id}
+                  onClick={embedded && onOpenAlerts ? onOpenAlerts : undefined}
+                  leading={
                     <StatusDot
                       tone={SEVERITY_TONE[alert.severity]}
                       label={alert.severity}
-                      className="mt-1.5"
                     />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      {alert.title}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {relative(alert.firstSeenAt)}
-                    </span>
-                  </>
-                );
-                const className =
-                  "flex w-full items-start gap-3 border-b border-border/60 py-2 text-left last:border-b-0 hover:bg-muted/40";
-                return embedded && onOpenAlerts ? (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={onOpenAlerts}
-                    className={className}
-                  >
-                    {contents}
-                  </button>
-                ) : (
-                  <Link
-                    key={alert.id}
-                    href={routes.finance.alerts}
-                    className={className}
-                  >
-                    {contents}
-                  </Link>
-                );
-              })
-            )}
-          </section>
-
-          <section className="space-y-1">
-            <SectionHead label="Envelopes" />
-            {capped.length === 0 ? (
-              <Empty label="—" compact />
-            ) : (
-              capped.map((status) => (
-                <CappedRow
-                  key={status.envelopeId}
-                  status={status}
-                  onOpen={() =>
-                    router.push(routes.finance.envelope(status.envelopeId))
                   }
+                  title={alert.title}
+                  meta={relative(alert.firstSeenAt)}
                 />
-              ))
-            )}
-          </section>
+              );
+              return embedded && onOpenAlerts ? (
+                row
+              ) : (
+                <Link key={alert.id} href={routes.finance.alerts}>
+                  {row}
+                </Link>
+              );
+            })}
+          </List>
+        )}
+      </Section>
 
-          {sinking.length > 0 && (
-            <section className="space-y-1">
-              <SectionHead label="Funds" />
-              {sinking.map((status) => (
-                <SinkingRow
-                  key={status.envelopeId}
-                  status={status}
-                  busy={busyId === status.envelopeId}
-                  onOpen={() =>
-                    router.push(routes.finance.envelope(status.envelopeId))
-                  }
-                  onContribute={(amountMajor) =>
-                    withBusy(status.envelopeId, () =>
-                      contributeToFinanceEnvelope(client, status.envelopeId, {
-                        amountMinor: majorToMinor(amountMajor, status.currency),
-                      }),
-                    )
-                  }
-                />
-              ))}
-            </section>
-          )}
+      <Section
+        title="Envelopes"
+        count={capped.length}
+        actions={embedded ? newEnvelope : undefined}
+      >
+        {capped.length === 0 ? (
+          <EmptyState compact icon={<Wallet />} label="No envelopes" />
+        ) : (
+          <List divided>
+            {capped.map((status) => (
+              <CappedRow
+                key={status.envelopeId}
+                status={status}
+                onOpen={() =>
+                  router.push(routes.finance.envelope(status.envelopeId))
+                }
+              />
+            ))}
+          </List>
+        )}
+      </Section>
 
-          {data.unbudgeted.length > 0 && (
-            <section className="space-y-1">
-              <SectionHead label="Unbudgeted" />
-              {data.unbudgeted.slice(0, 8).map((row) => {
-                const label = row.category ?? "Uncategorized";
-                const draft = drafts.find(
-                  (entry) => entry.name === row.category,
-                );
-                return (
-                  <div
-                    key={label}
-                    className="flex items-baseline gap-3 border-b border-border/60 py-2 last:border-b-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      {label}
-                    </span>
-                    <span className="shrink-0 text-[13px] tabular-nums">
-                      {money(row.spentMinor, data.currency)}
-                    </span>
-                    <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
-                      {row.entryCount}{" "}
-                      {row.entryCount === 1 ? "entry" : "entries"}
-                    </span>
-                    {row.category && (
+      {sinking.length > 0 && (
+        <Section title="Funds" count={sinking.length}>
+          <List divided>
+            {sinking.map((status) => (
+              <SinkingRow
+                key={status.envelopeId}
+                status={status}
+                busy={busyId === status.envelopeId}
+                onOpen={() =>
+                  router.push(routes.finance.envelope(status.envelopeId))
+                }
+                onContribute={(amountMajor) =>
+                  void withBusy(status.envelopeId, () =>
+                    contributeToFinanceEnvelope(client, status.envelopeId, {
+                      amountMinor: majorToMinor(amountMajor, status.currency),
+                    }),
+                  )
+                }
+              />
+            ))}
+          </List>
+        </Section>
+      )}
+
+      {data.unbudgeted.length > 0 && (
+        <Section title="Unbudgeted" count={data.unbudgeted.length}>
+          <List divided>
+            {data.unbudgeted.slice(0, 8).map((row) => {
+              const label = row.category ?? "Uncategorized";
+              const draft = drafts.find((entry) => entry.name === row.category);
+              return (
+                <ListRow
+                  key={label}
+                  title={label}
+                  meta={
+                    <>
+                      <span className="text-sm text-accent-strong">
+                        {money(row.spentMinor, data.currency)}
+                      </span>
+                      <span className="w-16 text-right">
+                        {row.entryCount}{" "}
+                        {row.entryCount === 1 ? "entry" : "entries"}
+                      </span>
+                    </>
+                  }
+                  trailing={
+                    row.category ? (
                       <Button variant="ghost" size="sm" asChild>
                         <Link
-                          href={`${routes.finance.envelopeNew}?category=${encodeURIComponent(row.category)}&limit=${draft?.suggestedLimitMinor ?? row.spentMinor}`}
+                          href={withQueryParams(routes.finance.envelopeNew, {
+                            category: row.category,
+                            limit: String(
+                              draft?.suggestedLimitMinor ?? row.spentMinor,
+                            ),
+                          })}
                         >
                           Budget
                         </Link>
                       </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          )}
-
-          <section className="space-y-1">
-            <SectionHead label="Coach">
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Ask the agent"
-                onClick={() => window.dispatchEvent(new Event("agent:open"))}
-              >
-                <MessageCircle className="size-3" />
-                Ask
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={coaching}
-                onClick={async () => {
-                  setCoaching(true);
-                  try {
-                    await generateFinanceBudgetSuggestions(client);
-                    setRefusals({});
-                    await load();
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error ? error.message : "Review failed",
-                    );
-                  } finally {
-                    setCoaching(false);
+                    ) : (
+                      <span className="w-[4.25rem]" />
+                    )
                   }
-                }}
-              >
-                {coaching ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <Sparkles className="size-3" />
-                )}
-                Review
-              </Button>
-            </SectionHead>
-            {data.suggestions.length === 0 ? (
-              <Empty label="—" compact />
-            ) : (
-              data.suggestions.map((suggestion) => (
-                <SuggestionRow
-                  key={suggestion.id}
-                  suggestion={suggestion}
-                  busy={busyId === suggestion.id}
-                  refusal={refusals[suggestion.id]}
-                  onDecide={async (action) => {
-                    setBusyId(suggestion.id);
-                    setRefusals((prev) => {
-                      const next = { ...prev };
-                      delete next[suggestion.id];
-                      return next;
-                    });
-                    try {
-                      await decideFinanceBudgetSuggestion(
-                        client,
-                        suggestion.id,
-                        action,
-                      );
-                      await load();
-                    } catch (error) {
-                      const message =
-                        error instanceof Error
-                          ? error.message
-                          : "Action failed";
-                      // 422 means the budget refused a well-formed suggestion,
-                      // which is information about the budget rather than a
-                      // failure to report and forget.
-                      if (
-                        error instanceof AdminApiError &&
-                        error.code === 422
-                      ) {
-                        setRefusals((prev) => ({
-                          ...prev,
-                          [suggestion.id]: message,
-                        }));
-                      } else {
-                        toast.error(message);
-                      }
-                    } finally {
-                      setBusyId(null);
-                    }
-                  }}
                 />
-              ))
-            )}
-          </section>
-        </div>
-      </div>
-    </div>
+              );
+            })}
+          </List>
+        </Section>
+      )}
+
+      <Section
+        title="Coach"
+        count={data.suggestions.length}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.dispatchEvent(new Event("agent:open"))}
+            >
+              <MessageCircle />
+              Ask
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={coaching}
+              onClick={() => void coach()}
+            >
+              {coaching ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              Review
+            </Button>
+          </>
+        }
+      >
+        {data.suggestions.length === 0 ? (
+          <EmptyState compact label="No suggestions" />
+        ) : (
+          <List divided>
+            {data.suggestions.map((suggestion) => (
+              <SuggestionRow
+                key={suggestion.id}
+                suggestion={suggestion}
+                busy={busyId === suggestion.id}
+                refusal={refusals[suggestion.id]}
+                onDecide={(action) => void decide(suggestion, action)}
+              />
+            ))}
+          </List>
+        )}
+      </Section>
+    </div>,
   );
 }

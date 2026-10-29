@@ -48,7 +48,7 @@ export function VoiceNoteTagEditor({
       {tags.map((tag) => (
         <span
           key={tag}
-          className="group/tag inline-flex h-5 items-center gap-0.5 rounded-sm bg-muted/60 pr-0.5 pl-1.5 text-[11px]"
+          className="group/tag inline-flex h-6 items-center gap-0.5 rounded-md bg-surface pr-0.5 pl-1.5 text-xs dark:bg-muted"
         >
           <span className="text-muted-foreground">#</span>
           {tag}
@@ -56,7 +56,7 @@ export function VoiceNoteTagEditor({
             type="button"
             disabled={disabled}
             onClick={() => onChange(tags.filter((item) => item !== tag))}
-            className="flex size-3.5 items-center justify-center rounded-sm text-muted-foreground opacity-50 hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/tag:opacity-100"
+            className="flex size-3.5 items-center justify-center rounded-sm text-muted-foreground opacity-50 hover:bg-background hover:text-accent-strong hover:opacity-100 focus-visible:opacity-100 group-hover/tag:opacity-100"
             aria-label={`Remove tag ${tag}`}
           >
             <X className="size-2.5" />
@@ -110,7 +110,7 @@ export function VoiceNoteTagEditor({
                 ? `${listboxId}-${activeIndex}`
                 : undefined
             }
-            className="h-5 w-24 bg-transparent px-1 text-[11px] outline-none placeholder:text-muted-foreground/60"
+            className="h-6 w-24 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground/60"
           />
           {open && (
             <div
@@ -127,10 +127,10 @@ export function VoiceNoteTagEditor({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => add(tag)}
                   className={cn(
-                    "cursor-default rounded-sm px-2 py-1 text-[11px]",
+                    "cursor-default rounded-sm px-2 py-1 text-xs",
                     index === activeIndex
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/60",
+                      ? "bg-surface text-accent-strong"
+                      : "hover:bg-surface/70",
                   )}
                 >
                   <span className="text-muted-foreground">#</span>

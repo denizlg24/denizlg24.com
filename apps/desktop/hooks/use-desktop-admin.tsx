@@ -3,7 +3,7 @@
 import type { AdminContextValue } from "@repo/admin/provider";
 import { Laptop, ScrollText } from "lucide-react";
 import { useMemo } from "react";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/workspace/sidebar-trigger";
 import { useUserSettings } from "@/context/user-context";
 import { createDesktopAdminClient } from "@/lib/admin-client";
 import { DESKTOP_ADMIN_ROUTES } from "@/lib/admin-routes";
@@ -27,7 +27,7 @@ export function useDesktopAdmin(): {
       platform: desktopPlatform,
       routes: DESKTOP_ADMIN_ROUTES,
       slots: {
-        sidebarTrigger: <SidebarTrigger className="-ml-1 size-7 md:hidden" />,
+        sidebarTrigger: <SidebarTrigger />,
         // Device settings read the Tauri store and updater, so the route lives
         // in this app and only its rail entry is handed to the shared shell.
         settingsExtraSections: [

@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { FileOutput, Loader2, RefreshCw } from "lucide-react";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Spinner } from "@repo/ui/spinner";
+import { FileOutput, RefreshCw } from "lucide-react";
 import {
   type ReactNode,
   useCallback,
@@ -50,7 +52,7 @@ export function PdfBytesPreview({
 
   const loadingNode = (
     <div className="flex h-full min-h-80 items-center justify-center">
-      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      <Spinner className="size-4 text-muted-foreground" />
     </div>
   );
   const failure = error
@@ -64,7 +66,7 @@ export function PdfBytesPreview({
   return (
     <div
       ref={previewRef}
-      className="h-full min-h-80 overflow-y-auto bg-muted/20"
+      className="h-full min-h-80 overflow-y-auto bg-surface/40"
     >
       {failure ?? (
         <Document
@@ -91,7 +93,7 @@ export function PdfBytesPreview({
               }
               renderTextLayer={false}
               renderAnnotationLayer={false}
-              className="shadow-sm"
+              className="ring-1 ring-border"
             />
           ))}
         </Document>
@@ -111,9 +113,11 @@ export function LatexAssetPdfPreview({ content }: { content: string }) {
   }, [content]);
   if (!data) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        PDF data could not be decoded
-      </div>
+      <EmptyState
+        icon={<FileOutput />}
+        label="Unreadable PDF"
+        className="h-full"
+      />
     );
   }
   return <PdfBytesPreview data={data} />;
@@ -167,27 +171,32 @@ export function LatexProjectPdfPreview({
 
   if (revision === null) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-        <FileOutput className="size-6 opacity-40" />
-        Compile the project to preview its PDF.
-      </div>
+      <EmptyState
+        icon={<FileOutput />}
+        label="Not compiled"
+        className="h-full"
+      />
     );
   }
 
   const fallback = (
-    <div className="flex h-full min-h-80 flex-col items-center justify-center gap-3 px-6 text-center text-xs text-muted-foreground">
-      <span>{error ?? "PDF unavailable"}</span>
-      <Button variant="outline" size="sm" onClick={reload}>
-        <RefreshCw /> Retry
-      </Button>
-    </div>
+    <EmptyState
+      icon={<FileOutput />}
+      label={error ?? "PDF unavailable"}
+      className="h-full px-6"
+      action={
+        <Button variant="outline" size="sm" onClick={reload}>
+          <RefreshCw /> Retry
+        </Button>
+      }
+    />
   );
 
   if (error) return fallback;
   if (loading || !pdfData) {
     return (
       <div className="flex h-full min-h-80 items-center justify-center">
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <Spinner className="size-4 text-muted-foreground" />
       </div>
     );
   }

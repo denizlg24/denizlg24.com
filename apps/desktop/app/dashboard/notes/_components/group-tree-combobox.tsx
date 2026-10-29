@@ -9,7 +9,7 @@ import {
 } from "@repo/ui/popover";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { Check, ChevronDown, ChevronRight, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { INoteGroup, IPersonGroup } from "@/lib/data-types";
 import {
   buildChildrenByParent,
@@ -19,6 +19,9 @@ import {
 } from "@/lib/note-group-tree";
 
 interface Props {
+  /** `toolbar` renders a filter pill for PageToolbar. */
+  variant?: "inline" | "toolbar";
+  icon?: ReactNode;
   groups: Array<INoteGroup | IPersonGroup>;
   value: string[];
   onChange: (next: string[]) => void;
@@ -37,7 +40,16 @@ function formatSelectionLabel(count: number, placeholder: string) {
   return `${count} group${count === 1 ? "" : "s"}`;
 }
 
+const TRIGGER_CLASS = {
+  inline:
+    "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-accent-strong",
+  toolbar:
+    "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-surface/60 hover:text-accent-strong data-[active]:bg-surface data-[active]:text-accent-strong dark:data-[active]:bg-muted",
+} as const;
+
 export function GroupTreeCombobox({
+  variant = "inline",
+  icon,
   groups,
   value,
   onChange,
@@ -163,7 +175,7 @@ export function GroupTreeCombobox({
             <button
               type="button"
               onClick={() => toggleExpanded(group._id)}
-              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-surface hover:text-accent-strong"
               aria-label={`${expanded ? "Collapse" : "Expand"} ${group.name}`}
             >
               {expanded ? (
@@ -179,8 +191,8 @@ export function GroupTreeCombobox({
           <button
             type="button"
             onClick={() => toggleGroup(group._id)}
-            className={`flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent ${
-              selected ? "bg-accent text-accent-foreground" : ""
+            className={`flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface ${
+              selected ? "bg-surface text-accent-strong" : ""
             }`}
             title={pathLabelById.get(group._id) ?? group.name}
           >
@@ -224,9 +236,12 @@ export function GroupTreeCombobox({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
+              data-active={
+                variant === "toolbar" && value.length > 0 ? "" : undefined
+              }
+              className={TRIGGER_CLASS[variant]}
             >
-              <Plus className="size-2.5" />
+              {icon ?? <Plus className="size-3" />}
               {triggerLabel}
             </button>
           </PopoverTrigger>
@@ -277,7 +292,7 @@ export function GroupTreeCombobox({
                 type="button"
                 onClick={() => void createGroup()}
                 disabled={creating}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-surface hover:text-accent-strong disabled:opacity-50"
               >
                 <Plus className="size-3" />
                 {creating ? "Creating..." : `Create "${query.trim()}"`}

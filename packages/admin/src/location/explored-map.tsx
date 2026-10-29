@@ -2,9 +2,9 @@
 
 import { type LocationExplored, locationExploredSchema } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { PageHeader } from "@repo/ui/page-header";
-import { SegmentedControl } from "@repo/ui/segmented-control";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
+import { FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
 import { Earth, Globe, Locate, Minus, Plus } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -204,6 +204,27 @@ function useExplored() {
   return { explored, failed };
 }
 
+function ExploredFigure({
+  value,
+  label,
+  leadingLabel = false,
+}: {
+  value: string;
+  label: string;
+  leadingLabel?: boolean;
+}) {
+  const figure = <span className="text-accent-strong">{value}</span>;
+  return leadingLabel ? (
+    <span>
+      {label} {figure}
+    </span>
+  ) : (
+    <span>
+      {figure} {label}
+    </span>
+  );
+}
+
 export function ExploredMap() {
   const { slots } = useAdmin();
   const { explored, failed } = useExplored();
@@ -399,194 +420,184 @@ export function ExploredMap() {
     : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<Earth className="size-4 text-muted-foreground" />}
+        icon={<Earth />}
         title="Explored"
-      >
-        <SegmentedControl
-          ariaLabel="Radius"
+      />
+      <PageToolbar>
+        <FilterTabs
           value={radius}
-          onValueChange={setRadius}
+          onChange={setRadius}
           options={[
             { value: "5", label: "5 m" },
             { value: "10", label: "10 m" },
           ]}
-          className="[&>button]:min-h-7 [&>button]:px-2 [&>button]:text-xs"
         />
-      </PageHeader>
-      <div className="flex shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1 border-b px-4 py-2 text-xs tabular-nums text-muted-foreground">
-        {explored ? (
-          <>
-            <span>
-              <span className="text-sm font-medium text-foreground">
-                {area !== null ? formatArea(area) : "—"}
-              </span>{" "}
-              explored
-            </span>
-            <span>
-              <span className="text-foreground">
-                {formatDistance(explored.distanceMetres)}
-              </span>{" "}
-              tracked
-            </span>
-            <span>
-              <span className="text-foreground">
-                {explored.points.toLocaleString()}
-              </span>{" "}
-              fixes
-            </span>
-            {explored.firstAt ? (
-              <span>
-                since{" "}
-                <span className="text-foreground">
-                  {new Date(explored.firstAt).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </span>
-              </span>
-            ) : null}
-          </>
-        ) : failed ? (
-          <span className="text-destructive">Failed to load</span>
-        ) : (
-          <>
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-16" />
-          </>
-        )}
-      </div>
-      <div
-        ref={containerRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-background"
-      >
-        <svg
-          ref={svgRef}
-          width={size.width}
-          height={size.height}
-          className="absolute inset-0 cursor-grab touch-none select-none active:cursor-grabbing"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onPointerLeave={() => setCursor(null)}
-          onDoubleClick={(event) => {
-            const point = localPoint(event);
-            setView((current) =>
-              zoomAt(current, event.shiftKey ? 0.5 : 2, point.x, point.y),
-            );
-          }}
+        <ToolbarSpacer />
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs tabular-nums text-muted-foreground">
+          {explored ? (
+            <>
+              <ExploredFigure
+                value={area !== null ? formatArea(area) : "—"}
+                label="explored"
+              />
+              <ExploredFigure
+                value={formatDistance(explored.distanceMetres)}
+                label="tracked"
+              />
+              <ExploredFigure
+                value={explored.points.toLocaleString()}
+                label="fixes"
+              />
+              {explored.firstAt ? (
+                <ExploredFigure
+                  label="since"
+                  value={new Date(explored.firstAt).toLocaleDateString(
+                    undefined,
+                    { day: "numeric", month: "short", year: "numeric" },
+                  )}
+                  leadingLabel
+                />
+              ) : null}
+            </>
+          ) : failed ? (
+            <span className="text-destructive">Failed to load</span>
+          ) : (
+            <>
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-3.5 w-20" />
+              <Skeleton className="h-3.5 w-16" />
+            </>
+          )}
+        </div>
+      </PageToolbar>
+      <PageBody bleed>
+        <div
+          ref={containerRef}
+          className="absolute inset-0 overflow-hidden bg-background"
         >
-          <rect
+          <svg
+            ref={svgRef}
             width={size.width}
             height={size.height}
-            fill="var(--background)"
-          />
-          <defs>
-            <clipPath id={clipId}>
-              <rect width={WORLD_SIZE} height={WORLD_SIZE} />
-            </clipPath>
-          </defs>
-          <g
-            transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}
-            clipPath={`url(#${clipId})`}
+            className="absolute inset-0 cursor-grab touch-none select-none active:cursor-grabbing"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onPointerLeave={() => setCursor(null)}
+            onDoubleClick={(event) => {
+              const point = localPoint(event);
+              setView((current) =>
+                zoomAt(current, event.shiftKey ? 0.5 : 2, point.x, point.y),
+              );
+            }}
           >
-            <rect width={WORLD_SIZE} height={WORLD_SIZE} fill={MAP_WATER} />
-            {view.scale < 64 ? (
-              <path
-                d={GRATICULE}
-                fill="none"
-                stroke="var(--border)"
-                strokeOpacity={0.6}
-                strokeWidth={0.5}
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-            <g fill="var(--muted)" fillRule="evenodd">
-              {visibleCountries.map((country) => (
-                <path key={country.name + country.bbox.join()} d={country.d}>
-                  <title>{country.name}</title>
-                </path>
-              ))}
-            </g>
-            {world ? (
-              <path
-                d={world.borders}
-                fill="none"
-                stroke="var(--background)"
-                strokeWidth={0.75}
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-          </g>
-          <StreetTiles view={view} width={size.width} height={size.height} />
-          {exploredLayer}
-        </svg>
-
-        {!world ? (
-          <Skeleton className="absolute inset-4 rounded-md opacity-60" />
-        ) : null}
-
-        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 text-[10px] tabular-nums text-muted-foreground">
-          <div className="flex items-end gap-1.5">
-            <div
-              className="h-1.5 border-x border-b border-foreground/60"
-              style={{ width: bar.px }}
+            <rect
+              width={size.width}
+              height={size.height}
+              fill="var(--background)"
             />
-            <span>{bar.label}</span>
-          </div>
-          {cursor ? (
-            <span>
-              {cursor[1].toFixed(5)}, {cursor[0].toFixed(5)}
-            </span>
-          ) : null}
-        </div>
+            <defs>
+              <clipPath id={clipId}>
+                <rect width={WORLD_SIZE} height={WORLD_SIZE} />
+              </clipPath>
+            </defs>
+            <g
+              transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}
+              clipPath={`url(#${clipId})`}
+            >
+              <rect width={WORLD_SIZE} height={WORLD_SIZE} fill={MAP_WATER} />
+              {view.scale < 64 ? (
+                <path
+                  d={GRATICULE}
+                  fill="none"
+                  stroke="var(--border)"
+                  strokeOpacity={0.6}
+                  strokeWidth={0.5}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
+              <g fill="var(--muted)" fillRule="evenodd">
+                {visibleCountries.map((country) => (
+                  <path key={country.name + country.bbox.join()} d={country.d}>
+                    <title>{country.name}</title>
+                  </path>
+                ))}
+              </g>
+              {world ? (
+                <path
+                  d={world.borders}
+                  fill="none"
+                  stroke="var(--background)"
+                  strokeWidth={0.75}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
+            </g>
+            <StreetTiles view={view} width={size.width} height={size.height} />
+            {exploredLayer}
+          </svg>
 
-        <div className="absolute right-3 bottom-3 flex flex-col overflow-hidden rounded-md border bg-background/90 shadow-sm backdrop-blur">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-none"
-            aria-label="Zoom in"
-            onClick={() => zoomCentre(2)}
-          >
-            <Plus className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-none border-t"
-            aria-label="Zoom out"
-            onClick={() => zoomCentre(0.5)}
-          >
-            <Minus className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-none border-t"
-            aria-label="Fit explored"
-            disabled={!explored?.bounds}
-            onClick={frameExplored}
-          >
-            <Locate className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-none border-t"
-            aria-label="Whole world"
-            onClick={() => setView({ scale: 0, x: 0, y: 0 })}
-          >
-            <Globe className="size-4" />
-          </Button>
+          {!world ? (
+            <Skeleton className="absolute inset-4 rounded-md opacity-60" />
+          ) : null}
+
+          <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 text-[10px] tabular-nums text-muted-foreground">
+            <div className="flex items-end gap-1.5">
+              <div
+                className="h-1.5 border-x border-b border-accent-strong/60"
+                style={{ width: bar.px }}
+              />
+              <span>{bar.label}</span>
+            </div>
+            {cursor ? (
+              <span>
+                {cursor[1].toFixed(5)}, {cursor[0].toFixed(5)}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="absolute right-3 bottom-3 flex flex-col gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm backdrop-blur">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Zoom in"
+              onClick={() => zoomCentre(2)}
+            >
+              <Plus />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Zoom out"
+              onClick={() => zoomCentre(0.5)}
+            >
+              <Minus />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Fit explored"
+              disabled={!explored?.bounds}
+              onClick={frameExplored}
+            >
+              <Locate />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Whole world"
+              onClick={() => setView({ scale: 0, x: 0, y: 0 })}
+            >
+              <Globe />
+            </Button>
+          </div>
         </div>
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

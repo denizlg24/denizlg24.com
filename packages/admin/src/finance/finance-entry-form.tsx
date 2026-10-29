@@ -9,9 +9,12 @@ import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
 import { CurrencySelect } from "@repo/ui/currency-select";
 import { DatePicker } from "@repo/ui/date-picker";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
 import { SearchSelect } from "@repo/ui/search-select";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -22,7 +25,8 @@ import {
 import { Switch } from "@repo/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { Textarea } from "@repo/ui/textarea";
-import { Toggle } from "@repo/ui/toggle";
+import { FilterTabs } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import { majorToMinor, minorToMajor } from "@repo/utils";
 import {
   CalendarClock,
@@ -32,7 +36,15 @@ import {
   Trash2,
   Unlink,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { CategoryField } from "./finance-category-field";
@@ -45,70 +57,62 @@ import {
   unlinkFinanceEntry,
   updateFinanceEntry,
 } from "./finance-data";
-import { FieldRow } from "./finance-primitives";
 import { money, shortDay, todayKey } from "./finance-series";
+
+type Direction = "expense" | "income";
+
+const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
+  { value: "expense", label: "Expense" },
+  { value: "income", label: "Income" },
+];
 
 function DirectionToggle({
   value,
   onChange,
 }: {
-  value: "expense" | "income";
-  onChange: (next: "expense" | "income") => void;
+  value: Direction;
+  onChange: (next: Direction) => void;
 }) {
   return (
-    <div className="flex gap-1">
-      {(["expense", "income"] as const).map((option) => (
-        <Toggle
-          key={option}
-          size="sm"
-          variant="outline"
-          pressed={value === option}
-          onPressedChange={() => onChange(option)}
-          className="flex-1 capitalize"
-        >
-          {option}
-        </Toggle>
-      ))}
-    </div>
+    <FilterTabs value={value} onChange={onChange} options={DIRECTION_OPTIONS} />
   );
 }
 
-function AmountField({
-  id,
-  currency,
-  value,
-  onChange,
-  onCurrencyChange,
-  inputRef,
+/** A form that submits on Enter (and on ⌘/Ctrl+Enter from a textarea). */
+function EntryFormBody({
+  onSubmit,
+  actions,
+  children,
 }: {
-  id: string;
-  currency: string;
-  value: string;
-  onChange: (next: string) => void;
-  onCurrencyChange: (next: string) => void;
-  inputRef?: React.Ref<HTMLInputElement>;
+  onSubmit: () => void;
+  actions: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
-      <FieldRow label="Amount" htmlFor={id} className="min-w-0">
-        <Input
-          id={id}
-          ref={inputRef}
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="0.01"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="text-right text-lg font-medium tabular-nums"
-          placeholder="0.00"
-        />
-      </FieldRow>
-      <FieldRow label="Currency" className="min-w-0">
-        <CurrencySelect value={currency} onValueChange={onCurrencyChange} />
-      </FieldRow>
-    </div>
+    <form
+      className="flex flex-col gap-5"
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      onKeyDown={(event: KeyboardEvent) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          onSubmit();
+        }
+      }}
+    >
+      {children}
+      <div className="flex items-center justify-end gap-2 border-t pt-4">
+        {actions}
+      </div>
+    </form>
   );
+}
+
+function positiveAmount(amount: string) {
+  const value = Number(amount);
+  return Number.isFinite(value) && value > 0;
 }
 
 export function EntryForm({
@@ -127,7 +131,7 @@ export function EntryForm({
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [currency, setCurrency] = useState(accounts[0]?.currency ?? "EUR");
   const [amount, setAmount] = useState("");
-  const [direction, setDirection] = useState<"expense" | "income">("expense");
+  const [direction, setDirection] = useState<Direction>("expense");
   const [date, setDate] = useState(todayKey);
   const [descriptor, setDescriptor] = useState("");
   const [category, setCategory] = useState<string | undefined>();
@@ -148,7 +152,6 @@ export function EntryForm({
     .join();
 
   useEffect(() => {
-    if (!open) return;
     setAccountId((current) => {
       const next = accounts.some((item) => item.id === current)
         ? current
@@ -159,7 +162,7 @@ export function EntryForm({
     });
     const timer = window.setTimeout(() => amountRef.current?.focus(), 60);
     return () => window.clearTimeout(timer);
-  }, [open, accountKey]);
+  }, [accountKey]);
 
   function reset() {
     setAmount("");
@@ -169,10 +172,10 @@ export function EntryForm({
     setCategory(undefined);
   }
 
-  const ready = Boolean(account && amount && descriptor.trim());
+  const ready = Boolean(account && positiveAmount(amount) && descriptor.trim());
 
   async function saveManual(keepOpen: boolean) {
-    if (!account || !ready) return;
+    if (!account || !ready || saving) return;
     setSaving(true);
     try {
       await createFinanceEntry(client, {
@@ -197,7 +200,7 @@ export function EntryForm({
   }
 
   async function saveExpected() {
-    if (!account || !ready) return;
+    if (!account || !ready || saving) return;
     setSaving(true);
     try {
       await createExpectedFinanceEntry(client, {
@@ -222,7 +225,7 @@ export function EntryForm({
   }
 
   async function saveNatural() {
-    if (!account || !phrase.trim()) return;
+    if (!account || !phrase.trim() || saving) return;
     setSaving(true);
     try {
       const entry = await createNaturalFinanceEntry(client, {
@@ -242,7 +245,7 @@ export function EntryForm({
   }
 
   const accountSelect = (
-    <FieldRow label="Account">
+    <FormField label="Account">
       <Select
         value={account?.id ?? ""}
         onValueChange={(value) => {
@@ -262,186 +265,194 @@ export function EntryForm({
           ))}
         </SelectContent>
       </Select>
-    </FieldRow>
+    </FormField>
   );
+
+  const amountFields = (id: string, withRef: boolean) => (
+    <>
+      <FormField label="Amount" htmlFor={id}>
+        <Input
+          id={id}
+          ref={withRef ? amountRef : undefined}
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          className="text-right font-medium tabular-nums"
+          placeholder="0.00"
+        />
+      </FormField>
+      <FormField label="Currency">
+        <CurrencySelect value={currency} onValueChange={setCurrency} />
+      </FormField>
+    </>
+  );
+
+  const spinner = saving ? <Loader2 className="animate-spin" /> : null;
 
   return (
     <Tabs defaultValue="manual" className="gap-5">
       <TabsList variant="line">
-        <TabsTrigger value="manual">Manual</TabsTrigger>
-        <TabsTrigger value="expected">
-          <CalendarClock className="size-3" />
+        <TabsTrigger value="manual" className="flex-none">
+          Manual
+        </TabsTrigger>
+        <TabsTrigger value="expected" className="flex-none">
+          <CalendarClock />
           Expected
         </TabsTrigger>
-        <TabsTrigger value="quick">
-          <Sparkles className="size-3" />
+        <TabsTrigger value="quick" className="flex-none">
+          <Sparkles />
           Quick
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent
-        value="manual"
-        className="space-y-5"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void saveManual(false);
+      <TabsContent value="manual">
+        <EntryFormBody
+          onSubmit={() => void saveManual(false)}
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void saveManual(true)}
+                disabled={saving || !ready}
+              >
+                Add & next
+              </Button>
+              <Button type="submit" disabled={saving || !ready}>
+                {spinner}
+                Add
+              </Button>
+            </>
           }
-        }}
-      >
-        <DirectionToggle value={direction} onChange={setDirection} />
-        <AmountField
-          id="finance-amount"
-          inputRef={amountRef}
-          currency={currency}
-          value={amount}
-          onChange={setAmount}
-          onCurrencyChange={setCurrency}
-        />
-        {accountSelect}
-        <FieldRow label="Date">
-          <div className="flex gap-2">
-            <DatePicker
-              value={date}
-              onValueChange={(value) => setDate(value ?? todayKey())}
-              aria-label="Entry date"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDate(todayKey())}
+        >
+          <DirectionToggle value={direction} onChange={setDirection} />
+          <FormGrid>
+            {amountFields("finance-amount", true)}
+            {accountSelect}
+            <FormField label="Date">
+              <div className="flex gap-2">
+                <DatePicker
+                  value={date}
+                  onValueChange={(value) => setDate(value ?? todayKey())}
+                  aria-label="Entry date"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDate(todayKey())}
+                >
+                  Today
+                </Button>
+              </div>
+            </FormField>
+            <FormField
+              label="Description"
+              htmlFor="finance-descriptor"
+              className="sm:col-span-2"
             >
-              Today
+              <Input
+                id="finance-descriptor"
+                value={descriptor}
+                onChange={(event) => setDescriptor(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Note"
+              htmlFor="finance-note"
+              className="sm:col-span-2"
+            >
+              <Textarea
+                id="finance-note"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                rows={3}
+              />
+            </FormField>
+          </FormGrid>
+        </EntryFormBody>
+      </TabsContent>
+
+      <TabsContent value="expected">
+        <EntryFormBody
+          onSubmit={() => void saveExpected()}
+          actions={
+            <Button type="submit" disabled={saving || !ready}>
+              {spinner}
+              Add expected
             </Button>
-          </div>
-        </FieldRow>
-        <FieldRow label="Description" htmlFor="finance-descriptor">
-          <Input
-            id="finance-descriptor"
-            value={descriptor}
-            onChange={(event) => setDescriptor(event.target.value)}
-          />
-        </FieldRow>
-        <FieldRow label="Note" htmlFor="finance-note">
-          <Textarea
-            id="finance-note"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            rows={3}
-          />
-        </FieldRow>
-        <div className="flex gap-2">
-          <Button
-            className="flex-1"
-            onClick={() => void saveManual(false)}
-            disabled={saving || !ready}
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Add
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => void saveManual(true)}
-            disabled={saving || !ready}
-          >
-            Add & next
-          </Button>
-        </div>
+          }
+        >
+          <DirectionToggle value={direction} onChange={setDirection} />
+          <FormGrid>
+            {amountFields("expected-amount", false)}
+            {accountSelect}
+            <FormField label="Expected on">
+              <DatePicker
+                value={date}
+                onValueChange={(value) => setDate(value ?? todayKey())}
+                aria-label="Expected date"
+              />
+            </FormField>
+            <FormField
+              label="Description"
+              htmlFor="expected-descriptor"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="expected-descriptor"
+                value={descriptor}
+                onChange={(event) => setDescriptor(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Category">
+              <CategoryField
+                value={category}
+                onValueChange={setCategory}
+                categories={categories}
+              />
+            </FormField>
+            <FormField label="Match window (days)" htmlFor="expected-window">
+              <Input
+                id="expected-window"
+                type="number"
+                min={0}
+                max={60}
+                value={windowDays}
+                onChange={(event) => setWindowDays(event.target.value)}
+                className="tabular-nums"
+              />
+            </FormField>
+          </FormGrid>
+        </EntryFormBody>
       </TabsContent>
 
-      <TabsContent
-        value="expected"
-        className="space-y-5"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void saveExpected();
+      <TabsContent value="quick">
+        <EntryFormBody
+          onSubmit={() => void saveNatural()}
+          actions={
+            <Button
+              type="submit"
+              disabled={saving || !phrase.trim() || !account}
+            >
+              {saving ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              Parse
+            </Button>
           }
-        }}
-      >
-        <DirectionToggle value={direction} onChange={setDirection} />
-        <AmountField
-          id="expected-amount"
-          currency={currency}
-          value={amount}
-          onChange={setAmount}
-          onCurrencyChange={setCurrency}
-        />
-        {accountSelect}
-        <FieldRow label="Expected on">
-          <DatePicker
-            value={date}
-            onValueChange={(value) => setDate(value ?? todayKey())}
-            aria-label="Expected date"
-          />
-        </FieldRow>
-        <FieldRow label="Description" htmlFor="expected-descriptor">
-          <Input
-            id="expected-descriptor"
-            value={descriptor}
-            onChange={(event) => setDescriptor(event.target.value)}
-          />
-        </FieldRow>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-          <FieldRow label="Category" className="min-w-0">
-            <CategoryField
-              value={category}
-              onValueChange={setCategory}
-              categories={categories}
-            />
-          </FieldRow>
-          <FieldRow label="Window (d)" htmlFor="expected-window">
-            <Input
-              id="expected-window"
-              type="number"
-              min={0}
-              max={60}
-              value={windowDays}
-              onChange={(event) => setWindowDays(event.target.value)}
-              className="w-20 tabular-nums"
-            />
-          </FieldRow>
-        </div>
-        <Button
-          className="w-full"
-          onClick={() => void saveExpected()}
-          disabled={saving || !ready}
         >
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          Add expected
-        </Button>
-      </TabsContent>
-
-      <TabsContent
-        value="quick"
-        className="space-y-5"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void saveNatural();
-          }
-        }}
-      >
-        <Textarea
-          value={phrase}
-          onChange={(event) => setPhrase(event.target.value)}
-          rows={3}
-          placeholder="lunch 12.40 yesterday"
-        />
-        {accountSelect}
-        <Button
-          className="w-full"
-          onClick={() => void saveNatural()}
-          disabled={saving || !phrase.trim() || !account}
-        >
-          {saving ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Sparkles className="size-4" />
-          )}
-          Parse
-        </Button>
+          <FormField label="Phrase" htmlFor="finance-phrase">
+            <Textarea
+              id="finance-phrase"
+              value={phrase}
+              onChange={(event) => setPhrase(event.target.value)}
+              rows={3}
+              placeholder="lunch 12.40 yesterday"
+            />
+          </FormField>
+          <FormGrid>{accountSelect}</FormGrid>
+        </EntryFormBody>
       </TabsContent>
     </Tabs>
   );
@@ -520,81 +531,72 @@ function MatchSection({
 
   if (entry.linkedLedgerId) {
     return (
-      <div className="space-y-2 border-t pt-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Matched
-          </span>
-          <span className="text-[11px] text-muted-foreground">
+      <Section
+        title="Matched"
+        actions={
+          <span className="text-xs text-muted-foreground">
             {entry.matchMethod ?? "—"}
           </span>
-        </div>
-        <div className="flex min-w-0 items-baseline gap-2 text-sm">
-          <span className="min-w-0 flex-1 truncate">
-            {linked ? linked.descriptor : "linked entry"}
+        }
+      >
+        <div className="flex min-w-0 items-center gap-3 text-sm">
+          <span className="min-w-0 flex-1 truncate text-accent-strong">
+            {linked
+              ? `${shortDay(linked.effectiveDate)} · ${linked.descriptor}`
+              : "Linked entry"}
           </span>
           {linked && (
-            <span className="shrink-0 tabular-nums">
+            <span className="shrink-0 tabular-nums text-accent-strong">
               {money(linked.amountMinor, linked.currency)}
             </span>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run(() => unlinkFinanceEntry(client, entry.id), "Unlinked")
+            }
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <Unlink />}
+            Unlink
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          disabled={busy}
-          onClick={() =>
-            void run(() => unlinkFinanceEntry(client, entry.id), "Unlinked")
-          }
-        >
-          {busy ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Unlink className="size-3.5" />
-          )}
-          Unlink
-        </Button>
-      </div>
+      </Section>
     );
   }
 
   if (entry.origin === "bank") return null;
 
   return (
-    <div className="space-y-2 border-t pt-4">
-      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        Match to transaction
-      </span>
-      <SearchSelect
-        value={choice}
-        onValueChange={setChoice}
-        options={candidates}
-        placeholder="Pick a transaction"
-        searchPlaceholder="Search transactions"
-        emptyLabel="Nothing unmatched"
-        aria-label="Bank transaction to match"
-      />
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full"
-        disabled={busy || !choice}
-        onClick={() =>
-          void run(
-            () => linkFinanceEntry(client, entry.id, choice),
-            "Entries matched",
-          )
-        }
-      >
-        {busy ? (
-          <Loader2 className="size-3.5 animate-spin" />
-        ) : (
-          <Link2 className="size-3.5" />
-        )}
-        Match
-      </Button>
-    </div>
+    <Section title="Match to transaction">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchSelect
+            value={choice}
+            onValueChange={setChoice}
+            options={candidates}
+            placeholder="Pick a transaction"
+            searchPlaceholder="Search transactions"
+            emptyLabel="Nothing unmatched"
+            aria-label="Bank transaction to match"
+          />
+        </div>
+        <Button
+          variant="outline"
+          disabled={busy || !choice}
+          onClick={() =>
+            void run(
+              () => linkFinanceEntry(client, entry.id, choice),
+              "Entries matched",
+            )
+          }
+        >
+          {busy ? <Loader2 className="animate-spin" /> : <Link2 />}
+          Match
+        </Button>
+      </div>
+    </Section>
   );
 }
 
@@ -624,7 +626,7 @@ export function EntryDetail({
   const [descriptor, setDescriptor] = useState("");
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
-  const [direction, setDirection] = useState<"expense" | "income">("expense");
+  const [direction, setDirection] = useState<Direction>("expense");
   const [date, setDate] = useState(todayKey);
   const [applyToMerchant, setApplyToMerchant] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -644,14 +646,9 @@ export function EntryDetail({
 
   const readOnly = entry?.origin === "bank";
   // A cleared amount is `Number("") === 0` and a junk one is `NaN`, which
-  // serializes to null and comes back as a generic server error — mirror the
-  // `ready` gate `EntrySheet` uses instead of letting either through.
-  const amountMajor = Number(amount);
+  // serializes to null and comes back as a generic server error.
   const ready =
-    readOnly ||
-    (Number.isFinite(amountMajor) &&
-      amountMajor > 0 &&
-      descriptor.trim().length > 0);
+    readOnly || (positiveAmount(amount) && descriptor.trim().length > 0);
   const deletable =
     entry !== null &&
     entry.origin !== "bank" &&
@@ -661,7 +658,7 @@ export function EntryDetail({
     : "";
 
   async function save() {
-    if (!entry || !ready) return;
+    if (!entry || !ready || saving) return;
     setSaving(true);
     try {
       await updateFinanceEntry(client, entry.id, {
@@ -689,141 +686,149 @@ export function EntryDetail({
     }
   }
 
+  async function remove() {
+    if (!entry) return;
+    try {
+      await deleteFinanceEntry(client, entry.id);
+      toast.success("Entry deleted");
+      onClose();
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Delete failed");
+    }
+  }
+
   if (!entry) return null;
 
   return (
-    <div className="space-y-5">
-      <p className="text-xs text-muted-foreground">
-        {`${accountName} · ${entry.origin}${
-          entry.origin === "projected" && !entry.recurringRuleId
-            ? " (one-off)"
-            : ""
-        }`}
-      </p>
-      {entry && (
-        <div className="space-y-5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Amount
+    <>
+      <PageTitle
+        title={entry.descriptor}
+        meta={
+          <>
+            <span>{accountName}</span>
+            <span>
+              {entry.origin}
+              {entry.origin === "projected" && !entry.recurringRuleId
+                ? " · one-off"
+                : ""}
             </span>
-            <span
-              className={
-                entry.amountMinor > 0
-                  ? "text-lg font-semibold tabular-nums text-status-good"
-                  : "text-lg font-semibold tabular-nums"
-              }
-            >
-              {money(entry.amountMinor, entry.currency)}
+            <span className="tabular-nums">
+              {shortDay(entry.effectiveDate)}
             </span>
-          </div>
+          </>
+        }
+        actions={
+          <span
+            className={cn(
+              "font-calistoga text-2xl tabular-nums",
+              entry.amountMinor > 0 ? "text-status-good" : "text-accent-strong",
+            )}
+          >
+            {money(entry.amountMinor, entry.currency)}
+          </span>
+        }
+      />
 
-          <FieldRow label="Category">
+      <form
+        className="flex flex-col gap-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <Properties>
+          <Property label="Category">
             <CategoryField
               value={category}
               onValueChange={setCategory}
               categories={categories}
               extra={entry.category}
             />
-          </FieldRow>
-
-          <div className="flex items-center justify-between">
-            <Label
-              htmlFor="entry-apply-merchant"
-              className="text-xs font-normal"
-            >
-              Apply to this merchant
-            </Label>
+          </Property>
+          <Property label="Apply to merchant">
             <Switch
               id="entry-apply-merchant"
+              aria-label="Apply to this merchant"
               checked={applyToMerchant}
               onCheckedChange={setApplyToMerchant}
             />
-          </div>
-
+          </Property>
           {!readOnly && (
             <>
-              <DirectionToggle value={direction} onChange={setDirection} />
-              <FieldRow label="Amount" htmlFor="entry-amount">
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                    {entry.currency}
-                  </span>
-                  <Input
-                    id="entry-amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
-                    className="pl-12 text-right font-medium tabular-nums"
-                  />
-                </div>
-              </FieldRow>
-              <FieldRow label="Description" htmlFor="entry-descriptor">
+              <Property label="Direction">
+                <DirectionToggle value={direction} onChange={setDirection} />
+              </Property>
+              <Property label={`Amount (${entry.currency})`}>
+                <Input
+                  id="entry-amount"
+                  aria-label="Amount"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  className="font-medium tabular-nums"
+                />
+              </Property>
+              <Property label="Description">
                 <Input
                   id="entry-descriptor"
+                  aria-label="Description"
                   value={descriptor}
                   onChange={(event) => setDescriptor(event.target.value)}
                 />
-              </FieldRow>
-              <FieldRow label="Date">
+              </Property>
+              <Property label="Date">
                 <DatePicker
                   value={date}
                   onValueChange={(value) => setDate(value ?? todayKey())}
                   aria-label="Entry date"
                 />
-              </FieldRow>
+              </Property>
               {entry.origin === "manual" && (
-                <FieldRow label="Note" htmlFor="entry-note">
+                <Property label="Note" className="items-start">
                   <Textarea
                     id="entry-note"
+                    aria-label="Note"
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
                     rows={3}
                   />
-                </FieldRow>
+                </Property>
               )}
             </>
           )}
+        </Properties>
 
-          <Button
-            className="w-full"
-            onClick={() => void save()}
-            disabled={saving || !ready}
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-
-          <MatchSection entry={entry} ledger={ledger} onSaved={onSaved} />
-
+        <div className="flex items-center gap-2 border-t pt-4">
           {deletable && (
             <ConfirmButton
               title={`Delete ${entry.descriptor}?`}
               actionLabel="Delete"
-              onConfirm={async () => {
-                try {
-                  await deleteFinanceEntry(client, entry.id);
-                  toast.success("Entry deleted");
-                  onClose();
-                  await onSaved();
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : "Delete failed",
-                  );
-                }
-              }}
+              destructive
+              onConfirm={remove}
               trigger={
-                <Button variant="ghost" className="w-full text-destructive">
-                  <Trash2 className="size-4" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 />
                   Delete
                 </Button>
               }
             />
           )}
+          <Button type="submit" className="ml-auto" disabled={saving || !ready}>
+            {saving && <Loader2 className="animate-spin" />}
+            Save
+          </Button>
         </div>
-      )}
-    </div>
+      </form>
+
+      <MatchSection entry={entry} ledger={ledger} onSaved={onSaved} />
+    </>
   );
 }

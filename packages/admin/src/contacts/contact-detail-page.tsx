@@ -1,97 +1,91 @@
 "use client";
 
 import type { IContact } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Separator } from "@repo/ui/separator";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Page, PageBody, PageHeader, PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import {
-  Archive,
-  BookOpen,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
+import { Skeleton } from "@repo/ui/skeleton";
+import {
+  CircleDot,
   Clock,
   Copy,
   Globe,
+  Hash,
   Mail,
-  MessageSquare,
   Monitor,
+  Reply,
   Trash2,
   User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  DetailNotFound,
-  DetailPageShell,
-  DetailPageSkeleton,
-} from "../detail-page-shell";
+import { formatRelativeDate } from "../projects/document-editor";
 import { useAdmin } from "../provider";
+import { CONTACT_STATUS_BADGE, type ContactStatus } from "./contact-status";
 
-type ContactStatus = IContact["status"];
-
-const ICON = <User className="size-4 text-muted-foreground" />;
-
-const STATUS_CONFIG: Record<
-  ContactStatus,
-  { label: string; variant: "outline" | "secondary" | "default" | "ghost" }
-> = {
-  pending: { label: "Pending", variant: "outline" },
-  read: { label: "Read", variant: "secondary" },
-  responded: { label: "Responded", variant: "default" },
-  archived: { label: "Archived", variant: "ghost" },
-};
-
-const STATUS_ACTIONS: {
-  status: ContactStatus;
-  label: string;
-  icon: React.ReactNode;
-}[] = [
-  {
-    status: "read",
-    label: "Mark as Read",
-    icon: <BookOpen className="size-3.5" />,
-  },
-  {
-    status: "responded",
-    label: "Mark as Responded",
-    icon: <MessageSquare className="size-3.5" />,
-  },
-  {
-    status: "archived",
-    label: "Archive",
-    icon: <Archive className="size-3.5" />,
-  },
-];
+const ICON = <User />;
+const STATUSES: ContactStatus[] = ["pending", "read", "responded", "archived"];
 
 function formatFullDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    weekday: "long",
+  return new Date(dateStr).toLocaleString("en-US", {
+    weekday: "short",
     year: "numeric",
-    month: "long",
+    month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
+function ContactShell({
+  title,
+  actions,
+  children,
+}: {
+  title: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  const { slots, routes } = useAdmin();
+  const router = useRouter();
+  return (
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        crumbs={[
+          {
+            label: "Contacts",
+            onClick: () => router.push(routes.contacts.root),
+          },
+        ]}
+        icon={ICON}
+        title={title}
+      >
+        {actions}
+      </PageHeader>
+      <PageBody width="narrow">{children}</PageBody>
+    </Page>
+  );
+}
+
 export function ContactDetailPage({ ticketId }: { ticketId: string }) {
   const { client, platform, routes } = useAdmin();
   const router = useRouter();
-  const backTo = routes.contacts.root;
 
   const [contact, setContact] = useState<IContact | null>(null);
   const [loading, setLoading] = useState(true);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,25 +115,42 @@ export function ContactDetailPage({ ticketId }: { ticketId: string }) {
       .catch(() => undefined);
   }, [contact, client]);
 
-  const shell = { icon: ICON, backTo, backLabel: "Contacts" } as const;
-
-  if (loading)
-    return <DetailPageSkeleton {...shell} title="Contact" rows={2} />;
-
-  if (!contact) {
+  if (loading) {
     return (
-      <DetailNotFound
-        {...shell}
-        title="Contact not found"
-        message="This ticket could not be loaded."
-      />
+      <ContactShell title={ticketId}>
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-8 w-2/5" />
+          <Skeleton className="h-3 w-1/3" />
+        </div>
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={index}
+              className="grid h-8 grid-cols-[minmax(7rem,10rem)_1fr] items-center gap-3"
+            >
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-4 w-2/5" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-32 w-full" />
+      </ContactShell>
     );
   }
 
-  const statusConfig = STATUS_CONFIG[contact.status];
+  if (!contact) {
+    return (
+      <ContactShell title={ticketId}>
+        <EmptyState icon={ICON} label="Contact not found" />
+      </ContactShell>
+    );
+  }
+
+  const badge = CONTACT_STATUS_BADGE[contact.status];
 
   const handleStatusChange = async (status: ContactStatus) => {
     const previous = contact.status;
+    if (previous === status) return;
     setContact({ ...contact, status });
     try {
       await client.patch<{ success: boolean }>(`contacts/${contact.ticketId}`, {
@@ -152,164 +163,128 @@ export function ContactDetailPage({ ticketId }: { ticketId: string }) {
   };
 
   const handleDelete = async () => {
-    setDeleting(true);
     try {
       await client.del<{ success: boolean }>(`contacts/${contact.ticketId}`);
       toast.success("Contact deleted");
-      router.push(backTo);
+      router.push(routes.contacts.root);
     } catch {
       toast.error("Failed to delete contact");
-      setDeleting(false);
-      setDeleteDialogOpen(false);
     }
   };
 
-  const copyToClipboard = async (text: string, label: string) => {
+  const copy = async (text: string, label: string) => {
     await platform.copyText(text);
     toast.success(`${label} copied`);
   };
 
   return (
-    <>
-      <DetailPageShell
-        {...shell}
-        title={
-          <span className="flex items-center gap-2">
-            <span className="font-mono">{contact.ticketId}</span>
-            <Badge variant={statusConfig.variant} className="text-[10px]">
-              {statusConfig.label}
-            </Badge>
-          </span>
-        }
-        actions={
-          <>
-            {STATUS_ACTIONS.filter((a) => a.status !== contact.status).map(
-              (action) => (
-                <Button
-                  key={action.status}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => handleStatusChange(action.status)}
-                >
-                  {action.icon}
-                  <span className="hidden sm:inline">{action.label}</span>
-                </Button>
-              ),
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive"
-              onClick={() => setDeleteDialogOpen(true)}
-            >
-              <Trash2 className="size-3.5" />
-              <span className="hidden sm:inline">Delete</span>
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <DetailRow icon={User} label="Name" value={contact.name} />
-            <DetailRow
-              icon={Mail}
-              label="Email"
-              value={contact.email}
-              copyable
-              onCopy={() => copyToClipboard(contact.email, "Email")}
-            />
-            <DetailRow
-              icon={Clock}
-              label="Received"
-              value={formatFullDate(contact.createdAt)}
-            />
-            <DetailRow icon={Globe} label="IP" value={contact.ipAddress} />
-            <DetailRow
-              icon={Monitor}
-              label="User Agent"
-              value={contact.userAgent}
-              truncate
-            />
-          </div>
-
-          <Separator />
-
-          <div className="whitespace-pre-wrap rounded-md bg-muted/50 p-4 text-sm leading-relaxed">
-            {contact.message}
-          </div>
-
-          <Button variant="outline" size="sm" className="w-fit" asChild>
+    <ContactShell
+      title={<span className="font-mono">{contact.ticketId}</span>}
+      actions={
+        <>
+          <ConfirmButton
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete contact"
+              >
+                <Trash2 />
+              </Button>
+            }
+            title="Delete contact?"
+            description={`Ticket ${contact.ticketId} will be permanently deleted.`}
+            actionLabel="Delete"
+            destructive
+            onConfirm={handleDelete}
+          />
+          <Button size="sm" asChild>
             <a href={`mailto:${contact.email}`}>
-              <Mail className="size-3.5" />
+              <Reply />
               Reply
             </a>
           </Button>
-        </div>
-      </DetailPageShell>
+        </>
+      }
+    >
+      <PageTitle
+        title={contact.name}
+        meta={
+          <>
+            <Badge variant={badge.variant}>{badge.label}</Badge>
+            <span>{contact.email}</span>
+            <span className="tabular-nums">
+              {formatRelativeDate(contact.createdAt)}
+            </span>
+          </>
+        }
+      />
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete ticket {contact.ticketId}. This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
+      <Properties>
+        <Property icon={<CircleDot />} label="Status">
+          <Select
+            value={contact.status}
+            onValueChange={(value: ContactStatus) =>
+              void handleStatusChange(value)
+            }
+          >
+            <SelectTrigger size="sm" aria-label="Status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {CONTACT_STATUS_BADGE[status].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Property>
+        <Property icon={<Mail />} label="Email">
+          <span className="group/copy flex min-w-0 items-center gap-1">
+            <a
+              href={`mailto:${contact.email}`}
+              className="truncate hover:underline"
             >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
+              {contact.email}
+            </a>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Copy email"
+              className="text-muted-foreground"
+              onClick={() => void copy(contact.email, "Email")}
+            >
+              <Copy />
+            </Button>
+          </span>
+        </Property>
+        <Property icon={<Clock />} label="Received">
+          <span className="tabular-nums">
+            {formatFullDate(contact.createdAt)}
+          </span>
+        </Property>
+        <Property icon={<Hash />} label="Ticket">
+          <span className="font-mono text-xs">{contact.ticketId}</span>
+        </Property>
+        <Property icon={<Globe />} label="IP">
+          <span className="font-mono text-xs">{contact.ipAddress || "—"}</span>
+        </Property>
+        <Property icon={<Monitor />} label="User agent">
+          <span
+            className="block truncate text-xs text-muted-foreground"
+            title={contact.userAgent}
+          >
+            {contact.userAgent || "—"}
+          </span>
+        </Property>
+      </Properties>
 
-function DetailRow({
-  icon: Icon,
-  label,
-  value,
-  copyable,
-  onCopy,
-  truncate,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  copyable?: boolean;
-  onCopy?: () => void;
-  truncate?: boolean;
-}) {
-  return (
-    <div className="group flex items-start gap-2.5">
-      <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] text-muted-foreground">{label}</p>
-        <p
-          className={`text-sm ${truncate ? "truncate" : ""}`}
-          title={truncate ? value : undefined}
-        >
-          {value}
+      <Section title="Message">
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-accent-strong">
+          {contact.message}
         </p>
-      </div>
-      {copyable && (
-        <button
-          type="button"
-          aria-label={`Copy ${label.toLowerCase()}`}
-          onClick={onCopy}
-          className="mt-2 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Copy className="size-3" />
-        </button>
-      )}
-    </div>
+      </Section>
+    </ContactShell>
   );
 }

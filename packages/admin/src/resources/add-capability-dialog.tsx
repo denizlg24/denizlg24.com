@@ -1,16 +1,7 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
@@ -19,9 +10,8 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { useState } from "react";
-import { toast } from "sonner";
 
-const CAPABILITY_TYPES = [{ value: "picron", label: "PiCron (Cron Jobs)" }];
+const CAPABILITY_TYPES = [{ value: "picron", label: "PiCron" }];
 
 export function AddCapabilityDialog({
   open,
@@ -44,6 +34,12 @@ export function AddCapabilityDialog({
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const needsCredentials = type === "picron";
+  const ready =
+    label.trim() !== "" &&
+    baseUrl.trim() !== "" &&
+    (!needsCredentials || (username.trim() !== "" && password.trim() !== ""));
+
   const resetForm = () => {
     setType("picron");
     setLabel("");
@@ -53,19 +49,11 @@ export function AddCapabilityDialog({
   };
 
   const handleSubmit = async () => {
-    if (!label.trim()) return;
-    if (!baseUrl.trim()) {
-      toast.error("Base URL is required.");
-      return;
-    }
-    if (type === "picron" && (!username.trim() || !password.trim())) {
-      toast.error("Username and password are required for PiCron.");
-      return;
-    }
+    if (!ready) return;
     setSubmitting(true);
     try {
       const config: Record<string, unknown> = {};
-      if (type === "picron") {
+      if (needsCredentials) {
         config.username = username;
         config.password = password;
       }
@@ -82,107 +70,79 @@ export function AddCapabilityDialog({
   };
 
   return (
-    <Dialog
+    <FormDialog
       open={open}
-      onOpenChange={(o) => {
-        onOpenChange(o);
-        if (!o) resetForm();
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) resetForm();
       }}
+      title="Add capability"
+      onSubmit={handleSubmit}
+      submitLabel="Add"
+      submitDisabled={!ready}
+      pending={submitting}
     >
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Add Capability</DialogTitle>
-          <DialogDescription>
-            Attach a new capability to this resource.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label>Type</Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CAPABILITY_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cap-label">Label</Label>
-            <Input
-              id="cap-label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Cron Scheduler"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cap-base-url">Base URL</Label>
-            <Input
-              id="cap-base-url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="http://raspberrypi.local:8080"
-              className="font-mono text-xs"
-            />
-            <p className="text-[10px] text-muted-foreground/60">
-              The base URL for this capability&apos;s API.
-            </p>
-          </div>
-
-          {type === "picron" && (
-            <div className="border-t pt-3 flex flex-col gap-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
-                PiCron Credentials
-              </p>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cap-user" className="text-xs">
-                  Username
-                </Label>
-                <Input
-                  id="cap-user"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="font-mono text-xs h-8"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cap-pass" className="text-xs">
-                  Password
-                </Label>
-                <Input
-                  id="cap-pass"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="font-mono text-xs h-8"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={submitting || !label.trim()}>
-            {submitting ? "Adding..." : "Add Capability"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <FormGrid>
+        <FormField label="Type">
+          <Select value={type} onValueChange={setType}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CAPABILITY_TYPES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <FormField label="Label" htmlFor="cap-label">
+          <Input
+            id="cap-label"
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="Cron scheduler"
+            autoFocus
+          />
+        </FormField>
+        <FormField
+          label="Base URL"
+          htmlFor="cap-base-url"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="cap-base-url"
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder="http://raspberrypi.local:8080"
+            className="font-mono"
+          />
+        </FormField>
+        {needsCredentials && (
+          <>
+            <FormField label="Username" htmlFor="cap-user">
+              <Input
+                id="cap-user"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </FormField>
+            <FormField label="Password" htmlFor="cap-pass">
+              <Input
+                id="cap-pass"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </FormField>
+          </>
+        )}
+      </FormGrid>
+    </FormDialog>
   );
 }

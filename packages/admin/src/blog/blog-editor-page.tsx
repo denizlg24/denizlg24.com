@@ -6,14 +6,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  DetailNotFound,
-  DetailPageShell,
-  DetailPageSkeleton,
-} from "../detail-page-shell";
+  DocumentEditorSkeleton,
+  DocumentNotFound,
+} from "../projects/document-editor";
 import { useAdmin } from "../provider";
 import { BlogForm } from "./blog-form";
 
-const ICON = <NotebookPen className="size-4 text-muted-foreground" />;
+const ICON = <NotebookPen />;
 
 export function BlogEditorPage({
   mode,
@@ -47,29 +46,24 @@ export function BlogEditorPage({
     void load();
   }, [load]);
 
-  const title = mode === "edit" ? "Edit Post" : "New Post";
-  const shell = { icon: ICON, backTo, backLabel: "Posts" } as const;
+  const shell = { icon: ICON, backTo, backLabel: "Blog" } as const;
 
-  if (loading) return <DetailPageSkeleton {...shell} title={title} rows={2} />;
+  if (loading) {
+    return <DocumentEditorSkeleton {...shell} title="Post" properties={5} />;
+  }
 
   if (mode === "edit" && !blog) {
-    return (
-      <DetailNotFound
-        {...shell}
-        title="Post not found"
-        message="This post could not be loaded."
-      />
-    );
+    return <DocumentNotFound {...shell} label="Post not found" />;
   }
 
   return (
-    <DetailPageShell {...shell} title={mode === "edit" ? blog?.title : title}>
-      <BlogForm
-        mode={mode}
-        blog={blog ?? undefined}
-        onSuccess={() => router.push(backTo)}
-        onCancel={() => router.push(backTo)}
-      />
-    </DetailPageShell>
+    <BlogForm
+      key={blog?._id ?? "new"}
+      mode={mode}
+      blog={blog ?? undefined}
+      {...shell}
+      onSuccess={() => router.push(backTo)}
+      onDeleted={() => router.push(backTo)}
+    />
   );
 }

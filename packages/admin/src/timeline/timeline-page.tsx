@@ -19,111 +19,117 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ITimelineItem } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { PageHeader } from "@repo/ui/page-header";
-import { Separator } from "@repo/ui/separator";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import {
-  ListRowsSkeleton,
-  StatStripSkeleton,
-  TabStripSkeleton,
-} from "@repo/ui/skeleton-blocks";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+  FilterTabs,
+  RowActions,
+  SearchField,
+  ToolbarSpacer,
+} from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import {
-  Briefcase,
   Eye,
   EyeOff,
   GripVertical,
-  Loader2,
-  MoreHorizontal,
+  Milestone,
   Pencil,
   Plus,
   RefreshCw,
-  Save,
   Trash2,
   Undo2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type HTMLAttributes,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { formatTimelineRange } from "./timeline-dates";
 
-type CategoryFilter = "all" | "work" | "education" | "personal";
+type Category = ITimelineItem["category"];
+type CategoryFilter = "all" | Category;
 
-const CATEGORY_LABELS: Record<ITimelineItem["category"], string> = {
+const CATEGORY_LABELS: Record<Category, string> = {
   work: "Work",
   education: "Education",
   personal: "Personal",
 };
 
-const CATEGORY_VARIANTS: Record<
-  ITimelineItem["category"],
-  "default" | "secondary" | "outline"
-> = {
-  work: "default",
-  education: "secondary",
-  personal: "outline",
-};
+const ICON = <Milestone />;
 
-function formatDateRange(from: string, to?: string): string {
-  const fmt = (d: string) =>
-    new Date(d).toLocaleDateString("en-US", {
-      month: "short",
-      year: "numeric",
-    });
-  return to ? `${fmt(from)} — ${fmt(to)}` : `${fmt(from)} — Present`;
+function TimelineHeader({ children }: { children?: ReactNode }) {
+  const { slots } = useAdmin();
+  return (
+    <PageHeader leading={slots?.sidebarTrigger} icon={ICON} title="Timeline">
+      {children}
+    </PageHeader>
+  );
 }
 
 export function TimelineSkeleton() {
-  const { slots } = useAdmin();
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<Briefcase className="size-4 text-muted-foreground" />}
-        title="Timeline"
-      />
-      <div className="px-4 flex flex-col gap-6 pt-3">
-        <StatStripSkeleton count={4} />
-        <TabStripSkeleton widths={["w-10", "w-14", "w-20", "w-16"]} />
-        <ListRowsSkeleton
-          rows={4}
-          rowHeight="h-[81px]"
-          avatar="size-11"
-          lines={3}
-        />
-      </div>
-    </div>
+    <Page>
+      <TimelineHeader />
+      <PageToolbar>
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-5 w-72" />
+      </PageToolbar>
+      <PageBody>
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="flex h-12 items-center gap-3">
+              <Skeleton className="size-5 rounded" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-3.5 w-48" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+          ))}
+        </div>
+      </PageBody>
+    </Page>
+  );
+}
+
+function matchesQuery(item: ITimelineItem, query: string): boolean {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return (
+    item.title.toLowerCase().includes(needle) ||
+    item.subtitle.toLowerCase().includes(needle) ||
+    item.topics.some((topic) => topic.toLowerCase().includes(needle))
   );
 }
 
 export function TimelinePage() {
-  const { client, slots, routes } = useAdmin();
+  const { client, routes } = useAdmin();
   const router = useRouter();
 
   const [items, setItems] = useState<ITimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [query, setQuery] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ITimelineItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [originalOrder, setOriginalOrder] = useState<ITimelineItem[]>([]);
   const [savingOrder, setSavingOrder] = useState(false);
 
@@ -137,31 +143,44 @@ export function TimelinePage() {
   const fetchItems = useCallback(async () => {
     try {
       const result = await client.get<{ items: ITimelineItem[] }>("timeline");
-      const sorted = result.items.sort((a, b) => a.order - b.order);
+      const sorted = [...result.items].sort((a, b) => a.order - b.order);
       setItems(sorted);
       setOriginalOrder(sorted);
     } catch {
       toast.error("Failed to load timeline");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [client]);
 
   useEffect(() => {
-    fetchItems();
+    void fetchItems();
   }, [fetchItems]);
 
-  const stats = useMemo(() => {
-    const work = items.filter((i) => i.category === "work").length;
-    const education = items.filter((i) => i.category === "education").length;
-    const personal = items.filter((i) => i.category === "personal").length;
-    return { total: items.length, work, education, personal };
-  }, [items]);
+  const counts = useMemo(
+    () => ({
+      all: items.length,
+      work: items.filter((i) => i.category === "work").length,
+      education: items.filter((i) => i.category === "education").length,
+      personal: items.filter((i) => i.category === "personal").length,
+    }),
+    [items],
+  );
 
-  const filteredItems = useMemo(() => {
-    if (categoryFilter === "all") return items;
-    return items.filter((i) => i.category === categoryFilter);
-  }, [items, categoryFilter]);
+  const trimmedQuery = query.trim();
+  const visibleItems = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          (categoryFilter === "all" || item.category === categoryFilter) &&
+          matchesQuery(item, trimmedQuery),
+      ),
+    [items, categoryFilter, trimmedQuery],
+  );
+
+  // A search hides rows between neighbours, so a drop would land somewhere unseen.
+  const sortable = !trimmedQuery;
 
   const hasOrderChanges = useMemo(() => {
     if (items.length !== originalOrder.length) return false;
@@ -171,24 +190,16 @@ export function TimelinePage() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-
-    const activeItem = items.find((i) => i._id === active.id);
-    const overItem = items.find((i) => i._id === over.id);
-    if (!activeItem || !overItem) return;
-
-    if (categoryFilter !== "all" && activeItem.category !== overItem.category)
-      return;
-
     setItems((prev) => {
       const oldIndex = prev.findIndex((i) => i._id === active.id);
       const newIndex = prev.findIndex((i) => i._id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return prev;
       return arrayMove(prev, oldIndex, newIndex);
     });
   };
 
   const handleSaveOrder = async () => {
     setSavingOrder(true);
-
     const ordered = items.map((item, i) => ({ _id: item._id, order: i }));
     try {
       await client.patch<{ success: boolean }>("timeline/reorder", {
@@ -204,158 +215,130 @@ export function TimelinePage() {
     setSavingOrder(false);
   };
 
-  const handleResetOrder = () => {
-    setItems(originalOrder);
+  const setActiveLocal = (id: string, isActive: boolean) => {
+    const apply = (list: ITimelineItem[]) =>
+      list.map((i) => (i._id === id ? { ...i, isActive } : i));
+    setItems(apply);
+    setOriginalOrder(apply);
   };
 
   const handleToggleActive = async (item: ITimelineItem) => {
-    setItems((prev) =>
-      prev.map((i) =>
-        i._id === item._id ? { ...i, isActive: !i.isActive } : i,
-      ),
-    );
-
+    setActiveLocal(item._id, !item.isActive);
     try {
       await client.patch<{ item: ITimelineItem }>(`timeline/${item._id}`, {
         toggleActive: true,
       });
     } catch {
       toast.error("Failed to update");
-      setItems((prev) =>
-        prev.map((i) =>
-          i._id === item._id ? { ...i, isActive: item.isActive } : i,
-        ),
-      );
+      setActiveLocal(item._id, item.isActive);
     }
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
     try {
-      await client.del<{ success: boolean }>(`timeline/${deleteTarget._id}`);
-      setItems((prev) => prev.filter((i) => i._id !== deleteTarget._id));
-      setOriginalOrder((prev) =>
-        prev.filter((i) => i._id !== deleteTarget._id),
-      );
-      toast.success("Timeline item deleted");
+      await client.del<{ success: boolean }>(`timeline/${target._id}`);
+      setItems((prev) => prev.filter((i) => i._id !== target._id));
+      setOriginalOrder((prev) => prev.filter((i) => i._id !== target._id));
+      toast.success("Entry deleted");
     } catch {
       toast.error("Failed to delete");
     }
-    setDeleting(false);
-    setDeleteTarget(null);
   };
 
-  if (loading) {
-    return <TimelineSkeleton />;
-  }
+  if (loading) return <TimelineSkeleton />;
+
+  const rowProps = (item: ITimelineItem) => ({
+    item,
+    onEdit: () => router.push(routes.timeline.edit(item._id)),
+    onToggleActive: () => void handleToggleActive(item),
+    onDelete: () => setDeleteTarget(item),
+  });
 
   return (
-    <div className="flex flex-col gap-2 pb-8 h-full">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<Briefcase className="size-4 text-muted-foreground" />}
-        title="Timeline"
-      >
-        {hasOrderChanges && (
+    <Page>
+      <TimelineHeader>
+        {hasOrderChanges ? (
           <>
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs gap-1.5"
-              onClick={handleResetOrder}
+              onClick={() => setItems(originalOrder)}
               disabled={savingOrder}
-              title="Reset"
             >
-              <Undo2 className="size-3.5" />
-              <span className="hidden sm:inline">Reset</span>
+              <Undo2 />
+              Reset
             </Button>
             <Button
+              variant="outline"
               size="sm"
-              className="h-8 text-xs gap-1.5"
               onClick={handleSaveOrder}
               disabled={savingOrder}
-              title="Save Order"
             >
-              {savingOrder ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Save className="size-3.5" />
-              )}
-              <span className="hidden sm:inline">Save Order</span>
+              {savingOrder ? <Spinner className="size-3.5" /> : null}
+              Save order
             </Button>
           </>
-        )}
-
+        ) : null}
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={refreshing}
           onClick={() => {
-            setLoading(true);
-            fetchItems();
+            setRefreshing(true);
+            void fetchItems();
           }}
-          title="Refresh"
         >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
         </Button>
-        <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={routes.timeline.new} title="New Item">
-            <Plus className="size-3.5" />
-            <span className="hidden sm:inline">New Item</span>
+        <Button size="sm" asChild>
+          <Link href={routes.timeline.new}>
+            <Plus />
+            New entry
           </Link>
         </Button>
-      </PageHeader>
+      </TimelineHeader>
 
-      <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
-        <div className="flex items-baseline gap-8 flex-wrap">
-          <Stat label="Total" value={stats.total} />
-          <Stat label="Work" value={stats.work} />
-          <Stat label="Education" value={stats.education} />
-          <Stat label="Personal" value={stats.personal} />
-        </div>
-
-        <Separator />
-
-        <Tabs
+      <PageToolbar>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search title, topic"
+          className="w-64"
+        />
+        <FilterTabs<CategoryFilter>
           value={categoryFilter}
-          onValueChange={(v) => setCategoryFilter(v as CategoryFilter)}
-        >
-          <TabsList variant="line">
-            <TabsTrigger value="all">
-              All
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.total}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="work">
-              Work
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.work}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="education">
-              Education
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.education}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="personal">
-              Personal
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.personal}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          onChange={setCategoryFilter}
+          options={[
+            { value: "all", label: "All", count: counts.all },
+            { value: "work", label: "Work", count: counts.work },
+            { value: "education", label: "Education", count: counts.education },
+            { value: "personal", label: "Personal", count: counts.personal },
+          ]}
+        />
+        <ToolbarSpacer />
+      </PageToolbar>
 
-        {filteredItems.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground text-sm">
-            No timeline items found
-          </div>
-        ) : (
+      <PageBody>
+        {items.length === 0 ? (
+          <EmptyState
+            icon={ICON}
+            label="No entries"
+            action={
+              <Button size="sm" variant="outline" asChild>
+                <Link href={routes.timeline.new}>
+                  <Plus />
+                  New entry
+                </Link>
+              </Button>
+            }
+          />
+        ) : visibleItems.length === 0 ? (
+          <EmptyState icon={ICON} label="No matching entries" />
+        ) : sortable ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -363,64 +346,52 @@ export function TimelinePage() {
             onDragEnd={handleDragEnd}
           >
             <SortableContext
-              items={filteredItems.map((i) => i._id)}
+              items={visibleItems.map((i) => i._id)}
               strategy={verticalListSortingStrategy}
             >
-              <div className="flex flex-col">
-                {filteredItems.map((item) => (
-                  <SortableTimelineRow
-                    key={item._id}
-                    item={item}
-                    onEdit={() => router.push(routes.timeline.edit(item._id))}
-                    onToggleActive={() => handleToggleActive(item)}
-                    onDelete={() => setDeleteTarget(item)}
-                  />
+              <List>
+                {visibleItems.map((item) => (
+                  <SortableTimelineRow key={item._id} {...rowProps(item)} />
                 ))}
-              </div>
+              </List>
             </SortableContext>
           </DndContext>
+        ) : (
+          <List>
+            {visibleItems.map((item) => (
+              <TimelineRow key={item._id} {...rowProps(item)} />
+            ))}
+          </List>
         )}
-      </div>
+      </PageBody>
 
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete timeline item?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete &ldquo;{deleteTarget?.title}&rdquo;.
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete entry?"
+        description={
+          deleteTarget
+            ? `“${deleteTarget.title}” will be permanently deleted.`
+            : undefined
+        }
+        actionLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+      />
+    </Page>
   );
 }
 
-function SortableTimelineRow({
-  item,
-  onEdit,
-  onToggleActive,
-  onDelete,
-}: {
+interface TimelineRowProps {
   item: ITimelineItem;
   onEdit: () => void;
   onToggleActive: () => void;
   onDelete: () => void;
-}) {
+}
+
+function SortableTimelineRow(props: TimelineRowProps) {
   const {
     attributes,
     listeners,
@@ -428,23 +399,16 @@ function SortableTimelineRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({
-    id: item._id,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : undefined,
-  };
+  } = useSortable({ id: props.item._id });
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("relative", isDragging && "z-10 opacity-60")}
+    >
       <TimelineRow
-        item={item}
-        onEdit={onEdit}
-        onToggleActive={onToggleActive}
-        onDelete={onDelete}
+        {...props}
         dragHandleProps={{ ...attributes, ...listeners }}
       />
     </div>
@@ -457,146 +421,70 @@ function TimelineRow({
   onToggleActive,
   onDelete,
   dragHandleProps,
-}: {
-  item: ITimelineItem;
-  onEdit: () => void;
-  onToggleActive: () => void;
-  onDelete: () => void;
-  dragHandleProps?: Record<string, unknown>;
+}: TimelineRowProps & {
+  dragHandleProps?: HTMLAttributes<HTMLButtonElement>;
 }) {
   return (
-    <div
-      className={`flex items-center gap-3 py-2.5 px-1 border-b transition-opacity cursor-pointer hover:bg-muted/50 ${
-        !item.isActive ? "opacity-50" : ""
-      }`}
+    <ListRow
       onClick={onEdit}
-    >
-      {dragHandleProps && (
-        <button
-          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
-          onClick={(e) => e.stopPropagation()}
-          {...dragHandleProps}
-        >
-          <GripVertical className="size-4" />
-        </button>
-      )}
-
-      {item.logoUrl ? (
-        <img
-          src={item.logoUrl}
-          alt=""
-          className="size-10 rounded-md object-cover shrink-0 border"
-        />
-      ) : (
-        <div className="size-10 rounded-md bg-muted shrink-0 border flex items-center justify-center">
-          <Briefcase className="size-4 text-muted-foreground" />
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{item.title}</span>
-        <span className="text-xs text-muted-foreground truncate block">
-          {item.subtitle}
-        </span>
-        <span className="text-[10px] text-muted-foreground tabular-nums">
-          {!Number.isNaN(new Date(item.dateFrom).getTime())
-            ? formatDateRange(item.dateFrom, item.dateTo)
-            : item.dateFrom + (item.dateTo ? ` - ${item.dateTo}` : "")}
-        </span>
-      </div>
-
-      {item.topics.length > 0 && (
-        <span className="hidden md:inline text-[10px] text-muted-foreground tabular-nums shrink-0">
-          {item.topics.length} {item.topics.length === 1 ? "topic" : "topics"}
-        </span>
-      )}
-
-      <Badge
-        variant={CATEGORY_VARIANTS[item.category]}
-        className="text-[10px] shrink-0"
-      >
-        {CATEGORY_LABELS[item.category]}
-      </Badge>
-
-      {!item.isActive && (
-        <Badge variant="outline" className="text-[10px] shrink-0">
-          Hidden
-        </Badge>
-      )}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 shrink-0"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className="size-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-          >
-            <Pencil className="size-3.5" />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleActive();
-            }}
-          >
-            {item.isActive ? (
-              <>
-                <EyeOff className="size-3.5" />
-                Hide
-              </>
-            ) : (
-              <>
-                <Eye className="size-3.5" />
-                Publish
-              </>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={`text-lg font-semibold tabular-nums tracking-tight ${highlight ? "text-primary" : ""}`}
-      >
-        {value}
-      </p>
-    </div>
+      className={cn("min-h-12", !item.isActive && "opacity-60")}
+      leading={
+        item.logoUrl ? (
+          <img
+            src={item.logoUrl}
+            alt=""
+            className="size-5 rounded object-cover"
+          />
+        ) : (
+          <Milestone />
+        )
+      }
+      title={item.title}
+      description={item.subtitle}
+      meta={
+        <>
+          {item.topics.length > 0 ? (
+            <span className="hidden md:inline">
+              {item.topics.length}{" "}
+              {item.topics.length === 1 ? "topic" : "topics"}
+            </span>
+          ) : null}
+          <span className="hidden sm:inline">
+            {formatTimelineRange(item.dateFrom, item.dateTo)}
+          </span>
+          <Badge variant="secondary">{CATEGORY_LABELS[item.category]}</Badge>
+          {item.isActive ? null : <Badge variant="outline">Hidden</Badge>}
+        </>
+      }
+      trailing={
+        <>
+          {dragHandleProps ? (
+            <button
+              type="button"
+              aria-label={`Reorder ${item.title}`}
+              className="flex size-7 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+              {...dragHandleProps}
+            >
+              <GripVertical className="size-3.5" />
+            </button>
+          ) : null}
+          <RowActions>
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onToggleActive}>
+              {item.isActive ? <EyeOff /> : <Eye />}
+              {item.isActive ? "Hide" : "Publish"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </RowActions>
+        </>
+      }
+    />
   );
 }

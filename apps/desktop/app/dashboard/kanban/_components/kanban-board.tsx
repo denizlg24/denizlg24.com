@@ -1,9 +1,12 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Skeleton } from "@repo/ui/skeleton";
+import { cn } from "@repo/ui/utils";
+import { Columns3, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,16 +17,18 @@ import type {
   IKanbanCard,
   IKanbanColumn,
 } from "@/lib/data-types";
+import { ColumnDialog, type ColumnFormValues } from "./column-customization";
+import { PRIORITY_BADGE } from "./kanban-card-item";
 import {
-  COLUMN_COLORS,
-  ColumnColorPicker,
-  ColumnIconPicker,
-} from "./column-customization";
-import {
+  type ColumnUpdates,
   type ColumnWithCards,
   type DraggingState,
   KanbanColumn,
 } from "./kanban-column";
+
+type InsertionPoint = { columnId: string; beforeCardId: string | null };
+
+const GHOST_OFFSET = { x: 14, y: 10 };
 
 type FullBoard = IKanbanBoard & { columns: ColumnWithCards[] };
 type EmptyApiResponse = Record<string, never>;
@@ -39,10 +44,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
   const [loading, setLoading] = useState(true);
 
   const [addingColumn, setAddingColumn] = useState(false);
-  const [newColumnTitle, setNewColumnTitle] = useState("");
-  const [newColumnColor, setNewColumnColor] = useState(COLUMN_COLORS[0]);
-  const [newColumnIcon, setNewColumnIcon] = useState("circle");
-  const [newColumnWipLimit, setNewColumnWipLimit] = useState("");
+  const [trashedColumnId, setTrashedColumnId] = useState<string | null>(null);
 
   const [dragging, setDragging] = useState<DraggingState | null>(null);
   const [trashHover, setTrashHover] = useState(false);
@@ -50,10 +52,20 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
   const draggingRef = useRef<DraggingState | null>(null);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const ghostRef = useRef<HTMLDivElement>(null);
-  const insertionPointRef = useRef<{
-    columnId: string;
-    beforeCardId: string | null;
-  } | null>(null);
+  const insertionPointRef = useRef<InsertionPoint | null>(null);
+  const [insertionPoint, setInsertionPointState] =
+    useState<InsertionPoint | null>(null);
+
+  const setInsertionPoint = useCallback((next: InsertionPoint | null) => {
+    const current = insertionPointRef.current;
+    if (
+      current?.columnId === next?.columnId &&
+      current?.beforeCardId === next?.beforeCardId
+    )
+      return;
+    insertionPointRef.current = next;
+    setInsertionPointState(next);
+  }, []);
 
   useEffect(() => {
     draggingRef.current = dragging;
@@ -73,8 +85,8 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
 
     const handleMouseMove = (e: MouseEvent) => {
       if (ghostRef.current) {
-        ghostRef.current.style.left = `${e.clientX + 14}px`;
-        ghostRef.current.style.top = `${e.clientY + 10}px`;
+        ghostRef.current.style.left = `${e.clientX + GHOST_OFFSET.x}px`;
+        ghostRef.current.style.top = `${e.clientY + GHOST_OFFSET.y}px`;
       }
     };
 
@@ -85,13 +97,13 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
         if (d.kind === "card") {
           handleDeleteCard(d.cardId);
         } else if (d.kind === "column") {
-          handleDeleteColumn(d.columnId);
+          setTrashedColumnId(d.columnId);
         }
         trashHoverRef.current = false;
         setTrashHover(false);
       }
       setDragging(null);
-      insertionPointRef.current = null;
+      setInsertionPoint(null);
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -101,7 +113,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragging]);
+  }, [dragging, setInsertionPoint]);
 
   const fetchBoard = useCallback(async () => {
     const result = await API.GET<{ board: FullBoard }>({
@@ -121,44 +133,34 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
     fetchBoard().finally(() => setLoading(false));
   }, [fetchBoard]);
 
-  const handleAddColumn = async () => {
-    if (!newColumnTitle.trim()) return;
-    const parsedWip = Number.parseInt(newColumnWipLimit, 10);
+  const handleAddColumn = async (values: ColumnFormValues) => {
     const result = await API.POST<{ column: IKanbanColumn }>({
       endpoint: `kanban/boards/${boardId}/columns`,
       body: {
-        title: newColumnTitle.trim(),
-        color: newColumnColor,
-        icon: newColumnIcon,
-        ...(parsedWip > 0 ? { wipLimit: parsedWip } : {}),
+        title: values.title,
+        description: values.description || undefined,
+        color: values.color,
+        icon: values.icon,
+        isDoneColumn: values.isDoneColumn,
+        sortRule: values.sortRule,
+        ...(values.wipLimit ? { wipLimit: values.wipLimit } : {}),
       },
     });
     if ("code" in result) {
       toast.error("Failed to create column");
       return;
     }
+    if (values.isDoneColumn) {
+      await fetchBoard();
+      return;
+    }
     setColumns((prev) => [...prev, { ...result.column, cards: [] }]);
-    setNewColumnTitle("");
-    setNewColumnColor(COLUMN_COLORS[0]);
-    setNewColumnIcon("circle");
-    setNewColumnWipLimit("");
-    setAddingColumn(false);
   };
 
   const handleUpdateColumn = async (
     columnId: string,
-    updates: {
-      title?: string;
-      color?: string;
-      icon?: string;
-      wipLimit?: number | null;
-      description?: string;
-      isDoneColumn?: boolean;
-      isCollapsed?: boolean;
-      sortRule?: "manual" | "priority" | "dueDate";
-    },
+    updates: ColumnUpdates,
   ) => {
-    const snapshot = columns.find((c) => c._id === columnId);
     setColumns((cols) =>
       cols.map((c) =>
         c._id === columnId
@@ -181,25 +183,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
     });
     if ("code" in result) {
       toast.error("Failed to update column");
-      if (snapshot) {
-        setColumns((cols) =>
-          cols.map((c) =>
-            c._id === columnId
-              ? {
-                  ...c,
-                  title: snapshot.title,
-                  color: snapshot.color,
-                  icon: snapshot.icon,
-                  wipLimit: snapshot.wipLimit,
-                  description: snapshot.description,
-                  isDoneColumn: snapshot.isDoneColumn,
-                  isCollapsed: snapshot.isCollapsed,
-                  sortRule: snapshot.sortRule,
-                }
-              : c,
-          ),
-        );
-      }
+      fetchBoard();
     }
   };
 
@@ -281,7 +265,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
     beforeCardId: string | null,
   ) => {
     if (dragging?.kind !== "card") return;
-    insertionPointRef.current = { columnId, beforeCardId };
+    setInsertionPoint({ columnId, beforeCardId });
   };
 
   const handleDrop = async (targetColumnId: string) => {
@@ -295,7 +279,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       const ip = insertionPointRef.current;
       const before =
         ip !== null && ip.columnId === targetColumnId ? ip.beforeCardId : null;
-      insertionPointRef.current = null;
+      setInsertionPoint(null);
 
       const newCols = columns.map((col) => ({ ...col, cards: [...col.cards] }));
 
@@ -362,7 +346,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       }
     } else if (currentDragging.kind === "column") {
       const { columnId: fromCol } = currentDragging;
-      insertionPointRef.current = null;
+      setInsertionPoint(null);
       if (fromCol === targetColumnId) return;
 
       const newCols = [...columns];
@@ -390,168 +374,127 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
   };
 
   if (loading) {
-    const CARD_COUNTS = [3, 5, 2];
     return (
-      <div className="flex gap-4 p-4 h-full items-start w-full">
-        {CARD_COUNTS.map((cardCount, i) => (
+      <div className="flex h-full items-stretch gap-3 p-3">
+        {[3, 5, 2].map((cardCount) => (
           <div
-            key={`column-skeleton-${cardCount}`}
-            className="min-w-64 max-w-72 flex-1 flex flex-col rounded-lg border bg-muted/30 animate-pulse"
+            key={cardCount}
+            className="flex w-72 shrink-0 flex-col gap-2 rounded-lg bg-surface/40 p-2"
           >
-            <div className="flex items-center gap-2 p-3 border-b">
-              <div className="size-4 rounded bg-muted" />
-              <div className="h-4 flex-1 rounded bg-muted" />
-              <div className="h-3 w-4 rounded bg-muted" />
+            <div className="flex h-8 items-center gap-2 px-1">
+              <Skeleton className="size-3.5 rounded-full" />
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-3 w-4" />
             </div>
-
-            <div className="flex flex-col gap-2 p-2">
-              {Array.from({ length: cardCount }).map((_, j) => (
-                <div
-                  key={`card-skeleton-${cardCount}-${60 + ((i * 3 + j * 7) % 30)}`}
-                  className="flex flex-col gap-2 p-3 rounded-md border bg-card"
-                >
-                  <div
-                    className="h-3.5 rounded bg-muted"
-                    style={{ width: `${60 + ((i * 3 + j * 7) % 30)}%` }}
-                  />
-                  {j % 2 === 0 && (
-                    <div className="h-3 w-3/4 rounded bg-muted" />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="p-2 border-t">
-              <div className="h-7 w-24 rounded bg-muted" />
-            </div>
+            {Array.from(
+              { length: cardCount },
+              (_, j) => `${cardCount}-${j}`,
+            ).map((key, j) => (
+              <div
+                key={key}
+                className="flex flex-col gap-2 rounded-md border border-border/70 bg-background px-3 py-2.5"
+              >
+                <Skeleton className={j % 2 ? "h-3.5 w-2/3" : "h-3.5 w-4/5"} />
+                {j % 2 === 0 && <Skeleton className="h-3 w-1/2" />}
+              </div>
+            ))}
           </div>
         ))}
-
-        <div className="shrink-0">
-          <div className="h-9 w-32 rounded bg-muted" />
-        </div>
       </div>
     );
   }
 
+  const trashedColumn = columns.find((c) => c._id === trashedColumnId);
+
   return (
     <>
-      <div className="flex h-full min-h-0 w-max min-w-full items-stretch gap-3 px-3 py-3">
-        {columns.map((col) => (
-          <KanbanColumn
-            key={col._id}
-            column={col}
-            dragging={dragging}
-            onCardDragStart={handleCardDragStart}
-            onColumnDragStart={handleColumnDragStart}
-            onCardDragOver={handleCardDragOver}
-            onDrop={handleDrop}
-            onCardClick={(card) =>
-              router.push(
-                `/dashboard/kanban/card?board=${encodeURIComponent(boardId)}&card=${encodeURIComponent(card._id)}`,
-              )
-            }
-            onAddCard={handleAddCard}
-            onUpdateColumn={handleUpdateColumn}
-            onDeleteColumn={handleDeleteColumn}
-            onClearColumn={handleClearColumn}
-          />
-        ))}
-
-        <div className="shrink-0 min-w-64">
-          {addingColumn ? (
-            <div className="flex flex-col gap-3 p-3 bg-muted/50 rounded-lg border border-dashed">
-              <Input
-                autoFocus
-                value={newColumnTitle}
-                onChange={(e) => setNewColumnTitle(e.target.value)}
-                placeholder="Column title…"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddColumn();
-                  if (e.key === "Escape") {
-                    setAddingColumn(false);
-                    setNewColumnTitle("");
-                    setNewColumnColor(COLUMN_COLORS[0]);
-                    setNewColumnIcon("circle");
-                    setNewColumnWipLimit("");
-                  }
-                }}
-              />
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">
-                  WIP Limit <span className="font-normal">(optional)</span>
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={newColumnWipLimit}
-                  onChange={(e) => setNewColumnWipLimit(e.target.value)}
-                  placeholder="No limit"
-                  className="h-8"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">Color</Label>
-                <ColumnColorPicker
-                  value={newColumnColor}
-                  onChange={setNewColumnColor}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-muted-foreground">Icon</Label>
-                <ColumnIconPicker
-                  value={newColumnIcon}
-                  onChange={setNewColumnIcon}
-                  color={newColumnColor}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleAddColumn}
-                  disabled={!newColumnTitle.trim()}
-                >
-                  Add
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setAddingColumn(false);
-                    setNewColumnTitle("");
-                    setNewColumnColor(COLUMN_COLORS[0]);
-                    setNewColumnIcon("circle");
-                    setNewColumnWipLimit("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              variant="ghost"
-              className="w-full justify-start text-muted-foreground"
-              onClick={() => setAddingColumn(true)}
-            >
-              <Plus />
-              Add column
+      {columns.length === 0 ? (
+        <EmptyState
+          icon={<Columns3 />}
+          label="No columns"
+          action={
+            <Button size="sm" onClick={() => setAddingColumn(true)}>
+              <Plus /> Add column
             </Button>
-          )}
+          }
+          className="h-full"
+        />
+      ) : (
+        <div className="h-full overflow-x-auto">
+          <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
+            {columns.map((col) => (
+              <KanbanColumn
+                key={col._id}
+                column={col}
+                dragging={dragging}
+                dropBeforeCardId={
+                  insertionPoint?.columnId === col._id
+                    ? insertionPoint.beforeCardId
+                    : undefined
+                }
+                onCardDragStart={handleCardDragStart}
+                onColumnDragStart={handleColumnDragStart}
+                onCardDragOver={handleCardDragOver}
+                onDrop={handleDrop}
+                onCardClick={(card) =>
+                  router.push(
+                    `/dashboard/kanban/card?board=${encodeURIComponent(boardId)}&card=${encodeURIComponent(card._id)}`,
+                  )
+                }
+                onAddCard={handleAddCard}
+                onUpdateColumn={handleUpdateColumn}
+                onDeleteColumn={handleDeleteColumn}
+                onClearColumn={handleClearColumn}
+              />
+            ))}
+            <div className="w-56 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-muted-foreground"
+                onClick={() => setAddingColumn(true)}
+              >
+                <Plus /> Add column
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      <ColumnDialog
+        open={addingColumn}
+        onOpenChange={setAddingColumn}
+        onSubmit={handleAddColumn}
+      />
+
+      <ConfirmDialog
+        open={trashedColumn !== undefined}
+        onOpenChange={(open) => !open && setTrashedColumnId(null)}
+        title={`Delete ${trashedColumn?.title ?? "column"}?`}
+        description={
+          trashedColumn?.cards.length
+            ? `${trashedColumn.cards.length} cards will be deleted with it.`
+            : undefined
+        }
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (trashedColumnId) handleDeleteColumn(trashedColumnId);
+          setTrashedColumnId(null);
+        }}
+      />
 
       {createPortal(
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${
+          className={cn(
+            "fixed right-6 bottom-6 z-50 flex size-14 items-center justify-center rounded-xl border border-dashed transition-all duration-200",
             dragging
-              ? "opacity-100 scale-100"
-              : "opacity-0 scale-75 pointer-events-none"
-          } ${
+              ? "scale-100 opacity-100"
+              : "pointer-events-none scale-75 opacity-0",
             trashHover
-              ? "border-destructive bg-destructive/15 text-destructive scale-110"
-              : "border-muted-foreground/40 bg-background/80 text-muted-foreground backdrop-blur-sm"
-          } size-14`}
+              ? "scale-110 border-destructive bg-destructive/15 text-destructive"
+              : "border-border bg-background/90 text-muted-foreground backdrop-blur-sm",
+          )}
           onMouseEnter={() => {
             trashHoverRef.current = true;
             setTrashHover(true);
@@ -561,9 +504,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
             setTrashHover(false);
           }}
         >
-          <Trash2
-            className={`transition-all duration-200 ${trashHover ? "size-6" : "size-5"}`}
-          />
+          <Trash2 className={trashHover ? "size-6" : "size-5"} />
         </div>,
         document.body,
       )}
@@ -571,66 +512,64 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       {dragging &&
         (() => {
           const pos = mousePosRef.current;
+          const ghostStyle = {
+            left: pos.x + GHOST_OFFSET.x,
+            top: pos.y + GHOST_OFFSET.y,
+          };
 
           if (dragging.kind === "card") {
             const card = columns
               .flatMap((c) => c.cards)
               .find((c) => c._id === dragging.cardId);
             if (!card) return null;
+            const priority = PRIORITY_BADGE[card.priority];
             return (
               <div
                 ref={ghostRef}
-                className="fixed z-50 pointer-events-none w-64 opacity-75"
-                style={{ left: pos.x - 128, top: pos.y - 20 }}
+                className="pointer-events-none fixed z-50 w-72 rotate-1 select-none"
+                style={ghostStyle}
               >
-                <div className="bg-card rounded-xl border shadow-2xl p-4 select-none">
-                  {card.labels && card.labels.length > 0 && (
-                    <div className="flex gap-1.5 flex-wrap mb-2.5">
+                <div className="flex flex-col gap-1.5 rounded-md border bg-background px-3 py-2.5 shadow-lg">
+                  {card.labels.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
                       {card.labels.slice(0, 3).map((label) => (
-                        <span
-                          key={label}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary leading-none"
-                        >
+                        <Badge key={label} variant="secondary">
                           {label}
-                        </span>
+                        </Badge>
                       ))}
                     </div>
                   )}
-                  <p className="text-sm font-semibold leading-snug text-foreground line-clamp-2">
+                  <p className="line-clamp-2 text-sm leading-snug text-accent-strong">
                     {card.title}
                   </p>
-                  {card.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-1 mt-1.5 leading-relaxed">
-                      {card.description}
-                    </p>
+                  {priority && (
+                    <Badge variant={priority.variant} className="self-end">
+                      {priority.label}
+                    </Badge>
                   )}
                 </div>
               </div>
             );
           }
 
-          if (dragging.kind === "column") {
-            const col = columns.find((c) => c._id === dragging.columnId);
-            if (!col) return null;
-            return (
-              <div
-                ref={ghostRef}
-                className="fixed z-50 pointer-events-none w-64 opacity-75"
-                style={{ left: pos.x - 128, top: pos.y - 20 }}
-              >
-                <div className="bg-secondary/80 dark:bg-muted/60 rounded-2xl border shadow-2xl px-4 py-3 flex items-center gap-2">
-                  <span className="text-sm font-medium flex-1 truncate">
-                    {col.title}
-                  </span>
-                  <span className="text-xs text-muted-foreground bg-background rounded-full px-2 py-0.5 font-medium">
-                    {col.cards.length}
-                  </span>
-                </div>
+          const col = columns.find((c) => c._id === dragging.columnId);
+          if (!col) return null;
+          return (
+            <div
+              ref={ghostRef}
+              className="pointer-events-none fixed z-50 w-72 select-none"
+              style={ghostStyle}
+            >
+              <div className="flex h-10 items-center gap-2 rounded-lg border bg-background px-3 shadow-lg">
+                <span className="flex-1 truncate text-sm font-medium text-accent-strong">
+                  {col.title}
+                </span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {col.cards.length}
+                </span>
               </div>
-            );
-          }
-
-          return null;
+            </div>
+          );
         })()}
     </>
   );

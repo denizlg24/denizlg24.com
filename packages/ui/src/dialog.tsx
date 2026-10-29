@@ -38,7 +38,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[100] bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[100] bg-black/35 backdrop-blur-[2px]",
         className,
       )}
       {...props}
@@ -46,24 +46,47 @@ function DialogOverlay({
   );
 }
 
+const DIALOG_SIZE = {
+  sm: "sm:max-w-md",
+  default: "sm:max-w-3xl",
+  lg: "sm:max-w-5xl",
+  xl: "sm:max-w-7xl",
+} as const;
+
+export type DialogSize = keyof typeof DIALOG_SIZE;
+
+/**
+ * Dialogs default wide and cap their height at the viewport, scrolling inside;
+ * `sm` is for confirmations only.
+ */
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  size = "default",
+  onClick,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  size?: DialogSize;
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // Portalled, but React events still bubble to the component that
+        // rendered the dialog — often a clickable row. Keep them in here.
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick?.(event);
+        }}
         className={cn(
           // grid-cols-[minmax(0,1fr)] rather than the implicit auto column:
           // an auto track inherits min-width:auto from its item, so a long
           // token or a wide table pushes the whole dialog past its max-width.
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[100] grid grid-cols-[minmax(0,1fr)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[100] grid grid-cols-[minmax(0,1fr)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border p-5 shadow-2xl shadow-black/10 duration-150 outline-none max-h-[min(85vh,60rem)] overflow-y-auto overscroll-contain",
+          DIALOG_SIZE[size],
           className,
         )}
         {...props}
@@ -72,7 +95,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="text-muted-foreground hover:bg-surface hover:text-accent-strong focus-visible:ring-ring/40 absolute top-3.5 right-3.5 rounded-md p-1 transition-colors focus-visible:ring-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -87,7 +110,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn("flex flex-col gap-1 pr-6 text-left", className)}
       {...props}
     />
   );
@@ -105,7 +128,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}
@@ -127,7 +150,10 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn(
+        "text-base leading-tight font-semibold text-accent-strong",
+        className,
+      )}
       {...props}
     />
   );

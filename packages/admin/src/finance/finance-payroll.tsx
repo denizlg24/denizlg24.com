@@ -8,9 +8,12 @@ import type {
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
 import { CurrencySelect } from "@repo/ui/currency-select";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
+import { List, ListRow } from "@repo/ui/list";
 import { NumericField } from "@repo/ui/numeric-field";
-import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -18,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Stat, StatGroup } from "@repo/ui/stat";
 import { Switch } from "@repo/ui/switch";
 import {
   computePayout,
@@ -26,7 +30,14 @@ import {
   majorToMinor,
   minorToMajor,
 } from "@repo/utils";
-import { ArrowDownLeft, Loader2, Plus, Trash2, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowDownLeft,
+  ArrowUp,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -36,7 +47,6 @@ import {
   deleteFinanceDeductionProfile,
   updateFinanceDeductionProfile,
 } from "./finance-data";
-import { Empty, FieldRow, Figure, SectionHead } from "./finance-primitives";
 import { money, nextDueByRule, shortDay, todayKey } from "./finance-series";
 
 interface LineDraft {
@@ -137,13 +147,14 @@ function ProfileDialog({
       if (target < 0 || target >= current.length) return current;
       const next = [...current];
       const [row] = next.splice(index, 1);
-      next.splice(target, 0, row!);
+      if (!row) return current;
+      next.splice(target, 0, row);
       return next;
     });
   }
 
   async function save() {
-    if (!name.trim()) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
     try {
       const input = { name: name.trim(), currency, lines: parsed };
@@ -161,32 +172,70 @@ function ProfileDialog({
     }
   }
 
+  async function remove() {
+    if (!profile) return;
+    try {
+      await deleteFinanceDeductionProfile(client, profile.id);
+      onOpenChange(false);
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Delete failed");
+    }
+  }
+
   return (
-    <ResponsiveDialog
+    <FormDialog
       open={open}
       onOpenChange={onOpenChange}
       title={profile ? profile.name : "Deduction profile"}
-      className="max-w-3xl"
+      size="lg"
+      onSubmit={save}
+      submitLabel={profile ? "Save profile" : "Add profile"}
+      submitDisabled={!name.trim()}
+      pending={saving}
+      footerStart={
+        profile ? (
+          <ConfirmButton
+            title={`Delete ${profile.name}?`}
+            actionLabel="Delete"
+            destructive
+            onConfirm={remove}
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 />
+                Delete
+              </Button>
+            }
+          />
+        ) : undefined
+      }
     >
-      <div className="space-y-5">
-        <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-          <FieldRow label="Name" htmlFor="profile-name" className="min-w-0">
-            <Input
-              id="profile-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </FieldRow>
-          <FieldRow label="Currency" className="min-w-0">
-            <CurrencySelect value={currency} onValueChange={setCurrency} />
-          </FieldRow>
-        </div>
+      <FormGrid>
+        <FormField label="Name" htmlFor="profile-name">
+          <Input
+            id="profile-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Currency">
+          <CurrencySelect value={currency} onValueChange={setCurrency} />
+        </FormField>
+      </FormGrid>
 
-        <div className="space-y-2">
-          <SectionHead label="Lines">
+      <Section
+        title="Lines"
+        count={lines.length}
+        actions={
+          <>
             {lines.length === 0 && (
               <Button
-                size="xs"
+                type="button"
+                size="sm"
                 variant="ghost"
                 onClick={() => {
                   setCurrency("DKK");
@@ -202,7 +251,8 @@ function ProfileDialog({
               </Button>
             )}
             <Button
-              size="xs"
+              type="button"
+              size="sm"
               variant="ghost"
               onClick={() =>
                 setLines((current) => [
@@ -219,171 +269,164 @@ function ProfileDialog({
                 ])
               }
             >
-              <Plus className="size-3" />
+              <Plus />
               Line
             </Button>
-          </SectionHead>
-          {lines.length === 0 ? (
-            <Empty label="—" compact />
-          ) : (
-            <div className="divide-y">
-              {lines.map((line, index) => (
-                <div
-                  key={line.id}
-                  className="grid grid-cols-2 gap-2 py-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_6rem_6.5rem_6.5rem_auto_auto] sm:items-end"
-                >
-                  <FieldRow label="Name" className="col-span-2 sm:col-span-1">
-                    <Input
-                      value={line.name}
-                      onChange={(event) =>
-                        patchLine(line.id, { name: event.target.value })
+          </>
+        }
+      >
+        {lines.length === 0 ? (
+          <EmptyState compact label="No lines" />
+        ) : (
+          <div className="flex flex-col divide-y divide-border/70">
+            {lines.map((line, index) => (
+              <div
+                key={line.id}
+                className="grid grid-cols-2 gap-3 py-3 first:pt-0 sm:grid-cols-[minmax(0,1.4fr)_6rem_7rem_7rem_7rem_auto_auto] sm:items-end"
+              >
+                <FormField label="Name" className="col-span-2 sm:col-span-1">
+                  <Input
+                    aria-label="Line name"
+                    value={line.name}
+                    onChange={(event) =>
+                      patchLine(line.id, { name: event.target.value })
+                    }
+                  />
+                </FormField>
+                <FormField label="Kind">
+                  <Select
+                    value={line.kind}
+                    onValueChange={(value) =>
+                      patchLine(line.id, {
+                        kind: value === "fixed" ? "fixed" : "percent",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">%</SelectItem>
+                      <SelectItem value="fixed">Fixed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label={line.kind === "percent" ? "Rate" : "Amount"}>
+                  <NumericField
+                    value={line.value}
+                    onValueChange={(value) => patchLine(line.id, { value })}
+                    className="text-right tabular-nums"
+                  />
+                </FormField>
+                <FormField label="On">
+                  <Select
+                    value={line.base}
+                    onValueChange={(value) =>
+                      patchLine(line.id, {
+                        base: value === "gross" ? "gross" : "taxable",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gross">Gross</SelectItem>
+                      <SelectItem value="taxable">Taxable</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Allowance">
+                  <NumericField
+                    value={line.allowance}
+                    onValueChange={(value) =>
+                      patchLine(line.id, { allowance: value })
+                    }
+                    placeholder="0"
+                    className="text-right tabular-nums"
+                  />
+                </FormField>
+                <FormField label="Pre-tax">
+                  <div className="flex h-8 items-center">
+                    <Switch
+                      checked={line.reducesTaxableBase}
+                      onCheckedChange={(checked) =>
+                        patchLine(line.id, { reducesTaxableBase: checked })
                       }
-                      className="h-8 text-xs"
+                      aria-label={`${line.name || "Line"} reduces taxable base`}
                     />
-                  </FieldRow>
-                  <FieldRow label="Kind">
-                    <Select
-                      value={line.kind}
-                      onValueChange={(value) =>
-                        patchLine(line.id, {
-                          kind: value as LineDraft["kind"],
-                        })
-                      }
-                    >
-                      <SelectTrigger size="sm" className="w-full text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="percent">%</SelectItem>
-                        <SelectItem value="fixed">Fixed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FieldRow>
-                  <FieldRow label={line.kind === "percent" ? "Rate" : "Amount"}>
-                    <NumericField
-                      value={line.value}
-                      onValueChange={(value) => patchLine(line.id, { value })}
-                      className="h-8 text-right text-xs tabular-nums"
-                    />
-                  </FieldRow>
-                  <FieldRow label="On">
-                    <Select
-                      value={line.base}
-                      onValueChange={(value) =>
-                        patchLine(line.id, {
-                          base: value as LineDraft["base"],
-                        })
-                      }
-                    >
-                      <SelectTrigger size="sm" className="w-full text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="gross">Gross</SelectItem>
-                        <SelectItem value="taxable">Taxable</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FieldRow>
-                  <FieldRow label="Allowance">
-                    <NumericField
-                      value={line.allowance}
-                      onValueChange={(value) =>
-                        patchLine(line.id, { allowance: value })
-                      }
-                      placeholder="0"
-                      className="h-8 text-right text-xs tabular-nums"
-                    />
-                  </FieldRow>
-                  <FieldRow label="Pre-tax">
-                    <div className="flex h-8 items-center">
-                      <Switch
-                        checked={line.reducesTaxableBase}
-                        onCheckedChange={(checked) =>
-                          patchLine(line.id, { reducesTaxableBase: checked })
-                        }
-                        aria-label={`${line.name || "Line"} reduces taxable base`}
-                      />
-                    </div>
-                  </FieldRow>
-                  <div className="flex h-8 items-center justify-end gap-0.5">
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label="Move up"
-                      disabled={index === 0}
-                      onClick={() => move(index, -1)}
-                    >
-                      ↑
-                    </Button>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label="Move down"
-                      disabled={index === lines.length - 1}
-                      onClick={() => move(index, 1)}
-                    >
-                      ↓
-                    </Button>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label="Remove line"
-                      onClick={() =>
-                        setLines((current) =>
-                          current.filter((row) => row.id !== line.id),
-                        )
-                      }
-                    >
-                      <X className="size-3" />
-                    </Button>
                   </div>
+                </FormField>
+                <div className="flex h-8 items-center justify-end gap-0.5">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Move up"
+                    disabled={index === 0}
+                    onClick={() => move(index, -1)}
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Move down"
+                    disabled={index === lines.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    <ArrowDown />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Remove line"
+                    onClick={() =>
+                      setLines((current) =>
+                        current.filter((row) => row.id !== line.id),
+                      )
+                    }
+                  >
+                    <X />
+                  </Button>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-2 rounded-md bg-muted/40 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Gross
-            </span>
-            <NumericField
-              value={sample}
-              onValueChange={(value) => setSample(value)}
-              className="h-7 w-32 text-right text-xs tabular-nums"
-              aria-label="Sample gross"
-            />
-          </div>
-          <div className="space-y-0.5 text-xs tabular-nums">
-            {preview.lines.map((line) => (
-              <div key={line.lineId} className="flex justify-between">
-                <span className="text-muted-foreground">
-                  {line.name}
-                  <span className="ml-1 text-[10px]">
-                    on {money(line.baseMinor, currency)}
-                  </span>
-                </span>
-                <span>−{money(line.amountMinor, currency)}</span>
               </div>
             ))}
-            <div className="flex justify-between border-t pt-1 font-medium">
-              <span>Net</span>
-              <span>{money(preview.netMinor, currency)}</span>
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="Preview"
+        actions={
+          <NumericField
+            value={sample}
+            onValueChange={(value) => setSample(value)}
+            className="h-7 w-32 text-right text-xs tabular-nums"
+            aria-label="Sample gross"
+          />
+        }
+      >
+        <div className="flex flex-col gap-0.5 text-xs tabular-nums">
+          {preview.lines.map((line) => (
+            <div key={line.lineId} className="flex justify-between gap-3">
+              <span className="text-muted-foreground">
+                {line.name} on {money(line.baseMinor, currency)}
+              </span>
+              <span className="text-accent-strong">
+                −{money(line.amountMinor, currency)}
+              </span>
             </div>
+          ))}
+          <div className="flex justify-between border-t pt-1 font-medium text-accent-strong">
+            <span>Net</span>
+            <span>{money(preview.netMinor, currency)}</span>
           </div>
         </div>
-
-        <Button
-          className="w-full"
-          disabled={saving || !name.trim()}
-          onClick={() => void save()}
-        >
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          {profile ? "Save profile" : "Add profile"}
-        </Button>
-      </div>
-    </ResponsiveDialog>
+      </Section>
+    </FormDialog>
   );
 }
 
@@ -394,7 +437,7 @@ export function FinancePayrollTab({
   data: FinanceDashboardResponse;
   onReload: () => Promise<void>;
 }) {
-  const { client, routes } = useAdmin();
+  const { routes } = useAdmin();
   const [editing, setEditing] = useState<{
     profile: FinanceDeductionProfile | null;
   } | null>(null);
@@ -417,127 +460,95 @@ export function FinancePayrollTab({
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="min-w-0 space-y-4">
+      <div className="flex min-w-0 flex-col gap-6">
         {next && (
-          <div className="flex flex-wrap gap-x-12 gap-y-4">
-            <Figure
+          <StatGroup>
+            <Stat
               label="Next payout"
               value={money(next.rule.amountMinor, next.rule.currency)}
-              meta={`${next.rule.name} · ${shortDay(next.due)}`}
+              hint={`${next.rule.name} · ${shortDay(next.due)}`}
             />
-          </div>
+          </StatGroup>
         )}
-        <SectionHead label="Payouts">
-          <Button asChild size="xs" variant="ghost">
-            <Link href={routes.finance.payoutNew}>
-              <Plus className="size-3" />
-              Payout
-            </Link>
-          </Button>
-        </SectionHead>
-        {payouts.length === 0 ? (
-          <Empty label="No payouts" />
-        ) : (
-          <div className="divide-y">
-            {payouts.map((rule) => {
-              const due = nextDue.get(rule.id);
-              const profile = rule.payout?.deductionProfileId
-                ? profileName.get(rule.payout.deductionProfileId)
-                : undefined;
-              return (
-                <Link
-                  key={rule.id}
-                  href={routes.finance.rule(rule.id)}
-                  className="flex items-center gap-3 py-2.5 transition-opacity hover:opacity-70"
-                >
-                  <ArrowDownLeft className="size-3.5 shrink-0 text-status-good" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{rule.name}</div>
-                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {describeRecurrence(rule.recurrence)} · closes{" "}
-                      {rule.payout?.cycleCloseDay}
-                      {profile ? ` · ${profile}` : ""}
-                      {due ? ` · due ${shortDay(due)}` : ""}
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-sm font-medium tabular-nums text-status-good">
-                    {money(rule.amountMinor, rule.currency)}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+        <Section
+          title="Payouts"
+          count={payouts.length}
+          actions={
+            <Button asChild size="sm" variant="ghost">
+              <Link href={routes.finance.payoutNew}>
+                <Plus />
+                Payout
+              </Link>
+            </Button>
+          }
+        >
+          {payouts.length === 0 ? (
+            <EmptyState compact icon={<ArrowDownLeft />} label="No payouts" />
+          ) : (
+            <List divided>
+              {payouts.map((rule) => {
+                const due = nextDue.get(rule.id);
+                const profile = rule.payout?.deductionProfileId
+                  ? profileName.get(rule.payout.deductionProfileId)
+                  : undefined;
+                return (
+                  <Link key={rule.id} href={routes.finance.rule(rule.id)}>
+                    <ListRow
+                      leading={<ArrowDownLeft className="text-status-good" />}
+                      title={rule.name}
+                      description={`${describeRecurrence(rule.recurrence)} · closes ${rule.payout?.cycleCloseDay}${profile ? ` · ${profile}` : ""}${due ? ` · due ${shortDay(due)}` : ""}`}
+                      meta={
+                        <span className="text-sm font-medium text-status-good">
+                          {money(rule.amountMinor, rule.currency)}
+                        </span>
+                      }
+                    />
+                  </Link>
+                );
+              })}
+            </List>
+          )}
+        </Section>
       </div>
 
-      <aside className="min-w-0 space-y-2">
-        <SectionHead label="Deductions">
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => setEditing({ profile: null })}
-          >
-            <Plus className="size-3" />
-            Profile
-          </Button>
-        </SectionHead>
-        {data.deductionProfiles.length === 0 ? (
-          <Empty label="—" compact />
-        ) : (
-          <div className="divide-y">
-            {data.deductionProfiles.map((profile) => (
-              <div
-                key={profile.id}
-                className="group flex items-center gap-2 py-2.5"
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left transition-opacity hover:opacity-70"
+      <aside className="min-w-0">
+        <Section
+          title="Deductions"
+          count={data.deductionProfiles.length}
+          actions={
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditing({ profile: null })}
+            >
+              <Plus />
+              Profile
+            </Button>
+          }
+        >
+          {data.deductionProfiles.length === 0 ? (
+            <EmptyState compact label="No profiles" />
+          ) : (
+            <List divided>
+              {data.deductionProfiles.map((profile) => (
+                <ListRow
+                  key={profile.id}
                   onClick={() => setEditing({ profile })}
-                >
-                  <div className="truncate text-xs font-medium">
-                    {profile.name}
-                  </div>
-                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                    {profile.lines
+                  title={profile.name}
+                  description={
+                    profile.lines
                       .map((line) =>
                         line.kind === "percent"
                           ? `${line.name} ${line.ratePercent ?? 0}%`
                           : `${line.name} ${money(line.amountMinor ?? 0, profile.currency)}`,
                       )
-                      .join(" · ") || "—"}
-                  </div>
-                </button>
-                <ConfirmButton
-                  title={`Delete ${profile.name}?`}
-                  actionLabel="Delete"
-                  onConfirm={async () => {
-                    try {
-                      await deleteFinanceDeductionProfile(client, profile.id);
-                      await onReload();
-                    } catch (error) {
-                      toast.error(
-                        error instanceof Error
-                          ? error.message
-                          : "Delete failed",
-                      );
-                    }
-                  }}
-                  trigger={
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label={`Delete ${profile.name}`}
-                      className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                      .join(" · ") || "—"
                   }
                 />
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </List>
+          )}
+        </Section>
       </aside>
 
       {editing && (

@@ -38,14 +38,6 @@ export const DEFAULT_FILTERS: VoiceNoteFilters = {
   sort: "newest",
 };
 
-export const STATUS_OPTIONS: VoiceNoteTranscriptionStatus[] = [
-  "failed",
-  "queued",
-  "transcribing",
-  "untranscribed",
-  "transcribed",
-];
-
 export const SOURCE_OPTIONS: VoiceNoteSource[] = [
   "recording",
   "upload",

@@ -1,56 +1,28 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { SortHeader } from "@repo/ui/data-table";
-import { DialogFooter } from "@repo/ui/dialog";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
-import { Separator } from "@repo/ui/separator";
-import { StatStripSkeleton, TableSkeleton } from "@repo/ui/skeleton-blocks";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@repo/ui/table";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageToolbar } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Stat, StatGroup } from "@repo/ui/stat";
 import { Textarea } from "@repo/ui/textarea";
 import {
-  type ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  type SortingState,
-  useReactTable,
-} from "@tanstack/react-table";
-import {
-  Download,
-  FileUp,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  Sheet,
-  Trash2,
-} from "lucide-react";
+  FilterTabs,
+  RowActions,
+  SearchField,
+  ToolbarSpacer,
+} from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import { Download, FileUp, Plus, RefreshCw, Sheet, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -59,21 +31,29 @@ import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ISpreadsheet } from "@/lib/data-types";
 import { pickFile } from "@/lib/platform-fs";
+import { downloadSpreadsheet } from "./_components/download";
+
+type SortKey = "updated" | "title" | "size";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "updated", label: "Updated" },
+  { value: "title", label: "Title" },
+  { value: "size", label: "Size" },
+];
 
 function formatRelativeDate(dateStr: string): string {
   const now = new Date();
   const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-  if (diffMins < 1) return "just now";
+  const diffMins = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (diffMins < 1) return "now";
   if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString("en-US", {
-    month: "short",
+  return date.toLocaleDateString("en-GB", {
     day: "numeric",
+    month: "short",
     year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
   });
 }
@@ -84,36 +64,54 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function LoadingSkeleton() {
+function parseTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function SheetsSkeleton() {
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <DashboardPageHeader
-        icon={<Sheet className="size-4 text-muted-foreground" />}
-        title="Spreadsheets"
-      />
-      <div className="px-4 flex flex-col gap-6 pt-3">
-        <StatStripSkeleton count={3} />
-        <TableSkeleton
-          rows={4}
-          withMeta={false}
-          widths={["w-32", "w-16", "w-16", "w-16", "w-24", "w-8"]}
-        />
+    <>
+      <StatGroup>
+        {["Workbooks", "Sheets", "Storage"].map((label) => (
+          <div key={label} className="flex flex-col gap-2">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-6 w-12" />
+          </div>
+        ))}
+      </StatGroup>
+      <div className="flex flex-col">
+        {["w-48", "w-36", "w-56", "w-40"].map((width) => (
+          <div key={width} className="flex h-12 items-center gap-3">
+            <Skeleton className="size-4" />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Skeleton className={cn("h-3.5", width)} />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className="h-3 w-24" />
+          </div>
+        ))}
       </div>
-    </div>
+    </>
   );
 }
 
 export default function SpreadsheetsPage() {
   const router = useRouter();
-  const { settings, loading: loadingSettings } = useUserSettings();
+  const { loading: loadingSettings } = useUserSettings();
 
-  const api = useMemo(() => {
-    if (loadingSettings) return null;
-    return new denizApi();
-  }, [settings, loadingSettings]);
+  const api = useMemo(
+    () => (loadingSettings ? null : new denizApi()),
+    [loadingSettings],
+  );
 
   const [sheets, setSheets] = useState<ISpreadsheet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>("updated");
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
@@ -127,11 +125,8 @@ export default function SpreadsheetsPage() {
     const result = await api.GET<{ spreadsheets: ISpreadsheet[] }>({
       endpoint: "spreadsheets",
     });
-    if (!("code" in result)) {
-      setSheets(result.spreadsheets);
-    } else {
-      toast.error("Failed to load spreadsheets");
-    }
+    if ("code" in result) toast.error("Failed to load spreadsheets");
+    else setSheets(result.spreadsheets);
     setLoading(false);
   }, [api]);
 
@@ -139,15 +134,37 @@ export default function SpreadsheetsPage() {
     fetchSheets();
   }, [fetchSheets]);
 
-  const totals = useMemo(() => {
-    const totalBytes = sheets.reduce((a, s) => a + (s.sizeBytes || 0), 0);
-    const totalSheets = sheets.reduce((a, s) => a + (s.sheetCount || 0), 0);
-    return {
+  const totals = useMemo(
+    () => ({
       count: sheets.length,
-      sheets: totalSheets,
-      size: totalBytes,
-    };
-  }, [sheets]);
+      sheets: sheets.reduce((a, s) => a + (s.sheetCount || 0), 0),
+      size: sheets.reduce((a, s) => a + (s.sizeBytes || 0), 0),
+    }),
+    [sheets],
+  );
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? sheets.filter(
+          (s) =>
+            s.title.toLowerCase().includes(q) ||
+            s.description?.toLowerCase().includes(q) ||
+            s.tags.some((tag) => tag.toLowerCase().includes(q)),
+        )
+      : sheets;
+    return [...filtered].sort((a, b) => {
+      if (sort === "title") return a.title.localeCompare(b.title);
+      if (sort === "size") return b.sizeBytes - a.sizeBytes;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+  }, [sheets, query, sort]);
+
+  const resetCreate = () => {
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreateTags("");
+  };
 
   const handleCreate = async () => {
     if (!api || !createTitle.trim()) return;
@@ -157,12 +174,7 @@ export default function SpreadsheetsPage() {
       body: {
         title: createTitle.trim(),
         description: createDescription.trim() || undefined,
-        tags: createTags
-          ? createTags
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean)
-          : [],
+        tags: parseTags(createTags),
       },
     });
     setCreating(false);
@@ -170,11 +182,8 @@ export default function SpreadsheetsPage() {
       toast.error("Failed to create spreadsheet");
       return;
     }
-    toast.success("Spreadsheet created");
     setCreateOpen(false);
-    setCreateTitle("");
-    setCreateDescription("");
-    setCreateTags("");
+    resetCreate();
     router.push(`/dashboard/spreadsheets/editor?id=${result.spreadsheet._id}`);
   };
 
@@ -188,11 +197,10 @@ export default function SpreadsheetsPage() {
       if (!picked) return;
 
       setImporting(true);
-      const blob = new Blob([picked.data], {
-        type: "application/octet-stream",
-      });
-      const file = new File([blob], picked.name);
-
+      const file = new File(
+        [new Blob([picked.data], { type: "application/octet-stream" })],
+        picked.name,
+      );
       const formData = new FormData();
       formData.append("file", file);
 
@@ -200,46 +208,22 @@ export default function SpreadsheetsPage() {
         endpoint: "spreadsheets/import",
         formData,
       });
-      setImporting(false);
-
       if ("code" in result) {
         toast.error("Failed to import spreadsheet");
         return;
       }
-      toast.success("Spreadsheet imported");
-      await fetchSheets();
       router.push(
         `/dashboard/spreadsheets/editor?id=${result.spreadsheet._id}`,
       );
     } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed");
+    } finally {
       setImporting(false);
-      toast.error((err as Error).message ?? "Import failed");
     }
   };
 
-  const handleExport = async (sheet: ISpreadsheet) => {
+  const handleDelete = async (target: ISpreadsheet) => {
     if (!api) return;
-    const res = await api.GET_RAW({
-      endpoint: `spreadsheets/${sheet._id}/export`,
-    });
-    if ("code" in res) {
-      toast.error("Failed to export");
-      return;
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${sheet.title}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDelete = async () => {
-    if (!api || !deleteTarget) return;
-    const target = deleteTarget;
     setSheets((prev) => prev.filter((s) => s._id !== target._id));
     setDeleteTarget(null);
     const result = await api.DELETE<{ message: string }>({
@@ -248,359 +232,215 @@ export default function SpreadsheetsPage() {
     if ("code" in result) {
       toast.error("Failed to delete spreadsheet");
       fetchSheets();
-      return;
     }
-    toast.success("Spreadsheet deleted");
   };
 
-  const columns: ColumnDef<ISpreadsheet, unknown>[] = useMemo(
-    () => [
-      {
-        accessorKey: "title",
-        header: ({ column }) => <SortHeader label="Title" column={column} />,
-        cell: ({ row }) => {
-          const s = row.original;
-          return (
-            <div className="flex flex-col gap-0.5">
-              <span className="font-medium">{s.title}</span>
-              {s.description && (
-                <span className="text-[11px] text-muted-foreground truncate max-w-[360px]">
-                  {s.description}
-                </span>
-              )}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "sheetCount",
-        meta: { className: "hidden md:table-cell" },
-        header: "Sheets",
-        cell: ({ row }) => (
-          <span className="text-muted-foreground tabular-nums">
-            {row.original.sheetCount}
-          </span>
-        ),
-      },
-      {
-        id: "dimensions",
-        meta: { className: "hidden lg:table-cell" },
-        header: "Size",
-        cell: ({ row }) => (
-          <span className="text-muted-foreground tabular-nums">
-            {row.original.rowCount}×{row.original.colCount}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "sizeBytes",
-        meta: { className: "hidden lg:table-cell" },
-        header: ({ column }) => <SortHeader label="Bytes" column={column} />,
-        cell: ({ row }) => (
-          <span className="text-muted-foreground tabular-nums">
-            {formatBytes(row.original.sizeBytes)}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "updatedAt",
-        header: ({ column }) => <SortHeader label="Updated" column={column} />,
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {formatRelativeDate(row.original.updatedAt)}
-          </span>
-        ),
-      },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }) => {
-          const s = row.original;
-          return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleExport(s);
-                  }}
-                >
-                  <Download className="size-3.5" />
-                  Export .xlsx
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(s);
-                  }}
-                  variant="destructive"
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          );
-        },
-      },
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [handleExport],
-  );
-
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "updatedAt", desc: true },
-  ]);
-
-  const table = useReactTable({
-    data: sheets,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    onSortingChange: setSorting,
-    state: { sorting },
-  });
-
-  if (loadingSettings || loading) {
-    return <LoadingSkeleton />;
-  }
-
-  if (!api) {
-    return (
-      <div className="flex flex-col gap-2 pb-8">
-        <DashboardPageHeader
-          icon={<Sheet className="size-4 text-muted-foreground" />}
-          title="Spreadsheets"
-        />
-        <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
-          Failed to initialize API client.
-        </div>
-      </div>
-    );
-  }
+  const showSkeleton = loadingSettings || loading;
 
   return (
-    <div className="flex flex-col gap-2 pb-8 h-full">
-      <DashboardPageHeader
-        icon={<Sheet className="size-4 text-muted-foreground" />}
-        title="Spreadsheets"
-      >
+    <Page>
+      <DashboardPageHeader icon={<Sheet />} title="Spreadsheets">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={handleImport}
-          disabled={importing}
-        >
-          <FileUp className={`size-3.5 ${importing ? "animate-pulse" : ""}`} />
-          <span className="hidden sm:inline">Import</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={() => setCreateOpen(true)}
-        >
-          <Plus className="size-3.5" />
-          <span className="hidden sm:inline">New</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={() => {
-            setLoading(true);
-            fetchSheets();
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={!api || refreshing}
+          onClick={async () => {
+            setRefreshing(true);
+            await fetchSheets();
+            setRefreshing(false);
           }}
         >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleImport}
+          disabled={!api || importing}
+        >
+          <FileUp className={cn(importing && "animate-pulse")} />
+          Import
+        </Button>
+        <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!api}>
+          <Plus /> New
         </Button>
       </DashboardPageHeader>
 
-      <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
-        <div className="flex items-baseline gap-8 flex-wrap">
-          <Stat label="Total" value={totals.count} />
-          <Stat label="Sheets" value={totals.sheets} />
-          <Stat label="Storage" value={formatBytes(totals.size)} />
-        </div>
+      {sheets.length > 0 && (
+        <PageToolbar>
+          <SearchField value={query} onChange={setQuery} />
+          <ToolbarSpacer />
+          <FilterTabs value={sort} onChange={setSort} options={SORT_OPTIONS} />
+        </PageToolbar>
+      )}
 
-        <Separator />
-
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={`text-xs ${header.column.columnDef.meta?.className ?? ""}`}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="cursor-pointer"
-                  onClick={() =>
-                    router.push(
-                      `/dashboard/spreadsheets/editor?id=${row.original._id}`,
-                    )
-                  }
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={`text-xs ${cell.column.columnDef.meta?.className ?? ""}`}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+      <PageBody>
+        {showSkeleton ? (
+          <SheetsSkeleton />
+        ) : sheets.length === 0 ? (
+          <EmptyState
+            icon={<Sheet />}
+            label="No spreadsheets"
+            action={
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus /> New
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleImport}>
+                  <FileUp /> Import
+                </Button>
+              </div>
+            }
+          />
+        ) : (
+          <>
+            <StatGroup>
+              <Stat label="Workbooks" value={totals.count} />
+              <Stat label="Sheets" value={totals.sheets} />
+              <Stat label="Storage" value={formatBytes(totals.size)} />
+            </StatGroup>
+            {visible.length === 0 ? (
+              <EmptyState compact label="0 results" />
             ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-32 text-center text-muted-foreground text-sm"
-                >
-                  <div className="flex flex-col items-center gap-3">
-                    <Sheet className="size-8 opacity-40" />
-                    <span>No spreadsheets yet</span>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setCreateOpen(true)}
-                      >
-                        <Plus className="size-3.5" />
-                        New
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={handleImport}
-                      >
-                        <FileUp className="size-3.5" />
-                        Import
-                      </Button>
-                    </div>
-                  </div>
-                </TableCell>
-              </TableRow>
+              <List>
+                {visible.map((sheet) => (
+                  <ListRow
+                    key={sheet._id}
+                    onClick={() =>
+                      router.push(
+                        `/dashboard/spreadsheets/editor?id=${sheet._id}`,
+                      )
+                    }
+                    leading={<Sheet />}
+                    title={sheet.title}
+                    description={sheet.description}
+                    meta={
+                      <>
+                        {sheet.tags.slice(0, 2).map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="secondary"
+                            className="hidden md:inline-flex"
+                          >
+                            {tag}
+                          </Badge>
+                        ))}
+                        <span className="hidden lg:inline">
+                          {sheet.sheetCount} · {sheet.rowCount}×{sheet.colCount}
+                        </span>
+                        <span className="hidden w-16 text-right sm:inline">
+                          {formatBytes(sheet.sizeBytes)}
+                        </span>
+                        <span className="w-16 text-right">
+                          {formatRelativeDate(sheet.updatedAt)}
+                        </span>
+                      </>
+                    }
+                    trailing={
+                      <RowActions className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100">
+                        <SheetMenu
+                          onExport={() =>
+                            api && downloadSpreadsheet(api, sheet)
+                          }
+                          onDelete={() => setDeleteTarget(sheet)}
+                        />
+                      </RowActions>
+                    }
+                  />
+                ))}
+              </List>
             )}
-          </TableBody>
-        </Table>
-      </div>
+          </>
+        )}
+      </PageBody>
 
-      <ResponsiveDialog
+      <FormDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) resetCreate();
+        }}
         title="New spreadsheet"
-        description="Blank workbook. You can rename and fill it next."
+        submitLabel="Create"
+        submitDisabled={!createTitle.trim()}
+        pending={creating}
+        onSubmit={handleCreate}
       >
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Title</Label>
+        <FormGrid>
+          <FormField label="Title" htmlFor="sheet-title">
             <Input
+              id="sheet-title"
               value={createTitle}
               onChange={(e) => setCreateTitle(e.target.value)}
-              placeholder="Monthly budget"
               autoFocus
             />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Description</Label>
-            <Textarea
-              value={createDescription}
-              onChange={(e) => setCreateDescription(e.target.value)}
-              placeholder="Optional"
-              rows={2}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Tags</Label>
+          </FormField>
+          <FormField label="Tags" htmlFor="sheet-tags" hint="Comma-separated">
             <Input
+              id="sheet-tags"
               value={createTags}
               onChange={(e) => setCreateTags(e.target.value)}
-              placeholder="finance, personal (comma-separated)"
             />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCreateOpen(false)}
+          </FormField>
+          <FormField
+            label="Description"
+            htmlFor="sheet-description"
+            className="sm:col-span-2"
           >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleCreate}
-            disabled={creating || !createTitle.trim()}
-          >
-            {creating ? "Creating..." : "Create"}
-          </Button>
-        </DialogFooter>
-      </ResponsiveDialog>
+            <Textarea
+              id="sheet-description"
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              rows={3}
+            />
+          </FormField>
+        </FormGrid>
+      </FormDialog>
 
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete spreadsheet?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget?.title} will be removed and unpinned from storage.
-              This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Delete ${deleteTarget?.title ?? "spreadsheet"}?`}
+        description="The workbook is removed from storage."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
+    </Page>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+// Menu clicks bubble through the portal to the row's own onClick.
+function SheetMenu({
+  onExport,
+  onDelete,
+}: {
+  onExport: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold tabular-nums tracking-tight">
-        {value}
-      </p>
-    </div>
+    <>
+      <DropdownMenuItem
+        onClick={(event) => {
+          event.stopPropagation();
+          onExport();
+        }}
+      >
+        <Download /> Export .xlsx
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        variant="destructive"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+      >
+        <Trash2 /> Delete
+      </DropdownMenuItem>
+    </>
   );
 }

@@ -210,7 +210,7 @@ export function ExploreDock({
               recallHistory(-1);
             }
           }}
-          placeholder="probe the memory lattice…"
+          placeholder="query"
           className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground/40"
           // biome-ignore lint/a11y/noAutofocus: terminal-style dock — the prompt is the view's only control.
           autoFocus

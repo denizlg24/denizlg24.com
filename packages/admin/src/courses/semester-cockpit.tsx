@@ -6,13 +6,16 @@ import type {
   ISemesterOverview,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { Separator } from "@repo/ui/separator";
+import { List, ListGroupLabel, ListRow } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Stat, StatGroup } from "@repo/ui/stat";
 import { cn } from "@repo/ui/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return "--";
+export function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
   return `${value.toFixed(1)}%`;
 }
 
@@ -52,60 +55,53 @@ function toDateKey(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-export function SectionHeading({
-  title,
-  meta,
-}: {
-  title: string;
-  meta?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <h2 className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h2>
-      <Separator className="flex-1" />
-      {meta && (
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {meta}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function CockpitStat({
-  label,
-  value,
-  alert,
-}: {
-  label: string;
-  value: number | string;
-  alert?: boolean;
-}) {
-  return (
-    <div>
-      <div
-        className={cn(
-          "font-mono text-xl leading-none tabular-nums",
-          alert && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-    </div>
-  );
-}
-
+/** The course's own colour is data the owner chose, so it stays an inline style. */
 export function CourseDot({ color }: { color?: string }) {
   return (
     <span
-      className="size-2 shrink-0 rounded-full"
-      style={{ backgroundColor: color ?? "var(--accent)" }}
+      className="size-2 shrink-0 rounded-full bg-accent"
+      style={color ? { backgroundColor: color } : undefined}
     />
+  );
+}
+
+/**
+ * Secured (worst case) in the course colour over the lighter band up to the
+ * best case: the share of the final grade still in play.
+ */
+export function StandingBar({
+  worstCase,
+  bestCase,
+  remainingWeight,
+  color,
+}: {
+  worstCase: number | null;
+  bestCase: number | null;
+  remainingWeight: number | null;
+  color?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="relative h-1 w-full overflow-hidden rounded-full bg-border">
+        <div
+          className="absolute inset-y-0 left-0 bg-muted-foreground/30"
+          style={{ width: `${Math.min(100, bestCase ?? 0)}%` }}
+        />
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-accent-strong/70"
+          style={{
+            width: `${Math.min(100, worstCase ?? 0)}%`,
+            ...(color ? { backgroundColor: color } : {}),
+          }}
+        />
+      </div>
+      <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+        <span>secured {formatPercent(worstCase)}</span>
+        <span>
+          {formatPercent(remainingWeight)} open · best {formatPercent(bestCase)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -117,37 +113,30 @@ function DeadlineRow({
   onSelectCourse?: (courseId: string) => void;
 }) {
   return (
-    <button
-      type="button"
+    <ListRow
+      leading={<CourseDot color={deadline.courseColor} />}
+      title={deadline.title}
       onClick={() => onSelectCourse?.(deadline.courseId)}
-      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/40"
-    >
-      <CourseDot color={deadline.courseColor} />
-      <span className="min-w-0 flex-1 truncate text-sm">{deadline.title}</span>
-      {deadline.sourceLabel && (
-        <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-          {deadline.sourceLabel}
-        </span>
-      )}
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {deadline.courseCode ?? deadline.courseName}
-      </span>
-      <span
-        className={cn(
-          "w-14 shrink-0 text-right text-xs tabular-nums",
-          deadline.overdue ? "text-destructive" : "text-muted-foreground",
-        )}
-      >
-        {deadline.overdue ? "overdue" : formatTime(deadline.dueAt)}
-      </span>
-    </button>
+      meta={
+        <>
+          {deadline.sourceLabel && (
+            <span className="hidden sm:inline">{deadline.sourceLabel}</span>
+          )}
+          <span>{deadline.courseCode ?? deadline.courseName}</span>
+          <span
+            className={cn(
+              "w-14 text-right",
+              deadline.overdue && "text-status-critical",
+            )}
+          >
+            {deadline.overdue ? "overdue" : formatTime(deadline.dueAt)}
+          </span>
+        </>
+      }
+    />
   );
 }
 
-/**
- * One course, one line. This replaced a grid of cards that repeated the same
- * average, overdue count and next deadline this row already carries.
- */
 function RosterRow({
   standing,
   onSelectCourse,
@@ -163,69 +152,49 @@ function RosterRow({
     <button
       type="button"
       onClick={() => onSelectCourse?.(standing.courseId)}
-      className="-mx-2 w-[calc(100%+1rem)] space-y-1.5 border-b border-border/60 px-2 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+      className="-mx-2 flex flex-col gap-1.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-surface/70 focus-visible:bg-surface/70 focus-visible:outline-none"
     >
       <div className="flex items-center gap-2.5">
         <CourseDot color={standing.color} />
         {standing.code && (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {standing.code}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-accent-strong">
           {standing.name}
         </span>
         {nextDeadline && (
-          <span className="hidden min-w-0 max-w-[16rem] shrink truncate text-[11px] text-muted-foreground sm:inline">
+          <span className="hidden min-w-0 max-w-[16rem] shrink truncate text-xs text-muted-foreground sm:inline">
             {nextDeadline.title}
           </span>
         )}
         {standing.overdue > 0 ? (
-          <span className="shrink-0 text-[11px] tabular-nums text-destructive">
+          <span className="shrink-0 text-xs tabular-nums text-status-critical">
             {standing.overdue} overdue
           </span>
         ) : (
           nextDeadline && (
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
               {formatShortDate(nextDeadline.dueAt)}
             </span>
           )
         )}
-        <span className="w-14 shrink-0 text-right font-mono text-sm tabular-nums">
+        <span className="w-14 shrink-0 text-right text-sm tabular-nums text-accent-strong">
           {formatPercent(standing.gradeAverage)}
         </span>
       </div>
 
       {hasProjection ? (
-        <>
-          {/* Secured (worst case) in the course colour; the lighter band up to
-              best case is the share of the final grade still in play. */}
-          <div className="relative h-px w-full bg-border">
-            <div
-              className="absolute inset-y-0 left-0 h-px bg-muted-foreground/40"
-              style={{ width: `${Math.min(100, projection.bestCase ?? 0)}%` }}
-            />
-            <div
-              className="absolute -top-px left-0 h-[3px]"
-              style={{
-                width: `${Math.min(100, projection.worstCase ?? 0)}%`,
-                backgroundColor: standing.color ?? "var(--accent)",
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span className="tabular-nums">
-              secured {formatPercent(projection.worstCase)}
-            </span>
-            <span className="tabular-nums">
-              {formatPercent(projection.remainingWeight)} open · best{" "}
-              {formatPercent(projection.bestCase)}
-            </span>
-          </div>
-        </>
+        <StandingBar
+          worstCase={projection.worstCase}
+          bestCase={projection.bestCase}
+          remainingWeight={projection.remainingWeight}
+          color={standing.color}
+        />
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          {standing.gradeAverage === null ? "No grades yet" : "No weights"}
+          {standing.gradeAverage === null ? "No grades" : "No weights"}
           {standing.openAssessments > 0 &&
             ` · ${standing.openAssessments} open`}
         </p>
@@ -234,22 +203,22 @@ function RosterRow({
   );
 }
 
-function CockpitSkeleton() {
+export function CockpitSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="flex gap-10">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="space-y-2">
-            <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-            <div className="h-2 w-16 animate-pulse rounded bg-muted" />
+    <div className="flex flex-col gap-8">
+      <StatGroup>
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-2">
+            <Skeleton className="h-2.5 w-16" />
+            <Skeleton className="h-6 w-12" />
           </div>
         ))}
-      </div>
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="space-y-1.5">
-            <div className="h-3 w-full animate-pulse rounded bg-muted" />
-            <div className="h-px w-2/3 animate-pulse bg-muted" />
+      </StatGroup>
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-1 w-2/3" />
           </div>
         ))}
       </div>
@@ -318,11 +287,10 @@ export function SemesterCockpit({
   if (failed) {
     return (
       <div className="flex items-center gap-3 text-sm text-muted-foreground">
-        <span>Couldn't load the semester overview.</span>
+        <span>Overview failed to load</span>
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 px-2"
           onClick={() => {
             setLoading(true);
             void fetchOverview();
@@ -338,9 +306,9 @@ export function SemesterCockpit({
 
   const { stats, deadlines, week } = overview;
   const overdue = deadlines.filter((deadline) => deadline.overdue);
-  const upcoming = deadlines.filter((deadline) => !deadline.overdue);
   const upcomingByDay = new Map<string, ISemesterDeadline[]>();
-  for (const deadline of upcoming) {
+  for (const deadline of deadlines) {
+    if (deadline.overdue) continue;
     const key = toDateKey(new Date(deadline.dueAt));
     const list = upcomingByDay.get(key) ?? [];
     list.push(deadline);
@@ -352,42 +320,41 @@ export function SemesterCockpit({
   );
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap gap-x-10 gap-y-4">
-        <CockpitStat
+    <div className="flex flex-col gap-8">
+      <StatGroup>
+        <Stat
           label="Semester avg"
           value={formatPercent(stats.semesterAverage)}
         />
-        <CockpitStat label="Due in 7 days" value={stats.dueNext7Days} />
-        <CockpitStat
+        <Stat label="Due in 7 days" value={stats.dueNext7Days} />
+        <Stat
           label="Overdue"
           value={stats.overdue}
-          alert={stats.overdue > 0}
+          tone={stats.overdue > 0 ? "critical" : "default"}
         />
-        <CockpitStat label="Open work" value={stats.openAssessments} />
-        <CockpitStat label="Classes this week" value={classesThisWeek} />
-      </div>
+        <Stat label="Open work" value={stats.openAssessments} />
+        <Stat label="Classes this week" value={classesThisWeek} />
+      </StatGroup>
 
       {classesThisWeek > 0 && (
-        <section className="space-y-3">
-          <SectionHeading title="This week" />
+        <Section title="This week" count={classesThisWeek}>
           <div className="overflow-x-auto">
             <div className="grid min-w-[640px] grid-cols-7 gap-x-4">
               {week.map((day) => (
-                <div key={day.date} className="space-y-1">
+                <div key={day.date} className="flex flex-col gap-1">
                   <div className="flex items-baseline justify-between">
                     <span
                       className={cn(
-                        "text-[10px] uppercase",
+                        "text-[11px] uppercase tracking-[0.08em]",
                         day.isToday
-                          ? "font-semibold text-foreground"
+                          ? "font-medium text-accent-strong"
                           : "text-muted-foreground",
                       )}
                     >
                       {day.label} {day.date.slice(8)}
                     </span>
                     {day.deadlineCount > 0 && (
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
                         {day.deadlineCount} due
                       </span>
                     )}
@@ -397,11 +364,11 @@ export function SemesterCockpit({
                       key={`${entry.courseId}-${index}`}
                       type="button"
                       onClick={() => onSelectCourse?.(entry.courseId)}
-                      className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors hover:text-foreground/70"
+                      className="-mx-1 flex items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-surface/70"
                     >
                       <CourseDot color={entry.courseColor} />
-                      <span className="truncate text-[11px]">
-                        <span className="font-mono tabular-nums">
+                      <span className="truncate text-[11px] text-accent-strong">
+                        <span className="tabular-nums text-muted-foreground">
                           {entry.startTime}
                         </span>{" "}
                         {entry.courseName}
@@ -412,22 +379,19 @@ export function SemesterCockpit({
               ))}
             </div>
           </div>
-        </section>
+        </Section>
       )}
 
-      <section className="space-y-3">
-        <SectionHeading title="Deadline radar" meta="next 14 days" />
+      <Section title="Deadlines" count={deadlines.length}>
         {deadlines.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nothing due in the next two weeks
-          </p>
+          <p className="text-sm text-muted-foreground">None in 14 days</p>
         ) : (
-          <div className="space-y-3">
+          <List>
             {overdue.length > 0 && (
-              <div>
-                <p className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+              <>
+                <ListGroupLabel className="text-status-critical">
                   Overdue
-                </p>
+                </ListGroupLabel>
                 {overdue.map((deadline) => (
                   <DeadlineRow
                     key={deadline._id}
@@ -435,13 +399,13 @@ export function SemesterCockpit({
                     onSelectCourse={onSelectCourse}
                   />
                 ))}
-              </div>
+              </>
             )}
             {[...upcomingByDay.entries()].map(([dateKey, items]) => (
-              <div key={dateKey}>
-                <p className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <div key={dateKey} className="flex flex-col">
+                <ListGroupLabel>
                   {formatDayHeading(dateKey, todayKey, tomorrowKey)}
-                </p>
+                </ListGroupLabel>
                 {items.map((deadline) => (
                   <DeadlineRow
                     key={deadline._id}
@@ -451,17 +415,13 @@ export function SemesterCockpit({
                 ))}
               </div>
             ))}
-          </div>
+          </List>
         )}
-      </section>
+      </Section>
 
       {semesters.map(([semester, standings]) => (
-        <section key={semester} className="space-y-2">
-          <SectionHeading
-            title={semester}
-            meta={`${standings.length} ${standings.length === 1 ? "course" : "courses"}`}
-          />
-          <div>
+        <Section key={semester} title={semester} count={standings.length}>
+          <div className="flex flex-col">
             {standings.map((standing) => (
               <RosterRow
                 key={standing.courseId}
@@ -470,7 +430,7 @@ export function SemesterCockpit({
               />
             ))}
           </div>
-        </section>
+        </Section>
       ))}
     </div>
   );

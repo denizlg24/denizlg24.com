@@ -110,9 +110,9 @@ export function AgentReviewOverlay({
   const diff = proposalDiff(proposal, project);
   return (
     <>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-primary/5 px-3">
-        <FilePenLine className="size-4 shrink-0 text-primary" />
-        <span className="text-xs font-medium">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-surface/60 px-3">
+        <FilePenLine className="size-4 shrink-0 text-accent-strong" />
+        <span className="text-xs font-medium text-accent-strong tabular-nums">
           {total > 1 ? `Change ${clamped + 1} of ${total}` : "Proposed change"}
         </span>
         {total > 1 ? (
@@ -138,8 +138,8 @@ export function AgentReviewOverlay({
           </span>
         ) : null}
         {diff.stale ? (
-          <span className="flex items-center gap-1 text-[11px] text-destructive">
-            <TriangleAlert className="size-3.5" /> file changed since proposed
+          <span className="flex items-center gap-1 text-xs text-status-critical">
+            <TriangleAlert className="size-3.5" /> File changed since
           </span>
         ) : null}
         <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -166,16 +166,18 @@ export function AgentReviewOverlay({
         </span>
       </div>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs text-muted-foreground">
-        <span className="font-mono text-foreground">{proposal.filePath}</span>
+        <span className="font-mono text-accent-strong">
+          {proposal.filePath}
+        </span>
         {proposal.kind === "rename" ? (
           <>
             <ArrowRight className="size-3.5" />
-            <span className="font-mono text-foreground">
+            <span className="font-mono text-accent-strong">
               {proposal.targetPath}
             </span>
           </>
         ) : null}
-        <Badge variant="outline" className="text-[10px] capitalize">
+        <Badge variant="outline" className="capitalize">
           {proposal.kind}
         </Badge>
         <span className="min-w-0 truncate" title={proposal.explanation}>
@@ -185,7 +187,7 @@ export function AgentReviewOverlay({
       <div className="min-h-0 flex-1 overflow-auto">
         {proposal.kind === "rename" ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            rename only — no content changes
+            No content changes
           </div>
         ) : (
           <LatexDiffView
@@ -200,9 +202,9 @@ export function AgentReviewOverlay({
 }
 
 const HISTORY_STATUS_STYLES: Record<LatexHistoryDiffFile["status"], string> = {
-  added: "text-primary",
-  modified: "text-amber-600",
-  deleted: "text-destructive",
+  added: "text-status-good",
+  modified: "text-status-warning",
+  deleted: "text-status-critical",
 };
 
 export function HistoryDiffOverlay({
@@ -221,10 +223,12 @@ export function HistoryDiffOverlay({
     preview.files[0];
   return (
     <>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-muted/40 px-3">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b bg-surface/60 px-3">
         <History className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-xs font-medium">{preview.label}</span>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-xs font-medium text-accent-strong">
+          {preview.label}
+        </span>
+        <span className="text-xs text-muted-foreground">
           {preview.sublabel}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -252,10 +256,10 @@ export function HistoryDiffOverlay({
             key={candidate.path}
             type="button"
             className={cn(
-              "flex h-7 shrink-0 items-center gap-1.5 rounded px-2 font-mono text-[11px]",
+              "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 font-mono text-xs transition-colors",
               candidate.path === file?.path
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/50",
+                ? "bg-surface text-accent-strong"
+                : "text-muted-foreground hover:bg-surface/70 hover:text-accent-strong",
             )}
             onClick={() => onSelectPath(candidate.path)}
           >
@@ -275,8 +279,8 @@ export function HistoryDiffOverlay({
           </button>
         ))}
         {preview.files.length === 0 ? (
-          <span className="px-1 text-[11px] text-muted-foreground">
-            no source changes in this version
+          <span className="px-1 text-xs text-muted-foreground">
+            No source changes
           </span>
         ) : null}
       </div>

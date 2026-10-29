@@ -2,6 +2,7 @@
 
 import type { IWhiteboardBackground } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import {
   BOARD_BACKGROUND_PRESETS,
@@ -10,7 +11,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   AlignJustify,
-  ArrowLeft,
   Ban,
   Download,
   Eraser,
@@ -18,16 +18,15 @@ import {
   Grip,
   Loader2,
   Palette,
-  RotateCcw,
-  Save,
   Trash2,
-  X,
+  Undo2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ViewState } from "@/lib/whiteboard-types";
+import { ToolButton } from "./whiteboard-floating";
 
 type BgPattern = NonNullable<IWhiteboardBackground["pattern"]>;
 
@@ -38,8 +37,67 @@ const PATTERNS: { value: BgPattern; icon: LucideIcon }[] = [
   { value: "lines", icon: AlignJustify },
 ];
 
-export interface WhiteboardTopBarProps {
-  boardName: string;
+/** The board name in the page header; click to rename when renaming is allowed. */
+export function WhiteboardTitle({
+  name,
+  onRename,
+}: {
+  name: string;
+  onRename?: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  // Escape unmounts the input, whose blur would otherwise commit the draft.
+  const cancelledRef = useRef(false);
+
+  if (!onRename) return name;
+
+  const commit = () => {
+    setEditing(false);
+    if (cancelledRef.current) return;
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== name) onRename(trimmed);
+  };
+
+  if (editing) {
+    return (
+      <input
+        // biome-ignore lint/a11y/noAutofocus: replaces the title the owner just clicked
+        autoFocus
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") commit();
+          else if (event.key === "Escape") {
+            cancelledRef.current = true;
+            setEditing(false);
+          }
+        }}
+        aria-label="Board name"
+        className="w-full min-w-0 bg-transparent font-semibold text-accent-strong outline-none"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        cancelledRef.current = false;
+        setDraft(name);
+        setEditing(true);
+      }}
+      className="max-w-full cursor-text truncate rounded px-1 -mx-1 text-left hover:bg-surface/70"
+    >
+      {name}
+    </button>
+  );
+}
+
+export interface WhiteboardHeaderActionsProps {
   hasChanges: boolean;
   isSaving: boolean;
   viewState: ViewState;
@@ -53,13 +111,10 @@ export interface WhiteboardTopBarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onExportPNG: () => void;
-  onRename?: (newName: string) => void;
-  onBack?: () => void;
   onClear?: () => void;
 }
 
-export function WhiteboardTopBar({
-  boardName,
+export function WhiteboardHeaderActions({
   hasChanges,
   isSaving,
   viewState,
@@ -73,161 +128,55 @@ export function WhiteboardTopBar({
   onZoomIn,
   onZoomOut,
   onExportPNG,
-  onRename,
-  onBack,
   onClear,
-}: WhiteboardTopBarProps) {
+}: WhiteboardHeaderActionsProps) {
   const zoomPercent = Math.round(viewState.zoom * 100);
   const bgColor = background?.color ?? DEFAULT_BOARD_BACKGROUND;
   const bgPattern: BgPattern = background?.pattern ?? "none";
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(boardName);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleStartEdit = useCallback(() => {
-    setEditValue(boardName);
-    setIsEditing(true);
-
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-  }, [boardName]);
-
-  const handleCommitRename = useCallback(() => {
-    const trimmed = editValue.trim();
-    setIsEditing(false);
-    if (trimmed && trimmed !== boardName && onRename) {
-      onRename(trimmed);
-    }
-  }, [editValue, boardName, onRename]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      e.stopPropagation();
-      if (e.key === "Enter") {
-        handleCommitRename();
-      }
-      if (e.key === "Escape") {
-        setIsEditing(false);
-      }
-    },
-    [handleCommitRename],
-  );
 
   return (
-    <div className="absolute cursor-auto top-2 left-2 right-2 z-50 mx-auto flex max-w-max flex-row items-center gap-2 overflow-x-auto rounded-full border bg-surface px-3 py-2 shadow-xs sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
-      {onBack && (
-        <>
-          <Button
-            size="icon-xs"
-            variant="outline"
-            onClick={onBack}
-            title="Back to boards"
-          >
-            <ArrowLeft />
-          </Button>
-
-          <div className="h-5 w-px bg-border" />
-        </>
-      )}
-
-      {onRename ? (
-        isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={handleCommitRename}
-            onKeyDown={handleKeyDown}
-            className="text-xs font-medium max-w-36 bg-transparent border-b border-primary outline-none text-foreground px-0.5"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={handleStartEdit}
-            className="text-xs text-muted-foreground font-medium max-w-28 truncate hover:text-foreground transition-colors cursor-text"
-            title="Click to rename"
-          >
-            {boardName}
-          </button>
-        )
-      ) : (
-        <span className="text-xs text-muted-foreground font-medium max-w-28 truncate">
-          {boardName}
-        </span>
-      )}
-
-      <div className="h-5 w-px bg-border" />
-
-      <Button
-        size="icon-xs"
-        variant={hasChanges ? "default" : "outline"}
-        onClick={onSave}
-        disabled={!hasChanges || isSaving}
-        title="Save changes (Ctrl+S)"
-      >
-        {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
-      </Button>
-
-      <Button
-        size="icon-xs"
-        variant="outline"
-        onClick={onDiscard}
-        disabled={!hasChanges}
-        title="Discard changes"
-      >
-        <X />
-      </Button>
-
-      {onClear && (
-        <Button
-          size="icon-xs"
-          variant="outline"
-          onClick={onClear}
-          disabled={isSaving}
-          title="Clear board"
-          className="text-destructive border-destructive/30 hover:bg-destructive/10"
-        >
-          <Eraser />
-        </Button>
-      )}
-
+    <>
       {selectedCount > 0 && (
-        <>
-          <div className="h-5 w-px bg-border" />
-          <Button
-            size="icon-xs"
-            variant="outline"
-            onClick={onDeleteSelected}
-            title={`Delete ${selectedCount} selected`}
-            className="text-destructive border-destructive/30 hover:bg-destructive/10"
-          >
-            <Trash2 />
-          </Button>
-        </>
+        <ToolButton
+          label={`Delete ${selectedCount} selected`}
+          onClick={onDeleteSelected}
+          className="hover:text-destructive"
+        >
+          <Trash2 />
+        </ToolButton>
       )}
 
-      <div className="h-5 w-px bg-border" />
+      <div className="hidden items-center sm:flex">
+        <ToolButton label="Zoom out" onClick={onZoomOut}>
+          <ZoomOut />
+        </ToolButton>
+        <button
+          type="button"
+          onClick={onResetView}
+          title="Reset view"
+          className="h-7 min-w-11 rounded-md text-xs tabular-nums text-muted-foreground hover:bg-surface/70 hover:text-accent-strong"
+        >
+          {zoomPercent}%
+        </button>
+        <ToolButton label="Zoom in" onClick={onZoomIn}>
+          <ZoomIn />
+        </ToolButton>
+      </div>
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button size="icon-xs" variant="outline" title="Board background">
+          <ToolButton label="Background">
             <Palette />
-          </Button>
+          </ToolButton>
         </PopoverTrigger>
-        <PopoverContent
-          side="bottom"
-          align="center"
-          className="w-fit! p-2 z-99! flex flex-col gap-2"
-        >
+        <PopoverContent align="end" className="flex w-fit flex-col gap-2 p-2">
           <div className="grid grid-cols-6 gap-1.5">
             {BOARD_BACKGROUND_PRESETS.map((color) => (
               <button
                 key={color}
                 type="button"
                 title={color}
+                aria-label={color}
                 onClick={() =>
                   onBackgroundChange({ color, pattern: bgPattern })
                 }
@@ -241,80 +190,77 @@ export function WhiteboardTopBar({
               />
             ))}
           </div>
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="color"
               value={bgColor}
-              onChange={(e) =>
+              onChange={(event) =>
                 onBackgroundChange({
-                  color: e.target.value,
+                  color: event.target.value,
                   pattern: bgPattern,
                 })
               }
-              className="size-6 rounded cursor-pointer bg-transparent"
+              className="size-6 cursor-pointer rounded bg-transparent"
             />
             Custom
           </label>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {PATTERNS.map(({ value, icon: Icon }) => (
-              <Button
+              <ToolButton
                 key={value}
-                size="icon-xs"
-                variant="outline"
-                title={value}
-                className={cn(bgPattern === value && "border-primary")}
+                label={value}
+                active={bgPattern === value}
                 onClick={() =>
                   onBackgroundChange({ color: bgColor, pattern: value })
                 }
               >
                 <Icon />
-              </Button>
+              </ToolButton>
             ))}
           </div>
         </PopoverContent>
       </Popover>
 
-      <Button
-        size="icon-xs"
-        variant="outline"
-        onClick={onZoomOut}
-        title="Zoom out"
-      >
-        <ZoomOut />
-      </Button>
-
-      <span className="text-[10px] text-muted-foreground tabular-nums min-w-8 text-center">
-        {zoomPercent}%
-      </span>
-
-      <Button
-        size="icon-xs"
-        variant="outline"
-        onClick={onZoomIn}
-        title="Zoom in"
-      >
-        <ZoomIn />
-      </Button>
-
-      <Button
-        size="icon-xs"
-        variant="outline"
-        onClick={onResetView}
-        title="Reset view"
-      >
-        <RotateCcw />
-      </Button>
-
-      <div className="h-5 w-px bg-border" />
-
-      <Button
-        size="icon-xs"
-        variant="outline"
-        onClick={onExportPNG}
-        title="Export PNG"
-      >
+      <ToolButton label="Export PNG" onClick={onExportPNG}>
         <Download />
+      </ToolButton>
+
+      {onClear && (
+        <ConfirmButton
+          trigger={
+            <ToolButton
+              label="Clear board"
+              disabled={isSaving}
+              className="hover:text-destructive"
+            >
+              <Eraser />
+            </ToolButton>
+          }
+          title="Clear today's board?"
+          actionLabel="Clear"
+          destructive
+          onConfirm={onClear}
+        />
+      )}
+
+      <ToolButton
+        label="Discard changes"
+        onClick={onDiscard}
+        disabled={!hasChanges || isSaving}
+      >
+        <Undo2 />
+      </ToolButton>
+
+      <Button
+        size="sm"
+        variant={hasChanges ? "default" : "ghost"}
+        onClick={onSave}
+        disabled={!hasChanges || isSaving}
+        title="Save (Ctrl+S)"
+      >
+        {isSaving ? <Loader2 className="animate-spin" /> : null}
+        {hasChanges ? "Save" : "Saved"}
       </Button>
-    </div>
+    </>
   );
 }
