@@ -422,6 +422,7 @@ function SubpagesBlock({ pageId }: BlockProps<"subpages">) {
   const { pageHref } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const createPage = useWorkspaceStore((s) => s.createPage);
+  const blockCounts = useWorkspaceStore((s) => s.blockCounts);
   const children = childPages(pages, pageId);
   return (
     <List>
@@ -430,7 +431,7 @@ function SubpagesBlock({ pageId }: BlockProps<"subpages">) {
           <ListRow
             leading={<PageIcon icon={child.icon} />}
             title={pageTitle(child)}
-            meta={`${child.blocks.length} blocks`}
+            meta={`${blockCounts[child.id] ?? child.blocks.length} blocks`}
           />
         </Link>
       ))}

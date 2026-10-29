@@ -1,4 +1,4 @@
-import { workspaceSaveSchema } from "@repo/schemas";
+import { workspaceSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { readBody, withWorkspace } from "@/lib/workspace/http";
 
@@ -17,7 +17,8 @@ import { readBody, withWorkspace } from "@/lib/workspace/http";
  * therefore never undoes an agent's or the web's edit; on a collision the
  * stored copy wins and 3.0.0's edit to that block is dropped. A page missing
  * from the PUT is purged only when it is trashed and unchanged since 3.0.0
- * last held it. `baseSavedAt` is ignored.
+ * last held it. Unknown keys, such as the web port's `baseSavedAt`, are
+ * stripped.
  */
 
 export async function GET(request: NextRequest) {
@@ -28,10 +29,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   return withWorkspace(request, async (service) => {
-    const { baseSavedAt: _ignored, ...workspace } = await readBody(
-      request,
-      workspaceSaveSchema,
-    );
+    const workspace = await readBody(request, workspaceSchema);
     await service.compatPut(workspace);
     return NextResponse.json({
       savedAt: workspace.savedAt ?? new Date().toISOString(),

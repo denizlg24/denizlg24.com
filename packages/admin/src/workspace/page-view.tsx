@@ -287,10 +287,16 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
   const addBlock = useWorkspaceStore((s) => s.addBlock);
   const moveBlock = useWorkspaceStore((s) => s.moveBlock);
   const restorePage = useWorkspaceStore((s) => s.restorePage);
+  const ensurePage = useWorkspaceStore((s) => s.ensurePage);
+  const blocksLoaded = useWorkspaceStore((s) => pageId in s.loaded);
   const [editing, setEditing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const page = pages[pageId];
   const locked = page?.locked ?? false;
+
+  useEffect(() => {
+    if (ready) void ensurePage(pageId);
+  }, [ready, pageId, ensurePage]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -323,7 +329,7 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
     return () => window.removeEventListener("keydown", keydown);
   }, [locked]);
 
-  if (!ready) {
+  if (!ready || (page && !blocksLoaded)) {
     if (!error) return null;
     return (
       <Page>

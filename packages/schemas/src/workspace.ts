@@ -116,7 +116,9 @@ export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
 
 /**
  * The Notion-style workspace desktop and web share: pages of blocks,
- * favorites, recents and sidebar layout. One document, stored whole.
+ * favorites, recents and sidebar layout, as one document. Storage is per page
+ * (below); this shape survives as `GET|PUT /workspace` for desktop 3.0.0 and
+ * as the desktop's device cache.
  */
 export const workspaceSchema = z.object({
   version: z.literal(1),
@@ -128,15 +130,6 @@ export const workspaceSchema = z.object({
   sidebar: sidebarPrefsSchema,
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
-
-/**
- * What `PUT /workspace` accepts: the whole v1 document desktop 3.0.0 sends.
- * `baseSavedAt` came from the short-lived web port and is ignored.
- */
-export const workspaceSaveSchema = workspaceSchema.extend({
-  baseSavedAt: z.string().nullable().optional(),
-});
-export type WorkspaceSave = z.infer<typeof workspaceSaveSchema>;
 
 /** The device copy desktop keeps for an instant launch: the v1 shape plus each page's rev. */
 export const workspaceCacheSchema = workspaceSchema.extend({
