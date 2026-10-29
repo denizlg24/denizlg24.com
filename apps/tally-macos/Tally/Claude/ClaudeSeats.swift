@@ -173,7 +173,7 @@ final class ClaudeSeats {
     /// (keeping every other key, notably `mcpOAuth`) and its account block into
     /// `~/.claude.json`. Sessions already running keep the seat they started on.
     private func install(_ seatID: String, into document: JSONValue, allowInteraction: Bool = false) async throws {
-        guard var secret = SeatVault.secret(for: seatID, allowInteraction: allowInteraction) else {
+        guard var secret = try SeatVault.readSecret(for: seatID, allowInteraction: allowInteraction) else {
             throw SeatError.missingTokens(title(seatID))
         }
         var oauth = ClaudeOAuth(raw: secret.oauth)
