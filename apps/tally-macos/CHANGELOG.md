@@ -5,6 +5,12 @@ version opens with its entry. Each release is a `## <version> — <YYYY-MM-DD>`
 heading, optionally grouped under `### Added`, `### Changed`, `### Fixed`.
 `bun run bump:tally <patch|minor|major>` opens the entry for the next version.
 
+## 0.1.2 — 2026-10-29
+
+### Fixed
+- Report keychain access and decoding errors when switching Claude seats,
+  instead of incorrectly reporting that the saved sign-in is missing.
+
 ## 0.1.1 — 2026-10-22
 
 ### Fixed

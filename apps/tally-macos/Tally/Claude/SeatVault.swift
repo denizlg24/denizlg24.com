@@ -33,8 +33,12 @@ enum SeatVault {
     private static let service = "com.denizlg24.tally.claude-seat"
 
     static func secret(for seatID: String, allowInteraction: Bool = false) -> SeatSecret? {
-        guard let data = try? Keychain.read(service: service, account: seatID, allowInteraction: allowInteraction) else { return nil }
-        return try? JSONDecoder().decode(SeatSecret.self, from: data)
+        try? readSecret(for: seatID, allowInteraction: allowInteraction)
+    }
+
+    static func readSecret(for seatID: String, allowInteraction: Bool = false) throws -> SeatSecret? {
+        guard let data = try Keychain.read(service: service, account: seatID, allowInteraction: allowInteraction) else { return nil }
+        return try JSONDecoder().decode(SeatSecret.self, from: data)
     }
 
     static func store(_ secret: SeatSecret, for seatID: String) throws {
