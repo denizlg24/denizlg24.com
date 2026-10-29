@@ -1105,8 +1105,13 @@ catalogue with every tool → route mapping is
 - **Tests build the client through the real HTTP handler**
   (`src/tools/harness.test-util.ts`): `recordingUpstream` records every call,
   `createClient(upstream, register?)` takes a registrar so a domain's test
-  registers only its own tools. `tools/list` in the registry test is what
-  proves every schema converts to JSON Schema.
+  registers only its own tools; a third argument adds request headers.
+  `tools/list` in the registry test is what proves every schema converts to
+  JSON Schema.
+- **Every web call carries the in-app agent's `x-agent-actor` when the MCP
+  request did.** `request-context.ts` holds it in AsyncLocalStorage for the
+  request and `createApi` adds it to web calls only; web attributes workspace
+  changes with it. Other upstreams never see it.
 - **`readOnly: true` on an action is an approval decision, not a label.**
   `defineActions` publishes each action's flags as
   `_meta["com.denizlg24/actions"]`, and the in-app agent runs a call without
@@ -1166,11 +1171,11 @@ collapsed or in its mobile sheet.
   a 6-column grid. Block types are the `blockSchema` union in
   `@repo/schemas` `workspace` — a new type means a schema entry, a catalogue
   entry, a `createBlock` case and a renderer.
-- **The workspace is one document**, kept in `stores/workspace.ts`: a local
-  `workspace.json` for an instant launch and `GET|PUT /api/admin/workspace`
-  (web, `DesktopWorkspace` singleton) so it follows the owner across
-  machines. Saves stamp `savedAt`; on launch the newer copy wins. Live
-  blocks share fetches through `components/workspace/use-workspace-data.ts`.
+- **The workspace is stored per page on web** and shared with desktop
+  through `packages/admin/src/workspace/store.ts`; see "Workspace" under the
+  web API below. Desktop's `workspace.json` is a read cache for an instant
+  launch, never a source of truth. Live blocks share fetches through
+  `use-workspace-data.ts`.
 - **UI is built from `@repo/ui`'s page system** — see `packages/ui/DESIGN.md`
   before adding a page, dialog or list.
 
@@ -1181,6 +1186,70 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 
 ### Session
 - `GET /session` → `{ admin: true, via: "api-key" | "oauth" | "session" }` or 401 — who `requireAdmin` sees; the public blog asks it before showing moderation controls
+
+### Workspace
+- `GET /workspace/pages` → `{ pages: WorkspacePageSummary[] }` (fields, rev, blockCount; no blocks); trash older than 30 days is purged on the way
+- `POST /workspace/pages` → `WorkspacePageCreate` (+ optional `markdown`) → `{ page }` 201; 409 `EXISTS` when the client-minted id is taken
+- `GET /workspace/pages/{id}` → `{ page: WorkspacePageDoc }`; `PATCH` → title/icon/fullWidth/locked → `{ page }`; `DELETE` → purges a trashed page and its subtree → `{ purged }`
+- `POST /workspace/pages/{id}/move` → `{ parentId, index? }`; `/archive`, `/restore` → `{ pages: summaries changed }`
+- `POST /workspace/pages/{id}/ops` → `{ baseRev, ops: (insert|update|move|delete|page)[] }` → `{ page }`; 409 `CONFLICT` with `{ conflicts, page }`, 423 `LOCKED`
+- `GET /workspace/pages/{id}/history?limit&before` → `{ revisions }`; `POST …/revert` → `{ rev }` or `{ actor, sinceRev? }`
+- `GET|PUT /workspace/pages/{id}/markdown` → `{ id, rev, title, locked, markdown }` / `{ baseRev, markdown }` → `{ page }`
+- `GET /workspace/changes?since=` → `{ cursor, pages: summaries, purged, prefsUpdatedAt }`
+- `GET|PUT /workspace/prefs` → favorites, recents, sidebar (last write wins)
+- `GET|PUT /workspace` → the v1 whole document, for desktop 3.0.0 only
+
+Things worth knowing before touching this:
+
+- **A page is a `WorkspacePage` document with a `rev`; every change is a
+  `WorkspacePageRevision`.** The log stores ops resolved (anchors concrete,
+  updates whole) plus their inverse, the block ids touched, and every 20th
+  rev a full snapshot, so any past rev rebuilds from the nearest snapshot.
+  Writes compare-and-set on `rev`. A purged page stays as a tombstone so the
+  change feed can report it. The log is never pruned.
+- **Ops address blocks by id, never index.** `insert`/`move` take `after`
+  (absent appends, null is first) and a `parentId` that must stay absent
+  until document blocks nest. An older `baseRev` rebases when no revision
+  since touched a block the batch *targets* (anchors do not count; a deleted
+  anchor is a conflict); page-field ops never conflict. The arithmetic is
+  `@repo/utils/workspace-ops`, shared by the server and the client store.
+- **The client store edits through ops and replays unsent ones on top of
+  every server answer.** Pages load on open (`ensurePage`); the change feed is
+  polled every 5 s while the window is focused and visible. Page order is a
+  fractional `order` (`orderAt`), so a move rewrites one page, not its
+  siblings.
+- **Locked pages refuse every write from anything but the owner** (423),
+  including unlocking. The owner's own session is not restricted server-side.
+- **Actors: `owner`, `mcp:<clientId>`, `conversation:<id>`, `task-run:<id>`.**
+  `lib/workspace/actor.ts` decides: any human credential (cookie, desktop
+  token, API key) is `owner`; a machine token is `mcp:<clientId>` unless it
+  carries `x-agent-actor`, which web's primary connector sends and the MCP
+  server forwards (`apps/mcp/src/request-context.ts`). That header is
+  attribution, not authorization — any service-token holder could claim one.
+  Claude Code through MCP is indistinguishable from any other MCP client.
+- **Migration is lazy and idempotent.** The first request to any workspace
+  route splits the `DesktopWorkspace` singleton into pages (rev 1, snapshot)
+  and prefs; prefs are written last and mark completion; pages are
+  insert-only, so a crashed or racing run finishes the same way. The v1
+  document is never written again and stays as the backup.
+- **Desktop 3.0.0 keeps `GET|PUT /workspace`.** GET assembles the document,
+  records it per page as `compatBase` and stamps `savedAt` with the server's
+  now (so 3.0.0 always adopts it). PUT three-way merges each page against
+  that base: only 3.0.0's own edits since apply, block by block and field by
+  field, skipping anything someone else changed meanwhile — the stored copy
+  wins. A page missing from the PUT is purged only when trashed and unchanged
+  since 3.0.0 last held it. Prefs merge per field the same way. Cost: a 3.0.0
+  edit that collides is silently dropped, and 3.0.0 offline edits that never
+  reached the server are replaced at its next launch.
+- **The in-app agent sees the open page.** The client sends
+  `pageContext.workspacePageId`; `startAgentTurn` reads the page fresh and
+  appends `<current_workspace_page>` (id, rev, locked, markdown) to the model
+  messages only.
+- **Markdown is lossless for its own output** (`@repo/utils/workspace-markdown`).
+  Heading/text/todo are plain markdown after a `<!-- block … -->` marker
+  (text closes with `<!-- /block -->`); every other type is a
+  `:::block{…}` directive with JSON fields. Hand-written markdown gets fresh
+  ids. `from_markdown` diffs into ops, so unchanged blocks keep their ids.
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
