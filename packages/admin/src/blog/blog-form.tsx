@@ -1,101 +1,52 @@
 "use client";
 
 import type { IBlog } from "@repo/schemas";
-import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Checkbox } from "@repo/ui/checkbox";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
-import { Separator } from "@repo/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { Textarea } from "@repo/ui/textarea";
-import { Copy, ImagePlus, Loader2, Plus, Trash2, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { Properties, Property } from "@repo/ui/properties";
+import { Spinner } from "@repo/ui/spinner";
+import { Switch } from "@repo/ui/switch";
+import { CalendarDays, Clock, Eye, Link2, Tag, Trash2 } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import {
+  ChipInput,
+  DocumentEditorShell,
+  formatRelativeDate,
+  ImagesSection,
+  LeadField,
+  MarkdownSection,
+  TitleField,
+} from "../projects/document-editor";
 import { useAdmin } from "../provider";
 
 interface BlogFormProps {
   mode: "create" | "edit";
   blog?: IBlog;
+  icon: ReactNode;
+  backTo: string;
+  backLabel: string;
   onSuccess: (blog: IBlog) => void;
-  onCancel?: () => void;
+  onDeleted?: () => void;
 }
 
-export function BlogForm({ mode, blog, onSuccess, onCancel }: BlogFormProps) {
-  const { client, platform } = useAdmin();
+export function BlogForm({
+  mode,
+  blog,
+  icon,
+  backTo,
+  backLabel,
+  onSuccess,
+  onDeleted,
+}: BlogFormProps) {
+  const { client } = useAdmin();
   const [title, setTitle] = useState(blog?.title ?? "");
   const [excerpt, setExcerpt] = useState(blog?.excerpt ?? "");
   const [content, setContent] = useState(blog?.content ?? "");
   const [tags, setTags] = useState<string[]>(blog?.tags ?? []);
   const [media, setMedia] = useState<string[]>(blog?.media ?? []);
   const [isActive, setIsActive] = useState(blog?.isActive ?? true);
-  const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [uploadingMedia, setUploadingMedia] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAddTag = () => {
-    const tag = tagInput.trim().toLowerCase();
-    if (!tag || tags.includes(tag)) return;
-    setTags([...tags, tag]);
-    setTagInput("");
-  };
-
-  const handleTagKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddTag();
-    }
-  };
-
-  const handleRemoveTag = (tag: string) => {
-    setTags(tags.filter((t) => t !== tag));
-  };
-
-  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Only image files allowed");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image must be under 5MB");
-      return;
-    }
-
-    setUploadingMedia(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const result = await client.upload<{ url: string; hash: string }>(
-        "upload",
-        formData,
-      );
-      setMedia([...media, result.url]);
-      toast.success("Image uploaded");
-    } catch {
-      toast.error("Upload failed");
-    }
-    setUploadingMedia(false);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const handleRemoveMedia = (url: string) => {
-    setMedia(media.filter((m) => m !== url));
-  };
-
-  const handleCopyUrl = (url: string) => {
-    void platform.copyText(url);
-    toast.success("URL copied");
-  };
 
   const handleSubmit = async () => {
     if (!title.trim()) {
@@ -145,197 +96,105 @@ export function BlogForm({ mode, blog, onSuccess, onCancel }: BlogFormProps) {
     setSaving(false);
   };
 
-  const canSubmit = title.trim() && excerpt.trim() && content.trim() && !saving;
+  const handleDelete = async () => {
+    if (!blog) return;
+    try {
+      await client.del<{ message: string }>(`blogs/${blog._id}`);
+      toast.success("Post deleted");
+      onDeleted?.();
+    } catch {
+      toast.error("Failed to delete post");
+    }
+  };
+
+  const canSubmit =
+    title.trim().length > 0 &&
+    excerpt.trim().length > 0 &&
+    content.trim().length > 0 &&
+    !saving;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Title</Label>
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Post title"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Excerpt</Label>
-          <Textarea
-            value={excerpt}
-            onChange={(e) => setExcerpt(e.target.value)}
-            placeholder="Short description"
-            rows={2}
-          />
-        </div>
-      </div>
-
-      <Separator />
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Tags</Label>
-        <div className="flex items-center gap-2">
-          <Input
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={handleTagKeyDown}
-            placeholder="Add tag..."
-            className="flex-1"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 shrink-0"
-            onClick={handleAddTag}
-            disabled={!tagInput.trim()}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        </div>
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-1">
-            {tags.map((tag) => (
-              <Badge
-                key={tag}
-                variant="secondary"
-                className="text-xs gap-1 pr-1"
-              >
-                {tag}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveTag(tag)}
-                  className="hover:text-destructive transition-colors"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <Separator />
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Media</Label>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleMediaUpload}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 w-fit text-xs gap-1.5"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploadingMedia}
-        >
-          {uploadingMedia ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <ImagePlus className="size-3.5" />
-          )}
-          {uploadingMedia ? "Uploading..." : "Upload Image"}
-        </Button>
-        {media.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            {media.map((url) => (
-              <div
-                key={url}
-                className="relative group rounded-md overflow-hidden border"
-              >
-                <img src={url} alt="" className="w-full h-24 object-cover" />
-                <div className="absolute inset-0 bg-black/50  flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleCopyUrl(url)}
-                    className="p-1.5 rounded-md bg-background/80 hover:bg-background"
-                  >
-                    <Copy className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveMedia(url)}
-                    className="p-1.5 rounded-md bg-background/80 hover:bg-background text-destructive"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <Separator />
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Content (Markdown)</Label>
-        <Tabs defaultValue="write">
-          <TabsList variant="line" className="mb-2">
-            <TabsTrigger value="write">Write</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-          </TabsList>
-          <TabsContent value="write">
-            <Textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Write your post in markdown..."
-              rows={20}
-              className="font-mono text-sm"
+    <DocumentEditorShell
+      icon={icon}
+      backTo={backTo}
+      backLabel={backLabel}
+      title={mode === "edit" ? blog?.title || "Untitled" : "New post"}
+      actions={
+        <>
+          {mode === "edit" && blog ? (
+            <ConfirmButton
+              trigger={
+                <Button variant="ghost" size="icon-sm" aria-label="Delete post">
+                  <Trash2 />
+                </Button>
+              }
+              title="Delete post?"
+              description={`“${blog.title}” will be permanently deleted.`}
+              actionLabel="Delete"
+              destructive
+              onConfirm={handleDelete}
             />
-          </TabsContent>
-          <TabsContent value="preview">
-            {content.trim() ? (
-              <div className="rounded-md border p-4 min-h-[300px] overflow-y-auto">
-                <MarkdownRenderer content={content} />
-              </div>
-            ) : (
-              <div className="rounded-md border p-4 min-h-[300px] flex items-center justify-center text-muted-foreground text-sm">
-                Nothing to preview
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      <Separator />
-
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="publish"
-          checked={isActive}
-          onCheckedChange={(checked) => setIsActive(checked === true)}
-        />
-        <Label htmlFor="publish" className="text-xs cursor-pointer">
-          Publish immediately
-        </Label>
-      </div>
-
-      <div className="flex items-center gap-2 pt-2">
-        <Button
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-        >
-          {saving && <Loader2 className="size-3.5 animate-spin" />}
-          {mode === "create" ? "Create Post" : "Save Changes"}
-        </Button>
-        {onCancel && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={onCancel}
-            disabled={saving}
-          >
-            Cancel
+          ) : null}
+          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
+            {saving ? <Spinner className="size-3.5" /> : null}
+            {mode === "create" ? "Create" : "Save"}
           </Button>
-        )}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2">
+        <TitleField value={title} onChange={setTitle} />
+        <LeadField
+          value={excerpt}
+          onChange={setExcerpt}
+          placeholder="Excerpt"
+          label="Excerpt"
+        />
       </div>
-    </div>
+
+      <Properties>
+        <Property icon={<Eye />} label="Published">
+          <Switch
+            checked={isActive}
+            onCheckedChange={setIsActive}
+            aria-label="Published"
+          />
+        </Property>
+        <Property icon={<Tag />} label="Tags">
+          <ChipInput
+            values={tags}
+            onChange={setTags}
+            placeholder="Add tag"
+            normalize={(value) => value.trim().toLowerCase()}
+          />
+        </Property>
+        {blog ? (
+          <>
+            <Property icon={<Link2 />} label="Slug">
+              <span className="font-mono text-xs text-muted-foreground">
+                /{blog.slug}
+              </span>
+            </Property>
+            <Property icon={<Clock />} label="Read time">
+              <span className="tabular-nums">{blog.timeToRead}m</span>
+            </Property>
+            <Property icon={<CalendarDays />} label="Created">
+              <span className="text-muted-foreground">
+                {formatRelativeDate(blog.createdAt)}
+              </span>
+            </Property>
+          </>
+        ) : null}
+      </Properties>
+
+      <ImagesSection
+        title="Media"
+        urls={media}
+        onChange={setMedia}
+        columns={2}
+      />
+
+      <MarkdownSection value={content} onChange={setContent} />
+    </DocumentEditorShell>
   );
 }

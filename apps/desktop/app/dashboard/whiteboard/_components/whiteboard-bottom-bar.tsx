@@ -12,6 +12,7 @@ import {
   ImageIcon,
   Layers,
   LineSquiggle,
+  type LucideIcon,
   Minus,
   MousePointer,
   PaintBucket,
@@ -24,10 +25,10 @@ import {
   Undo,
 } from "lucide-react";
 import { useRef } from "react";
-import { cn } from "@/lib/utils";
 import type { WhiteboardTool } from "@/lib/whiteboard-types";
 import { templateRegistry } from "./templates";
 import { ColorField } from "./whiteboard-color-picker";
+import { BarDivider, FloatingBar, ToolButton } from "./whiteboard-floating";
 
 const SHAPE_TOOLS: WhiteboardTool[] = [
   "square",
@@ -76,9 +77,9 @@ function ThicknessSlider({
     <PopoverContent
       side="top"
       align="center"
-      className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-1 items-center z-99!"
+      className="flex w-fit flex-col items-center gap-1.5 px-1.5 py-2"
     >
-      <div className="w-3.5 h-3.5 bg-primary rounded-full" />
+      <div className="size-3.5 rounded-full bg-primary" />
       <Slider
         orientation="vertical"
         min={min}
@@ -88,10 +89,22 @@ function ThicknessSlider({
         thumbClassName="bg-primary"
         thumbSize={value > 16 ? 16 : value > 8 ? value : 8}
       />
-      <div className="w-1 h-1 bg-primary rounded-full" />
+      <div className="size-1 rounded-full bg-primary" />
     </PopoverContent>
   );
 }
+
+const SHAPE_OPTIONS: {
+  tool: WhiteboardTool;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { tool: "rectangle", label: "Rectangle — R", icon: RectangleHorizontal },
+  { tool: "square", label: "Square", icon: Square },
+  { tool: "circle", label: "Ellipse — O", icon: Circle },
+  { tool: "line", label: "Line — L", icon: Minus },
+  { tool: "arrow", label: "Arrow — A", icon: ArrowUpRight },
+];
 
 export function WhiteboardBottomBar({
   selectedTool,
@@ -116,39 +129,29 @@ export function WhiteboardBottomBar({
   const shapeActive = SHAPE_TOOLS.includes(selectedTool);
 
   return (
-    <div className="absolute cursor-auto z-40 border bg-surface shadow-xs bottom-2 left-1/2 -translate-x-1/2 w-fit max-w-[calc(100vw-1rem)] overflow-x-auto rounded-full py-2 px-3 flex flex-row items-center gap-2">
-      <Button
-        className={cn(selectedTool === "pointer" && "border-2 border-primary")}
+    <FloatingBar className="bottom-3 left-1/2 w-fit max-w-[calc(100%-1.5rem)] -translate-x-1/2">
+      <ToolButton
+        label="Select — V"
+        active={selectedTool === "pointer"}
         onClick={() => onToolChange("pointer")}
-        size="icon-sm"
-        variant="outline"
-        title="Select — V"
       >
         <MousePointer />
-      </Button>
-
-      <Button
-        className={cn(selectedTool === "hand" && "border-2 border-primary")}
+      </ToolButton>
+      <ToolButton
+        label="Pan — Space"
+        active={selectedTool === "hand"}
         onClick={() => onToolChange("hand")}
-        size="icon-sm"
-        variant="outline"
-        title="Pan — hold Space"
       >
         <Hand />
-      </Button>
+      </ToolButton>
 
-      <div className="w-px h-5 bg-border" />
+      <BarDivider />
 
       <Popover>
         <PopoverTrigger onClick={() => onToolChange("pen")} asChild>
-          <Button
-            className={cn(selectedTool === "pen" && "border-2 border-primary")}
-            size="icon-sm"
-            variant="outline"
-            title="Pen — P"
-          >
+          <ToolButton label="Pen — P" active={selectedTool === "pen"}>
             <LineSquiggle />
-          </Button>
+          </ToolButton>
         </PopoverTrigger>
         <ThicknessSlider
           value={penThickness}
@@ -160,16 +163,12 @@ export function WhiteboardBottomBar({
 
       <Popover>
         <PopoverTrigger onClick={() => onToolChange("highlighter")} asChild>
-          <Button
-            className={cn(
-              selectedTool === "highlighter" && "border-2 border-primary",
-            )}
-            size="icon-sm"
-            variant="outline"
-            title="Highlighter — H"
+          <ToolButton
+            label="Highlighter — H"
+            active={selectedTool === "highlighter"}
           >
             <Highlighter />
-          </Button>
+          </ToolButton>
         </PopoverTrigger>
         <ThicknessSlider
           value={highlighterThickness}
@@ -181,108 +180,52 @@ export function WhiteboardBottomBar({
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button
-            className={cn(shapeActive && "border-2 border-primary")}
-            size="icon-sm"
-            variant="outline"
-            title="Shapes"
-          >
+          <ToolButton label="Shapes" active={shapeActive}>
             <Shapes />
-          </Button>
+          </ToolButton>
         </PopoverTrigger>
         <PopoverContent
           side="top"
           align="center"
-          className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-2 items-center z-99!"
+          className="flex w-fit flex-col gap-0.5 p-0.5"
         >
-          <Button
-            className={cn(
-              selectedTool === "rectangle" && "border border-primary",
-            )}
-            onClick={() => onToolChange("rectangle")}
-            variant="outline"
-            size="icon-xs"
-            title="Rectangle — R"
-          >
-            <RectangleHorizontal />
-          </Button>
-          <Button
-            className={cn(selectedTool === "square" && "border border-primary")}
-            onClick={() => onToolChange("square")}
-            variant="outline"
-            size="icon-xs"
-            title="Square"
-          >
-            <Square />
-          </Button>
-          <Button
-            className={cn(selectedTool === "circle" && "border border-primary")}
-            onClick={() => onToolChange("circle")}
-            variant="outline"
-            size="icon-xs"
-            title="Ellipse — O"
-          >
-            <Circle />
-          </Button>
-          <Button
-            className={cn(selectedTool === "line" && "border border-primary")}
-            onClick={() => onToolChange("line")}
-            variant="outline"
-            size="icon-xs"
-            title="Line — L"
-          >
-            <Minus />
-          </Button>
-          <Button
-            className={cn(selectedTool === "arrow" && "border border-primary")}
-            onClick={() => onToolChange("arrow")}
-            variant="outline"
-            size="icon-xs"
-            title="Arrow — A"
-          >
-            <ArrowUpRight />
-          </Button>
+          {SHAPE_OPTIONS.map(({ tool, label, icon: Icon }) => (
+            <ToolButton
+              key={tool}
+              label={label}
+              active={selectedTool === tool}
+              onClick={() => onToolChange(tool)}
+            >
+              <Icon />
+            </ToolButton>
+          ))}
         </PopoverContent>
       </Popover>
 
-      <Button
-        className={cn(selectedTool === "text" && "border-2 border-primary")}
+      <ToolButton
+        label="Text — T"
+        active={selectedTool === "text"}
         onClick={() => onToolChange("text")}
-        size="icon-sm"
-        variant="outline"
-        title="Text — T"
       >
         <TextCursorIcon />
-      </Button>
-
-      <Button
-        className={cn(selectedTool === "bucket" && "border-2 border-primary")}
+      </ToolButton>
+      <ToolButton
+        label="Fill — B"
+        active={selectedTool === "bucket"}
         onClick={() => onToolChange("bucket")}
-        size="icon-sm"
-        variant="outline"
-        title="Fill — B"
       >
         <PaintBucket />
-      </Button>
-
-      <Button
-        className={cn(selectedTool === "eraser" && "border-2 border-primary")}
+      </ToolButton>
+      <ToolButton
+        label="Eraser — E"
+        active={selectedTool === "eraser"}
         onClick={() => onToolChange("eraser")}
-        size="icon-sm"
-        variant="outline"
-        title="Eraser — E"
       >
         <Eraser />
-      </Button>
-
-      <Button
-        size="icon-sm"
-        variant="outline"
-        onClick={() => fileInputRef.current?.click()}
-        title="Upload image"
-      >
+      </ToolButton>
+      <ToolButton label="Image" onClick={() => fileInputRef.current?.click()}>
         <ImageIcon />
-      </Button>
+      </ToolButton>
       <input
         ref={fileInputRef}
         type="file"
@@ -295,7 +238,7 @@ export function WhiteboardBottomBar({
         }}
       />
 
-      <div className="w-px h-5 bg-border" />
+      <BarDivider />
 
       <ColorField
         value={selectedColor}
@@ -304,41 +247,36 @@ export function WhiteboardBottomBar({
         title="Color"
       />
 
-      <Button
-        size="icon-sm"
-        variant="outline"
-        onClick={onUndo}
-        disabled={!canUndo}
-      >
+      <BarDivider />
+
+      <ToolButton label="Undo" onClick={onUndo} disabled={!canUndo}>
         <Undo />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="outline"
-        onClick={onRedo}
-        disabled={!canRedo}
-      >
+      </ToolButton>
+      <ToolButton label="Redo" onClick={onRedo} disabled={!canRedo}>
         <Redo />
-      </Button>
+      </ToolButton>
+
+      <BarDivider />
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button size="icon-sm" variant="outline" title="Add component">
+          <ToolButton label="Add component">
             <Plus />
-          </Button>
+          </ToolButton>
         </PopoverTrigger>
         <PopoverContent
           side="top"
           align="center"
-          className="border rounded-lg w-fit! px-2 py-2 bg-muted flex flex-col gap-1 items-stretch z-99!"
+          className="flex w-fit flex-col items-stretch gap-0.5 p-1"
         >
           {Object.entries(templateRegistry).map(([key, def]) => {
             const Icon = def.icon;
             return (
               <Button
                 key={key}
-                variant="outline"
+                variant="ghost"
                 size="sm"
+                className="justify-start"
                 onClick={() =>
                   onAddComponent(key, def.defaultSize, { ...def.defaultData })
                 }
@@ -350,16 +288,9 @@ export function WhiteboardBottomBar({
           })}
         </PopoverContent>
       </Popover>
-
-      <Button
-        className={cn(layersOpen && "border-2 border-primary")}
-        size="icon-sm"
-        variant="outline"
-        onClick={onToggleLayers}
-        title="Elements"
-      >
+      <ToolButton label="Elements" active={layersOpen} onClick={onToggleLayers}>
         <Layers />
-      </Button>
-    </div>
+      </ToolButton>
+    </FloatingBar>
   );
 }

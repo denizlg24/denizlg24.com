@@ -16,7 +16,7 @@ export function HeaderBarSkeleton({
   actions?: string[];
 }) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
       {icon}
       {title ? (
         <span className="flex-1 text-sm font-semibold">{title}</span>

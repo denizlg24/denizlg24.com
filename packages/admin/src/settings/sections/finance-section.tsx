@@ -2,6 +2,7 @@
 
 import type { FinanceDashboardResponse } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
 import { Skeleton } from "@repo/ui/skeleton";
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -36,35 +37,29 @@ export function FinanceSection() {
 
   if (failed && !data) {
     return (
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-xs text-status-warning">
-          Load failed
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 shrink-0 gap-1 px-1.5 text-[11px]"
-          onClick={() => void load()}
-        >
-          <RotateCcw className="size-3" />
-          Retry
-        </Button>
-      </div>
+      <EmptyState
+        label="Load failed"
+        action={
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            <RotateCcw /> Retry
+          </Button>
+        }
+      />
     );
   }
 
   if (loading || !data) {
     return (
-      <div className="grid gap-8 lg:grid-cols-2">
-        {[0, 1].map((column) => (
-          <div key={column} className="space-y-4">
-            <Skeleton className="h-2.5 w-24" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-2/3" />
+      <>
+        {[0, 1].map((group) => (
+          <div key={group} className="flex flex-col gap-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-2/3" />
           </div>
         ))}
-      </div>
+      </>
     );
   }
 

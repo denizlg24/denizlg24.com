@@ -754,8 +754,8 @@ export function MemoryGraph({
                 setProbeIds(null);
               }
             }}
-            placeholder="probe the memory lattice…"
-            aria-label="Probe the memory lattice"
+            placeholder="query"
+            aria-label="Probe memories"
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground/40"
             spellCheck={false}
             autoComplete="off"

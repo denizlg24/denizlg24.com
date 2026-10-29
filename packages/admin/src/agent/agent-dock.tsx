@@ -255,7 +255,7 @@ function AgentLauncherButton({
         >
           <button
             type="button"
-            className="w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
+            className="w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-surface"
             onClick={() => {
               onPrefsChange({ ...prefs, hidden: true });
               setMenu(null);

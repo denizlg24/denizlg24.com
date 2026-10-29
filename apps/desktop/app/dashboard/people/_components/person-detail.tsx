@@ -1,16 +1,5 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import {
   Command,
@@ -20,18 +9,25 @@ import {
   CommandItem,
   CommandList,
 } from "@repo/ui/command";
-import { Input } from "@repo/ui/input";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { PageBody, PageTitle } from "@repo/ui/page";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { RowActions } from "@repo/ui/toolbar";
 import {
   ArrowLeft,
   AtSign,
   Calendar as CalendarIcon,
   Check,
+  Clock,
   FolderTree,
   Globe,
   Home,
   ImagePlus,
-  Link as LinkIcon,
   Loader2,
   Mail,
   MapPin,
@@ -53,7 +49,6 @@ import {
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import { NoteEditor } from "@/app/dashboard/notes/_components/note-editor";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { denizApi } from "@/lib/api-wrapper";
 import type {
   BirthdayParts,
@@ -63,6 +58,8 @@ import type {
   IPersonGroup,
   IPersonSocial,
 } from "@/lib/data-types";
+import { cn } from "@/lib/utils";
+import { PersonAvatar } from "./person-avatar";
 
 interface RelationDraft {
   personId: string;
@@ -124,15 +121,12 @@ function socialPresetFor(platform: string): SocialPreset | undefined {
 }
 
 function socialIcon(platform: string) {
-  const preset = socialPresetFor(platform);
-  return preset?.icon ?? Globe;
+  return socialPresetFor(platform)?.icon ?? Globe;
 }
 
 function socialUrl(social: IPersonSocial) {
   if (social.url) return social.url;
-  const preset = socialPresetFor(social.platform);
-  if (preset?.buildUrl) return preset.buildUrl(social.handle);
-  return undefined;
+  return socialPresetFor(social.platform)?.buildUrl?.(social.handle);
 }
 
 interface Props {
@@ -143,20 +137,13 @@ interface Props {
   api: denizApi | null;
   mode?: "edit" | "draft";
   saving?: boolean;
-  onBack: () => void;
+  /** Shown below `md`, where the document replaces the list. */
+  onBack?: () => void;
   onCreateGroup?: (name: string) => Promise<IPersonGroup | null>;
   onSave: (
     body: Record<string, unknown>,
   ) => Promise<IPerson | null | undefined>;
   onDelete?: () => Promise<void>;
-}
-
-function personInitials(name: string | undefined) {
-  if (!name) return "?";
-  const words = name.trim().split(/\s+/);
-  const first = words[0]?.[0] ?? "";
-  const last = words.length > 1 ? (words[words.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "?";
 }
 
 function relationsFor(personId: string, edges: IPersonEdge[]) {
@@ -174,8 +161,8 @@ function formatDate(value: string | Date | undefined) {
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, {
     year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -234,6 +221,12 @@ function normalizeBirthday(birthday: BirthdayParts) {
   return birthday;
 }
 
+const FLUSH_INPUT =
+  "-mx-1.5 h-7 w-full rounded-md bg-transparent px-1.5 text-sm text-accent-strong outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-surface/70 focus:bg-surface/70";
+
+const CHIP =
+  "inline-flex h-6 max-w-full items-center gap-1.5 rounded-md bg-surface px-1.5 text-xs text-accent-strong";
+
 export function PersonDetail({
   person,
   people,
@@ -260,15 +253,14 @@ export function PersonDetail({
   const [relations, setRelations] = useState<RelationDraft[]>(
     relationsFor(person._id, edges),
   );
-  const [editingRelationId, setEditingRelationId] = useState<string | null>(
-    null,
-  );
   const [email, setEmail] = useState(person.email ?? "");
   const [phone, setPhone] = useState(person.phone ?? "");
   const [website, setWebsite] = useState(person.website ?? "");
   const [address, setAddress] = useState(person.address ?? "");
   const [socials, setSocials] = useState<IPersonSocial[]>(person.socials ?? []);
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     setName(person.name);
@@ -346,15 +338,11 @@ export function PersonDetail({
         relation.reason ?? "",
       ]),
     );
-    if (
-      relations.some(
-        (relation) =>
-          !relationMap.has(relation.personId) ||
-          relationMap.get(relation.personId) !== (relation.reason ?? ""),
-      )
-    )
-      return true;
-    return false;
+    return relations.some(
+      (relation) =>
+        !relationMap.has(relation.personId) ||
+        relationMap.get(relation.personId) !== (relation.reason ?? ""),
+    );
   }, [
     isDraft,
     name,
@@ -411,481 +399,326 @@ export function PersonDetail({
     }
     const parsedBirthday = parseBirthdayText(birthdayText);
     if (parsedBirthday === undefined) {
-      toast.error("Use birthday format MM-DD or YYYY-MM-DD");
+      toast.error("Birthday must be MM-DD or YYYY-MM-DD");
       return;
     }
-    await onSave({
-      name: name.trim(),
-      birthday: parsedBirthday,
-      placeMet: placeMet.trim() || undefined,
-      notes: content,
-      photos,
-      groupIds,
-      email: email.trim() || undefined,
-      phone: phone.trim() || undefined,
-      website: website.trim() || undefined,
-      address: address.trim() || undefined,
-      socials: socials
-        .filter((social) => social.platform.trim() && social.handle.trim())
-        .map((social) => ({
-          platform: social.platform.trim().toLowerCase(),
-          handle: social.handle.trim(),
-          url: social.url?.trim() || undefined,
+    setSubmitting(true);
+    try {
+      await onSave({
+        name: name.trim(),
+        birthday: parsedBirthday,
+        placeMet: placeMet.trim() || undefined,
+        notes: content,
+        photos,
+        groupIds,
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+        website: website.trim() || undefined,
+        address: address.trim() || undefined,
+        socials: socials
+          .filter((social) => social.platform.trim() && social.handle.trim())
+          .map((social) => ({
+            platform: social.platform.trim().toLowerCase(),
+            handle: social.handle.trim(),
+            url: social.url?.trim() || undefined,
+          })),
+        // Relations are symmetric and replace-only: the full set is sent on
+        // every save and the server rewrites both ends.
+        relations: relations.map((relation) => ({
+          ...relation,
+          reason: relation.reason?.trim() || undefined,
         })),
-      relations: relations.map((relation) => ({
-        ...relation,
-        reason: relation.reason?.trim() || undefined,
-      })),
-    });
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  const busy = saving || submitting;
+  const saveDisabled = busy || name.trim().length === 0 || !isDirty;
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <Button variant="ghost" size="icon-sm" onClick={onBack} title="Back">
-            <ArrowLeft className="size-4" />
-          </Button>
-          {photos[0] ? (
-            <Image
-              src={photos[0]}
-              alt=""
-              width={16}
-              height={16}
-              className="size-4 rounded-full object-cover"
-              unoptimized
-            />
-          ) : (
-            <UserRound className="size-4" />
-          )}
-          <span className="truncate text-xs text-muted-foreground">
-            {isDraft ? "Write notes and create a person" : "Person note"}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {onDelete && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this person?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Relations and generated birthday events will be removed.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => void onDelete()}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full px-6 py-6">
-          <div className="flex items-start gap-5">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="group relative size-24 shrink-0 overflow-hidden rounded-full border bg-muted"
-              title={
-                photos[0] ? "Change profile picture" : "Add profile picture"
-              }
-            >
-              {photos[0] ? (
-                <>
-                  <Image
-                    src={photos[0]}
-                    alt=""
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-[10px] text-white ">
-                    Change
-                  </span>
-                </>
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-muted-foreground">
-                  <ImagePlus className="size-6" />
-                </span>
-              )}
-            </button>
-            <div className="min-w-0 flex-1">
-              <Input
-                autoFocus={isDraft}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                className="h-auto! border-none bg-transparent px-0 py-1 text-2xl font-semibold shadow-none focus-visible:ring-0"
-                placeholder="Untitled person"
+    <PageBody width="narrow">
+      <PageTitle
+        icon={
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={photos[0] ? "Change photo" : "Add photo"}
+            className="group relative flex size-16 items-center justify-center overflow-hidden rounded-full bg-surface text-muted-foreground"
+          >
+            {photos[0] ? (
+              <Image
+                src={photos[0]}
+                alt=""
+                fill
+                className="object-cover"
+                unoptimized
               />
-              <ContactIconBar
-                email={email}
-                phone={phone}
-                website={website}
-                socials={socials}
-              />
-            </div>
-          </div>
-
-          <div className="mt-8 flex flex-col gap-6">
-            <PropertySection label="Identity">
-              <PropertyRow
-                icon={<UserRound className="size-3" />}
-                label="photo"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    {uploading ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : photos[0] ? (
-                      <Image
-                        src={photos[0]}
-                        alt=""
-                        width={16}
-                        height={16}
-                        className="size-4 rounded-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <ImagePlus className="size-3" />
-                    )}
-                    {photos[0]
-                      ? "Change profile picture"
-                      : "Add profile picture"}
-                  </button>
-                  {photos[0] && (
-                    <button
-                      type="button"
-                      onClick={() => setPhotos((current) => current.slice(1))}
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label="Remove profile picture"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void uploadPhoto(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </div>
-              </PropertyRow>
-
-              <PropertyRow
-                icon={<CalendarIcon className="size-3" />}
-                label="birthday"
-              >
-                <BirthdayProperty
-                  value={birthdayText}
-                  onChange={setBirthdayText}
-                />
-              </PropertyRow>
-
-              <PropertyRow
-                icon={<MapPin className="size-3" />}
-                label="place_met"
-              >
-                <PlaceAutocomplete
-                  value={placeMet}
-                  suggestions={placeSuggestions}
-                  onChange={setPlaceMet}
-                />
-              </PropertyRow>
-            </PropertySection>
-
-            <PropertySection label="Contact">
-              <PropertyRow icon={<Mail className="size-3" />} label="email">
-                <TextProperty
-                  value={email}
-                  onChange={setEmail}
-                  placeholder="name@example.com"
-                  type="email"
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={<Phone className="size-3" />} label="phone">
-                <TextProperty
-                  value={phone}
-                  onChange={setPhone}
-                  placeholder="+351 ..."
-                  type="tel"
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={<Globe className="size-3" />} label="website">
-                <TextProperty
-                  value={website}
-                  onChange={setWebsite}
-                  placeholder="https://..."
-                  type="url"
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={<Home className="size-3" />} label="address">
-                <TextProperty
-                  value={address}
-                  onChange={setAddress}
-                  placeholder="City, country"
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={<AtSign className="size-3" />} label="socials">
-                <SocialsProperty value={socials} onChange={setSocials} />
-              </PropertyRow>
-            </PropertySection>
-
-            <PropertySection label="Connections">
-              <PropertyRow
-                icon={<FolderTree className="size-3" />}
-                label="groups"
-              >
-                <GroupTreeCombobox
-                  groups={groups}
-                  value={groupIds}
-                  onChange={setGroupIds}
-                  onCreateGroup={onCreateGroup}
-                  placeholder="Add group…"
-                  searchPlaceholder="Search group hierarchy…"
-                />
-              </PropertyRow>
-
-              <PropertyRow
-                icon={<LinkIcon className="size-3" />}
-                label="relations"
-              >
-                <div className="flex w-full flex-wrap items-center gap-1">
-                  {relations.map((relation) => {
-                    const related = peopleById.get(relation.personId);
-                    const avatar = related?.photos[0] ? (
-                      <Image
-                        src={related.photos[0]}
-                        alt=""
-                        width={20}
-                        height={20}
-                        className="size-5 shrink-0 rounded-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-muted-foreground">
-                        {personInitials(related?.name)}
-                      </span>
-                    );
-                    if (editingRelationId !== relation.personId) {
-                      return (
-                        <button
-                          type="button"
-                          key={relation.personId}
-                          onClick={() =>
-                            setEditingRelationId(relation.personId)
-                          }
-                          title={related?.name ?? "Unknown"}
-                          className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border bg-muted/20 py-0.5 pl-0.5 pr-2 hover:bg-muted/40"
-                        >
-                          {avatar}
-                          <span className="truncate text-[10px] text-muted-foreground">
-                            {relation.reason?.trim() ||
-                              related?.name ||
-                              "Unknown"}
-                          </span>
-                        </button>
-                      );
-                    }
-                    return (
-                      <div
-                        key={relation.personId}
-                        className="flex w-full items-center gap-2 rounded-md border bg-muted/20 px-2 py-1"
-                        onBlur={(event) => {
-                          if (event.currentTarget.contains(event.relatedTarget))
-                            return;
-                          setEditingRelationId((current) =>
-                            current === relation.personId ? null : current,
-                          );
-                        }}
-                      >
-                        {avatar}
-                        <span className="max-w-[40%] shrink-0 truncate text-[11px] font-medium">
-                          {related?.name ?? "Unknown"}
-                        </span>
-                        <Input
-                          autoFocus
-                          value={relation.reason ?? ""}
-                          onChange={(event) => {
-                            const reason = event.target.value;
-                            setRelations((current) =>
-                              current.map((item) =>
-                                item.personId === relation.personId
-                                  ? { ...item, reason }
-                                  : item,
-                              ),
-                            );
-                          }}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key === "Enter" ||
-                              event.key === "Escape"
-                            ) {
-                              setEditingRelationId(null);
-                            }
-                          }}
-                          placeholder="How do they relate?"
-                          className="h-5 flex-1 border-none bg-transparent px-1 text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
-                        />
-                        <button
-                          type="button"
-                          // Keep the input focused so the row's blur handler
-                          // can't collapse it before this click lands.
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() =>
-                            setRelations((current) =>
-                              current.filter(
-                                (item) => item.personId !== relation.personId,
-                              ),
-                            )
-                          }
-                          className="shrink-0 text-muted-foreground opacity-60 hover:opacity-100"
-                          aria-label="Remove relation"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <RelationPicker
-                    people={relationOptions}
-                    onSelect={(personId) => {
-                      setRelations((current) => [
-                        ...current,
-                        { personId, reason: undefined },
-                      ]);
-                      setEditingRelationId(personId);
-                    }}
-                  />
-                </div>
-              </PropertyRow>
-            </PropertySection>
-
-            {!isDraft && (
-              <PropertySection label="Meta">
-                <PropertyRow
-                  icon={<CalendarIcon className="size-3" />}
-                  label="created_on"
-                >
-                  <span className="text-muted-foreground">
-                    {formatDate(person.createdAt)}
-                  </span>
-                </PropertyRow>
-              </PropertySection>
+            ) : (
+              <ImagePlus className="size-5" />
             )}
-          </div>
+            {uploading ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-background/60">
+                <Loader2 className="size-4 animate-spin" />
+              </span>
+            ) : null}
+          </button>
+        }
+        title={
+          <input
+            // biome-ignore lint/a11y/noAutofocus: a new person starts at the name
+            autoFocus={isDraft}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Untitled"
+            aria-label="Name"
+            className="w-full bg-transparent outline-none placeholder:text-muted-foreground/40"
+          />
+        }
+        actions={
+          <>
+            {onBack ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Back"
+                className="md:hidden"
+                onClick={onBack}
+              >
+                <ArrowLeft />
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              disabled={saveDisabled}
+              onClick={() => void save()}
+            >
+              {busy ? <Loader2 className="animate-spin" /> : null}
+              {isDraft ? "Create" : "Save"}
+            </Button>
+            {!isDraft && (photos[0] || onDelete) ? (
+              <RowActions>
+                {photos[0] ? (
+                  <DropdownMenuItem
+                    onSelect={() => setPhotos((current) => current.slice(1))}
+                  >
+                    <X />
+                    Remove photo
+                  </DropdownMenuItem>
+                ) : null}
+                {onDelete ? (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                ) : null}
+              </RowActions>
+            ) : null}
+          </>
+        }
+        meta={
+          <ContactLinks
+            email={email}
+            phone={phone}
+            website={website}
+            socials={socials}
+          />
+        }
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void uploadPhoto(file);
+          event.currentTarget.value = "";
+        }}
+      />
 
-          <div className="mt-8 flex min-h-[60vh] flex-col">
-            <NoteEditor
-              note={editorNote}
-              API={null}
-              onContentChange={setNotes}
-              onSaveContent={save}
-              saveLabel={isDraft ? "Create person" : "Save"}
-              saveDisabled={saving || name.trim().length === 0 || !isDirty}
-              disableAiEnhance
-              startInEditMode={isDraft}
-              autoFocusEditor={isDraft}
-            />
-          </div>
+      <Properties>
+        <Property icon={<CalendarIcon />} label="Birthday">
+          <input
+            value={birthdayText}
+            onChange={(event) => setBirthdayText(event.target.value)}
+            placeholder="MM-DD or YYYY-MM-DD"
+            className={FLUSH_INPUT}
+          />
+        </Property>
+        <Property icon={<MapPin />} label="Place met">
+          <PlaceAutocomplete
+            value={placeMet}
+            suggestions={placeSuggestions}
+            onChange={setPlaceMet}
+          />
+        </Property>
+        <Property icon={<Mail />} label="Email">
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="—"
+            className={FLUSH_INPUT}
+          />
+        </Property>
+        <Property icon={<Phone />} label="Phone">
+          <input
+            type="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="—"
+            className={FLUSH_INPUT}
+          />
+        </Property>
+        <Property icon={<Globe />} label="Website">
+          <input
+            type="url"
+            value={website}
+            onChange={(event) => setWebsite(event.target.value)}
+            placeholder="—"
+            className={FLUSH_INPUT}
+          />
+        </Property>
+        <Property icon={<Home />} label="Address">
+          <input
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            placeholder="—"
+            className={FLUSH_INPUT}
+          />
+        </Property>
+        <Property icon={<AtSign />} label="Socials">
+          <SocialsProperty value={socials} onChange={setSocials} />
+        </Property>
+        <Property icon={<FolderTree />} label="Groups">
+          <GroupTreeCombobox
+            groups={groups}
+            value={groupIds}
+            onChange={setGroupIds}
+            onCreateGroup={onCreateGroup}
+            placeholder="Add group…"
+            searchPlaceholder="Search groups…"
+          />
+        </Property>
+        {!isDraft ? (
+          <Property icon={<Clock />} label="Added">
+            <span className="text-muted-foreground tabular-nums">
+              {formatDate(person.createdAt)}
+            </span>
+          </Property>
+        ) : null}
+      </Properties>
+
+      <Section
+        title="Relations"
+        count={relations.length}
+        actions={
+          <RelationPicker
+            people={relationOptions}
+            onSelect={(personId) =>
+              setRelations((current) => [
+                ...current,
+                { personId, reason: undefined },
+              ])
+            }
+          />
+        }
+      >
+        {relations.length === 0 ? (
+          <EmptyState compact label="No relations" />
+        ) : (
+          <List>
+            {relations.map((relation) => {
+              const related = peopleById.get(relation.personId);
+              return (
+                <ListRow
+                  key={relation.personId}
+                  leading={
+                    <PersonAvatar
+                      size="xs"
+                      photo={related?.photos[0]}
+                      name={related?.name}
+                    />
+                  }
+                  title={related?.name ?? "Unknown"}
+                  description={
+                    <input
+                      value={relation.reason ?? ""}
+                      onChange={(event) => {
+                        const reason = event.target.value;
+                        setRelations((current) =>
+                          current.map((item) =>
+                            item.personId === relation.personId
+                              ? { ...item, reason }
+                              : item,
+                          ),
+                        );
+                      }}
+                      placeholder="Relation"
+                      aria-label={`Relation to ${related?.name ?? "person"}`}
+                      className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 focus:text-accent-strong"
+                    />
+                  }
+                  trailing={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Remove relation"
+                      className="text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
+                      onClick={() =>
+                        setRelations((current) =>
+                          current.filter(
+                            (item) => item.personId !== relation.personId,
+                          ),
+                        )
+                      }
+                    >
+                      <X />
+                    </Button>
+                  }
+                />
+              );
+            })}
+          </List>
+        )}
+      </Section>
+
+      <Section title="Notes">
+        <div className="flex min-h-[60vh] flex-col">
+          <NoteEditor
+            note={editorNote}
+            API={null}
+            onContentChange={setNotes}
+            onSaveContent={save}
+            saveLabel={isDraft ? "Create" : "Save"}
+            saveDisabled={saveDisabled}
+            disableAiEnhance
+            startInEditMode={isDraft}
+          />
         </div>
-      </div>
-    </div>
+      </Section>
+
+      {onDelete ? (
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title={`Delete ${person.name || "person"}?`}
+          description="Relations and birthday events go with it."
+          actionLabel="Delete"
+          destructive
+          onConfirm={onDelete}
+        />
+      ) : null}
+    </PageBody>
   );
 }
 
-function PropertyRow({
-  icon,
-  label,
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] items-center gap-3 px-2 py-1.5">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        {icon}
-        <span className="font-mono text-[11px]">{label}</span>
-      </div>
-      <div className="min-w-0 text-xs">{children}</div>
-    </div>
-  );
-}
-
-function PropertySection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <h3 className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-        {label}
-      </h3>
-      <div className="divide-y border-y text-xs">{children}</div>
-    </section>
-  );
-}
-
-function TextProperty({
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  placeholder?: string;
-  type?: "text" | "email" | "tel" | "url";
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      className="h-5 w-full border-none bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground/60"
-    />
-  );
-}
-
-function ContactIconBar({
+function ContactLinks({
   email,
   phone,
   website,
@@ -906,14 +739,14 @@ function ContactIconBar({
     items.push({
       key: "email",
       icon: Mail,
-      href: `mailto:${email}`,
+      href: `mailto:${email.trim()}`,
       title: email,
     });
   if (phone.trim())
     items.push({
       key: "phone",
       icon: Phone,
-      href: `tel:${phone}`,
+      href: `tel:${phone.trim()}`,
       title: phone,
     });
   if (website.trim())
@@ -923,51 +756,50 @@ function ContactIconBar({
       href: website.startsWith("http") ? website : `https://${website}`,
       title: website,
     });
-  for (const social of socials) {
-    if (!social.handle.trim()) continue;
+  socials.forEach((social, index) => {
+    if (!social.handle.trim()) return;
     items.push({
-      key: `social:${social.platform}:${social.handle}`,
+      key: `social:${index}`,
       icon: socialIcon(social.platform),
       href: socialUrl(social),
       title: `${social.platform}: ${social.handle}`,
     });
-  }
+  });
 
-  if (items.length === 0) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        Add contact details below.
-      </p>
-    );
-  }
+  if (items.length === 0) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <span className="flex flex-wrap items-center gap-0.5">
       {items.map((item) => {
         const Icon = item.icon;
-        const content = (
-          // biome-ignore lint/correctness/useJsxKeyInIterable: rendered inside the keyed <a>/<span> below
+        return item.href ? (
+          <Button
+            key={item.key}
+            asChild
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+          >
+            <a
+              href={item.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={item.title}
+            >
+              <Icon className="size-3.5" />
+            </a>
+          </Button>
+        ) : (
           <span
-            className="inline-flex size-7 items-center justify-center rounded-full border text-muted-foreground hover:border-foreground hover:text-foreground"
+            key={item.key}
             title={item.title}
+            className="flex size-6 items-center justify-center"
           >
             <Icon className="size-3.5" />
           </span>
         );
-        return item.href ? (
-          <a
-            key={item.key}
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {content}
-          </a>
-        ) : (
-          <span key={item.key}>{content}</span>
-        );
       })}
-    </div>
+    </span>
   );
 }
 
@@ -1001,12 +833,8 @@ function SocialsProperty({
     );
   };
 
-  const removeSocial = (index: number) => {
-    onChange(value.filter((_, i) => i !== index));
-  };
-
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1 py-1">
       {value.map((social, index) => {
         const Icon = socialIcon(social.platform);
         const label =
@@ -1017,16 +845,14 @@ function SocialsProperty({
               type="button"
               key={`${social.platform}-${index}`}
               onClick={() => setEditingIndex(index)}
-              title={label}
-              className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px] hover:bg-muted/40"
+              className={cn(CHIP, "transition-colors hover:bg-muted/60")}
             >
               <Icon className="size-3 shrink-0 text-muted-foreground" />
               <span
-                className={
-                  social.handle.trim()
-                    ? "truncate"
-                    : "truncate text-muted-foreground"
-                }
+                className={cn(
+                  "truncate",
+                  !social.handle.trim() && "text-muted-foreground",
+                )}
               >
                 {social.handle.trim() || label}
               </span>
@@ -1036,7 +862,7 @@ function SocialsProperty({
         return (
           <span
             key={`${social.platform}-${index}`}
-            className="group inline-flex items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px]"
+            className={CHIP}
             onBlur={(event) => {
               if (event.currentTarget.contains(event.relatedTarget)) return;
               setEditingIndex((current) =>
@@ -1044,8 +870,9 @@ function SocialsProperty({
               );
             }}
           >
-            <Icon className="size-3 text-muted-foreground" />
-            <Input
+            <Icon className="size-3 shrink-0 text-muted-foreground" />
+            <input
+              // biome-ignore lint/a11y/noAutofocus: the chip just switched into editing
               autoFocus
               value={social.handle}
               onChange={(event) =>
@@ -1053,25 +880,27 @@ function SocialsProperty({
               }
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === "Escape") {
+                  event.preventDefault();
                   setEditingIndex(null);
                 }
               }}
               placeholder={label}
-              className="h-4 w-28 border-none bg-transparent px-1 text-[10px] shadow-none focus-visible:ring-0"
+              aria-label={`${label} handle`}
+              className="w-28 bg-transparent outline-none placeholder:text-muted-foreground/60"
             />
             <button
               type="button"
-              // Keep the input focused so the chip's blur handler
-              // can't collapse it before this click lands.
+              // Keep the input focused so the chip's blur handler can't
+              // collapse it before this click lands.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
-                removeSocial(index);
+                onChange(value.filter((_, i) => i !== index));
                 setEditingIndex(null);
               }}
-              className="text-muted-foreground opacity-60 hover:opacity-100"
+              className="text-muted-foreground hover:text-accent-strong"
               aria-label="Remove social"
             >
-              <X className="size-2.5" />
+              <X className="size-3" />
             </button>
           </span>
         );
@@ -1079,74 +908,58 @@ function SocialsProperty({
 
       <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
-          >
-            <Plus className="size-2.5" />
-            add
-          </button>
+          <Button variant="ghost" size="xs" className="text-muted-foreground">
+            <Plus />
+            Add
+          </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-56 p-1" align="start" sideOffset={6}>
-          <div className="flex flex-col">
-            {SOCIAL_PRESETS.map((preset) => {
-              const Icon = preset.icon;
-              return (
-                <button
-                  key={preset.platform}
-                  type="button"
-                  onClick={() => addSocial(preset.platform)}
-                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-                >
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  {preset.label}
-                </button>
-              );
-            })}
-            <div className="mt-1 flex items-center gap-1 border-t pt-1">
-              <Input
-                value={customPlatform}
-                onChange={(event) => setCustomPlatform(event.target.value)}
-                placeholder="custom"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && customPlatform.trim()) {
-                    event.preventDefault();
-                    addSocial(customPlatform);
-                  }
-                }}
-                className="h-7 text-xs"
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 shrink-0 px-2"
-                onClick={() => addSocial(customPlatform)}
-                disabled={!customPlatform.trim()}
-              >
-                <Plus className="size-3" />
-              </Button>
-            </div>
-          </div>
+        <PopoverContent className="w-56 p-0" align="start" sideOffset={6}>
+          <Command>
+            <CommandList>
+              <CommandGroup>
+                {SOCIAL_PRESETS.map((preset) => {
+                  const Icon = preset.icon;
+                  return (
+                    <CommandItem
+                      key={preset.platform}
+                      value={preset.label}
+                      onSelect={() => addSocial(preset.platform)}
+                      className="text-xs"
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      {preset.label}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+          <form
+            className="flex items-center gap-1 border-t p-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              addSocial(customPlatform);
+            }}
+          >
+            <input
+              value={customPlatform}
+              onChange={(event) => setCustomPlatform(event.target.value)}
+              placeholder="Other platform"
+              className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-xs outline-none placeholder:text-muted-foreground/60 focus:bg-surface/70"
+            />
+            <Button
+              type="submit"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Add platform"
+              disabled={!customPlatform.trim()}
+            >
+              <Plus />
+            </Button>
+          </form>
         </PopoverContent>
       </Popover>
     </div>
-  );
-}
-
-function BirthdayProperty({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  return (
-    <Input
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder="MM-DD or YYYY-MM-DD"
-      className="h-6 max-w-48 border-none bg-transparent px-1 text-xs shadow-none focus-visible:ring-0"
-    />
   );
 }
 
@@ -1181,37 +994,39 @@ function PlaceAutocomplete({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <div className="inline-flex w-fit min-w-0 max-w-[min(100%,24rem)] items-center gap-1 overflow-hidden align-middle">
+      <div className="flex min-w-0 items-center gap-1">
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
+            className={cn(
+              FLUSH_INPUT,
+              "w-auto max-w-full truncate text-left",
+              !value.trim() && "text-muted-foreground/50",
+            )}
           >
-            <Plus className="size-2.5" />
-            {value.trim() || "Add place…"}
+            {value.trim() || "—"}
           </button>
         </PopoverTrigger>
-        {value.trim() && (
-          <button
-            type="button"
+        {value.trim() ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             onClick={() => {
               onChange("");
               setQuery("");
             }}
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Clear place"
           >
-            <X className="size-3" />
-          </button>
-        )}
+            <X />
+          </Button>
+        ) : null}
       </div>
       <PopoverContent className="w-64 p-0" align="start">
         <Command>
           <CommandInput
             value={query}
-            onValueChange={(next) => {
-              setQuery(next);
-            }}
+            onValueChange={setQuery}
             placeholder="Search places…"
             onKeyDown={(event) => {
               if (event.key === "Enter" && query.trim()) {
@@ -1226,14 +1041,12 @@ function PlaceAutocomplete({
                 <button
                   type="button"
                   onClick={() => commit(query)}
-                  className="w-full px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  className="w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-surface"
                 >
                   Use &ldquo;{query.trim()}&rdquo;
                 </button>
               ) : (
-                <span className="text-xs text-muted-foreground">
-                  No places yet
-                </span>
+                <span className="text-xs text-muted-foreground">No places</span>
               )}
             </CommandEmpty>
             {options.length > 0 && (
@@ -1246,11 +1059,12 @@ function PlaceAutocomplete({
                     className="text-xs"
                   >
                     <Check
-                      className={`mr-1 size-3 ${
+                      className={cn(
+                        "size-3",
                         place.toLowerCase() === value.trim().toLowerCase()
                           ? "opacity-100"
-                          : "opacity-0"
-                      }`}
+                          : "opacity-0",
+                      )}
                     />
                     {place}
                   </CommandItem>
@@ -1258,13 +1072,13 @@ function PlaceAutocomplete({
               </CommandGroup>
             )}
             {canCreate && options.length > 0 && (
-              <CommandGroup heading="Use">
+              <CommandGroup>
                 <CommandItem
                   value={`__use_${query}`}
                   onSelect={() => commit(query)}
                   className="text-xs"
                 >
-                  <Plus className="mr-1 size-3" />
+                  <Plus className="size-3" />
                   Use &ldquo;{query.trim()}&rdquo;
                 </CommandItem>
               </CommandGroup>
@@ -1290,32 +1104,27 @@ function RelationPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
-        >
-          <Plus className="size-2.5" />
-          related person
-        </button>
+        <Button variant="ghost" size="xs" className="text-muted-foreground">
+          <Plus />
+          Add
+        </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
-        align="start"
+        className="w-[min(22rem,calc(100vw-2rem))] overflow-hidden p-0"
+        align="end"
         sideOffset={6}
       >
         <Command>
           <CommandInput placeholder="Find person…" />
           <CommandList>
             <CommandEmpty>
-              <span className="text-xs text-muted-foreground">
-                No people found
-              </span>
+              <span className="text-xs text-muted-foreground">No people</span>
             </CommandEmpty>
-            <CommandGroup heading="People">
+            <CommandGroup>
               {people.map((person) => (
                 <CommandItem
                   key={person._id}
-                  value={person.name}
+                  value={`${person.name} ${person._id}`}
                   onSelect={() => {
                     onSelect(person._id);
                     setOpen(false);
@@ -1323,16 +1132,14 @@ function RelationPicker({
                   className="text-xs"
                 >
                   {person.photos[0] ? (
-                    <Image
-                      src={person.photos[0]}
-                      alt=""
-                      width={14}
-                      height={14}
-                      className="mr-1 size-3.5 rounded-full object-cover"
-                      unoptimized
+                    <PersonAvatar
+                      size="xs"
+                      photo={person.photos[0]}
+                      name={person.name}
+                      className="size-4"
                     />
                   ) : (
-                    <UserRound className="mr-1 size-3.5" />
+                    <UserRound className="size-4" />
                   )}
                   {person.name}
                 </CommandItem>

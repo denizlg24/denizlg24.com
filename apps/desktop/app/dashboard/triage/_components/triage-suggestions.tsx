@@ -1,13 +1,15 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import { Section } from "@repo/ui/section";
+import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import {
   CalendarClock,
   Check,
+  CircleCheck,
   ClipboardList,
   ListTodo,
-  Loader2,
   PencilLine,
   Plus,
   Trash2,
@@ -23,10 +25,7 @@ import type {
 
 type SuggestionStatus = "pending" | "accepted" | "dismissed";
 
-/**
- * One proposed action. Hairline-separated rows with a status spine rather than
- * a card, so a long list of proposals stays scannable.
- */
+/** One proposed action: a quiet row with accept/dismiss on the right. */
 function SuggestionRow({
   icon,
   title,
@@ -49,114 +48,90 @@ function SuggestionRow({
   onAccept: () => void;
   onDismiss: () => void;
 }) {
-  const settled = status !== "pending";
-
   return (
     <div
+      role="listitem"
       className={cn(
-        "group relative flex items-start gap-3 py-3 pl-3",
-        status === "dismissed" && "opacity-45",
+        "group/suggestion -mx-2 flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-surface/70",
+        status === "dismissed" && "opacity-50",
       )}
     >
       <span
-        aria-hidden
         className={cn(
-          "absolute inset-y-2.5 left-0 w-0.5 rounded-full",
-          status === "accepted"
-            ? "bg-status-good"
-            : status === "dismissed"
-              ? "bg-border"
-              : "bg-foreground/25",
+          "mt-0.5 flex size-5 shrink-0 items-center justify-center",
+          status === "accepted" ? "text-status-good" : "text-muted-foreground",
         )}
-      />
+      >
+        {status === "accepted" ? <CircleCheck className="size-3.5" /> : icon}
+      </span>
 
-      <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
-
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p
           className={cn(
-            "text-[13px] font-medium leading-snug",
+            "text-sm leading-snug text-accent-strong",
             status === "dismissed" && "line-through",
           )}
         >
           {title}
         </p>
-        {detail && (
-          <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-            {detail}
-          </p>
-        )}
-        {meta && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] text-muted-foreground">
+        {detail ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">{detail}</p>
+        ) : null}
+        {meta ? (
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
             {meta}
           </div>
-        )}
-        {call && (
-          <details className="mt-1.5 text-[10px] text-muted-foreground">
+        ) : null}
+        {call ? (
+          <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer select-none">arguments</summary>
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono leading-relaxed">
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
               {JSON.stringify(call, null, 2)}
             </pre>
           </details>
-        )}
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        {settled ? (
-          <>
-            <span
-              className={cn(
-                "text-[10px] font-medium uppercase tracking-[0.12em]",
-                status === "accepted"
-                  ? "text-status-good"
-                  : "text-muted-foreground",
-              )}
-            >
-              {status}
-            </span>
-            {status === "dismissed" && (
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Accept instead"
-                className="size-7 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                disabled={pending}
-                onClick={onAccept}
-              >
-                {pending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Undo2 className="size-3.5" />
-                )}
-              </Button>
-            )}
-          </>
-        ) : (
+        {status === "pending" ? (
           <>
             <Button
-              size="icon"
+              size="sm"
               variant="ghost"
-              aria-label={`Accept ${title}`}
-              className="size-7"
               disabled={pending}
               onClick={onAccept}
             >
-              {pending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Check className="size-3.5 text-status-good" />
-              )}
+              {pending ? <Spinner className="size-3.5" /> : <Check />}
+              Accept
             </Button>
             <Button
-              size="icon"
+              size="sm"
               variant="ghost"
-              aria-label={`Dismiss ${title}`}
-              className="size-7"
+              className="text-muted-foreground"
               disabled={pending}
               onClick={onDismiss}
             >
-              <X className="size-3.5 text-muted-foreground" />
+              <X />
+              Dismiss
             </Button>
+          </>
+        ) : (
+          <>
+            {status === "dismissed" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/suggestion:opacity-100"
+                disabled={pending}
+                onClick={onAccept}
+              >
+                {pending ? <Spinner className="size-3.5" /> : <Undo2 />}
+                Accept
+              </Button>
+            ) : null}
+            <span className="text-xs text-muted-foreground">
+              {status === "accepted" ? "Accepted" : "Dismissed"}
+            </span>
           </>
         )}
       </div>
@@ -203,18 +178,8 @@ export function TriageSuggestions({
   ).length;
 
   return (
-    <section className="border-b">
-      <div className="flex items-center gap-3 px-4 pb-2 pt-3 sm:px-8">
-        <h2 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Proposed actions
-        </h2>
-        <span className="h-px flex-1 bg-border" />
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {open > 0 ? `${open} open · ${total}` : total}
-        </span>
-      </div>
-
-      <div className="divide-y px-4 pb-3 sm:px-8">
+    <Section title="Suggestions" count={open > 0 ? `${open}/${total}` : total}>
+      <div role="list" className="flex flex-col">
         {tasks.map((task) => (
           <SuggestionRow
             key={task._id}
@@ -227,9 +192,7 @@ export function TriageSuggestions({
             onDismiss={() => onDecide(task._id, "task", "dismiss")}
             meta={
               <>
-                <span className="uppercase tracking-[0.12em]">
-                  {task.priority}
-                </span>
+                <span className="capitalize">{task.priority}</span>
                 {task.kanbanBoardTitle && task.kanbanColumnTitle && (
                   <span>
                     {task.kanbanBoardTitle} / {task.kanbanColumnTitle}
@@ -284,7 +247,7 @@ export function TriageSuggestions({
               <>
                 <span
                   className={cn(
-                    "uppercase tracking-[0.12em]",
+                    "capitalize",
                     change.effect === "delete" && "text-destructive",
                   )}
                 >
@@ -299,6 +262,6 @@ export function TriageSuggestions({
           />
         ))}
       </div>
-    </section>
+    </Section>
   );
 }

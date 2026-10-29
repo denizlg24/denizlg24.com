@@ -6,41 +6,32 @@ import type {
   VoiceNoteContextCandidate,
   VoiceNoteUpdateInput,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@repo/ui/dropdown-menu";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Meter } from "@repo/ui/meter";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { RowActions } from "@repo/ui/toolbar";
 import {
   AudioLines,
+  CalendarClock,
+  Clock,
   FileText,
+  Folder,
+  Hash,
   Loader2,
-  MoreHorizontal,
+  MapPin,
+  Mic,
   RotateCw,
   Trash2,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   formatBytes,
@@ -59,7 +50,7 @@ import {
 import { VoiceNotePlayer } from "./voice-note-player";
 import { VoiceNoteTagEditor } from "./voice-note-tag-editor";
 import { VoiceNoteTranscript } from "./voice-note-transcript";
-import { ContextDot, SectionHeading } from "./voice-notes-primitives";
+import { ContextDot } from "./voice-notes-primitives";
 import {
   VoiceNoteDetailSkeleton,
   VoiceNoteTranscriptSkeleton,
@@ -68,17 +59,6 @@ import {
 const POLL_INTERVAL_MS = 5_000;
 
 type LoadState = "loading" | "ready" | "missing";
-
-function Property({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="pt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="min-w-0">{children}</dd>
-    </>
-  );
-}
 
 function TranscriptionState({
   voiceNote,
@@ -93,45 +73,35 @@ function TranscriptionState({
 
   if (status === "untranscribed") {
     return (
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        className="h-6 text-[11px]"
-        disabled={busy}
-        onClick={() => onTranscribe(false)}
-      >
-        {busy ? (
-          <Loader2 className="size-3 animate-spin" />
-        ) : (
-          <AudioLines className="size-3" />
-        )}
-        Transcribe
-      </Button>
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => onTranscribe(false)}
+        >
+          {busy ? <Loader2 className="animate-spin" /> : <AudioLines />}
+          Transcribe
+        </Button>
+      </div>
     );
   }
 
   if (status === "queued" || status === "transcribing") {
-    const fraction =
-      progress && progress.total > 0 ? progress.completed / progress.total : 0;
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
           <Loader2 className="size-3 animate-spin" />
           {status}
           {progress && progress.total > 0 && (
-            <span className="text-foreground">
+            <span className="text-accent-strong">
               {progress.completed}/{progress.total}
             </span>
           )}
         </div>
         {progress && progress.total > 0 && (
-          <div className="h-px w-full bg-border">
-            <div
-              className="h-px bg-foreground transition-[width] duration-500"
-              style={{ width: `${fraction * 100}%` }}
-            />
-          </div>
+          <Meter value={progress.completed / progress.total} />
         )}
       </div>
     );
@@ -141,22 +111,18 @@ function TranscriptionState({
     return (
       <div className="flex items-start gap-2">
         <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" />
-        <p className="min-w-0 flex-1 text-[11px] break-words text-destructive">
+        <p className="min-w-0 flex-1 text-xs break-words text-destructive">
           {error ?? "failed"}
         </p>
         <Button
           type="button"
           variant="outline"
-          size="xs"
-          className="h-6 shrink-0 text-[11px]"
+          size="sm"
+          className="shrink-0"
           disabled={busy}
           onClick={() => onTranscribe(true)}
         >
-          {busy ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : (
-            <RotateCw className="size-3" />
-          )}
+          {busy ? <Loader2 className="animate-spin" /> : <RotateCw />}
           Retry
         </Button>
       </div>
@@ -331,260 +297,241 @@ export function VoiceNoteDetail({
   };
 
   if (loadState === "missing") {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        —
-      </div>
-    );
+    return <EmptyState icon={<Mic />} label="Not found" />;
   }
 
   if (!view) return <VoiceNoteDetailSkeleton />;
 
   const { transcription } = view;
-  const meta = [
-    formatDateTime(view.recordedAt),
-    view.durationMs ? formatDuration(view.durationMs) : undefined,
-    formatBytes(view.sizeBytes),
-    view.source,
-    transcription.model,
-    transcription.language,
-  ].filter(Boolean);
   const segmentCount = note?.transcription.segments?.length ?? 0;
+  const transcriptMeta = [transcription.model, transcription.language]
+    .filter(Boolean)
+    .join(" · ");
+
+  const titleNode = editingTitle ? (
+    <input
+      // biome-ignore lint/a11y/noAutofocus: replaces the title the owner just clicked
+      autoFocus
+      value={titleDraft}
+      onChange={(event) => setTitleDraft(event.target.value)}
+      onBlur={() => void commitTitle()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void commitTitle();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          titleCancelledRef.current = true;
+          setEditingTitle(false);
+        }
+      }}
+      maxLength={300}
+      aria-label="Voice note title"
+      className="w-full min-w-0 bg-transparent outline-none"
+    />
+  ) : (
+    <button
+      type="button"
+      disabled={!note}
+      onClick={() => {
+        titleCancelledRef.current = false;
+        setTitleDraft(view.title);
+        setEditingTitle(true);
+      }}
+      className="-mx-1 rounded px-1 text-left break-words hover:bg-surface/70 disabled:hover:bg-transparent"
+      aria-label={`Rename ${view.title}`}
+    >
+      {view.title}
+    </button>
+  );
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <header className="flex flex-col gap-1 px-6 pt-5 pb-3">
-        <div className="flex items-start gap-2">
-          {editingTitle ? (
-            <input
-              // biome-ignore lint/a11y/noAutofocus: replaces the title the owner just clicked
-              autoFocus
-              value={titleDraft}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onBlur={() => void commitTitle()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void commitTitle();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  titleCancelledRef.current = true;
-                  setEditingTitle(false);
-                }
-              }}
-              maxLength={300}
-              aria-label="Voice note title"
-              className="min-w-0 flex-1 bg-transparent text-sm leading-6 font-medium outline-none"
-            />
-          ) : (
-            <button
-              type="button"
-              disabled={!note}
-              onClick={() => {
-                titleCancelledRef.current = false;
-                setTitleDraft(view.title);
-                setEditingTitle(true);
-              }}
-              className="min-w-0 flex-1 text-left text-sm leading-6 font-medium break-words hover:text-muted-foreground disabled:hover:text-foreground"
-              aria-label={`Rename ${view.title}`}
-            >
-              {view.title}
-            </button>
-          )}
-          <div className="flex shrink-0 items-center gap-1">
-            {note && transcription.status === "transcribed" && (
-              <GenerateNoteDialog
-                api={api}
-                voiceNote={note}
-                onChanged={(next) => {
-                  setNote(next);
-                  onChanged(next);
-                }}
-                onGenerated={(generated) =>
-                  router.push(
-                    `/dashboard/notes?note=${encodeURIComponent(generated._id)}`,
-                  )
-                }
-              />
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 pt-6 sm:px-8">
+        <PageTitle
+          title={titleNode}
+          actions={
+            <>
+              {note && transcription.status === "transcribed" && (
+                <GenerateNoteDialog
+                  api={api}
+                  voiceNote={note}
+                  onChanged={(next) => {
+                    setNote(next);
+                    onChanged(next);
+                  }}
+                  onGenerated={(generated) =>
+                    router.push(
+                      `/dashboard/notes?note=${encodeURIComponent(generated._id)}`,
+                    )
+                  }
+                />
+              )}
+              {note ? (
+                <RowActions>
+                  {transcription.status === "transcribed" && (
+                    <DropdownMenuItem
+                      disabled={transcribing}
+                      onSelect={() => void transcribe(true)}
+                    >
+                      <RotateCw />
+                      Re-transcribe
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={deleting}
+                    onSelect={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                </RowActions>
+              ) : null}
+              {onClose && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="size-7"
-                  aria-label="More actions"
-                  disabled={!note}
+                  onClick={onClose}
+                  aria-label="Close"
                 >
-                  {deleting ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <MoreHorizontal className="size-3.5" />
-                  )}
+                  <X />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                {transcription.status === "transcribed" && (
-                  <DropdownMenuItem
-                    className="text-xs"
-                    disabled={transcribing}
-                    onSelect={() => void transcribe(true)}
-                  >
-                    <RotateCw className="size-3.5" />
-                    Re-transcribe
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  variant="destructive"
-                  className="text-xs"
-                  disabled={deleting}
-                  onSelect={() => setConfirmDelete(true)}
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {onClose && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-7"
-                onClick={onClose}
-                aria-label="Close"
-              >
-                <X className="size-3.5" />
-              </Button>
-            )}
-          </div>
-        </div>
-        <p className="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {meta.join(" · ")}
-        </p>
-      </header>
+              )}
+            </>
+          }
+        />
 
-      <dl className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-6 pb-4">
-        <Property label="Context">
-          <VoiceNoteContextPicker
-            api={api}
-            voiceNote={view}
-            disabled={!note}
-            onChoose={chooseContext}
-          />
-        </Property>
-        <Property label="Tags">
-          <VoiceNoteTagEditor
-            tags={view.tags}
-            suggestions={tagSuggestions}
-            disabled={!note}
-            onChange={(tags) => void changeTags(tags)}
-          />
-        </Property>
-        {!note && view.noteIds.length > 0 && (
-          <Property label="Notes">
-            <Skeleton className="mt-1 h-3 w-40" />
+        <Properties>
+          <Property icon={<CalendarClock />} label="Recorded">
+            <span className="tabular-nums">
+              {formatDateTime(view.recordedAt)}
+            </span>
           </Property>
-        )}
-        {note && note.linkedNotes.length > 0 && (
-          <Property label="Notes">
-            <ul className="flex flex-col">
-              {note.linkedNotes.map((linked) => (
-                <li key={linked._id}>
+          <Property icon={<Clock />} label="Duration">
+            <span className="tabular-nums">
+              {view.durationMs ? formatDuration(view.durationMs) : "—"}
+              <span className="ml-2 text-xs text-muted-foreground">
+                {formatBytes(view.sizeBytes)} · {view.source}
+              </span>
+            </span>
+          </Property>
+          <Property icon={<MapPin />} label="Context">
+            <VoiceNoteContextPicker
+              api={api}
+              voiceNote={view}
+              disabled={!note}
+              onChoose={chooseContext}
+            />
+          </Property>
+          <Property icon={<Hash />} label="Tags">
+            <VoiceNoteTagEditor
+              tags={view.tags}
+              suggestions={tagSuggestions}
+              disabled={!note}
+              onChange={(tags) => void changeTags(tags)}
+            />
+          </Property>
+          {!note && view.noteIds.length > 0 && (
+            <Property icon={<FileText />} label="Notes">
+              <Skeleton className="h-3 w-40" />
+            </Property>
+          )}
+          {note && note.linkedNotes.length > 0 && (
+            <Property icon={<FileText />} label="Notes">
+              <div className="flex flex-col py-1">
+                {note.linkedNotes.map((linked) => (
                   <button
+                    key={linked._id}
                     type="button"
                     onClick={() =>
                       router.push(
                         `/dashboard/notes?note=${encodeURIComponent(linked._id)}`,
                       )
                     }
-                    className="-mx-1.5 flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-xs hover:bg-muted/60"
+                    className="-mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-surface/70"
                   >
-                    <FileText className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{linked.title}</span>
+                    {linked.title}
                   </button>
-                </li>
-              ))}
-            </ul>
-          </Property>
-        )}
-        {view.groups.length > 0 && (
-          <Property label="Groups">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
-              {view.groups.map((group) => (
-                <span
-                  key={group._id}
-                  className="flex items-center gap-1.5 text-xs"
-                >
-                  <ContextDot color={group.color} />
-                  {group.name}
-                </span>
-              ))}
-            </div>
-          </Property>
-        )}
-      </dl>
-
-      <div className="sticky top-0 z-20 border-y bg-background/95 px-6 pt-5 pb-2 backdrop-blur-sm">
-        <VoiceNotePlayer
-          voiceNoteId={voiceNoteId}
-          waveform={view.waveform}
-          playback={playback}
-        />
+                ))}
+              </div>
+            </Property>
+          )}
+          {view.groups.length > 0 && (
+            <Property icon={<Folder />} label="Groups">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {view.groups.map((group) => (
+                  <span key={group._id} className="flex items-center gap-1.5">
+                    <ContextDot color={group.color} />
+                    {group.name}
+                  </span>
+                ))}
+              </div>
+            </Property>
+          )}
+        </Properties>
       </div>
 
-      <section className="flex flex-col gap-3 px-6 pt-4 pb-10">
-        <SectionHeading
+      <div className="sticky top-0 z-20 mt-6 border-y bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto w-full max-w-3xl px-5 pt-5 pb-2 sm:px-8">
+          <VoiceNotePlayer
+            voiceNoteId={voiceNoteId}
+            waveform={view.waveform}
+            playback={playback}
+          />
+        </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-3xl px-5 pt-6 pb-10 sm:px-8">
+        <Section
           title="Transcript"
-          meta={
+          count={
             segmentCount > 1
               ? `${segmentCount} · ${formatSpan(view.durationMs ?? 0)}`
               : undefined
           }
-        />
-        <TranscriptionState
-          voiceNote={view}
-          busy={transcribing}
-          onTranscribe={(force) => void transcribe(force)}
-        />
-        {note ? (
-          <VoiceNoteTranscript
-            transcription={note.transcription}
-            durationMs={playback.durationMs}
-            currentMs={playback.currentMs}
-            terms={terms}
-            matchStartSecond={matchStartSecond}
-            onSeek={(milliseconds) => {
-              void playback.seekToMs(milliseconds).then(playback.play);
-            }}
+          actions={
+            transcriptMeta ? (
+              <span className="text-xs text-muted-foreground">
+                {transcriptMeta}
+              </span>
+            ) : undefined
+          }
+        >
+          <TranscriptionState
+            voiceNote={view}
+            busy={transcribing}
+            onTranscribe={(force) => void transcribe(force)}
           />
-        ) : (
-          <VoiceNoteTranscriptSkeleton />
-        )}
-      </section>
+          {note ? (
+            <VoiceNoteTranscript
+              transcription={note.transcription}
+              durationMs={playback.durationMs}
+              currentMs={playback.currentMs}
+              terms={terms}
+              matchStartSecond={matchStartSecond}
+              onSeek={(milliseconds) => {
+                void playback.seekToMs(milliseconds).then(playback.play);
+              }}
+            />
+          ) : (
+            <VoiceNoteTranscriptSkeleton />
+          )}
+        </Section>
+      </div>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="truncate">
-              Delete “{view.title}”?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="font-mono text-xs tabular-nums">
-              {meta.slice(0, 3).join(" · ")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => void remove()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete “${view.title}”?`}
+        description={`${formatDateTime(view.recordedAt)} · ${
+          view.durationMs ? formatDuration(view.durationMs) : "—"
+        } · ${formatBytes(view.sizeBytes)}`}
+        actionLabel="Delete"
+        destructive
+        onConfirm={remove}
+      />
     </div>
   );
 }

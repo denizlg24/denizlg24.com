@@ -1,11 +1,22 @@
 "use client";
 
 import type { FinanceBudgetAlert } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
-import { cn } from "@repo/ui/utils";
+import { FilterTabs } from "@repo/ui/toolbar";
 import { Bell, Check, Loader2, RefreshCw, RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { DetailPageShell } from "../detail-page-shell";
 import { useAdmin } from "../provider";
@@ -14,12 +25,21 @@ import {
   evaluateFinanceBudgetAlerts,
   fetchFinanceBudgetAlerts,
 } from "./finance-budget-data";
-import { Empty, relative, SectionHead } from "./finance-primitives";
+import { relative } from "./finance-primitives";
 
-const ICON = <Bell className="size-4 text-muted-foreground" />;
+const ICON = <Bell />;
 
 const SEVERITY_TONE: Record<FinanceBudgetAlert["severity"], StatusTone> = {
   info: "muted",
+  warning: "warning",
+  critical: "critical",
+};
+
+const SEVERITY_BADGE: Record<
+  FinanceBudgetAlert["severity"],
+  "info" | "warning" | "critical"
+> = {
+  info: "info",
   warning: "warning",
   critical: "critical",
 };
@@ -30,7 +50,8 @@ const SEVERITY_RANK: Record<FinanceBudgetAlert["severity"], number> = {
   critical: 2,
 };
 
-type Group = "open" | "acknowledged" | "resolved";
+type Group = FinanceBudgetAlert["status"];
+type Decision = "acknowledge" | "reopen" | "resolve";
 
 const GROUPS: { value: Group; label: string }[] = [
   { value: "open", label: "Open" },
@@ -47,43 +68,17 @@ const GROUPS: { value: Group; label: string }[] = [
  */
 const TRANSITIONS: Record<
   Group,
-  {
-    action: "acknowledge" | "reopen" | "resolve";
-    label: string;
-    icon: React.ReactNode;
-  }[]
+  { action: Decision; label: string; icon: ReactNode }[]
 > = {
   open: [
-    {
-      action: "acknowledge",
-      label: "Acknowledge",
-      icon: <Check className="size-3.5" />,
-    },
-    {
-      action: "resolve",
-      label: "Resolve",
-      icon: <RotateCcw className="size-3.5" />,
-    },
+    { action: "acknowledge", label: "Acknowledge", icon: <Check /> },
+    { action: "resolve", label: "Resolve", icon: <RotateCcw /> },
   ],
   acknowledged: [
-    {
-      action: "resolve",
-      label: "Resolve",
-      icon: <RotateCcw className="size-3.5" />,
-    },
-    {
-      action: "reopen",
-      label: "Reopen",
-      icon: <RefreshCw className="size-3.5" />,
-    },
+    { action: "resolve", label: "Resolve", icon: <RotateCcw /> },
+    { action: "reopen", label: "Reopen", icon: <RefreshCw /> },
   ],
-  resolved: [
-    {
-      action: "reopen",
-      label: "Reopen",
-      icon: <RefreshCw className="size-3.5" />,
-    },
-  ],
+  resolved: [{ action: "reopen", label: "Reopen", icon: <RefreshCw /> }],
 };
 
 function AlertRow({
@@ -93,9 +88,8 @@ function AlertRow({
 }: {
   alert: FinanceBudgetAlert;
   busy: boolean;
-  onDecide: (action: "acknowledge" | "reopen" | "resolve") => void;
+  onDecide: (action: Decision) => void;
 }) {
-  const group = alert.status as Group;
   // An alert acknowledged at a lower severity than it now carries came back on
   // purpose: acknowledging "projected to overspend" must not silence "actually
   // overspent". Saying so is what stops that reading as a bug.
@@ -104,31 +98,35 @@ function AlertRow({
     SEVERITY_RANK[alert.severity] > SEVERITY_RANK[alert.acknowledgedSeverity];
 
   return (
-    <div className="flex items-start gap-3 border-b border-border/60 py-3 last:border-b-0">
+    <div role="listitem" className="group/row flex items-start gap-3 py-3">
       <StatusDot
         tone={SEVERITY_TONE[alert.severity]}
         label={alert.severity}
         className="mt-1.5"
       />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-[13px] leading-tight">{alert.title}</span>
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {alert.severity}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm leading-tight text-accent-strong">
+            {alert.title}
           </span>
+          <Badge variant={SEVERITY_BADGE[alert.severity]}>
+            {alert.severity}
+          </Badge>
           {worsened && alert.acknowledgedSeverity && (
-            <span className="text-[10px] text-status-warning">
+            <Badge variant="warning">
               was {alert.acknowledgedSeverity} when acknowledged
-            </span>
+            </Badge>
           )}
         </div>
-        <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+        <div className="text-xs leading-snug text-muted-foreground">
           {alert.detail}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] tabular-nums text-muted-foreground/70">
-          <span title={alert.key}>{alert.key}</span>
-          <span>first seen {relative(alert.firstSeenAt)}</span>
-          <span>last seen {relative(alert.lastSeenAt)}</span>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-muted-foreground/80">
+          <span className="font-mono" title={alert.key}>
+            {alert.key}
+          </span>
+          <span>first {relative(alert.firstSeenAt)}</span>
+          <span>last {relative(alert.lastSeenAt)}</span>
           {alert.acknowledgedAt && (
             <span>acknowledged {relative(alert.acknowledgedAt)}</span>
           )}
@@ -138,20 +136,15 @@ function AlertRow({
         </div>
       </div>
       <div className="flex shrink-0 gap-1">
-        {TRANSITIONS[group].map((transition) => (
+        {TRANSITIONS[alert.status].map((transition) => (
           <Button
             key={transition.action}
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 text-xs"
             disabled={busy}
             onClick={() => onDecide(transition.action)}
           >
-            {busy ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              transition.icon
-            )}
+            {busy ? <Loader2 className="animate-spin" /> : transition.icon}
             {transition.label}
           </Button>
         ))}
@@ -196,15 +189,11 @@ export function FinanceAlertsPage({
       acknowledged: [],
       resolved: [],
     };
-    for (const alert of alerts ?? [])
-      buckets[alert.status as Group].push(alert);
+    for (const alert of alerts ?? []) buckets[alert.status].push(alert);
     return buckets;
   }, [alerts]);
 
-  const decide = async (
-    alert: FinanceBudgetAlert,
-    action: "acknowledge" | "reopen" | "resolve",
-  ) => {
+  const decide = async (alert: FinanceBudgetAlert, action: Decision) => {
     setBusyId(alert.id);
     try {
       const updated = await decideFinanceBudgetAlert(client, alert.id, action);
@@ -236,69 +225,56 @@ export function FinanceAlertsPage({
 
   const evaluateButton = (
     <Button
-      variant="outline"
+      variant="ghost"
       size="sm"
-      className="h-8 gap-1.5 text-xs"
       disabled={evaluating}
-      onClick={evaluate}
+      onClick={() => void evaluate()}
     >
-      {evaluating ? (
-        <Loader2 className="size-3.5 animate-spin" />
-      ) : (
-        <RefreshCw className="size-3.5" />
-      )}
+      {evaluating ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       Re-evaluate
     </Button>
   );
 
-  const content = (
-    <div className="space-y-5">
-      {embedded ? (
-        <div className="flex justify-end">{evaluateButton}</div>
-      ) : null}
-      <div className="flex gap-4 border-b">
-        {GROUPS.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setGroup(tab.value)}
-            className={cn(
-              "shrink-0 border-b-2 pb-2 text-xs transition-colors",
-              group === tab.value
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {tab.label}
-            <span className="ml-1.5 tabular-nums text-muted-foreground">
-              {grouped[tab.value].length}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {alerts === null ? (
-        <Empty label="Loading…" />
-      ) : grouped[group].length === 0 ? (
-        <Empty label="—" />
-      ) : (
-        <div>
-          {group === "open" && <SectionHead label="Currently true" />}
-          {grouped[group].map((alert) => (
-            <AlertRow
-              key={alert.id}
-              alert={alert}
-              busy={busyId === alert.id}
-              onDecide={(action) => decide(alert, action)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+  const filters = (
+    <FilterTabs
+      value={group}
+      onChange={setGroup}
+      options={GROUPS.map((tab) => ({
+        ...tab,
+        count: alerts ? grouped[tab.value].length : undefined,
+      }))}
+    />
   );
 
+  const rows =
+    alerts === null ? (
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Skeleton key={index} className="h-14 w-full" />
+        ))}
+      </div>
+    ) : grouped[group].length === 0 ? (
+      <EmptyState compact icon={<Bell />} label={`No ${group} alerts`} />
+    ) : (
+      <List divided>
+        {grouped[group].map((alert) => (
+          <AlertRow
+            key={alert.id}
+            alert={alert}
+            busy={busyId === alert.id}
+            onDecide={(action) => void decide(alert, action)}
+          />
+        ))}
+      </List>
+    );
+
   if (embedded) {
-    return <div className="mx-auto max-w-5xl px-4 py-5">{content}</div>;
+    return (
+      <Section title="Alerts" actions={evaluateButton}>
+        {filters}
+        {rows}
+      </Section>
+    );
   }
 
   return (
@@ -309,7 +285,10 @@ export function FinanceAlertsPage({
       backLabel="Budget"
       actions={evaluateButton}
     >
-      {content}
+      <div className="flex flex-col gap-3">
+        {filters}
+        {rows}
+      </div>
     </DetailPageShell>
   );
 }

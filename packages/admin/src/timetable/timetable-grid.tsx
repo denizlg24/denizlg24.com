@@ -5,23 +5,17 @@ import { cn } from "@repo/ui/utils";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const COLOR_MAP: Record<TimetableColor, { bg: string; text: string }> = {
-  background: {
-    bg: "bg-[var(--background)]",
-    text: "text-[var(--accent-strong)]",
-  },
-  surface: { bg: "bg-[var(--surface)]", text: "text-[var(--accent-strong)]" },
-  muted: { bg: "bg-[var(--muted)]", text: "text-[var(--accent-strong)]" },
-  accent: { bg: "bg-[var(--accent)]", text: "text-[var(--accent-strong)]" },
-  "accent-strong": {
-    bg: "bg-[var(--accent-strong)]",
-    text: "text-[var(--background)]",
-  },
-  foreground: {
-    bg: "bg-[var(--foreground)]",
-    text: "text-[var(--background)]",
-  },
-  destructive: { bg: "bg-[var(--destructive)]", text: "text-white" },
+export const TIMETABLE_COLOR_CLASSES: Record<
+  TimetableColor,
+  { bg: string; text: string }
+> = {
+  background: { bg: "bg-background", text: "text-accent-strong" },
+  surface: { bg: "bg-surface", text: "text-accent-strong" },
+  muted: { bg: "bg-muted", text: "text-accent-strong" },
+  accent: { bg: "bg-accent", text: "text-accent-strong" },
+  "accent-strong": { bg: "bg-accent-strong", text: "text-background" },
+  foreground: { bg: "bg-foreground", text: "text-background" },
+  destructive: { bg: "bg-destructive", text: "text-background" },
 };
 
 function timeToMinutes(time: string): number {
@@ -47,33 +41,18 @@ function computeOverlapLayout(entries: ITimetableEntry[]): OverlapGroup[] {
   );
 
   const result: OverlapGroup[] = [];
-  const columns: { end: number; entries: ITimetableEntry[] }[] = [];
+  const columns: { end: number }[] = [];
 
   for (const entry of sorted) {
     const start = timeToMinutes(entry.startTime);
-
-    let placed = false;
-    for (let col = 0; col < columns.length; col++) {
-      const column = columns[col];
-      if (column.end <= start) {
-        column.end = timeToMinutes(entry.endTime);
-        column.entries.push(entry);
-        result.push({ entry, columnIndex: col, totalColumns: 0 });
-        placed = true;
-        break;
-      }
-    }
-
-    if (!placed) {
-      columns.push({
-        end: timeToMinutes(entry.endTime),
-        entries: [entry],
-      });
-      result.push({
-        entry,
-        columnIndex: columns.length - 1,
-        totalColumns: 0,
-      });
+    const end = timeToMinutes(entry.endTime);
+    const free = columns.findIndex((column) => column.end <= start);
+    if (free === -1) {
+      columns.push({ end });
+      result.push({ entry, columnIndex: columns.length - 1, totalColumns: 0 });
+    } else {
+      columns[free] = { end };
+      result.push({ entry, columnIndex: free, totalColumns: 0 });
     }
   }
 
@@ -100,6 +79,8 @@ interface TimetableGridProps {
   onEntryClick?: (entry: ITimetableEntry) => void;
 }
 
+const HOUR_HEIGHT = 60;
+
 export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
   let minHour = 8;
   let maxHour = 23;
@@ -117,42 +98,38 @@ export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
     { length: maxHour - minHour },
     (_, i) => minHour + i,
   );
-  const totalMinutes = (maxHour - minHour) * 60;
-  const hourHeight = 60;
 
-  const entriesByDay = DAYS.map((_, dayIndex) =>
-    entries.filter((e) => e.dayOfWeek === dayIndex),
+  const layoutByDay = DAYS.map((_, dayIndex) =>
+    computeOverlapLayout(entries.filter((e) => e.dayOfWeek === dayIndex)),
   );
 
-  const layoutByDay = entriesByDay.map((dayEntries) =>
-    computeOverlapLayout(dayEntries),
-  );
+  const todayIndex = (new Date().getDay() + 6) % 7;
 
   return (
-    <div className="overflow-x-auto border rounded-lg mx-4 w-[calc(100%-2rem)]">
+    <div className="overflow-x-auto rounded-md border">
       <div
         className="grid min-w-225"
-        style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}
+        style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}
       >
-        <div className="sticky left-0 z-10 bg-background border-b border-r p-2" />
+        <div className="sticky left-0 z-20 border-r border-b bg-background" />
         {DAYS.map((day, index) => (
           <div
             key={day}
             className={cn(
-              "border-b border-r p-2 text-center font-medium text-sm",
-              index === 6 && "border-r-0",
+              "border-r border-b px-2 py-1.5 text-center text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground last:border-r-0",
+              index === todayIndex && "text-accent-strong",
             )}
           >
             {day}
           </div>
         ))}
 
-        <div className="sticky left-0 z-10 bg-background border-r">
+        <div className="sticky left-0 z-20 border-r bg-background">
           {hours.map((hour) => (
             <div
               key={hour}
-              className="border-b last:border-b-0 text-xs text-muted-foreground flex items-start justify-end pr-2 pt-1"
-              style={{ height: hourHeight }}
+              className="flex items-start justify-end border-b pt-1 pr-2 text-[11px] tabular-nums text-muted-foreground last:border-b-0"
+              style={{ height: HOUR_HEIGHT }}
             >
               {formatHour(hour)}
             </div>
@@ -162,19 +139,22 @@ export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
         {DAYS.map((day, dayIndex) => (
           <div
             key={day}
-            className="relative border-r last:border-r-0"
-            style={{ height: hours.length * hourHeight }}
+            className={cn(
+              "relative border-r last:border-r-0",
+              dayIndex === todayIndex && "bg-surface/30",
+            )}
+            style={{ height: hours.length * HOUR_HEIGHT }}
           >
             {hours.map((hour, index) => (
               <div
                 key={hour}
                 className={cn(
-                  "absolute w-full border-b pointer-events-none",
+                  "pointer-events-none absolute w-full border-b border-border/60",
                   index === hours.length - 1 && "border-b-0",
                 )}
                 style={{
-                  top: (hour - minHour) * hourHeight,
-                  height: hourHeight,
+                  top: (hour - minHour) * HOUR_HEIGHT,
+                  height: HOUR_HEIGHT,
                 }}
               />
             ))}
@@ -183,50 +163,46 @@ export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
               ({ entry, columnIndex, totalColumns }) => {
                 const startMin = timeToMinutes(entry.startTime);
                 const endMin = timeToMinutes(entry.endTime);
-                const top =
-                  ((startMin - minHour * 60) / totalMinutes) *
-                  hours.length *
-                  hourHeight;
-                const height =
-                  ((endMin - startMin) / totalMinutes) *
-                  hours.length *
-                  hourHeight;
+                const top = ((startMin - minHour * 60) / 60) * HOUR_HEIGHT;
+                const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
                 const widthPercent = 100 / totalColumns;
-                const leftPercent = columnIndex * widthPercent;
-                const colors = COLOR_MAP[entry.color] || COLOR_MAP.accent;
+                const colors =
+                  TIMETABLE_COLOR_CLASSES[entry.color] ??
+                  TIMETABLE_COLOR_CLASSES.accent;
 
                 return (
                   <button
                     key={entry._id}
                     type="button"
                     onClick={() => onEntryClick?.(entry)}
+                    disabled={!onEntryClick}
                     className={cn(
-                      "absolute z-10 border-l-2 border-black/20 overflow-hidden cursor-pointer transition-opacity hover:opacity-80 flex flex-col min-w-0",
+                      "absolute z-10 flex min-w-0 flex-col overflow-hidden rounded-sm border-l-2 border-current/30 text-left transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       colors.bg,
                       colors.text,
                       !entry.isActive &&
-                        "opacity-40 border border-dashed border-black/30 hover:opacity-60",
+                        "border border-dashed border-current/40 opacity-40 hover:opacity-60",
                     )}
                     style={{
                       top,
                       height: Math.max(height, 18),
-                      left: `calc(${leftPercent}%)`,
-                      width: `calc(${widthPercent}%)`,
+                      left: `${columnIndex * widthPercent}%`,
+                      width: `${widthPercent}%`,
                     }}
                   >
-                    <div className="text-[10px] leading-tight opacity-80 text-left px-1.5 pt-1 pb-0.5 bg-black/10 w-full shrink-0">
-                      {entry.startTime}-{entry.endTime}
-                    </div>
-                    <div className="flex-1 flex flex-col justify-between px-1.5 py-0.5 min-h-0 min-w-0 w-full overflow-hidden">
-                      <div className="text-xs font-semibold leading-tight truncate text-left w-full">
+                    <span className="w-full shrink-0 truncate px-1.5 pt-1 text-[10px] leading-tight tabular-nums opacity-70">
+                      {entry.startTime}–{entry.endTime}
+                    </span>
+                    <span className="flex min-h-0 w-full min-w-0 flex-1 flex-col justify-between overflow-hidden px-1.5 py-0.5">
+                      <span className="w-full truncate text-xs font-medium leading-tight">
                         {entry.title}
-                      </div>
+                      </span>
                       {entry.place && (
-                        <div className="text-[10px] leading-tight opacity-60 truncate text-left w-full">
+                        <span className="w-full truncate text-[10px] leading-tight opacity-70">
                           {entry.place}
-                        </div>
+                        </span>
                       )}
-                    </div>
+                    </span>
                   </button>
                 );
               },

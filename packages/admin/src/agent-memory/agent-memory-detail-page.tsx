@@ -3,9 +3,15 @@
 import type { AgentMemory } from "@repo/schemas";
 import { agentMemorySchema } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { Stat, StatGroup } from "@repo/ui/stat";
 import { Brain } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import {
   DetailNotFound,
   DetailPageShell,
@@ -13,7 +19,11 @@ import {
 } from "../detail-page-shell";
 import { useAdmin } from "../provider";
 
-const ICON = <Brain className="size-4 text-muted-foreground" />;
+const ICON = <Brain />;
+
+const EVIDENCE_PREVIEW = 20;
+
+const memoryResponseSchema = z.object({ memory: agentMemorySchema });
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -24,15 +34,6 @@ function formatDate(value: string): string {
 
 function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-muted-foreground">{label}</p>
-      <p className="font-medium tabular-nums">{value}</p>
-    </div>
-  );
 }
 
 /**
@@ -54,7 +55,7 @@ export function AgentMemoryDetailPage({ memoryId }: { memoryId: string }) {
       const raw = await client.get<unknown>(
         `agent-memory/memories/${memoryId}`,
       );
-      setMemory(agentMemorySchema.parse((raw as { memory?: unknown })?.memory));
+      setMemory(memoryResponseSchema.parse(raw).memory);
     } catch {
       toast.error("Failed to load memory");
       setMemory(null);
@@ -73,124 +74,139 @@ export function AgentMemoryDetailPage({ memoryId }: { memoryId: string }) {
     backLabel: "Memory",
   } as const;
 
-  if (loading) return <DetailPageSkeleton {...shell} title="Memory" rows={2} />;
+  if (loading) return <DetailPageSkeleton {...shell} title="Memory" rows={4} />;
 
   if (!memory) {
     return (
       <DetailNotFound
         {...shell}
         title="Memory not found"
-        message="This memory could not be loaded."
+        message="Memory not found"
       />
     );
   }
 
   return (
-    <DetailPageShell {...shell} title="Memory">
-      <div className="space-y-5">
-        <MemoryDetailBody memory={memory} />
-      </div>
+    <DetailPageShell {...shell} title={memory.memoryType}>
+      <MemoryDetailBody
+        memory={memory}
+        hrefFor={(id) => routes.agentMemory.detail(id)}
+      />
     </DetailPageShell>
   );
 }
 
-function MemoryDetailBody({ memory }: { memory: AgentMemory }) {
+function MemoryLink({ id, href }: { id: string; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="block truncate font-mono text-xs text-accent-strong underline-offset-4 hover:underline"
+    >
+      {id}
+    </Link>
+  );
+}
+
+function MemoryDetailBody({
+  memory,
+  hrefFor,
+}: {
+  memory: AgentMemory;
+  hrefFor: (id: string) => string;
+}) {
+  const { temporal } = memory;
   return (
     <>
-      {memory && (
-        <>
-          <div>
-            <p className="font-mono text-xs text-muted-foreground">
-              {memory.id} · revision {memory.revision}
-            </p>
+      <PageTitle
+        title={<span className="whitespace-pre-line">{memory.statement}</span>}
+        meta={
+          <>
+            <Badge variant="outline">{memory.memoryType}</Badge>
+            <Badge variant={memory.status === "active" ? "good" : "secondary"}>
+              {memory.status}
+            </Badge>
+            {memory.pinned && <Badge variant="info">pinned</Badge>}
+            <span className="font-mono">{memory.id}</span>
+            <span className="tabular-nums">rev {memory.revision}</span>
+          </>
+        }
+      />
+
+      <StatGroup>
+        <Stat label="Confidence" value={percent(memory.confidence)} />
+        <Stat label="Importance" value={percent(memory.importance)} />
+        <Stat label="Evidence" value={memory.evidenceIds.length} />
+        <Stat
+          label="Contradictions"
+          value={memory.contradictionIds.length}
+          tone={memory.contradictionIds.length > 0 ? "warning" : "default"}
+        />
+      </StatGroup>
+
+      <Properties>
+        <Property label="Explicitness">{memory.explicitness}</Property>
+        <Property label="Trust">{memory.trust}</Property>
+        <Property label="Sensitivity">{memory.sensitivity}</Property>
+        <Property label="Valid from">
+          {temporal.validFrom ? formatDate(temporal.validFrom) : "—"}
+        </Property>
+        <Property label="Valid until">
+          {temporal.validUntil ? formatDate(temporal.validUntil) : "—"}
+        </Property>
+        <Property label="Precision">{temporal.precision}</Property>
+        {temporal.condition && (
+          <Property label="Condition">{temporal.condition}</Property>
+        )}
+        <Property label="Created">{formatDate(memory.createdAt)}</Property>
+        <Property label="Updated">{formatDate(memory.updatedAt)}</Property>
+        {memory.supersedesMemoryId && (
+          <Property label="Supersedes">
+            <MemoryLink
+              id={memory.supersedesMemoryId}
+              href={hrefFor(memory.supersedesMemoryId)}
+            />
+          </Property>
+        )}
+      </Properties>
+
+      {memory.contradictionIds.length > 0 && (
+        <Section title="Contradicts" count={memory.contradictionIds.length}>
+          <div className="flex flex-col gap-1">
+            {memory.contradictionIds.map((id) => (
+              <MemoryLink key={id} id={id} href={hrefFor(id)} />
+            ))}
           </div>
-          <div className="space-y-5">
-            <p className="whitespace-pre-line text-sm">{memory.statement}</p>
+        </Section>
+      )}
 
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline">{memory.memoryType}</Badge>
-              <Badge variant="outline">{memory.status}</Badge>
-              <Badge variant="secondary">{memory.explicitness}</Badge>
-              <Badge variant="secondary">{memory.trust}</Badge>
-              <Badge variant="secondary">{memory.sensitivity}</Badge>
-              {memory.pinned && <Badge>pinned</Badge>}
-            </div>
+      {memory.entityRefs.length > 0 && (
+        <Section title="Entities" count={memory.entityRefs.length}>
+          <div className="flex flex-wrap gap-1.5">
+            {memory.entityRefs.map((ref) => (
+              <Badge
+                key={`${ref.entityType}:${ref.entityId}`}
+                variant="outline"
+              >
+                {ref.entityType}: {ref.label ?? ref.entityId}
+              </Badge>
+            ))}
+          </div>
+        </Section>
+      )}
 
-            <div className="flex flex-wrap gap-6 text-xs">
-              <Metric label="Confidence" value={percent(memory.confidence)} />
-              <Metric label="Importance" value={percent(memory.importance)} />
-              <Metric
-                label="Evidence"
-                value={String(memory.evidenceIds.length)}
-              />
-              <Metric
-                label="Contradictions"
-                value={String(memory.contradictionIds.length)}
-              />
-            </div>
-
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p>
-                Valid{" "}
-                {memory.temporal.validFrom
-                  ? `from ${formatDate(memory.temporal.validFrom)}`
-                  : "from unknown"}
-                {memory.temporal.validUntil
-                  ? ` until ${formatDate(memory.temporal.validUntil)}`
-                  : ""}{" "}
-                · precision {memory.temporal.precision}
+      {memory.evidenceIds.length > 0 && (
+        <Section title="Evidence" count={memory.evidenceIds.length}>
+          <div className="flex flex-col gap-1 font-mono text-[11px] text-muted-foreground">
+            {memory.evidenceIds.slice(0, EVIDENCE_PREVIEW).map((evidenceId) => (
+              <p key={evidenceId} className="truncate">
+                {evidenceId}
               </p>
-              {memory.temporal.condition && (
-                <p>Condition: {memory.temporal.condition}</p>
-              )}
-              <p>
-                Created {formatDate(memory.createdAt)} · updated{" "}
-                {formatDate(memory.updatedAt)}
-              </p>
-              {memory.supersedesMemoryId && (
-                <p className="font-mono">
-                  Supersedes {memory.supersedesMemoryId}
-                </p>
-              )}
-            </div>
-
-            {memory.entityRefs.length > 0 && (
-              <div>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                  Linked entities
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {memory.entityRefs.map((ref) => (
-                    <Badge
-                      key={`${ref.entityType}:${ref.entityId}`}
-                      variant="outline"
-                    >
-                      {ref.entityType}: {ref.label ?? ref.entityId}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {memory.evidenceIds.length > 0 && (
-              <div>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                  Evidence
-                </h3>
-                <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
-                  {memory.evidenceIds.slice(0, 20).map((evidenceId) => (
-                    <p key={evidenceId} className="truncate">
-                      {evidenceId}
-                    </p>
-                  ))}
-                  {memory.evidenceIds.length > 20 && (
-                    <p>+{memory.evidenceIds.length - 20} more</p>
-                  )}
-                </div>
-              </div>
+            ))}
+            {memory.evidenceIds.length > EVIDENCE_PREVIEW && (
+              <p>+{memory.evidenceIds.length - EVIDENCE_PREVIEW}</p>
             )}
           </div>
-        </>
+        </Section>
       )}
     </>
   );

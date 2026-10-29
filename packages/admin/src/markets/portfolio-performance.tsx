@@ -1,7 +1,11 @@
 "use client";
 
 import type { Portfolio, PortfolioPerformance } from "@repo/markets/schemas";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Button } from "@repo/ui/button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Section } from "@repo/ui/section";
+import { FilterTabs } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import { useEffect, useMemo, useState } from "react";
 import { type CurveSeries, EquityChart } from "./equity-chart";
 import {
@@ -252,125 +256,105 @@ export function PortfolioPerformanceChart({
   const percentAxis = mode === "return" || rebased;
 
   return (
-    <div className="shrink-0 border-b">
-      <div className="flex flex-wrap items-center gap-2 px-4 pt-2">
-        <Tabs
-          value={mode}
-          onValueChange={(value) => setMode(value as ChartMode)}
-        >
-          <TabsList variant="line" className="h-7">
-            {MODES.map((item) => (
-              <TabsTrigger
-                key={item.value}
-                value={item.value}
-                className="px-2 text-xs"
-              >
-                {item.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        <div className="ml-auto flex items-center gap-1">
-          {RANGES.map((item) => {
-            const on = effectiveRange === item.value;
-            return (
-              <button
-                key={item.value}
-                type="button"
-                onClick={() => setRange(item.value)}
-                aria-pressed={on}
-                className={`rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
-                  on
-                    ? "border-foreground/30 text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+    <Section
+      title="Performance"
+      actions={
+        <>
+          <FilterTabs
+            value={effectiveRange}
+            onChange={setRange}
+            options={RANGES.map((item) => ({
+              value: item.value,
+              label: item.label,
+            }))}
+          />
           {mode === "value" && effectiveRange !== "live" ? (
-            <button
-              type="button"
-              onClick={() => setNormalize((current) => !current)}
+            <Button
+              variant="ghost"
+              size="xs"
               aria-pressed={normalize}
-              className={`ml-1 rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
+              aria-label="Rebase to percent"
+              onClick={() => setNormalize((current) => !current)}
+              className={cn(
+                "tabular-nums",
                 normalize
-                  ? "border-foreground/30 text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
+                  ? "bg-surface text-accent-strong dark:bg-muted"
+                  : "text-muted-foreground",
+              )}
             >
               %
-            </button>
+            </Button>
           ) : null}
-        </div>
-      </div>
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <FilterTabs value={mode} onChange={setMode} options={MODES} />
 
-      {/* One line, and the chips would toggle series that do not exist here. */}
-      {effectiveRange === "live" ? (
-        <div className="flex flex-wrap items-center gap-3 px-4 pt-1.5 text-[10px]">
-          <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
-        </div>
-      ) : mode === "value" ? (
-        <div className="flex flex-wrap items-center gap-3 px-4 pt-1.5 text-[10px]">
-          <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
-          {rebased && portfolio.benchmark ? (
-            <Legend
-              color={BENCHMARK_COLOR}
-              label={portfolio.benchmark}
-              dashed
-            />
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-1 px-4 pt-1.5">
-          {chips.map((chip) => {
-            const on = !hidden.has(chip.key);
-            return (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => toggle(chip.key)}
-                aria-pressed={on}
-                className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
-                  on
-                    ? "border-foreground/20 text-foreground"
-                    : "border-transparent text-muted-foreground/60 hover:text-muted-foreground"
-                }`}
-              >
-                <span
-                  className="inline-block h-0.5 w-2.5 rounded"
-                  style={{
-                    background: on ? chip.color : "currentColor",
-                    opacity: on ? 1 : 0.5,
-                  }}
-                />
-                {chip.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="px-2 pt-1 pb-2">
-        {series.length === 0 ? (
-          <div className="px-2 py-8 text-muted-foreground text-xs">—</div>
+        {/* One line, and the chips would toggle series that do not exist here. */}
+        {effectiveRange === "live" ? (
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
+          </div>
+        ) : mode === "value" ? (
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
+            {rebased && portfolio.benchmark ? (
+              <Legend
+                color={BENCHMARK_COLOR}
+                label={portfolio.benchmark}
+                dashed
+              />
+            ) : null}
+          </div>
         ) : (
-          <EquityChart
-            series={series}
-            normalize={rebased}
-            format={percentAxis ? "percent" : "price"}
-            baseline={mode !== "value"}
-            // Every live point falls inside one day, so a date axis would print
-            // the same label the whole way across.
-            timeVisible={effectiveRange === "live"}
-            height={260}
-            fitKey={`${portfolio.id}:${mode}:${effectiveRange}:${rebased}`}
-          />
+          <div className="flex flex-wrap items-center gap-0.5">
+            {chips.map((chip) => {
+              const on = !hidden.has(chip.key);
+              return (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => toggle(chip.key)}
+                  aria-pressed={on}
+                  className={cn(
+                    "flex h-6 items-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-surface/70",
+                    on
+                      ? "text-accent-strong"
+                      : "text-muted-foreground/60 hover:text-muted-foreground",
+                  )}
+                >
+                  <span
+                    className="inline-block h-0.5 w-2.5 rounded"
+                    style={{
+                      background: on ? chip.color : "currentColor",
+                      opacity: on ? 1 : 0.5,
+                    }}
+                  />
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
-    </div>
+
+      {series.length === 0 ? (
+        <EmptyState compact label="No history" className="h-[260px]" />
+      ) : (
+        <EquityChart
+          series={series}
+          normalize={rebased}
+          format={percentAxis ? "percent" : "price"}
+          baseline={mode !== "value"}
+          // Every live point falls inside one day, so a date axis would print
+          // the same label the whole way across.
+          timeVisible={effectiveRange === "live"}
+          height={260}
+          fitKey={`${portfolio.id}:${mode}:${effectiveRange}:${rebased}`}
+        />
+      )}
+    </Section>
   );
 }
 

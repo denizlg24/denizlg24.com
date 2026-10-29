@@ -8,20 +8,15 @@ import type {
   LatexProjectHistorySummary,
   RestoreLatexProjectHistoryResponse,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
 import { ScrollArea } from "@repo/ui/scroll-area";
+import { SectionLabel } from "@repo/ui/section";
+import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
-import { FileDiff, GitCommitVertical, Loader2, RefreshCw } from "lucide-react";
+import { GitCommitVertical, History, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -223,27 +218,34 @@ export function LatexHistoryPanel({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b px-3">
-        <span className="text-xs font-medium">History</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Refresh change history"
-          disabled={loading}
-          onClick={() => void loadHistory()}
+      <div className="flex h-10 shrink-0 items-center border-b px-3">
+        <SectionLabel
+          className="flex-1"
+          count={revisions.length || undefined}
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Refresh change history"
+              disabled={loading}
+              onClick={() => void loadHistory()}
+            >
+              <RefreshCw className={cn(loading && "animate-spin")} />
+            </Button>
+          }
         >
-          <RefreshCw className={loading ? "animate-spin" : undefined} />
-        </Button>
+          History
+        </SectionLabel>
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 flex-1">
         {loading && revisions.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 px-3 py-10 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Loading history…
+          <div className="flex justify-center py-10">
+            <Spinner className="size-4 text-muted-foreground" />
           </div>
         ) : null}
-        <div className="min-w-0">
+        <List className="px-3 py-2">
           {revisions.map((revision) => {
             const selected = revision._id === selectedId;
             const fileSummary =
@@ -255,89 +257,66 @@ export function LatexHistoryPanel({
                   (revision.changedFiles.length > 3
                     ? ` +${revision.changedFiles.length - 3}`
                     : "")
-                : "metadata only";
+                : "Metadata";
             return (
-              <button
+              <ListRow
                 key={revision._id}
-                type="button"
                 aria-pressed={selected}
-                className={cn(
-                  "group flex w-full min-w-0 items-start gap-2 border-b px-3 py-2.5 text-left",
-                  selected ? "bg-muted" : "hover:bg-muted/50",
-                )}
+                selected={selected}
+                leading={
+                  <GitCommitVertical
+                    className={cn(selected && "text-accent-strong")}
+                  />
+                }
+                title={actionLabel(revision.action)}
+                description={
+                  <span
+                    className={cn(
+                      revision.changedFiles.length > 0 && "font-mono",
+                    )}
+                  >
+                    {fileSummary}
+                  </span>
+                }
+                meta={
+                  selected && loadingDiff ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <time
+                      dateTime={revision.updatedAt}
+                      title={formatTimestamp(revision.updatedAt)}
+                    >
+                      {relativeTime(revision.updatedAt)}
+                    </time>
+                  )
+                }
                 onClick={() =>
                   setSelectedId((current) =>
                     current === revision._id ? null : revision._id,
                   )
                 }
-              >
-                <GitCommitVertical
-                  className={cn(
-                    "mt-0.5 size-4 shrink-0",
-                    selected ? "text-primary" : "text-muted-foreground",
-                  )}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 items-baseline justify-between gap-2">
-                    <span className="truncate text-xs font-medium">
-                      {actionLabel(revision.action)}
-                    </span>
-                    <time
-                      dateTime={revision.updatedAt}
-                      title={formatTimestamp(revision.updatedAt)}
-                      className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
-                    >
-                      {relativeTime(revision.updatedAt)}
-                    </time>
-                  </span>
-                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                    {revision.changedFiles.length > 0 ? (
-                      <FileDiff className="size-3 shrink-0" />
-                    ) : null}
-                    <span className="truncate font-mono">{fileSummary}</span>
-                    {selected && loadingDiff ? (
-                      <Loader2 className="ml-auto size-3 shrink-0 animate-spin" />
-                    ) : null}
-                  </span>
-                </span>
-              </button>
+              />
             );
           })}
-        </div>
+        </List>
         {!loading && revisions.length === 0 ? (
-          <div className="px-3 py-10 text-center text-xs text-muted-foreground">
-            —
-          </div>
+          <EmptyState compact icon={<History />} label="No history" />
         ) : null}
       </ScrollArea>
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingRestoreId !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingRestoreId(null);
+          if (!open && !restoring) setPendingRestoreId(null);
         }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The current source is saved to history first.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={restoring}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={restoring}
-              onClick={(event) => {
-                event.preventDefault();
-                if (pendingRestoreId) void restore(pendingRestoreId);
-              }}
-            >
-              {restoring ? "Restoring…" : "Restore"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Restore this version?"
+        description="The current source is saved to history first."
+        actionLabel="Restore"
+        pending={restoring}
+        onConfirm={() => {
+          if (pendingRestoreId) void restore(pendingRestoreId);
+        }}
+      />
     </div>
   );
 }

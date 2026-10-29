@@ -1,10 +1,10 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { WHITEBOARD_COLOR_PALETTE } from "@repo/whiteboard-render";
 import { Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ToolButton } from "./whiteboard-floating";
 
 interface ColorFieldProps {
   value: string;
@@ -27,12 +27,7 @@ export function ColorField({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          size="icon-sm"
-          variant="outline"
-          title={title}
-          className={triggerClassName}
-        >
+        <ToolButton label={title ?? "Color"} className={triggerClassName}>
           {isNone ? (
             <Ban className="size-3.5 text-muted-foreground" />
           ) : (
@@ -41,12 +36,12 @@ export function ColorField({
               style={{ backgroundColor: value }}
             />
           )}
-        </Button>
+        </ToolButton>
       </PopoverTrigger>
       <PopoverContent
         side="top"
         align="center"
-        className="w-fit! p-2 z-99! flex flex-col gap-2"
+        className="flex w-fit flex-col gap-2 p-2"
       >
         <div className="grid grid-cols-6 gap-1.5">
           {allowNone && (
@@ -80,7 +75,7 @@ export function ColorField({
         </div>
         {recents.length > 0 && (
           <div className="flex flex-row items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground">Recent</span>
+            <span className="text-[11px] text-muted-foreground">Recent</span>
             {recents.map((color) => (
               <button
                 key={color}

@@ -53,6 +53,18 @@ export function formatShortDate(iso: string) {
   });
 }
 
+/** `now`, `5m ago`, `3h ago`, `4d ago`; a short date past four weeks. */
+export function formatRelative(iso: string) {
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 28) return `${days}d ago`;
+  return formatShortDate(iso);
+}
+
 export function formatDateTime(iso: string) {
   return `${formatShortDate(iso)} ${formatTimeOfDay(iso)}`;
 }

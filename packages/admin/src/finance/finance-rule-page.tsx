@@ -2,6 +2,7 @@
 
 import type { FinanceDashboardResponse, WorkJob } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { Section } from "@repo/ui/section";
 import { Clock, Repeat } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,10 +16,10 @@ import {
 import { fetchWorkJobs } from "../hours/hours-data";
 import { useAdmin } from "../provider";
 import { FinancePayoutSchedule } from "./finance-payout-schedule";
-import { SectionHead } from "./finance-primitives";
+
 import { RuleForm } from "./finance-rule-form";
 
-const ICON = <Repeat className="size-4 text-muted-foreground" />;
+const ICON = <Repeat />;
 
 export function FinanceRulePage({
   ruleId,
@@ -106,36 +107,33 @@ export function FinanceRulePage({
         rule?.payout?.source.kind === "hours" ? (
           <Button asChild size="sm" variant="ghost">
             <Link href={routes.hours}>
-              <Clock className="size-3.5" />
+              <Clock />
               Hours
             </Link>
           </Button>
         ) : undefined
       }
     >
-      <div className="space-y-8">
-        <RuleForm
-          accounts={data.accounts}
-          seed={seed}
-          rule={rule}
-          payout={payout}
-          jobs={jobs}
-          profiles={data.deductionProfiles}
-          onSaved={load}
-          onDone={() =>
-            // An edited payout stays open: its schedule below is what changed.
-            rule?.payout
-              ? undefined
-              : router.push(isPayout ? routes.finance.payroll : backTo)
-          }
-        />
-        {rule?.payout && (
-          <section className="space-y-2">
-            <SectionHead label="Payouts" />
-            <FinancePayoutSchedule ruleId={rule.id} refreshKey={revision} />
-          </section>
-        )}
-      </div>
+      <RuleForm
+        accounts={data.accounts}
+        seed={seed}
+        rule={rule}
+        payout={payout}
+        jobs={jobs}
+        profiles={data.deductionProfiles}
+        onSaved={load}
+        onDone={() =>
+          // An edited payout stays open: its schedule below is what changed.
+          rule?.payout
+            ? undefined
+            : router.push(isPayout ? routes.finance.payroll : backTo)
+        }
+      />
+      {rule?.payout && (
+        <Section title="Payouts">
+          <FinancePayoutSchedule ruleId={rule.id} refreshKey={revision} />
+        </Section>
+      )}
     </DetailPageShell>
   );
 }

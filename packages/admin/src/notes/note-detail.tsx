@@ -1,23 +1,14 @@
 "use client";
 
 import type { INote, INoteEdge, INoteGroup } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Calendar } from "@repo/ui/calendar";
-import { Input } from "@repo/ui/input";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
 import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Properties, Property } from "@repo/ui/properties";
 import {
   Select,
   SelectContent,
@@ -25,20 +16,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { Textarea } from "@repo/ui/textarea";
+import { FilterTabs, RowActions, ToolbarSpacer } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
+  Archive,
   ArrowLeft,
+  CalendarClock,
   Calendar as CalendarIcon,
   Download,
   ExternalLink,
   FileText,
   FolderTree,
-  Globe,
   Image as ImageIcon,
   Link as LinkIcon,
   Loader2,
+  Network,
   Save,
   Shapes,
   Tag as TagIcon,
@@ -50,41 +42,15 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import {
+  formatDate,
+  formatDateTime,
+  relativeDate,
+  safeHostname,
+} from "./format";
 import { buildPathLabelMap } from "./group-tree";
 import { GroupTreeCombobox } from "./group-tree-combobox";
 import { TagAutocomplete } from "./tag-autocomplete";
-
-function formatDate(value: string | Date | undefined) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
-
-function formatDateTime(value: string | Date | undefined) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function safeHostname(url: string) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
 
 function safeFilename(raw: string) {
   const withoutReserved = raw.trim().replace(/[<>:"/\\|?*]/g, "-");
@@ -122,7 +88,7 @@ export function NoteDetail({
   onSuggestionsChange,
   onUpdated,
 }: NoteDetailProps) {
-  const { platform, slots } = useAdmin();
+  const { platform } = useAdmin();
 
   const [title, setTitle] = useState(note.title);
   const [initialTitle, setInitialTitle] = useState(note.title);
@@ -130,6 +96,7 @@ export function NoteDetail({
   const [initialContent, setInitialContent] = useState(note.content || "");
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [savingContent, setSavingContent] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     setTitle(note.title);
@@ -144,7 +111,11 @@ export function NoteDetail({
 
   const saveTitle = useCallback(async () => {
     const trimmed = title.trim();
-    if (!trimmed || trimmed === initialTitle) return;
+    if (!trimmed) {
+      setTitle(initialTitle);
+      return;
+    }
+    if (trimmed === initialTitle) return;
     const updated = await onPatch({ title: trimmed });
     if (updated) {
       setInitialTitle(updated.title);
@@ -199,160 +170,115 @@ export function NoteDetail({
   );
   const pathLabelById = useMemo(() => buildPathLabelMap(groups), [groups]);
   const contentDirty = content !== initialContent;
+  const source = note.url ? note.siteName || safeHostname(note.url) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 sm:flex-nowrap sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {slots?.sidebarTrigger}
-          <Button variant="ghost" size="icon-sm" onClick={onBack} title="Back">
-            <ArrowLeft className="size-4" />
-          </Button>
-          {note.favicon ? (
-            <img
-              src={note.favicon}
-              alt=""
-              className="size-4 shrink-0 rounded-sm"
-              loading="lazy"
-            />
-          ) : (
-            <FileText className="size-4 shrink-0" />
+      <div className="flex h-10 shrink-0 items-center gap-1.5 border-b px-3">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          aria-label="Back"
+        >
+          <ArrowLeft />
+        </Button>
+        <NoteGlyph note={note} />
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {noteGroups.length > 0
+            ? (pathLabelById.get(noteGroups[0]._id) ?? noteGroups[0].name)
+            : (source ?? "Notes")}
+        </span>
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {relativeDate(note.updatedAt)}
+        </span>
+        <RowActions label="Note actions">
+          {note.url && (
+            <DropdownMenuItem
+              onSelect={() => void platform.openExternal(note.url ?? "")}
+            >
+              <ExternalLink />
+              Open source
+            </DropdownMenuItem>
           )}
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {note.url
-              ? note.siteName || safeHostname(note.url)
-              : note.title || "Untitled note"}
-          </span>
-        </div>
-
-        <div className="flex w-full items-center justify-end gap-1 sm:w-auto">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={downloadMarkdown}
+          <DropdownMenuItem
             disabled={contentDirty}
-            title={contentDirty ? "Save before downloading" : "Download"}
+            onSelect={() => void downloadMarkdown()}
           >
-            <Download className="size-3.5" />
-            <span className="hidden sm:inline">Download</span>
-          </Button>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs text-destructive hover:text-destructive"
-              >
-                <Trash2 className="size-3.5" />
-                <span className="hidden sm:inline">Delete</span>
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete note?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently removes the note and its related edges.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={onDelete}>
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+            <Download />
+            Download
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() =>
+              void onPatch({
+                status: note.status === "archived" ? "open" : "archived",
+              })
+            }
+          >
+            <Archive />
+            {note.status === "archived" ? "Unarchive" : "Archive"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => setDeleteOpen(true)}
+          >
+            <Trash2 />
+            Delete
+          </DropdownMenuItem>
+        </RowActions>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6">
-          <Input
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 pt-8 pb-16 sm:px-10">
+          <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             onBlur={() => void saveTitle()}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                (event.target as HTMLInputElement).blur();
-              }
+              if (event.key === "Enter") event.currentTarget.blur();
             }}
-            className="h-auto border-none bg-transparent px-0 py-1 text-xl font-semibold shadow-none focus-visible:ring-0 sm:text-2xl"
-            placeholder="Untitled note"
+            aria-label="Title"
+            placeholder="Untitled"
+            className="w-full bg-transparent text-2xl font-semibold leading-tight tracking-tight text-accent-strong outline-none placeholder:text-muted-foreground/50 sm:text-3xl"
           />
 
-          <section>
-            <h2 className="mb-2 text-[11px] font-medium uppercase text-muted-foreground">
-              Properties
-            </h2>
-            <div className="divide-y border-y text-xs">
-              <PropertyRow
-                icon={<CalendarIcon className="size-3" />}
-                label="created_on"
-              >
-                <span className="text-muted-foreground">
-                  {formatDate(note.createdAt)}
-                </span>
-              </PropertyRow>
-
-              <PropertyRow
-                icon={<CalendarIcon className="size-3" />}
-                label="published"
-              >
-                <DateProperty
-                  value={note.publishedDate}
-                  onChange={(next) =>
-                    void onPatch({
-                      publishedDate: next ? next.toISOString() : null,
-                    })
-                  }
-                />
-              </PropertyRow>
-
-              {note.url && (
-                <PropertyRow
-                  icon={<LinkIcon className="size-3" />}
-                  label="source"
-                >
-                  <button
-                    type="button"
-                    onClick={() => void platform.openExternal(note.url ?? "")}
-                    className="inline-flex max-w-full items-center gap-1 text-primary underline-offset-2 hover:underline"
+          <Properties>
+            <Property icon={<FolderTree />} label="Groups">
+              <ChipList>
+                {noteGroups.map((group) => (
+                  <Badge
+                    key={group._id}
+                    variant="secondary"
+                    className="max-w-64"
+                    title={pathLabelById.get(group._id) ?? group.name}
                   >
-                    <span className="truncate">{note.url}</span>
-                    <ExternalLink className="size-3 shrink-0" />
-                  </button>
-                </PropertyRow>
-              )}
-
-              {note.image && (
-                <PropertyRow
-                  icon={<ImageIcon className="size-3" />}
-                  label="image"
-                >
-                  <button
-                    type="button"
-                    onClick={() => void platform.openExternal(note.image ?? "")}
-                    className="inline-flex max-w-full items-center gap-1 text-primary underline-offset-2 hover:underline"
-                  >
-                    <span className="truncate">{note.image}</span>
-                    <ExternalLink className="size-3 shrink-0" />
-                  </button>
-                </PropertyRow>
-              )}
-
-              <PropertyRow icon={<Shapes className="size-3" />} label="class">
-                <ClassProperty
-                  value={note.class || ""}
-                  onCommit={(next) => void onPatch({ class: next })}
+                    <span className="truncate">
+                      {pathLabelById.get(group._id) ?? group.name}
+                    </span>
+                  </Badge>
+                ))}
+                <GroupTreeCombobox
+                  groups={groups}
+                  value={note.groupIds ?? []}
+                  onChange={(next) => void onPatch({ groupIds: next })}
+                  placeholder="Add"
+                  searchPlaceholder="Search groups..."
+                  emptyMessage="No groups"
                 />
-              </PropertyRow>
+              </ChipList>
+            </Property>
 
-              <PropertyRow icon={<TagIcon className="size-3" />} label="tags">
+            <Property icon={<TagIcon />} label="Tags">
+              <ChipList>
+                {(note.tags ?? []).map((tag) => (
+                  <Badge key={tag} variant="outline">
+                    {tag}
+                  </Badge>
+                ))}
                 <TagAutocomplete
                   value={note.tags ?? []}
                   suggestions={suggestions}
+                  placeholder="Add"
                   onChange={(next) => {
                     void onPatch({ tags: next }).then(() => {
                       const existing = new Set(suggestions);
@@ -367,196 +293,211 @@ export function NoteDetail({
                     });
                   }}
                 />
-              </PropertyRow>
+              </ChipList>
+            </Property>
 
-              <PropertyRow
-                icon={<FolderTree className="size-3" />}
-                label="groups"
-              >
-                <GroupTreeCombobox
-                  groups={groups}
-                  value={note.groupIds ?? []}
-                  onChange={(next) => void onPatch({ groupIds: next })}
-                  placeholder="Add group..."
-                  searchPlaceholder="Search group hierarchy..."
-                  emptyMessage="No groups yet"
+            {note.url && (
+              <Property icon={<LinkIcon />} label="URL">
+                <ExternalValue
+                  href={note.url}
+                  onOpen={() => void platform.openExternal(note.url ?? "")}
                 />
-              </PropertyRow>
+              </Property>
+            )}
 
-              {relatedNotes.length > 0 && (
-                <PropertyRow
-                  icon={<LinkIcon className="size-3" />}
-                  label="related"
-                >
-                  <div className="flex flex-wrap items-center gap-1">
-                    {relatedNotes.map((related) => (
-                      <button
-                        key={related._id}
-                        type="button"
-                        onClick={() => onSelectNote(related)}
-                        className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px] hover:bg-muted"
-                      >
-                        {related.favicon ? (
-                          <img
-                            src={related.favicon}
-                            alt=""
-                            className="size-2.5 rounded-sm"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <FileText className="size-2.5" />
-                        )}
-                        <span className="max-w-[16rem] truncate">
-                          {related.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </PropertyRow>
-              )}
+            <Property icon={<Shapes />} label="Class">
+              <ClassProperty
+                value={note.class || ""}
+                onCommit={(next) => void onPatch({ class: next })}
+              />
+            </Property>
 
-              <PropertyRow
-                icon={<CalendarIcon className="size-3" />}
-                label="updated"
+            <Property icon={<FileText />} label="Status">
+              <Select
+                value={note.status}
+                onValueChange={(value) =>
+                  void onPatch({ status: value as INote["status"] })
+                }
               >
-                <span className="text-muted-foreground">
-                  {formatDateTime(note.updatedAt)}
-                </span>
-              </PropertyRow>
-
-              <PropertyRow
-                icon={<FileText className="size-3" />}
-                label="status"
-              >
-                <Select
-                  value={note.status}
-                  onValueChange={(value) =>
-                    void onPatch({ status: value as INote["status"] })
-                  }
+                <SelectTrigger
+                  size="sm"
+                  className="h-6 w-28 border-none px-1.5 text-xs shadow-none"
                 >
-                  <SelectTrigger className="h-7 w-32 border-none bg-transparent px-1 text-xs shadow-none focus:ring-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">open</SelectItem>
-                    <SelectItem value="archived">archived</SelectItem>
-                  </SelectContent>
-                </Select>
-              </PropertyRow>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </Property>
 
-              {noteGroups.length > 0 && (
-                <PropertyRow
-                  icon={<FolderTree className="size-3" />}
-                  label="summary"
-                >
-                  <div className="flex flex-wrap gap-1">
-                    {noteGroups.map((group) => (
-                      <Badge
-                        key={group._id}
-                        variant="secondary"
-                        className="h-5 max-w-full px-1.5 text-[10px]"
-                        title={pathLabelById.get(group._id) ?? group.name}
-                      >
-                        <span className="truncate">
-                          {pathLabelById.get(group._id) ?? group.name}
-                        </span>
-                      </Badge>
-                    ))}
-                  </div>
-                </PropertyRow>
-              )}
-            </div>
-          </section>
+            <Property icon={<CalendarIcon />} label="Published">
+              <DateProperty
+                value={note.publishedDate}
+                onChange={(next) =>
+                  void onPatch({
+                    publishedDate: next ? next.toISOString() : null,
+                  })
+                }
+              />
+            </Property>
 
-          <section className="flex min-h-[55vh] flex-col">
-            <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b py-2">
-              <Tabs
+            {note.image && (
+              <Property icon={<ImageIcon />} label="Image">
+                <ExternalValue
+                  href={note.image}
+                  onOpen={() => void platform.openExternal(note.image ?? "")}
+                />
+              </Property>
+            )}
+
+            {relatedNotes.length > 0 && (
+              <Property icon={<Network />} label="Related">
+                <ChipList>
+                  {relatedNotes.map((related) => (
+                    <button
+                      key={related._id}
+                      type="button"
+                      onClick={() => onSelectNote(related)}
+                      className="inline-flex h-6 max-w-64 items-center gap-1 rounded-md bg-surface px-1.5 text-xs text-accent-strong transition-colors hover:bg-muted"
+                    >
+                      <NoteGlyph note={related} small />
+                      <span className="truncate">{related.title}</span>
+                    </button>
+                  ))}
+                </ChipList>
+              </Property>
+            )}
+
+            <Property icon={<CalendarClock />} label="Created">
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {formatDate(note.createdAt)}
+                <span className="mx-1.5">·</span>
+                updated {formatDateTime(note.updatedAt)}
+              </span>
+            </Property>
+          </Properties>
+
+          <div className="flex flex-col">
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 border-b bg-background py-1.5">
+              <FilterTabs
                 value={mode}
-                onValueChange={(value) => setMode(value as "preview" | "edit")}
+                onChange={setMode}
+                options={[
+                  { value: "preview", label: "Preview" },
+                  { value: "edit", label: "Edit" },
+                ]}
+              />
+              <ToolbarSpacer />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!contentDirty || savingContent}
+                onClick={() => setContent(initialContent)}
               >
-                <TabsList className="h-8">
-                  <TabsTrigger value="preview" className="h-6 text-xs">
-                    <Globe className="size-3.5" />
-                    Preview
-                  </TabsTrigger>
-                  <TabsTrigger value="edit" className="h-6 text-xs">
-                    <FileText className="size-3.5" />
-                    Edit
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+                <Undo2 />
+                Discard
+              </Button>
+              <Button
+                size="sm"
+                disabled={!contentDirty || savingContent}
+                onClick={() => void saveContent()}
+              >
+                {savingContent ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Save />
+                )}
+                Save
+              </Button>
+            </div>
 
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-xs"
-                  disabled={!contentDirty || savingContent}
-                  onClick={() => setContent(initialContent)}
-                >
-                  <Undo2 className="size-3.5" />
-                  <span className="hidden sm:inline">Discard</span>
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 text-xs"
-                  disabled={!contentDirty || savingContent}
-                  onClick={() => void saveContent()}
-                >
-                  {savingContent ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Save className="size-3.5" />
-                  )}
-                  Save
-                </Button>
+            {mode === "edit" ? (
+              <textarea
+                value={content}
+                onChange={(event) => setContent(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "s" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    !event.shiftKey
+                  ) {
+                    event.preventDefault();
+                    void saveContent();
+                  }
+                }}
+                aria-label="Content"
+                placeholder="Markdown"
+                className="field-sizing-content min-h-[55vh] w-full resize-none bg-transparent pt-3 font-mono text-sm text-accent-strong outline-none placeholder:text-muted-foreground/50"
+              />
+            ) : (
+              <div className="min-h-[55vh] py-4">
+                {content.trim() ? (
+                  <MarkdownRenderer content={content} />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setMode("edit")}
+                    className="text-sm text-muted-foreground hover:text-accent-strong"
+                  >
+                    Empty
+                  </button>
+                )}
               </div>
-            </div>
-
-            <div className="min-h-0 flex-1">
-              {mode === "edit" ? (
-                <Textarea
-                  value={content}
-                  onChange={(event) => setContent(event.target.value)}
-                  className="min-h-[55vh] resize-none rounded-none border-none bg-transparent font-mono text-sm shadow-none outline-none ring-0 focus-visible:ring-0"
-                  placeholder="Write markdown..."
-                />
-              ) : (
-                <div className="min-h-[55vh] overflow-y-auto py-3">
-                  {content.trim() ? (
-                    <MarkdownRenderer content={content} />
-                  ) : (
-                    <p className="text-xs italic text-muted-foreground">
-                      No content yet.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
+            )}
+          </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete note?"
+        description={note.title || "Untitled"}
+        actionLabel="Delete"
+        destructive
+        onConfirm={onDelete}
+      />
     </div>
   );
 }
 
-function PropertyRow({
-  icon,
-  label,
-  children,
-}: {
-  icon: ReactNode;
-  label: string;
-  children: ReactNode;
-}) {
+function ChipList({ children }: { children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 px-2 py-2 sm:grid-cols-[140px_1fr] sm:items-center sm:gap-3 sm:py-1.5">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        {icon}
-        <span className="font-mono text-[11px]">{label}</span>
-      </div>
-      <div className="min-w-0 text-xs">{children}</div>
+    <div className="flex min-w-0 flex-wrap items-center gap-1 py-1">
+      {children}
     </div>
+  );
+}
+
+function NoteGlyph({ note, small = false }: { note: INote; small?: boolean }) {
+  const className = small ? "size-3 rounded-sm" : "size-4 shrink-0 rounded-sm";
+  if (note.favicon) {
+    return (
+      <img src={note.favicon} alt="" className={className} loading="lazy" />
+    );
+  }
+  return (
+    <FileText
+      className={cn(
+        small ? "size-3" : "size-4 shrink-0",
+        "text-muted-foreground",
+      )}
+    />
+  );
+}
+
+function ExternalValue({ href, onOpen }: { href: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="inline-flex max-w-full items-center gap-1 text-left text-xs text-accent-strong underline-offset-2 hover:underline"
+    >
+      <span className="truncate">{href}</span>
+      <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
+    </button>
   );
 }
 
@@ -572,19 +513,18 @@ function ClassProperty({
   useEffect(() => setLocal(value), [value]);
 
   return (
-    <Input
+    <input
       value={local}
       onChange={(event) => setLocal(event.target.value)}
       onBlur={() => {
-        if (local !== value) onCommit(local.trim());
+        if (local.trim() !== value) onCommit(local.trim());
       }}
       onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          (event.target as HTMLInputElement).blur();
-        }
+        if (event.key === "Enter") event.currentTarget.blur();
       }}
-      placeholder="video, article, paper..."
-      className="h-7 border-none bg-transparent px-1 text-xs shadow-none focus-visible:ring-0"
+      aria-label="Class"
+      placeholder="Empty"
+      className="h-6 w-full rounded-md bg-transparent px-1.5 text-xs text-accent-strong outline-none transition-colors placeholder:text-muted-foreground hover:bg-surface focus:bg-surface"
     />
   );
 }
@@ -606,11 +546,10 @@ function DateProperty({
           <button
             type="button"
             className={cn(
-              "inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground",
-              date && "text-foreground",
+              "inline-flex h-6 items-center rounded-md px-1.5 text-xs tabular-nums transition-colors hover:bg-surface",
+              date ? "text-accent-strong" : "text-muted-foreground",
             )}
           >
-            <CalendarIcon className="size-3" />
             {date ? formatDate(date) : "Empty"}
           </button>
         </PopoverTrigger>
@@ -626,14 +565,15 @@ function DateProperty({
         </PopoverContent>
       </Popover>
       {date && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => onChange(null)}
-          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label="Clear date"
+          className="text-muted-foreground"
         >
-          <X className="size-3" />
-        </button>
+          <X />
+        </Button>
       )}
     </div>
   );

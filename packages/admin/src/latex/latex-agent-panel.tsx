@@ -39,6 +39,7 @@ import {
   AttachmentTitle,
 } from "@repo/ui/attachment";
 import { Button } from "@repo/ui/button";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import {
   Select,
   SelectContent,
@@ -191,7 +192,7 @@ function ProposalRow({
         className="min-w-0 truncate text-muted-foreground"
         title={`${proposal.filePath} · ${proposal.explanation}`}
       >
-        <span className="font-mono text-[11px] text-foreground/90">
+        <span className="font-mono text-accent-strong">
           {proposal.filePath}
         </span>
         {proposal.kind === "rename" ? ` → ${proposal.targetPath}` : ""}
@@ -485,25 +486,15 @@ function PendingReviewCard({
         {proposals.length === 1 ? "1 change" : `${proposals.length} changes`}
       </span>
       <span
-        className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground"
+        className="min-w-0 flex-1 truncate font-mono text-muted-foreground"
         title={files.join(", ")}
       >
         {files.join(", ")}
       </span>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 px-2.5 text-xs"
-        onClick={onRejectAll}
-      >
+      <Button size="sm" variant="ghost" onClick={onRejectAll}>
         Reject all
       </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 px-2.5 text-xs shadow-none"
-        onClick={onApplyAll}
-      >
+      <Button size="sm" variant="outline" onClick={onApplyAll}>
         Apply all
       </Button>
     </section>
@@ -1150,161 +1141,159 @@ export function LatexAgentPanel({
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden bg-background">
       {settingsOpen ? (
-        <div className="grid shrink-0 items-start gap-4 border-b bg-muted/20 p-3 sm:grid-cols-[minmax(9rem,0.35fr)_minmax(0,1fr)]">
-          <div className="space-y-1 text-[11px] text-muted-foreground">
-            <span>Provider</span>
-            <Select
-              value={provider}
-              onValueChange={(value: "hosted" | "ollama") =>
-                void saveSettings({
-                  agentProvider: value,
-                  agentModel: null,
-                  embeddingProvider: value,
-                  embeddingModel: null,
-                })
-              }
-            >
-              <SelectTrigger className="h-[54px]! w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="hosted">Hosted gateway</SelectItem>
-                {platform.localLlm ? (
-                  <SelectItem value="ollama">Local Ollama</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="min-w-0 space-y-1 text-[11px] text-muted-foreground">
-            <span>Generation model</span>
-            {provider === "hosted" && HostedModelSelector ? (
-              <HostedModelSelector
-                model={effectiveModel ?? null}
-                onModelChange={(value) =>
-                  void saveSettings({ agentModel: value })
-                }
-                models={hostedModels}
-                loading={hostedModelsLoading}
-                error={hostedModelsError}
-                stale={hostedModelsStale}
-                onRetry={() => void loadHostedModels()}
-                requiredCapabilities={REQUIRED_CAPABILITIES}
-                className="[&_[data-slot=button]]:min-h-[54px]"
-              />
-            ) : (
+        <div className="shrink-0 border-b p-3">
+          <FormGrid>
+            <FormField label="Provider">
               <Select
-                value={effectiveModel}
-                onValueChange={(value) =>
-                  void saveSettings({ agentModel: value })
-                }
-              >
-                <SelectTrigger className="h-[54px]! w-full text-xs">
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-          <div className="space-y-1 text-[11px] text-muted-foreground">
-            <span>Personal memory</span>
-            <Select
-              value={settingsDraft.agentMemoryMode}
-              onValueChange={(value: "enabled" | "retrieval-off") =>
-                void saveSettings({ agentMemoryMode: value })
-              }
-            >
-              <SelectTrigger className="h-[54px]! w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="enabled">Enabled</SelectItem>
-                <SelectItem value="retrieval-off">Retrieval off</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {provider === "ollama" ? (
-            <div className="space-y-1 text-[11px] text-muted-foreground">
-              <span>Embedding model</span>
-              <Select
-                value={settingsDraft.embeddingModel ?? undefined}
-                onValueChange={(value) =>
+                value={provider}
+                onValueChange={(value: "hosted" | "ollama") =>
                   void saveSettings({
-                    embeddingProvider: "ollama",
-                    embeddingModel: value,
+                    agentProvider: value,
+                    agentModel: null,
+                    embeddingProvider: value,
+                    embeddingModel: null,
                   })
                 }
               >
-                <SelectTrigger className="h-[54px]! w-full text-xs">
-                  <SelectValue placeholder="Choose independently" />
+                <SelectTrigger className="w-full">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {localModels
-                    .filter((model) => model.embedding !== false)
-                    .map((model) => (
-                      <SelectItem key={model.model} value={model.model}>
+                  <SelectItem value="hosted">Hosted gateway</SelectItem>
+                  {platform.localLlm ? (
+                    <SelectItem value="ollama">Local Ollama</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Generation model">
+              {provider === "hosted" && HostedModelSelector ? (
+                <HostedModelSelector
+                  model={effectiveModel ?? null}
+                  onModelChange={(value) =>
+                    void saveSettings({ agentModel: value })
+                  }
+                  models={hostedModels}
+                  loading={hostedModelsLoading}
+                  error={hostedModelsError}
+                  stale={hostedModelsStale}
+                  onRetry={() => void loadHostedModels()}
+                  requiredCapabilities={REQUIRED_CAPABILITIES}
+                />
+              ) : (
+                <Select
+                  value={effectiveModel}
+                  onValueChange={(value) =>
+                    void saveSettings({ agentModel: value })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
                         {model.name}
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-          {provider === "ollama" && localModelsError ? (
-            <div className="flex items-center gap-2 text-[11px] text-destructive sm:col-span-2">
-              {localModelsError}
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => void loadLocalModels()}
-              >
-                <RefreshCw /> Retry
-              </Button>
-            </div>
-          ) : null}
-          <div className="min-w-0 space-y-1 border-t pt-3 text-[11px] text-muted-foreground sm:col-span-2">
-            <span>Inline suggestion model</span>
-            {HostedModelSelector ? (
-              <HostedModelSelector
-                model={effectiveInlineModel}
-                onModelChange={(value) =>
-                  void saveSettings({ inlineCompletionModel: value })
-                }
-                models={hostedModels}
-                loading={hostedModelsLoading}
-                error={hostedModelsError}
-                stale={hostedModelsStale}
-                onRetry={() => void loadHostedModels()}
-                className="[&_[data-slot=button]]:min-h-[54px]"
-              />
-            ) : (
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+            <FormField label="Personal memory">
               <Select
-                value={effectiveInlineModel}
-                onValueChange={(value) =>
-                  void saveSettings({ inlineCompletionModel: value })
+                value={settingsDraft.agentMemoryMode}
+                onValueChange={(value: "enabled" | "retrieval-off") =>
+                  void saveSettings({ agentMemoryMode: value })
                 }
               >
-                <SelectTrigger
-                  className="h-[54px]! w-full text-xs"
-                  aria-label="Inline suggestion model"
-                >
-                  <SelectValue placeholder="Select model" />
+                <SelectTrigger className="w-full">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableInlineModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.name}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="enabled">Enabled</SelectItem>
+                  <SelectItem value="retrieval-off">Retrieval off</SelectItem>
                 </SelectContent>
               </Select>
-            )}
-          </div>
+            </FormField>
+            {provider === "ollama" ? (
+              <FormField label="Embedding model">
+                <Select
+                  value={settingsDraft.embeddingModel ?? undefined}
+                  onValueChange={(value) =>
+                    void saveSettings({
+                      embeddingProvider: "ollama",
+                      embeddingModel: value,
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {localModels
+                      .filter((model) => model.embedding !== false)
+                      .map((model) => (
+                        <SelectItem key={model.model} value={model.model}>
+                          {model.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            ) : null}
+            {provider === "ollama" && localModelsError ? (
+              <div className="flex items-center gap-2 text-xs text-status-critical sm:col-span-2">
+                {localModelsError}
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => void loadLocalModels()}
+                >
+                  <RefreshCw /> Retry
+                </Button>
+              </div>
+            ) : null}
+            <FormField
+              label="Inline suggestion model"
+              className="sm:col-span-2"
+            >
+              {HostedModelSelector ? (
+                <HostedModelSelector
+                  model={effectiveInlineModel}
+                  onModelChange={(value) =>
+                    void saveSettings({ inlineCompletionModel: value })
+                  }
+                  models={hostedModels}
+                  loading={hostedModelsLoading}
+                  error={hostedModelsError}
+                  stale={hostedModelsStale}
+                  onRetry={() => void loadHostedModels()}
+                />
+              ) : (
+                <Select
+                  value={effectiveInlineModel}
+                  onValueChange={(value) =>
+                    void saveSettings({ inlineCompletionModel: value })
+                  }
+                >
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label="Inline suggestion model"
+                  >
+                    <SelectValue placeholder="Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableInlineModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+          </FormGrid>
         </div>
       ) : null}
 

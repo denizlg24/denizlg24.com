@@ -14,28 +14,19 @@ import type {
   LatexProjectsResponse,
   LlmModelsResponse,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { PageHeader } from "@repo/ui/page-header";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -44,6 +35,11 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
+import { Spinner } from "@repo/ui/spinner";
+import { FilterTabs, RowActions } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import { formatDistanceToNowStrict } from "date-fns";
 import {
   AlertCircle,
   Archive,
@@ -51,25 +47,14 @@ import {
   CheckCircle2,
   Copy,
   FileCode2,
-  FileOutput,
-  FolderOpen,
-  Loader2,
   Pencil,
   Plus,
   RefreshCw,
   Trash2,
   Upload,
 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 
@@ -94,30 +79,48 @@ type SourceImportState =
   | { status: "ready"; source: ImportLatexSourceResponse }
   | { status: "error"; message: string };
 
-function formatUpdatedAt(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+function editedAgo(value: string): string {
+  return formatDistanceToNowStrict(new Date(value), { addSuffix: true });
 }
 
-function statusClass(status: LatexProjectSummary["compileStatus"]): string {
-  if (status === "ready") return "text-emerald-600 dark:text-emerald-400";
-  if (status === "error") return "text-destructive";
-  if (status === "compiling") return "text-amber-600 dark:text-amber-400";
-  return "text-muted-foreground";
-}
+const STATUS_BADGE: Record<
+  LatexProjectSummary["compileStatus"],
+  "good" | "critical" | "warning" | "info" | "outline"
+> = {
+  ready: "good",
+  error: "critical",
+  stale: "warning",
+  compiling: "info",
+  never: "outline",
+};
 
 export function LatexProjectsSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-3">
-      <Skeleton className="h-10 w-full" />
-      <div className="divide-y border-y px-4">
-        {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="my-2 h-16 rounded-md" />
-        ))}
+    <Page>
+      <HeaderBarSkeleton
+        icon={<FileCode2 className="size-4 text-muted-foreground" />}
+        title="LaTeX"
+        actions={["w-7", "w-16"]}
+      />
+      <div className="flex min-h-10 items-center gap-2 border-b px-3 py-1.5">
+        <Skeleton className="h-7 w-36" />
       </div>
-    </div>
+      <PageBody>
+        <div className="flex flex-col">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="flex items-center gap-3 py-2.5">
+              <Skeleton className="size-4" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+              <Skeleton className="h-5 w-14" />
+              <Skeleton className="size-7" />
+            </div>
+          ))}
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -147,6 +150,7 @@ export function LatexProjectsPage({
     status: "idle",
   });
   const sourceArchiveInputRef = useRef<HTMLInputElement>(null);
+  const overleafArchiveInputRef = useRef<HTMLInputElement>(null);
   const sourceImportRequestRef = useRef(0);
   const [createTemplate, setCreateTemplate] =
     useState<LatexProjectTemplateId>("ieee-conference");
@@ -366,8 +370,7 @@ export function LatexProjectsPage({
     }
   };
 
-  const createProject = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const createProject = async () => {
     let name = createName.trim();
     if (!name) return;
     setCreating(true);
@@ -476,8 +479,7 @@ export function LatexProjectsPage({
     }
   };
 
-  const renameProject = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const renameProject = async () => {
     const name = renameName.trim();
     if (!renameTarget || !name || name === renameTarget.name) {
       setRenameTarget(null);
@@ -521,25 +523,25 @@ export function LatexProjectsPage({
 
   if (loading) return <LatexProjectsSkeleton />;
 
+  const usingOverleaf = Boolean(overleafTemplateUrl.trim());
+  const createBlocked =
+    !createName.trim() ||
+    (usingOverleaf &&
+      (overleafImport.status !== "ready" ||
+        (overleafImport.template.missingSupportFiles.length > 0 &&
+          !overleafArchive))) ||
+    (Boolean(sourceArchive) &&
+      (sourceImport.status !== "ready" ||
+        sourceImport.source.missingSupportFiles.length > 0));
+  const renaming = renameTarget !== null && busyId === renameTarget._id;
+
   return (
-    <div className="flex h-full flex-col gap-3 pb-4">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<FileCode2 className="size-4 text-muted-foreground" />}
+        icon={<FileCode2 />}
         title="LaTeX"
       >
-        <span className="hidden text-xs text-muted-foreground sm:inline">
-          {activeCount} active
-        </span>
-        <Button
-          variant={includeArchived ? "secondary" : "ghost"}
-          size="sm"
-          className="h-8 text-xs"
-          onClick={() => setIncludeArchived((current) => !current)}
-        >
-          <Archive />
-          Archived
-        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -550,738 +552,599 @@ export function LatexProjectsPage({
             void load();
           }}
         >
-          <RefreshCw className={refreshing ? "animate-spin" : ""} />
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
         </Button>
-        <Button size="sm" className="h-8 text-xs" onClick={openCreateDialog}>
+        <Button size="sm" onClick={openCreateDialog}>
           <Plus />
-          New project
+          New
         </Button>
       </PageHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 pt-1">
+      <PageToolbar>
+        <FilterTabs
+          value={includeArchived ? "all" : "active"}
+          onChange={(value) => setIncludeArchived(value === "all")}
+          options={[
+            { value: "active", label: "Active", count: activeCount },
+            {
+              value: "all",
+              label: "All",
+              count: includeArchived ? projects.length : undefined,
+            },
+          ]}
+        />
+      </PageToolbar>
+
+      <PageBody>
         {projects.length === 0 ? (
-          <div className="flex min-h-64 flex-col items-center justify-center border-y border-dashed text-center">
-            <FileCode2 className="mb-3 size-7 text-muted-foreground/50" />
-            <p className="text-sm font-medium">No LaTeX projects</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Create one to start writing and compiling.
-            </p>
-          </div>
+          <EmptyState
+            icon={<FileCode2 />}
+            label="No projects"
+            action={
+              <Button variant="outline" size="sm" onClick={openCreateDialog}>
+                <Plus /> New
+              </Button>
+            }
+          />
         ) : (
-          <div className="divide-y border-y">
+          <List divided>
             {projects.map((project) => {
               const busy = busyId === project._id;
               return (
-                <article
+                <ListRow
                   key={project._id}
-                  className="group flex min-w-0 flex-col gap-3 py-3 transition-colors hover:bg-muted/20 sm:flex-row sm:items-center"
-                >
-                  <FileCode2 className="hidden size-4 shrink-0 text-muted-foreground sm:block" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Link
-                        href={projectHref(project._id)}
-                        className="truncate text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {project.name}
-                      </Link>
-                      <span
-                        className={`text-[10px] capitalize ${statusClass(project.compileStatus)}`}
-                      >
-                        {project.compileStatus}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                      <span>Edited {formatUpdatedAt(project.updatedAt)}</span>
-                      <span className="inline-flex items-center gap-1">
-                        <FileOutput className="size-3" />
-                        {project.compileCount > 0
-                          ? `Compiled ${project.compileCount} ${project.compileCount === 1 ? "time" : "times"}`
-                          : "Not compiled"}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1">
-                    <Button
-                      asChild
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs"
+                  className="py-2.5"
+                  onClick={() => router.push(projectHref(project._id))}
+                  leading={project.archivedAt ? <Archive /> : <FileCode2 />}
+                  title={project.name}
+                  description={[
+                    `Edited ${editedAgo(project.updatedAt)}`,
+                    project.compileCount > 0
+                      ? `${project.compileCount} ${project.compileCount === 1 ? "compile" : "compiles"}`
+                      : null,
+                    project.archivedAt ? "Archived" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  meta={
+                    <Badge
+                      variant={STATUS_BADGE[project.compileStatus]}
+                      className="capitalize"
                     >
-                      <Link href={projectHref(project._id)}>
-                        <FolderOpen /> Open Project
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Rename project"
-                      disabled={busy}
-                      onClick={() => {
-                        setRenameName(project.name);
-                        setRenameTarget(project);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Duplicate project"
-                      disabled={busy}
-                      onClick={() => void duplicateProject(project)}
-                    >
-                      <Copy />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={
-                        project.archivedAt
-                          ? "Restore project"
-                          : "Archive project"
-                      }
-                      disabled={busy}
-                      onClick={() =>
-                        void patchProject(project, {
-                          archived: !project.archivedAt,
-                        })
-                      }
-                    >
-                      {project.archivedAt ? <ArchiveRestore /> : <Archive />}
-                    </Button>
-                    {project.archivedAt ? (
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-destructive"
-                        aria-label="Delete project"
-                        disabled={busy}
-                        onClick={() => setDeleteTarget(project)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    ) : null}
-                    {busy ? (
-                      <Loader2 className="ml-auto size-3.5 animate-spin text-muted-foreground" />
-                    ) : null}
-                  </div>
-                </article>
+                      {project.compileStatus}
+                    </Badge>
+                  }
+                  trailing={
+                    <>
+                      {busy ? (
+                        <Spinner className="size-3.5 text-muted-foreground" />
+                      ) : null}
+                      <RowActions>
+                        <DropdownMenuItem
+                          disabled={busy}
+                          onSelect={() => {
+                            setRenameName(project.name);
+                            setRenameTarget(project);
+                          }}
+                        >
+                          <Pencil /> Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={busy}
+                          onSelect={() => void duplicateProject(project)}
+                        >
+                          <Copy /> Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={busy}
+                          onSelect={() =>
+                            void patchProject(project, {
+                              archived: !project.archivedAt,
+                            })
+                          }
+                        >
+                          {project.archivedAt ? (
+                            <>
+                              <ArchiveRestore /> Restore
+                            </>
+                          ) : (
+                            <>
+                              <Archive /> Archive
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                        {project.archivedAt ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={busy}
+                              onSelect={() => setDeleteTarget(project)}
+                            >
+                              <Trash2 /> Delete
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                      </RowActions>
+                    </>
+                  }
+                />
               );
             })}
-          </div>
+          </List>
         )}
-      </div>
+      </PageBody>
 
-      <Dialog
+      <FormDialog
         open={createOpen}
-        onOpenChange={(open) => {
-          if (!creating) setCreateOpen(open);
-        }}
+        onOpenChange={setCreateOpen}
+        title="New LaTeX project"
+        size="lg"
+        onSubmit={createProject}
+        submitLabel="Create"
+        submitDisabled={createBlocked}
+        pending={creating}
+        bodyClassName="p-0"
       >
-        <DialogContent className="max-h-[88vh] gap-0 overflow-x-hidden overflow-y-auto overscroll-contain p-0 sm:max-w-4xl">
-          <form className="min-w-0" onSubmit={createProject}>
-            <DialogHeader className="border-b px-6 py-4">
-              <DialogTitle>Create LaTeX Project</DialogTitle>
-              <DialogDescription>
-                Choose a starting structure and configure its writing agent.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid min-h-0 md:grid-cols-[1.1fr_0.9fr] md:divide-x">
-              <section
-                className="flex min-w-0 items-center p-5"
-                aria-labelledby="latex-template-heading"
+        <div className="grid min-h-0 md:grid-cols-[1.1fr_0.9fr] md:divide-x">
+          <div className="flex min-w-0 flex-col gap-6 p-5">
+            <Section title="Template">
+              <div
+                className="flex flex-col"
+                role="radiogroup"
+                aria-label="Template"
               >
-                <div className="w-full">
-                  <p
-                    id="latex-template-heading"
-                    className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                  >
-                    Template
-                  </p>
-                  <div
-                    className="border-y"
-                    role="radiogroup"
-                    aria-labelledby="latex-template-heading"
-                  >
-                    {LATEX_PROJECT_TEMPLATES.map((template) => (
-                      <label
-                        key={template.id}
-                        className={`relative flex cursor-pointer gap-3 border-b px-3 py-2.5 transition-colors last:border-b-0 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring ${!overleafTemplateUrl.trim() && !sourceArchive && createTemplate === template.id ? "bg-muted/50" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="latex-template"
-                          value={template.id}
-                          checked={
-                            !overleafTemplateUrl.trim() &&
-                            !sourceArchive &&
-                            createTemplate === template.id
-                          }
-                          disabled={creating}
-                          className="mt-1 size-3.5 accent-current"
-                          onChange={() => {
-                            setOverleafTemplateUrl("");
-                            setOverleafImport({ status: "idle" });
-                            setOverleafArchive(null);
-                            setSourceArchive(null);
-                            setSourceImport({ status: "idle" });
-                            sourceImportRequestRef.current += 1;
-                            setCreateTemplate(template.id);
-                            setCreateSettings((current) => ({
-                              ...current,
-                              bibliographyFile: BIBLIOGRAPHY_TEMPLATES.has(
-                                template.id,
-                              )
-                                ? "references.bib"
-                                : null,
-                            }));
-                          }}
-                        />
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-2 text-xs font-medium">
-                            {template.name}
-                            <span className="text-[9px] font-normal uppercase tracking-wide text-muted-foreground">
-                              {template.category}
-                            </span>
-                          </span>
-                          <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
-                            {template.description}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <div
-                    className={`mt-5 min-w-0 space-y-2 overflow-hidden border-y px-3 py-3 transition-colors ${
-                      overleafTemplateUrl.trim() ? "bg-muted/40" : ""
-                    }`}
-                  >
-                    <Label htmlFor="overleaf-template-url">
-                      Overleaf Template URL
-                    </Label>
-                    <Input
-                      id="overleaf-template-url"
-                      name="overleaf-template-url"
-                      type="url"
-                      inputMode="url"
-                      autoComplete="off"
-                      spellCheck={false}
-                      maxLength={2_000}
-                      value={overleafTemplateUrl}
-                      disabled={creating}
-                      placeholder="https://www.overleaf.com/latex/templates/…"
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setOverleafTemplateUrl(value);
-                        if (value.trim()) {
+                {LATEX_PROJECT_TEMPLATES.map((template) => {
+                  const selected =
+                    !usingOverleaf &&
+                    !sourceArchive &&
+                    createTemplate === template.id;
+                  return (
+                    <label
+                      key={template.id}
+                      className={cn(
+                        "-mx-2 flex cursor-pointer gap-3 rounded-md px-2 py-2 transition-colors hover:bg-surface/70 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/40",
+                        selected && "bg-surface",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="latex-template"
+                        value={template.id}
+                        checked={selected}
+                        disabled={creating}
+                        className="mt-1 size-3.5 accent-current"
+                        onChange={() => {
+                          setOverleafTemplateUrl("");
+                          setOverleafImport({ status: "idle" });
+                          setOverleafArchive(null);
                           setSourceArchive(null);
                           setSourceImport({ status: "idle" });
                           sourceImportRequestRef.current += 1;
-                        }
-                      }}
-                    />
-                    <div
-                      className="min-h-5 text-[11px] leading-5"
-                      aria-live="polite"
-                    >
-                      {!overleafTemplateUrl.trim() ? (
-                        <span className="text-muted-foreground">
-                          A public Gallery URL replaces the built-in template.
-                        </span>
-                      ) : null}
-                      {overleafImport.status === "loading" ? (
-                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                          <Loader2 className="size-3 animate-spin" />
-                          Importing Overleaf template…
-                        </span>
-                      ) : null}
-                      {overleafImport.status === "error" ? (
-                        <span className="inline-flex items-start gap-1.5 text-destructive">
-                          <AlertCircle className="mt-1 size-3 shrink-0" />
-                          {overleafImport.message}
-                        </span>
-                      ) : null}
-                      {overleafImport.status === "ready" ? (
-                        <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="size-3 shrink-0" />
-                          <span className="block min-w-0 flex-1 truncate">
-                            Overleaf selected · {overleafImport.template.name}
-                          </span>
-                        </span>
-                      ) : null}
-                    </div>
-                    {overleafImport.status === "ready" ? (
-                      <div className="border-t pt-2.5">
-                        {overleafImport.template.missingSupportFiles.length >
-                        0 ? (
-                          <p className="mb-2 text-[11px] leading-4 text-amber-700 dark:text-amber-400">
-                            Full source required:{" "}
-                            {overleafImport.template.missingSupportFiles.join(
-                              ", ",
-                            )}
-                          </p>
-                        ) : (
-                          <p className="mb-2 text-[10px] leading-4 text-muted-foreground">
-                            For templates with images or extra files, add the
-                            complete source ZIP.
-                          </p>
-                        )}
-                        <Label
-                          htmlFor="overleaf-source-zip"
-                          title={overleafArchive?.name}
-                          className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden text-xs"
-                        >
-                          <Upload className="size-3 shrink-0" />
-                          <span className="block min-w-0 flex-1 truncate">
-                            {overleafArchive
-                              ? overleafArchive.name
-                              : "Choose Overleaf source ZIP"}
-                          </span>
-                        </Label>
-                        <Input
-                          id="overleaf-source-zip"
-                          name="overleaf-source-zip"
-                          type="file"
-                          accept=".zip,application/zip"
-                          disabled={creating}
-                          className="sr-only"
-                          onChange={(event) =>
-                            setOverleafArchive(event.target.files?.[0] ?? null)
-                          }
-                        />
-                        <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                          In Overleaf, choose Download as source (.zip).
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div
-                    className={`mt-3 min-w-0 space-y-2 overflow-hidden border-y px-3 py-3 transition-colors ${
-                      sourceArchive ? "bg-muted/40" : ""
-                    }`}
-                  >
-                    <span className="text-sm font-medium">
-                      LaTeX Source ZIP
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full min-w-0 justify-start overflow-hidden"
-                      disabled={creating || sourceImport.status === "loading"}
-                      title={sourceArchive?.name}
-                      onClick={() => sourceArchiveInputRef.current?.click()}
-                    >
-                      {sourceImport.status === "loading" ? (
-                        <Loader2 className="shrink-0 animate-spin" />
-                      ) : (
-                        <Upload className="shrink-0" />
-                      )}
-                      <span className="block min-w-0 flex-1 truncate text-left">
-                        {sourceArchive?.name ?? "Choose Source ZIP"}
-                      </span>
-                    </Button>
-                    <Input
-                      ref={sourceArchiveInputRef}
-                      id="latex-source-zip"
-                      name="latex-source-zip"
-                      type="file"
-                      accept=".zip,application/zip"
-                      disabled={creating}
-                      className="hidden"
-                      tabIndex={-1}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] ?? null;
-                        event.target.value = "";
-                        void importSourceArchive(file);
-                      }}
-                    />
-                    <div
-                      className="min-h-4 text-[10px] leading-4"
-                      aria-live="polite"
-                    >
-                      {sourceImport.status === "idle" ? (
-                        <span className="text-muted-foreground">
-                          Create directly from an existing source archive.
-                        </span>
-                      ) : null}
-                      {sourceImport.status === "loading" ? (
-                        <span className="text-muted-foreground">
-                          Importing source…
-                        </span>
-                      ) : null}
-                      {sourceImport.status === "error" ? (
-                        <span className="inline-flex items-start gap-1.5 text-destructive">
-                          <AlertCircle className="mt-0.5 size-3 shrink-0" />
-                          <span className="break-words">
-                            {sourceImport.message}
-                          </span>
-                        </span>
-                      ) : null}
-                      {sourceImport.status === "ready" ? (
-                        <span className="flex min-w-0 items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="size-3 shrink-0" />
-                          <span className="min-w-0 truncate">
-                            Source selected ·{" "}
-                            {
-                              sourceImport.source.project.entries.filter(
-                                (entry) => entry.kind === "file",
-                              ).length
-                            }{" "}
-                            files · {sourceImport.source.project.mainFile}
-                          </span>
-                        </span>
-                      ) : null}
-                    </div>
-                    {sourceImport.status === "ready" &&
-                    sourceImport.source.missingSupportFiles.length > 0 ? (
-                      <p className="text-[10px] leading-4 text-amber-700 dark:text-amber-400">
-                        Missing support files:{" "}
-                        {sourceImport.source.missingSupportFiles.join(", ")}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-
-              <div className="min-w-0 p-5">
-                <div className="space-y-2">
-                  <Label htmlFor="latex-project-name">Project Name</Label>
-                  <Input
-                    id="latex-project-name"
-                    name="project-name"
-                    autoComplete="off"
-                    maxLength={100}
-                    value={createName}
-                    disabled={creating}
-                    placeholder="e.g. Urban mobility study…"
-                    onChange={(event) => setCreateName(event.target.value)}
-                  />
-                </div>
-
-                <fieldset className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <legend className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:col-span-2">
-                    Agent Settings
-                  </legend>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="new-project-provider">Provider</Label>
-                    <Select
-                      value={createSettings.agentProvider}
-                      onValueChange={(value: "hosted" | "ollama") =>
-                        setCreateSettings((current) => ({
-                          ...current,
-                          agentProvider: value,
-                          agentModel: null,
-                          embeddingProvider: value,
-                          embeddingModel: null,
-                        }))
-                      }
-                    >
-                      <SelectTrigger
-                        id="new-project-provider"
-                        className="h-[54px]! w-full"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hosted">Hosted gateway</SelectItem>
-                        {platform.localLlm ? (
-                          <SelectItem value="ollama">Local Ollama</SelectItem>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <span className="text-sm font-medium">
-                      Generation Model
-                    </span>
-                    {createSettings.agentProvider === "hosted" &&
-                    HostedModelSelector ? (
-                      <HostedModelSelector
-                        model={effectiveCreateModel ?? null}
-                        onModelChange={(value) =>
+                          setCreateTemplate(template.id);
                           setCreateSettings((current) => ({
                             ...current,
-                            agentModel: value,
-                          }))
-                        }
-                        models={hostedModels}
-                        loading={hostedModelsLoading}
-                        error={hostedModelsError}
-                        stale={hostedModelsStale}
-                        onRetry={() => void loadHostedModels()}
-                        requiredCapabilities={["tool-use"]}
-                        className="[&_[data-slot=button]]:min-h-[54px]"
+                            bibliographyFile: BIBLIOGRAPHY_TEMPLATES.has(
+                              template.id,
+                            )
+                              ? "references.bib"
+                              : null,
+                          }));
+                        }}
                       />
-                    ) : (
-                      <Select
-                        value={effectiveCreateModel}
-                        onValueChange={(value) =>
-                          setCreateSettings((current) => ({
-                            ...current,
-                            agentModel: value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger
-                          id="new-project-generation"
-                          aria-label="Generation model"
-                          className="h-[54px]! w-full"
-                        >
-                          <SelectValue placeholder="Select a model…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableGenerationModels.map((model) => (
-                            <SelectItem key={model.id} value={model.id}>
-                              {model.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="new-project-memory">Personal Memory</Label>
-                    <Select
-                      value={createSettings.agentMemoryMode}
-                      onValueChange={(value: "enabled" | "retrieval-off") =>
-                        setCreateSettings((current) => ({
-                          ...current,
-                          agentMemoryMode: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger
-                        id="new-project-memory"
-                        className="h-[54px]! w-full"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="enabled">Enabled</SelectItem>
-                        <SelectItem value="retrieval-off">
-                          Retrieval off
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {createSettings.agentProvider === "ollama" ? (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="new-project-embedding">
-                        Embedding Model
-                      </Label>
-                      <Select
-                        value={createSettings.embeddingModel ?? undefined}
-                        onValueChange={(value) =>
-                          setCreateSettings((current) => ({
-                            ...current,
-                            embeddingProvider: "ollama",
-                            embeddingModel: value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger
-                          id="new-project-embedding"
-                          className="h-[54px]! w-full"
-                        >
-                          <SelectValue placeholder="Select independently…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {localModels
-                            .filter((model) => model.embedding !== false)
-                            .map((model) => (
-                              <SelectItem key={model.model} value={model.model}>
-                                {model.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : null}
-                </fieldset>
-
-                <fieldset className="mt-6 border-t pt-5">
-                  <legend className="pr-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Writing Assistance
-                  </legend>
-                  <div className="mt-3 min-w-0 space-y-1.5">
-                    {HostedModelSelector ? (
-                      <span className="text-sm font-medium">
-                        Inline Suggestion Model
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2 text-sm text-accent-strong">
+                          {template.name}
+                          <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                            {template.category}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {template.description}
+                        </span>
                       </span>
-                    ) : (
-                      <Label htmlFor="new-project-inline-model">
-                        Inline Suggestion Model
-                      </Label>
-                    )}
-                    {HostedModelSelector ? (
-                      <HostedModelSelector
-                        model={effectiveInlineModel}
-                        onModelChange={(value) =>
-                          setCreateSettings((current) => ({
-                            ...current,
-                            inlineCompletionModel: value,
-                          }))
-                        }
-                        models={hostedModels}
-                        loading={hostedModelsLoading}
-                        error={hostedModelsError}
-                        stale={hostedModelsStale}
-                        onRetry={() => void loadHostedModels()}
-                        className="[&_[data-slot=button]]:min-h-[54px]"
-                      />
-                    ) : (
-                      <Select
-                        value={effectiveInlineModel}
-                        onValueChange={(value) =>
-                          setCreateSettings((current) => ({
-                            ...current,
-                            inlineCompletionModel: value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger
-                          id="new-project-inline-model"
-                          className="h-[54px]! w-full"
-                        >
-                          <SelectValue placeholder="Select a model…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableInlineModels.map((model) => (
-                            <SelectItem key={model.id} value={model.id}>
-                              {model.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <p className="text-[10px] leading-4 text-muted-foreground">
-                      Uses a small bounded context and can differ from the agent
-                      model.
-                    </p>
-                  </div>
-                </fieldset>
+                    </label>
+                  );
+                })}
               </div>
-            </div>
-            <DialogFooter className="border-t px-6 py-4">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={creating}
-                onClick={() => setCreateOpen(false)}
+            </Section>
+
+            <Section title="Import">
+              <FormField
+                label="Overleaf template URL"
+                htmlFor="overleaf-template-url"
               >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  creating ||
-                  !createName.trim() ||
-                  (Boolean(overleafTemplateUrl.trim()) &&
-                    (overleafImport.status !== "ready" ||
-                      (overleafImport.template.missingSupportFiles.length > 0 &&
-                        !overleafArchive))) ||
-                  (Boolean(sourceArchive) &&
-                    (sourceImport.status !== "ready" ||
-                      sourceImport.source.missingSupportFiles.length > 0))
+                <Input
+                  id="overleaf-template-url"
+                  name="overleaf-template-url"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={2_000}
+                  value={overleafTemplateUrl}
+                  disabled={creating}
+                  placeholder="https://www.overleaf.com/latex/templates/…"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setOverleafTemplateUrl(value);
+                    if (value.trim()) {
+                      setSourceArchive(null);
+                      setSourceImport({ status: "idle" });
+                      sourceImportRequestRef.current += 1;
+                    }
+                  }}
+                />
+                <div className="min-h-4 text-xs" aria-live="polite">
+                  {overleafImport.status === "loading" ? (
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                      <Spinner className="size-3" />
+                      Importing
+                    </span>
+                  ) : null}
+                  {overleafImport.status === "error" ? (
+                    <ImportStatus tone="critical">
+                      {overleafImport.message}
+                    </ImportStatus>
+                  ) : null}
+                  {overleafImport.status === "ready" ? (
+                    <ImportStatus tone="good">
+                      {overleafImport.template.name}
+                    </ImportStatus>
+                  ) : null}
+                </div>
+              </FormField>
+              {overleafImport.status === "ready" ? (
+                <FormField
+                  label="Overleaf source ZIP"
+                  htmlFor="overleaf-source-zip"
+                  error={
+                    overleafImport.template.missingSupportFiles.length > 0 &&
+                    !overleafArchive
+                      ? `Missing ${overleafImport.template.missingSupportFiles.join(", ")}`
+                      : undefined
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full min-w-0 justify-start overflow-hidden font-normal"
+                    disabled={creating}
+                    title={overleafArchive?.name}
+                    onClick={() => overleafArchiveInputRef.current?.click()}
+                  >
+                    <Upload />
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {overleafArchive?.name ?? "Choose ZIP"}
+                    </span>
+                  </Button>
+                  <input
+                    ref={overleafArchiveInputRef}
+                    id="overleaf-source-zip"
+                    name="overleaf-source-zip"
+                    type="file"
+                    accept=".zip,application/zip"
+                    disabled={creating}
+                    className="hidden"
+                    tabIndex={-1}
+                    onChange={(event) =>
+                      setOverleafArchive(event.target.files?.[0] ?? null)
+                    }
+                  />
+                </FormField>
+              ) : null}
+              <FormField
+                label="Source ZIP"
+                error={
+                  sourceImport.status === "ready" &&
+                  sourceImport.source.missingSupportFiles.length > 0
+                    ? `Missing ${sourceImport.source.missingSupportFiles.join(", ")}`
+                    : undefined
                 }
               >
-                {creating ? <Loader2 className="animate-spin" /> : <Plus />}
-                Create Project
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full min-w-0 justify-start overflow-hidden font-normal"
+                  disabled={creating || sourceImport.status === "loading"}
+                  title={sourceArchive?.name}
+                  onClick={() => sourceArchiveInputRef.current?.click()}
+                >
+                  {sourceImport.status === "loading" ? (
+                    <Spinner className="size-3.5" />
+                  ) : (
+                    <Upload />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {sourceArchive?.name ?? "Choose ZIP"}
+                  </span>
+                </Button>
+                <input
+                  ref={sourceArchiveInputRef}
+                  id="latex-source-zip"
+                  name="latex-source-zip"
+                  type="file"
+                  accept=".zip,application/zip"
+                  disabled={creating}
+                  className="hidden"
+                  tabIndex={-1}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    event.target.value = "";
+                    void importSourceArchive(file);
+                  }}
+                />
+                <div className="min-h-4 text-xs" aria-live="polite">
+                  {sourceImport.status === "error" ? (
+                    <ImportStatus tone="critical">
+                      {sourceImport.message}
+                    </ImportStatus>
+                  ) : null}
+                  {sourceImport.status === "ready" ? (
+                    <ImportStatus tone="good">
+                      {
+                        sourceImport.source.project.entries.filter(
+                          (entry) => entry.kind === "file",
+                        ).length
+                      }{" "}
+                      files · {sourceImport.source.project.mainFile}
+                    </ImportStatus>
+                  ) : null}
+                </div>
+              </FormField>
+            </Section>
+          </div>
 
-      <Dialog
-        open={renameTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && busyId !== renameTarget?._id) setRenameTarget(null);
-        }}
-      >
-        <DialogContent>
-          <form className="space-y-5" onSubmit={renameProject}>
-            <DialogHeader>
-              <DialogTitle>Rename project</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="latex-project-rename">Project name</Label>
+          <div className="flex min-w-0 flex-col gap-6 p-5">
+            <FormField label="Name" htmlFor="latex-project-name">
               <Input
-                id="latex-project-rename"
+                id="latex-project-name"
                 name="project-name"
                 autoComplete="off"
                 maxLength={100}
-                value={renameName}
-                disabled={busyId === renameTarget?._id}
-                placeholder="e.g. Urban mobility study…"
-                onChange={(event) => setRenameName(event.target.value)}
+                value={createName}
+                disabled={creating}
+                onChange={(event) => setCreateName(event.target.value)}
               />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busyId === renameTarget?._id}
-                onClick={() => setRenameTarget(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  busyId === renameTarget?._id ||
-                  !renameName.trim() ||
-                  renameName.trim() === renameTarget?.name
-                }
-              >
-                {busyId === renameTarget?._id ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Pencil />
-                )}
-                Rename
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+            </FormField>
 
-      <AlertDialog
+            <Section title="Agent">
+              <FormGrid>
+                <FormField label="Provider" htmlFor="new-project-provider">
+                  <Select
+                    value={createSettings.agentProvider}
+                    onValueChange={(value: "hosted" | "ollama") =>
+                      setCreateSettings((current) => ({
+                        ...current,
+                        agentProvider: value,
+                        agentModel: null,
+                        embeddingProvider: value,
+                        embeddingModel: null,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="new-project-provider" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hosted">Hosted gateway</SelectItem>
+                      {platform.localLlm ? (
+                        <SelectItem value="ollama">Local Ollama</SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Memory" htmlFor="new-project-memory">
+                  <Select
+                    value={createSettings.agentMemoryMode}
+                    onValueChange={(value: "enabled" | "retrieval-off") =>
+                      setCreateSettings((current) => ({
+                        ...current,
+                        agentMemoryMode: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="new-project-memory" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="enabled">Enabled</SelectItem>
+                      <SelectItem value="retrieval-off">
+                        Retrieval off
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Model" className="sm:col-span-2">
+                  {createSettings.agentProvider === "hosted" &&
+                  HostedModelSelector ? (
+                    <HostedModelSelector
+                      model={effectiveCreateModel ?? null}
+                      onModelChange={(value) =>
+                        setCreateSettings((current) => ({
+                          ...current,
+                          agentModel: value,
+                        }))
+                      }
+                      models={hostedModels}
+                      loading={hostedModelsLoading}
+                      error={hostedModelsError}
+                      stale={hostedModelsStale}
+                      onRetry={() => void loadHostedModels()}
+                      requiredCapabilities={["tool-use"]}
+                    />
+                  ) : (
+                    <Select
+                      value={effectiveCreateModel}
+                      onValueChange={(value) =>
+                        setCreateSettings((current) => ({
+                          ...current,
+                          agentModel: value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label="Generation model"
+                        className="w-full"
+                      >
+                        <SelectValue placeholder="Model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableGenerationModels.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </FormField>
+                {createSettings.agentProvider === "ollama" ? (
+                  <FormField
+                    label="Embedding model"
+                    htmlFor="new-project-embedding"
+                    className="sm:col-span-2"
+                  >
+                    <Select
+                      value={createSettings.embeddingModel ?? undefined}
+                      onValueChange={(value) =>
+                        setCreateSettings((current) => ({
+                          ...current,
+                          embeddingProvider: "ollama",
+                          embeddingModel: value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger
+                        id="new-project-embedding"
+                        className="w-full"
+                      >
+                        <SelectValue placeholder="Model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {localModels
+                          .filter((model) => model.embedding !== false)
+                          .map((model) => (
+                            <SelectItem key={model.model} value={model.model}>
+                              {model.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : null}
+              </FormGrid>
+            </Section>
+
+            <Section title="Inline suggestions">
+              <FormField label="Model" htmlFor="new-project-inline-model">
+                {HostedModelSelector ? (
+                  <HostedModelSelector
+                    model={effectiveInlineModel}
+                    onModelChange={(value) =>
+                      setCreateSettings((current) => ({
+                        ...current,
+                        inlineCompletionModel: value,
+                      }))
+                    }
+                    models={hostedModels}
+                    loading={hostedModelsLoading}
+                    error={hostedModelsError}
+                    stale={hostedModelsStale}
+                    onRetry={() => void loadHostedModels()}
+                  />
+                ) : (
+                  <Select
+                    value={effectiveInlineModel}
+                    onValueChange={(value) =>
+                      setCreateSettings((current) => ({
+                        ...current,
+                        inlineCompletionModel: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger
+                      id="new-project-inline-model"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder="Model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableInlineModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
+            </Section>
+          </div>
+        </div>
+      </FormDialog>
+
+      <FormDialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+        title="Rename project"
+        onSubmit={renameProject}
+        submitLabel="Rename"
+        submitDisabled={
+          !renameName.trim() || renameName.trim() === renameTarget?.name
+        }
+        pending={renaming}
+      >
+        <FormField label="Name" htmlFor="latex-project-rename">
+          <Input
+            id="latex-project-rename"
+            name="project-name"
+            autoComplete="off"
+            maxLength={100}
+            value={renameName}
+            disabled={renaming}
+            onChange={(event) => setRenameName(event.target.value)}
+          />
+        </FormField>
+      </FormDialog>
+
+      <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open && busyId !== deleteTarget?._id) setDeleteTarget(null);
+          if (!open) setDeleteTarget(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Permanently delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              “{deleteTarget?.name}” and its latest compiled PDF will be
-              removed. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busyId === deleteTarget?._id}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={busyId === deleteTarget?._id}
-              onClick={() => {
-                if (deleteTarget) void deleteProject(deleteTarget);
-              }}
-            >
-              {busyId === deleteTarget?._id ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <Trash2 />
-              )}
-              Delete project
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        title="Delete project?"
+        description={`“${deleteTarget?.name ?? ""}” and its compiled PDF are deleted permanently.`}
+        actionLabel="Delete"
+        destructive
+        pending={deleteTarget !== null && busyId === deleteTarget._id}
+        onConfirm={() => {
+          if (deleteTarget) void deleteProject(deleteTarget);
+        }}
+      />
+    </Page>
+  );
+}
+
+function ImportStatus({
+  tone,
+  children,
+}: {
+  tone: "good" | "critical";
+  children: React.ReactNode;
+}) {
+  const Icon = tone === "good" ? CheckCircle2 : AlertCircle;
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 items-start gap-1.5",
+        tone === "good" ? "text-status-good" : "text-status-critical",
+      )}
+    >
+      <Icon className="mt-0.5 size-3 shrink-0" />
+      <span className="min-w-0 break-words">{children}</span>
+    </span>
   );
 }

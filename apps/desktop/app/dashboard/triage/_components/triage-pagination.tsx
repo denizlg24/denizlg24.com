@@ -21,38 +21,32 @@ export function TriagePagination({
   const end = Math.min(totalRows, (pageIndex + 1) * pageSize);
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-3 border-b pb-2">
-      <p className="text-[11px] tabular-nums text-muted-foreground">
+    <div className="flex items-center gap-1">
+      <span className="px-1 text-xs tabular-nums text-muted-foreground">
         {start}–{end} of {totalRows}
-      </p>
-
-      {pageCount > 1 && (
-        <div className="flex items-center gap-1">
+      </span>
+      {pageCount > 1 ? (
+        <>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             aria-label="Previous page"
-            className="size-7"
             disabled={disabled || pageIndex === 0}
             onClick={() => onPageChange(pageIndex - 1)}
           >
-            <ChevronLeft className="size-3.5" />
+            <ChevronLeft />
           </Button>
-          <span className="px-1 text-[11px] tabular-nums text-muted-foreground">
-            {pageIndex + 1} / {pageCount}
-          </span>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             aria-label="Next page"
-            className="size-7"
             disabled={disabled || pageIndex >= pageCount - 1}
             onClick={() => onPageChange(pageIndex + 1)}
           >
-            <ChevronRight className="size-3.5" />
+            <ChevronRight />
           </Button>
-        </div>
-      )}
+        </>
+      ) : null}
     </div>
   );
 }

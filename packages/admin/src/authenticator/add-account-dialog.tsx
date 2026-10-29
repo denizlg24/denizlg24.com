@@ -1,17 +1,8 @@
 "use client";
 
 import type { IAuthenticatorAccount, TotpAlgorithm } from "@repo/schemas";
-import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
@@ -20,6 +11,16 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { useEffect, useState } from "react";
+
+const ALGORITHMS: { value: TotpAlgorithm; label: string }[] = [
+  { value: "SHA1", label: "SHA-1" },
+  { value: "SHA256", label: "SHA-256" },
+  { value: "SHA512", label: "SHA-512" },
+];
+
+function isAlgorithm(value: string): value is TotpAlgorithm {
+  return ALGORITHMS.some((option) => option.value === value);
+}
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -85,137 +86,119 @@ export function AddAccountDialog({
 
   const canSubmit = isEditing
     ? label.trim().length > 0
-    : label.trim().length > 0 && /^[A-Z2-7]+=*$/.test(secret) && period > 0;
+    : label.trim().length > 0 &&
+      /^[A-Z2-7]+=*$/.test(secret) &&
+      Number.isInteger(period) &&
+      period > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "Edit Account" : "Add Account"}
-          </DialogTitle>
-          <DialogDescription>
-            {isEditing
-              ? "Update the account details."
-              : "Enter the TOTP secret and account details."}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4 py-2 min-w-0">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="label">Label</Label>
-            <Input
-              id="label"
-              placeholder="e.g. GitHub"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="issuer">Issuer</Label>
-            <Input
-              id="issuer"
-              placeholder="e.g. GitHub"
-              value={issuer}
-              onChange={(e) => setIssuer(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="accountName">Account</Label>
-            <Input
-              id="accountName"
-              placeholder="e.g. user@example.com"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-            />
-          </div>
-
-          {!isEditing && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="secret">Secret (Base32)</Label>
-              <Input
-                id="secret"
-                placeholder="JBSWY3DPEHPK3PXP"
-                value={secret}
-                onChange={(e) =>
-                  setSecret(e.target.value.toUpperCase().replace(/[\s-]/g, ""))
-                }
-                className="font-mono tracking-wider overflow-hidden text-ellipsis"
-              />
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <div className="flex flex-col gap-1.5 flex-1">
-              <Label>Algorithm</Label>
-              <Select
-                value={algorithm}
-                onValueChange={(v) => setAlgorithm(v as TotpAlgorithm)}
-                disabled={isEditing}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SHA1">SHA-1</SelectItem>
-                  <SelectItem value="SHA256">SHA-256</SelectItem>
-                  <SelectItem value="SHA512">SHA-512</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1.5 w-20">
-              <Label htmlFor="digits">Digits</Label>
-              <Select
-                value={String(digits)}
-                onValueChange={(v) => setDigits(Number(v))}
-                disabled={isEditing}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="6">6</SelectItem>
-                  <SelectItem value="8">8</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1.5 w-20">
-              <Label htmlFor="period">Period</Label>
-              <Input
-                id="period"
-                type="number"
-                value={period}
-                onChange={(e) => setPeriod(Number(e.target.value))}
-                disabled={isEditing}
-                className="font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEditing ? "Edit account" : "Add account"}
+      onSubmit={handleSubmit}
+      submitLabel={isEditing ? "Save" : "Add"}
+      submitDisabled={!canSubmit}
+      pending={submitting}
+    >
+      <FormGrid>
+        <FormField label="Label" htmlFor="totp-label">
+          <Input
+            id="totp-label"
+            placeholder="GitHub"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            autoFocus
+          />
+        </FormField>
+        <FormField label="Issuer" htmlFor="totp-issuer">
+          <Input
+            id="totp-issuer"
+            placeholder="GitHub"
+            value={issuer}
+            onChange={(e) => setIssuer(e.target.value)}
+          />
+        </FormField>
+        <FormField
+          label="Account"
+          htmlFor="totp-account"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="totp-account"
+            placeholder="user@example.com"
+            value={accountName}
+            onChange={(e) => setAccountName(e.target.value)}
+          />
+        </FormField>
+        {!isEditing && (
+          <FormField
+            label="Secret (base32)"
+            htmlFor="totp-secret"
+            className="sm:col-span-2"
           >
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={submitting || !canSubmit}>
-            {submitting
-              ? isEditing
-                ? "Saving..."
-                : "Adding..."
-              : isEditing
-                ? "Save"
-                : "Add Account"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Input
+              id="totp-secret"
+              placeholder="JBSWY3DPEHPK3PXP"
+              value={secret}
+              onChange={(e) =>
+                setSecret(e.target.value.toUpperCase().replace(/[\s-]/g, ""))
+              }
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono tracking-wider"
+            />
+          </FormField>
+        )}
+        <FormField label="Algorithm">
+          <Select
+            value={algorithm}
+            onValueChange={(value) => {
+              if (isAlgorithm(value)) setAlgorithm(value);
+            }}
+            disabled={isEditing}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ALGORITHMS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Digits">
+            <Select
+              value={String(digits)}
+              onValueChange={(value) => setDigits(Number(value))}
+              disabled={isEditing}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="6">6</SelectItem>
+                <SelectItem value="8">8</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Period (s)" htmlFor="totp-period">
+            <Input
+              id="totp-period"
+              type="number"
+              min={1}
+              value={period}
+              onChange={(e) => setPeriod(Number(e.target.value))}
+              disabled={isEditing}
+              className="font-mono"
+            />
+          </FormField>
+        </div>
+      </FormGrid>
+    </FormDialog>
   );
 }

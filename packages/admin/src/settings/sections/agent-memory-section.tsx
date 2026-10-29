@@ -4,6 +4,7 @@ import type {
   AgentMemorySettings,
   AgentMemorySettingsResponse,
 } from "@repo/schemas";
+import { Properties, Property } from "@repo/ui/properties";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,8 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Switch } from "@repo/ui/switch";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useModelCatalog } from "../../llm/model-select";
@@ -53,17 +56,17 @@ function NumericSelect({
       value={String(value)}
       onValueChange={(next) => onChange(Number(next))}
     >
-      <SelectTrigger className={className ?? "h-8 w-full text-xs"}>
+      <SelectTrigger className={className ?? "w-full"}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         {!options.includes(value) && (
-          <SelectItem value={String(value)} className="text-xs">
+          <SelectItem value={String(value)}>
             {render(value)} (current)
           </SelectItem>
         )}
         {options.map((option) => (
-          <SelectItem key={option} value={String(option)} className="text-xs">
+          <SelectItem key={option} value={String(option)}>
             {render(option)}
           </SelectItem>
         ))}
@@ -115,14 +118,17 @@ export function AgentMemorySection() {
 
   if (loading || !settings) {
     return (
-      <div className="space-y-8">
-        {[0, 1, 2].map((row) => (
-          <div key={row} className="space-y-3">
-            <Skeleton className="h-2.5 w-24" />
-            <Skeleton className="h-8 w-full max-w-sm" />
+      <>
+        {[0, 1, 2].map((group) => (
+          <div key={group} className="flex flex-col gap-3">
+            <Skeleton className="h-3 w-24" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-8 w-56" />
+            </div>
           </div>
         ))}
-      </div>
+      </>
     );
   }
 
@@ -134,264 +140,218 @@ export function AgentMemorySection() {
         label="Models"
         actions={
           modelsLoading ? (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              Loading catalog…
-            </span>
+            <Spinner className="size-3 text-muted-foreground" />
           ) : undefined
         }
       >
-        <div className="space-y-6">
-          <SettingsRow label="Formation">
-            <SettingsModelPicker
-              value={settings.formationModel}
-              models={models}
-              loading={modelsLoading}
-              error={modelsError}
-              stale={stale}
-              onRetry={retry}
-              requiredCapabilities={["tool-use"]}
-              defaultLabel="Server default (semantic)"
-              onChange={(value) =>
-                void update(
-                  { formationModel: value },
-                  `Set formation model to ${value ?? "server default"}`,
-                )
-              }
-            />
-          </SettingsRow>
+        <SettingsRow label="Formation">
+          <SettingsModelPicker
+            value={settings.formationModel}
+            models={models}
+            loading={modelsLoading}
+            error={modelsError}
+            stale={stale}
+            onRetry={retry}
+            requiredCapabilities={["tool-use"]}
+            defaultLabel="Default (semantic)"
+            onChange={(value) =>
+              void update(
+                { formationModel: value },
+                `Set formation model to ${value ?? "server default"}`,
+              )
+            }
+          />
+        </SettingsRow>
 
-          <SettingsRow label="Retrieval summary">
-            <SettingsModelPicker
-              value={retrieval.querySummaryModel}
-              models={models}
-              loading={modelsLoading}
-              error={modelsError}
-              stale={stale}
-              onRetry={retry}
-              defaultLabel="Disabled"
-              onChange={(value) =>
-                void update(
-                  {
-                    retrieval: { ...retrieval, querySummaryModel: value },
-                  },
-                  `Set retrieval summary model to ${value ?? "disabled"}`,
-                )
-              }
-            />
-          </SettingsRow>
-        </div>
+        <SettingsRow label="Retrieval summary">
+          <SettingsModelPicker
+            value={retrieval.querySummaryModel}
+            models={models}
+            loading={modelsLoading}
+            error={modelsError}
+            stale={stale}
+            onRetry={retry}
+            defaultLabel="Disabled"
+            onChange={(value) =>
+              void update(
+                {
+                  retrieval: { ...retrieval, querySummaryModel: value },
+                },
+                `Set retrieval summary model to ${value ?? "disabled"}`,
+              )
+            }
+          />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup label="Retrieval budget">
-        <div className="space-y-6">
-          <SettingsRow label="Injected memories">
-            <NumericSelect
-              value={retrieval.maxRetrievedItems}
-              options={RETRIEVAL_MAX_ITEM_OPTIONS}
-              render={(value) => `Up to ${value} memories`}
-              onChange={(value) =>
-                void update(
-                  { retrieval: { ...retrieval, maxRetrievedItems: value } },
-                  `Max injected memories set to ${value}`,
-                )
-              }
-            />
-          </SettingsRow>
-          <SettingsRow label="Token budget">
-            <NumericSelect
-              value={retrieval.maxTokens}
-              options={RETRIEVAL_MAX_TOKEN_OPTIONS}
-              render={(value) => `${value.toLocaleString()} tokens`}
-              onChange={(value) =>
-                void update(
-                  { retrieval: { ...retrieval, maxTokens: value } },
-                  `Retrieval token budget set to ${value}`,
-                )
-              }
-            />
-          </SettingsRow>
-          <SettingsRow label="Manual recall floor">
-            <NumericSelect
-              value={retrieval.exploreMinSimilarity}
-              options={EXPLORE_MIN_SIMILARITY_OPTIONS}
-              render={(value) => `≥ ${value} cosine`}
-              onChange={(value) =>
-                void update(
-                  { retrieval: { ...retrieval, exploreMinSimilarity: value } },
-                  `Manual recall floor set to ${value}`,
-                )
-              }
-            />
-          </SettingsRow>
-        </div>
+        <SettingsRow label="Max memories">
+          <NumericSelect
+            value={retrieval.maxRetrievedItems}
+            options={RETRIEVAL_MAX_ITEM_OPTIONS}
+            render={(value) => `${value}`}
+            onChange={(value) =>
+              void update(
+                { retrieval: { ...retrieval, maxRetrievedItems: value } },
+                `Max injected memories set to ${value}`,
+              )
+            }
+          />
+        </SettingsRow>
+        <SettingsRow label="Token budget">
+          <NumericSelect
+            value={retrieval.maxTokens}
+            options={RETRIEVAL_MAX_TOKEN_OPTIONS}
+            render={(value) => `${value.toLocaleString()} tokens`}
+            onChange={(value) =>
+              void update(
+                { retrieval: { ...retrieval, maxTokens: value } },
+                `Retrieval token budget set to ${value}`,
+              )
+            }
+          />
+        </SettingsRow>
+        <SettingsRow label="Recall floor">
+          <NumericSelect
+            value={retrieval.exploreMinSimilarity}
+            options={EXPLORE_MIN_SIMILARITY_OPTIONS}
+            render={(value) => `≥ ${value} cosine`}
+            onChange={(value) =>
+              void update(
+                { retrieval: { ...retrieval, exploreMinSimilarity: value } },
+                `Manual recall floor set to ${value}`,
+              )
+            }
+          />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup label="Review policy">
-        <div className="space-y-6">
-          <SettingsRow label="Mode">
-            <Select
-              value={promotion.mode}
-              onValueChange={(value) =>
+        <SettingsRow label="Mode">
+          <Select
+            value={promotion.mode}
+            onValueChange={(value) =>
+              void update(
+                { promotion: { ...promotion, mode: value } },
+                `Set promotion mode to ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="single-user">Single-user</SelectItem>
+              <SelectItem value="conservative">Conservative</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingsRow>
+
+        {promotion.mode === "single-user" && (
+          <SettingsRow label="Email review">
+            <NumericSelect
+              value={promotion.emailReviewMaxConfidence}
+              options={[0.5, 0.7, 0.85, 1]}
+              render={(value) =>
+                value >= 1 ? "All" : `Below ${Math.round(value * 100)}%`
+              }
+              onChange={(value) =>
                 void update(
-                  { promotion: { ...promotion, mode: value } },
-                  `Set promotion mode to ${value}`,
+                  {
+                    promotion: {
+                      ...promotion,
+                      emailReviewMaxConfidence: value,
+                    },
+                  },
+                  `Email review threshold set to ${value}`,
                 )
               }
-            >
-              <SelectTrigger className="h-8 w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="single-user" className="text-xs">
-                  Single-user
-                </SelectItem>
-                <SelectItem value="conservative" className="text-xs">
-                  Conservative
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            />
           </SettingsRow>
+        )}
+      </SettingsGroup>
 
-          {promotion.mode === "single-user" && (
-            <SettingsRow label="Email review">
+      <SettingsGroup label="Consolidation">
+        <SettingsRow label="Sweep">
+          <Switch
+            checked={consolidation.enabled}
+            aria-label="Consolidation sweep"
+            onCheckedChange={(enabled) =>
+              void update(
+                { consolidation: { ...consolidation, enabled } },
+                `Consolidation ${enabled ? "enabled" : "disabled"}`,
+              )
+            }
+          />
+        </SettingsRow>
+
+        {consolidation.enabled && (
+          <>
+            <SettingsRow label="Auto-apply at">
               <NumericSelect
-                value={promotion.emailReviewMaxConfidence}
-                options={[0.5, 0.7, 0.85, 1]}
+                value={consolidation.autoApplyThreshold}
+                options={[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1]}
                 render={(value) =>
-                  value >= 1
-                    ? "Review all email memories"
-                    : `Review email below ${Math.round(value * 100)}%`
+                  value >= 1 ? "100%" : `${Math.round(value * 100)}%`
                 }
                 onChange={(value) =>
                   void update(
                     {
-                      promotion: {
-                        ...promotion,
-                        emailReviewMaxConfidence: value,
+                      consolidation: {
+                        ...consolidation,
+                        autoApplyThreshold: value,
                       },
                     },
-                    `Email review threshold set to ${value}`,
+                    `Consolidation auto-apply threshold set to ${value}`,
                   )
                 }
               />
             </SettingsRow>
-          )}
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup label="Consolidation">
-        <div className="space-y-6">
-          <SettingsRow label="Sweep">
-            <Select
-              value={consolidation.enabled ? "enabled" : "disabled"}
-              onValueChange={(value) =>
-                void update(
-                  {
-                    consolidation: {
-                      ...consolidation,
-                      enabled: value === "enabled",
+            <SettingsRow label="Batch size">
+              <NumericSelect
+                value={consolidation.batchSize}
+                options={[20, 40, 80]}
+                render={(value) => `${value}`}
+                onChange={(value) =>
+                  void update(
+                    {
+                      consolidation: { ...consolidation, batchSize: value },
                     },
-                  },
-                  `Consolidation ${value}`,
-                )
-              }
-            >
-              <SelectTrigger className="h-8 w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="enabled" className="text-xs">
-                  Enabled
-                </SelectItem>
-                <SelectItem value="disabled" className="text-xs">
-                  Disabled
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </SettingsRow>
-
-          {consolidation.enabled && (
-            <>
-              <SettingsRow label="Auto-apply threshold">
-                <NumericSelect
-                  value={consolidation.autoApplyThreshold}
-                  options={[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1]}
-                  render={(value) =>
-                    value >= 1
-                      ? "Only at 100%"
-                      : `At ${Math.round(value * 100)}% confidence`
-                  }
-                  onChange={(value) =>
-                    void update(
-                      {
-                        consolidation: {
-                          ...consolidation,
-                          autoApplyThreshold: value,
-                        },
-                      },
-                      `Consolidation auto-apply threshold set to ${value}`,
-                    )
-                  }
-                />
-              </SettingsRow>
-              <SettingsRow label="Batch size">
-                <NumericSelect
-                  value={consolidation.batchSize}
-                  options={[20, 40, 80]}
-                  render={(value) => `${value} memories/run`}
-                  onChange={(value) =>
-                    void update(
-                      {
-                        consolidation: { ...consolidation, batchSize: value },
-                      },
-                      `Consolidation batch size set to ${value}`,
-                    )
-                  }
-                />
-              </SettingsRow>
-            </>
-          )}
-        </div>
+                    `Consolidation batch size set to ${value}`,
+                  )
+                }
+              />
+            </SettingsRow>
+          </>
+        )}
       </SettingsGroup>
 
       <SettingsGroup label="State">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
-          <div className="min-w-0">
-            <dt className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Reflection
-            </dt>
-            <dd className="mt-1 truncate font-mono">
+        <Properties>
+          <Property label="Reflection">
+            <span className="font-mono text-xs">
               {settings.reflectionSchedule ?? "manual"}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Insights/day
-            </dt>
-            <dd className="mt-1 tabular-nums">
+            </span>
+          </Property>
+          <Property label="Insights/day">
+            <span className="tabular-nums">
               {settings.proactivity.maxInsightsPerDay}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Autonomy
-            </dt>
-            <dd className="mt-1 truncate font-mono">
+            </span>
+          </Property>
+          <Property label="Autonomy">
+            <span className="font-mono text-xs">
               {settings.maximumActionAutonomy}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Revision
-            </dt>
-            <dd className="mt-1 tabular-nums">
+            </span>
+          </Property>
+          <Property label="Revision">
+            <span className="tabular-nums">
               {settings.revision}
-              <span className="ml-1.5 text-muted-foreground">
+              <span className="ml-2 text-muted-foreground">
                 {formatDate(settings.updatedAt)}
               </span>
-            </dd>
-          </div>
-        </dl>
+            </span>
+          </Property>
+        </Properties>
       </SettingsGroup>
     </>
   );

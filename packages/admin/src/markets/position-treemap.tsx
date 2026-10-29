@@ -151,12 +151,13 @@ export function PositionTreemap({
                   width={Math.max(0, rect.width - 2)}
                   height={Math.max(0, rect.height - 2)}
                   rx={2}
-                  fill={fillFor(tile)}
-                  stroke={
-                    hovered === tile.ticker
-                      ? "currentColor"
-                      : "rgba(127,127,127,0.25)"
-                  }
+                  style={{
+                    fill: fillFor(tile),
+                    stroke:
+                      hovered === tile.ticker
+                        ? "currentColor"
+                        : "var(--border)",
+                  }}
                   // A short is dashed as well as labelled. Colour already
                   // carries the return and cannot also carry the side, and a
                   // short tile shaded green for a gain is exactly the tile that
@@ -217,13 +218,12 @@ export function PositionTreemap({
  */
 function fillFor(tile: Tile): string {
   if (tile.isCash || tile.changePercent === null) {
-    return "rgba(127,127,127,0.18)";
+    return "var(--surface)";
   }
   const intensity = Math.min(Math.abs(tile.changePercent) / 25, 1);
-  const alpha = 0.12 + intensity * 0.5;
-  return tile.changePercent >= 0
-    ? `rgba(22,163,74,${alpha.toFixed(3)})`
-    : `rgba(220,38,38,${alpha.toFixed(3)})`;
+  const mix = (12 + intensity * 50).toFixed(1);
+  const token = tile.changePercent >= 0 ? "--status-good" : "--status-critical";
+  return `color-mix(in oklab, var(${token}) ${mix}%, transparent)`;
 }
 
 /**

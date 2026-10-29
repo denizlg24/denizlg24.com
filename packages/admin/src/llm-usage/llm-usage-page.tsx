@@ -16,12 +16,14 @@ import {
 import { Badge } from "@repo/ui/badge";
 import { type ChartConfig, ChartContainer, ChartTooltip } from "@repo/ui/chart";
 import { SortHeader } from "@repo/ui/data-table";
-import { PageHeader } from "@repo/ui/page-header";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
-import { Separator } from "@repo/ui/separator";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import { TableSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { type FilterOption, FilterTabs } from "@repo/ui/toolbar";
 import type { ColumnDef, PaginationState } from "@tanstack/react-table";
 import { DollarSign } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -115,12 +117,25 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const PERIOD_LABELS: Record<TimePeriod, string> = {
-  allTime: "All Time",
-  last30d: "30 Days",
-  last7d: "7 Days",
-  last24h: "24 Hours",
+const PERIOD_OPTIONS: FilterOption<TimePeriod>[] = [
+  { value: "allTime", label: "All time" },
+  { value: "last30d", label: "30d" },
+  { value: "last7d", label: "7d" },
+  { value: "last24h", label: "24h" },
+];
+
+type Breakdown = "requests" | "providers" | "models" | "sources";
+
+const BREAKDOWN_LABELS: Record<Breakdown, string> = {
+  requests: "Requests",
+  providers: "Providers",
+  models: "Models",
+  sources: "Sources",
 };
+
+const BREAKDOWN_OPTIONS: FilterOption<Breakdown>[] = (
+  Object.keys(BREAKDOWN_LABELS) as Breakdown[]
+).map((value) => ({ value, label: BREAKDOWN_LABELS[value] }));
 
 const RECENT_REQUEST_PAGE_SIZE = 10;
 const PREFETCH_PAGE_COUNT = 3;
@@ -177,7 +192,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
     header: "Provider",
     meta: { className: "hidden lg:table-cell" },
     cell: ({ row }) => (
-      <Badge variant="secondary" className="text-xs">
+      <Badge variant="secondary">
         {formatProvider(getProviderFromModel(row.original.llmModel))}
       </Badge>
     ),
@@ -188,7 +203,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
     header: "Source",
     filterFn: "equalsString",
     cell: ({ row }) => (
-      <Badge variant="outline" className="font-mono text-xs">
+      <Badge variant="outline" className="font-mono">
         {row.getValue("source")}
       </Badge>
     ),
@@ -302,7 +317,7 @@ const providerColumns: ColumnDef<LlmProviderBreakdown>[] = [
     accessorKey: "provider",
     header: "Provider",
     cell: ({ row }) => (
-      <Badge variant="secondary" className="text-xs">
+      <Badge variant="secondary">
         {formatProvider(row.getValue("provider"))}
       </Badge>
     ),
@@ -382,7 +397,7 @@ const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
     accessorKey: "source",
     header: "Source",
     cell: ({ row }) => (
-      <Badge variant="secondary" className="font-mono text-xs">
+      <Badge variant="secondary" className="font-mono">
         {row.getValue("source")}
       </Badge>
     ),
@@ -447,34 +462,37 @@ export function LlmUsageSkeleton() {
   const { slots } = useAdmin();
 
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        {slots?.sidebarTrigger}
-        <DollarSign className="size-4 text-muted-foreground" />
-        <span className="flex-1 text-sm font-semibold">Token Usage</span>
-      </div>
-      <div className="px-4 flex flex-col gap-6 pt-3">
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<DollarSign />}
+        title="Token usage"
+      />
+      <PageToolbar>
         <TabStripSkeleton widths={["w-14", "w-14", "w-12", "w-16"]} />
-        <div className="flex gap-8">
+      </PageToolbar>
+      <PageBody width="wide">
+        <StatGroup>
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex flex-col gap-1">
+            <div key={i} className="flex flex-col gap-1.5">
               <Skeleton className="h-3 w-16" />
               <Skeleton className="h-6 w-20" />
             </div>
           ))}
-        </div>
-        <div className="flex flex-col gap-2 border-t pt-4">
-          <Skeleton className="h-4 w-20" />
+        </StatGroup>
+        <div className="flex flex-col gap-3">
           <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-[230px] w-full" />
+          <Skeleton className="h-48 w-full" />
         </div>
-        <TabStripSkeleton widths={["w-28", "w-20", "w-16", "w-20"]} />
-        <TableSkeleton
-          rows={6}
-          widths={["w-40", "w-20", "w-16", "w-16", "w-16", "w-16", "w-24"]}
-        />
-      </div>
-    </div>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-3 w-24" />
+          <TableSkeleton
+            rows={6}
+            widths={["w-40", "w-20", "w-16", "w-16", "w-16", "w-16", "w-24"]}
+          />
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -484,6 +502,7 @@ export function LlmUsagePage() {
   const [data, setData] = useState<LlmUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("last30d");
+  const [breakdown, setBreakdown] = useState<Breakdown>("requests");
   const [recentRequestPages, setRecentRequestPages] = useState<
     Record<number, LlmRecentRequest[]>
   >({});
@@ -669,22 +688,26 @@ export function LlmUsagePage() {
     [recentRequestPagination.pageSize],
   );
 
+  const header = (
+    <PageHeader
+      leading={slots?.sidebarTrigger}
+      icon={<DollarSign />}
+      title="Token usage"
+    />
+  );
+
   if (loading) {
     return <LlmUsageSkeleton />;
   }
 
   if (!data) {
     return (
-      <div className="flex flex-col gap-2 pb-8">
-        <PageHeader
-          leading={slots?.sidebarTrigger}
-          icon={<DollarSign className="size-4 text-muted-foreground" />}
-          title="Token Usage"
-        />
-        <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
-          Failed to load usage data.
-        </div>
-      </div>
+      <Page>
+        {header}
+        <PageBody>
+          <EmptyState icon={<DollarSign />} label="Usage unavailable" />
+        </PageBody>
+      </Page>
     );
   }
 
@@ -699,136 +722,113 @@ export function LlmUsagePage() {
     recentRequestLoading && currentRecentRequests.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<DollarSign className="size-4 text-muted-foreground" />}
-        title="Token Usage"
-      />
+    <Page>
+      {header}
+      <PageToolbar>
+        <FilterTabs
+          value={period}
+          onChange={setPeriod}
+          options={PERIOD_OPTIONS}
+        />
+      </PageToolbar>
 
-      <div className="flex flex-1 min-h-0 flex-col gap-6 overflow-y-auto px-4 pt-3 pb-8">
-        <Tabs value={period} onValueChange={(v) => setPeriod(v as TimePeriod)}>
-          <TabsList variant="line">
-            {(Object.keys(PERIOD_LABELS) as TimePeriod[]).map((key) => (
-              <TabsTrigger key={key} value={key}>
-                {PERIOD_LABELS[key]}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        <div className="flex items-baseline gap-8 flex-wrap">
+      <PageBody width="wide">
+        <StatGroup>
           <Stat label="Requests" value={stats.totalRequests.toLocaleString()} />
-          <Stat
-            label="Input Tokens"
-            value={formatTokens(stats.totalInputTokens)}
-          />
-          <Stat
-            label="Output Tokens"
-            value={formatTokens(stats.totalOutputTokens)}
-          />
-          <Stat label="Total Cost" value={formatCost(stats.totalCost)} />
-        </div>
+          <Stat label="Input" value={formatTokens(stats.totalInputTokens)} />
+          <Stat label="Output" value={formatTokens(stats.totalOutputTokens)} />
+          <Stat label="Cost" value={formatCost(stats.totalCost)} />
+        </StatGroup>
 
         {data.dailyBreakdown.length > 0 && (
-          <>
-            <Separator />
-            <div>
-              <h3 className="text-sm font-semibold">Daily Cost</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 mb-3">
-                Last 30 days
-              </p>
-              <ChartContainer config={chartConfig} className="h-48 w-full">
-                <AreaChart data={data.dailyBreakdown} accessibilityLayer>
-                  <defs>
-                    <linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="0%"
-                        stopColor="var(--color-cost)"
-                        stopOpacity={0.3}
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="var(--color-cost)"
-                        stopOpacity={0.02}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    tickFormatter={formatDate}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    tickFormatter={(v) => `$${v}`}
-                    width={50}
-                  />
-                  <ChartTooltip
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload as LlmDailyBreakdown;
-                      return (
-                        <div className="rounded-lg border bg-background px-3 py-2 text-xs shadow-xl">
-                          <p className="font-medium mb-1.5">
-                            {formatDate(String(label))}
-                          </p>
-                          <div className="flex flex-col gap-1 text-muted-foreground">
-                            <span>
-                              Cost:{" "}
-                              <span className="text-foreground font-mono tabular-nums">
-                                {formatCost(d.cost)}
-                              </span>
-                            </span>
-                            <span>
-                              Requests:{" "}
-                              <span className="text-foreground font-mono tabular-nums">
-                                {d.requests}
-                              </span>
-                            </span>
-                            <span>
-                              Tokens:{" "}
-                              <span className="text-foreground font-mono tabular-nums">
-                                {formatTokens(d.inputTokens + d.outputTokens)}
-                              </span>
-                            </span>
-                          </div>
+          <Section title="Daily cost · 30d">
+            <ChartContainer config={chartConfig} className="h-48 w-full">
+              <AreaChart data={data.dailyBreakdown} accessibilityLayer>
+                <defs>
+                  <linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor="var(--color-cost)"
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="var(--color-cost)"
+                      stopOpacity={0.02}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={formatDate}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(v) => `$${v}`}
+                  width={50}
+                />
+                <ChartTooltip
+                  content={({ active, payload, label }) => {
+                    const day = payload?.[0]?.payload as
+                      | LlmDailyBreakdown
+                      | undefined;
+                    if (!active || !day) return null;
+                    return (
+                      <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
+                        <p className="mb-1.5 font-medium text-accent-strong">
+                          {formatDate(String(label))}
+                        </p>
+                        <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 text-muted-foreground">
+                          <span>Cost</span>
+                          <span className="text-right tabular-nums text-accent-strong">
+                            {formatCost(day.cost)}
+                          </span>
+                          <span>Requests</span>
+                          <span className="text-right tabular-nums text-accent-strong">
+                            {day.requests}
+                          </span>
+                          <span>Tokens</span>
+                          <span className="text-right tabular-nums text-accent-strong">
+                            {formatTokens(day.inputTokens + day.outputTokens)}
+                          </span>
                         </div>
-                      );
-                    }}
-                  />
-                  <Area
-                    dataKey="cost"
-                    type="monotone"
-                    fill="url(#costFill)"
-                    stroke="var(--color-cost)"
-                    strokeWidth={1.5}
-                  />
-                </AreaChart>
-              </ChartContainer>
-            </div>
-          </>
+                      </div>
+                    );
+                  }}
+                />
+                <Area
+                  dataKey="cost"
+                  type="monotone"
+                  fill="url(#costFill)"
+                  stroke="var(--color-cost)"
+                  strokeWidth={1.5}
+                />
+              </AreaChart>
+            </ChartContainer>
+          </Section>
         )}
 
-        <Separator />
-
-        <Tabs defaultValue="requests" className="flex flex-col gap-2">
-          <TabsList variant="line">
-            <TabsTrigger value="requests">Recent Requests</TabsTrigger>
-            <TabsTrigger value="providers">By Provider</TabsTrigger>
-            <TabsTrigger value="models">By Model</TabsTrigger>
-            <TabsTrigger value="sources">By Source</TabsTrigger>
-          </TabsList>
-          <TabsContent value="requests" className="mt-0">
+        <Section
+          title="Breakdown"
+          actions={
+            <FilterTabs
+              value={breakdown}
+              onChange={setBreakdown}
+              options={BREAKDOWN_OPTIONS}
+            />
+          }
+        >
+          {breakdown === "requests" ? (
             <PaginatedDataTable
               columns={requestColumns}
               data={currentRecentRequests}
-              emptyMessage="No recent requests"
+              emptyMessage="No requests"
               manualPagination={{
                 pageIndex: recentRequestPagination.pageIndex,
                 pageSize: recentRequestPagination.pageSize,
@@ -837,44 +837,30 @@ export function LlmUsagePage() {
                 onPaginationChange: handleRecentRequestPaginationChange,
               }}
             />
-          </TabsContent>
-          <TabsContent value="providers" className="mt-0">
+          ) : breakdown === "providers" ? (
             <PaginatedDataTable
               columns={providerColumns}
               data={providerRows}
-              emptyMessage="No provider usage yet"
-              searchPlaceholder="Search providers..."
+              emptyMessage="No providers"
+              searchPlaceholder="Search providers"
             />
-          </TabsContent>
-          <TabsContent value="models" className="mt-0">
+          ) : breakdown === "models" ? (
             <PaginatedDataTable
               columns={modelColumns}
               data={data.byModel}
-              emptyMessage="No model usage yet"
-              searchPlaceholder="Search models..."
+              emptyMessage="No models"
+              searchPlaceholder="Search models"
             />
-          </TabsContent>
-          <TabsContent value="sources" className="mt-0">
+          ) : (
             <PaginatedDataTable
               columns={sourceColumns}
               data={data.bySource}
-              emptyMessage="No source usage yet"
-              searchPlaceholder="Search sources..."
+              emptyMessage="No sources"
+              searchPlaceholder="Search sources"
             />
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold tabular-nums tracking-tight">
-        {value}
-      </p>
-    </div>
+          )}
+        </Section>
+      </PageBody>
+    </Page>
   );
 }

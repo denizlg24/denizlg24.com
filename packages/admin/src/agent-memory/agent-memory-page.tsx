@@ -31,29 +31,24 @@ import {
   bulkAgentCandidateDecisionResponseSchema,
   generateAgentResourceSuggestionsResponseSchema,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { PageHeader } from "@repo/ui/page-header";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -62,6 +57,9 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { StatusDot } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -70,9 +68,12 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { Textarea } from "@repo/ui/textarea";
+import { type FilterOption, FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
+  Archive,
   BrainCircuit,
   Check,
   ChevronDown,
@@ -82,8 +83,7 @@ import {
   Clock,
   History,
   Link2,
-  List,
-  Loader2,
+  List as ListIcon,
   Orbit,
   Play,
   RefreshCw,
@@ -98,7 +98,13 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { ExploreDock } from "./explore-dock";
@@ -120,62 +126,96 @@ function gateLabel(enabled: boolean): "on" | "off" {
   return enabled ? "on" : "off";
 }
 
-export function AgentMemorySkeleton() {
+type MemoryView = "graph" | "list" | "explore";
+
+type MemorySection =
+  | "inbox"
+  | "memories"
+  | "review"
+  | "suggestions"
+  | "profile"
+  | "goals"
+  | "procedures"
+  | "runs"
+  | "traces";
+
+const VIEW_OPTIONS: FilterOption<MemoryView>[] = [
+  {
+    value: "graph",
+    label: (
+      <>
+        <Orbit className="size-3.5" />
+        Graph
+      </>
+    ),
+  },
+  {
+    value: "list",
+    label: (
+      <>
+        <ListIcon className="size-3.5" />
+        List
+      </>
+    ),
+  },
+  {
+    value: "explore",
+    label: (
+      <>
+        <Terminal className="size-3.5" />
+        Explore
+      </>
+    ),
+  },
+];
+
+const MEMORY_ICON = <BrainCircuit />;
+
+export function AgentMemorySkeleton({
+  view = "graph",
+}: {
+  view?: MemoryView;
+} = {}) {
   const { slots } = useAdmin();
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<BrainCircuit className="size-4 text-muted-foreground" />}
-        title="Agent Memory"
+        icon={MEMORY_ICON}
+        title="Agent memory"
       >
         {/* Disabled to match the live header's first render, which starts in
             the loading state — otherwise hydrating over this skeleton reports
             an attribute mismatch. */}
-        <Button
-          size="icon"
-          variant="ghost"
-          disabled
-          title="Refresh memory data"
-        >
+        <Button size="icon-sm" variant="ghost" disabled aria-label="Refresh">
           <RefreshCw />
         </Button>
       </PageHeader>
-
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <Tabs value={"graph"}>
-          <TabsList className="h-7!">
-            <TabsTrigger
-              value="graph"
-              className="h-5.5 px-2 text-xs"
-              title="Graph view"
-            >
-              <Orbit className="size-3.5" />
-            </TabsTrigger>
-            <TabsTrigger
-              value="list"
-              className="h-5.5 px-2 text-xs"
-              title="List view"
-            >
-              <List className="size-3.5" />
-            </TabsTrigger>
-            <TabsTrigger
-              value="explore"
-              className="h-5.5 px-2 text-xs"
-              title="Explore view"
-            >
-              <Terminal className="size-3.5" />
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        <span className="flex items-center gap-2">
-          <RefreshCw className="size-4 animate-spin" />
-          Loading memory data…
-        </span>
-      </div>
-    </div>
+      <PageToolbar>
+        <FilterTabs
+          value={view}
+          onChange={() => undefined}
+          options={VIEW_OPTIONS}
+        />
+      </PageToolbar>
+      {view === "list" ? (
+        <PageBody width="wide">
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-3 w-24" />
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="flex flex-col gap-1.5 py-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
+        </PageBody>
+      ) : (
+        <PageBody bleed>
+          <EmptyState icon={<Spinner />} label="Loading" className="h-full" />
+        </PageBody>
+      )}
+    </Page>
   );
 }
 
@@ -227,8 +267,8 @@ export function AgentMemoryPage() {
     null,
   );
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
-  const [view, setView] = useState<"graph" | "list" | "explore">("graph");
-  const [section, setSection] = useState("inbox");
+  const [view, setView] = useState<MemoryView>("graph");
+  const [section, setSection] = useState<MemorySection>("inbox");
   const [filters, setFilters] = useState<OverviewQuery>(DEFAULT_OVERVIEW_QUERY);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<
     ReadonlySet<string>
@@ -723,422 +763,359 @@ export function AgentMemoryPage() {
   // Only the list view needs the overview/traces/reflection round trips —
   // never hold the graph (usually prefetched) or the explore dock (fetches
   // per probe) hostage to them.
-  if (loading && view === "list") return <AgentMemorySkeleton />;
+  if (loading && view === "list") return <AgentMemorySkeleton view="list" />;
 
   const selectedTrace = traces.find(
     (trace) => trace.traceId === selectedTraceId,
   );
 
-  const sectionOptions: [value: string, label: string, count?: number][] = [
-    ["inbox", "Inbox", insightStats?.pending],
-    ["memories", "Memories", meta?.totalMemories],
-    ["review", "Review", meta?.totalCandidates],
-    ["suggestions", "Suggestions", suggestionStats?.pending],
-    ["profile", "Profile", undefined],
-    ["goals", "Goals", reflection?.goals.length],
-    ["procedures", "Procedures", reflection?.procedures.length],
-    ["runs", "Runs", reflection?.runs.length],
-    ["traces", "Traces", traces.length],
+  const sectionOptions: FilterOption<MemorySection>[] = [
+    { value: "inbox", label: "Inbox", count: insightStats?.pending },
+    { value: "memories", label: "Memories", count: meta?.totalMemories },
+    { value: "review", label: "Review", count: meta?.totalCandidates },
+    {
+      value: "suggestions",
+      label: "Suggestions",
+      count: suggestionStats?.pending,
+    },
+    { value: "profile", label: "Profile" },
+    { value: "goals", label: "Goals", count: reflection?.goals.length },
+    {
+      value: "procedures",
+      label: "Procedures",
+      count: reflection?.procedures.length,
+    },
+    { value: "runs", label: "Runs", count: reflection?.runs.length },
+    { value: "traces", label: "Traces", count: traces.length },
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<BrainCircuit className="size-4 text-muted-foreground" />}
-        title="Agent Memory"
+        icon={MEMORY_ICON}
+        title="Agent memory"
       >
         <Button
-          size="icon"
+          size="icon-sm"
           variant="ghost"
+          aria-label="Refresh"
           onClick={() => {
             void load(true);
             if (graphRequestedRef.current) void loadGraph({ force: true });
           }}
           disabled={refreshing || loading}
-          title="Refresh memory data"
         >
           <RefreshCw
-            className={refreshing || loading ? "animate-spin" : undefined}
+            className={cn((refreshing || loading) && "animate-spin")}
           />
         </Button>
       </PageHeader>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <Tabs
-          value={view}
-          onValueChange={(value) =>
-            setView(value as "graph" | "list" | "explore")
-          }
-        >
-          <TabsList className="h-7!">
-            <TabsTrigger
-              value="graph"
-              className="h-5.5 px-2 text-xs"
-              title="Graph view"
-            >
-              <Orbit className="size-3.5" />
-            </TabsTrigger>
-            <TabsTrigger
-              value="list"
-              className="h-5.5 px-2 text-xs"
-              title="List view"
-            >
-              <List className="size-3.5" />
-            </TabsTrigger>
-            <TabsTrigger
-              value="explore"
-              className="h-5.5 px-2 text-xs"
-              title="Explore view"
-            >
-              <Terminal className="size-3.5" />
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
+      <PageToolbar>
+        <FilterTabs value={view} onChange={setView} options={VIEW_OPTIONS} />
         {view === "list" ? (
           <>
-            <Select value={section} onValueChange={setSection}>
-              <SelectTrigger className="h-7 w-44 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {sectionOptions.map(([value, label, count]) => (
-                  <SelectItem key={value} value={value} className="text-xs">
-                    {label}
-                    {count !== undefined ? ` · ${count}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {section === "memories" && (
-              <>
-                <Select
-                  value={filters.memoryStatus}
-                  onValueChange={(value) =>
-                    void updateQuery({ memoryStatus: value })
-                  }
-                >
-                  <SelectTrigger className="h-7 w-32 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active" className="text-xs">
-                      Active
-                    </SelectItem>
-                    <SelectItem value="superseded" className="text-xs">
-                      Superseded
-                    </SelectItem>
-                    <SelectItem value="archived" className="text-xs">
-                      Archived
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.memoryType}
-                  onValueChange={(value) =>
-                    void updateQuery({ memoryType: value })
-                  }
-                >
-                  <SelectTrigger className="h-7 w-32 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">
-                      All types
-                    </SelectItem>
-                    <SelectItem value="core" className="text-xs">
-                      Core
-                    </SelectItem>
-                    <SelectItem value="semantic" className="text-xs">
-                      Semantic
-                    </SelectItem>
-                    <SelectItem value="episodic" className="text-xs">
-                      Episodic
-                    </SelectItem>
-                    <SelectItem value="reflection" className="text-xs">
-                      Reflection
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.memorySort}
-                  onValueChange={(value) =>
-                    void updateQuery({ memorySort: value })
-                  }
-                >
-                  <SelectTrigger className="h-7 w-36 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="importance" className="text-xs">
-                      By importance
-                    </SelectItem>
-                    <SelectItem value="confidence" className="text-xs">
-                      By confidence
-                    </SelectItem>
-                    <SelectItem value="recent" className="text-xs">
-                      Most recent
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </>
-            )}
-
-            {section === "review" && (
-              <Select
-                value={filters.candidateSort}
-                onValueChange={(value) =>
-                  void updateQuery({ candidateSort: value })
-                }
-              >
-                <SelectTrigger className="h-7 w-36 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="confidence" className="text-xs">
-                    By confidence
-                  </SelectItem>
-                  <SelectItem value="recent" className="text-xs">
-                    Most recent
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            )}
+            <span aria-hidden className="h-4 w-px bg-border" />
+            <FilterTabs
+              value={section}
+              onChange={setSection}
+              options={sectionOptions}
+              className="flex-wrap"
+            />
           </>
-        ) : (
-          view === "graph" &&
-          graph && (
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {graph.nodes.length} nodes · {graph.links.length} links ·{" "}
-              {graph.embeddedCount} embedded
-            </span>
-          )
-        )}
+        ) : view === "graph" && graph ? (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {graph.nodes.length} nodes · {graph.links.length} links ·{" "}
+            {graph.embeddedCount} embedded
+          </span>
+        ) : null}
+        <ToolbarSpacer />
+        {settings && <GateDots settings={settings} />}
+      </PageToolbar>
 
-        <div className="ml-auto">
-          {settings && <GateDots settings={settings} />}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {view === "graph" ? (
-          graph ? (
+      {view === "graph" ? (
+        <PageBody bleed>
+          {graph ? (
             <MemoryGraph
               nodes={graph.nodes}
               links={graph.links}
               onSelectMemory={openMemory}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {graphLoading ? (
-                <span className="flex items-center gap-2">
-                  <RefreshCw className="size-4 animate-spin" />
-                  Building memory graph…
-                </span>
-              ) : (
-                <Button variant="ghost" onClick={() => void loadGraph()}>
-                  Load memory graph
-                </Button>
-              )}
-            </div>
-          )
-        ) : view === "explore" ? (
+            <EmptyState
+              className="h-full"
+              icon={graphLoading ? <Spinner /> : <Orbit />}
+              label={graphLoading ? "Building graph" : "No graph"}
+              action={
+                graphLoading ? undefined : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void loadGraph()}
+                  >
+                    Load
+                  </Button>
+                )
+              }
+            />
+          )}
+        </PageBody>
+      ) : view === "explore" ? (
+        <PageBody bleed>
           <ExploreDock onSelect={(memory) => openMemory(memory.id)} />
-        ) : (
-          <div className="h-full overflow-y-auto px-4 pt-3 pb-8">
-            {section === "inbox" && (
-              <>
-                <InsightInbox
-                  insights={insights}
-                  proactivityEnabled={
-                    settings?.releaseGates.proactivity ?? false
-                  }
-                  onAct={actOnInsight}
-                />
-                <ContradictionPanel
-                  onSelectMemory={(memory) => openMemory(memory.id)}
-                  refreshGen={contradictionRefreshGen}
-                />
-              </>
-            )}
-
-            {section === "memories" && (
-              <>
-                <MemoryTable
-                  memories={memories}
-                  onSelect={(memory) => openMemory(memory.id)}
-                />
-                {meta && (
-                  <PageFooter
-                    page={memoryTrailRef.current.length + 1}
-                    pageSize={meta.pageSize}
-                    total={meta.totalMemories}
-                    label="memories"
-                    hasNext={meta.nextMemoryCursor !== null}
-                    onTurn={(direction) => turnPage("memory", direction)}
-                  />
-                )}
-              </>
-            )}
-
-            {section === "review" && (
-              <>
-                {selectedCandidateIds.size > 0 && (
-                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="tabular-nums text-muted-foreground">
-                      {selectedCandidateIds.size} selected
-                    </span>
-                    <Button
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={bulkDeciding !== null}
-                      onClick={() => void decideSelected("accept")}
-                    >
-                      {bulkDeciding === "accept" ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Check className="size-3.5" />
-                      )}
-                      Accept selected
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      disabled={bulkDeciding !== null}
-                      onClick={() => void decideSelected("dismiss")}
-                    >
-                      {bulkDeciding === "dismiss" ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <X className="size-3.5" />
-                      )}
-                      Dismiss selected
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs"
-                      disabled={bulkDeciding !== null}
-                      onClick={() => setSelectedCandidateIds(new Set())}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                )}
-                <CandidateTable
-                  candidates={candidates}
-                  selected={selectedCandidateIds}
-                  disabled={bulkDeciding !== null}
-                  onToggle={toggleCandidate}
-                  onTogglePage={togglePageSelection}
-                  onDecide={decideCandidate}
-                />
-                {meta && (
-                  <PageFooter
-                    page={candidateTrailRef.current.length + 1}
-                    pageSize={meta.pageSize}
-                    total={meta.totalCandidates}
-                    label="candidates"
-                    hasNext={meta.nextCandidateCursor !== null}
-                    onTurn={(direction) => turnPage("candidate", direction)}
-                  />
-                )}
-              </>
-            )}
-
-            {section === "suggestions" && (
-              <ResourceSuggestionInbox
-                suggestions={suggestions}
-                generating={generatingSuggestions}
-                onGenerate={generateSuggestions}
-                onDecide={decideSuggestion}
-                onSplitMemory={splitSuggestionMemory}
+        </PageBody>
+      ) : (
+        <PageBody width="wide">
+          {section === "inbox" && (
+            <>
+              <InsightInbox
+                insights={insights}
+                proactivityEnabled={settings?.releaseGates.proactivity ?? false}
+                onAct={actOnInsight}
+              />
+              <ContradictionPanel
                 onSelectMemory={(memory) => openMemory(memory.id)}
+                refreshGen={contradictionRefreshGen}
               />
-            )}
+            </>
+          )}
 
-            {section === "profile" && (
-              <ProfilePanel
-                model={reflection?.userModel ?? null}
-                revisions={reflection?.revisions ?? []}
-                running={runningReflection}
-                rollingBackRevision={rollingBackRevision}
-                onRun={runReflection}
-                onRollback={rollbackProjection}
+          {section === "memories" && (
+            <Section
+              title="Memories"
+              count={meta?.totalMemories}
+              actions={
+                <>
+                  <Select
+                    value={filters.memoryStatus}
+                    onValueChange={(value) =>
+                      void updateQuery({ memoryStatus: value })
+                    }
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="w-32"
+                      aria-label="Status"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="superseded">Superseded</SelectItem>
+                      <SelectItem value="archived">Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={filters.memoryType}
+                    onValueChange={(value) =>
+                      void updateQuery({ memoryType: value })
+                    }
+                  >
+                    <SelectTrigger size="sm" className="w-32" aria-label="Type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All types</SelectItem>
+                      <SelectItem value="core">Core</SelectItem>
+                      <SelectItem value="semantic">Semantic</SelectItem>
+                      <SelectItem value="episodic">Episodic</SelectItem>
+                      <SelectItem value="reflection">Reflection</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={filters.memorySort}
+                    onValueChange={(value) =>
+                      void updateQuery({ memorySort: value })
+                    }
+                  >
+                    <SelectTrigger size="sm" className="w-36" aria-label="Sort">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="importance">By importance</SelectItem>
+                      <SelectItem value="confidence">By confidence</SelectItem>
+                      <SelectItem value="recent">Most recent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              }
+            >
+              <MemoryTable
+                memories={memories}
+                onSelect={(memory) => openMemory(memory.id)}
               />
-            )}
+              {meta && meta.totalMemories > 0 && (
+                <PageFooter
+                  page={memoryTrailRef.current.length + 1}
+                  pageSize={meta.pageSize}
+                  total={meta.totalMemories}
+                  hasNext={meta.nextMemoryCursor !== null}
+                  onTurn={(direction) => turnPage("memory", direction)}
+                />
+              )}
+            </Section>
+          )}
 
-            {section === "goals" && (
-              <GoalTable goals={reflection?.goals ?? []} />
-            )}
-
-            {section === "procedures" && (
-              <ProcedureTable
-                procedures={reflection?.procedures ?? []}
-                onDeleted={() => void load(true)}
+          {section === "review" && (
+            <Section
+              title="Candidates"
+              count={meta?.totalCandidates}
+              actions={
+                <>
+                  {selectedCandidateIds.size > 0 && (
+                    <>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {selectedCandidateIds.size} selected
+                      </span>
+                      <Button
+                        size="sm"
+                        disabled={bulkDeciding !== null}
+                        onClick={() => void decideSelected("accept")}
+                      >
+                        {bulkDeciding === "accept" ? <Spinner /> : <Check />}
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={bulkDeciding !== null}
+                        onClick={() => void decideSelected("dismiss")}
+                      >
+                        {bulkDeciding === "dismiss" ? <Spinner /> : <X />}
+                        Dismiss
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={bulkDeciding !== null}
+                        onClick={() => setSelectedCandidateIds(new Set())}
+                      >
+                        Clear
+                      </Button>
+                    </>
+                  )}
+                  <Select
+                    value={filters.candidateSort}
+                    onValueChange={(value) =>
+                      void updateQuery({ candidateSort: value })
+                    }
+                  >
+                    <SelectTrigger size="sm" className="w-36" aria-label="Sort">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="confidence">By confidence</SelectItem>
+                      <SelectItem value="recent">Most recent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              }
+            >
+              <CandidateTable
+                candidates={candidates}
+                selected={selectedCandidateIds}
+                disabled={bulkDeciding !== null}
+                onToggle={toggleCandidate}
+                onTogglePage={togglePageSelection}
+                onDecide={decideCandidate}
               />
-            )}
+              {meta && meta.totalCandidates > 0 && (
+                <PageFooter
+                  page={candidateTrailRef.current.length + 1}
+                  pageSize={meta.pageSize}
+                  total={meta.totalCandidates}
+                  hasNext={meta.nextCandidateCursor !== null}
+                  onTurn={(direction) => turnPage("candidate", direction)}
+                />
+              )}
+            </Section>
+          )}
 
-            {section === "runs" && <RunTable runs={reflection?.runs ?? []} />}
+          {section === "suggestions" && (
+            <ResourceSuggestionInbox
+              suggestions={suggestions}
+              generating={generatingSuggestions}
+              onGenerate={generateSuggestions}
+              onDecide={decideSuggestion}
+              onSplitMemory={splitSuggestionMemory}
+              onSelectMemory={(memory) => openMemory(memory.id)}
+            />
+          )}
 
-            {section === "traces" && (
-              <TraceExplorer
-                traces={traces}
-                selected={selectedTrace}
-                onSelect={setSelectedTraceId}
-              />
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+          {section === "profile" && (
+            <ProfilePanel
+              model={reflection?.userModel ?? null}
+              revisions={reflection?.revisions ?? []}
+              running={runningReflection}
+              rollingBackRevision={rollingBackRevision}
+              onRun={runReflection}
+              onRollback={rollbackProjection}
+            />
+          )}
+
+          {section === "goals" && <GoalTable goals={reflection?.goals ?? []} />}
+
+          {section === "procedures" && (
+            <ProcedureTable
+              procedures={reflection?.procedures ?? []}
+              onDeleted={() => void load(true)}
+            />
+          )}
+
+          {section === "runs" && <RunTable runs={reflection?.runs ?? []} />}
+
+          {section === "traces" && (
+            <TraceExplorer
+              traces={traces}
+              selected={selectedTrace}
+              onSelect={setSelectedTraceId}
+            />
+          )}
+        </PageBody>
+      )}
+    </Page>
   );
 }
 
+/** Cursor pagination: the API only walks forward, so the trail rewinds. */
 function PageFooter({
   page,
   pageSize,
   total,
-  label,
   hasNext,
   onTurn,
 }: {
   page: number;
   pageSize: number;
   total: number;
-  label: string;
   hasNext: boolean;
   onTurn: (direction: 1 | -1) => void;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="flex items-center justify-between gap-3 py-2">
+    <div className="flex items-center justify-end gap-2">
       <span className="text-xs tabular-nums text-muted-foreground">
-        {total} {label} · page {page} of {totalPages}
+        {page} / {totalPages}
       </span>
-      <div className="flex gap-1">
-        <Button
-          size="icon"
-          variant="ghost"
-          title="Previous page"
-          disabled={page <= 1}
-          onClick={() => onTurn(-1)}
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          title="Next page"
-          disabled={!hasNext}
-          onClick={() => onTurn(1)}
-        >
-          <ChevronRight />
-        </Button>
-      </div>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label="Previous page"
+        disabled={page <= 1}
+        onClick={() => onTurn(-1)}
+      >
+        <ChevronLeft />
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label="Next page"
+        disabled={!hasNext}
+        onClick={() => onTurn(1)}
+      >
+        <ChevronRight />
+      </Button>
     </div>
   );
 }
@@ -1154,17 +1131,17 @@ function GateDots({ settings }: { settings: AgentMemorySettings }) {
   ] as const;
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
         Gates
       </span>
       {gates.map(([key, label, enabled]) => (
-        <span
-          key={key}
-          title={`Gate ${key} ${label}: ${gateLabel(enabled)}`}
-          className={`inline-block size-1.5 rounded-full ${
-            enabled ? "bg-emerald-600" : "bg-muted-foreground/30"
-          }`}
-        />
+        <span key={key} title={`${key} ${label}: ${gateLabel(enabled)}`}>
+          <StatusDot
+            tone={enabled ? "good" : "muted"}
+            label={`Gate ${key} ${label} ${gateLabel(enabled)}`}
+            className="size-1.5"
+          />
+        </span>
       ))}
     </div>
   );
@@ -1193,17 +1170,6 @@ function InsightInbox({
   const visible = insights.filter(
     (insight) => insight.category !== "memory-contradiction",
   );
-  if (visible.length === 0) {
-    return (
-      <EmptyRow
-        text={
-          proactivityEnabled
-            ? "No insights yet — the next sweep will fill the inbox"
-            : "Proactivity (Gate F) is disabled"
-        }
-      />
-    );
-  }
   const ordered = [...visible].sort((left, right) => {
     const leftOpen = left.status === "pending" ? 0 : 1;
     const rightOpen = right.status === "pending" ? 0 : 1;
@@ -1211,79 +1177,121 @@ function InsightInbox({
     return right.createdAt.localeCompare(left.createdAt);
   });
   return (
-    <div className="divide-y border-y">
-      {!proactivityEnabled && (
-        <p className="py-2 text-xs text-muted-foreground">
-          Proactivity (Gate F) is disabled — no new insights are generated.
-        </p>
+    <Section
+      title="Insights"
+      count={visible.length}
+      actions={
+        proactivityEnabled ? undefined : (
+          <Badge variant="secondary">Gate F off</Badge>
+        )
+      }
+    >
+      {ordered.length === 0 ? (
+        <EmptyState compact label="No insights" />
+      ) : (
+        <List divided>
+          {ordered.map((insight) => {
+            const actionable = ACTIONABLE_INSIGHT_STATUSES.has(insight.status);
+            return (
+              <div
+                key={insight.id}
+                role="listitem"
+                className="flex min-w-0 items-start gap-3 py-3"
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-accent-strong">
+                      {insight.title}
+                    </span>
+                    <Badge variant="outline">{insight.category}</Badge>
+                    {insight.delivery === "silent-draft" && (
+                      <Badge variant="secondary">draft</Badge>
+                    )}
+                    {insight.status !== "pending" && (
+                      <Badge variant="secondary">{insight.status}</Badge>
+                    )}
+                  </div>
+                  <p className="whitespace-pre-line text-sm">{insight.body}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {insight.reason}
+                  </p>
+                  <p className="flex flex-wrap gap-x-3 text-xs tabular-nums text-muted-foreground">
+                    <span>{formatDate(insight.createdAt)}</span>
+                    <span>expires {formatDate(insight.expiresAt)}</span>
+                    <span>urgency {percent(insight.urgency)}</span>
+                    <span>confidence {percent(insight.confidence)}</span>
+                    <span>evidence {insight.triggerEvidenceIds.length}</span>
+                    {insight.snoozedUntil && insight.status === "snoozed" && (
+                      <span>
+                        snoozed until {formatDate(insight.snoozedUntil)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                {actionable && (
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Useful"
+                      onClick={() => onAct(insight, "useful")}
+                    >
+                      <ThumbsUp />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Snooze 1d"
+                      onClick={() => onAct(insight, "snooze")}
+                    >
+                      <Clock />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Dismiss"
+                      onClick={() => onAct(insight, "dismiss")}
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </List>
       )}
-      {ordered.map((insight) => {
-        const actionable = ACTIONABLE_INSIGHT_STATUSES.has(insight.status);
-        return (
-          <div key={insight.id} className="flex min-w-0 items-start gap-3 py-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium">{insight.title}</span>
-                <Badge variant="outline">{insight.category}</Badge>
-                {insight.delivery === "silent-draft" && (
-                  <Badge variant="secondary">draft</Badge>
-                )}
-                {insight.status !== "pending" && (
-                  <Badge variant="secondary">{insight.status}</Badge>
-                )}
-              </div>
-              <p className="mt-1 whitespace-pre-line text-sm">{insight.body}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {insight.reason}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {formatDate(insight.createdAt)} / expires{" "}
-                {formatDate(insight.expiresAt)} / urgency{" "}
-                <span className="tabular-nums">{percent(insight.urgency)}</span>{" "}
-                / confidence{" "}
-                <span className="tabular-nums">
-                  {percent(insight.confidence)}
-                </span>{" "}
-                / evidence{" "}
-                <span className="tabular-nums">
-                  {insight.triggerEvidenceIds.length}
-                </span>
-                {insight.snoozedUntil &&
-                  insight.status === "snoozed" &&
-                  ` / snoozed until ${formatDate(insight.snoozedUntil)}`}
-              </p>
-            </div>
-            {actionable && (
-              <div className="flex shrink-0 gap-1">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  title="Mark insight as useful"
-                  onClick={() => onAct(insight, "useful")}
-                >
-                  <ThumbsUp />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  title="Snooze insight for a day"
-                  onClick={() => onAct(insight, "snooze")}
-                >
-                  <Clock />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  title="Dismiss insight"
-                  onClick={() => onAct(insight, "dismiss")}
-                >
-                  <X />
-                </Button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+    </Section>
+  );
+}
+
+function ContradictionLine({
+  memory,
+  primary = false,
+  onOpen,
+  children,
+}: {
+  memory: AgentMemory;
+  primary?: boolean;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn(
+          "min-w-0 flex-1 break-words text-left text-sm transition-colors hover:text-accent-strong hover:underline",
+          primary ? "font-medium text-accent-strong" : "text-foreground",
+        )}
+      >
+        {memory.statement}
+      </button>
+      <span className="shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+        {percent(memory.confidence)}
+      </span>
+      {children}
     </div>
   );
 }
@@ -1373,125 +1381,92 @@ function ContradictionPanel({
     }
   };
 
+  const archiveButton = (memory: AgentMemory) => (
+    <Button
+      size="xs"
+      variant="ghost"
+      className="shrink-0"
+      disabled={resolvingId !== null}
+      onClick={() => void archive(memory)}
+    >
+      {resolvingId === memory.id ? <Spinner /> : <Archive />}
+      Archive
+    </Button>
+  );
+
   return (
-    <div className="mt-8">
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
-        Memory contradictions
-      </h3>
-      <p className="mb-2 mt-1 text-xs text-muted-foreground">
-        Every active memory below conflicts with the records listed under it.
-        Open a statement for full detail, archive the outdated side, or mark the
-        pair as not a conflict when both statements are true.
-      </p>
+    <Section title="Contradictions" count={data?.total}>
       {loading && !data ? (
-        <div className="space-y-2 border-y py-3">
+        <div className="flex flex-col gap-2 py-1">
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-4 w-1/2" />
           <Skeleton className="h-4 w-2/3" />
         </div>
       ) : error ? (
-        <p className="border-y py-3 text-sm text-destructive">
+        <p className="py-2 text-sm text-destructive">
           Failed to load contradictions
         </p>
       ) : !data || data.total === 0 ? (
-        <p className="border-y py-3 text-sm text-muted-foreground">
-          No unresolved memory contradictions
-        </p>
+        <EmptyState compact label="No contradictions" />
       ) : (
         <>
-          <div className="divide-y border-y">
+          <List divided>
             {data.groups.map((group) => (
-              <div key={group.memory.id} className="py-3">
-                <div className="flex min-w-0 items-start gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSelectMemory(group.memory)}
-                    className="min-w-0 flex-1 break-words text-left text-sm font-medium hover:underline"
-                  >
-                    {group.memory.statement}
-                  </button>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {percent(group.memory.confidence)}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 shrink-0 px-2 text-xs"
-                    disabled={resolvingId !== null}
-                    onClick={() => void archive(group.memory)}
-                  >
-                    {resolvingId === group.memory.id ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      "Archive"
-                    )}
-                  </Button>
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  updated {formatDate(group.memory.updatedAt)} · conflicts with{" "}
-                  <span className="tabular-nums">{group.conflicts.length}</span>{" "}
-                  active record(s)
+              <div
+                key={group.memory.id}
+                role="listitem"
+                className="flex flex-col gap-2 py-3"
+              >
+                <ContradictionLine
+                  memory={group.memory}
+                  primary
+                  onOpen={() => onSelectMemory(group.memory)}
+                >
+                  {archiveButton(group.memory)}
+                </ContradictionLine>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  updated {formatDate(group.memory.updatedAt)} ·{" "}
+                  {group.conflicts.length}{" "}
+                  {group.conflicts.length === 1 ? "conflict" : "conflicts"}
                 </p>
-                <div className="mt-2 space-y-2 border-l-2 pl-3">
+                <div className="flex flex-col gap-1.5 border-l pl-3">
                   {group.conflicts.map((conflict) => (
-                    <div
+                    <ContradictionLine
                       key={conflict.id}
-                      className="flex min-w-0 items-start gap-2"
+                      memory={conflict}
+                      onOpen={() => onSelectMemory(conflict)}
                     >
-                      <button
-                        type="button"
-                        onClick={() => onSelectMemory(conflict)}
-                        className="min-w-0 flex-1 break-words text-left text-sm hover:underline"
-                      >
-                        {conflict.statement}
-                      </button>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {percent(conflict.confidence)}
-                      </span>
                       <Button
-                        size="sm"
+                        size="xs"
                         variant="ghost"
-                        className="h-6 shrink-0 px-2 text-xs"
+                        className="shrink-0"
                         disabled={resolvingId !== null}
-                        title="Both statements are true — remove the contradiction link"
                         onClick={() => void resolveLink(group.memory, conflict)}
                       >
                         {resolvingId === `${group.memory.id}:${conflict.id}` ? (
-                          <Loader2 className="size-3 animate-spin" />
+                          <Spinner />
                         ) : (
-                          "Not a conflict"
+                          <Link2 />
                         )}
+                        Not a conflict
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 shrink-0 px-2 text-xs"
-                        disabled={resolvingId !== null}
-                        onClick={() => void archive(conflict)}
-                      >
-                        {resolvingId === conflict.id ? (
-                          <Loader2 className="size-3 animate-spin" />
-                        ) : (
-                          "Archive"
-                        )}
-                      </Button>
-                    </div>
+                      {archiveButton(conflict)}
+                    </ContradictionLine>
                   ))}
                 </div>
               </div>
             ))}
-          </div>
+          </List>
           <PageFooter
             page={data.page}
             pageSize={data.pageSize}
             total={data.total}
-            label="contradictions"
             hasNext={data.page < Math.ceil(data.total / data.pageSize)}
             onTurn={(direction) => setPage(data.page + direction)}
           />
         </>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -1502,46 +1477,50 @@ function MemoryTable({
   memories: AgentMemory[];
   onSelect: (memory: AgentMemory) => void;
 }) {
-  if (memories.length === 0) return <EmptyRow text="No active memories" />;
+  if (memories.length === 0) return <EmptyState compact label="No memories" />;
   return (
-    <div className="overflow-x-auto border-y">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Statement</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Trust</TableHead>
-            <TableHead className="text-right">Confidence</TableHead>
-            <TableHead className="text-right">Evidence</TableHead>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Statement</TableHead>
+          <TableHead>Type</TableHead>
+          <TableHead className="hidden md:table-cell">Trust</TableHead>
+          <TableHead className="text-right">Confidence</TableHead>
+          <TableHead className="hidden text-right md:table-cell">
+            Evidence
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {memories.map((memory) => (
+          <TableRow
+            key={memory.id}
+            className="cursor-pointer"
+            tabIndex={0}
+            onClick={() => onSelect(memory)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onSelect(memory);
+            }}
+          >
+            <TableCell className="max-w-xl whitespace-normal text-accent-strong">
+              <p className="line-clamp-2">{memory.statement}</p>
+            </TableCell>
+            <TableCell>
+              <Badge variant="outline">{memory.memoryType}</Badge>
+            </TableCell>
+            <TableCell className="hidden text-muted-foreground md:table-cell">
+              {memory.trust}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {percent(memory.confidence)}
+            </TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">
+              {memory.evidenceIds.length}
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {memories.map((memory) => (
-            <TableRow
-              key={memory.id}
-              className="cursor-pointer"
-              onClick={() => onSelect(memory)}
-            >
-              <TableCell className="max-w-xl whitespace-normal font-medium">
-                <p className="line-clamp-2">{memory.statement}</p>
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline">{memory.memoryType}</Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {memory.trust}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {percent(memory.confidence)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {memory.evidenceIds.length}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -1564,85 +1543,85 @@ function CandidateTable({
   ) => void;
 }) {
   if (candidates.length === 0)
-    return <EmptyRow text="No candidates awaiting review" />;
+    return <EmptyState compact label="No candidates" />;
   const allSelected = candidates.every((candidate) =>
     selected.has(candidate.id),
   );
   return (
-    <div className="overflow-x-auto border-y">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-10">
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-10">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(checked) => onTogglePage(checked === true)}
+              aria-label="Select page"
+              disabled={disabled}
+            />
+          </TableHead>
+          <TableHead>Proposal</TableHead>
+          <TableHead className="hidden md:table-cell">Reason</TableHead>
+          <TableHead className="hidden lg:table-cell">Flags</TableHead>
+          <TableHead className="w-20">
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {candidates.map((candidate) => (
+          <TableRow
+            key={candidate.id}
+            data-state={selected.has(candidate.id) ? "selected" : undefined}
+          >
+            <TableCell>
               <Checkbox
-                checked={allSelected}
-                onCheckedChange={(checked) => onTogglePage(checked === true)}
-                aria-label="Select all candidates on this page"
+                checked={selected.has(candidate.id)}
+                onCheckedChange={() => onToggle(candidate.id)}
+                aria-label="Select candidate"
                 disabled={disabled}
               />
-            </TableHead>
-            <TableHead>Proposal</TableHead>
-            <TableHead>Reason</TableHead>
-            <TableHead>Flags</TableHead>
-            <TableHead className="w-24 text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {candidates.map((candidate) => (
-            <TableRow
-              key={candidate.id}
-              data-state={selected.has(candidate.id) ? "selected" : undefined}
-            >
-              <TableCell>
-                <Checkbox
-                  checked={selected.has(candidate.id)}
-                  onCheckedChange={() => onToggle(candidate.id)}
-                  aria-label="Select candidate"
+            </TableCell>
+            <TableCell className="max-w-lg whitespace-normal text-accent-strong">
+              <p className="line-clamp-2">{candidate.statement}</p>
+            </TableCell>
+            <TableCell className="hidden max-w-sm whitespace-normal text-muted-foreground md:table-cell">
+              <p className="line-clamp-2">{candidate.reason}</p>
+            </TableCell>
+            <TableCell className="hidden lg:table-cell">
+              <div className="flex flex-wrap gap-1">
+                {candidate.reviewFlags.map((flag) => (
+                  <Badge key={flag} variant="secondary">
+                    {flag}
+                  </Badge>
+                ))}
+              </div>
+            </TableCell>
+            <TableCell>
+              <div className="flex justify-end gap-0.5">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Accept"
                   disabled={disabled}
-                />
-              </TableCell>
-              <TableCell className="max-w-lg whitespace-normal font-medium">
-                <p className="line-clamp-2">{candidate.statement}</p>
-              </TableCell>
-              <TableCell className="max-w-sm whitespace-normal text-muted-foreground">
-                <p className="line-clamp-2">{candidate.reason}</p>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {candidate.reviewFlags.map((flag) => (
-                    <Badge key={flag} variant="secondary">
-                      {flag}
-                    </Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex justify-end gap-1">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title="Accept candidate"
-                    disabled={disabled}
-                    onClick={() => onDecide(candidate, "accept")}
-                  >
-                    <Check />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title="Dismiss candidate"
-                    disabled={disabled}
-                    onClick={() => onDecide(candidate, "dismiss")}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+                  onClick={() => onDecide(candidate, "accept")}
+                >
+                  <Check />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Dismiss"
+                  disabled={disabled}
+                  onClick={() => onDecide(candidate, "dismiss")}
+                >
+                  <X />
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -1661,158 +1640,159 @@ function ProfilePanel({
   onRun: () => void;
   onRollback: (revision: number) => void;
 }) {
+  const sections = model
+    ? Object.entries(model.sections).filter(([, chunks]) => chunks.length > 0)
+    : [];
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-        <div>
-          <p className="text-sm font-medium">
-            {model
-              ? `Projection revision ${model.revision}`
-              : "No projection yet"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {model
-              ? `Generated ${formatDate(model.generatedAt)}`
-              : "Run reflection to build the evidence-backed profile."}
-          </p>
-        </div>
-        <Button size="sm" onClick={onRun} disabled={running}>
-          {running ? <RefreshCw className="animate-spin" /> : <Play />}
-          Run reflection
-        </Button>
-      </div>
-
-      {model ? (
-        <div className="divide-y border-y">
-          {Object.entries(model.sections)
-            .filter(([, chunks]) => chunks.length > 0)
-            .map(([section, chunks]) => (
-              <section key={section} className="py-4">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-medium">{section}</h3>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {chunks.length}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {chunks.map((chunk) => (
-                    <div
-                      key={chunk.key}
-                      className="grid gap-1 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
-                    >
-                      <p className="min-w-0 break-words">{chunk.statement}</p>
-                      <span className="text-xs text-muted-foreground">
-                        {chunk.explicitness} / {percent(chunk.confidence)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
-        </div>
-      ) : (
-        <EmptyRow text="No derived profile" />
-      )}
-
-      <div>
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <History className="size-4 text-muted-foreground" />
-          Revision history
-        </div>
-        {revisions.length === 0 ? (
-          <EmptyRow text="No profile revisions" />
+    <>
+      <Section
+        title="Profile"
+        actions={
+          <Button size="sm" onClick={onRun} disabled={running}>
+            {running ? <Spinner /> : <Play />}
+            Run reflection
+          </Button>
+        }
+      >
+        {model ? (
+          <Properties>
+            <Property label="Revision">
+              <span className="tabular-nums">{model.revision}</span>
+            </Property>
+            <Property label="Generated">
+              {formatDate(model.generatedAt)}
+            </Property>
+          </Properties>
         ) : (
-          <div className="divide-y border-y">
+          <EmptyState compact label="No projection" />
+        )}
+      </Section>
+
+      {sections.map(([section, chunks]) => (
+        <Section key={section} title={section} count={chunks.length}>
+          <div className="flex flex-col gap-2">
+            {chunks.map((chunk) => (
+              <div
+                key={chunk.key}
+                className="grid gap-1 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <p className="min-w-0 break-words">{chunk.statement}</p>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {chunk.explicitness} · {percent(chunk.confidence)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      ))}
+
+      <Section title="Revisions" count={revisions.length}>
+        {revisions.length === 0 ? (
+          <EmptyState compact icon={<History />} label="No revisions" />
+        ) : (
+          <List divided>
             {revisions.map((revision) => {
               const isCurrent = revision.revision === model?.revision;
               return (
-                <div
+                <ListRow
                   key={revision.id}
-                  className="flex min-w-0 items-center gap-3 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium">
-                        Revision {revision.revision}
-                      </span>
+                  className="mx-0"
+                  title={`Revision ${revision.revision}`}
+                  description={
+                    <span title={revision.reason}>
+                      {formatDate(revision.createdAt)} · +{revision.chunksAdded}{" "}
+                      / −{revision.chunksRemoved} · {revision.reason}
+                    </span>
+                  }
+                  meta={
+                    <>
                       <Badge variant="outline">{revision.createdBy}</Badge>
                       {isCurrent && <Badge variant="secondary">current</Badge>}
-                    </div>
-                    <p
-                      className="truncate text-xs text-muted-foreground"
-                      title={revision.reason}
-                    >
-                      {formatDate(revision.createdAt)} / +{revision.chunksAdded}{" "}
-                      / -{revision.chunksRemoved} / {revision.reason}
-                    </p>
-                  </div>
-                  {!isCurrent && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title={`Restore revision ${revision.revision}`}
-                      onClick={() => onRollback(revision.revision)}
-                      disabled={rollingBackRevision !== null}
-                    >
-                      <Undo2
-                        className={
-                          rollingBackRevision === revision.revision
-                            ? "animate-pulse"
-                            : undefined
-                        }
-                      />
-                    </Button>
-                  )}
-                </div>
+                    </>
+                  }
+                  trailing={
+                    isCurrent ? undefined : (
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Restore revision ${revision.revision}`}
+                        onClick={() => onRollback(revision.revision)}
+                        disabled={rollingBackRevision !== null}
+                      >
+                        {rollingBackRevision === revision.revision ? (
+                          <Spinner />
+                        ) : (
+                          <Undo2 />
+                        )}
+                      </Button>
+                    )
+                  }
+                />
               );
             })}
-          </div>
+          </List>
         )}
-      </div>
-    </div>
+      </Section>
+    </>
   );
 }
 
+const goalColumns: ColumnDef<AgentGoal>[] = [
+  {
+    accessorKey: "title",
+    header: "Goal",
+    cell: ({ row }) => (
+      <div className="max-w-xl whitespace-normal">
+        <p className="text-accent-strong">{row.original.title}</p>
+        {row.original.description && (
+          <p className="text-xs text-muted-foreground">
+            {row.original.description}
+          </p>
+        )}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "kind",
+    header: "Kind",
+    meta: { className: "hidden md:table-cell" },
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">{row.original.kind}</span>
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => <Badge variant="outline">{row.original.status}</Badge>,
+  },
+  {
+    accessorKey: "targetUntil",
+    header: "Target",
+    meta: { className: "hidden md:table-cell" },
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {row.original.targetUntil ? formatDate(row.original.targetUntil) : "—"}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "revision",
+    header: () => <div className="text-right">Rev</div>,
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">{row.original.revision}</div>
+    ),
+  },
+];
+
 function GoalTable({ goals }: { goals: AgentGoal[] }) {
-  if (goals.length === 0) return <EmptyRow text="No tracked goals" />;
   return (
-    <div className="overflow-x-auto border-y">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Goal</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Target</TableHead>
-            <TableHead className="text-right">Revision</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {goals.map((goal) => (
-            <TableRow key={goal.id}>
-              <TableCell className="max-w-xl whitespace-normal">
-                <p className="font-medium">{goal.title}</p>
-                {goal.description && (
-                  <p className="text-xs text-muted-foreground">
-                    {goal.description}
-                  </p>
-                )}
-              </TableCell>
-              <TableCell>{goal.kind}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{goal.status}</Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {goal.targetUntil ? formatDate(goal.targetUntil) : "-"}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {goal.revision}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <Section title="Goals" count={goals.length}>
+      <PaginatedDataTable
+        columns={goalColumns}
+        data={goals}
+        emptyMessage="No goals"
+      />
+    </Section>
   );
 }
 
@@ -1825,175 +1805,203 @@ function ProcedureTable({
 }) {
   const { client } = useAdmin();
   const [deleteTarget, setDeleteTarget] = useState<AgentProcedure | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  const handleDelete = async (procedure: AgentProcedure) => {
     try {
-      await client.del(`agent-memory/procedures/${deleteTarget.id}`);
+      await client.del(`agent-memory/procedures/${procedure.id}`);
       toast.success("Procedure deleted");
-      setDeleteTarget(null);
       onDeleted();
     } catch {
       toast.error("Delete failed");
-    } finally {
-      setDeleting(false);
     }
   };
 
-  if (procedures.length === 0) return <EmptyRow text="No learned procedures" />;
-  return (
-    <div className="overflow-x-auto border-y">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Scope</TableHead>
-            <TableHead>Trigger</TableHead>
-            <TableHead>Behavior</TableHead>
-            <TableHead>Lifecycle</TableHead>
-            <TableHead className="text-right">Confidence</TableHead>
-            <TableHead className="w-8">
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {procedures.map((procedure) => (
-            <TableRow key={procedure.id}>
-              <TableCell className="max-w-48 whitespace-normal font-medium">
-                {procedure.scope}
-              </TableCell>
-              <TableCell className="max-w-xs whitespace-normal text-muted-foreground">
-                {procedure.trigger}
-              </TableCell>
-              <TableCell className="max-w-lg whitespace-normal">
-                {procedure.behavior}
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline">{procedure.lifecycle}</Badge>
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {percent(procedure.confidence)}
-              </TableCell>
-              <TableCell className="text-right">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:text-destructive"
-                  aria-label={`Delete procedure: ${procedure.scope}`}
-                  onClick={() => setDeleteTarget(procedure)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+  const columns: ColumnDef<AgentProcedure>[] = [
+    {
+      accessorKey: "scope",
+      header: "Scope",
+      cell: ({ row }) => (
+        <div className="max-w-48 whitespace-normal text-accent-strong">
+          {row.original.scope}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "trigger",
+      header: "Trigger",
+      meta: { className: "hidden lg:table-cell" },
+      cell: ({ row }) => (
+        <div className="max-w-xs whitespace-normal text-muted-foreground">
+          {row.original.trigger}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "behavior",
+      header: "Behavior",
+      cell: ({ row }) => (
+        <div className="max-w-lg whitespace-normal">
+          {row.original.behavior}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "lifecycle",
+      header: "Lifecycle",
+      meta: { className: "hidden md:table-cell" },
+      cell: ({ row }) => (
+        <Badge variant="outline">{row.original.lifecycle}</Badge>
+      ),
+    },
+    {
+      accessorKey: "confidence",
+      header: () => <div className="text-right">Confidence</div>,
+      cell: ({ row }) => (
+        <div className="text-right tabular-nums">
+          {percent(row.original.confidence)}
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            aria-label={`Delete procedure: ${row.original.scope}`}
+            onClick={() => setDeleteTarget(row.original)}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete procedure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget?.behavior}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+  return (
+    <Section title="Procedures" count={procedures.length}>
+      <PaginatedDataTable
+        columns={columns}
+        data={procedures}
+        emptyMessage="No procedures"
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete procedure?"
+        description={deleteTarget?.behavior}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
+    </Section>
   );
 }
+
+const RUN_STATUS_VARIANT: Record<
+  AgentMemoryRun["status"],
+  "good" | "critical" | "warning" | "secondary"
+> = {
+  completed: "good",
+  failed: "critical",
+  running: "warning",
+  cancelled: "secondary",
+};
+
+const runColumns: ColumnDef<AgentMemoryRun>[] = [
+  {
+    accessorKey: "startedAt",
+    header: "Started",
+    cell: ({ row }) => (
+      <span className="tabular-nums">{formatDate(row.original.startedAt)}</span>
+    ),
+  },
+  {
+    accessorKey: "operation",
+    header: "Operation",
+    meta: { className: "hidden md:table-cell" },
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">{row.original.operation}</span>
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => (
+      <Badge variant={RUN_STATUS_VARIANT[row.original.status]}>
+        {row.original.status}
+      </Badge>
+    ),
+  },
+  {
+    id: "inputs",
+    header: () => <div className="text-right">Inputs</div>,
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {row.original.inputIds.length}
+      </div>
+    ),
+  },
+  {
+    id: "outputs",
+    header: () => <div className="text-right">Outputs</div>,
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {row.original.outputIds.length}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "promptVersion",
+    header: "Version",
+    meta: { className: "hidden lg:table-cell" },
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-muted-foreground">
+        {row.original.promptVersion}
+      </span>
+    ),
+  },
+];
 
 function RunTable({ runs }: { runs: AgentMemoryRun[] }) {
-  if (runs.length === 0) return <EmptyRow text="No reflection runs" />;
+  const [openRun, setOpenRun] = useState<AgentMemoryRun | null>(null);
   return (
-    <div className="overflow-x-auto border-y">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Started</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Inputs</TableHead>
-            <TableHead className="text-right">Outputs</TableHead>
-            <TableHead>Version</TableHead>
-            <TableHead className="w-10">
-              <span className="sr-only">Toggle full log</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {runs.map((run) => (
-            <RunRow key={run.id} run={run} />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function RunRow({ run }: { run: AgentMemoryRun }) {
-  const [expanded, setExpanded] = useState(false);
-  const toggleLabel = expanded ? "Collapse run log" : "Show full run log";
-  return (
-    <>
-      <TableRow>
-        <TableCell>{formatDate(run.startedAt)}</TableCell>
-        <TableCell>
-          <Badge variant="outline">{run.status}</Badge>
-        </TableCell>
-        <TableCell className="text-right tabular-nums">
-          {run.inputIds.length}
-        </TableCell>
-        <TableCell className="text-right tabular-nums">
-          {run.outputIds.length}
-        </TableCell>
-        <TableCell className="font-mono text-xs text-muted-foreground">
-          {run.promptVersion}
-        </TableCell>
-        <TableCell className="w-10">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={toggleLabel}
-            title={toggleLabel}
-            aria-expanded={expanded}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            {expanded ? (
-              <ChevronUp className="size-3.5" />
-            ) : (
-              <ChevronDown className="size-3.5" />
-            )}
-          </Button>
-        </TableCell>
-      </TableRow>
-      {expanded && (
-        <TableRow className="hover:bg-transparent">
-          <TableCell colSpan={6}>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all border-l-2 pl-3 font-mono text-[11px] text-muted-foreground">
-              {JSON.stringify(run, null, 2)}
+    <Section title="Runs" count={runs.length}>
+      <PaginatedDataTable
+        columns={runColumns}
+        data={runs}
+        emptyMessage="No runs"
+        onRowClick={setOpenRun}
+      />
+      <Dialog
+        open={openRun !== null}
+        onOpenChange={(open) => {
+          if (!open) setOpenRun(null);
+        }}
+      >
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>
+              {openRun
+                ? `${openRun.operation} · ${formatDate(openRun.startedAt)}`
+                : "Run"}
+            </DialogTitle>
+          </DialogHeader>
+          {openRun ? (
+            <pre className="min-w-0 whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground">
+              {JSON.stringify(openRun, null, 2)}
             </pre>
-          </TableCell>
-        </TableRow>
-      )}
-    </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </Section>
   );
 }
 
@@ -2006,77 +2014,74 @@ function TraceExplorer({
   selected?: AgentRetrievalTrace;
   onSelect: (traceId: string) => void;
 }) {
-  if (traces.length === 0)
-    return <EmptyRow text="No shadow retrieval traces" />;
   return (
-    <div className="grid min-h-[30rem] border-y lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.6fr)]">
-      <div className="min-w-0 border-b lg:border-r lg:border-b-0">
-        {traces.map((trace) => (
-          <button
-            type="button"
-            key={trace.traceId}
-            onClick={() => onSelect(trace.traceId)}
-            className={`flex w-full flex-col gap-1 border-b px-3 py-3 text-left hover:bg-muted/50 ${selected?.traceId === trace.traceId ? "bg-muted" : ""}`}
-          >
-            <span className="line-clamp-2 break-words text-sm font-medium">
-              {trace.query}
-            </span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              {formatDate(trace.createdAt)}
-              <span>{trace.candidates.length} candidates</span>
-              {trace.abstained && <Badge variant="outline">abstained</Badge>}
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="min-w-0 p-4">
-        {selected && <TraceDetail trace={selected} />}
-      </div>
-    </div>
+    <Section title="Traces" count={traces.length}>
+      {traces.length === 0 ? (
+        <EmptyState compact label="No traces" />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.6fr)]">
+          <List className="min-w-0">
+            {traces.map((trace) => (
+              <ListRow
+                key={trace.traceId}
+                className="mx-0"
+                selected={selected?.traceId === trace.traceId}
+                onClick={() => onSelect(trace.traceId)}
+                title={trace.query}
+                description={`${formatDate(trace.createdAt)} · ${trace.candidates.length} candidates`}
+                meta={
+                  trace.abstained ? (
+                    <Badge variant="outline">abstained</Badge>
+                  ) : undefined
+                }
+              />
+            ))}
+          </List>
+          <div className="min-w-0">
+            {selected && <TraceDetail trace={selected} />}
+          </div>
+        </div>
+      )}
+    </Section>
   );
 }
 
 function TraceDetail({ trace }: { trace: AgentRetrievalTrace }) {
   return (
-    <div className="flex min-w-0 max-w-full flex-col gap-5 overflow-hidden">
-      <div>
-        <div className="mb-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex min-w-0 max-w-full flex-col gap-6 overflow-hidden">
+      <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <Search className="size-3.5 shrink-0" />
           <span className="shrink-0">{trace.purpose}</span>
           <span className="min-w-0 truncate font-mono" title={trace.traceId}>
             {trace.traceId}
           </span>
         </div>
-        <p className="text-sm font-medium">{trace.query}</p>
+        <p className="text-sm font-medium text-accent-strong">{trace.query}</p>
       </div>
-      <div className="flex flex-wrap gap-6 text-xs">
-        <Metric label="Candidates" value={String(trace.candidates.length)} />
-        <Metric
-          label="Selected"
-          value={String(trace.selectedRevisionIds.length)}
-        />
-        <Metric
+      <StatGroup>
+        <Stat label="Candidates" value={trace.candidates.length} />
+        <Stat label="Selected" value={trace.selectedRevisionIds.length} />
+        <Stat
           label="Tokens"
-          value={`${trace.estimatedTokens} / ${trace.tokenBudget}`}
+          value={trace.estimatedTokens}
+          hint={`of ${trace.tokenBudget}`}
         />
-        <Metric label="Injected" value={trace.injected ? "yes" : "no"} />
-      </div>
+        <Stat label="Injected" value={trace.injected ? "yes" : "no"} />
+      </StatGroup>
       <TraceCandidates
         candidates={trace.candidates}
         selectedIds={trace.selectedRevisionIds}
       />
-      <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-          Exclusions
-        </h3>
+      <Section title="Exclusions" count={trace.exclusions.length}>
         {trace.exclusions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No exclusions</p>
+          <EmptyState compact label="No exclusions" />
         ) : (
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap border-l-2 pl-3 text-xs">
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap border-l pl-3 text-xs">
             {JSON.stringify(trace.exclusions, null, 2)}
           </pre>
         )}
-      </div>
+      </Section>
     </div>
   );
 }
@@ -2088,26 +2093,25 @@ function TraceCandidates({
   candidates: Record<string, unknown>[];
   selectedIds: string[];
 }) {
-  if (candidates.length === 0)
-    return (
-      <p className="text-sm text-muted-foreground">No candidates returned</p>
-    );
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
-        Ranked candidates
-      </h3>
-      {candidates.map((candidate, index) => {
-        const revisionId = String(candidate.revisionId ?? "");
-        return (
-          <TraceCandidate
-            key={`${revisionId}-${index}`}
-            candidate={candidate}
-            selected={selectedIds.includes(revisionId)}
-          />
-        );
-      })}
-    </div>
+    <Section title="Ranked" count={candidates.length}>
+      {candidates.length === 0 ? (
+        <EmptyState compact label="No candidates" />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {candidates.map((candidate, index) => {
+            const revisionId = String(candidate.revisionId ?? "");
+            return (
+              <TraceCandidate
+                key={`${revisionId}-${index}`}
+                candidate={candidate}
+                selected={selectedIds.includes(revisionId)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -2128,31 +2132,33 @@ function TraceCandidate({
   const toggleLabel = expanded ? "Collapse candidate" : "Expand candidate";
 
   return (
-    <div className="min-w-0 max-w-full overflow-hidden border-l-2 px-3 py-1.5">
+    <div
+      className={cn(
+        "min-w-0 max-w-full overflow-hidden border-l px-3 py-1.5",
+        selected && "border-accent-strong",
+      )}
+    >
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
         <p
-          className={`min-w-0 break-words text-sm ${expanded ? "" : "line-clamp-2"}`}
+          className={cn(
+            "min-w-0 break-words text-sm",
+            !expanded && "line-clamp-2",
+          )}
         >
           {statement}
         </p>
-        <Badge variant={selected ? "default" : "outline"}>
+        <Badge variant={selected ? "info" : "outline"}>
           {score.toFixed(3)}
         </Badge>
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
+          size="icon-xs"
           aria-label={toggleLabel}
-          title={toggleLabel}
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
         >
-          {expanded ? (
-            <ChevronUp className="size-3.5" />
-          ) : (
-            <ChevronDown className="size-3.5" />
-          )}
+          {expanded ? <ChevronUp /> : <ChevronDown />}
         </Button>
       </div>
       {expanded ? (
@@ -2165,9 +2171,12 @@ function TraceCandidate({
         </p>
       )}
       <p
-        className={`mt-1 max-w-full text-[11px] text-muted-foreground ${expanded ? "break-all" : "truncate"}`}
+        className={cn(
+          "mt-1 max-w-full text-[11px] text-muted-foreground",
+          expanded ? "break-all" : "truncate",
+        )}
       >
-        Evidence: {evidence}
+        evidence {evidence}
       </p>
     </div>
   );
@@ -2196,27 +2205,25 @@ function ResourceSuggestionInbox({
   onSelectMemory: (memory: AgentMemory) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <Section
+      title="People"
+      count={suggestions.length}
+      actions={
         <Button
           size="sm"
-          className="h-7 text-xs"
+          variant="ghost"
           disabled={generating}
           onClick={onGenerate}
         >
-          {generating ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Sparkles className="size-3.5" />
-          )}
-          Refresh suggestions
+          {generating ? <Spinner /> : <Sparkles />}
+          Refresh
         </Button>
-      </div>
-
+      }
+    >
       {suggestions.length === 0 ? (
-        <EmptyRow text="Every person in the memory graph is attached, dismissed, or already reviewed" />
+        <EmptyState compact label="No suggestions" />
       ) : (
-        <div className="space-y-2">
+        <List divided>
           {suggestions.map((suggestion) => (
             <SuggestionRow
               key={suggestion.id}
@@ -2226,9 +2233,9 @@ function ResourceSuggestionInbox({
               onSelectMemory={onSelectMemory}
             />
           ))}
-        </div>
+        </List>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -2264,6 +2271,7 @@ function SuggestionRow({
     null,
   );
   const complete = draft.name.trim().length > 0;
+  const memoryCount = suggestion.memoryIds.length;
 
   const toggleMemories = async () => {
     const nextOpen = !memoriesOpen;
@@ -2301,214 +2309,160 @@ function SuggestionRow({
   };
 
   return (
-    <div className="rounded-md border bg-card">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
+    <div role="listitem" className="flex flex-col gap-1.5 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium text-accent-strong">
             {suggestion.entityLabel}
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            Unattached person · {suggestion.memoryIds.length}{" "}
-            {suggestion.memoryIds.length === 1 ? "memory" : "memories"}
-          </p>
+          </span>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {memoryCount} {memoryCount === 1 ? "memory" : "memories"}
+          </span>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {suggestion.existingResourceMatches.map((match) => (
             <Button
               key={match.resourceId}
               size="sm"
               variant="outline"
-              className="h-7 min-w-0 max-w-48 text-xs"
-              title={`Attach this graph entity to ${match.name}`}
+              className="min-w-0 max-w-48"
               onClick={() =>
                 onDecide(suggestion, "attach", {
                   resourceId: match.resourceId,
                 })
               }
             >
-              <Link2 className="size-3.5" />
+              <Link2 />
               <span className="truncate">Attach {match.name}</span>
             </Button>
           ))}
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs"
             onClick={() => setCreateOpen(true)}
           >
-            <UserPlus className="size-3.5" />
+            <UserPlus />
             Create person
           </Button>
           <Button
-            size="sm"
+            size="icon-sm"
             variant="ghost"
-            className="h-7 text-xs"
-            title="Dismiss suggestion"
+            aria-label="Dismiss"
             onClick={() => onDecide(suggestion, "dismiss")}
           >
-            <X className="size-3.5" />
-            <span className="sr-only">Dismiss</span>
+            <X />
           </Button>
         </div>
       </div>
 
-      <button
-        type="button"
-        className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+      <Button
+        size="xs"
+        variant="ghost"
+        className="self-start text-muted-foreground"
+        aria-expanded={memoriesOpen}
         onClick={() => void toggleMemories()}
       >
         {memoriesLoading ? (
-          <Loader2 className="size-3 animate-spin" />
+          <Spinner />
         ) : memoriesOpen ? (
-          <ChevronUp className="size-3" />
+          <ChevronUp />
         ) : (
-          <ChevronDown className="size-3" />
+          <ChevronDown />
         )}
-        {memoriesOpen ? "Hide" : "Review"} related memories
-      </button>
+        {memoriesOpen ? "Hide memories" : "Memories"}
+      </Button>
 
-      {memoriesOpen && (
-        <div className="space-y-1 border-t bg-muted/20 p-2">
-          {relatedMemories?.map((memory) => (
-            <div
-              key={memory.id}
-              className="flex items-center gap-1 rounded-sm hover:bg-muted"
-            >
-              <button
-                type="button"
-                className="min-w-0 flex-1 px-2 py-1.5 text-left"
+      {memoriesOpen && relatedMemories && (
+        <List className="ml-2 border-l pl-3">
+          {relatedMemories.length === 0 ? (
+            <span className="py-1 text-xs text-muted-foreground">
+              No memories
+            </span>
+          ) : (
+            relatedMemories.map((memory) => (
+              <ListRow
+                key={memory.id}
+                className="mx-0"
                 onClick={() => onSelectMemory(memory)}
-              >
-                <p className="line-clamp-2 text-xs">{memory.statement}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {memory.memoryType} · {formatDate(memory.updatedAt)}
-                </p>
-              </button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="mr-1 size-7 shrink-0"
-                disabled={
-                  suggestion.memoryIds.length <= 1 || splittingMemoryId !== null
+                title={memory.statement}
+                description={`${memory.memoryType} · ${formatDate(memory.updatedAt)}`}
+                trailing={
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Different person"
+                    disabled={memoryCount <= 1 || splittingMemoryId !== null}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void splitMemory(memory.id);
+                    }}
+                  >
+                    {splittingMemoryId === memory.id ? <Spinner /> : <Unlink />}
+                  </Button>
                 }
-                title={
-                  suggestion.memoryIds.length <= 1
-                    ? "A suggestion must retain one memory"
-                    : "This memory refers to a different person"
-                }
-                onClick={() => void splitMemory(memory.id)}
-              >
-                {splittingMemoryId === memory.id ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <Unlink className="size-3" />
-                )}
-                <span className="sr-only">
-                  Remove from this person suggestion
-                </span>
-              </Button>
-            </div>
-          ))}
-          {relatedMemories?.length === 0 && (
-            <p className="px-2 py-1 text-xs text-muted-foreground">
-              No related memories are still available.
-            </p>
+              />
+            ))
           )}
-        </div>
+        </List>
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create and attach person</DialogTitle>
-            <DialogDescription>
-              Review the extracted name and add any details you want before
-              creating the directory record.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <label
-              htmlFor={`suggestion-${suggestion.id}-name`}
-              className="block space-y-1 text-xs text-muted-foreground"
-            >
-              Name
-              <Input
-                id={`suggestion-${suggestion.id}-name`}
-                value={draft.name}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, name: event.target.value }))
-                }
-              />
-            </label>
-            <label
-              htmlFor={`suggestion-${suggestion.id}-relation`}
-              className="block space-y-1 text-xs text-muted-foreground"
-            >
-              Relation to you
-              <Input
-                id={`suggestion-${suggestion.id}-relation`}
-                value={draft.relationToOwner}
-                placeholder="Optional"
-                onChange={(event) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    relationToOwner: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label
-              htmlFor={`suggestion-${suggestion.id}-notes`}
-              className="block space-y-1 text-xs text-muted-foreground"
-            >
-              Notes
-              <Textarea
-                id={`suggestion-${suggestion.id}-notes`}
-                value={draft.notes}
-                placeholder="Optional"
-                rows={4}
-                onChange={(event) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    notes: event.target.value,
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <DialogFooter>
-            <Button
-              disabled={!complete}
-              onClick={() => {
-                onDecide(suggestion, "accept", { draft });
-                setCreateOpen(false);
-              }}
-            >
-              <UserPlus className="size-4" />
-              Create and attach
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-muted-foreground">{label}</p>
-      <p className="font-medium tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function EmptyRow({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-52 items-center justify-center border-y text-sm text-muted-foreground">
-      {text}
+      <FormDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="Create person"
+        submitLabel="Create and attach"
+        submitDisabled={!complete}
+        onSubmit={() => {
+          onDecide(suggestion, "accept", { draft });
+          setCreateOpen(false);
+        }}
+      >
+        <FormGrid>
+          <FormField label="Name" htmlFor={`suggestion-${suggestion.id}-name`}>
+            <Input
+              id={`suggestion-${suggestion.id}-name`}
+              value={draft.name}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, name: event.target.value }))
+              }
+            />
+          </FormField>
+          <FormField
+            label="Relation"
+            htmlFor={`suggestion-${suggestion.id}-relation`}
+          >
+            <Input
+              id={`suggestion-${suggestion.id}-relation`}
+              value={draft.relationToOwner}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  relationToOwner: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField
+            label="Notes"
+            htmlFor={`suggestion-${suggestion.id}-notes`}
+            className="sm:col-span-2"
+          >
+            <Textarea
+              id={`suggestion-${suggestion.id}-notes`}
+              value={draft.notes}
+              rows={8}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  notes: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </FormGrid>
+      </FormDialog>
     </div>
   );
 }

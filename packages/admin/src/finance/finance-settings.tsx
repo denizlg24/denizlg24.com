@@ -4,7 +4,9 @@ import type { FinanceCategory, FinanceDashboardResponse } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
 import { CurrencySelect } from "@repo/ui/currency-select";
+import { EmptyState } from "@repo/ui/empty-state";
 import { Input } from "@repo/ui/input";
+import { List } from "@repo/ui/list";
 import {
   Select,
   SelectContent,
@@ -26,7 +28,7 @@ import {
   updateFinanceCategory,
   updateFinanceSettings,
 } from "./finance-data";
-import { Empty, relative } from "./finance-primitives";
+import { relative } from "./finance-primitives";
 
 function CategoryRow({
   category,
@@ -68,13 +70,16 @@ function CategoryRow({
   const others = categories.filter((item) => item.id !== category.id);
 
   return (
-    <div className="group flex items-center gap-3 py-2">
+    <div
+      role="listitem"
+      className="group/row flex min-h-9 items-center gap-3 py-1"
+    >
       {editing ? (
         <>
           <Input
             value={name}
             autoFocus
-            className="h-7 min-w-0 flex-1 text-sm"
+            className="h-7 min-w-0 flex-1"
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") void rename();
@@ -85,20 +90,16 @@ function CategoryRow({
             }}
           />
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             aria-label="Save name"
             disabled={busy}
             onClick={() => void rename()}
           >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Check className="size-3.5" />
-            )}
+            {busy ? <Loader2 className="animate-spin" /> : <Check />}
           </Button>
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             aria-label="Cancel"
             onClick={() => {
@@ -106,29 +107,30 @@ function CategoryRow({
               setName(category.name);
             }}
           >
-            <X className="size-3.5" />
+            <X />
           </Button>
         </>
       ) : (
         <>
           <button
             type="button"
-            className="min-w-0 flex-1 truncate text-left text-sm transition-opacity hover:opacity-70"
+            className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-accent-strong transition-colors hover:bg-surface/70"
             onClick={() => setEditing(true)}
           >
             {category.name}
           </button>
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {usage}
           </span>
           <ConfirmButton
             title={`Delete ${category.name}?`}
             description={
               usage > 0
-                ? `${usage} ${usage === 1 ? "entry uses" : "entries use"} it. Leave the replacement empty to make them uncategorized.`
+                ? `${usage} ${usage === 1 ? "entry uses" : "entries use"} it.`
                 : undefined
             }
             actionLabel="Delete"
+            destructive
             body={
               others.length > 0 ? (
                 <Select value={reassignTo} onValueChange={setReassignTo}>
@@ -161,12 +163,12 @@ function CategoryRow({
             }}
             trigger={
               <Button
-                size="icon-xs"
+                size="icon-sm"
                 variant="ghost"
                 aria-label={`Delete ${category.name}`}
-                className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100"
               >
-                <Trash2 className="size-3.5" />
+                <Trash2 />
               </Button>
             }
           />
@@ -256,10 +258,7 @@ export function FinanceSettingsForm({
     <>
       <SettingsGroup label="Currency">
         <div className="space-y-6">
-          <SettingsRow
-            label="Dashboard currency"
-            hint="Everything on the finance dashboard is converted into this."
-          >
+          <SettingsRow label="Dashboard currency">
             <div className="flex min-w-0 items-center gap-2">
               <CurrencySelect
                 value={baseCurrency}
@@ -274,9 +273,7 @@ export function FinanceSettingsForm({
                 }
                 onClick={() => void saveCurrency()}
               >
-                {savingCurrency && (
-                  <Loader2 className="size-3.5 animate-spin" />
-                )}
+                {savingCurrency && <Loader2 className="animate-spin" />}
                 Pin
               </Button>
             </div>
@@ -299,16 +296,14 @@ export function FinanceSettingsForm({
               disabled={refreshing}
               onClick={() => void refreshRates()}
             >
-              <RefreshCw
-                className={cn("size-3.5", refreshing && "animate-spin")}
-              />
+              <RefreshCw className={cn(refreshing && "animate-spin")} />
               Refresh rates
             </Button>
           </SettingsRow>
 
           {unconverted.length > 0 && (
             <SettingsRow label="Unconverted" stacked>
-              <div className="divide-y">
+              <div className="flex flex-col divide-y divide-border/70">
                 {unconverted.map((balance) => (
                   <div
                     key={balance.currency}
@@ -317,7 +312,7 @@ export function FinanceSettingsForm({
                     <span className="text-muted-foreground">
                       {balance.currency}
                     </span>
-                    <span className="tabular-nums">
+                    <span className="tabular-nums text-accent-strong">
                       {formatMoney(balance.amountMinor, balance.currency, {
                         style: "decimal",
                       })}
@@ -333,17 +328,18 @@ export function FinanceSettingsForm({
       <SettingsGroup
         label="Categories"
         actions={
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {data.categories.length}
           </span>
         }
       >
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <Input
               value={newCategory}
               placeholder="New category"
-              className="h-9 min-w-0 flex-1"
+              aria-label="New category"
+              className="min-w-0 flex-1"
               onChange={(event) => setNewCategory(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void addCategory();
@@ -356,17 +352,13 @@ export function FinanceSettingsForm({
               disabled={creating || !newCategory.trim()}
               onClick={() => void addCategory()}
             >
-              {creating ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Plus className="size-3.5" />
-              )}
+              {creating ? <Loader2 className="animate-spin" /> : <Plus />}
             </Button>
           </div>
           {data.categories.length === 0 ? (
-            <Empty label="—" compact />
+            <EmptyState compact label="No categories" />
           ) : (
-            <div className="divide-y">
+            <List divided>
               {data.categories.map((category) => (
                 <CategoryRow
                   key={category.id}
@@ -376,7 +368,7 @@ export function FinanceSettingsForm({
                   onChanged={onReload}
                 />
               ))}
-            </div>
+            </List>
           )}
         </div>
       </SettingsGroup>

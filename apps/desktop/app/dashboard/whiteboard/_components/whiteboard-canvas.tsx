@@ -8,7 +8,7 @@ import {
   TEXT_PADDING,
   WHITEBOARD_FONT_FAMILIES,
 } from "@repo/whiteboard-render";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { IWhiteboardElement } from "@/lib/data-types";
 import {
   boundsOf,
@@ -115,14 +115,17 @@ const HANDLES: { handle: ResizeHandle; fx: number; fy: number }[] = [
 function SelectionHandles({
   bounds,
   zoom,
+  interactive,
   showRotate,
   onStartResize,
   onStartRotate,
 }: {
   bounds: { x: number; y: number; width: number; height: number };
   zoom: number;
+  /** Off for any tool but select: the frame shows, the handles do not. */
+  interactive: boolean;
   showRotate: boolean;
-  onStartResize: (handle: ResizeHandle, shift: boolean) => void;
+  onStartResize: (handle: ResizeHandle) => void;
   onStartRotate: (e: React.PointerEvent) => void;
 }) {
   const sw = 1.5 / zoom;
@@ -145,7 +148,7 @@ function SelectionHandles({
         strokeWidth={sw}
         strokeDasharray={`${3 / zoom}`}
       />
-      {showRotate && (
+      {interactive && showRotate && (
         <>
           <line
             x1={rotX}
@@ -171,24 +174,25 @@ function SelectionHandles({
           />
         </>
       )}
-      {HANDLES.map((h) => (
-        <rect
-          key={h.handle}
-          x={bounds.x + bounds.width * h.fx - hs / 2}
-          y={bounds.y + bounds.height * h.fy - hs / 2}
-          width={hs}
-          height={hs}
-          fill="white"
-          stroke="var(--accent)"
-          strokeWidth={sw}
-          style={{ cursor: RESIZE_CURSORS[h.handle] }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            capture(e);
-            onStartResize(h.handle, e.shiftKey);
-          }}
-        />
-      ))}
+      {interactive &&
+        HANDLES.map((h) => (
+          <rect
+            key={h.handle}
+            x={bounds.x + bounds.width * h.fx - hs / 2}
+            y={bounds.y + bounds.height * h.fy - hs / 2}
+            width={hs}
+            height={hs}
+            fill="white"
+            stroke="var(--accent)"
+            strokeWidth={sw}
+            style={{ cursor: RESIZE_CURSORS[h.handle] }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              capture(e);
+              onStartResize(h.handle);
+            }}
+          />
+        ))}
     </g>
   );
 }
@@ -207,12 +211,15 @@ function TextEditor({
   box,
   viewState,
   onCommit,
-  onCancel,
 }: {
   box: TextBoxState;
   viewState: ViewState;
-  onCommit: (text: string, width: number, height: number) => void;
-  onCancel: () => void;
+  onCommit: (
+    text: string,
+    width: number,
+    height: number,
+    select: boolean,
+  ) => void;
 }) {
   const [text, setText] = useState(() =>
     normalizeWhiteboardText(box.initialText),
@@ -245,7 +252,8 @@ function TextEditor({
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
 
-  const commit = () => onCommit(text, sizeRef.current.w, sizeRef.current.h);
+  const commit = (select: boolean) =>
+    onCommit(text, sizeRef.current.w, sizeRef.current.h, select);
 
   return (
     <div
@@ -255,6 +263,7 @@ function TextEditor({
         top: box.worldY * viewState.zoom + viewState.y,
       }}
       onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <div
         ref={measureRef}
@@ -302,16 +311,15 @@ function TextEditor({
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === "Escape") {
+          if (
+            e.key === "Escape" ||
+            (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+          ) {
             e.preventDefault();
-            onCancel();
-          }
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            commit();
+            commit(true);
           }
         }}
-        onBlur={commit}
+        onBlur={() => commit(false)}
       />
     </div>
   );
@@ -342,11 +350,17 @@ export interface WhiteboardCanvasProps {
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+  /** Also fires when capture is lost without a pointerup. */
+  onPointerCancel?: (e: React.PointerEvent<HTMLDivElement>) => void;
   onWheel: (e: React.WheelEvent<HTMLDivElement>) => void;
   onDoubleClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onTextCommit?: (text: string, width: number, height: number) => void;
-  onTextCancel?: () => void;
-  onStartResize?: (handle: ResizeHandle, shift: boolean) => void;
+  onTextCommit?: (
+    text: string,
+    width: number,
+    height: number,
+    select: boolean,
+  ) => void;
+  onStartResize?: (handle: ResizeHandle) => void;
   onStartRotate?: (e: React.PointerEvent) => void;
   onComponentDataChange?: (
     elementId: string,
@@ -370,10 +384,10 @@ export function WhiteboardCanvas({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onPointerCancel,
   onWheel,
   onDoubleClick,
   onTextCommit,
-  onTextCancel,
   onStartResize,
   onStartRotate,
   onComponentDataChange,
@@ -393,18 +407,46 @@ export function WhiteboardCanvas({
     : selectionBounds(elements, selectedElementIds);
   const selCenter = selBounds ? centerOf(selBounds) : null;
 
+  /* React's wheel listener is passive, so its preventDefault is ignored and a
+     pinch (ctrl+wheel) would zoom the whole webview. A selected component
+     keeps its wheel to scroll its own content. */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const block = (e: WheelEvent) => {
+      if (e.target instanceof Element && e.target.closest("[data-wheel-owner]"))
+        return;
+      e.preventDefault();
+    };
+    root.addEventListener("wheel", block, { passive: false });
+    return () => root.removeEventListener("wheel", block);
+  }, []);
+
+  /* Portalled content (a template's menu) bubbles through the React tree but
+     is not on the board; a press there must not start a board gesture. */
+  const ownsTarget = (e: React.SyntheticEvent<HTMLDivElement>) =>
+    e.target instanceof Node && e.currentTarget.contains(e.target);
+
   return (
     /* The gestures live on the container, not the <svg>, because the component
        layer below is the svg's sibling — an event on a component would never
        reach a handler bound to the svg, so components could only be made
        interactive by blocking pointer events on them entirely. */
     <div
+      ref={rootRef}
       className="relative w-full h-full touch-none"
-      onPointerDown={onPointerDown}
+      onPointerDown={(e) => {
+        if (ownsTarget(e)) onPointerDown(e);
+      }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onPointerCancel}
       onWheel={onWheel}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={(e) => {
+        if (ownsTarget(e)) onDoubleClick?.(e);
+      }}
     >
       <svg className="w-full h-full" style={{ display: "block" }}>
         <BoardBackground background={background} viewState={viewState} />
@@ -429,8 +471,9 @@ export function WhiteboardCanvas({
               <SelectionHandles
                 bounds={selBounds}
                 zoom={viewState.zoom}
-                showRotate={isPointerTool && selectedElementIds.size === 1}
-                onStartResize={(h, shift) => onStartResize?.(h, shift)}
+                interactive={isPointerTool}
+                showRotate={selectedElementIds.size === 1}
+                onStartResize={(h) => onStartResize?.(h)}
                 onStartRotate={(e) => onStartRotate?.(e)}
               />
             </g>
@@ -493,6 +536,7 @@ export function WhiteboardCanvas({
                 transformOrigin: "center",
                 pointerEvents: !readOnly && isPointerTool ? "auto" : "none",
               }}
+              data-wheel-owner={isSelected ? "" : undefined}
               /* Components stay hoverable whether or not they are selected, so
                  a hover affordance does not cost a click first. Only a press on
                  a real control is withheld from the canvas; a press anywhere
@@ -534,12 +578,12 @@ export function WhiteboardCanvas({
           );
         })}
 
-      {!readOnly && textBox && onTextCommit && onTextCancel && (
+      {!readOnly && textBox && onTextCommit && (
         <TextEditor
+          key={`${textBox.editingId ?? "new"}:${textBox.worldX}:${textBox.worldY}`}
           box={textBox}
           viewState={viewState}
           onCommit={onTextCommit}
-          onCancel={onTextCancel}
         />
       )}
     </div>

@@ -24,6 +24,8 @@ const dashboard: FinanceDashboardResponse = {
     currency: "EUR",
     unconvertedByCurrency: [],
   },
+  baseAmounts: {},
+  reversalIds: [],
   ledger: [
     {
       id: "ledger-1",

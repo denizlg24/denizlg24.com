@@ -13,7 +13,7 @@ import {
 import { useAdmin } from "../provider";
 import { EntryDetail, EntryForm } from "./finance-entry-form";
 
-const ICON = <Receipt className="size-4 text-muted-foreground" />;
+const ICON = <Receipt />;
 
 /**
  * One ledger entry, or the form that creates one.
@@ -77,7 +77,7 @@ export function FinanceEntryPage({
   }
 
   return (
-    <DetailPageShell {...shell} title={entry.descriptor}>
+    <DetailPageShell {...shell} title="Entry">
       <EntryDetail
         entry={entry}
         accounts={data.accounts}

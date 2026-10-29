@@ -2,20 +2,10 @@
 
 import type { INote, IVoiceNote } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@repo/ui/dialog";
-import { Label } from "@repo/ui/label";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { ModelSelector } from "@repo/ui/model-selector";
-import { Separator } from "@repo/ui/separator";
 import { Textarea } from "@repo/ui/textarea";
-import { FilePlus2, Loader2 } from "lucide-react";
+import { FilePlus2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { pickDefaultModel, useModelCatalog } from "@/hooks/use-model-catalog";
@@ -31,9 +21,8 @@ interface GenerateNoteDialogProps {
 }
 
 /**
- * Split from the trigger so the model catalog is only fetched once the dialog
- * is actually opened — a page of voice notes would otherwise request it once
- * per card on mount.
+ * Mounted only while open so the model catalog is fetched on demand — a page
+ * of voice notes would otherwise request it once per card on mount.
  */
 function GenerateNoteForm({
   api,
@@ -74,15 +63,19 @@ function GenerateNoteForm({
   };
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle className="truncate">{voiceNote.title}</DialogTitle>
-      </DialogHeader>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col items-start gap-1">
-          <Label htmlFor="generate-note-model" className="w-32">
-            Model
-          </Label>
+    <FormDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onDone();
+      }}
+      title={voiceNote.title}
+      submitLabel="Create note"
+      submitDisabled={!model}
+      pending={generating}
+      onSubmit={generate}
+    >
+      <FormGrid>
+        <FormField label="Model" className="sm:col-span-2">
           <ModelSelector
             model={model}
             onModelChange={setModel}
@@ -92,38 +85,22 @@ function GenerateNoteForm({
             stale={modelCatalog.stale}
             onRetry={modelCatalog.retry}
           />
-        </div>
-        <Separator />
-        <div className="flex flex-col items-start gap-1">
-          <Label htmlFor="generate-note-instructions" className="w-32">
-            Instructions
-          </Label>
+        </FormField>
+        <FormField
+          label="Instructions"
+          htmlFor="generate-note-instructions"
+          className="sm:col-span-2"
+        >
           <Textarea
             id="generate-note-instructions"
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
             maxLength={MAX_INSTRUCTIONS_CHARS}
-            className="h-24 resize-none overflow-y-auto rounded-none font-mono text-sm"
+            className="min-h-48 resize-y text-sm"
           />
-        </div>
-      </div>
-      <DialogFooter>
-        <DialogClose asChild>
-          <Button variant="outline" disabled={generating}>
-            Cancel
-          </Button>
-        </DialogClose>
-        <Button onClick={() => void generate()} disabled={generating || !model}>
-          {generating ? (
-            <>
-              Generating <Loader2 className="animate-spin" />
-            </>
-          ) : (
-            "Create note"
-          )}
-        </Button>
-      </DialogFooter>
-    </>
+        </FormField>
+      </FormGrid>
+    </FormDialog>
   );
 }
 
@@ -131,21 +108,17 @@ export function GenerateNoteDialog(props: GenerateNoteDialogProps) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 text-[10px]"
-        >
-          <FilePlus2 className="size-3" />
-          Note
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <GenerateNoteForm {...props} onDone={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        <FilePlus2 />
+        Note
+      </Button>
+      {open && <GenerateNoteForm {...props} onDone={() => setOpen(false)} />}
+    </>
   );
 }

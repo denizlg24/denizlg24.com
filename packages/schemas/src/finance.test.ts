@@ -8,6 +8,7 @@ import {
   financeProjectedLedgerEntrySchema,
   financeProviderTransactionSchema,
   financeRecurrenceSchema,
+  pickDisplayBalance,
 } from "./finance";
 
 describe("finance schemas", () => {
@@ -162,5 +163,18 @@ describe("finance schemas", () => {
       category: null,
     });
     expect(financeLedgerEntryUpdateSchema.parse({})).toEqual({});
+  });
+});
+
+describe("pickDisplayBalance", () => {
+  test("prefers an available balance over a later reserved-amount row", () => {
+    const balances = [
+      { accountId: "lunar", balanceType: "ITBD", amountMinor: 863416 },
+      { accountId: "lunar", balanceType: "ITAV", amountMinor: 839936 },
+      { accountId: "lunar", balanceType: "OTHR", amountMinor: 23480 },
+      { accountId: "other", balanceType: "CLBD", amountMinor: 1 },
+    ];
+    expect(pickDisplayBalance(balances, "lunar")?.amountMinor).toBe(839936);
+    expect(pickDisplayBalance(balances, "missing")).toBeUndefined();
   });
 });

@@ -8,37 +8,35 @@ import type {
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import {
-  Empty,
-  EmptyContent,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@repo/ui/empty";
-import { PageHeader } from "@repo/ui/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+  type Crumb,
+  Page,
+  PageBody,
+  PageHeader,
+  PageToolbar,
+} from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { FilterTabs } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
-  ArrowLeft,
   CheckCircle2,
   ExternalLink,
   GraduationCap,
   Home,
   Link as LinkIcon,
+  MapPin,
   Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { CourseGradebookPanel, CourseWorkPanel } from "./course-assignments";
@@ -50,9 +48,17 @@ import {
   STATUS_TONE,
   summariseByStatus,
 } from "./coursework-status";
-import { CourseDot, SectionHeading, SemesterCockpit } from "./semester-cockpit";
+import {
+  CockpitSkeleton,
+  CourseDot,
+  formatPercent,
+  SemesterCockpit,
+  StandingBar,
+} from "./semester-cockpit";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type CourseTab = "overview" | "work" | "grades" | "mail" | "linked";
 
 function formatDate(value?: string) {
   if (!value) return "";
@@ -79,122 +85,69 @@ function formatDateTime(value: string) {
 function courseDates(course: ICourse) {
   const start = formatDate(course.startsOn);
   const end = formatDate(course.endsOn);
-  if (start && end) return `${start} - ${end}`;
+  if (start && end) return `${start} – ${end}`;
   return start || end;
 }
 
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return "--";
-  return `${value.toFixed(1)}%`;
-}
-
-function Stat({
-  label,
-  value,
-  alert,
-}: {
-  label: string;
-  value: number | string;
-  alert?: boolean;
-}) {
-  return (
-    <div>
-      <div
-        className={cn(
-          "font-mono text-xl leading-none tabular-nums",
-          alert && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function ListRow({
-  title,
-  meta,
-  trailing,
-  trailingTone,
-  onClick,
-}: {
-  title: string;
-  meta?: string;
-  trailing?: string;
-  trailingTone?: "muted" | "destructive";
-  onClick?: () => void;
-}) {
-  const content = (
-    <>
-      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
-      {meta && (
-        <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-          {meta}
-        </span>
-      )}
-      {trailing && (
-        <span
-          className={cn(
-            "shrink-0 text-[11px] tabular-nums",
-            trailingTone === "destructive"
-              ? "text-destructive"
-              : "text-muted-foreground",
-          )}
-        >
-          {trailing}
-        </span>
-      )}
-    </>
-  );
-
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 border-b border-border/60 px-2 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2.5 border-b border-border/60 py-2 last:border-b-0">
-      {content}
-    </div>
-  );
-}
-
-function EmptyLine() {
-  return <p className="py-4 text-sm text-muted-foreground">—</p>;
+function None() {
+  return <p className="text-sm text-muted-foreground">—</p>;
 }
 
 function DeadlineLine({ deadline }: { deadline: ICourseDeadline }) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-border/60 py-2 last:border-b-0">
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          deadline.overdue ? "bg-destructive" : "bg-accent",
-        )}
-      />
-      <span className="min-w-0 flex-1 truncate text-sm">{deadline.title}</span>
-      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-        {deadline.sourceLabel ?? deadline.source}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 text-[11px] tabular-nums",
-          deadline.overdue ? "text-destructive" : "text-muted-foreground",
-        )}
+    <ListRow
+      leading={
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            deadline.overdue ? "bg-status-critical" : "bg-accent-strong/60",
+          )}
+        />
+      }
+      title={deadline.title}
+      meta={
+        <>
+          <span className="hidden sm:inline">
+            {deadline.sourceLabel ?? deadline.source}
+          </span>
+          <span className={cn(deadline.overdue && "text-status-critical")}>
+            {formatDateTime(deadline.dueAt)}
+          </span>
+        </>
+      }
+    />
+  );
+}
+
+function CourseChrome({
+  crumbs,
+  icon,
+  title,
+  actions,
+  toolbar,
+  children,
+}: {
+  crumbs?: Crumb[];
+  icon: ReactNode;
+  title: ReactNode;
+  actions?: ReactNode;
+  toolbar?: ReactNode;
+  children: ReactNode;
+}) {
+  const { slots } = useAdmin();
+  return (
+    <Page className="relative">
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        crumbs={crumbs}
+        icon={icon}
+        title={title}
       >
-        {formatDateTime(deadline.dueAt)}
-      </span>
-    </div>
+        {actions}
+      </PageHeader>
+      {toolbar ? <PageToolbar>{toolbar}</PageToolbar> : null}
+      <PageBody width="wide">{children}</PageBody>
+    </Page>
   );
 }
 
@@ -203,13 +156,15 @@ function CourseHome({
   onBack,
   onEdit,
   onDelete,
+  deleting,
   onOpenExternal,
   onRefresh,
 }: {
   detail: ICourseDetail;
   onBack: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
+  deleting: boolean;
   onOpenExternal: (url: string) => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -221,469 +176,392 @@ function CourseHome({
   const workByStatus = summariseByStatus(detail.assignments);
   const hasProjection =
     projection.worstCase !== null && projection.bestCase !== null;
+  const [tab, setTab] = useState<CourseTab>("overview");
   const [openEmail, setOpenEmail] = useState<ICourseEmailSummary | null>(null);
+  const hasAbout = Boolean(
+    course.description ||
+      course.location ||
+      course.homepageUrl ||
+      course.links.length > 0 ||
+      course.customFields.length > 0,
+  );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
-        <Button variant="ghost" size="icon" className="size-7" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <CourseDot color={course.color} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate text-sm font-semibold">{course.name}</h1>
-            {course.code && (
-              <Badge
-                variant="outline"
-                className="hidden font-mono sm:inline-flex"
+    <CourseChrome
+      crumbs={[{ label: "Courses", onClick: onBack }]}
+      icon={<CourseDot color={course.color} />}
+      title={
+        <span className="flex items-center gap-2">
+          <span className="truncate">{course.name}</span>
+          {course.code && (
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              {course.code}
+            </Badge>
+          )}
+        </span>
+      }
+      actions={
+        <>
+          {course.homepageUrl && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onOpenExternal(course.homepageUrl ?? "")}
+              aria-label="Homepage"
+            >
+              <Home />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onEdit}
+            aria-label="Edit"
+          >
+            <Pencil />
+          </Button>
+          <ConfirmButton
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete"
+                className="text-muted-foreground hover:text-destructive"
               >
-                {course.code}
-              </Badge>
-            )}
-          </div>
-          <p className="truncate text-xs text-muted-foreground">
+                <Trash2 />
+              </Button>
+            }
+            title={`Delete "${course.name}"?`}
+            description="Linked records stay in their own tools."
+            actionLabel="Delete"
+            destructive
+            pending={deleting}
+            onConfirm={onDelete}
+          />
+        </>
+      }
+      toolbar={
+        <>
+          <FilterTabs
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "overview", label: "Overview" },
+              { value: "work", label: "Work", count: stats.openDeadlines },
+              {
+                value: "grades",
+                label: "Grades",
+                count: stats.gradedAssessments,
+              },
+              { value: "mail", label: "Mail", count: stats.emails },
+              { value: "linked", label: "Linked" },
+            ]}
+            className="min-w-0 overflow-x-auto"
+          />
+          <span className="ml-auto hidden truncate text-xs text-muted-foreground md:inline">
             {[course.semester, course.instructorName, dateRange]
               .filter(Boolean)
               .join(" · ")}
-          </p>
-        </div>
-        {course.homepageUrl && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            onClick={() => onOpenExternal(course.homepageUrl ?? "")}
-            aria-label="Homepage"
-          >
-            <Home className="size-4" />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={onEdit}
-          aria-label="Edit"
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 text-destructive"
-          onClick={onDelete}
-          aria-label="Delete"
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
+          </span>
+        </>
+      }
+    >
+      {tab === "overview" && (
+        <>
+          <StatGroup>
+            <Stat label="Average" value={formatPercent(stats.gradeAverage)} />
+            <Stat label="Open work" value={stats.openAssessments} />
+            <Stat
+              label="Overdue"
+              value={stats.overdue}
+              tone={stats.overdue > 0 ? "critical" : "default"}
+            />
+            <Stat label="Graded" value={stats.gradedAssessments} />
+            <Stat label="Readings" value={stats.openReadings} />
+          </StatGroup>
 
-      <Tabs
-        defaultValue="overview"
-        className="flex min-h-0 flex-1 flex-col gap-0"
-      >
-        <TabsList
-          variant="line"
-          className="shrink-0 justify-start overflow-x-auto px-4"
-        >
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="work">
-            Work
-            <span className="ml-1 tabular-nums text-muted-foreground">
-              {stats.openDeadlines}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="grades">
-            Grades
-            <span className="ml-1 tabular-nums text-muted-foreground">
-              {stats.gradedAssessments}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="mail">
-            Mail
-            <span className="ml-1 tabular-nums text-muted-foreground">
-              {stats.emails}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="linked">Linked</TabsTrigger>
-        </TabsList>
+          {/* Where the open work stands: "Open work: 7" cannot tell seven rows
+              not started from seven half-finished ones. */}
+          {workByStatus.total > 0 && (
+            <Section title="Progress" count={workByStatus.total}>
+              <div className="flex h-1 w-full overflow-hidden rounded-full bg-border">
+                {BOARD_STATUSES.map((status) =>
+                  workByStatus.counts[status] > 0 ? (
+                    <div
+                      key={status}
+                      className={STATUS_BAR[status]}
+                      style={{
+                        width: `${(workByStatus.counts[status] / workByStatus.total) * 100}%`,
+                      }}
+                    />
+                  ) : null,
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-1">
+                {BOARD_STATUSES.map((status) => (
+                  <span
+                    key={status}
+                    className="flex items-baseline gap-1.5 text-xs"
+                  >
+                    <span className={STATUS_TONE[status]}>
+                      {STATUS_LABELS[status]}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {workByStatus.counts[status]}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </Section>
+          )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <TabsContent value="overview" className="space-y-8">
-            <div className="flex flex-wrap gap-x-10 gap-y-4">
-              <Stat label="Average" value={formatPercent(stats.gradeAverage)} />
-              <Stat label="Open work" value={stats.openAssessments} />
-              <Stat
-                label="Overdue"
-                value={stats.overdue}
-                alert={stats.overdue > 0}
-              />
-              <Stat label="Graded" value={stats.gradedAssessments} />
-              <Stat label="Readings" value={stats.openReadings} />
+          <div className="grid gap-8 xl:grid-cols-[1.4fr_1fr]">
+            <div className="flex min-w-0 flex-col gap-8">
+              {hasProjection && (
+                <Section title="Standing">
+                  <StandingBar
+                    worstCase={projection.worstCase}
+                    bestCase={projection.bestCase}
+                    remainingWeight={projection.remainingWeight}
+                    color={course.color}
+                  />
+                </Section>
+              )}
+
+              <Section title="Next up" count={openDeadlines.length}>
+                {openDeadlines.length === 0 ? (
+                  <None />
+                ) : (
+                  <List>
+                    {openDeadlines.slice(0, 8).map((deadline) => (
+                      <DeadlineLine key={deadline._id} deadline={deadline} />
+                    ))}
+                  </List>
+                )}
+              </Section>
             </div>
 
-            {/*
-              Where the open work actually stands. "Open work: 7" cannot
-              distinguish seven rows not started from seven half-finished ones,
-              which is the question the status field exists to answer — and this
-              is the surface you land on, so it has to answer it here rather
-              than one tab away.
-            */}
-            {workByStatus.total > 0 && (
-              <section className="space-y-2">
-                <SectionHeading
-                  title="Progress"
-                  meta={`${workByStatus.total} tracked`}
-                />
-                <div className="flex h-1 w-full overflow-hidden rounded-full bg-muted">
-                  {BOARD_STATUSES.map((status) =>
-                    workByStatus.counts[status] > 0 ? (
-                      <div
-                        key={status}
-                        className={STATUS_BAR[status]}
-                        style={{
-                          width: `${(workByStatus.counts[status] / workByStatus.total) * 100}%`,
-                        }}
+            <div className="flex min-w-0 flex-col gap-8">
+              {detail.timetableEntries.length > 0 && (
+                <Section
+                  title="Schedule"
+                  count={detail.timetableEntries.length}
+                >
+                  <List>
+                    {detail.timetableEntries.map((entry) => (
+                      <ListRow
+                        key={entry._id}
+                        title={entry.title}
+                        description={entry.place || undefined}
+                        meta={`${DAY_NAMES[entry.dayOfWeek] ?? ""} ${entry.startTime}–${entry.endTime}`}
                       />
-                    ) : null,
+                    ))}
+                  </List>
+                </Section>
+              )}
+
+              {hasAbout && (
+                <Section title="About">
+                  {course.description && (
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {course.description}
+                    </p>
                   )}
-                </div>
-                <div className="flex flex-wrap gap-x-5 gap-y-1">
-                  {BOARD_STATUSES.map((status) => (
-                    <span
-                      key={status}
-                      className="flex items-baseline gap-1.5 text-[11px]"
-                    >
-                      <span className={STATUS_TONE[status]}>
-                        {STATUS_LABELS[status]}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {workByStatus.counts[status]}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/*
-              Two columns from `xl`: what you act on (standing, what is due)
-              beside what you refer to (the week's schedule, the course's own
-              details). Below that width they stack in the same order.
-            */}
-            <div className="grid gap-8 xl:grid-cols-[1.4fr_1fr]">
-              <div className="min-w-0 space-y-8">
-                {hasProjection && (
-                  <section className="space-y-2">
-                    <SectionHeading
-                      title="Standing"
-                      meta="secured vs best case"
-                    />
-                    <div className="relative h-px w-full bg-border">
-                      <div
-                        className="absolute inset-y-0 left-0 h-px bg-muted-foreground/40"
-                        style={{
-                          width: `${Math.min(100, projection.bestCase ?? 0)}%`,
-                        }}
-                      />
-                      <div
-                        className="absolute -top-px left-0 h-[3px]"
-                        style={{
-                          width: `${Math.min(100, projection.worstCase ?? 0)}%`,
-                          backgroundColor: course.color ?? "var(--accent)",
-                        }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span className="tabular-nums">
-                        secured {formatPercent(projection.worstCase)}
-                      </span>
-                      <span className="tabular-nums">
-                        {formatPercent(projection.remainingWeight)} open · best{" "}
-                        {formatPercent(projection.bestCase)}
-                      </span>
-                    </div>
-                  </section>
-                )}
-
-                <section className="space-y-2">
-                  <SectionHeading
-                    title="Next up"
-                    meta={`${openDeadlines.length} open`}
-                  />
-                  {openDeadlines.length === 0 ? (
-                    <EmptyLine />
-                  ) : (
-                    <div>
-                      {openDeadlines.slice(0, 8).map((deadline) => (
-                        <DeadlineLine key={deadline._id} deadline={deadline} />
+                  {(course.customFields.length > 0 || course.location) && (
+                    <Properties>
+                      {course.location && (
+                        <Property icon={<MapPin />} label="Location">
+                          {course.location}
+                        </Property>
+                      )}
+                      {course.customFields.map((field) => (
+                        <Property key={field._id} label={field.label}>
+                          <span className="block truncate">{field.value}</span>
+                        </Property>
                       ))}
-                    </div>
+                    </Properties>
                   )}
-                </section>
-              </div>
-
-              <div className="min-w-0 space-y-8">
-                {detail.timetableEntries.length > 0 && (
-                  <section className="space-y-2">
-                    <SectionHeading title="Schedule" />
-                    <div>
-                      {detail.timetableEntries.map((entry) => (
+                  {(course.homepageUrl || course.links.length > 0) && (
+                    <List>
+                      {course.homepageUrl && (
                         <ListRow
-                          key={entry._id}
-                          title={entry.title}
-                          meta={entry.place}
-                          trailing={`${DAY_NAMES[entry.dayOfWeek] ?? ""} ${entry.startTime}-${entry.endTime}`}
+                          leading={<ExternalLink />}
+                          title="Homepage"
+                          description={course.homepageUrl}
+                          onClick={() =>
+                            onOpenExternal(course.homepageUrl ?? "")
+                          }
+                        />
+                      )}
+                      {course.links.map((link) => (
+                        <ListRow
+                          key={link._id}
+                          leading={<LinkIcon />}
+                          title={link.label}
+                          description={link.url}
+                          onClick={() => onOpenExternal(link.url)}
                         />
                       ))}
-                    </div>
-                  </section>
-                )}
-
-                {(course.description ||
-                  course.location ||
-                  course.homepageUrl ||
-                  course.links.length > 0 ||
-                  course.customFields.length > 0) && (
-                  <section className="space-y-3">
-                    <SectionHeading title="About" />
-                    {course.description && (
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        {course.description}
-                      </p>
-                    )}
-                    {course.customFields.length > 0 && (
-                      <dl className="grid grid-cols-1 gap-x-8 gap-y-1">
-                        {course.customFields.map((field) => (
-                          <div
-                            key={field._id}
-                            className="flex items-baseline gap-3 border-b border-border/60 py-1.5"
-                          >
-                            <dt className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                              {field.label}
-                            </dt>
-                            <dd className="min-w-0 flex-1 truncate text-right text-sm">
-                              {field.value}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                    {(course.location ||
-                      course.homepageUrl ||
-                      course.links.length > 0) && (
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        {course.location && (
-                          <span className="text-muted-foreground">
-                            {course.location}
-                          </span>
-                        )}
-                        {course.homepageUrl && (
-                          <button
-                            type="button"
-                            className="flex items-center gap-1.5 hover:underline"
-                            onClick={() =>
-                              onOpenExternal(course.homepageUrl ?? "")
-                            }
-                          >
-                            <ExternalLink className="size-3" />
-                            Homepage
-                          </button>
-                        )}
-                        {course.links.map((link) => (
-                          <button
-                            key={link._id}
-                            type="button"
-                            className="flex items-center gap-1.5 hover:underline"
-                            onClick={() => onOpenExternal(link.url)}
-                          >
-                            <LinkIcon className="size-3" />
-                            {link.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-              </div>
+                    </List>
+                  )}
+                </Section>
+              )}
             </div>
-          </TabsContent>
+          </div>
+        </>
+      )}
 
-          <TabsContent value="work">
-            <CourseWorkPanel
-              courseId={course._id}
-              assignments={detail.assignments}
-              deadlines={detail.deadlines}
-              kanbanCards={detail.kanbanCards}
-              readings={detail.readings}
-              onRefresh={onRefresh}
-            />
-          </TabsContent>
+      {tab === "work" && (
+        <CourseWorkPanel
+          courseId={course._id}
+          assignments={detail.assignments}
+          deadlines={detail.deadlines}
+          kanbanCards={detail.kanbanCards}
+          readings={detail.readings}
+          onRefresh={onRefresh}
+        />
+      )}
 
-          <TabsContent value="grades">
-            <CourseGradebookPanel
-              assignments={detail.assignments}
-              gradeAverage={stats.gradeAverage}
-              projection={projection}
-            />
-          </TabsContent>
+      {tab === "grades" && (
+        <CourseGradebookPanel
+          assignments={detail.assignments}
+          gradeAverage={stats.gradeAverage}
+          projection={projection}
+        />
+      )}
 
-          <TabsContent value="mail">
-            <CourseMailPanel
-              courseId={course._id}
-              onOpenEmail={setOpenEmail}
-              onRefresh={onRefresh}
-            />
-          </TabsContent>
+      {tab === "mail" && (
+        <CourseMailPanel
+          courseId={course._id}
+          onOpenEmail={setOpenEmail}
+          onRefresh={onRefresh}
+        />
+      )}
 
-          <TabsContent value="linked" className="space-y-8">
-            <section className="space-y-2">
-              <SectionHeading
-                title="Calendar"
-                meta={String(detail.calendarEvents.length)}
-              />
-              {detail.calendarEvents.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {detail.calendarEvents.map((event) => (
-                    <ListRow
-                      key={event._id}
-                      title={event.title}
-                      meta={event.place ?? event.kind}
-                      trailing={
-                        event.isAllDay
-                          ? event.calendarDate
-                          : formatDateTime(event.date)
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+      {tab === "linked" && (
+        <>
+          <Section title="Calendar" count={detail.calendarEvents.length}>
+            {detail.calendarEvents.length === 0 ? (
+              <None />
+            ) : (
+              <List>
+                {detail.calendarEvents.map((event) => (
+                  <ListRow
+                    key={event._id}
+                    title={event.title}
+                    description={event.place || event.kind}
+                    meta={
+                      event.isAllDay
+                        ? event.calendarDate
+                        : formatDateTime(event.date)
+                    }
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
 
-            <section className="space-y-2">
-              <SectionHeading
-                title="Boards"
-                meta={String(detail.kanbanBoards.length)}
-              />
-              {detail.kanbanBoards.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {detail.kanbanBoards.map((board) => (
-                    <ListRow
-                      key={board._id}
-                      title={board.title}
-                      trailing={`${board.cardCount} cards · ${board.dueCardCount} due`}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+          <Section title="Boards" count={detail.kanbanBoards.length}>
+            {detail.kanbanBoards.length === 0 ? (
+              <None />
+            ) : (
+              <List>
+                {detail.kanbanBoards.map((board) => (
+                  <ListRow
+                    key={board._id}
+                    title={board.title}
+                    meta={`${board.cardCount} cards · ${board.dueCardCount} due`}
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
 
-            <section className="space-y-2">
-              <SectionHeading
-                title="Notes"
-                meta={String(detail.notes.length)}
-              />
-              {detail.notes.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {detail.notes.map((note) => (
-                    <ListRow
-                      key={note._id}
-                      title={note.title}
-                      meta={note.tags.slice(0, 3).join(" · ") || undefined}
-                      onClick={
-                        note.url
-                          ? () => onOpenExternal(note.url ?? "")
-                          : undefined
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+          <Section title="Notes" count={detail.notes.length}>
+            {detail.notes.length === 0 ? (
+              <None />
+            ) : (
+              <List>
+                {detail.notes.map((note) => (
+                  <ListRow
+                    key={note._id}
+                    title={note.title}
+                    meta={note.tags.slice(0, 3).join(" · ") || undefined}
+                    onClick={
+                      note.url
+                        ? () => onOpenExternal(note.url ?? "")
+                        : undefined
+                    }
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
 
-            <section className="space-y-2">
-              <SectionHeading
-                title="People"
-                meta={String(detail.people.length)}
-              />
-              {detail.people.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {detail.people.map((person) => (
-                    <ListRow
-                      key={person._id}
-                      title={person.name}
-                      trailing={person.email ?? person.phone}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+          <Section title="People" count={detail.people.length}>
+            {detail.people.length === 0 ? (
+              <None />
+            ) : (
+              <List>
+                {detail.people.map((person) => (
+                  <ListRow
+                    key={person._id}
+                    title={person.name}
+                    meta={person.email ?? person.phone}
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
 
-            <section className="space-y-2">
-              <SectionHeading
-                title="Resources"
-                meta={String(detail.resources.length)}
-              />
-              {detail.resources.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {detail.resources.map((resource) => (
-                    <button
-                      key={resource._id}
-                      type="button"
-                      onClick={() => onOpenExternal(resource.url)}
-                      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 border-b border-border/60 px-2 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
-                    >
-                      {resource.isActive ? (
-                        <CheckCircle2 className="size-3 shrink-0 text-accent" />
+          <Section title="Resources" count={detail.resources.length}>
+            {detail.resources.length === 0 ? (
+              <None />
+            ) : (
+              <List>
+                {detail.resources.map((resource) => (
+                  <ListRow
+                    key={resource._id}
+                    leading={
+                      resource.isActive ? (
+                        <CheckCircle2 className="size-3.5 text-status-good" />
                       ) : (
-                        <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {resource.name}
-                      </span>
-                      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-                        {resource.type}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
+                        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+                      )
+                    }
+                    title={resource.name}
+                    meta={resource.type}
+                    onClick={() => onOpenExternal(resource.url)}
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
 
-            <section className="space-y-2">
-              <SectionHeading
-                title="Triage context"
-                meta={String(course.triageContext.length)}
-              />
-              {course.triageContext.length === 0 ? (
-                <EmptyLine />
-              ) : (
-                <div>
-                  {course.triageContext.map((field) => (
-                    <ListRow
-                      key={field._id}
-                      title={field.label}
-                      meta={field.value}
-                      trailing={field.includeInTriage ? "triage" : "private"}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          </TabsContent>
-        </div>
-      </Tabs>
+          <Section title="Triage context" count={course.triageContext.length}>
+            {course.triageContext.length === 0 ? (
+              <None />
+            ) : (
+              <Properties>
+                {course.triageContext.map((field) => (
+                  <Property key={field._id} label={field.label}>
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">
+                        {field.value}
+                      </span>
+                      <Badge
+                        variant={field.includeInTriage ? "info" : "outline"}
+                      >
+                        {field.includeInTriage ? "Triage" : "Private"}
+                      </Badge>
+                    </span>
+                  </Property>
+                ))}
+              </Properties>
+            )}
+          </Section>
+        </>
+      )}
 
       {openEmail && (
         <div className="absolute inset-0 z-20">
@@ -693,7 +571,7 @@ function CourseHome({
           />
         </div>
       )}
-    </div>
+    </CourseChrome>
   );
 }
 
@@ -706,7 +584,7 @@ function CourseHome({
  * resolved by `routes.courses.detail`.
  */
 export function CoursesPage({ courseId }: { courseId?: string }) {
-  const { client, platform, slots, routes } = useAdmin();
+  const { client, platform, routes } = useAdmin();
   const router = useRouter();
 
   const [detail, setDetail] = useState<ICourseDetail | null>(null);
@@ -718,7 +596,6 @@ export function CoursesPage({ courseId }: { courseId?: string }) {
     [router, routes],
   );
   const [detailLoading, setDetailLoading] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ICourse | null>(null);
   const [isMutating, setIsMutating] = useState(false);
   // The roster and the cockpit are one fetch now, so emptiness is reported up
   // rather than derived from a second list request.
@@ -766,12 +643,10 @@ export function CoursesPage({ courseId }: { courseId?: string }) {
     router.push(routes.courses.edit(detail.course._id));
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
+  const handleDelete = async (course: ICourse) => {
     setIsMutating(true);
     try {
-      await client.del<{ success: true }>(`courses/${deleteTarget._id}`);
-      setDeleteTarget(null);
+      await client.del<{ success: true }>(`courses/${course._id}`);
       setDetail(null);
       selectCourse(null);
       setReloadSignal((signal) => signal + 1);
@@ -786,147 +661,59 @@ export function CoursesPage({ courseId }: { courseId?: string }) {
   if (selectedCourseId) {
     if (detailLoading || !detail) {
       return (
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex h-12 items-center gap-2 border-b px-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={() => selectCourse(null)}
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-            <div className="h-4 w-48 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="space-y-6 p-4">
-            <div className="flex gap-10">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-                  <div className="h-2 w-16 animate-pulse rounded bg-muted" />
-                </div>
-              ))}
-            </div>
-            {Array.from({ length: 5 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-3 w-full animate-pulse rounded bg-muted"
-              />
-            ))}
-          </div>
-        </div>
+        <CourseChrome
+          crumbs={[{ label: "Courses", onClick: () => selectCourse(null) }]}
+          icon={<GraduationCap />}
+          title={<Skeleton className="h-4 w-48" />}
+        >
+          <CockpitSkeleton />
+        </CourseChrome>
       );
     }
 
     return (
-      <>
-        <CourseHome
-          detail={detail}
-          onBack={() => selectCourse(null)}
-          onEdit={openEdit}
-          onDelete={() => setDeleteTarget(detail.course)}
-          onOpenExternal={(url) => platform.openExternal(url)}
-          onRefresh={() => fetchDetail(detail.course._id)}
-        />
-        <DeleteCourseDialog
-          deleteTarget={deleteTarget}
-          setDeleteTarget={setDeleteTarget}
-          onDelete={handleDelete}
-          isMutating={isMutating}
-        />
-      </>
+      <CourseHome
+        key={detail.course._id}
+        detail={detail}
+        onBack={() => selectCourse(null)}
+        onEdit={openEdit}
+        onDelete={() => handleDelete(detail.course)}
+        deleting={isMutating}
+        onOpenExternal={(url) => platform.openExternal(url)}
+        onRefresh={() => fetchDetail(detail.course._id)}
+      />
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<GraduationCap className="size-4 text-muted-foreground" />}
-        title="Courses"
-      >
+    <CourseChrome
+      icon={<GraduationCap />}
+      title="Courses"
+      actions={
         <Button size="sm" onClick={openCreate}>
           <Plus />
-          Add Class
+          Add
         </Button>
-      </PageHeader>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {isEmpty && !listLoading ? (
-          <Empty className="h-full border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <GraduationCap />
-              </EmptyMedia>
-              <EmptyTitle>No courses</EmptyTitle>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button size="sm" onClick={openCreate}>
-                <Plus className="size-3.5" />
-                Add Class
-              </Button>
-            </EmptyContent>
-          </Empty>
-        ) : (
-          <SemesterCockpit
-            onSelectCourse={selectCourse}
-            reloadSignal={reloadSignal}
-            onEmpty={handleEmpty}
-          />
-        )}
-      </div>
-
-      <DeleteCourseDialog
-        deleteTarget={deleteTarget}
-        setDeleteTarget={setDeleteTarget}
-        onDelete={handleDelete}
-        isMutating={isMutating}
-      />
-    </div>
-  );
-}
-
-function DeleteCourseDialog({
-  deleteTarget,
-  setDeleteTarget,
-  onDelete,
-  isMutating,
-}: {
-  deleteTarget: ICourse | null;
-  setDeleteTarget: (course: ICourse | null) => void;
-  onDelete: () => Promise<void>;
-  isMutating: boolean;
-}) {
-  return (
-    <Dialog
-      open={!!deleteTarget}
-      onOpenChange={(open) => !open && setDeleteTarget(null)}
+      }
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete Class</DialogTitle>
-          <DialogDescription>
-            Delete &quot;{deleteTarget?.name}&quot;? Linked records stay in
-            their original tools.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setDeleteTarget(null)}
-            disabled={isMutating}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={onDelete}
-            disabled={isMutating}
-          >
-            {isMutating ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {isEmpty && !listLoading ? (
+        <EmptyState
+          icon={<GraduationCap />}
+          label="No courses"
+          action={
+            <Button size="sm" variant="outline" onClick={openCreate}>
+              <Plus />
+              Add
+            </Button>
+          }
+        />
+      ) : (
+        <SemesterCockpit
+          onSelectCourse={selectCourse}
+          reloadSignal={reloadSignal}
+          onEmpty={handleEmpty}
+        />
+      )}
+    </CourseChrome>
   );
 }

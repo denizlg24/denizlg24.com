@@ -1,46 +1,21 @@
 "use client";
 
 import type { PiCronJob } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import {
-  Copy,
-  History,
-  MoreHorizontal,
-  Pause,
-  Pencil,
-  Play,
-  Trash2,
-} from "lucide-react";
+import { ListRow } from "@repo/ui/list";
+import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
+import { RowActions } from "@repo/ui/toolbar";
+import { Copy, History, Pause, Pencil, Play, Trash2 } from "lucide-react";
 
-function JobStatusDot({ job }: { job: PiCronJob }) {
-  if (!job.enabled) {
-    return (
-      <span className="size-1.5 rounded-full bg-muted-foreground/30 shrink-0" />
-    );
-  }
-  if (job.last_status === null) {
-    return <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />;
-  }
-  if (job.last_status >= 200 && job.last_status < 300) {
-    return (
-      <span className="relative flex size-1.5 shrink-0">
-        <span className="absolute inline-flex size-full rounded-full bg-accent opacity-40 animate-ping" />
-        <span className="relative inline-flex size-1.5 rounded-full bg-accent" />
-      </span>
-    );
-  }
-  return (
-    <span className="relative flex size-1.5 shrink-0">
-      <span className="absolute inline-flex size-full rounded-full bg-red-400 opacity-40 animate-ping" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-red-500" />
-    </span>
-  );
+function jobTone(job: PiCronJob): StatusTone {
+  if (!job.enabled) return "muted";
+  if (job.last_status === null) return "warning";
+  if (job.last_status >= 200 && job.last_status < 300) return "good";
+  return "critical";
 }
 
 function formatRelative(iso: string | null): string {
@@ -80,104 +55,82 @@ export function PiCronJobRow({
   onTrigger: () => void;
   onHistory: () => void;
 }) {
+  const nextRun = job.next_run
+    ? new Date(job.next_run).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
   return (
-    <div className="group flex items-center gap-4 px-3 py-2.5 rounded-lg hover:bg-muted/30 transition-colors">
-      <JobStatusDot job={job} />
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{job.name}</span>
-          {!job.enabled && (
-            <span className="text-[9px] font-mono uppercase text-muted-foreground">
-              paused
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[11px] font-mono text-muted-foreground/70 shrink-0">
-            {job.expression}
-          </span>
-          <span className="text-muted-foreground shrink-0">·</span>
-          <span className="text-[11px] font-mono text-muted-foreground uppercase shrink-0">
-            {job.method}
-          </span>
-          <span className="text-muted-foreground shrink-0">·</span>
-          <span className="text-[11px] font-mono text-muted-foreground/70 truncate">
-            {jobUrlPath(job.url)}
-          </span>
-        </div>
-      </div>
-
-      <div className="hidden sm:flex items-center gap-4 shrink-0 text-right">
-        <div className="w-16">
-          <p className="text-xs font-mono text-muted-foreground tabular-nums">
+    <ListRow
+      onClick={onHistory}
+      leading={
+        <StatusDot
+          tone={jobTone(job)}
+          label={
+            job.last_status === null ? "never run" : String(job.last_status)
+          }
+        />
+      }
+      title={
+        <span className="flex items-center gap-2">
+          <span className="truncate">{job.name}</span>
+          {!job.enabled && <Badge variant="secondary">paused</Badge>}
+        </span>
+      }
+      description={
+        <span className="font-mono">
+          {job.expression} · {job.method.toUpperCase()} · {jobUrlPath(job.url)}
+        </span>
+      }
+      meta={
+        <span className="hidden items-center gap-4 font-mono sm:flex">
+          <span className="w-8 text-right" title="Last status">
             {job.last_status ?? "—"}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
-            status
-          </p>
-        </div>
-        <div className="w-16">
-          <p className="text-xs font-mono text-muted-foreground tabular-nums">
+          </span>
+          <span className="w-16 text-right" title="Last run">
             {formatRelative(job.last_run)}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
-            last run
-          </p>
-        </div>
-        <div className="w-20">
-          <p className="text-xs font-mono text-muted-foreground tabular-nums truncate">
-            {job.next_run
-              ? new Date(job.next_run).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "—"}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
-            next
-          </p>
-        </div>
-      </div>
-
-      <div className="shrink-0">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded hover:bg-muted/50 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-              <MoreHorizontal className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          </span>
+          <span className="w-12 text-right" title="Next run">
+            {nextRun}
+          </span>
+        </span>
+      }
+      trailing={
+        // Menu items portal out, but React still bubbles their clicks to the row.
+        <span onClick={(event) => event.stopPropagation()}>
+          <RowActions>
             <DropdownMenuItem onClick={onTrigger}>
-              <Play className="size-3.5 mr-2" /> Trigger now
+              <Play /> Trigger now
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onToggleEnabled}>
               {job.enabled ? (
                 <>
-                  <Pause className="size-3.5 mr-2" /> Pause
+                  <Pause /> Pause
                 </>
               ) : (
                 <>
-                  <Play className="size-3.5 mr-2" /> Resume
+                  <Play /> Resume
                 </>
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onHistory}>
-              <History className="size-3.5 mr-2" /> History
+              <History /> History
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onEdit}>
-              <Pencil className="size-3.5 mr-2" /> Edit
+              <Pencil /> Edit
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onDuplicate}>
-              <Copy className="size-3.5 mr-2" /> Duplicate
+              <Copy /> Duplicate
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive" onClick={onDelete}>
-              <Trash2 className="size-3.5 mr-2" /> Delete
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 /> Delete
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+          </RowActions>
+        </span>
+      }
+    />
   );
 }

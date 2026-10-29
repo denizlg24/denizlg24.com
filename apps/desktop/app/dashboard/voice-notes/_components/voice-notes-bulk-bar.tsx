@@ -1,16 +1,5 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
@@ -20,6 +9,7 @@ import {
   CommandItem,
   CommandList,
 } from "@repo/ui/command";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Hash, Loader2, RotateCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -56,18 +46,8 @@ function BulkTagPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="h-6 text-[11px]"
-          disabled={disabled}
-        >
-          {busy ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : (
-            <Hash className="size-3" />
-          )}
+        <Button type="button" variant="ghost" size="sm" disabled={disabled}>
+          {busy ? <Loader2 className="animate-spin" /> : <Hash />}
           Tag
         </Button>
       </PopoverTrigger>
@@ -86,7 +66,6 @@ function BulkTagPicker({
                   value={`new:${typed}`}
                   keywords={[typed]}
                   onSelect={() => choose(typed)}
-                  className="text-xs"
                 >
                   <Hash className="size-3" />
                   {typed}
@@ -98,7 +77,6 @@ function BulkTagPicker({
                   value={`tag:${tag}`}
                   keywords={[tag]}
                   onSelect={() => choose(tag)}
-                  className="text-xs"
                 >
                   <Hash className="size-3" />
                   {tag}
@@ -142,36 +120,31 @@ export function VoiceNotesBulkBar({
   const allChecked = count === loadedCount;
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b px-3.5">
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b px-3">
       <Checkbox
         checked={allChecked ? true : "indeterminate"}
         onCheckedChange={onToggleAll}
         aria-label={allChecked ? "Deselect all" : "Select all loaded"}
         className="mr-1.5 size-3.5 rounded-[3px]"
       />
-      <span className="shrink-0 font-mono text-[11px] tabular-nums">
+      <span className="shrink-0 text-xs font-medium tabular-nums text-accent-strong">
         {count}
       </span>
-      <span className="mr-auto truncate font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span className="mr-auto truncate text-xs tabular-nums text-muted-foreground">
         · {formatSpan(totalDurationMs)} · {formatBytes(totalBytes)}
       </span>
 
       <Button
         type="button"
         variant="ghost"
-        size="xs"
-        className="h-6 text-[11px]"
+        size="sm"
         disabled={busy !== null || retryableCount === 0}
         onClick={onRetry}
       >
-        {busy === "retry" ? (
-          <Loader2 className="size-3 animate-spin" />
-        ) : (
-          <RotateCw className="size-3" />
-        )}
+        {busy === "retry" ? <Loader2 className="animate-spin" /> : <RotateCw />}
         Retry
         {retryableCount > 0 && retryableCount !== count && (
-          <span className="font-mono tabular-nums text-muted-foreground">
+          <span className="tabular-nums text-muted-foreground">
             {retryableCount}
           </span>
         )}
@@ -182,52 +155,37 @@ export function VoiceNotesBulkBar({
         busy={busy === "tag"}
         onAddTag={onAddTag}
       />
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
+      <ConfirmButton
+        trigger={
           <Button
             type="button"
             variant="ghost"
-            size="xs"
-            className="h-6 text-[11px] text-destructive hover:text-destructive"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
             disabled={busy !== null}
           >
             {busy === "delete" ? (
-              <Loader2 className="size-3 animate-spin" />
+              <Loader2 className="animate-spin" />
             ) : (
-              <Trash2 className="size-3" />
+              <Trash2 />
             )}
             Delete
           </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete {count} voice {count === 1 ? "note" : "notes"}?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="font-mono text-xs tabular-nums">
-              {formatSpan(totalDurationMs)} · {formatBytes(totalBytes)}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        }
+        title={`Delete ${count} voice ${count === 1 ? "note" : "notes"}?`}
+        description={`${formatSpan(totalDurationMs)} · ${formatBytes(totalBytes)}`}
+        actionLabel="Delete"
+        destructive
+        onConfirm={onDelete}
+      />
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
-        className="ml-1"
+        size="icon-sm"
         onClick={onClear}
         aria-label="Clear selection"
       >
-        <X className="size-3" />
+        <X />
       </Button>
     </div>
   );

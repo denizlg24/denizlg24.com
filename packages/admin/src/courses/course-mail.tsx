@@ -20,7 +20,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { Input } from "@repo/ui/input";
+import { Page, PageBody, PageHeader, PageTitle } from "@repo/ui/page";
 import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
 import {
   Select,
@@ -29,15 +29,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Separator } from "@repo/ui/separator";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
 import type { ColumnDef, PaginationState } from "@tanstack/react-table";
-import {
-  ArrowLeft,
-  Link2Off,
-  Loader2,
-  MoreHorizontal,
-  Search,
-} from "lucide-react";
+import { ArrowLeft, Link2Off, Mail, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmailIframe } from "../inbox/email-iframe";
@@ -50,6 +46,10 @@ import {
 
 const DEFAULT_PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 250;
+
+function isTriageCategory(value: string): value is TriageCategory {
+  return TRIAGE_CATEGORIES.some((category) => category === value);
+}
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -116,38 +116,44 @@ export function CourseEmailReader({
   }, [onBack]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
-        <Button variant="ghost" size="icon" className="size-7" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {senderName(email.from)}
-        </span>
+    <Page>
+      <PageHeader
+        leading={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onBack}
+            aria-label="Back to mail"
+          >
+            <ArrowLeft />
+          </Button>
+        }
+        icon={<Mail />}
+        title={senderName(email.from)}
+      >
         <CategoryLabel category={email.category} />
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="w-full px-4 py-5 sm:px-8 sm:py-6">
-          <h1 className="text-lg font-semibold leading-snug sm:text-xl">
-            {email.subject || "(No subject)"}
-          </h1>
-
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate">{email.from}</span>
-            <span className="tabular-nums">{formatDateTime(email.date)}</span>
-          </div>
-
-          {email.summary && (
-            <p className="mt-4 text-sm leading-relaxed">{email.summary}</p>
-          )}
-
-          <Separator className="my-5" />
-
+      </PageHeader>
+      <PageBody width="wide">
+        <PageTitle
+          title={email.subject || "(No subject)"}
+          meta={
+            <>
+              <span className="min-w-0 truncate">{email.from}</span>
+              <span className="tabular-nums">{formatDateTime(email.date)}</span>
+            </>
+          }
+        />
+        {email.summary && (
+          <p className="text-sm leading-relaxed text-accent-strong">
+            {email.summary}
+          </p>
+        )}
+        <div className="border-t pt-6">
           {loading ? (
-            <div className="flex items-center gap-2 py-16 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              Loading
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-5/6" />
+              <Skeleton className="h-3.5 w-2/3" />
             </div>
           ) : full?.htmlBody ? (
             <EmailIframe html={full.htmlBody} />
@@ -156,11 +162,11 @@ export function CourseEmailReader({
               {full.textBody}
             </pre>
           ) : (
-            <p className="py-8 text-xs text-muted-foreground">No body</p>
+            <p className="text-sm text-muted-foreground">No body</p>
           )}
         </div>
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -199,15 +205,12 @@ function RelinkMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
+            size="icon-sm"
+            className="text-muted-foreground"
             disabled={busy}
+            aria-label="Move or unlink"
           >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <MoreHorizontal className="size-3.5" />
-            )}
+            {busy ? <Spinner className="size-3.5" /> : <MoreHorizontal />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
@@ -218,7 +221,7 @@ function RelinkMenu({
             <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
               {loading && targets.length === 0 ? (
                 <DropdownMenuItem disabled className="text-xs">
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Spinner className="size-3.5" />
                   Loading
                 </DropdownMenuItem>
               ) : targets.length === 0 ? (
@@ -236,7 +239,7 @@ function RelinkMenu({
                       {course.name}
                     </span>
                     {course.code && (
-                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                         {course.code}
                       </span>
                     )}
@@ -392,7 +395,7 @@ export function CourseMailPanel({
         header: "Date",
         meta: { className: "w-32" },
         cell: ({ row }) => (
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             {formatDateTime(row.original.date)}
           </span>
         ),
@@ -411,7 +414,7 @@ export function CourseMailPanel({
         accessorKey: "subject",
         header: "Subject",
         cell: ({ row }) => (
-          <span className="block max-w-64 truncate font-medium xl:max-w-128">
+          <span className="block max-w-64 truncate text-accent-strong xl:max-w-128">
             {row.original.subject}
           </span>
         ),
@@ -442,43 +445,42 @@ export function CourseMailPanel({
   );
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search subject or sender..."
-            className="h-8 w-64 max-w-full pl-7 text-xs"
-          />
-        </div>
+        <SearchField
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search mail"
+          className="w-64 max-w-full"
+        />
         <Select
           value={category}
-          onValueChange={(value) =>
-            setCategory(value as TriageCategory | "all")
-          }
+          onValueChange={(value) => {
+            if (value === "all" || isTriageCategory(value)) setCategory(value);
+          }}
         >
-          <SelectTrigger size="sm" className="w-36 text-xs">
+          <SelectTrigger size="sm" className="w-40">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent position="popper">
-            <SelectItem value="all" className="text-xs">
-              All categories
-            </SelectItem>
+            <SelectItem value="all">All categories</SelectItem>
             {TRIAGE_CATEGORIES.map((value) => (
-              <SelectItem key={value} value={value} className="text-xs">
+              <SelectItem key={value} value={value}>
                 {CATEGORY_LABELS[value]}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <ToolbarSpacer />
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {page.total}
+        </span>
       </div>
 
       <PaginatedDataTable
         columns={columns}
         data={page.emails}
-        emptyMessage="No mail matched to this course"
+        emptyMessage="No mail"
         onRowClick={onOpenEmail}
         manualPagination={{
           pageIndex: pagination.pageIndex,

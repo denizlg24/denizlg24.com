@@ -141,8 +141,8 @@ function HistoryPopover() {
                     <div
                       key={conversation._id}
                       className={cn(
-                        "group/row flex items-center pr-1.5 transition-colors hover:bg-accent/60",
-                        current && "bg-accent/40",
+                        "group/row flex items-center pr-1.5 transition-colors hover:bg-surface",
+                        current && "bg-surface",
                       )}
                     >
                       <button

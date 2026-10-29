@@ -9,11 +9,25 @@ import type {
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { type ChartConfig, ChartContainer, ChartTooltip } from "@repo/ui/chart";
-import { PageHeader } from "@repo/ui/page-header";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@repo/ui/table";
+import { FilterTabs } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
-import { History, Landmark, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { History, Landmark, RefreshCw } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -23,12 +37,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import {
-  Empty,
-  Figure,
-  relative,
-  SectionHead,
-} from "../finance/finance-primitives";
+import { relative } from "../finance/finance-primitives";
 import { shortDay } from "../finance/finance-series";
 import { toneClass, trimQuantity } from "../markets/format";
 import { useAdmin } from "../provider";
@@ -74,8 +83,8 @@ function TooltipRows({
   rows: { label: string; value: string; className?: string }[];
 }) {
   return (
-    <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-lg">
-      <div className="mb-1.5 font-medium">{title}</div>
+    <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      <div className="mb-1.5 font-medium text-accent-strong">{title}</div>
       {rows.map((row) => (
         <div key={row.label} className="flex items-center gap-4">
           <span className="text-muted-foreground">{row.label}</span>
@@ -211,6 +220,10 @@ function SeriesChart({
   );
 }
 
+const HEAD =
+  "h-8 px-2 text-right text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
+const CELL = "px-2 py-1.5 text-right tabular-nums";
+
 function Holdings({
   holdings,
   baseCurrency,
@@ -218,102 +231,100 @@ function Holdings({
   holdings: BrokerageHolding[];
   baseCurrency: string;
 }) {
-  if (holdings.length === 0) return <Empty label="—" compact />;
+  if (holdings.length === 0) return <EmptyState label="No positions" compact />;
   return (
-    <div className="-mx-4 overflow-x-auto px-4">
-      <table className="w-full text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
-        <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          <tr className="border-b">
-            <th className="py-1 pr-2 text-left font-normal">Symbol</th>
-            <th className="px-1.5 py-1 text-right font-normal">Qty</th>
-            <th className="hidden px-1.5 py-1 text-right font-normal sm:table-cell">
-              Avg
-            </th>
-            <th className="px-1.5 py-1 text-right font-normal">Last</th>
-            <th className="px-1.5 py-1 text-right font-normal">Day</th>
-            <th className="px-1.5 py-1 text-right font-normal">Value</th>
-            <th className="px-1.5 py-1 text-right font-normal">P&amp;L</th>
-            <th className="py-1 pl-1.5 text-right font-normal">Wt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {holdings.map((holding) => {
-            const pnlFraction =
-              holding.costBasis !== 0
-                ? holding.unrealizedPnl / Math.abs(holding.costBasis)
-                : null;
-            return (
-              <tr key={holding.conid} className="border-b last:border-b-0">
-                <td className="max-w-56 py-1.5 pr-2">
-                  <div className="font-medium">{holding.symbol}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {holding.description} · {holding.listingExchange}
-                    {holding.currency !== baseCurrency
-                      ? ` · ${holding.currency}`
-                      : ""}
-                  </div>
-                </td>
-                <td className="px-1.5 text-right tabular-nums">
-                  {trimQuantity(holding.quantity)}
-                </td>
-                <td className="hidden px-1.5 text-right text-muted-foreground tabular-nums sm:table-cell">
-                  {holding.costBasisPrice.toFixed(2)}
-                </td>
-                <td className="px-1.5 text-right tabular-nums">
-                  {holding.markPrice.toFixed(2)}
-                </td>
-                <td
-                  className={cn(
-                    "px-1.5 text-right tabular-nums",
-                    toneClass(holding.dayChange),
-                  )}
-                >
-                  {percent(holding.dayChange)}
-                </td>
-                <td className="px-1.5 text-right tabular-nums">
-                  {amount(holding.valueBase, baseCurrency)}
-                </td>
-                <td
-                  className={cn(
-                    "px-1.5 text-right tabular-nums",
-                    toneClass(holding.unrealizedPnlBase),
-                  )}
-                >
-                  {amount(holding.unrealizedPnlBase, baseCurrency, true)}
-                  <span className="ml-1 text-[10px]">
-                    {percent(pnlFraction)}
-                  </span>
-                </td>
-                <td className="pl-1.5 text-right text-muted-foreground tabular-nums">
-                  {holding.percentOfNav.toFixed(1)}%
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table className="text-xs">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className={cn(HEAD, "pl-0 text-left")}>Symbol</TableHead>
+          <TableHead className={HEAD}>Qty</TableHead>
+          <TableHead className={cn(HEAD, "hidden sm:table-cell")}>
+            Avg
+          </TableHead>
+          <TableHead className={HEAD}>Last</TableHead>
+          <TableHead className={HEAD}>Day</TableHead>
+          <TableHead className={HEAD}>Value</TableHead>
+          <TableHead className={HEAD}>P&amp;L</TableHead>
+          <TableHead className={cn(HEAD, "pr-0")}>Wt</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {holdings.map((holding) => {
+          const pnlFraction =
+            holding.costBasis !== 0
+              ? holding.unrealizedPnl / Math.abs(holding.costBasis)
+              : null;
+          return (
+            <TableRow key={holding.conid} className="hover:bg-surface/70">
+              <TableCell className="max-w-56 py-1.5 pr-2 pl-0">
+                <div className="font-medium text-accent-strong">
+                  {holding.symbol}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {holding.description} · {holding.listingExchange}
+                  {holding.currency !== baseCurrency
+                    ? ` · ${holding.currency}`
+                    : ""}
+                </div>
+              </TableCell>
+              <TableCell className={CELL}>
+                {trimQuantity(holding.quantity)}
+              </TableCell>
+              <TableCell
+                className={cn(
+                  CELL,
+                  "hidden text-muted-foreground sm:table-cell",
+                )}
+              >
+                {holding.costBasisPrice.toFixed(2)}
+              </TableCell>
+              <TableCell className={CELL}>
+                {holding.markPrice.toFixed(2)}
+              </TableCell>
+              <TableCell className={cn(CELL, toneClass(holding.dayChange))}>
+                {percent(holding.dayChange)}
+              </TableCell>
+              <TableCell className={CELL}>
+                {amount(holding.valueBase, baseCurrency)}
+              </TableCell>
+              <TableCell
+                className={cn(CELL, toneClass(holding.unrealizedPnlBase))}
+              >
+                {amount(holding.unrealizedPnlBase, baseCurrency, true)}
+                <span className="ml-1 text-[11px]">{percent(pnlFraction)}</span>
+              </TableCell>
+              <TableCell className={cn(CELL, "pr-0 text-muted-foreground")}>
+                {holding.percentOfNav.toFixed(1)}%
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }
 
 function Cash({ cash }: { cash: BrokerageCashBalance[] }) {
-  if (cash.length === 0) return <Empty label="—" compact />;
+  if (cash.length === 0) return <EmptyState label="No cash" compact />;
   return (
-    <div className="divide-y text-xs">
+    <List divided>
       {cash.map((row) => (
-        <div key={row.currency} className="flex items-center py-1.5">
-          <span className="font-medium">{row.currency}</span>
-          {row.settled !== row.amount && (
-            <span className="ml-3 text-muted-foreground tabular-nums">
-              settled {amount(row.settled, row.currency)}
+        <ListRow
+          key={row.currency}
+          title={row.currency}
+          description={
+            row.settled !== row.amount
+              ? `settled ${amount(row.settled, row.currency)}`
+              : undefined
+          }
+          meta={
+            <span className="text-accent-strong">
+              {amount(row.amount, row.currency)}
             </span>
-          )}
-          <span className="ml-auto tabular-nums">
-            {amount(row.amount, row.currency)}
-          </span>
-        </div>
+          }
+        />
       ))}
-    </div>
+    </List>
   );
 }
 
@@ -325,67 +336,71 @@ function activityLabel(row: BrokerageActivity) {
   return row.type;
 }
 
+function activityDetail(row: BrokerageActivity) {
+  if (row.kind === "trade") {
+    return row.quantity !== undefined && row.price !== undefined
+      ? `${trimQuantity(Math.abs(row.quantity))} @ ${row.price.toFixed(2)}`
+      : undefined;
+  }
+  return `${row.symbol ? `${row.symbol} · ` : ""}${row.description}`;
+}
+
 function Activity({ activity }: { activity: BrokerageActivity[] }) {
-  if (activity.length === 0) return <Empty label="—" compact />;
   return (
-    <div className="divide-y text-xs">
+    <List divided>
       {activity.map((row) => (
-        <div key={row.id} className="flex items-center gap-3 py-1.5">
-          <span className="w-12 shrink-0 text-muted-foreground tabular-nums">
-            {shortDay(row.date)}
-          </span>
-          <span className="w-20 shrink-0 truncate">{activityLabel(row)}</span>
-          <span className="min-w-0 flex-1 truncate">
-            {row.kind === "trade" ? (
-              <>
-                <span className="font-medium">{row.symbol}</span>
-                {row.quantity !== undefined && row.price !== undefined && (
-                  <span className="ml-2 text-muted-foreground tabular-nums">
-                    {trimQuantity(Math.abs(row.quantity))} @{" "}
-                    {row.price.toFixed(2)}
-                  </span>
+        <ListRow
+          key={row.id}
+          title={
+            row.kind === "trade" && row.symbol
+              ? `${activityLabel(row)} ${row.symbol}`
+              : activityLabel(row)
+          }
+          description={activityDetail(row)}
+          meta={
+            <>
+              <span>{shortDay(row.date)}</span>
+              <span
+                className={cn(
+                  "w-24 text-right",
+                  row.kind === "cash"
+                    ? toneClass(row.amount) || "text-accent-strong"
+                    : "text-accent-strong",
                 )}
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                {row.symbol ? `${row.symbol} · ` : ""}
-                {row.description}
+              >
+                {amount(row.amount, row.currency, true)}
               </span>
-            )}
-          </span>
-          <span
-            className={cn(
-              "shrink-0 tabular-nums",
-              row.kind === "cash" && toneClass(row.amount),
-            )}
-          >
-            {amount(row.amount, row.currency, true)}
-          </span>
-        </div>
+            </>
+          }
+        />
       ))}
-    </div>
+    </List>
   );
 }
 
-function HoldingsSkeleton() {
+function BodySkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+    <>
+      <StatGroup>
         {["nav", "day", "pnl", "deposits"].map((key) => (
-          <div key={key} className="space-y-2">
+          <div key={key} className="flex flex-col gap-1.5">
             <Skeleton className="h-3 w-12" />
-            <Skeleton className="h-7 w-24" />
+            <Skeleton className="h-6 w-24" />
             <Skeleton className="h-3 w-16" />
           </div>
         ))}
+      </StatGroup>
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-52 w-full" />
       </div>
-      <Skeleton className="h-52 w-full" />
-      <div className="space-y-2">
+      <div className="flex flex-col gap-1">
+        <Skeleton className="mb-2 h-3 w-24" />
         {["a", "b", "c", "d", "e"].map((key) => (
-          <Skeleton key={key} className="h-8 w-full" />
+          <Skeleton key={key} className="h-9 w-full" />
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -395,98 +410,116 @@ function Body({ overview }: { overview: BrokerageOverview }) {
   const currency = overview.account?.baseCurrency ?? "EUR";
 
   return (
-    <div className="space-y-8">
+    <>
       {overview.sync.lastError && (
-        <div className="text-status-critical text-xs">
+        <p className="text-xs text-status-critical">
           {overview.sync.lastError}
-        </div>
+        </p>
       )}
       {totals ? (
-        <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
-          <Figure
+        <StatGroup>
+          <Stat
             label="Value"
             value={amount(totals.nav, currency)}
-            meta={`cash ${amount(totals.cash, currency)}`}
+            hint={`cash ${amount(totals.cash, currency)}`}
           />
-          <Figure
+          <Stat
             label="Day"
             value={
               totals.dayPnl === null
                 ? "—"
                 : amount(totals.dayPnl, currency, true)
             }
-            meta={percent(totals.dayReturn)}
+            hint={percent(totals.dayReturn)}
             tone={tone(totals.dayPnl)}
           />
-          <Figure
+          <Stat
             label="P&L"
             value={amount(totals.pnl, currency, true)}
-            meta={`TWR ${percent(totals.cumulativeReturn)}`}
+            hint={`TWR ${percent(totals.cumulativeReturn)}`}
             tone={tone(totals.pnl)}
           />
-          <Figure
+          <Stat
             label="Deposited"
             value={amount(totals.netDeposits, currency)}
-            meta={`income ${amount(totals.income, currency)} · fees ${amount(
+            hint={`income ${amount(totals.income, currency)} · fees ${amount(
               totals.commissions,
               currency,
             )}`}
           />
-        </div>
+        </StatGroup>
       ) : (
-        <Empty label="—" />
+        <EmptyState icon={<Landmark />} label="No snapshot" />
       )}
 
       {overview.series.length > 1 && (
-        <section className="space-y-3">
-          <SectionHead label="Performance">
-            <div className="flex gap-1 text-[11px]">
-              {(["value", "return"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setMode(option)}
-                  className={cn(
-                    "rounded px-1.5 py-0.5 capitalize",
-                    mode === option
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </SectionHead>
+        <Section
+          title="Performance"
+          actions={
+            <FilterTabs
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "value", label: "Value" },
+                { value: "return", label: "Return" },
+              ]}
+            />
+          }
+        >
           <SeriesChart
             series={overview.series}
             currency={currency}
             mode={mode}
           />
-        </section>
+        </Section>
       )}
 
       {totals && (
-        <section className="space-y-2">
-          <SectionHead label={`Positions · ${overview.holdings.length}`} />
+        <Section title="Positions" count={overview.holdings.length}>
           <Holdings holdings={overview.holdings} baseCurrency={currency} />
-        </section>
+        </Section>
       )}
 
       {totals && (
-        <section className="space-y-2">
-          <SectionHead label="Cash" />
+        <Section title="Cash" count={overview.cash.length}>
           <Cash cash={overview.cash} />
-        </section>
+        </Section>
       )}
 
       {overview.activity.length > 0 && (
-        <section className="space-y-2">
-          <SectionHead label="Activity" />
+        <Section title="Activity" count={overview.activity.length}>
           <Activity activity={overview.activity} />
-        </section>
+        </Section>
       )}
-    </div>
+    </>
+  );
+}
+
+function HoldingsHeader({
+  leading,
+  children,
+}: {
+  leading?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <PageHeader leading={leading} icon={<Landmark />} title="Holdings">
+      {children}
+    </PageHeader>
+  );
+}
+
+/** The page's loading state, for route shells that render before the admin context is ready. */
+export function HoldingsSkeleton({ leading }: { leading?: ReactNode }) {
+  return (
+    <Page>
+      <HoldingsHeader leading={leading}>
+        <Skeleton className="h-3 w-28" />
+      </HoldingsHeader>
+      <PageBody>
+        <BodySkeleton />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -525,56 +558,40 @@ export function HoldingsPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<Landmark className="size-4 text-muted-foreground" />}
-        title="Holdings"
-      >
+    <Page>
+      <HoldingsHeader leading={slots?.sidebarTrigger}>
         {overview?.asOf && (
-          <span
-            className="text-muted-foreground text-xs tabular-nums"
-            title={
-              overview.sync.lastSyncedAt
-                ? `synced ${relative(overview.sync.lastSyncedAt)}`
-                : undefined
-            }
-          >
+          <span className="mr-1 text-xs tabular-nums text-muted-foreground">
             {shortDay(overview.asOf)}
+            {overview.sync.lastSyncedAt
+              ? ` · synced ${relative(overview.sync.lastSyncedAt)}`
+              : ""}
           </span>
         )}
         <Button
-          size="icon"
+          size="icon-sm"
           variant="ghost"
           aria-label="Sync last 365 days"
           title="Sync last 365 days"
           disabled={syncing !== null}
           onClick={() => void sync(true)}
         >
-          {syncing === "history" ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <History className="size-4" />
-          )}
+          {syncing === "history" ? <Spinner /> : <History />}
         </Button>
         <Button
-          size="icon"
+          size="icon-sm"
           variant="ghost"
           aria-label="Sync"
           title="Sync"
           disabled={syncing !== null}
           onClick={() => void sync(false)}
         >
-          <RefreshCw
-            className={cn("size-4", syncing === "daily" && "animate-spin")}
-          />
+          <RefreshCw className={cn(syncing === "daily" && "animate-spin")} />
         </Button>
-      </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-4 py-5">
-          {overview ? <Body overview={overview} /> : <HoldingsSkeleton />}
-        </div>
-      </div>
-    </div>
+      </HoldingsHeader>
+      <PageBody>
+        {overview ? <Body overview={overview} /> : <BodySkeleton />}
+      </PageBody>
+    </Page>
   );
 }

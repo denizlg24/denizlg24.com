@@ -1,127 +1,78 @@
 "use client";
 
-import { Badge } from "@repo/ui/badge";
-import { ScrollArea } from "@repo/ui/scroll-area";
-import { CalendarDays, MapPin, UserRound } from "lucide-react";
-import Image from "next/image";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { UsersRound } from "lucide-react";
+import { useMemo } from "react";
 import type { BirthdayParts, IPerson, IPersonGroup } from "@/lib/data-types";
+import { PersonAvatar } from "./person-avatar";
 
-function formatBirthday(birthday?: BirthdayParts | null) {
-  if (!birthday) return "No birthday";
-  const date = new Date(2000, birthday.month - 1, birthday.day);
-  const label = date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-  return birthday.year ? `${label}, ${birthday.year}` : label;
+export function formatBirthdayShort(birthday?: BirthdayParts | null) {
+  if (!birthday) return null;
+  return new Date(2000, birthday.month - 1, birthday.day).toLocaleDateString(
+    undefined,
+    { month: "short", day: "numeric" },
+  );
 }
 
 interface Props {
   people: IPerson[];
   groups: IPersonGroup[];
+  relationCounts: Map<string, number>;
+  selectedId: string | null;
   onSelect: (person: IPerson) => void;
-  onSelectGroup: (group: IPersonGroup) => void;
 }
 
-export function PersonList({ people, groups, onSelect, onSelectGroup }: Props) {
-  const groupMap = new Map(groups.map((group) => [group._id, group]));
+export function PersonList({
+  people,
+  groups,
+  relationCounts,
+  selectedId,
+  onSelect,
+}: Props) {
+  const groupNames = useMemo(
+    () => new Map(groups.map((group) => [group._id, group.name])),
+    [groups],
+  );
 
   if (people.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        No people match the current filters.
-      </div>
-    );
+    return <EmptyState compact icon={<UsersRound />} label="No people" />;
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="min-w-0 md:min-w-165">
-        <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 border-b px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)]">
-          <span />
-          <span>Name</span>
-          <span className="hidden md:block">Birthday</span>
-          <span className="hidden md:block">Place met</span>
-          <span className="hidden md:block">Groups</span>
-        </div>
-
-        <div className="divide-y">
-          {people.map((person) => {
-            const personGroups = person.groupIds
-              .map((groupId) => groupMap.get(groupId))
-              .filter((group): group is IPersonGroup => Boolean(group));
-
-            return (
-              <button
-                type="button"
-                key={person._id}
-                onClick={() => onSelect(person)}
-                className="grid w-full grid-cols-[2rem_minmax(0,1fr)] gap-3 px-4 py-3 text-left hover:bg-muted/40 md:grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)]"
-              >
-                <div className="pt-0.5">
-                  {person.photos[0] ? (
-                    <Image
-                      src={person.photos[0]}
-                      alt=""
-                      width={24}
-                      height={24}
-                      className="size-6 rounded-full object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                      <UserRound className="size-3.5" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {person.name}
-                  </div>
-                  <div className="mt-1 line-clamp-1 text-[10px] text-muted-foreground">
-                    {person.notes || "No notes"}
-                  </div>
-                </div>
-                <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
-                  <CalendarDays className="size-3.5" />
-                  {formatBirthday(person.birthday)}
-                </div>
-                <div className="hidden min-w-0 items-center gap-1 text-xs text-muted-foreground md:flex">
-                  <MapPin className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    {person.placeMet || "Unknown"}
-                  </span>
-                </div>
-                <div className="hidden flex-wrap content-start gap-1 md:flex">
-                  {personGroups.length === 0 ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      None
-                    </span>
-                  ) : (
-                    personGroups.map((group) => (
-                      <button
-                        type="button"
-                        key={group._id}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSelectGroup(group);
-                        }}
-                      >
-                        <Badge
-                          variant="secondary"
-                          className="h-4 px-1.5 text-[10px] hover:bg-accent"
-                        >
-                          {group.name}
-                        </Badge>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </ScrollArea>
+    <List>
+      {people.map((person) => {
+        const names = person.groupIds
+          .map((groupId) => groupNames.get(groupId))
+          .filter((name): name is string => Boolean(name));
+        const relations = relationCounts.get(person._id) ?? 0;
+        const description = [
+          names.join(", "),
+          person.placeMet,
+          relations > 0
+            ? `${relations} relation${relations === 1 ? "" : "s"}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <ListRow
+            key={person._id}
+            selected={person._id === selectedId}
+            onClick={() => onSelect(person)}
+            leading={
+              <PersonAvatar
+                size="xs"
+                photo={person.photos[0]}
+                name={person.name}
+              />
+            }
+            title={person.name}
+            description={description || undefined}
+            meta={formatBirthdayShort(person.birthday)}
+          />
+        );
+      })}
+    </List>
   );
 }

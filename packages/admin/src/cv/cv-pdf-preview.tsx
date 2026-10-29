@@ -1,7 +1,9 @@
 "use client";
 
 import type { ICvFile } from "@repo/schemas";
-import { FileOutput, Loader2 } from "lucide-react";
+import { Button } from "@repo/ui/button";
+import { Spinner } from "@repo/ui/spinner";
+import { FileOutput } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import type { AdminClient } from "../client";
@@ -72,13 +74,13 @@ export default function CvPdfPreview({
   const fallback = (
     <div className="flex h-full min-h-80 items-center justify-center p-4 text-xs text-muted-foreground">
       {active ? (
-        <button
-          type="button"
-          className="underline underline-offset-2 transition-colors hover:text-foreground"
+        <Button
+          variant="link"
+          size="sm"
           onClick={() => platform.openExternal(active.url)}
         >
           Open PDF
-        </button>
+        </Button>
       ) : (
         <FileOutput className="size-5 opacity-40" />
       )}
@@ -93,7 +95,7 @@ export default function CvPdfPreview({
         fallback
       ) : !pdfFile ? (
         <div className="flex h-full min-h-80 items-center justify-center">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <Spinner className="size-4 text-muted-foreground" />
         </div>
       ) : (
         <Document
@@ -104,7 +106,7 @@ export default function CvPdfPreview({
           onLoadError={() => setPreviewError(true)}
           loading={
             <div className="flex h-full min-h-80 items-center justify-center">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              <Spinner className="size-4 text-muted-foreground" />
             </div>
           }
           error={fallback}
@@ -121,7 +123,7 @@ export default function CvPdfPreview({
               }
               renderTextLayer={false}
               renderAnnotationLayer={false}
-              className="shadow-sm"
+              className="ring-1 ring-border"
             />
           ))}
         </Document>

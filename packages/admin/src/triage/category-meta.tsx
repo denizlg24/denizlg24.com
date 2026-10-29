@@ -5,6 +5,7 @@ import {
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { cn } from "@repo/ui/utils";
+import type { ComponentProps } from "react";
 
 export const TRIAGE_CATEGORIES = TRIAGE_ATTENTION_ORDER;
 export const CATEGORY_LABELS = TRIAGE_CATEGORY_LABELS;
@@ -36,15 +37,15 @@ export const CATEGORY_SPINE: Record<TriageCategory, string> = {
 
 const CATEGORY_VARIANT: Record<
   TriageCategory,
-  "default" | "secondary" | "outline" | "destructive"
+  ComponentProps<typeof Badge>["variant"]
 > = {
-  spam: "destructive",
+  "action-needed": "critical",
+  scheduled: "warning",
+  purchases: "info",
+  fyi: "secondary",
   newsletter: "outline",
   promo: "outline",
-  purchases: "outline",
-  fyi: "secondary",
-  "action-needed": "default",
-  scheduled: "default",
+  spam: "outline",
 };
 
 export function CategoryBadge({
@@ -55,10 +56,7 @@ export function CategoryBadge({
   className?: string;
 }) {
   return (
-    <Badge
-      variant={CATEGORY_VARIANT[category]}
-      className={cn("text-xs", className)}
-    >
+    <Badge variant={CATEGORY_VARIANT[category]} className={className}>
       {CATEGORY_LABELS[category]}
     </Badge>
   );

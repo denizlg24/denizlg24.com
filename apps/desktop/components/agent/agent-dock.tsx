@@ -7,7 +7,7 @@ import { type ReactNode, useCallback } from "react";
 import { useDesktopAdmin } from "@/hooks/use-desktop-admin";
 import { useBackgroundTasksStore } from "@/stores/background-tasks";
 
-/** The dashboard's agent: a resizable panel beside every page but home and the LaTeX workspace. */
+/** The dashboard's agent: a resizable panel beside every page but the LaTeX workspace. */
 export function DesktopAgentDock({ children }: { children: ReactNode }) {
   const { value } = useDesktopAdmin();
   const handleActiveRunChange = useCallback(
@@ -38,10 +38,7 @@ export function DesktopAgentDock({ children }: { children: ReactNode }) {
         allowBackground
         onActiveRunChange={handleActiveRunChange}
       >
-        <AgentDock
-          hiddenOnPaths={["/dashboard"]}
-          hiddenUnderPaths={["/dashboard/latex/project"]}
-        >
+        <AgentDock hiddenUnderPaths={["/dashboard/latex/project"]}>
           {children}
         </AgentDock>
       </AgentDockProvider>

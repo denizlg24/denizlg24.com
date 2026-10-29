@@ -13,8 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
-import { Check, FolderOpen, Loader2, LogOut, RefreshCw } from "lucide-react";
+import { Check, FolderOpen, LogOut, RefreshCw } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { showUpdateToast } from "@/components/window/update-notifier";
 import { useUserSettings } from "@/context/user-context";
@@ -55,28 +56,23 @@ function FieldControl({
 
   if (meta.type === "boolean") {
     return (
-      <div className="flex sm:justify-end">
-        <Switch
-          checked={value === true}
-          onCheckedChange={(checked) => onChange(checked)}
-        />
-      </div>
+      <Switch
+        checked={value === true}
+        aria-label={meta.label}
+        onCheckedChange={(checked) => onChange(checked)}
+      />
     );
   }
 
   if (meta.type === "select" && meta.options) {
     return (
       <Select value={String(value)} onValueChange={(next) => onChange(next)}>
-        <SelectTrigger className="h-8 w-full text-xs">
+        <SelectTrigger className="w-full" aria-label={meta.label}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent position="popper" className="max-h-72">
           {meta.options.map((option) => (
-            <SelectItem
-              key={option.value}
-              value={option.value}
-              className="text-xs"
-            >
+            <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
           ))}
@@ -95,12 +91,12 @@ function FieldControl({
     };
 
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex w-full items-center gap-1.5">
         <Input
           ref={inputRef}
           value={local}
-          placeholder="Select a directory…"
-          className="h-8 min-w-0 flex-1 text-xs"
+          aria-label={meta.label}
+          className="min-w-0 flex-1"
           onChange={(event) => setLocal(event.target.value)}
           onBlur={commit}
           onKeyDown={handleKeyDown}
@@ -109,11 +105,11 @@ function FieldControl({
           <Button
             variant="outline"
             size="icon"
-            className="size-8 shrink-0"
+            className="shrink-0"
             aria-label={`Browse for ${meta.label.toLowerCase()}`}
             onClick={() => void pick()}
           >
-            <FolderOpen className="size-3.5" />
+            <FolderOpen />
           </Button>
         )}
       </div>
@@ -125,8 +121,8 @@ function FieldControl({
       ref={inputRef}
       type={meta.sensitive ? "password" : "text"}
       value={local}
-      placeholder={`Enter ${meta.label.toLowerCase()}…`}
-      className="h-8 w-full text-xs"
+      aria-label={meta.label}
+      className="w-full"
       onChange={(event) => setLocal(event.target.value)}
       onBlur={commit}
       onKeyDown={handleKeyDown}
@@ -169,11 +165,8 @@ function UpdateGroup() {
 
   return (
     <SettingsGroup label="Updates">
-      <SettingsRow
-        label="App version"
-        hint="Updates install in place, then restart the app."
-      >
-        <div className="flex items-center justify-end gap-2">
+      <SettingsRow label="Version">
+        <div className="flex items-center gap-2">
           {version && (
             <span className="text-xs tabular-nums text-muted-foreground">
               v{version}
@@ -181,24 +174,23 @@ function UpdateGroup() {
           )}
           {state === "latest" && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Check className="size-3" />
-              Up to date
+              <Check className="size-3 text-status-good" />
+              Latest
             </span>
           )}
           {state === "error" && (
-            <span className="text-xs text-destructive">Check failed</span>
+            <span className="text-xs text-status-critical">Check failed</span>
           )}
           <Button
             variant="outline"
-            size="sm"
-            className="h-8 shrink-0 gap-1.5 text-xs"
+            className="shrink-0"
             disabled={state === "checking"}
             onClick={() => void check()}
           >
             {state === "checking" ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner className="size-3.5" />
             ) : (
-              <RefreshCw className="size-3.5" />
+              <RefreshCw />
             )}
             Check
           </Button>
@@ -213,26 +205,19 @@ function SessionGroup() {
 
   return (
     <SettingsGroup label="Session">
-      <SettingsRow label="Signed in on this device">
-        <div className="flex sm:justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0 gap-1.5 text-xs"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void signOut();
-            }}
-          >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <LogOut className="size-3.5" />
-            )}
-            Sign out
-          </Button>
-        </div>
+      <SettingsRow label="This device">
+        <Button
+          variant="outline"
+          className="shrink-0"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void signOut().finally(() => setBusy(false));
+          }}
+        >
+          {busy ? <Spinner className="size-3.5" /> : <LogOut />}
+          Sign out
+        </Button>
       </SettingsRow>
     </SettingsGroup>
   );
@@ -251,17 +236,15 @@ export function DeviceSection() {
   return (
     <>
       <SettingsGroup label="This device">
-        <div className="space-y-6">
-          {fields.map(([key, meta]) => (
-            <SettingsRow key={key} label={meta.label} hint={meta.description}>
-              <FieldControl
-                meta={meta}
-                value={settings[key]}
-                onChange={(value) => setSettings({ [key]: value })}
-              />
-            </SettingsRow>
-          ))}
-        </div>
+        {fields.map(([key, meta]) => (
+          <SettingsRow key={key} label={meta.label}>
+            <FieldControl
+              meta={meta}
+              value={settings[key]}
+              onChange={(value) => setSettings({ [key]: value })}
+            />
+          </SettingsRow>
+        ))}
       </SettingsGroup>
       <SessionGroup />
       <UpdateGroup />

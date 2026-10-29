@@ -45,7 +45,7 @@ function CandidateItem({
       value={`${candidate.kind}:${candidate.id}`}
       keywords={[candidate.title, candidate.place ?? ""]}
       onSelect={onSelect}
-      className="items-start text-xs"
+      className="items-start"
     >
       <Check
         className={cn("mt-0.5 size-3.5", current ? "opacity-100" : "opacity-0")}
@@ -55,16 +55,16 @@ function CandidateItem({
           <ContextDot color={candidate.color} />
           <span className="truncate">{candidate.title}</span>
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+        <span className="text-[11px] tabular-nums text-muted-foreground">
           {formatTimeRange(candidate.start, candidate.end)}
           {candidate.place && ` · ${candidate.place}`}
         </span>
       </div>
       <span
         className={cn(
-          "shrink-0 font-mono text-[10px] tabular-nums",
+          "shrink-0 text-[11px] tabular-nums",
           candidate.overlapMs > 0
-            ? "text-foreground"
+            ? "text-accent-strong"
             : "text-muted-foreground/60",
         )}
       >
@@ -136,19 +136,19 @@ export function VoiceNoteContextPicker({
         <button
           type="button"
           disabled={disabled || saving}
-          className="-mx-1.5 flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-xs outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-muted/60"
+          className="-mx-1.5 flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left outline-none hover:bg-surface/70 focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-surface"
         >
           {context ? (
             <>
               <ContextDot color={context.color} />
               <span className="truncate">{context.title}</span>
               {range && (
-                <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                   {range}
                 </span>
               )}
               {context.place && (
-                <span className="truncate text-[11px] text-muted-foreground">
+                <span className="truncate text-xs text-muted-foreground">
                   {context.place}
                 </span>
               )}
@@ -181,7 +181,6 @@ export function VoiceNoteContextPicker({
                 value="auto"
                 keywords={["auto"]}
                 onSelect={() => void choose("auto")}
-                className="text-xs"
               >
                 <Check
                   className={cn(
@@ -195,7 +194,6 @@ export function VoiceNoteContextPicker({
                 value="none"
                 keywords={["none"]}
                 onSelect={() => void choose(null)}
-                className="text-xs"
               >
                 <Check
                   className={cn(

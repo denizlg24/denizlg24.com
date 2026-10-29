@@ -2,16 +2,13 @@
 
 import type { ISubResource, SubResourceCheck } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { List, ListRow } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -20,7 +17,9 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
+import { RowActions } from "@repo/ui/toolbar";
 import { Globe, Network, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -118,11 +117,30 @@ function checkSummary(check: SubResourceCheck): string {
   return `${check.host}:${check.port}`;
 }
 
-function statusDot(sub: ISubResource): string {
-  if (!sub.isActive) return "bg-muted-foreground/40";
-  if (sub.lastStatus === "healthy") return "bg-accent";
-  if (sub.lastStatus === "unhealthy") return "bg-red-500";
-  return "bg-muted-foreground/40";
+function subTone(sub: ISubResource): StatusTone {
+  if (!sub.isActive) return "muted";
+  if (sub.lastStatus === "healthy") return "good";
+  if (sub.lastStatus === "unhealthy") return "critical";
+  return "muted";
+}
+
+function isCheckType(value: string): value is CheckFormState["type"] {
+  return value === "http" || value === "tcp";
+}
+
+function checkIsComplete(check: CheckFormState): boolean {
+  if (check.type === "http") {
+    if (!check.url.trim()) return false;
+    const status = check.expectStatus.trim();
+    return status === "" || Number.isInteger(Number(status));
+  }
+  const port = Number(check.port);
+  return (
+    check.host.trim() !== "" &&
+    Number.isInteger(port) &&
+    port > 0 &&
+    port <= 65535
+  );
 }
 
 export function SubResourcesSection({ resourceId }: { resourceId: string }) {
@@ -133,7 +151,6 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
   const [deleteTarget, setDeleteTarget] = useState<ISubResource | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -188,22 +205,15 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
     }
   };
 
-  const remove = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  const remove = async (target: ISubResource) => {
     try {
-      await client.del(
-        `resources/${resourceId}/sub-resources/${deleteTarget._id}`,
-      );
+      await client.del(`resources/${resourceId}/sub-resources/${target._id}`);
       setSubs((prev) =>
-        prev ? prev.filter((s) => s._id !== deleteTarget._id) : prev,
+        prev ? prev.filter((s) => s._id !== target._id) : prev,
       );
-      setDeleteTarget(null);
       toast.success("Sub-resource removed");
     } catch {
       toast.error("Failed to delete sub-resource");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -217,301 +227,248 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
     subs?.filter((s) => s.isActive && s.lastStatus === "unhealthy").length ?? 0;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-            Sub-resources
-            {total > 0 && (
-              <span className="ml-1.5 font-mono text-muted-foreground/60">
-                {total}
-              </span>
-            )}
-          </h3>
-          {total > 0 && (
-            <div className="flex items-center gap-2 text-[11px] font-mono">
-              {upCount > 0 && (
-                <span className="text-accent tabular-nums">{upCount} up</span>
-              )}
-              {downCount > 0 && (
-                <span className="text-red-500/80 tabular-nums">
-                  {downCount} down
-                </span>
-              )}
-            </div>
+    <Section
+      title="Sub-resources"
+      count={total > 0 ? total : undefined}
+      actions={
+        <>
+          {upCount > 0 && (
+            <span className="text-xs tabular-nums text-status-good">
+              {upCount} up
+            </span>
           )}
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 text-xs gap-1 text-muted-foreground"
-          onClick={openCreate}
-        >
-          <Plus className="size-3" />
-          Add
-        </Button>
-      </div>
-
+          {downCount > 0 && (
+            <span className="text-xs tabular-nums text-status-critical">
+              {downCount} down
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Add sub-resource"
+            onClick={openCreate}
+          >
+            <Plus />
+          </Button>
+        </>
+      }
+    >
       {subs === null ? (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2">
           {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+            <Skeleton key={i} className="h-9 w-full" />
           ))}
         </div>
       ) : subs.length === 0 ? (
-        <p className="text-xs text-muted-foreground/60 border border-dashed border-border/50 rounded-lg px-4 py-5 text-center">
-          No sub-resources tracked yet.
-        </p>
+        <EmptyState compact icon={<Network />} label="No sub-resources" />
       ) : (
-        <div className="flex flex-col gap-1">
+        <List>
           {subs.map((sub) => (
-            <div
+            <ListRow
               key={sub._id}
-              className="px-3 py-2.5 rounded-lg border border-border/50"
-            >
-              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                <span
-                  className={`size-1.5 rounded-full shrink-0 ${statusDot(sub)}`}
+              leading={
+                <StatusDot
+                  tone={subTone(sub)}
+                  label={sub.lastStatus ?? "unchecked"}
                 />
-                {sub.check.type === "http" ? (
-                  <Globe className="size-3 text-muted-foreground/60 shrink-0" />
-                ) : (
-                  <Network className="size-3 text-muted-foreground/60 shrink-0" />
-                )}
-                {/* A one-word name like "Meilisearch" has no wrap opportunity,
-                    so without min-w-0 it set the row's floor and shoved the
-                    action buttons out of the card. */}
-                <span className="min-w-0 flex-1 truncate text-sm font-medium sm:flex-initial">
-                  {sub.name}
+              }
+              title={
+                <span className="flex items-center gap-2">
+                  {sub.check.type === "http" ? (
+                    <Globe className="size-3 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <Network className="size-3 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{sub.name}</span>
                 </span>
-                <span className="hidden min-w-0 flex-1 truncate text-[10px] text-muted-foreground/60 font-mono sm:block">
-                  {checkSummary(sub.check)}
-                </span>
-                {sub.lastResponseTimeMs != null && (
-                  <span className="text-[10px] text-muted-foreground font-mono tabular-nums shrink-0">
-                    {sub.lastResponseTimeMs} ms
+              }
+              description={
+                <span className="font-mono">{checkSummary(sub.check)}</span>
+              }
+              meta={
+                <>
+                  {sub.lastResponseTimeMs != null && (
+                    <span>{sub.lastResponseTimeMs} ms</span>
+                  )}
+                  <span className="hidden sm:inline">
+                    {sub.lastStatus ?? "unchecked"}
                   </span>
-                )}
-                {/* The status dot already carries this below sm. */}
-                <span className="hidden text-[10px] text-muted-foreground font-mono uppercase shrink-0 sm:inline">
-                  {sub.lastStatus ?? "unchecked"}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="size-6 p-0 text-muted-foreground"
-                  aria-label="Edit sub-resource"
-                  onClick={() => openEdit(sub)}
-                >
-                  <Pencil className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="size-6 p-0 text-destructive hover:text-destructive"
-                  aria-label="Delete sub-resource"
-                  onClick={() => setDeleteTarget(sub)}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
-              </div>
+                </>
+              }
+              trailing={
+                <RowActions>
+                  <DropdownMenuItem onClick={() => openEdit(sub)}>
+                    <Pencil /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteTarget(sub)}
+                  >
+                    <Trash2 /> Delete
+                  </DropdownMenuItem>
+                </RowActions>
+              }
+            >
               {sub.uptime && sub.uptime.dailyHistory.length > 0 && (
-                <div className="mt-2 ml-[18px]">
+                <span className="hidden w-44 shrink-0 md:block">
                   <UptimeBar history={sub.uptime.dailyHistory} />
-                </div>
+                </span>
               )}
-            </div>
+            </ListRow>
           ))}
-        </div>
+        </List>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? "Edit sub-resource" : "Add sub-resource"}
-            </DialogTitle>
-            <DialogDescription>
-              Track an HTTP health endpoint or a TCP port under this resource.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="sub-name">Name</Label>
-              <Input
-                id="sub-name"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, name: e.target.value }))
-                }
-                placeholder="MongoDB"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sub-description">Description</Label>
-              <Input
-                id="sub-description"
-                value={form.description}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, description: e.target.value }))
-                }
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Check type</Label>
-              <Select
-                value={form.check.type}
-                onValueChange={(v) =>
-                  setCheck({ type: v as CheckFormState["type"] })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="http">HTTP health endpoint</SelectItem>
-                  <SelectItem value="tcp">TCP port</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {form.check.type === "http" ? (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sub-url">URL</Label>
-                  <Input
-                    id="sub-url"
-                    value={form.check.url}
-                    onChange={(e) => setCheck({ url: e.target.value })}
-                    placeholder="https://search.denizlg24.com/health"
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div className="min-w-0 space-y-1.5">
-                    <Label htmlFor="sub-status">Status</Label>
-                    <Input
-                      id="sub-status"
-                      value={form.check.expectStatus}
-                      onChange={(e) =>
-                        setCheck({ expectStatus: e.target.value })
-                      }
-                      placeholder="any 2xx"
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <Label htmlFor="sub-json-path">JSON path</Label>
-                    <Input
-                      id="sub-json-path"
-                      value={form.check.expectJsonPath}
-                      onChange={(e) =>
-                        setCheck({ expectJsonPath: e.target.value })
-                      }
-                      placeholder="status"
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <Label htmlFor="sub-equals">Equals</Label>
-                    <Input
-                      id="sub-equals"
-                      value={form.check.expectEquals}
-                      onChange={(e) =>
-                        setCheck({ expectEquals: e.target.value })
-                      }
-                      placeholder="available"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="min-w-0 space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="sub-host">Host</Label>
-                  <Input
-                    id="sub-host"
-                    value={form.check.host}
-                    onChange={(e) => setCheck({ host: e.target.value })}
-                    placeholder="mongodb.denizlg24.com"
-                  />
-                </div>
-                <div className="min-w-0 space-y-1.5">
-                  <Label htmlFor="sub-port">Port</Label>
-                  <Input
-                    id="sub-port"
-                    value={form.check.port}
-                    onChange={(e) => setCheck({ port: e.target.value })}
-                    placeholder="27017"
-                  />
-                </div>
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="sub-public"
-                  checked={form.isPublic}
-                  onCheckedChange={(v) =>
-                    setForm((f) => ({ ...f, isPublic: v }))
-                  }
-                />
-                <Label htmlFor="sub-public" className="text-sm">
-                  Public
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="sub-active"
-                  checked={form.isActive}
-                  onCheckedChange={(v) =>
-                    setForm((f) => ({ ...f, isActive: v }))
-                  }
-                />
-                <Label htmlFor="sub-active" className="text-sm">
-                  Active
-                </Label>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDialogOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={save} disabled={saving || !form.name.trim()}>
-              {saving ? "Saving..." : editing ? "Save changes" : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      <FormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={editing ? "Edit sub-resource" : "Add sub-resource"}
+        onSubmit={save}
+        submitLabel={editing ? "Save" : "Create"}
+        submitDisabled={!form.name.trim() || !checkIsComplete(form.check)}
+        pending={saving}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Sub-resource</DialogTitle>
-            <DialogDescription>
-              This removes {deleteTarget?.name} and its health check history.
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
+        <FormGrid>
+          <FormField label="Name" htmlFor="sub-name">
+            <Input
+              id="sub-name"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="MongoDB"
+              autoFocus
+            />
+          </FormField>
+          <FormField label="Check">
+            <Select
+              value={form.check.type}
+              onValueChange={(value) => {
+                if (isCheckType(value)) setCheck({ type: value });
+              }}
             >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={remove} disabled={deleting}>
-              {deleting ? "Removing..." : "Remove"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="http">HTTP</SelectItem>
+                <SelectItem value="tcp">TCP</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField
+            label="Description"
+            htmlFor="sub-description"
+            className="sm:col-span-2"
+          >
+            <Input
+              id="sub-description"
+              value={form.description}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, description: e.target.value }))
+              }
+            />
+          </FormField>
+          {form.check.type === "http" ? (
+            <>
+              <FormField
+                label="URL"
+                htmlFor="sub-url"
+                className="sm:col-span-2"
+              >
+                <Input
+                  id="sub-url"
+                  value={form.check.url}
+                  onChange={(e) => setCheck({ url: e.target.value })}
+                  placeholder="https://search.denizlg24.com/health"
+                  className="font-mono"
+                />
+              </FormField>
+              <FormField label="Status" htmlFor="sub-status">
+                <Input
+                  id="sub-status"
+                  inputMode="numeric"
+                  value={form.check.expectStatus}
+                  onChange={(e) => setCheck({ expectStatus: e.target.value })}
+                  placeholder="2xx"
+                  className="font-mono"
+                />
+              </FormField>
+              <div className="hidden sm:block" />
+              <FormField label="JSON path" htmlFor="sub-json-path">
+                <Input
+                  id="sub-json-path"
+                  value={form.check.expectJsonPath}
+                  onChange={(e) => setCheck({ expectJsonPath: e.target.value })}
+                  placeholder="status"
+                  className="font-mono"
+                />
+              </FormField>
+              <FormField label="Equals" htmlFor="sub-equals">
+                <Input
+                  id="sub-equals"
+                  value={form.check.expectEquals}
+                  onChange={(e) => setCheck({ expectEquals: e.target.value })}
+                  placeholder="available"
+                  className="font-mono"
+                />
+              </FormField>
+            </>
+          ) : (
+            <>
+              <FormField label="Host" htmlFor="sub-host">
+                <Input
+                  id="sub-host"
+                  value={form.check.host}
+                  onChange={(e) => setCheck({ host: e.target.value })}
+                  placeholder="mongodb.denizlg24.com"
+                  className="font-mono"
+                />
+              </FormField>
+              <FormField label="Port" htmlFor="sub-port">
+                <Input
+                  id="sub-port"
+                  inputMode="numeric"
+                  value={form.check.port}
+                  onChange={(e) => setCheck({ port: e.target.value })}
+                  placeholder="27017"
+                  className="font-mono"
+                />
+              </FormField>
+            </>
+          )}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="sub-public"
+              checked={form.isPublic}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, isPublic: v }))}
+            />
+            <label htmlFor="sub-public" className="text-sm text-accent-strong">
+              Public
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="sub-active"
+              checked={form.isActive}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, isActive: v }))}
+            />
+            <label htmlFor="sub-active" className="text-sm text-accent-strong">
+              Active
+            </label>
+          </div>
+        </FormGrid>
+      </FormDialog>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Delete ${deleteTarget?.name ?? "sub-resource"}?`}
+        description="Its health history goes with it."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void remove(deleteTarget);
+        }}
+      />
+    </Section>
   );
 }

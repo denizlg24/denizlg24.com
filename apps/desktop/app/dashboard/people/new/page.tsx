@@ -1,9 +1,12 @@
 "use client";
 
+import { Page } from "@repo/ui/page";
+import { UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PersonDetail } from "@/app/dashboard/people/_components/person-detail";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -37,6 +40,9 @@ export default function NewPersonPage() {
     return new denizApi();
   }, [settings, loadingSettings]);
 
+  // Stable identity: PersonDetail resets its fields whenever `person` changes,
+  // so a fresh draft per render would wipe what was typed on every re-render.
+  const [draft] = useState(createDraftPerson);
   const [people, setPeople] = useState<IPerson[]>([]);
   const [groups, setGroups] = useState<IPersonGroup[]>([]);
   const [edges, setEdges] = useState<IPersonEdge[]>([]);
@@ -64,8 +70,8 @@ export default function NewPersonPage() {
       toast.error(result.message);
       return null;
     }
-    toast.success("Person created");
-    router.push(`/dashboard/people`);
+    toast.success("Created");
+    router.push(`/dashboard/people?person=${result.person._id}`);
     return result.person;
   };
 
@@ -88,17 +94,25 @@ export default function NewPersonPage() {
   };
 
   return (
-    <PersonDetail
-      person={createDraftPerson()}
-      people={people}
-      groups={groups}
-      edges={edges}
-      api={api}
-      mode="draft"
-      saving={saving}
-      onCreateGroup={createGroup}
-      onBack={() => router.push("/dashboard/people")}
-      onSave={createPerson}
-    />
+    <Page>
+      <DashboardPageHeader
+        icon={<UserPlus />}
+        title="New person"
+        crumbs={[
+          { label: "People", onClick: () => router.push("/dashboard/people") },
+        ]}
+      />
+      <PersonDetail
+        person={draft}
+        people={people}
+        groups={groups}
+        edges={edges}
+        api={api}
+        mode="draft"
+        saving={saving}
+        onCreateGroup={createGroup}
+        onSave={createPerson}
+      />
+    </Page>
   );
 }

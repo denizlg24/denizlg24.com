@@ -12,6 +12,8 @@ import type {
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
 import { DatePicker } from "@repo/ui/date-picker";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
 import {
   Select,
@@ -33,7 +35,6 @@ import {
   deleteFinanceEnvelope,
   updateFinanceEnvelope,
 } from "./finance-budget-data";
-import { FieldRow } from "./finance-primitives";
 import { todayKey } from "./finance-series";
 
 const PERIOD_LABEL: Record<FinanceEnvelopePeriod, string> = {
@@ -134,7 +135,7 @@ function CategoryPicker({
   onToggle: (name: string) => void;
 }) {
   if (!categories.length) {
-    return <p className="text-xs text-muted-foreground">No categories yet</p>;
+    return <EmptyState compact label="No categories" className="py-2" />;
   }
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -150,11 +151,12 @@ function CategoryPicker({
             title={blocked ? `Budgeted by ${owner}` : undefined}
             onClick={() => onToggle(category.name)}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+              "flex h-7 items-center rounded-md border px-2.5 text-xs transition-colors",
               isSelected
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
-              blocked && "cursor-not-allowed opacity-40 hover:border-border",
+                ? "border-transparent bg-surface font-medium text-accent-strong dark:bg-muted"
+                : "border-border text-muted-foreground hover:bg-surface/60 hover:text-accent-strong",
+              blocked &&
+                "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-muted-foreground",
             )}
           >
             {category.color && (
@@ -278,58 +280,86 @@ export function EnvelopeForm({
     }
   }
 
+  async function remove() {
+    if (!envelope) return;
+    setSaving(true);
+    try {
+      await deleteFinanceEnvelope(client, envelope.id);
+      await onDeleted?.();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not delete envelope",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="space-y-5">
-      <FieldRow label="Name" htmlFor="envelope-name">
-        <Input
-          id="envelope-name"
-          value={draft.name}
-          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          placeholder="Groceries"
-        />
-      </FieldRow>
-
-      <FieldRow label="Kind">
-        <Select
-          value={draft.kind}
-          onValueChange={(value: FinanceEnvelopeKind) =>
-            setDraft({ ...draft, kind: value })
-          }
+    <form
+      className="flex flex-col gap-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!saving) void save();
+      }}
+    >
+      <FormGrid>
+        <FormField
+          label="Name"
+          htmlFor="envelope-name"
+          className="sm:col-span-2"
         >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="capped">Spending limit</SelectItem>
-            <SelectItem value="sinking">Sinking fund</SelectItem>
-          </SelectContent>
-        </Select>
-      </FieldRow>
+          <Input
+            id="envelope-name"
+            value={draft.name}
+            onChange={(event) =>
+              setDraft({ ...draft, name: event.target.value })
+            }
+            placeholder="Groceries"
+          />
+        </FormField>
 
-      <FieldRow
-        label={`${isSinking ? "Target" : "Limit"} (${draft.currency})`}
-        htmlFor="envelope-amount"
-      >
-        <Input
-          id="envelope-amount"
-          inputMode="decimal"
-          value={draft.amount}
-          onChange={(event) =>
-            setDraft({ ...draft, amount: event.target.value })
-          }
-          placeholder="350"
-        />
-      </FieldRow>
+        <FormField label="Kind">
+          <Select
+            value={draft.kind}
+            onValueChange={(value: FinanceEnvelopeKind) =>
+              setDraft({ ...draft, kind: value })
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="capped">Spending limit</SelectItem>
+              <SelectItem value="sinking">Sinking fund</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
 
-      <div className="grid grid-cols-2 gap-3">
-        <FieldRow label={isSinking ? "Contribute" : "Period"}>
+        <FormField
+          label={`${isSinking ? "Target" : "Limit"} (${draft.currency})`}
+          htmlFor="envelope-amount"
+        >
+          <Input
+            id="envelope-amount"
+            inputMode="decimal"
+            value={draft.amount}
+            onChange={(event) =>
+              setDraft({ ...draft, amount: event.target.value })
+            }
+            className="tabular-nums"
+            placeholder="350"
+          />
+        </FormField>
+
+        <FormField label={isSinking ? "Contribute" : "Period"}>
           <Select
             value={draft.period}
             onValueChange={(value: FinanceEnvelopePeriod) =>
               setDraft({ ...draft, period: value })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -342,9 +372,9 @@ export function EnvelopeForm({
               )}
             </SelectContent>
           </Select>
-        </FieldRow>
-        {draft.period !== "weekly" && (
-          <FieldRow label="Starts day" htmlFor="envelope-start-day">
+        </FormField>
+        {draft.period !== "weekly" ? (
+          <FormField label="Starts day" htmlFor="envelope-start-day">
             <Input
               id="envelope-start-day"
               inputMode="numeric"
@@ -352,46 +382,83 @@ export function EnvelopeForm({
               onChange={(event) =>
                 setDraft({ ...draft, periodStartDay: event.target.value })
               }
+              className="tabular-nums"
               placeholder="1"
             />
-          </FieldRow>
+          </FormField>
+        ) : (
+          <div className="hidden sm:block" />
         )}
-      </div>
 
-      {isSinking ? (
-        <FieldRow label="Target date">
+        {isSinking ? (
+          <FormField label="Target date">
+            <DatePicker
+              value={draft.targetDate || undefined}
+              onValueChange={(value) =>
+                setDraft({ ...draft, targetDate: value ?? "" })
+              }
+              aria-label="Target date"
+            />
+          </FormField>
+        ) : (
+          <FormField label="Rollover">
+            <Select
+              value={draft.rollover}
+              onValueChange={(value: FinanceEnvelopeRollover) =>
+                setDraft({ ...draft, rollover: value })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(ROLLOVER_LABEL) as FinanceEnvelopeRollover[]).map(
+                  (rollover) => (
+                    <SelectItem key={rollover} value={rollover}>
+                      {ROLLOVER_LABEL[rollover]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </FormField>
+        )}
+        <FormField label="Starts">
           <DatePicker
-            value={draft.targetDate || undefined}
+            value={draft.startDate}
             onValueChange={(value) =>
-              setDraft({ ...draft, targetDate: value ?? "" })
+              setDraft({ ...draft, startDate: value ?? todayKey() })
             }
+            aria-label="Start date"
           />
-        </FieldRow>
-      ) : (
-        <FieldRow label="Rollover">
+        </FormField>
+
+        <FormField label="Account" className="sm:col-span-2">
           <Select
-            value={draft.rollover}
-            onValueChange={(value: FinanceEnvelopeRollover) =>
-              setDraft({ ...draft, rollover: value })
+            value={draft.accountId || "all"}
+            onValueChange={(value) =>
+              setDraft({
+                ...draft,
+                accountId: value === "all" ? "" : value,
+              })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(ROLLOVER_LABEL) as FinanceEnvelopeRollover[]).map(
-                (rollover) => (
-                  <SelectItem key={rollover} value={rollover}>
-                    {ROLLOVER_LABEL[rollover]}
-                  </SelectItem>
-                ),
-              )}
+              <SelectItem value="all">All accounts</SelectItem>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.displayName}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
-        </FieldRow>
-      )}
+        </FormField>
+      </FormGrid>
 
-      <FieldRow label="Categories">
+      <FormField label="Categories">
         <CategoryPicker
           categories={categories}
           selected={draft.categories}
@@ -405,15 +472,17 @@ export function EnvelopeForm({
             })
           }
         />
-      </FieldRow>
+      </FormField>
 
-      <div className="flex items-center justify-between gap-3 text-xs">
+      <div className="flex items-center justify-between gap-3 text-sm">
         <label
           htmlFor="envelope-uncategorized"
-          className={cn(uncategorizedOwner && "text-muted-foreground")}
+          className={cn(
+            uncategorizedOwner ? "text-muted-foreground" : "text-accent-strong",
+          )}
         >
           Claim uncategorized spend
-          {uncategorizedOwner && ` — taken by ${uncategorizedOwner.name}`}
+          {uncategorizedOwner && ` · taken by ${uncategorizedOwner.name}`}
         </label>
         <Switch
           id="envelope-uncategorized"
@@ -425,94 +494,48 @@ export function EnvelopeForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <FieldRow label="Account">
-          <Select
-            value={draft.accountId || "all"}
-            onValueChange={(value) =>
-              setDraft({
-                ...draft,
-                accountId: value === "all" ? "" : value,
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All accounts</SelectItem>
-              {accounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  {account.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FieldRow>
-        <FieldRow label="Starts">
-          <DatePicker
-            value={draft.startDate}
-            onValueChange={(value) =>
-              setDraft({ ...draft, startDate: value ?? todayKey() })
-            }
-          />
-        </FieldRow>
-      </div>
-
-      <FieldRow label="Notes" htmlFor="envelope-notes">
+      <FormField label="Notes" htmlFor="envelope-notes">
         <Textarea
           id="envelope-notes"
-          rows={2}
+          rows={3}
           value={draft.notes}
           onChange={(event) =>
             setDraft({ ...draft, notes: event.target.value })
           }
         />
-      </FieldRow>
+      </FormField>
 
       <div className="flex items-center gap-2 border-t pt-4">
         {envelope ? (
           <ConfirmButton
             trigger={
-              <Button variant="outline" size="sm" aria-label="Delete envelope">
-                <Trash2 className="size-3.5" />
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 />
+                Delete
               </Button>
             }
             title={`Delete ${envelope.name}?`}
-            description="Its contribution history goes with it. Archiving keeps the record."
+            description="Its contribution history goes with it."
             actionLabel="Delete"
-            onConfirm={async () => {
-              setSaving(true);
-              try {
-                await deleteFinanceEnvelope(client, envelope.id);
-                await onDeleted?.();
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not delete envelope",
-                );
-              } finally {
-                setSaving(false);
-              }
-            }}
+            destructive
+            onConfirm={remove}
           />
         ) : null}
         <div className="flex-1" />
         {onCancel && (
-          <Button variant="outline" size="sm" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
         )}
-        <Button
-          size="sm"
-          disabled={!canSave || saving}
-          onClick={() => void save()}
-        >
-          {saving && <Loader2 className="size-3.5 animate-spin" />}
+        <Button type="submit" disabled={!canSave || saving}>
+          {saving && <Loader2 className="animate-spin" />}
           {envelope ? "Save" : "Create"}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

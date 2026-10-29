@@ -1,23 +1,22 @@
 "use client";
 
 import type { IVoiceNoteSummary } from "@repo/schemas";
+import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
-import { Loader2, RotateCw } from "lucide-react";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListGroupLabel, ListRow } from "@repo/ui/list";
+import { Loader2, Mic, RotateCw } from "lucide-react";
 import { type Ref, useState } from "react";
 import {
   formatDayHeading,
-  formatShortDate,
+  formatRelative,
   formatSpan,
   formatTimeOfDay,
   localDayKey,
 } from "@/components/voice-notes/format";
 import { formatDuration } from "@/components/voice-notes/voice-recorder-provider";
 import { cn } from "@/lib/utils";
-import {
-  ContextDot,
-  HighlightedText,
-  SectionHeading,
-} from "./voice-notes-primitives";
+import { ContextDot, HighlightedText } from "./voice-notes-primitives";
 import { VoiceNoteListSkeleton } from "./voice-notes-skeletons";
 
 export interface RowModifiers {
@@ -57,33 +56,30 @@ function TranscriptionMarker({
 
   if (status === "failed") {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[10px] text-destructive">
-        <span className="size-1.5 rounded-full bg-destructive" />
+      <span className="flex items-center gap-1 text-destructive">
         failed
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           disabled={retrying}
-          onClick={async () => {
+          onClick={async (event) => {
+            event.stopPropagation();
             setRetrying(true);
             await onRetry(voiceNote._id);
             setRetrying(false);
           }}
-          className="pointer-events-auto relative z-10 flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
           aria-label={`Retry transcription of ${voiceNote.title}`}
         >
-          {retrying ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : (
-            <RotateCw className="size-3" />
-          )}
-        </button>
+          {retrying ? <Loader2 className="animate-spin" /> : <RotateCw />}
+        </Button>
       </span>
     );
   }
 
   if (status === "queued" || status === "transcribing") {
     return (
-      <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span className="flex items-center gap-1">
         <Loader2 className="size-3 animate-spin" />
         {progress && progress.total > 0
           ? `${progress.completed}/${progress.total}`
@@ -96,7 +92,7 @@ function TranscriptionMarker({
 
   if (status === "untranscribed") {
     return (
-      <span className="flex shrink-0 items-center">
+      <span className="flex items-center">
         <span className="size-1.5 rounded-full border border-muted-foreground/60" />
         <span className="sr-only">untranscribed</span>
       </span>
@@ -106,12 +102,39 @@ function TranscriptionMarker({
   return null;
 }
 
+function RowDescription({
+  voiceNote,
+  terms,
+}: {
+  voiceNote: IVoiceNoteSummary;
+  terms: readonly string[];
+}) {
+  const snippet = terms.length > 0 ? voiceNote.match?.snippet : undefined;
+  if (snippet) return <HighlightedText text={snippet} terms={terms} />;
+  if (!voiceNote.context && voiceNote.tags.length === 0) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {voiceNote.context && (
+        <span className="flex min-w-0 items-center gap-1">
+          <ContextDot color={voiceNote.context.color} />
+          <span className="truncate">{voiceNote.context.title}</span>
+        </span>
+      )}
+      {voiceNote.tags.length > 0 && (
+        <span className="min-w-0 truncate">
+          {voiceNote.tags.map((tag) => `#${tag}`).join(" ")}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function VoiceNoteRow({
   voiceNote,
   selected,
   checked,
   showCheckbox,
-  showDate,
+  grouped,
   terms,
   onActivate,
   onCheck,
@@ -121,45 +144,35 @@ function VoiceNoteRow({
   selected: boolean;
   checked: boolean;
   showCheckbox: boolean;
-  showDate: boolean;
+  grouped: boolean;
   terms: readonly string[];
   onActivate: (id: string, modifiers: RowModifiers) => void;
   onCheck: (id: string, modifiers: RowModifiers) => void;
   onRetry: (id: string) => Promise<void>;
 }) {
-  const snippet = terms.length > 0 ? voiceNote.match?.snippet : undefined;
-  const hasMeta = Boolean(voiceNote.context) || voiceNote.tags.length > 0;
-
   return (
-    <li
+    <ListRow
       data-voice-note-id={voiceNote._id}
+      aria-current={selected ? "true" : undefined}
+      selected={selected}
+      onClick={(event) =>
+        onActivate(voiceNote._id, {
+          shift: event.shiftKey,
+          toggle: event.metaKey || event.ctrlKey,
+        })
+      }
       className={cn(
-        "group/row relative flex gap-2 rounded-md py-1.5 pr-2 pl-1.5 transition-colors",
-        !showDate && "scroll-mt-9",
-        selected ? "bg-accent" : checked ? "bg-accent/50" : "hover:bg-muted/60",
+        "mx-0 items-start",
+        grouped && "scroll-mt-8",
+        checked && !selected && "bg-surface/50",
       )}
-    >
-      <button
-        type="button"
-        onClick={(event) =>
-          onActivate(voiceNote._id, {
-            shift: event.shiftKey,
-            toggle: event.metaKey || event.ctrlKey,
-          })
-        }
-        aria-label={voiceNote.title}
-        aria-current={selected ? "true" : undefined}
-        className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      />
-      <span className="relative z-10 flex h-4 w-3.5 shrink-0 items-center">
+      leading={
         <Checkbox
           checked={checked}
           onClick={(event) => {
             event.preventDefault();
-            onCheck(voiceNote._id, {
-              shift: event.shiftKey,
-              toggle: true,
-            });
+            event.stopPropagation();
+            onCheck(voiceNote._id, { shift: event.shiftKey, toggle: true });
           }}
           aria-label={`Select ${voiceNote.title}`}
           className={cn(
@@ -169,52 +182,23 @@ function VoiceNoteRow({
               : "opacity-0 group-hover/row:opacity-100",
           )}
         />
-      </span>
-
-      <div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex h-4 items-center gap-2">
-          <span className="w-10 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
-            {showDate
-              ? formatShortDate(voiceNote.recordedAt)
-              : formatTimeOfDay(voiceNote.recordedAt)}
-          </span>
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-xs",
-              selected && "font-medium",
-            )}
-          >
-            <HighlightedText text={voiceNote.title} terms={terms} />
-          </span>
+      }
+      title={<HighlightedText text={voiceNote.title} terms={terms} />}
+      description={<RowDescription voiceNote={voiceNote} terms={terms} />}
+      meta={
+        <>
           <TranscriptionMarker voiceNote={voiceNote} onRetry={onRetry} />
-          <span className="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
+          <span className="w-11 text-right">
             {voiceNote.durationMs ? formatDuration(voiceNote.durationMs) : "—"}
           </span>
-        </div>
-
-        {snippet && (
-          <p className="line-clamp-2 pl-12 text-[11px] leading-snug text-muted-foreground">
-            <HighlightedText text={snippet} terms={terms} />
-          </p>
-        )}
-
-        {hasMeta && (
-          <div className="flex min-w-0 items-center gap-2 pl-12 text-[10px] text-muted-foreground">
-            {voiceNote.context && (
-              <span className="flex min-w-0 items-center gap-1">
-                <ContextDot color={voiceNote.context.color} />
-                <span className="truncate">{voiceNote.context.title}</span>
-              </span>
-            )}
-            {voiceNote.tags.length > 0 && (
-              <span className="min-w-0 truncate">
-                {voiceNote.tags.map((tag) => `#${tag}`).join(" ")}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    </li>
+          <span className="w-14 text-right">
+            {grouped
+              ? formatTimeOfDay(voiceNote.recordedAt)
+              : formatRelative(voiceNote.recordedAt)}
+          </span>
+        </>
+      }
+    />
   );
 }
 
@@ -259,9 +243,10 @@ export function VoiceNoteList({
 
   if (rows.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted-foreground">
-        —
-      </div>
+      <EmptyState
+        icon={<Mic />}
+        label={status === "error" ? "Failed to load" : "No voice notes"}
+      />
     );
   }
 
@@ -272,7 +257,7 @@ export function VoiceNoteList({
       selected={voiceNote._id === selectedId}
       checked={checkedIds.has(voiceNote._id)}
       showCheckbox={checkedIds.size > 0}
-      showDate={!grouped}
+      grouped={grouped}
       terms={terms}
       onActivate={onActivate}
       onCheck={onCheck}
@@ -281,34 +266,44 @@ export function VoiceNoteList({
   );
 
   return (
-    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+    <div
+      ref={listRef}
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3"
+    >
       {grouped ? (
         groupByDay(rows).map((group) => (
           <section key={group.key}>
-            <SectionHeading
-              className="sticky top-0 z-20 bg-background px-1.5 pt-3 pb-1.5"
-              title={formatDayHeading(group.key)}
-              meta={`${group.rows.length} · ${formatSpan(
-                group.rows.reduce((sum, row) => sum + (row.durationMs ?? 0), 0),
-              )}`}
-            />
-            <ul className="flex flex-col">{group.rows.map(renderRow)}</ul>
+            <ListGroupLabel className="sticky top-0 z-10 flex items-center gap-2 bg-background px-2 pt-3 first:pt-3">
+              {formatDayHeading(group.key)}
+              <span className="ml-auto tabular-nums normal-case tracking-normal text-muted-foreground/70">
+                {group.rows.length} ·{" "}
+                {formatSpan(
+                  group.rows.reduce(
+                    (sum, row) => sum + (row.durationMs ?? 0),
+                    0,
+                  ),
+                )}
+              </span>
+            </ListGroupLabel>
+            <List>{group.rows.map(renderRow)}</List>
           </section>
         ))
       ) : (
-        <ul className="flex flex-col pt-2">{rows.map(renderRow)}</ul>
+        <List className="pt-2">{rows.map(renderRow)}</List>
       )}
 
       {hasMore && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           disabled={loadingMore}
           onClick={onLoadMore}
-          className="mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-md font-mono text-[10px] tabular-nums text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className="mt-2 w-full text-muted-foreground tabular-nums"
         >
-          {loadingMore && <Loader2 className="size-3 animate-spin" />}
-          more · {rows.length} / {total}
-        </button>
+          {loadingMore && <Loader2 className="animate-spin" />}
+          More · {rows.length} / {total}
+        </Button>
       )}
     </div>
   );

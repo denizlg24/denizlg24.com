@@ -2,11 +2,12 @@
 
 import type { ICourse, ICourseDetail, ICourseOptions } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { PageHeader } from "@repo/ui/page-header";
-import { Separator } from "@repo/ui/separator";
-import { ArrowLeft, GraduationCap, Loader2, Plus, Save } from "lucide-react";
+import { EmptyState } from "@repo/ui/empty-state";
+import { type Crumb, Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
+import { GraduationCap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { CourseForm, type CourseFormValues } from "./course-form";
@@ -25,35 +26,47 @@ interface CourseEditorPageProps {
   courseId?: string;
 }
 
-function EditorSkeleton({ title }: { title: string }) {
+function EditorChrome({
+  title,
+  crumbs,
+  children,
+}: {
+  title: ReactNode;
+  crumbs: Crumb[];
+  children: ReactNode;
+}) {
   const { slots } = useAdmin();
-
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <Page>
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<GraduationCap className="size-4 text-muted-foreground" />}
+        crumbs={crumbs}
+        icon={<GraduationCap />}
         title={title}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto max-w-5xl space-y-4">
-          <div className="h-28 animate-pulse rounded-md border bg-muted/30" />
-          <div className="grid gap-4 lg:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-44 animate-pulse rounded-md border bg-muted/30"
-              />
-            ))}
+      <PageBody>{children}</PageBody>
+    </Page>
+  );
+}
+
+function EditorSkeleton() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Skeleton className="h-7 w-64" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        {Array.from({ length: 8 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-1.5">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-8 w-full" />
           </div>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
 
 export function CourseEditorPage({ mode, courseId }: CourseEditorPageProps) {
-  const { client, slots, routes } = useAdmin();
+  const { client, routes } = useAdmin();
   const router = useRouter();
 
   const [course, setCourse] = useState<ICourse | null>(null);
@@ -79,7 +92,7 @@ export function CourseEditorPage({ mode, courseId }: CourseEditorPageProps) {
       }
     } catch {
       toast.error(
-        mode === "edit" ? "Failed to load class" : "Failed to load form data",
+        mode === "edit" ? "Failed to load course" : "Failed to load form data",
       );
       setOptions(EMPTY_OPTIONS);
     } finally {
@@ -118,82 +131,48 @@ export function CourseEditorPage({ mode, courseId }: CourseEditorPageProps) {
     }
   };
 
-  const title = mode === "edit" ? "Edit Class" : "Add Class";
+  const crumbs: Crumb[] = [
+    { label: "Courses", onClick: () => router.push(routes.courses.root) },
+    ...(mode === "edit" && course
+      ? [{ label: course.name, onClick: goBack }]
+      : []),
+  ];
+  const title = mode === "edit" ? "Edit" : "New course";
 
   if (loading) {
-    return <EditorSkeleton title={title} />;
+    return (
+      <EditorChrome crumbs={crumbs} title={title}>
+        <EditorSkeleton />
+      </EditorChrome>
+    );
   }
 
   if (mode === "edit" && !course) {
     return (
-      <div className="flex h-full min-h-0 flex-col gap-2">
-        <PageHeader
-          leading={slots?.sidebarTrigger}
-          icon={<GraduationCap className="size-4 text-muted-foreground" />}
-          title="Class not found"
-        >
-          <Button size="sm" variant="outline" onClick={goBack}>
-            <ArrowLeft className="size-3.5" />
-            Courses
-          </Button>
-        </PageHeader>
-        <div className="flex flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
-          This class could not be loaded.
-        </div>
-      </div>
+      <EditorChrome crumbs={crumbs} title="Not found">
+        <EmptyState
+          icon={<GraduationCap />}
+          label="Course not found"
+          action={
+            <Button size="sm" variant="outline" onClick={goBack}>
+              Courses
+            </Button>
+          }
+        />
+      </EditorChrome>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<GraduationCap className="size-4 text-muted-foreground" />}
-        title={title}
-      >
-        <Button size="sm" variant="outline" onClick={goBack}>
-          <ArrowLeft className="size-3.5" />
-          Courses
-        </Button>
-      </PageHeader>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-5 rounded-md border bg-card/60 p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {mode === "edit" ? (
-                  <Save className="size-4" />
-                ) : (
-                  <Plus className="size-4" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h1 className="text-base font-semibold">
-                  {mode === "edit" && course ? course.name : "New class"}
-                </h1>
-              </div>
-              {saving && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Saving
-                </div>
-              )}
-            </div>
-          </div>
-
-          <Separator className="mb-5" />
-
-          <CourseForm
-            initialCourse={course ?? undefined}
-            options={options}
-            onSubmit={handleSubmit}
-            onCancel={goBack}
-            isLoading={saving}
-            mode={mode}
-          />
-        </div>
-      </div>
-    </div>
+    <EditorChrome crumbs={crumbs} title={title}>
+      <CourseForm
+        initialCourse={course ?? undefined}
+        options={options}
+        onSubmit={handleSubmit}
+        onCancel={goBack}
+        isLoading={saving}
+        mode={mode}
+      />
+    </EditorChrome>
   );
 }

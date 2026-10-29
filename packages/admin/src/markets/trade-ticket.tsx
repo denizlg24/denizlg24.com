@@ -3,13 +3,22 @@
 import { CASH_TICKER } from "@repo/markets/core";
 import type { Position, Quote } from "@repo/markets/schemas";
 import { Button } from "@repo/ui/button";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { Spinner } from "@repo/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
-import { localNow, money, toneClass, trimQuantity } from "./format";
+import { localNow, money, trimQuantity } from "./format";
 import { SymbolSearch } from "./symbol-search";
+import {
+  FractionBar,
+  Preview,
+  PreviewRow,
+  SizeField,
+  TickerLine,
+  TicketNotices,
+} from "./ticket-fields";
 
 export type TradeKind = "buy" | "sell" | "deposit" | "withdrawal";
 
@@ -108,7 +117,9 @@ export function TradeTicket({
     if (isCashMove) return Number(quantity) || 0;
     if (sizing === "shares") return Number(quantity) || 0;
     const amount = Number(value) || 0;
-    return hasFill ? amount / fill : 0;
+    // Rounded here so what is submitted is the size the preview shows, not
+    // the unrounded float behind it.
+    return hasFill ? Number((amount / fill).toFixed(4)) : 0;
   }, [isCashMove, sizing, quantity, value, hasFill, fill]);
 
   const gross = isCashMove ? Number(quantity) || 0 : shares * fill;
@@ -133,7 +144,7 @@ export function TradeTicket({
 
   const applyFraction = useCallback(
     (fraction: number) => {
-      if (kind === "sell" && held) {
+      if (kind === "sell" && held && held.quantity > 0) {
         setSizing("shares");
         setQuantity(trimQuantity(held.quantity * fraction));
         return;
@@ -143,11 +154,11 @@ export function TradeTicket({
         setValue((cash * fraction).toFixed(2));
         return;
       }
-      if (isCashMove && cash !== undefined && kind === "withdrawal") {
+      if (kind === "withdrawal" && cash !== undefined) {
         setQuantity((cash * fraction).toFixed(2));
       }
     },
-    [kind, held, cash, isCashMove],
+    [kind, held, cash],
   );
 
   const reset = useCallback(() => {
@@ -216,235 +227,172 @@ export function TradeTicket({
   // Surfaced as warnings rather than blocks: a backfilled trade is entered
   // against today's cash, which legitimately reads as an overdraw.
   const overdrawn =
-    cashAfter !== null && cashAfter < 0 && (kind === "buy" || isCashMove);
+    cashAfter !== null &&
+    cashAfter < 0 &&
+    (kind === "buy" || kind === "withdrawal");
   const oversold =
     kind === "sell" && held !== null && shares > held.quantity + 1e-9;
   const unheld = kind === "sell" && ticker !== "" && held === null;
 
+  const holding = held
+    ? `${trimQuantity(held.quantity)} @ ${held.avgCost.toFixed(2)}`
+    : null;
+  const showFractions =
+    (kind === "sell" && held !== null && held.quantity > 0) ||
+    ((kind === "buy" || kind === "withdrawal") && cash !== undefined);
+
   return (
-    <div className="space-y-3 text-xs">
+    <div className="flex flex-col gap-4">
       <Tabs value={kind} onValueChange={(next) => setKind(next as TradeKind)}>
-        <TabsList variant="line" className="h-7">
-          <TabsTrigger value="buy" className="px-2 text-xs">
-            Buy
-          </TabsTrigger>
-          <TabsTrigger value="sell" className="px-2 text-xs">
-            Sell
-          </TabsTrigger>
+        <TabsList variant="line">
+          <TabsTrigger value="buy">Buy</TabsTrigger>
+          <TabsTrigger value="sell">Sell</TabsTrigger>
           {allowCashMovements ? (
             <>
-              <TabsTrigger value="deposit" className="px-2 text-xs">
-                Deposit
-              </TabsTrigger>
-              <TabsTrigger value="withdrawal" className="px-2 text-xs">
-                Withdraw
-              </TabsTrigger>
+              <TabsTrigger value="deposit">Deposit</TabsTrigger>
+              <TabsTrigger value="withdrawal">Withdraw</TabsTrigger>
             </>
           ) : null}
         </TabsList>
       </Tabs>
 
       {isCashMove ? null : fixedTicker ? (
-        <div className="flex items-baseline justify-between">
-          <span className="font-medium text-sm tabular-nums">
-            {fixedTicker}
-          </span>
-          {held ? (
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              {trimQuantity(held.quantity)} @ {held.avgCost.toFixed(2)}
-            </span>
-          ) : null}
-        </div>
+        <TickerLine ticker={fixedTicker} holding={holding} />
       ) : (
-        <div className="space-y-1">
-          <Label className="text-xs">Symbol</Label>
+        <FormField label="Symbol">
           <SymbolSearch onSelect={pickTicker} className="w-full" />
-          {ticker ? (
-            <div className="flex items-baseline justify-between pt-0.5">
-              <span className="font-medium tabular-nums">{ticker}</span>
-              {held ? (
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {trimQuantity(held.quantity)} @ {held.avgCost.toFixed(2)}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+          {ticker ? <TickerLine ticker={ticker} holding={holding} /> : null}
+        </FormField>
       )}
 
-      {isCashMove ? (
-        <div className="space-y-1">
-          <Label className="text-xs">Amount ({baseCurrency})</Label>
-          <Input
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            inputMode="decimal"
-            className="h-8 text-xs tabular-nums"
-          />
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">
-                  {sizing === "shares" ? "Quantity" : `Value (${baseCurrency})`}
-                </Label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSizing(sizing === "shares" ? "value" : "shares")
-                  }
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  {sizing === "shares" ? baseCurrency : "shares"}
-                </button>
-              </div>
+      <FormGrid>
+        {isCashMove ? (
+          <FormField
+            label={`Amount (${baseCurrency})`}
+            htmlFor="trade-amount"
+            className="sm:col-span-2"
+          >
+            <Input
+              id="trade-amount"
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+              inputMode="decimal"
+              className="tabular-nums"
+            />
+          </FormField>
+        ) : (
+          <>
+            <SizeField
+              id="trade-size"
+              shares={sizing === "shares"}
+              baseCurrency={baseCurrency}
+              value={sizing === "shares" ? quantity : value}
+              onValueChange={sizing === "shares" ? setQuantity : setValue}
+              onToggleUnit={() =>
+                setSizing(sizing === "shares" ? "value" : "shares")
+              }
+            />
+            <FormField label="Price" htmlFor="trade-price">
               <Input
-                value={sizing === "shares" ? quantity : value}
-                onChange={(event) =>
-                  sizing === "shares"
-                    ? setQuantity(event.target.value)
-                    : setValue(event.target.value)
-                }
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Price</Label>
-              <Input
+                id="trade-price"
                 value={price}
                 onChange={(event) => {
                   priceEdited.current = true;
                   setPrice(event.target.value);
                 }}
                 inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
+                className="tabular-nums"
               />
-            </div>
+            </FormField>
+          </>
+        )}
+
+        {showFractions ? (
+          <div className="sm:col-span-2">
+            <FractionBar onPick={applyFraction} />
           </div>
+        ) : null}
 
-          {(kind === "sell" && held) ||
-          (kind === "buy" && cash !== undefined) ? (
-            <div className="flex gap-1">
-              {[0.25, 0.5, 0.75, 1].map((fraction) => (
-                <button
-                  key={fraction}
-                  type="button"
-                  onClick={() => applyFraction(fraction)}
-                  className="flex-1 rounded border py-0.5 text-[10px] text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                >
-                  {fraction === 1 ? "Max" : `${fraction * 100}%`}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </>
-      )}
-
-      <div className="grid grid-cols-2 gap-2">
         {isCashMove ? null : (
-          <div className="space-y-1">
-            <Label className="text-xs">Fees</Label>
+          <FormField label="Fees" htmlFor="trade-fees">
             <Input
+              id="trade-fees"
               value={fees}
               onChange={(event) => setFees(event.target.value)}
               inputMode="decimal"
-              className="h-8 text-xs tabular-nums"
+              className="tabular-nums"
             />
-          </div>
+          </FormField>
         )}
-        <div className="space-y-1">
-          <Label className="text-xs">Executed</Label>
+        <FormField
+          label="Executed"
+          htmlFor="trade-executed"
+          className={isCashMove ? "sm:col-span-2" : undefined}
+        >
           <Input
+            id="trade-executed"
             type="datetime-local"
             value={executedAt}
             onChange={(event) => setExecutedAt(event.target.value)}
-            className="h-8 text-xs tabular-nums"
+            className="tabular-nums"
           />
-        </div>
-      </div>
+        </FormField>
 
-      <div className="space-y-0.5 border-t pt-2 text-[11px]">
+        <FormField label="Note" htmlFor="trade-note" className="sm:col-span-2">
+          <Input
+            id="trade-note"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </FormField>
+      </FormGrid>
+
+      <Preview>
         {isCashMove ? null : (
-          <Row
+          <PreviewRow
             label={sizing === "shares" ? "Value" : "Shares"}
             value={
               sizing === "shares"
                 ? money(gross)
                 : hasFill
-                  ? trimQuantity(Number(shares.toFixed(4)))
+                  ? trimQuantity(shares)
                   : "—"
             }
           />
         )}
-        <Row
-          label={kind === "buy" || kind === "deposit" ? "Debit" : "Credit"}
+        <PreviewRow
+          label={kind === "buy" || kind === "withdrawal" ? "Debit" : "Credit"}
           value={money(net)}
         />
         {cashAfter !== null ? (
-          <Row
+          <PreviewRow
             label="Cash after"
             value={money(cashAfter)}
             tone={overdrawn ? -1 : undefined}
           />
         ) : null}
         {realizedPreview !== null ? (
-          <Row
+          <PreviewRow
             label="Realised"
             value={`${realizedPreview >= 0 ? "+" : ""}${money(realizedPreview)}`}
             tone={realizedPreview}
           />
         ) : null}
-      </div>
+      </Preview>
 
-      {problem ? <div className="text-red-600">{problem}</div> : null}
-      {!problem && oversold ? (
-        <div className="text-amber-600">
-          Exceeds {trimQuantity(held?.quantity ?? 0)} held
-        </div>
-      ) : null}
-      {!problem && unheld ? (
-        <div className="text-amber-600">No position in {ticker}</div>
-      ) : null}
-      {!problem && !oversold && !unheld && overdrawn ? (
-        <div className="text-amber-600">Overdraws cash</div>
-      ) : null}
+      <TicketNotices
+        problem={problem}
+        warnings={[
+          oversold && `Exceeds ${trimQuantity(held?.quantity ?? 0)} held`,
+          unheld && `No position in ${ticker}`,
+          !oversold && !unheld && overdrawn && "Overdraws cash",
+        ]}
+      />
 
-      <div className="flex items-center gap-2 pt-1">
-        <Button
-          size="sm"
-          className="h-8 flex-1 text-xs"
-          disabled={busy}
-          onClick={() => void submit()}
-        >
-          {submitLabel}
-        </Button>
-        <Input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Note"
-          className="h-8 flex-1 text-xs"
-        />
-      </div>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: number;
-}) {
-  return (
-    <div className="flex items-baseline justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`tabular-nums ${toneClass(tone)}`}>{value}</span>
+      <Button disabled={busy} onClick={() => void submit()}>
+        {busy ? <Spinner className="size-3.5" /> : null}
+        {submitLabel}
+      </Button>
     </div>
   );
 }

@@ -10,19 +10,14 @@ import type {
   PaperReadingStatus,
   PaperType,
 } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { Meter } from "@repo/ui/meter";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -31,18 +26,20 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { FilterTabs, SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import {
   BookOpen,
-  CircleDashed,
   Download,
   FileText,
   GraduationCap,
   Highlighter,
   Link2,
-  Loader2,
   Plus,
   Quote,
-  Search,
   Shapes,
   X,
 } from "lucide-react";
@@ -69,6 +66,13 @@ export interface PapersResponse {
 }
 
 type StatusFilter = "all" | PaperReadingStatus;
+
+const STATUS_BADGE: Record<PaperReadingStatus, "secondary" | "info" | "good"> =
+  {
+    unread: "secondary",
+    reading: "info",
+    read: "good",
+  };
 type TypeFilter = "all" | PaperType;
 type PdfFilter = "all" | "with-pdf" | "missing-pdf";
 type CourseFilter = "all" | "none" | string;
@@ -391,16 +395,20 @@ export function PapersPage() {
     (total, paper) => total + paper.highlights.length,
     0,
   );
+  const statusCounts = READING_STATUSES.map(
+    (value) => papers.filter((paper) => paper.readingStatus === value).length,
+  );
 
   return (
     <div
-      className="relative flex h-full flex-col"
+      className="relative h-full"
       onDragOver={(event) => {
         event.preventDefault();
         setDropping(true);
       }}
       onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
         setDropping(false);
       }}
       onDrop={(event) => {
@@ -409,68 +417,53 @@ export function PapersPage() {
         void importDroppedPdfs([...event.dataTransfer.files]);
       }}
     >
-      <div className="flex min-h-12 items-center gap-2 border-b px-3 py-2 sm:px-4">
-        {slots?.sidebarTrigger}
-        <BookOpen className="size-4 text-muted-foreground" />
-        <h1 className="text-sm font-semibold">Reading</h1>
-        <div className="hidden items-center gap-3 font-mono text-[10px] text-muted-foreground sm:flex">
-          <span>{papers.length} total</span>
-          <span>{readingCount} reading</span>
-          {dueCount > 0 && (
-            <span className="text-destructive">{dueCount} overdue</span>
-          )}
-          <span>{highlightCount} highlights</span>
-        </div>
-        <div className="flex-1" />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7"
-          disabled={citablePapers.length === 0}
-          onClick={() => void exportLibrary()}
+      <Page>
+        <PageHeader
+          leading={slots?.sidebarTrigger}
+          icon={<BookOpen />}
+          title="Reading"
         >
-          <Download className="size-3.5" />
-          <span className="hidden sm:inline">
-            Export .bib · {citablePapers.length}
-          </span>
-        </Button>
-        <Button size="sm" className="h-7" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-3.5" /> Add
-        </Button>
-      </div>
-
-      <div className="border-b px-3 py-2 sm:px-4">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, author, tag"
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
-
-        {/* One scrolling row rather than a wrapping grid: five stacked
-            dropdowns took most of a phone screen before the first reading. */}
-        <div className="mt-2 flex gap-1.5 overflow-x-auto sm:flex-wrap">
-          <FilterSelect
-            value={status}
-            onValueChange={(value) => setStatus(value as StatusFilter)}
-            icon={CircleDashed}
-            className="w-30"
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={citablePapers.length === 0}
+            onClick={() => void exportLibrary()}
           >
-            <SelectItem value="all">Any status</SelectItem>
-            {READING_STATUSES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {READING_STATUS_LABEL[value]}
-              </SelectItem>
-            ))}
-          </FilterSelect>
+            <Download />
+            <span className="hidden sm:inline">.bib</span>
+            <span className="tabular-nums text-muted-foreground">
+              {citablePapers.length}
+            </span>
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus /> Add
+          </Button>
+        </PageHeader>
+
+        <PageToolbar>
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            placeholder="Title, author, tag"
+            className="w-56"
+          />
+          <FilterTabs
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "all", label: "All", count: papers.length },
+              ...READING_STATUSES.map((value, index) => ({
+                value,
+                label: READING_STATUS_LABEL[value],
+                count: statusCounts[index],
+              })),
+            ]}
+          />
+          <ToolbarSpacer />
           <FilterSelect
             value={pdfFilter}
             onValueChange={(value) => setPdfFilter(value as PdfFilter)}
             icon={FileText}
-            className="w-28"
           >
             <SelectItem value="all">Any file</SelectItem>
             <SelectItem value="with-pdf">Has PDF</SelectItem>
@@ -480,7 +473,6 @@ export function PapersPage() {
             value={type}
             onValueChange={(value) => setType(value as TypeFilter)}
             icon={Shapes}
-            className="w-30"
           >
             <SelectItem value="all">Any kind</SelectItem>
             {[...new Set(papers.map((paper) => paper.type))]
@@ -493,9 +485,8 @@ export function PapersPage() {
           </FilterSelect>
           <FilterSelect
             value={courseFilter}
-            onValueChange={(value) => setCourseFilter(value as CourseFilter)}
+            onValueChange={setCourseFilter}
             icon={GraduationCap}
-            className="w-36"
           >
             <SelectItem value="all">Any class</SelectItem>
             <SelectItem value="none">Unlinked</SelectItem>
@@ -512,7 +503,6 @@ export function PapersPage() {
             value={libraryFilter}
             onValueChange={(value) => setLibraryFilter(value as LibraryFilter)}
             icon={Quote}
-            className="w-34"
           >
             <SelectItem value="all">Everything</SelectItem>
             <SelectItem value="citable">In bibliography</SelectItem>
@@ -521,54 +511,77 @@ export function PapersPage() {
           {filtersActive && (
             <Button
               variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 px-2 text-xs"
+              size="icon-sm"
+              aria-label="Clear filters"
               onClick={clearFilters}
             >
-              <X className="size-3.5" />
-              Clear
+              <X />
             </Button>
           )}
-        </div>
-      </div>
+        </PageToolbar>
 
-      {continueReading.length > 0 && courseFilter === "all" && (
-        <div className="border-b">
-          <div className="px-3 pt-2.5 pb-1 font-mono sm:px-4 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-            Continue reading
-          </div>
-          {continueReading.map((paper) => (
-            <ContinueRow
-              key={paper._id}
-              paper={paper}
-              onSelect={() => setSelectedId(paper._id)}
+        <PageBody>
+          <StatGroup>
+            <Stat label="Readings" value={papers.length} />
+            <Stat label="Reading" value={readingCount} />
+            <Stat
+              label="Overdue"
+              value={dueCount}
+              tone={dueCount > 0 ? "critical" : "muted"}
             />
-          ))}
-        </div>
-      )}
+            <Stat label="Highlights" value={highlightCount} />
+          </StatGroup>
 
-      <div className="flex-1 overflow-auto">
-        {visiblePapers.map((paper) => (
-          <PaperRow
-            key={paper._id}
-            paper={paper}
-            courses={courses}
-            onSelect={() => setSelectedId(paper._id)}
-          />
-        ))}
-        {visiblePapers.length === 0 && (
-          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-            —
-          </div>
-        )}
-      </div>
+          {continueReading.length > 0 && courseFilter === "all" && (
+            <Section title="Continue reading">
+              <List>
+                {continueReading.map((paper) => (
+                  <ContinueRow
+                    key={paper._id}
+                    paper={paper}
+                    onSelect={() => setSelectedId(paper._id)}
+                  />
+                ))}
+              </List>
+            </Section>
+          )}
+
+          <Section
+            title="Library"
+            count={
+              filtersActive
+                ? `${visiblePapers.length}/${papers.length}`
+                : papers.length
+            }
+          >
+            {visiblePapers.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<BookOpen />}
+                label={filtersActive ? "No matches" : "No readings"}
+              />
+            ) : (
+              <List divided>
+                {visiblePapers.map((paper) => (
+                  <PaperRow
+                    key={paper._id}
+                    paper={paper}
+                    courses={courses}
+                    onSelect={() => setSelectedId(paper._id)}
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
+        </PageBody>
+      </Page>
 
       {(dropping || importing) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 border border-dashed px-4 py-2 font-mono text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-md border border-dashed px-4 py-2 text-xs text-muted-foreground">
             {importing ? (
               <>
-                <Loader2 className="size-3.5 animate-spin" /> Importing
+                <Spinner className="size-3.5" /> Importing
               </>
             ) : (
               <>
@@ -598,18 +611,22 @@ function FilterSelect({
   value,
   onValueChange,
   icon: Icon,
-  className,
   children,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   icon: typeof FileText;
-  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger size="sm" className={`h-8 shrink-0 text-xs ${className}`}>
+      <SelectTrigger
+        size="sm"
+        className={cn(
+          "max-w-44 shrink-0 border-transparent text-[13px]",
+          value !== "all" && "bg-surface text-accent-strong",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-1.5">
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />
           <SelectValue />
@@ -617,6 +634,16 @@ function FilterSelect({
       </SelectTrigger>
       <SelectContent position="popper">{children}</SelectContent>
     </Select>
+  );
+}
+
+function DueLabel({ paper }: { paper: IPaper }) {
+  const due = dueLabel(paper.dueAt);
+  if (!due) return null;
+  return (
+    <span className={cn(isOverdue(paper) && "text-status-critical")}>
+      {due}
+    </span>
   );
 }
 
@@ -628,36 +655,28 @@ function ContinueRow({
   onSelect: () => void;
 }) {
   const percent = readingPercent(paper) ?? 0;
-  const due = dueLabel(paper.dueAt);
   return (
-    <button
-      type="button"
+    <ListRow
       onClick={onSelect}
-      className="group block w-full px-3 py-2 text-left sm:px-4 transition-colors hover:bg-muted/30"
-    >
-      <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm">{paper.title}</span>
-        {due && (
-          <span
-            className={`shrink-0 font-mono text-[10px] tabular-nums ${
-              isOverdue(paper) ? "text-destructive" : "text-muted-foreground"
-            }`}
-          >
-            {due}
+      className="items-start"
+      leading={<BookOpen />}
+      title={paper.title}
+      description={
+        <span className="mt-1.5 flex flex-col gap-1">
+          <Meter value={percent / 100} />
+          <span className="tabular-nums">
+            p. {paper.progress?.currentPage ?? "—"} /{" "}
+            {paper.progress?.totalPages ?? "—"}
           </span>
-        )}
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
-          {percent}%
         </span>
-      </div>
-      <div className="mt-1.5 h-px w-full bg-border">
-        <div className="h-px bg-foreground" style={{ width: `${percent}%` }} />
-      </div>
-      <div className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
-        p. {paper.progress?.currentPage ?? "—"} /{" "}
-        {paper.progress?.totalPages ?? "—"}
-      </div>
-    </button>
+      }
+      meta={
+        <>
+          <DueLabel paper={paper} />
+          <span>{percent}%</span>
+        </>
+      }
+    />
   );
 }
 
@@ -676,104 +695,69 @@ function PaperRow({
     .filter(Boolean)
     .join(", ");
   const percent = readingPercent(paper);
-  const due = dueLabel(paper.dueAt);
   const linkedCourses = paper.courseIds.flatMap(
     (id) => courses.find((course) => course._id === id) ?? [],
   );
   return (
-    <button
-      type="button"
+    <ListRow
       onClick={onSelect}
-      className="group grid w-full grid-cols-[minmax(0,1fr)_auto] gap-4 border-b border-border/60 px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_9rem_8rem] sm:px-4"
-    >
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <FileText
-            className={`size-3.5 shrink-0 ${paper.pdf ? "text-foreground" : "text-muted-foreground/40"}`}
-          />
-          <span className="truncate text-sm font-medium">{paper.title}</span>
+      className="py-2.5"
+      leading={
+        <FileText className={cn(!paper.pdf && "text-muted-foreground/40")} />
+      }
+      title={paper.title}
+      description={[
+        authors || "—",
+        paper.year,
+        paper.venue,
+        linkedCourses.map((course) => course.code || course.name).join(", "),
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      meta={
+        <>
           {paper.doi && (
-            <Badge
-              variant="outline"
-              className="hidden h-5 font-mono text-[9px] md:inline-flex"
-            >
+            <Badge variant="outline" className="hidden md:inline-flex">
               DOI
             </Badge>
           )}
           {paper.arxivId && (
-            <Badge
-              variant="outline"
-              className="hidden h-5 font-mono text-[9px] md:inline-flex"
-            >
+            <Badge variant="outline" className="hidden md:inline-flex">
               arXiv
             </Badge>
           )}
           {!paper.pdf && (
-            <Badge
-              variant="secondary"
-              className="hidden h-5 font-mono text-[9px] text-amber-600 md:inline-flex"
-            >
-              PDF missing
+            <Badge variant="warning" className="hidden md:inline-flex">
+              No PDF
             </Badge>
           )}
-          {due && (
-            <span
-              className={`ml-auto shrink-0 font-mono text-[10px] tabular-nums ${
-                isOverdue(paper) ? "text-destructive" : "text-muted-foreground"
-              }`}
-            >
-              {due}
+          <DueLabel paper={paper} />
+          {paper.highlights.length > 0 && (
+            <span className="flex items-center gap-1">
+              <Highlighter className="size-3" />
+              {paper.highlights.length}
             </span>
           )}
-        </div>
-        <p className="mt-1 truncate pl-5.5 text-xs text-muted-foreground">
-          {[authors || "—", paper.year, paper.venue]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-        {linkedCourses.length > 0 && (
-          <p className="mt-1 flex items-center gap-1.5 pl-5.5 font-mono text-[10px] text-muted-foreground">
-            <GraduationCap className="size-2.5" />
-            {linkedCourses
-              .map((course) => course.code || course.name)
-              .join(" · ")}
-          </p>
-        )}
-        {percent !== undefined && (
-          <div className="mt-1.5 ml-5.5 h-px bg-border">
-            <div
-              className="h-px bg-foreground/60"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        )}
-      </div>
-      <div className="flex items-center justify-end gap-3 font-mono text-[10px] text-muted-foreground sm:justify-start">
-        {paper.highlights.length > 0 && (
-          <span className="flex items-center gap-1">
-            <Highlighter className="size-3" />
-            {paper.highlights.length}
+          {paper.noteIds.length > 0 && (
+            <span className="flex items-center gap-1">
+              <Link2 className="size-3" />
+              {paper.noteIds.length}
+            </span>
+          )}
+          <span className="hidden w-14 text-right sm:inline">
+            {percent !== undefined ? `${percent}%` : paper.type}
           </span>
-        )}
-        {paper.noteIds.length > 0 && (
-          <span className="flex items-center gap-1">
-            <Link2 className="size-3" />
-            {paper.noteIds.length}
-          </span>
-        )}
-      </div>
-      <div className="hidden items-center justify-between sm:flex">
+        </>
+      }
+      trailing={
         <Badge
-          variant={paper.readingStatus === "reading" ? "default" : "secondary"}
-          className="text-[9px]"
+          variant={STATUS_BADGE[paper.readingStatus]}
+          className="hidden w-16 sm:inline-flex"
         >
           {READING_STATUS_LABEL[paper.readingStatus]}
         </Badge>
-        <span className="font-mono text-[9px] text-muted-foreground">
-          {percent !== undefined ? `${percent}%` : paper.type}
-        </span>
-      </div>
-    </button>
+      }
+    />
   );
 }
 
@@ -787,52 +771,58 @@ function DeletePaperDialog({
   onConfirm: () => Promise<void>;
 }) {
   return (
-    <AlertDialog open={paper !== null} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete reading?</AlertDialogTitle>
-          <AlertDialogDescription>
-            “{paper?.title}” and its stored PDF will be permanently deleted.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => void onConfirm()}
-          >
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={paper !== null}
+      onOpenChange={onOpenChange}
+      title="Delete reading?"
+      description={`“${paper?.title ?? ""}” and its stored PDF are deleted.`}
+      actionLabel="Delete"
+      destructive
+      onConfirm={onConfirm}
+    />
   );
 }
 
 export function PapersSkeleton() {
-  const { slots } = useAdmin();
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center gap-2 border-b px-4">
-        {slots?.sidebarTrigger}
-        <BookOpen className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold">Reading</span>
+    <Page>
+      <HeaderBarSkeleton
+        icon={<BookOpen className="size-4 text-muted-foreground" />}
+        title="Reading"
+        actions={["w-16", "w-14"]}
+      />
+      <div className="flex min-h-10 items-center gap-2 border-b px-3 py-1.5">
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-7 w-48" />
         <div className="flex-1" />
-        <Skeleton className="h-7 w-24" />
-        <Skeleton className="h-7 w-16" />
+        <Skeleton className="hidden h-7 w-24 sm:block" />
+        <Skeleton className="hidden h-7 w-24 sm:block" />
+        <Skeleton className="hidden h-7 w-28 sm:block" />
       </div>
-      <div className="border-b px-3 py-2 sm:px-4">
-        <Skeleton className="h-8 w-full" />
-        <div className="mt-2 flex gap-1.5">
-          <Skeleton className="h-8 w-30" />
-          <Skeleton className="h-8 w-28" />
-          <Skeleton className="h-8 w-30" />
-          <Skeleton className="hidden h-8 w-36 sm:block" />
+      <PageBody>
+        <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-1.5">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-6 w-10" />
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    </div>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-3 w-20" />
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="flex items-center gap-3 py-1.5">
+              <Skeleton className="size-4" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+              <Skeleton className="h-4 w-10" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+          ))}
+        </div>
+      </PageBody>
+    </Page>
   );
 }

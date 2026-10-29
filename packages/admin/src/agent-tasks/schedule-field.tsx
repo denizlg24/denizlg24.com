@@ -1,9 +1,7 @@
 "use client";
 
 import type { AgentTaskCronPreview } from "@repo/schemas";
-import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
@@ -11,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { type FilterOption, FilterTabs } from "@repo/ui/toolbar";
 import { useEffect, useState } from "react";
 import { useAdmin } from "../provider";
 
@@ -27,7 +26,9 @@ const PRESETS = [
 
 export type ScheduleMode = "manual" | "repeat" | "once";
 
-const MODES: { value: ScheduleMode; label: string }[] = [
+const CUSTOM_PRESET = "__custom__";
+
+const MODES: FilterOption<ScheduleMode>[] = [
   { value: "manual", label: "Manual" },
   { value: "repeat", label: "Repeats" },
   { value: "once", label: "Once" },
@@ -124,32 +125,22 @@ export function ScheduleField({
   };
 
   return (
-    <div className="grid gap-2">
+    <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
       <div className="flex items-center gap-2">
         {/* Follows the mode: the two branches render different controls, and a
             label pointing at the one that is not mounted names nothing. */}
-        <Label htmlFor={mode === "once" ? "task-run-at" : "task-cron"}>
+        <label
+          htmlFor={mode === "once" ? "task-run-at" : "task-cron"}
+          className="text-xs font-medium text-muted-foreground"
+        >
           Schedule
-        </Label>
-        <div className="ml-auto flex items-center gap-0.5">
-          {MODES.map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-pressed={mode === option.value}
-              className={`h-6 px-1.5 text-[11px] ${
-                mode === option.value
-                  ? "text-foreground underline underline-offset-4"
-                  : "text-muted-foreground"
-              }`}
-              onClick={() => selectMode(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
+        </label>
+        <FilterTabs
+          className="ml-auto"
+          value={mode}
+          onChange={selectMode}
+          options={MODES}
+        />
       </div>
 
       {mode === "once" ? (
@@ -157,7 +148,6 @@ export function ScheduleField({
           id="task-run-at"
           type="datetime-local"
           value={toLocalInputValue(runAt)}
-          className="h-8 flex-1 text-xs"
           onChange={(event) =>
             onRunAtChange(fromLocalInputValue(event.target.value))
           }
@@ -166,14 +156,14 @@ export function ScheduleField({
 
       {mode === "repeat" && cron !== null ? (
         <>
-          <div className="flex gap-2">
+          <div className="grid gap-2 sm:grid-cols-[11rem_minmax(0,1fr)_minmax(0,14rem)]">
             <Select
-              value={matchedPreset?.cron ?? "__custom__"}
+              value={matchedPreset?.cron ?? CUSTOM_PRESET}
               onValueChange={(value) => {
-                if (value !== "__custom__") onCronChange(value);
+                if (value !== CUSTOM_PRESET) onCronChange(value);
               }}
             >
-              <SelectTrigger className="h-8 w-44 text-xs">
+              <SelectTrigger className="w-full" aria-label="Preset">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -182,36 +172,30 @@ export function ScheduleField({
                     {preset.label}
                   </SelectItem>
                 ))}
-                <SelectItem value="__custom__">Custom</SelectItem>
+                <SelectItem value={CUSTOM_PRESET}>Custom</SelectItem>
               </SelectContent>
             </Select>
             <Input
               id="task-cron"
               value={cron}
               spellCheck={false}
-              className="h-8 flex-1 font-mono text-xs"
+              className="font-mono"
               onChange={(event) => onCronChange(event.target.value)}
             />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Label htmlFor="task-time-zone" className="sr-only">
-              Time zone
-            </Label>
             <Input
               id="task-time-zone"
+              aria-label="Time zone"
               value={timeZone}
               spellCheck={false}
-              className="h-8 flex-1 text-xs"
               onChange={(event) => onTimeZoneChange(event.target.value)}
             />
           </div>
 
-          <div className="min-h-8 text-[11px] leading-5">
+          <div className="min-h-5 text-xs leading-5">
             {preview?.error ? (
               <span className="text-destructive">{preview.error}</span>
             ) : preview?.occurrences.length ? (
-              <span className="text-muted-foreground tabular-nums">
+              <span className="tabular-nums text-muted-foreground">
                 {preview.occurrences
                   .map((value) =>
                     new Date(value).toLocaleString(undefined, {

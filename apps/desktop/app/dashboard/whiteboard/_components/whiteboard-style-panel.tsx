@@ -6,7 +6,7 @@ import type {
   IWhiteboardElement,
   TextFontFamily,
 } from "@repo/schemas";
-import { whiteboardElementKind } from "@repo/schemas";
+import { textDataSchema, whiteboardElementKind } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ColorField } from "./whiteboard-color-picker";
+import { BarDivider, FloatingBar, ToolButton } from "./whiteboard-floating";
 
 type Mutator = (el: IWhiteboardElement) => IWhiteboardElement | null;
 
@@ -96,11 +97,11 @@ export function WhiteboardStylePanel({
         : undefined,
     ) ?? "none";
 
-  const textData = firstOf(selected, (el) =>
-    whiteboardElementKind(el) === "text"
-      ? (el.data as unknown as ITextData)
-      : undefined,
-  );
+  const textData = firstOf(selected, (el) => {
+    if (whiteboardElementKind(el) !== "text") return undefined;
+    const parsed = textDataSchema.safeParse(el.data);
+    return parsed.success ? parsed.data : undefined;
+  });
 
   const setData = (
     mutate: (data: Record<string, unknown>) => Record<string, unknown> | null,
@@ -145,7 +146,7 @@ export function WhiteboardStylePanel({
     });
 
   return (
-    <div className="absolute z-40 top-14 left-1/2 -translate-x-1/2 flex flex-row items-center gap-2 rounded-full border bg-surface px-3 py-1.5 shadow-xs overflow-x-auto max-w-[calc(100vw-1rem)]">
+    <FloatingBar className="top-3 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2">
       {hasStroke && (
         <ColorField
           value={color}
@@ -156,24 +157,24 @@ export function WhiteboardStylePanel({
       )}
 
       {(kinds.has("pen") || hasShape) && (
-        <div className="flex items-center gap-1">
-          <Button
+        <div className="flex items-center gap-0.5">
+          <ToolButton
+            label="Thinner"
             size="icon-xs"
-            variant="outline"
             onClick={() => setThickness(Math.max(1, thickness - 1))}
           >
             <Minus />
-          </Button>
-          <span className="text-[10px] tabular-nums w-4 text-center text-muted-foreground">
+          </ToolButton>
+          <span className="w-5 text-center text-xs tabular-nums text-muted-foreground">
             {Math.round(thickness)}
           </span>
-          <Button
+          <ToolButton
+            label="Thicker"
             size="icon-xs"
-            variant="outline"
             onClick={() => setThickness(thickness + 1)}
           >
             <Plus />
-          </Button>
+          </ToolButton>
         </div>
       )}
 
@@ -189,17 +190,17 @@ export function WhiteboardStylePanel({
 
       {hasText && textData && (
         <>
-          <div className="h-4 w-px bg-border" />
+          <BarDivider />
           <Popover>
             <PopoverTrigger asChild>
-              <Button size="icon-sm" variant="outline" title="Text">
-                <Type className="size-3.5" />
-              </Button>
+              <ToolButton label="Text">
+                <Type />
+              </ToolButton>
             </PopoverTrigger>
             <PopoverContent
               side="bottom"
               align="center"
-              className="w-56 p-2 z-99! flex flex-col gap-2"
+              className="flex w-60 flex-col gap-2 p-2"
             >
               <div className="flex items-center gap-1.5">
                 <Input
@@ -213,35 +214,33 @@ export function WhiteboardStylePanel({
                 />
                 <div className="flex gap-1">
                   {FONT_SIZE_PRESETS.map((s) => (
-                    <Button
+                    <ToolButton
                       key={s}
+                      label={`${s}px`}
                       size="icon-xs"
-                      variant="outline"
-                      className="text-[10px]"
+                      className="text-[11px] tabular-nums"
+                      active={Math.round(textData.fontSize) === s}
                       onClick={() => setText({ fontSize: s })}
                     >
                       {s}
-                    </Button>
+                    </ToolButton>
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 {FONT_WEIGHTS.map((w) => (
-                  <Button
+                  <ToolButton
                     key={w.value}
+                    label={`Weight ${w.value}`}
                     size="icon-xs"
-                    variant="outline"
-                    className={cn(
-                      (textData.fontWeight ?? 400) === w.value &&
-                        "border-primary",
-                    )}
+                    active={(textData.fontWeight ?? 400) === w.value}
                     style={{ fontWeight: w.value }}
                     onClick={() => setText({ fontWeight: w.value })}
                   >
                     {w.label}
-                  </Button>
+                  </ToolButton>
                 ))}
-                <div className="h-4 w-px bg-border mx-0.5" />
+                <BarDivider />
                 {(
                   [
                     ["left", AlignLeft],
@@ -249,17 +248,15 @@ export function WhiteboardStylePanel({
                     ["right", AlignRight],
                   ] as const
                 ).map(([a, Icon]) => (
-                  <Button
+                  <ToolButton
                     key={a}
+                    label={`Align ${a}`}
                     size="icon-xs"
-                    variant="outline"
-                    className={cn(
-                      (textData.align ?? "left") === a && "border-primary",
-                    )}
+                    active={(textData.align ?? "left") === a}
                     onClick={() => setText({ align: a })}
                   >
                     <Icon />
-                  </Button>
+                  </ToolButton>
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-1">
@@ -269,11 +266,11 @@ export function WhiteboardStylePanel({
                   <Button
                     key={fam}
                     size="sm"
-                    variant="outline"
+                    variant="ghost"
                     className={cn(
-                      "h-7 justify-start text-xs",
+                      "justify-start text-xs",
                       (textData.fontFamily ?? "handwriting") === fam &&
-                        "border-primary",
+                        "bg-surface text-accent-strong",
                     )}
                     style={{ fontFamily: WHITEBOARD_FONT_FAMILIES[fam].css }}
                     onClick={() => setText({ fontFamily: fam })}
@@ -289,13 +286,14 @@ export function WhiteboardStylePanel({
 
       {stickyEls.length > 0 && (
         <>
-          <div className="h-4 w-px bg-border" />
-          <div className="flex items-center gap-1">
+          <BarDivider />
+          <div className="flex items-center gap-0.5">
             {STICKY_COLORS.map((c, i) => (
               <button
                 key={c.name}
                 type="button"
                 title={c.name}
+                aria-label={c.name}
                 onClick={() => setData((data) => ({ ...data, colorIndex: i }))}
                 className="size-4 rounded-full border border-border/40 hover:scale-110 transition-transform"
                 style={{ backgroundColor: c.dot }}
@@ -305,25 +303,15 @@ export function WhiteboardStylePanel({
         </>
       )}
 
-      <div className="h-4 w-px bg-border" />
-      <div className="flex items-center gap-1">
-        <Button
-          size="icon-xs"
-          variant="outline"
-          title="Bring to front"
-          onClick={() => onReorder("front")}
-        >
+      <BarDivider />
+      <div className="flex items-center gap-0.5">
+        <ToolButton label="Bring to front" onClick={() => onReorder("front")}>
           <ChevronsUp />
-        </Button>
-        <Button
-          size="icon-xs"
-          variant="outline"
-          title="Send to back"
-          onClick={() => onReorder("back")}
-        >
+        </ToolButton>
+        <ToolButton label="Send to back" onClick={() => onReorder("back")}>
           <ChevronsDown />
-        </Button>
+        </ToolButton>
       </div>
-    </div>
+    </FloatingBar>
   );
 }

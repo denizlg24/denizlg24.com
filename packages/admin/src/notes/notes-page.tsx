@@ -1,25 +1,14 @@
 "use client";
 
 import type { INote, INoteEdge, INoteGraph, INoteGroup } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import {
   Select,
   SelectContent,
@@ -28,22 +17,27 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { SplitList, SplitView } from "@repo/ui/split-view";
 import { Textarea } from "@repo/ui/textarea";
+import { FilterTabs, SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
 import {
+  ArrowDownUp,
   FilePlus2,
   FileText,
   FolderPlus,
   FolderTree,
+  Globe,
   Link2,
+  List as ListIcon,
   Loader2,
   RefreshCcw,
-  Search,
   Tags,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { relativeDate } from "./format";
 import { GroupDetail } from "./group-detail";
 import { buildDescendantIdMap, buildPathLabelMap } from "./group-tree";
 import { GroupTreeCombobox } from "./group-tree-combobox";
@@ -51,6 +45,7 @@ import { NoteDetail } from "./note-detail";
 import { NoteFolderView } from "./note-folder-view";
 import { TagAutocomplete } from "./tag-autocomplete";
 
+type View = "list" | "folders";
 type Sort =
   | "updated-desc"
   | "updated-asc"
@@ -121,29 +116,47 @@ function getErrorMessage(error: unknown, fallback: string) {
 export function NotesSkeleton() {
   const { slots } = useAdmin();
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-12 items-center gap-2 border-b px-3 py-2 sm:px-4">
-        {slots?.sidebarTrigger}
-        <FileText className="size-4" />
-        <span className="text-sm font-medium">Notes</span>
-        <Skeleton className="h-3 w-28" />
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 sm:px-4">
-        <Skeleton className="h-8 w-full sm:w-72" />
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-8 w-32" />
-      </div>
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    </div>
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<FileText />}
+        title="Notes"
+      >
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-16" />
+      </PageHeader>
+      <PageToolbar>
+        <Skeleton className="h-7 w-16" />
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-20" />
+      </PageToolbar>
+      <SplitView
+        detailOpen={false}
+        listWidth="md:w-80 lg:w-96"
+        list={
+          <SplitList>
+            <div className="flex flex-col gap-1">
+              {Array.from({ length: 14 }).map((_, index) => (
+                <div key={index} className="flex h-9 items-center gap-3">
+                  <Skeleton className="size-4 rounded-sm" />
+                  <Skeleton className="h-3.5 flex-1" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+              ))}
+            </div>
+          </SplitList>
+        }
+        detail={null}
+      />
+    </Page>
   );
 }
 
 export function NotesPage() {
   const { client, platform, slots } = useAdmin();
 
+  const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notes, setNotes] = useState<INote[]>([]);
@@ -503,20 +516,41 @@ export function NotesPage() {
     [client, groups, load, notes, selectedGroupId],
   );
 
+  const selectNote = (note: INote) => {
+    setSelectedGroupId(null);
+    setSelectedId(note._id);
+    setView("list");
+  };
+
+  const selectGroup = (group: INoteGroup) => {
+    setSelectedId(null);
+    setSelectedGroupId(group._id);
+    setView("list");
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setSelectedGroupFilters([]);
+    setSelectedTagFilters([]);
+    setHasUrlFilter("all");
+    setStatusFilter("all");
+    setSort("updated-desc");
+  };
+
   if (loading) {
     return <NotesSkeleton />;
   }
 
-  if (selectedNote) {
-    if (selectedNote.paperId) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      );
-    }
-    return (
+  const showsCreated = sort === "created-desc" || sort === "created-asc";
+
+  const detail = selectedNote ? (
+    selectedNote.paperId ? (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    ) : (
       <NoteDetail
+        key={selectedNote._id}
         note={selectedNote}
         allNotes={notes}
         groups={groups}
@@ -525,229 +559,208 @@ export function NotesPage() {
         onPatch={(body) => handlePatchNote(selectedNote._id, body)}
         onDelete={() => handleDeleteNote(selectedNote._id)}
         onBack={() => setSelectedId(null)}
-        onSelectNote={(note) => {
-          setSelectedGroupId(null);
-          setSelectedId(note._id);
-        }}
+        onSelectNote={selectNote}
         onSuggestionsChange={setTagSuggestions}
         onUpdated={applyUpdatedNote}
       />
-    );
-  }
-
-  if (selectedGroup) {
-    return (
-      <GroupDetail
-        group={selectedGroup}
-        groups={groups}
-        notes={notes}
-        onBack={() => setSelectedGroupId(null)}
-        onUpdate={handleUpdateGroup}
-        onDelete={handleDeleteGroup}
-        onSelectNote={(note) => {
-          setSelectedGroupId(null);
-          setSelectedId(note._id);
-        }}
-        onSelectGroup={(group) => setSelectedGroupId(group._id)}
-      />
-    );
-  }
+    )
+  ) : selectedGroup ? (
+    <GroupDetail
+      key={selectedGroup._id}
+      group={selectedGroup}
+      groups={groups}
+      notes={notes}
+      onBack={() => setSelectedGroupId(null)}
+      onUpdate={handleUpdateGroup}
+      onDelete={handleDeleteGroup}
+      onSelectNote={selectNote}
+      onSelectGroup={selectGroup}
+    />
+  ) : (
+    <EmptyState icon={<FileText />} label={`${notes.length} notes`} />
+  );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {slots?.sidebarTrigger}
-          <FileText className="size-4 shrink-0" />
-          <h1 className="text-sm font-medium">Notes</h1>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground sm:ml-0">
-            {sortedNotes.length} / {notes.length} - {groups.length} folders
-          </span>
-        </div>
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<FileText />}
+        title="Notes"
+      >
+        <span className="mr-1 text-xs tabular-nums text-muted-foreground">
+          {sortedNotes.length === notes.length
+            ? notes.length
+            : `${sortedNotes.length}/${notes.length}`}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void load(true)}
+          disabled={refreshing}
+          aria-label="Refresh"
+          title="Refresh"
+        >
+          <RefreshCcw className={refreshing ? "animate-spin" : undefined} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setNewGroupParentId(view === "folders" ? folderCurrentId : null)
+          }
+        >
+          <FolderPlus />
+          <span className="hidden sm:inline">Folder</span>
+        </Button>
+        <Button
+          size="sm"
+          onClick={() =>
+            setNewNoteParentId(view === "folders" ? folderCurrentId : null)
+          }
+        >
+          <FilePlus2 />
+          <span className="hidden sm:inline">Note</span>
+        </Button>
+      </PageHeader>
 
-        <div className="flex w-full items-center gap-1 sm:w-auto">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 text-xs"
-            onClick={() => void load(true)}
-            title="Refresh"
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCcw className="size-3.5" />
-            )}
-            <span className="hidden sm:inline">Refresh</span>
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs"
-            onClick={() => setNewGroupParentId(folderCurrentId)}
-          >
-            <FolderPlus className="size-3.5" />
-            <span className="hidden sm:inline">Folder</span>
-          </Button>
-
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setNewNoteParentId(folderCurrentId)}
-          >
-            <FilePlus2 className="size-3.5" />
-            <span className="hidden sm:inline">Note</span>
-          </Button>
-        </div>
-
-        <div className="relative order-last w-full sm:order-none sm:ml-auto sm:w-80">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search notes..."
-            className="h-8 pl-7 text-xs"
-          />
-        </div>
-      </div>
-
-      <div className="flex shrink-0 gap-2 overflow-x-auto border-b px-3 py-2 sm:flex-wrap sm:px-4">
-        <div className="flex shrink-0 items-center gap-2">
-          <FolderTree className="size-3.5 text-muted-foreground" />
-          <GroupTreeCombobox
-            groups={groups}
-            value={selectedGroupFilters}
-            onChange={setSelectedGroupFilters}
-            placeholder="Filter folders..."
-            searchPlaceholder="Search folder hierarchy..."
-            emptyMessage="No folders yet"
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <Tags className="size-3.5 text-muted-foreground" />
-          <TagAutocomplete
-            value={selectedTagFilters}
-            onChange={setSelectedTagFilters}
-            suggestions={allTags}
-            placeholder="Filter tags..."
-            allowCreate={false}
-            searchPlaceholder="Search tags..."
-            emptyMessage="No tags found"
-          />
-        </div>
-
+      <PageToolbar>
+        <FilterTabs
+          value={view}
+          onChange={setView}
+          options={[
+            {
+              value: "list",
+              label: <ListIcon className="size-3.5" aria-label="List" />,
+            },
+            {
+              value: "folders",
+              label: <FolderTree className="size-3.5" aria-label="Folders" />,
+            },
+          ]}
+        />
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          className="w-full sm:w-56"
+        />
+        <GroupTreeCombobox
+          variant="toolbar"
+          icon={<FolderTree className="size-3.5" />}
+          groups={groups}
+          value={selectedGroupFilters}
+          onChange={setSelectedGroupFilters}
+          placeholder="Folders"
+          searchPlaceholder="Search folders..."
+          emptyMessage="No folders"
+        />
+        <TagAutocomplete
+          variant="toolbar"
+          icon={<Tags className="size-3.5" />}
+          value={selectedTagFilters}
+          onChange={setSelectedTagFilters}
+          suggestions={allTags}
+          placeholder="Tags"
+          allowCreate={false}
+          searchPlaceholder="Search tags..."
+          emptyMessage="No tags"
+        />
+        <FilterTabs
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[
+            { value: "all", label: "All" },
+            { value: "open", label: "Open" },
+            { value: "archived", label: "Archived" },
+          ]}
+        />
+        <ToolbarSpacer />
         <Select
           value={hasUrlFilter}
           onValueChange={(value) => setHasUrlFilter(value as HasUrlFilter)}
         >
-          <SelectTrigger size="sm" className="h-8 w-36 shrink-0 text-xs">
-            <div className="flex items-center gap-1.5">
-              <Link2 className="size-3.5" />
-              <SelectValue />
-            </div>
-          </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="all" className="text-xs">
-              All links
-            </SelectItem>
-            <SelectItem value="with-url" className="text-xs">
-              With URL
-            </SelectItem>
-            <SelectItem value="without-url" className="text-xs">
-              Without URL
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => setStatusFilter(value as StatusFilter)}
-        >
-          <SelectTrigger size="sm" className="h-8 w-32 shrink-0 text-xs">
+          <SelectTrigger size="sm" className="w-auto border-none text-[13px]">
+            <Link2 className="size-3.5" />
             <SelectValue />
           </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="all" className="text-xs">
-              All status
-            </SelectItem>
-            <SelectItem value="open" className="text-xs">
-              Open
-            </SelectItem>
-            <SelectItem value="archived" className="text-xs">
-              Archived
-            </SelectItem>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="all">Any link</SelectItem>
+            <SelectItem value="with-url">With URL</SelectItem>
+            <SelectItem value="without-url">Without URL</SelectItem>
           </SelectContent>
         </Select>
-
         <Select value={sort} onValueChange={(value) => setSort(value as Sort)}>
-          <SelectTrigger size="sm" className="h-8 w-40 shrink-0 text-xs">
+          <SelectTrigger size="sm" className="w-auto border-none text-[13px]">
+            <ArrowDownUp className="size-3.5" />
             <SelectValue />
           </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="updated-desc" className="text-xs">
-              Updated newest
-            </SelectItem>
-            <SelectItem value="updated-asc" className="text-xs">
-              Updated oldest
-            </SelectItem>
-            <SelectItem value="created-desc" className="text-xs">
-              Created newest
-            </SelectItem>
-            <SelectItem value="created-asc" className="text-xs">
-              Created oldest
-            </SelectItem>
-            <SelectItem value="title-asc" className="text-xs">
-              Title A-Z
-            </SelectItem>
-            <SelectItem value="title-desc" className="text-xs">
-              Title Z-A
-            </SelectItem>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="updated-desc">Updated, newest</SelectItem>
+            <SelectItem value="updated-asc">Updated, oldest</SelectItem>
+            <SelectItem value="created-desc">Created, newest</SelectItem>
+            <SelectItem value="created-asc">Created, oldest</SelectItem>
+            <SelectItem value="title-asc">Title A–Z</SelectItem>
+            <SelectItem value="title-desc">Title Z–A</SelectItem>
           </SelectContent>
         </Select>
-
         {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 px-2 text-xs"
-            onClick={() => {
-              setQuery("");
-              setSelectedGroupFilters([]);
-              setSelectedTagFilters([]);
-              setHasUrlFilter("all");
-              setStatusFilter("all");
-              setSort("updated-desc");
-            }}
-          >
-            <X className="size-3.5" />
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            <X />
             Clear
           </Button>
         )}
-      </div>
+      </PageToolbar>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <NoteFolderView
-          notes={sortedNotes}
-          groups={groups}
-          currentId={folderCurrentId}
-          onCurrentIdChange={setFolderCurrentId}
-          onSelect={(note) => {
-            setSelectedGroupId(null);
-            setSelectedId(note._id);
-          }}
-          onSelectGroup={(group) => {
-            setSelectedId(null);
-            setSelectedGroupId(group._id);
-          }}
-          onCreateNoteHere={setNewNoteParentId}
-          onCreateFolderHere={setNewGroupParentId}
-          onDeleteNote={setPendingDeleteNote}
-          onDeleteGroup={setPendingDeleteGroup}
+      {view === "list" ? (
+        <SplitView
+          detailOpen={selectedNote !== null || selectedGroup !== null}
+          listWidth="md:w-80 lg:w-96"
+          list={
+            <SplitList>
+              {sortedNotes.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={<FileText />}
+                  label={notes.length === 0 ? "No notes" : "No matches"}
+                />
+              ) : (
+                <List>
+                  {sortedNotes.map((note) => (
+                    <ListRow
+                      key={note._id}
+                      selected={note._id === selectedId}
+                      onClick={() => selectNote(note)}
+                      leading={<NoteRowGlyph note={note} />}
+                      title={note.title || "Untitled"}
+                      meta={relativeDate(
+                        showsCreated ? note.createdAt : note.updatedAt,
+                      )}
+                      className={
+                        note.status === "archived" ? "opacity-60" : undefined
+                      }
+                    />
+                  ))}
+                </List>
+              )}
+            </SplitList>
+          }
+          detail={detail}
         />
-      </div>
+      ) : (
+        <PageBody bleed>
+          <NoteFolderView
+            notes={sortedNotes}
+            groups={groups}
+            currentId={folderCurrentId}
+            onCurrentIdChange={setFolderCurrentId}
+            onSelect={selectNote}
+            onSelectGroup={selectGroup}
+            onCreateNoteHere={setNewNoteParentId}
+            onCreateFolderHere={setNewGroupParentId}
+            onDeleteNote={setPendingDeleteNote}
+            onDeleteGroup={setPendingDeleteGroup}
+          />
+        </PageBody>
+      )}
 
       <NewNoteDialog
         open={newNoteParentId !== undefined}
@@ -769,69 +782,52 @@ export function NotesPage() {
         onCreate={handleCreateGroup}
       />
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingDeleteNote !== null}
         onOpenChange={(open) => {
           if (!open) setPendingDeleteNote(null);
         }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete note?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes "{pendingDeleteNote?.title}". This action
-              cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (pendingDeleteNote) {
-                  void handleDeleteNote(pendingDeleteNote._id);
-                }
-                setPendingDeleteNote(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Delete note?"
+        description={pendingDeleteNote?.title || "Untitled"}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (pendingDeleteNote) void handleDeleteNote(pendingDeleteNote._id);
+          setPendingDeleteNote(null);
+        }}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingDeleteGroup !== null}
         onOpenChange={(open) => {
           if (!open) setPendingDeleteGroup(null);
         }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Notes inside "{pendingDeleteGroup?.name}" are kept but removed
-              from this folder. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (pendingDeleteGroup) {
-                  void handleDeleteGroup(pendingDeleteGroup._id);
-                }
-                setPendingDeleteGroup(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        title="Delete folder?"
+        description={pendingDeleteGroup?.name}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (pendingDeleteGroup)
+            void handleDeleteGroup(pendingDeleteGroup._id);
+          setPendingDeleteGroup(null);
+        }}
+      />
+    </Page>
   );
+}
+
+function NoteRowGlyph({ note }: { note: INote }) {
+  if (note.favicon) {
+    return (
+      <img
+        src={note.favicon}
+        alt=""
+        className="size-3.5 rounded-sm"
+        loading="lazy"
+      />
+    );
+  }
+  return note.url ? <Globe /> : <FileText />;
 }
 
 function NewNoteDialog({
@@ -866,8 +862,9 @@ function NewNoteDialog({
     setGroupIds(parentId ? [parentId] : []);
   }, [open, parentId]);
 
+  const pathLabelById = useMemo(() => buildPathLabelMap(groups), [groups]);
+
   const submit = async () => {
-    if (submitting) return;
     setSubmitting(true);
     const created = await onCreate({ title, url, content, groupIds });
     setSubmitting(false);
@@ -875,82 +872,68 @@ function NewNoteDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogTitle>New note</DialogTitle>
-        <DialogDescription className="sr-only">
-          Create a note in the selected folder.
-        </DialogDescription>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="new-note-title">Title</Label>
-            <Input
-              id="new-note-title"
-              value={title}
-              autoFocus
-              onChange={(event) => setTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
-              }}
-              placeholder="Untitled note"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="new-note-url">URL</Label>
-            <Input
-              id="new-note-url"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://example.com"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Folder</Label>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New note"
+      size="lg"
+      onSubmit={submit}
+      submitLabel="Create"
+      submitDisabled={!title.trim() && !url.trim()}
+      pending={submitting}
+    >
+      <FormGrid>
+        <FormField label="Title" htmlFor="new-note-title">
+          <Input
+            id="new-note-title"
+            value={title}
+            autoFocus
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </FormField>
+        <FormField label="URL" htmlFor="new-note-url">
+          <Input
+            id="new-note-url"
+            type="url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://"
+          />
+        </FormField>
+        <FormField label="Folders" className="sm:col-span-2">
+          <div className="flex min-h-8 flex-wrap items-center gap-1">
+            {groupIds.map((groupId) => (
+              <Badge key={groupId} variant="secondary" className="max-w-64">
+                <span className="truncate">
+                  {pathLabelById.get(groupId) ?? groupId}
+                </span>
+              </Badge>
+            ))}
             <GroupTreeCombobox
               groups={groups}
               value={groupIds}
               onChange={setGroupIds}
-              placeholder="Choose folder..."
-              searchPlaceholder="Search folder hierarchy..."
-              emptyMessage="No folders yet"
+              placeholder="Add"
+              searchPlaceholder="Search folders..."
+              emptyMessage="No folders"
             />
           </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="new-note-content">Content</Label>
-            <Textarea
-              id="new-note-content"
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              className="min-h-32 resize-y text-sm"
-              placeholder="Markdown"
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button size="sm" onClick={submit} disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <FilePlus2 className="size-3.5" />
-            )}
-            Create
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </FormField>
+        <FormField
+          label="Content"
+          htmlFor="new-note-content"
+          className="sm:col-span-2"
+        >
+          <Textarea
+            id="new-note-content"
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            className="min-h-64 resize-y font-mono text-sm"
+            placeholder="Markdown"
+          />
+        </FormField>
+      </FormGrid>
+    </FormDialog>
   );
 }
 
@@ -983,8 +966,9 @@ function NewGroupDialog({
     setSelectedParentId(parentId);
   }, [open, parentId]);
 
+  const parent = groups.find((group) => group._id === selectedParentId);
+
   const submit = async () => {
-    if (submitting) return;
     setSubmitting(true);
     const group = await onCreate({
       name,
@@ -996,71 +980,56 @@ function NewGroupDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogTitle>New folder</DialogTitle>
-        <DialogDescription className="sr-only">
-          Create a note folder.
-        </DialogDescription>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="new-folder-name">Name</Label>
-            <Input
-              id="new-folder-name"
-              value={name}
-              autoFocus
-              onChange={(event) => setName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
-              }}
-              placeholder="Research"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="new-folder-description">Description</Label>
-            <Textarea
-              id="new-folder-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="min-h-24 text-sm"
-              placeholder="What this folder is about..."
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Parent folder</Label>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New folder"
+      onSubmit={submit}
+      submitLabel="Create"
+      submitDisabled={!name.trim()}
+      pending={submitting}
+    >
+      <FormGrid>
+        <FormField label="Name" htmlFor="new-folder-name">
+          <Input
+            id="new-folder-name"
+            value={name}
+            autoFocus
+            onChange={(event) => setName(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Parent">
+          <div className="flex h-8 items-center gap-1">
+            <span className="min-w-0 truncate text-sm text-accent-strong">
+              {parent?.name ?? "Top level"}
+            </span>
             <GroupTreeCombobox
               groups={groups}
               value={selectedParentId ? [selectedParentId] : []}
-              onChange={(next) => setSelectedParentId(next.at(-1) ?? null)}
-              placeholder="Top-level"
-              searchPlaceholder="Search folder hierarchy..."
-              emptyMessage="No folders yet"
+              onChange={(next) =>
+                setSelectedParentId(
+                  next.find((id) => id !== selectedParentId) ?? null,
+                )
+              }
+              placeholder="Choose"
+              searchPlaceholder="Search folders..."
+              emptyMessage="No folders"
             />
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button size="sm" onClick={submit} disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <FolderPlus className="size-3.5" />
-            )}
-            Create
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </FormField>
+        <FormField
+          label="Description"
+          htmlFor="new-folder-description"
+          className="sm:col-span-2"
+        >
+          <Textarea
+            id="new-folder-description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            className="min-h-32"
+          />
+        </FormField>
+      </FormGrid>
+    </FormDialog>
   );
 }

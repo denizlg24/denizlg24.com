@@ -1,17 +1,10 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List as ListBlock, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import {
   Select,
   SelectContent,
@@ -20,21 +13,25 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { SplitList, SplitView } from "@repo/ui/split-view";
+import { FilterTabs, SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
 import {
+  ArrowDownUp,
   BrainCircuit,
   FilePlus2,
   FileText,
   FolderPlus,
   FolderTree,
-  LayoutGrid,
+  Globe,
   Link2,
   List,
   Loader2,
+  Network,
   RefreshCcw,
   Tags,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -53,12 +50,14 @@ import { buildDescendantIdMap, buildPathLabelMap } from "@/lib/note-group-tree";
 import { classifyNoteLocally } from "@/lib/semantic/classify-note";
 import { GroupDetail } from "./_components/group-detail";
 import { GroupTreeCombobox } from "./_components/group-tree-combobox";
+import { NewGroupDialog } from "./_components/new-group-dialog";
 import { NoteDetail } from "./_components/note-detail";
 import { NoteFolderView } from "./_components/note-folder-view";
+import { relativeDate } from "./_components/note-format";
 import { getNoteGroupIds, NoteGraph } from "./_components/note-graph";
 import { SemanticPanel } from "./_components/semantic-panel";
 
-type View = "graph" | "list";
+type View = "list" | "folders" | "graph";
 type Sort =
   | "updated-desc"
   | "updated-asc"
@@ -173,7 +172,7 @@ export default function NotesPage() {
     return new denizApi();
   }, [settings, loadingSettings]);
 
-  const [view, setView] = useState<View>("graph");
+  const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notes, setNotes] = useState<INote[]>([]);
@@ -210,16 +209,12 @@ export default function NotesPage() {
     [router],
   );
 
-  const goNewGroup = useCallback(
-    (parentId: string | null) => {
-      router.push(
-        parentId
-          ? `/dashboard/notes/new-group?parent=${encodeURIComponent(parentId)}`
-          : "/dashboard/notes/new-group",
-      );
-    },
-    [router],
-  );
+  const [newGroupParentId, setNewGroupParentId] = useState<
+    string | null | undefined
+  >(undefined);
+  const goNewGroup = useCallback((parentId: string | null) => {
+    setNewGroupParentId(parentId);
+  }, []);
 
   const load = useCallback(
     async (silent = false) => {
@@ -445,6 +440,7 @@ export default function NotesPage() {
         ),
       );
       applyUpdatedNote(result.note);
+      setView("list");
       const { classified } = await autoClassifyNote(result.note);
       toast.success(
         classified ? "Link imported and classified" : "Link imported",
@@ -657,12 +653,7 @@ export default function NotesPage() {
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
-      if (
-        importingLink ||
-        selectedId ||
-        selectedGroupId ||
-        isEditablePasteTarget(event.target)
-      ) {
+      if (importingLink || isEditablePasteTarget(event.target)) {
         return;
       }
 
@@ -676,7 +667,7 @@ export default function NotesPage() {
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [handlePasteImport, importingLink, selectedGroupId, selectedId]);
+  }, [handlePasteImport, importingLink]);
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -686,20 +677,41 @@ export default function NotesPage() {
     statusFilter !== "all" ||
     sort !== "updated-desc";
 
+  const selectNote = (note: INote) => {
+    setSelectedGroupId(null);
+    setSelectedId(note._id);
+    setView("list");
+  };
+
+  const selectGroup = (group: INoteGroup) => {
+    setSelectedId(null);
+    setSelectedGroupId(group._id);
+    setView("list");
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setSelectedGroupFilters([]);
+    setSelectedTagFilters([]);
+    setHasUrlFilter("all");
+    setStatusFilter("all");
+    setSort("updated-desc");
+  };
+
   if (loading) {
     return <NotesLoadingSkeleton />;
   }
 
-  if (selectedNote) {
-    if (selectedNote.paperId) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      );
-    }
-    return (
+  const showsCreated = sort === "created-desc" || sort === "created-asc";
+
+  const detail = selectedNote ? (
+    selectedNote.paperId ? (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    ) : (
       <NoteDetail
+        key={selectedNote._id}
         note={selectedNote}
         allNotes={notes}
         groups={groups}
@@ -708,10 +720,7 @@ export default function NotesPage() {
         onPatch={(body) => handlePatchNote(selectedNote._id, body)}
         onDelete={() => handleDeleteNote(selectedNote._id)}
         onBack={() => setSelectedId(null)}
-        onSelectNote={(note) => {
-          setSelectedGroupId(null);
-          setSelectedId(note._id);
-        }}
+        onSelectNote={selectNote}
         onSuggestionsChange={setTagSuggestions}
         onUpdated={(note) => {
           applyUpdatedNote(note);
@@ -722,265 +731,246 @@ export default function NotesPage() {
         api={api}
         onCategorize={() => handleCategorizeNote(selectedNote._id)}
       />
-    );
-  }
-
-  if (selectedGroup) {
-    return (
-      <GroupDetail
-        group={selectedGroup}
-        groups={groups}
-        notes={notes}
-        onBack={() => setSelectedGroupId(null)}
-        onUpdate={handleUpdateGroup}
-        onDelete={handleDeleteGroup}
-        onSelectNote={(note) => {
-          setSelectedGroupId(null);
-          setSelectedId(note._id);
-        }}
-        onSelectGroup={(group) => setSelectedGroupId(group._id)}
-      />
-    );
-  }
+    )
+  ) : selectedGroup ? (
+    <GroupDetail
+      key={selectedGroup._id}
+      group={selectedGroup}
+      groups={groups}
+      notes={notes}
+      onBack={() => setSelectedGroupId(null)}
+      onUpdate={handleUpdateGroup}
+      onDelete={handleDeleteGroup}
+      onSelectNote={selectNote}
+      onSelectGroup={selectGroup}
+    />
+  ) : (
+    <EmptyState icon={<FileText />} label={`${notes.length} notes`} />
+  );
 
   return (
-    <div className="relative flex h-full flex-col">
-      <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 md:h-12 md:flex-nowrap md:py-0">
-        <div className="flex w-full items-center gap-2 md:w-auto">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <FileText className="size-4" />
-          <h1 className="text-sm font-medium">Notes</h1>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground md:ml-0">
-            {sortedNotes.length} / {notes.length} · {groups.length} groups
-          </span>
-        </div>
+    <Page>
+      <PageHeader
+        leading={<SidebarTrigger className="-ml-1 size-7 md:hidden" />}
+        icon={<FileText />}
+        title="Notes"
+      >
+        <span className="mr-1 text-xs tabular-nums text-muted-foreground">
+          {sortedNotes.length === notes.length
+            ? notes.length
+            : `${sortedNotes.length}/${notes.length}`}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setSemanticOpen(true)}
+          aria-label="Semantic"
+          title="Semantic"
+        >
+          <BrainCircuit />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void load(true)}
+          disabled={refreshing}
+          aria-label="Refresh"
+          title="Refresh"
+        >
+          <RefreshCcw className={refreshing ? "animate-spin" : undefined} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            goNewGroup(view === "folders" ? folderCurrentId : null)
+          }
+        >
+          <FolderPlus />
+          Group
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => goNewNote(view === "folders" ? folderCurrentId : null)}
+        >
+          <FilePlus2 />
+          Note
+        </Button>
+      </PageHeader>
 
-        <div className="flex w-full grow items-center gap-2 md:ml-2 md:w-auto">
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, content, url, tags…"
-            className="h-7 w-full! max-w-full! text-xs"
-          />
-
-          <Tabs value={view} onValueChange={(value) => setView(value as View)}>
-            <TabsList className="h-7!">
-              <TabsTrigger value="graph" className="h-5.5 px-2 text-xs">
-                <LayoutGrid className="size-3.5" />
-              </TabsTrigger>
-              <TabsTrigger value="list" className="h-5.5 px-2 text-xs">
-                <List className="size-3.5" />
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => setSemanticOpen(true)}
-            title="Semantic notes"
-          >
-            <BrainCircuit className="size-3.5" />
-            <span className="hidden lg:inline">Semantic</span>
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => void load(true)}
-            title="Refresh"
-          >
-            {refreshing ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCcw className="size-3.5" />
-            )}
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => goNewGroup(view === "list" ? folderCurrentId : null)}
-          >
-            <FolderPlus className="size-3.5" />
-            <span className="hidden lg:inline">Group</span>
-          </Button>
-
-          <Button
-            size="sm"
-            className="h-7"
-            onClick={() => goNewNote(view === "list" ? folderCurrentId : null)}
-          >
-            <FilePlus2 className="size-3.5" />
-            <span className="hidden lg:inline">Note</span>
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 w-full">
-        <div className="flex min-w-0 max-w-full items-center gap-2">
-          <span className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <FolderTree className="size-3.5" />
-          </span>
-          <GroupTreeCombobox
-            groups={groups}
-            value={selectedGroupFilters}
-            onChange={setSelectedGroupFilters}
-            placeholder="Filter groups…"
-            searchPlaceholder="Search group hierarchy…"
-            emptyMessage="No groups yet"
-          />
-        </div>
-
-        <div className="flex min-w-0 max-w-full items-center gap-2">
-          <span className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <Tags className="size-3.5" />
-          </span>
-          <TagAutocomplete
-            value={selectedTagFilters}
-            onChange={setSelectedTagFilters}
-            suggestions={allTags}
-            placeholder="Filter tags…"
-            allowCreate={false}
-            searchPlaceholder="Search tags…"
-            emptyMessage="No tags found"
-          />
-        </div>
-
+      <PageToolbar>
+        <FilterTabs
+          value={view}
+          onChange={setView}
+          options={[
+            {
+              value: "list",
+              label: <List className="size-3.5" aria-label="List" />,
+            },
+            {
+              value: "folders",
+              label: <FolderTree className="size-3.5" aria-label="Folders" />,
+            },
+            {
+              value: "graph",
+              label: <Network className="size-3.5" aria-label="Graph" />,
+            },
+          ]}
+        />
+        <SearchField value={query} onChange={setQuery} className="w-56" />
+        <GroupTreeCombobox
+          variant="toolbar"
+          icon={<FolderTree className="size-3.5" />}
+          groups={groups}
+          value={selectedGroupFilters}
+          onChange={setSelectedGroupFilters}
+          placeholder="Groups"
+          searchPlaceholder="Search groups…"
+          emptyMessage="No groups"
+        />
+        <TagAutocomplete
+          variant="toolbar"
+          icon={<Tags className="size-3.5" />}
+          value={selectedTagFilters}
+          onChange={setSelectedTagFilters}
+          suggestions={allTags}
+          placeholder="Tags"
+          allowCreate={false}
+          searchPlaceholder="Search tags…"
+          emptyMessage="No tags"
+        />
+        <FilterTabs
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[
+            { value: "all", label: "All" },
+            { value: "open", label: "Open" },
+            { value: "archived", label: "Archived" },
+          ]}
+        />
+        <ToolbarSpacer />
         <Select
           value={hasUrlFilter}
           onValueChange={(value) => setHasUrlFilter(value as HasUrlFilter)}
         >
-          <SelectTrigger size="sm" className="w-32 text-xs ml-auto">
-            <div className="flex items-center gap-1.5 h-4!">
-              <Link2 className="size-3.5" />
-              <SelectValue />
-            </div>
-          </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="all" className="text-xs">
-              All links
-            </SelectItem>
-            <SelectItem value="with-url" className="text-xs">
-              With URL
-            </SelectItem>
-            <SelectItem value="without-url" className="text-xs">
-              Without URL
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => setStatusFilter(value as StatusFilter)}
-        >
-          <SelectTrigger size="sm" className="h-7 w-32 text-xs">
+          <SelectTrigger size="sm" className="w-auto border-none text-[13px]">
+            <Link2 className="size-3.5" />
             <SelectValue />
           </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="all" className="text-xs">
-              All status
-            </SelectItem>
-            <SelectItem value="open" className="text-xs">
-              Open
-            </SelectItem>
-            <SelectItem value="archived" className="text-xs">
-              Archived
-            </SelectItem>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="all">Any link</SelectItem>
+            <SelectItem value="with-url">With URL</SelectItem>
+            <SelectItem value="without-url">Without URL</SelectItem>
           </SelectContent>
         </Select>
-
         <Select value={sort} onValueChange={(value) => setSort(value as Sort)}>
-          <SelectTrigger size="sm" className="h-7 w-40 text-xs">
+          <SelectTrigger size="sm" className="w-auto border-none text-[13px]">
+            <ArrowDownUp className="size-3.5" />
             <SelectValue />
           </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem value="updated-desc" className="text-xs">
-              Updated newest
-            </SelectItem>
-            <SelectItem value="updated-asc" className="text-xs">
-              Updated oldest
-            </SelectItem>
-            <SelectItem value="created-desc" className="text-xs">
-              Created newest
-            </SelectItem>
-            <SelectItem value="created-asc" className="text-xs">
-              Created oldest
-            </SelectItem>
-            <SelectItem value="title-asc" className="text-xs">
-              Title A-Z
-            </SelectItem>
-            <SelectItem value="title-desc" className="text-xs">
-              Title Z-A
-            </SelectItem>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="updated-desc">Updated, newest</SelectItem>
+            <SelectItem value="updated-asc">Updated, oldest</SelectItem>
+            <SelectItem value="created-desc">Created, newest</SelectItem>
+            <SelectItem value="created-asc">Created, oldest</SelectItem>
+            <SelectItem value="title-asc">Title A–Z</SelectItem>
+            <SelectItem value="title-desc">Title Z–A</SelectItem>
           </SelectContent>
         </Select>
-
         {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={() => {
-              setQuery("");
-              setSelectedGroupFilters([]);
-              setSelectedTagFilters([]);
-              setHasUrlFilter("all");
-              setStatusFilter("all");
-              setSort("updated-desc");
-            }}
-          >
-            <X className="size-3.5" />
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            <X />
             Clear
           </Button>
         )}
-      </div>
+      </PageToolbar>
 
-      <div className="flex-1 overflow-hidden">
-        {view === "graph" ? (
-          <NoteGraph
-            notes={sortedNotes}
-            groups={graphGroups}
-            edges={graphEdges}
-            onSelectNote={(note) => {
-              setSelectedGroupId(null);
-              setSelectedId(note._id);
-            }}
-            onSelectGroup={(group) => {
-              setSelectedId(null);
-              setSelectedGroupId(group._id);
-            }}
-            onCreateNoteHere={goNewNote}
-            onCreateFolderHere={goNewGroup}
-            onCategorizeNote={(note) => handleCategorizeNote(note._id)}
-            onDeleteNote={setPendingDeleteNote}
-            onDeleteGroup={setPendingDeleteGroup}
-          />
-        ) : (
-          <NoteFolderView
-            notes={sortedNotes}
-            groups={groups}
-            currentId={folderCurrentId}
-            onCurrentIdChange={setFolderCurrentId}
-            onSelect={(note) => {
-              setSelectedGroupId(null);
-              setSelectedId(note._id);
-            }}
-            onSelectGroup={(group) => {
-              setSelectedId(null);
-              setSelectedGroupId(group._id);
-            }}
-            onCreateNoteHere={goNewNote}
-            onCreateFolderHere={goNewGroup}
-            onCategorizeNote={(note) => handleCategorizeNote(note._id)}
-            onDeleteNote={setPendingDeleteNote}
-            onDeleteGroup={setPendingDeleteGroup}
-          />
-        )}
-      </div>
+      {view === "list" ? (
+        <SplitView
+          detailOpen={selectedNote !== null || selectedGroup !== null}
+          listWidth="md:w-80 lg:w-96"
+          list={
+            <SplitList>
+              {sortedNotes.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={<FileText />}
+                  label={notes.length === 0 ? "No notes" : "No matches"}
+                />
+              ) : (
+                <ListBlock>
+                  {sortedNotes.map((note) => (
+                    <ListRow
+                      key={note._id}
+                      selected={note._id === selectedId}
+                      onClick={() => selectNote(note)}
+                      leading={<NoteRowGlyph note={note} />}
+                      title={note.title || "Untitled"}
+                      meta={relativeDate(
+                        showsCreated ? note.createdAt : note.updatedAt,
+                      )}
+                      className={
+                        note.status === "archived" ? "opacity-60" : undefined
+                      }
+                    />
+                  ))}
+                </ListBlock>
+              )}
+            </SplitList>
+          }
+          detail={detail}
+        />
+      ) : (
+        <PageBody bleed>
+          {view === "graph" ? (
+            <NoteGraph
+              notes={sortedNotes}
+              groups={graphGroups}
+              edges={graphEdges}
+              onSelectNote={selectNote}
+              onSelectGroup={selectGroup}
+              onCreateNoteHere={goNewNote}
+              onCreateFolderHere={goNewGroup}
+              onCategorizeNote={(note) => handleCategorizeNote(note._id)}
+              onDeleteNote={setPendingDeleteNote}
+              onDeleteGroup={setPendingDeleteGroup}
+            />
+          ) : (
+            <NoteFolderView
+              notes={sortedNotes}
+              groups={groups}
+              currentId={folderCurrentId}
+              onCurrentIdChange={setFolderCurrentId}
+              onSelect={selectNote}
+              onSelectGroup={selectGroup}
+              onCreateNoteHere={goNewNote}
+              onCreateFolderHere={goNewGroup}
+              onCategorizeNote={(note) => handleCategorizeNote(note._id)}
+              onDeleteNote={setPendingDeleteNote}
+              onDeleteGroup={setPendingDeleteGroup}
+            />
+          )}
+        </PageBody>
+      )}
+
+      <NewGroupDialog
+        api={api}
+        open={newGroupParentId !== undefined}
+        parentId={newGroupParentId ?? null}
+        groups={groups}
+        onOpenChange={(open) => {
+          if (!open) setNewGroupParentId(undefined);
+        }}
+        onCreated={(group) => {
+          setGroups((current) =>
+            [...current, group].sort((left, right) =>
+              left.name.localeCompare(right.name),
+            ),
+          );
+          toast.success("Group created");
+        }}
+      />
+
       {api && semanticOpen && (
         <SemanticPanel
           api={api}
@@ -989,109 +979,91 @@ export default function NotesPage() {
         />
       )}
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingDeleteNote !== null}
         onOpenChange={(open) => {
           if (!open) setPendingDeleteNote(null);
         }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete note?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete “{pendingDeleteNote?.title}”. This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (pendingDeleteNote) {
-                  void handleDeleteNote(pendingDeleteNote._id);
-                }
-                setPendingDeleteNote(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Delete note?"
+        description={pendingDeleteNote?.title || "Untitled"}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (pendingDeleteNote) void handleDeleteNote(pendingDeleteNote._id);
+          setPendingDeleteNote(null);
+        }}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingDeleteGroup !== null}
         onOpenChange={(open) => {
           if (!open) setPendingDeleteGroup(null);
         }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete “{pendingDeleteGroup?.name}”. Notes
-              inside are kept but removed from this folder. This action cannot
-              be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (pendingDeleteGroup) {
-                  void handleDeleteGroup(pendingDeleteGroup._id);
-                }
-                setPendingDeleteGroup(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        title="Delete group?"
+        description={pendingDeleteGroup?.name}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (pendingDeleteGroup)
+            void handleDeleteGroup(pendingDeleteGroup._id);
+          setPendingDeleteGroup(null);
+        }}
+      />
+    </Page>
   );
+}
+
+function NoteRowGlyph({ note }: { note: INote }) {
+  if (note.favicon) {
+    return (
+      <Image
+        src={note.favicon}
+        alt=""
+        width={14}
+        height={14}
+        className="size-3.5 rounded-sm"
+        unoptimized
+      />
+    );
+  }
+  return note.url ? <Globe /> : <FileText />;
 }
 
 function NotesLoadingSkeleton() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <FileText className="size-4" />
-          <h1 className="text-sm font-medium">Notes</h1>
-          <Skeleton className="h-3 w-28" />
-        </div>
-
-        <div className="flex items-center gap-2 grow ml-2">
-          <Skeleton className="h-7 grow" />
-          <Skeleton className="h-7 w-16" />
-          <Skeleton className="h-7 w-9" />
-          <Skeleton className="h-7 w-20" />
-          <Skeleton className="h-7 w-16" />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 w-full">
-        <div className="flex items-center gap-2">
-          <FolderTree className="size-3.5 text-muted-foreground" />
-          <Skeleton className="h-8 w-44" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Tags className="size-3.5 text-muted-foreground" />
-          <Skeleton className="h-8 w-44" />
-        </div>
-        <Skeleton className="ml-auto h-8 w-32" />
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-8 w-40" />
-      </div>
-
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    </div>
+    <Page>
+      <PageHeader
+        leading={<SidebarTrigger className="-ml-1 size-7 md:hidden" />}
+        icon={<FileText />}
+        title="Notes"
+      >
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-16" />
+      </PageHeader>
+      <PageToolbar>
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-20" />
+      </PageToolbar>
+      <SplitView
+        detailOpen={false}
+        listWidth="md:w-80 lg:w-96"
+        list={
+          <SplitList>
+            <div className="flex flex-col gap-1">
+              {Array.from({ length: 14 }).map((_, index) => (
+                <div key={index} className="flex h-9 items-center gap-3">
+                  <Skeleton className="size-4 rounded-sm" />
+                  <Skeleton className="h-3.5 flex-1" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+              ))}
+            </div>
+          </SplitList>
+        }
+        detail={null}
+      />
+    </Page>
   );
 }

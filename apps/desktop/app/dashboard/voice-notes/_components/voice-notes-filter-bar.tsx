@@ -1,6 +1,10 @@
 "use client";
 
-import type { VoiceNoteFacetsResponse } from "@repo/schemas";
+import type {
+  VoiceNoteFacetsResponse,
+  VoiceNoteTranscriptionStatus,
+} from "@repo/schemas";
+import { Button } from "@repo/ui/button";
 import { Calendar } from "@repo/ui/calendar";
 import {
   Command,
@@ -21,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { FilterTabs, SearchField, ToolbarSpacer } from "@repo/ui/toolbar";
 import { ArrowUpDown, Check, ChevronDown, X } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -31,7 +36,6 @@ import {
   SORT_LABELS,
   SORT_OPTIONS,
   SOURCE_OPTIONS,
-  STATUS_OPTIONS,
   type VoiceNoteFilters,
 } from "./voice-note-filters";
 import { ContextDot } from "./voice-notes-primitives";
@@ -94,8 +98,8 @@ function FilterTriggerButton({
     <button
       type="button"
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-accent data-[state=open]:text-foreground",
-        summary ? "pr-1 text-foreground" : "text-muted-foreground",
+        "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[13px] outline-none transition-colors hover:bg-surface/60 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-surface data-[state=open]:text-accent-strong",
+        summary ? "pr-1 text-accent-strong" : "text-muted-foreground",
         className,
       )}
       {...props}
@@ -125,7 +129,7 @@ function FilterSlot({
     <div
       className={cn(
         "inline-flex items-center rounded-md",
-        active && "bg-accent/60",
+        active && "bg-surface dark:bg-muted",
       )}
     >
       {children}
@@ -134,7 +138,7 @@ function FilterSlot({
           type="button"
           onClick={onClear}
           aria-label={`Clear ${label.toLowerCase()} filter`}
-          className="flex h-6 items-center rounded-md pr-1.5 pl-0.5 text-muted-foreground hover:text-foreground"
+          className="flex h-7 items-center rounded-md pr-1.5 pl-0.5 text-muted-foreground hover:text-accent-strong"
         >
           <X className="size-3" />
         </button>
@@ -146,7 +150,7 @@ function FilterSlot({
 function OptionCount({ count }: { count?: number }) {
   if (count === undefined) return null;
   return (
-    <span className="ml-auto pl-3 font-mono text-[10px] tabular-nums text-muted-foreground">
+    <span className="ml-auto pl-3 text-[11px] tabular-nums text-muted-foreground">
       {count}
     </span>
   );
@@ -185,7 +189,6 @@ function CheckboxMenuFilter({
               checked={selected.includes(option.value)}
               onSelect={(event) => event.preventDefault()}
               onCheckedChange={() => onChange(toggle(selected, option.value))}
-              className="text-xs"
             >
               {option.label}
               <OptionCount count={option.count} />
@@ -438,11 +441,54 @@ function DateRangeFilter({
   );
 }
 
+type StatusTab = "all" | "failed" | "pending" | "untranscribed" | "transcribed";
+
+const STATUS_TABS: Record<StatusTab, VoiceNoteTranscriptionStatus[]> = {
+  all: [],
+  failed: ["failed"],
+  pending: ["queued", "transcribing"],
+  untranscribed: ["untranscribed"],
+  transcribed: ["transcribed"],
+};
+
+const STATUS_TAB_LABELS: Record<StatusTab, string> = {
+  all: "All",
+  failed: "Failed",
+  pending: "Pending",
+  untranscribed: "Untranscribed",
+  transcribed: "Transcribed",
+};
+
+const STATUS_TAB_KEYS: StatusTab[] = [
+  "all",
+  "failed",
+  "pending",
+  "untranscribed",
+  "transcribed",
+];
+
+function statusTabOf(statuses: VoiceNoteTranscriptionStatus[]): StatusTab {
+  return (
+    STATUS_TAB_KEYS.find((tab) => {
+      const preset = STATUS_TABS[tab];
+      return (
+        preset.length === statuses.length &&
+        preset.every((status) => statuses.includes(status))
+      );
+    }) ?? "all"
+  );
+}
+
+/** Search, status tabs, facet filters and sort — the page toolbar's contents. */
 export function VoiceNotesFilterBar({
+  query,
+  onQueryChange,
   filters,
   facets,
   onChange,
 }: {
+  query: string;
+  onQueryChange: (query: string) => void;
   filters: VoiceNoteFilters;
   facets: VoiceNoteFacetsResponse | null;
   onChange: (filters: VoiceNoteFilters) => void;
@@ -450,145 +496,162 @@ export function VoiceNotesFilterBar({
   const update = (patch: Partial<VoiceNoteFilters>) =>
     onChange({ ...filters, ...patch });
 
-  const statusCount = (status: string) =>
-    facets
-      ? (facets.statuses.find((item) => item.status === status)?.count ?? 0)
-      : undefined;
+  const statusCount = (tab: StatusTab) => {
+    if (!facets) return undefined;
+    if (tab === "all") {
+      return facets.statuses.reduce((sum, item) => sum + item.count, 0);
+    }
+    return facets.statuses
+      .filter((item) => STATUS_TABS[tab].includes(item.status))
+      .reduce((sum, item) => sum + item.count, 0);
+  };
   const sourceCount = (source: string) =>
     facets
       ? (facets.sources.find((item) => item.source === source)?.count ?? 0)
       : undefined;
+  const filtersActive = hasActiveFilters({ ...filters, statuses: [] });
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b px-3 py-1.5">
-      <CheckboxMenuFilter
-        label="Status"
-        options={STATUS_OPTIONS.map((status) => ({
-          value: status,
-          label: status,
-          count: statusCount(status),
+    <>
+      <SearchField
+        value={query}
+        onChange={onQueryChange}
+        placeholder="Search"
+        className="w-full sm:w-56"
+      />
+      <FilterTabs
+        value={statusTabOf(filters.statuses)}
+        onChange={(tab) => update({ statuses: STATUS_TABS[tab] })}
+        options={STATUS_TAB_KEYS.map((tab) => ({
+          value: tab,
+          label: STATUS_TAB_LABELS[tab],
+          count: tab === "all" ? undefined : statusCount(tab),
         }))}
-        selected={filters.statuses}
-        onChange={(values) =>
-          update({
-            statuses: STATUS_OPTIONS.filter((status) =>
-              values.includes(status),
-            ),
-          })
-        }
       />
-      <SearchableFilter
-        label="Tags"
-        prefix="#"
-        loading={!facets}
-        options={withSelected(
-          (facets?.tags ?? []).map((tag) => ({
-            value: tag.name,
-            label: tag.name,
-            count: tag.count,
-          })),
-          filters.tags,
-        )}
-        selected={filters.tags}
-        onChange={(tags) => update({ tags })}
-      />
-      <SearchableFilter
-        label="Groups"
-        loading={!facets}
-        options={withSelected(
-          (facets?.groups ?? []).map((group) => ({
-            value: group._id,
-            label: group.name,
-            count: group.count,
-            dot: { color: group.color },
-          })),
-          filters.groupIds,
-        )}
-        selected={filters.groupIds}
-        onChange={(groupIds) => update({ groupIds })}
-      />
-      <ContextFilterControl
-        filters={filters}
-        facets={facets}
-        onChange={(context) => update({ context })}
-      />
-      <CheckboxMenuFilter
-        label="Source"
-        options={SOURCE_OPTIONS.map((source) => ({
-          value: source,
-          label: source,
-          count: sourceCount(source),
-        }))}
-        selected={filters.sources}
-        onChange={(values) =>
-          update({
-            sources: SOURCE_OPTIONS.filter((source) => values.includes(source)),
-          })
-        }
-      />
-      <FilterSlot
-        label="Linked"
-        active={filters.linked !== "all"}
-        onClear={() => update({ linked: "all" })}
-      >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <FilterTriggerButton
-              label="Linked"
-              summary={
-                filters.linked === "all"
-                  ? undefined
-                  : LINKED_LABELS[filters.linked].toLowerCase()
-              }
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-36">
-            <DropdownMenuRadioGroup
-              value={filters.linked}
-              onValueChange={(value) => {
-                const linked = LINKED_OPTIONS.find(
-                  (option) => option === value,
-                );
-                if (linked) update({ linked });
-              }}
-            >
-              {LINKED_OPTIONS.map((option) => (
-                <DropdownMenuRadioItem
-                  key={option}
-                  value={option}
-                  className="text-xs"
-                >
-                  {LINKED_LABELS[option]}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </FilterSlot>
-      <DateRangeFilter
-        from={filters.from}
-        to={filters.to}
-        onChange={({ from, to }) => update({ from, to })}
-      />
-      {hasActiveFilters(filters) && (
-        <button
-          type="button"
-          onClick={() => onChange({ ...DEFAULT_FILTERS, sort: filters.sort })}
-          className="ml-1 h-6 px-1.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      <div className="flex flex-wrap items-center gap-0.5">
+        <SearchableFilter
+          label="Tags"
+          prefix="#"
+          loading={!facets}
+          options={withSelected(
+            (facets?.tags ?? []).map((tag) => ({
+              value: tag.name,
+              label: tag.name,
+              count: tag.count,
+            })),
+            filters.tags,
+          )}
+          selected={filters.tags}
+          onChange={(tags) => update({ tags })}
+        />
+        <SearchableFilter
+          label="Groups"
+          loading={!facets}
+          options={withSelected(
+            (facets?.groups ?? []).map((group) => ({
+              value: group._id,
+              label: group.name,
+              count: group.count,
+              dot: { color: group.color },
+            })),
+            filters.groupIds,
+          )}
+          selected={filters.groupIds}
+          onChange={(groupIds) => update({ groupIds })}
+        />
+        <ContextFilterControl
+          filters={filters}
+          facets={facets}
+          onChange={(context) => update({ context })}
+        />
+        <CheckboxMenuFilter
+          label="Source"
+          options={SOURCE_OPTIONS.map((source) => ({
+            value: source,
+            label: source,
+            count: sourceCount(source),
+          }))}
+          selected={filters.sources}
+          onChange={(values) =>
+            update({
+              sources: SOURCE_OPTIONS.filter((source) =>
+                values.includes(source),
+              ),
+            })
+          }
+        />
+        <FilterSlot
+          label="Linked"
+          active={filters.linked !== "all"}
+          onClear={() => update({ linked: "all" })}
         >
-          Clear
-        </button>
-      )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <FilterTriggerButton
+                label="Linked"
+                summary={
+                  filters.linked === "all"
+                    ? undefined
+                    : LINKED_LABELS[filters.linked].toLowerCase()
+                }
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-36">
+              <DropdownMenuRadioGroup
+                value={filters.linked}
+                onValueChange={(value) => {
+                  const linked = LINKED_OPTIONS.find(
+                    (option) => option === value,
+                  );
+                  if (linked) update({ linked });
+                }}
+              >
+                {LINKED_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option} value={option}>
+                    {LINKED_LABELS[option]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </FilterSlot>
+        <DateRangeFilter
+          from={filters.from}
+          to={filters.to}
+          onChange={({ from, to }) => update({ from, to })}
+        />
+        {filtersActive && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() =>
+              onChange({
+                ...DEFAULT_FILTERS,
+                statuses: filters.statuses,
+                sort: filters.sort,
+              })
+            }
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+
+      <ToolbarSpacer />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
-            className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-accent"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground data-[state=open]:bg-surface"
           >
-            <ArrowUpDown className="size-3" />
+            <ArrowUpDown />
             {SORT_LABELS[filters.sort]}
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-32">
           <DropdownMenuRadioGroup
@@ -599,17 +662,13 @@ export function VoiceNotesFilterBar({
             }}
           >
             {SORT_OPTIONS.map((option) => (
-              <DropdownMenuRadioItem
-                key={option}
-                value={option}
-                className="text-xs"
-              >
+              <DropdownMenuRadioItem key={option} value={option}>
                 {SORT_LABELS[option]}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </>
   );
 }

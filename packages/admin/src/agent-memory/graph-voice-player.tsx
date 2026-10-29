@@ -152,7 +152,7 @@ export function GraphVoicePlayer({
         type="button"
         onClick={() => void toggle()}
         aria-label={playing ? "Pause" : "Play"}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full text-accent-strong transition-colors hover:bg-surface"
       >
         {loading ? (
           <Loader2 className="size-3.5 animate-spin" />
@@ -216,7 +216,7 @@ export function GraphVoicePlayer({
         onClick={onOpenDetails}
         aria-label="Open memory detail"
         title="Open memory detail"
-        className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface hover:text-accent-strong"
       >
         <Info className="size-3.5" />
       </button>
@@ -224,7 +224,7 @@ export function GraphVoicePlayer({
         type="button"
         onClick={onDismiss}
         aria-label="Close player"
-        className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface hover:text-accent-strong"
       >
         <X className="size-3.5" />
       </button>

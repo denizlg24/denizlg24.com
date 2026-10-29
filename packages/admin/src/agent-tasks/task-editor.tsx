@@ -2,15 +2,10 @@
 
 import type { AgentTask, AgentTaskAttachment } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { List, ListRow } from "@repo/ui/list";
+import { SectionLabel } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -18,8 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import { FileUp, Loader2, X } from "lucide-react";
+import { FileUp, Paperclip, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useModelCatalog } from "../llm/model-select";
@@ -200,120 +196,118 @@ export function TaskEditorDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          multiple
-          accept="application/pdf,image/jpeg,image/png,image/webp,.pdf"
-          onChange={handleUpload}
-        />
-        <DialogHeader>
-          <DialogTitle>{task ? "Edit task" : "New task"}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="task-name">Name</Label>
-            <Input
-              id="task-name"
-              value={form.name}
-              onChange={(event) => update({ name: event.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="task-prompt">Prompt</Label>
-            <Textarea
-              id="task-prompt"
-              className="min-h-44 resize-y"
-              value={form.prompt}
-              onChange={(event) => update({ prompt: event.target.value })}
-            />
-          </div>
-
-          <ScheduleField
-            cron={form.cron}
-            runAt={form.runAt}
-            timeZone={form.timeZone}
-            onCronChange={(cron) => update({ cron })}
-            onRunAtChange={(runAt) => update({ runAt })}
-            onTimeZoneChange={(timeZone) => update({ timeZone })}
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={task ? "Edit task" : "New task"}
+      size="lg"
+      onSubmit={save}
+      submitLabel={task ? "Save" : "Create"}
+      submitDisabled={uploading || !form.name.trim() || !form.prompt.trim()}
+      pending={saving}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        multiple
+        accept="application/pdf,image/jpeg,image/png,image/webp,.pdf"
+        onChange={handleUpload}
+      />
+      <FormGrid>
+        <FormField label="Name" htmlFor="task-name" className="sm:col-span-2">
+          <Input
+            id="task-name"
+            value={form.name}
+            onChange={(event) => update({ name: event.target.value })}
           />
+        </FormField>
+        <FormField
+          label="Prompt"
+          htmlFor="task-prompt"
+          className="sm:col-span-2"
+        >
+          <Textarea
+            id="task-prompt"
+            className="min-h-56 resize-y"
+            value={form.prompt}
+            onChange={(event) => update({ prompt: event.target.value })}
+          />
+        </FormField>
 
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
-            <div className="grid gap-1.5">
-              <Label>Model</Label>
-              <RequiredSettingsModelPicker
-                value={form.model}
-                onChange={(model) => update({ model })}
-                models={catalog.models}
-                loading={catalog.modelsLoading}
-                error={catalog.modelsError}
-                stale={catalog.stale}
-                onRetry={catalog.retry}
-                requiredCapabilities={["tool-use"]}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Memory</Label>
-              <Select
-                value={form.memoryMode}
-                onValueChange={(value) =>
-                  update({ memoryMode: value as AgentTask["memoryMode"] })
-                }
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEMORY_MODES.map((mode) => (
-                    <SelectItem key={mode.value} value={mode.value}>
-                      {mode.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        <ScheduleField
+          cron={form.cron}
+          runAt={form.runAt}
+          timeZone={form.timeZone}
+          onCronChange={(cron) => update({ cron })}
+          onRunAtChange={(runAt) => update({ runAt })}
+          onTimeZoneChange={(timeZone) => update({ timeZone })}
+        />
 
-          <div className="grid gap-1.5">
-            <div className="flex items-center">
-              <Label>Attachments</Label>
+        <FormField label="Model">
+          <RequiredSettingsModelPicker
+            value={form.model}
+            onChange={(model) => update({ model })}
+            models={catalog.models}
+            loading={catalog.modelsLoading}
+            error={catalog.modelsError}
+            stale={catalog.stale}
+            onRetry={catalog.retry}
+            requiredCapabilities={["tool-use"]}
+          />
+        </FormField>
+        <FormField label="Memory">
+          <Select
+            value={form.memoryMode}
+            onValueChange={(value) => {
+              const mode = MEMORY_MODES.find((entry) => entry.value === value);
+              if (mode) update({ memoryMode: mode.value });
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MEMORY_MODES.map((mode) => (
+                <SelectItem key={mode.value} value={mode.value}>
+                  {mode.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <SectionLabel
+            count={form.attachments.length || undefined}
+            actions={
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="ml-auto h-7 gap-1.5 text-xs"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploading ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <FileUp className="size-3" />
-                )}
+                {uploading ? <Spinner /> : <FileUp />}
                 Add
               </Button>
-            </div>
-            {form.attachments.length > 0 ? (
-              <ul className="divide-y border-y text-xs">
-                {form.attachments.map((attachment) => (
-                  <li
-                    key={attachment.id}
-                    className="flex items-center gap-2 py-1.5"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {attachment.name}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatBytes(attachment.size)}
-                    </span>
+            }
+          >
+            Attachments
+          </SectionLabel>
+          {form.attachments.length > 0 ? (
+            <List divided>
+              {form.attachments.map((attachment) => (
+                <ListRow
+                  key={attachment.id}
+                  leading={<Paperclip />}
+                  title={attachment.name}
+                  meta={formatBytes(attachment.size)}
+                  trailing={
                     <Button
                       type="button"
-                      size="icon"
+                      size="icon-xs"
                       variant="ghost"
-                      className="size-6"
                       aria-label={`Remove ${attachment.name}`}
                       onClick={() =>
                         update({
@@ -323,24 +317,15 @@ export function TaskEditorDialog({
                         })
                       }
                     >
-                      <X className="size-3" />
+                      <X />
                     </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+                  }
+                />
+              ))}
+            </List>
+          ) : null}
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button disabled={saving || uploading} onClick={save}>
-            {saving ? <Loader2 className="animate-spin" /> : null}
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </FormGrid>
+    </FormDialog>
   );
 }

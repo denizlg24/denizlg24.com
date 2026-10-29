@@ -42,3 +42,4 @@ export * from "./tts";
 export * from "./voice-notes";
 export * from "./whiteboard";
 export * from "./work-hours";
+export * from "./workspace";

@@ -12,6 +12,7 @@ import {
   connectorSlugSchema,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton, ConfirmDialog } from "@repo/ui/confirm-button";
 import { CopyButton } from "@repo/ui/copy-button";
 import {
   DropdownMenu,
@@ -20,9 +21,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { RadioGroup, RadioGroupItem } from "@repo/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -34,9 +35,19 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { Spinner } from "@repo/ui/spinner";
 import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
+import { FilterTabs, RowActions } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  KeyRound,
+  Plug,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Unplug,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConnectors } from "../../agent/use-connectors";
 import { AdminApiError } from "../../client";
@@ -142,7 +153,7 @@ function ConnectorTools({
 
   if (!tools) {
     return (
-      <div className="space-y-2 py-2">
+      <div className="flex flex-col gap-2 py-2">
         {[64, 48, 56].map((width) => (
           <Skeleton
             key={width}
@@ -154,33 +165,33 @@ function ConnectorTools({
     );
   }
   if (tools.length === 0) {
-    return <p className="py-2 text-xs text-muted-foreground">—</p>;
+    return <EmptyState compact label="No tools" />;
   }
   return (
-    <ul className="divide-y divide-border/60">
+    <ul className="flex flex-col divide-y divide-border/70">
       {tools.map((tool) => {
         const enabled = !connector.disabledTools.includes(tool.name);
         return (
           <li
             key={tool.name}
-            className="flex min-w-0 items-center gap-3 py-1.5 text-xs"
+            className="flex min-w-0 items-center gap-3 py-1.5"
           >
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-baseline gap-2">
                 <span
                   className={cn(
-                    "truncate font-mono text-[11px]",
+                    "truncate font-mono text-xs text-accent-strong",
                     !enabled && "text-muted-foreground line-through",
                   )}
                 >
                   {tool.name}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-[11px] text-muted-foreground">
                   {toolFlags(tool)}
                 </span>
               </div>
               {tool.title || tool.description ? (
-                <p className="truncate text-[11px] text-muted-foreground">
+                <p className="truncate text-xs text-muted-foreground">
                   {tool.title ?? tool.description}
                 </p>
               ) : null}
@@ -226,7 +237,7 @@ function clientInput(
   };
 }
 
-/** Grid cells for a two-column parent. */
+/** Cells for a two-column FormGrid. */
 function OAuthClientFields({
   idPrefix,
   draft,
@@ -242,24 +253,18 @@ function OAuthClientFields({
 }) {
   return (
     <>
-      <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-client-id`} className="text-xs">
-          Client ID
-        </Label>
+      <FormField label="Client ID" htmlFor={`${idPrefix}-client-id`}>
         <Input
           id={`${idPrefix}-client-id`}
           value={draft.clientId}
           onChange={(event) =>
             onChange({ ...draft, clientId: event.target.value })
           }
-          className="h-8 font-mono text-xs"
+          className="font-mono"
           autoComplete="off"
         />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-client-secret`} className="text-xs">
-          Client secret
-        </Label>
+      </FormField>
+      <FormField label="Client secret" htmlFor={`${idPrefix}-client-secret`}>
         <Input
           id={`${idPrefix}-client-secret`}
           type="password"
@@ -268,34 +273,34 @@ function OAuthClientFields({
             onChange({ ...draft, clientSecret: event.target.value })
           }
           placeholder={secretStored ? "••••••••" : undefined}
-          className="h-8 font-mono text-xs"
+          className="font-mono"
           autoComplete="off"
         />
-      </div>
-      <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor={`${idPrefix}-client-scope`} className="text-xs">
-          Scope
-        </Label>
+      </FormField>
+      <FormField
+        label="Scope"
+        htmlFor={`${idPrefix}-client-scope`}
+        className="sm:col-span-2"
+      >
         <Input
           id={`${idPrefix}-client-scope`}
           value={draft.scope}
           onChange={(event) =>
             onChange({ ...draft, scope: event.target.value })
           }
-          className="h-8 font-mono text-xs"
+          className="font-mono"
           autoComplete="off"
         />
-      </div>
+      </FormField>
       {redirectUrl ? (
-        <div className="space-y-1 sm:col-span-2">
-          <span className="text-xs font-medium">Redirect URL</span>
+        <FormField label="Redirect URL" className="sm:col-span-2">
           <div className="flex min-w-0 items-center gap-1">
-            <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+            <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
               {redirectUrl}
             </code>
             <CopyButton value={redirectUrl} label="Copy redirect URL" />
           </div>
-        </div>
+        </FormField>
       ) : null}
     </>
   );
@@ -343,33 +348,33 @@ function OAuthClientEditor({
         event.preventDefault();
         if (input) void save(input);
       }}
-      className="grid gap-3 py-2 sm:grid-cols-2"
+      className="flex flex-col gap-3 py-2"
       aria-label={`${connector.name} OAuth client`}
     >
-      <OAuthClientFields
-        idPrefix={`connector-${connector.id}`}
-        draft={draft}
-        onChange={setDraft}
-        redirectUrl={redirectUrl}
-        secretStored={connector.oauthClient?.hasSecret ?? false}
-      />
-      <div className="flex items-center justify-end gap-1 sm:col-span-2">
+      <FormGrid>
+        <OAuthClientFields
+          idPrefix={`connector-${connector.id}`}
+          draft={draft}
+          onChange={setDraft}
+          redirectUrl={redirectUrl}
+          secretStored={connector.oauthClient?.hasSecret ?? false}
+        />
+      </FormGrid>
+      <div className="flex items-center justify-end gap-2">
         {connector.oauthClient ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-            disabled={saving}
-            onClick={() => void save(null)}
-          >
-            Remove
-          </Button>
+          <ConfirmButton
+            title="Remove OAuth client?"
+            actionLabel="Remove"
+            destructive
+            onConfirm={() => save(null)}
+            trigger={
+              <Button type="button" variant="ghost" size="sm" disabled={saving}>
+                Remove
+              </Button>
+            }
+          />
         ) : null}
-        <Button
-          type="submit"
-          className="h-7 px-2.5 text-xs"
-          disabled={!input || saving}
-        >
+        <Button type="submit" size="sm" disabled={!input || saving}>
           {saving ? <Spinner className="size-3" /> : null}
           Save
         </Button>
@@ -447,42 +452,64 @@ function ConnectorRow({
       onChange(result.connector);
     });
 
-  const remove = () => {
-    if (!window.confirm(`Delete ${connector.name}?`)) return;
-    void run("Delete", async () => {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const remove = () =>
+    run("Delete", async () => {
       await client.del(`connectors/${connector.id}`);
       onRemove(connector.id);
     });
-  };
 
   const checked = relativeTime(connector.lastCheckedAt);
 
+  const disclosure = (panel: "tools" | "client", label: string) => (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground"
+      aria-expanded={expanded === panel}
+      onClick={() => toggle(panel)}
+    >
+      {label}
+      <ChevronRight
+        className={cn(
+          "size-3 transition-transform",
+          expanded === panel && "rotate-90",
+        )}
+      />
+    </Button>
+  );
+
   return (
-    <li className="space-y-2 py-4">
+    <li className="flex flex-col gap-2 py-3">
       <div className="flex min-w-0 items-start gap-3">
         <StatusDot
           tone={connector.enabled ? STATUS_TONE[connector.status] : "muted"}
           label={STATUS_LABEL[connector.status]}
           className="mt-1.5"
         />
-        <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-baseline gap-2">
             {Icon ? (
-              <Icon className="size-3.5 shrink-0 self-center" aria-hidden />
+              <Icon
+                className="size-3.5 shrink-0 self-center text-muted-foreground"
+                aria-hidden
+              />
             ) : null}
-            <span className="truncate text-sm font-medium">
+            <span className="truncate text-sm font-medium text-accent-strong">
               {connector.name}
             </span>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
               {connector.slug}
             </span>
           </div>
-          <p className="truncate font-mono text-[11px] text-muted-foreground">
+          <p className="truncate font-mono text-xs text-muted-foreground">
             {connector.url}
           </p>
-          <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground tabular-nums">
+          <p className="flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-muted-foreground">
             <span
-              className={cn(connector.status === "error" && "text-destructive")}
+              className={cn(
+                connector.status === "error" && "text-status-critical",
+              )}
             >
               {connector.statusDetail ?? STATUS_LABEL[connector.status]}
             </span>
@@ -494,18 +521,55 @@ function ConnectorRow({
             {checked ? (
               <>
                 <span>·</span>
-                <span>checked {checked}</span>
+                <span>{checked}</span>
               </>
             ) : null}
           </p>
         </div>
-        {busy ? <Spinner className="mt-1 size-3.5" /> : null}
+        {busy ? <Spinner className="mt-1.5 size-3.5" /> : null}
         <Switch
           checked={connector.enabled}
           aria-label={`${connector.enabled ? "Disable" : "Enable"} ${connector.name}`}
           disabled={busy !== null}
           onCheckedChange={(enabled) => void patch({ enabled })}
+          className="mt-0.5"
         />
+        <RowActions label={`${connector.name} actions`}>
+          <DropdownMenuItem
+            disabled={busy !== null}
+            onSelect={() => void refresh()}
+          >
+            <RefreshCw /> Refresh
+          </DropdownMenuItem>
+          {connector.auth === "oauth" ? (
+            <DropdownMenuItem
+              disabled={busy !== null}
+              onSelect={() => void authorize()}
+            >
+              <ShieldCheck /> Authorize
+            </DropdownMenuItem>
+          ) : null}
+          {connector.auth === "oauth" && connector.hasSecret ? (
+            <DropdownMenuItem
+              disabled={busy !== null}
+              onSelect={() => void disconnect()}
+            >
+              <Unplug /> Disconnect
+            </DropdownMenuItem>
+          ) : null}
+          {connector.builtIn ? null : (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={busy !== null}
+                onSelect={() => setConfirmDelete(true)}
+              >
+                <Trash2 /> Delete
+              </DropdownMenuItem>
+            </>
+          )}
+        </RowActions>
       </div>
       <div className="flex flex-wrap items-center gap-1 pl-5">
         <Select
@@ -516,92 +580,20 @@ function ConnectorRow({
           }}
           disabled={busy !== null}
         >
-          <SelectTrigger
-            size="sm"
-            className="h-7 w-auto gap-1.5 text-xs shadow-none"
-            aria-label="Approval"
-          >
+          <SelectTrigger size="sm" className="w-auto" aria-label="Approval">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {connectorApprovalSchema.options.map((approval) => (
-              <SelectItem key={approval} value={approval} className="text-xs">
+              <SelectItem key={approval} value={approval}>
                 {APPROVAL_LABEL[approval]}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          className="h-7 px-2 text-xs"
-          disabled={busy !== null}
-          onClick={() => void refresh()}
-        >
-          Refresh
-        </Button>
-        {connector.auth === "oauth" ? (
-          <>
-            <Button
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              disabled={busy !== null}
-              onClick={() => void authorize()}
-            >
-              Authorize
-            </Button>
-            {connector.hasSecret ? (
-              <Button
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={busy !== null}
-                onClick={() => void disconnect()}
-              >
-                Disconnect
-              </Button>
-            ) : null}
-          </>
-        ) : null}
-        {connector.builtIn ? null : (
-          <Button
-            variant="ghost"
-            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-            disabled={busy !== null}
-            onClick={remove}
-          >
-            Delete
-          </Button>
-        )}
         <div className="ml-auto flex items-center">
-          {connector.auth === "oauth" ? (
-            <Button
-              variant="ghost"
-              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-              aria-expanded={expanded === "client"}
-              onClick={() => toggle("client")}
-            >
-              Client
-              <ChevronRight
-                className={cn(
-                  "size-3 transition-transform",
-                  expanded === "client" && "rotate-90",
-                )}
-              />
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-            aria-expanded={expanded === "tools"}
-            onClick={() => toggle("tools")}
-          >
-            Tools
-            <ChevronRight
-              className={cn(
-                "size-3 transition-transform",
-                expanded === "tools" && "rotate-90",
-              )}
-            />
-          </Button>
+          {connector.auth === "oauth" ? disclosure("client", "Client") : null}
+          {disclosure("tools", "Tools")}
         </div>
       </div>
       {expanded === "tools" ? (
@@ -617,6 +609,14 @@ function ConnectorRow({
           />
         </div>
       ) : null}
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${connector.name}?`}
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => void remove()}
+      />
     </li>
   );
 }
@@ -630,7 +630,7 @@ const AUTH_OPTIONS: Array<{
   { value: "oauth", label: "OAuth" },
 ];
 
-function AddConnectorForm({
+function AddConnectorDialog({
   preset,
   oauthRedirectUrl,
   onCreated,
@@ -663,8 +663,7 @@ function AddConnectorForm({
     (auth !== "bearer" || token.trim().length > 0) &&
     (!clientRequired || clientInput(oauthClient) !== null);
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!ready) return;
     setSaving(true);
     const base = { slug, name: name.trim(), url: url.trim() };
@@ -687,138 +686,105 @@ function AddConnectorForm({
   };
 
   return (
-    <form
+    <FormDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+      title={preset ? `Add ${preset.name}` : "Add connector"}
       onSubmit={submit}
-      className="grid gap-3 border-y py-4 sm:grid-cols-2"
-      aria-label="Add connector"
+      submitLabel="Add"
+      submitDisabled={!ready}
+      pending={saving}
     >
-      <div className="space-y-1.5">
-        <Label htmlFor="connector-slug" className="text-xs">
-          Slug
-        </Label>
-        <Input
-          id="connector-slug"
-          value={slug}
-          onChange={(event) => setSlug(event.target.value.toLowerCase())}
-          aria-invalid={slug.length > 0 && !slugValid}
-          className="h-8 font-mono text-xs"
-          autoComplete="off"
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="connector-name" className="text-xs">
-          Name
-        </Label>
-        <Input
-          id="connector-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="h-8 text-xs"
-          autoComplete="off"
-        />
-      </div>
-      <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="connector-url" className="text-xs">
-          URL
-        </Label>
-        <Input
-          id="connector-url"
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          aria-invalid={url.length > 0 && !urlValid}
-          placeholder="https://"
-          className="h-8 font-mono text-xs"
-          autoComplete="off"
-        />
-      </div>
-      <div className="space-y-1.5 sm:col-span-2">
-        <span className="text-xs font-medium">Auth</span>
-        <div className="flex flex-wrap items-center gap-4">
-          <RadioGroup
-            value={auth}
-            onValueChange={(value) => {
-              const option = AUTH_OPTIONS.find(
-                (entry) => entry.value === value,
-              );
-              if (option) setAuth(option.value);
-            }}
-            className="flex flex-wrap gap-4"
-          >
-            {AUTH_OPTIONS.map((option) => (
-              <Label
-                key={option.value}
-                className="gap-1.5 text-xs font-normal"
-                htmlFor={`connector-auth-${option.value}`}
-              >
-                <RadioGroupItem
-                  id={`connector-auth-${option.value}`}
-                  value={option.value}
-                />
-                {option.label}
-              </Label>
-            ))}
-          </RadioGroup>
-          {auth === "oauth" && !clientRequired ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground"
-              aria-expanded={clientOpen}
-              onClick={() => setClientOpen((current) => !current)}
-            >
-              Client
-              <ChevronRight
-                className={cn(
-                  "size-3 transition-transform",
-                  clientOpen && "rotate-90",
-                )}
-              />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-      {auth === "oauth" && (clientOpen || clientRequired) ? (
-        <OAuthClientFields
-          idPrefix="connector-new"
-          draft={oauthClient}
-          onChange={setOAuthClient}
-          redirectUrl={oauthRedirectUrl}
-        />
-      ) : null}
-      {auth === "bearer" ? (
-        <div className="space-y-1.5 sm:col-span-2">
-          <Label htmlFor="connector-token" className="text-xs">
-            Token
-          </Label>
+      <FormGrid>
+        <FormField label="Slug" htmlFor="connector-slug">
           <Input
-            id="connector-token"
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            className="h-8 font-mono text-xs"
+            id="connector-slug"
+            value={slug}
+            onChange={(event) => setSlug(event.target.value.toLowerCase())}
+            aria-invalid={slug.length > 0 && !slugValid}
+            className="font-mono"
+            autoComplete="off"
+            autoFocus
+          />
+        </FormField>
+        <FormField label="Name" htmlFor="connector-name">
+          <Input
+            id="connector-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
             autoComplete="off"
           />
-        </div>
-      ) : null}
-      <div className="flex items-center justify-end gap-2 sm:col-span-2">
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-8 text-xs"
-          onClick={onCancel}
+        </FormField>
+        <FormField
+          label="URL"
+          htmlFor="connector-url"
+          className="sm:col-span-2"
         >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          className="h-8 text-xs"
-          disabled={!ready || saving}
-        >
-          {saving ? <Spinner className="size-3.5" /> : null}
-          Add
-        </Button>
-      </div>
-    </form>
+          <Input
+            id="connector-url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            aria-invalid={url.length > 0 && !urlValid}
+            placeholder="https://"
+            className="font-mono"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField label="Auth" className="sm:col-span-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterTabs
+              value={auth}
+              onChange={setAuth}
+              options={AUTH_OPTIONS}
+            />
+            {auth === "oauth" && !clientRequired ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="ml-auto text-muted-foreground"
+                aria-expanded={clientOpen}
+                onClick={() => setClientOpen((current) => !current)}
+              >
+                Client
+                <ChevronRight
+                  className={cn(
+                    "size-3 transition-transform",
+                    clientOpen && "rotate-90",
+                  )}
+                />
+              </Button>
+            ) : null}
+          </div>
+        </FormField>
+        {auth === "oauth" && (clientOpen || clientRequired) ? (
+          <OAuthClientFields
+            idPrefix="connector-new"
+            draft={oauthClient}
+            onChange={setOAuthClient}
+            redirectUrl={oauthRedirectUrl}
+          />
+        ) : null}
+        {auth === "bearer" ? (
+          <FormField
+            label="Token"
+            htmlFor="connector-token"
+            className="sm:col-span-2"
+          >
+            <Input
+              id="connector-token"
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              className="font-mono"
+              autoComplete="off"
+            />
+          </FormField>
+        ) : null}
+      </FormGrid>
+    </FormDialog>
   );
 }
 
@@ -856,17 +822,14 @@ function AddConnectorMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className="h-7 gap-1 px-2.5 text-xs shadow-none"
-        >
-          Add
+        <Button variant="ghost" size="sm">
+          <Plug /> Add
           <ChevronDown className="size-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem className="text-xs" onSelect={() => onPick(null)}>
-          Custom
+        <DropdownMenuItem onSelect={() => onPick(null)}>
+          <KeyRound /> Custom
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {CONNECTOR_PRESETS.map((preset) => {
@@ -874,11 +837,10 @@ function AddConnectorMenu({
           return (
             <DropdownMenuItem
               key={preset.slug}
-              className="text-xs"
               disabled={taken.has(preset.slug) || taken.has(preset.url)}
               onSelect={() => onPick(preset)}
             >
-              <PresetIcon className="size-3.5" aria-hidden />
+              <PresetIcon aria-hidden />
               {preset.name}
             </DropdownMenuItem>
           );
@@ -907,16 +869,15 @@ export function ConnectorsSection() {
     <SettingsGroup
       label="Connectors"
       actions={
-        adding ? null : (
-          <AddConnectorMenu
-            connectors={connectors ?? []}
-            onPick={(preset) => setAdding({ preset })}
-          />
-        )
+        <AddConnectorMenu
+          connectors={connectors ?? []}
+          onPick={(preset) => setAdding({ preset })}
+        />
       }
     >
       {adding ? (
-        <AddConnectorForm
+        <AddConnectorDialog
+          key={adding.preset?.slug ?? "custom"}
           preset={adding.preset}
           oauthRedirectUrl={oauthRedirectUrl}
           onCancel={() => setAdding(null)}
@@ -927,7 +888,7 @@ export function ConnectorsSection() {
         />
       ) : null}
       {loading ? (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {[70, 55].map((width) => (
             <Skeleton
               key={width}
@@ -937,20 +898,19 @@ export function ConnectorsSection() {
           ))}
         </div>
       ) : error ? (
-        <div className="flex items-center gap-2 text-xs text-destructive">
-          {error}
-          <Button
-            variant="ghost"
-            className="h-7 px-2 text-xs"
-            onClick={() => void refresh()}
-          >
-            Retry
-          </Button>
-        </div>
+        <EmptyState
+          compact
+          label={<span className="text-status-critical">{error}</span>}
+          action={
+            <Button variant="outline" size="sm" onClick={() => void refresh()}>
+              Retry
+            </Button>
+          }
+        />
       ) : (connectors ?? []).length === 0 ? (
-        <p className="text-xs text-muted-foreground">—</p>
+        <EmptyState compact icon={<Plug />} label="No connectors" />
       ) : (
-        <ul className="divide-y">
+        <ul className="flex flex-col divide-y divide-border/70">
           {(connectors ?? []).map((connector) => (
             <ConnectorRow
               key={connector.id}

@@ -1,8 +1,8 @@
 "use client";
 
-import { PageHeader } from "@repo/ui/page-header";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
-import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
 import { cn } from "@repo/ui/utils";
 import { Settings2 } from "lucide-react";
 import Link from "next/link";
@@ -10,9 +10,27 @@ import type { ReactNode } from "react";
 import { useAdmin } from "../provider";
 import { SETTINGS_SECTIONS } from "./settings-nav";
 
+const RAIL_CLASS =
+  "flex shrink-0 gap-0.5 overflow-x-auto border-b px-3 py-2 md:w-52 md:flex-col md:overflow-x-visible md:overflow-y-auto md:border-b-0 md:border-r md:px-2 md:py-3";
+
+const RAIL_ITEM_CLASS =
+  "flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-[13px] transition-colors [&_svg:not([class*='size-'])]:size-3.5";
+
+function useRailEntries() {
+  const { slots } = useAdmin();
+  return [
+    ...SETTINGS_SECTIONS.map((section) => ({
+      slug: section.slug,
+      label: section.label,
+      icon: <section.icon />,
+    })),
+    ...(slots?.settingsExtraSections ?? []),
+  ];
+}
+
 /**
  * Chrome shared by every settings sub-page: the header, the section rail, and a
- * scrollable content column. Each section is its own route in both apps, so the
+ * narrow scrolling column. Each section is its own route in both apps, so the
  * active slug is passed in rather than derived from the pathname (the two apps
  * mount the feature at different bases).
  */
@@ -29,45 +47,21 @@ export function SettingsShell({
 }) {
   const { routes, slots } = useAdmin();
   const base = routes.settings.replace(/\/$/, "");
-
-  const entries = [
-    ...SETTINGS_SECTIONS.map((section) => ({
-      slug: section.slug,
-      label: section.label,
-      icon: <section.icon className="size-3.5" />,
-    })),
-    ...(slots?.settingsExtraSections ?? []),
-  ];
-
+  const entries = useRailEntries();
   const current = entries.find((entry) => entry.slug === active);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Page>
       <PageHeader
-        icon={<Settings2 className="size-4 text-muted-foreground" />}
-        title={
-          <span className="flex items-baseline gap-2">
-            <span>Settings</span>
-            {(title ?? current?.label) && (
-              <>
-                <span className="text-muted-foreground/40">/</span>
-                <span className="font-normal text-muted-foreground">
-                  {title ?? current?.label}
-                </span>
-              </>
-            )}
-          </span>
-        }
         leading={slots?.sidebarTrigger}
+        icon={<Settings2 />}
+        crumbs={[{ label: "Settings" }]}
+        title={title ?? current?.label ?? "Settings"}
       >
         {actions}
       </PageHeader>
-
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <nav
-          aria-label="Settings sections"
-          className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 md:w-52 md:flex-col md:gap-0.5 md:overflow-x-visible md:overflow-y-auto md:border-b-0 md:border-r md:px-2 md:py-3"
-        >
+        <nav aria-label="Settings sections" className={RAIL_CLASS}>
           {entries.map((entry) => {
             const isActive = entry.slug === active;
             return (
@@ -76,38 +70,25 @@ export function SettingsShell({
                 href={`${base}/${entry.slug}`}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex shrink-0 items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs transition-colors",
+                  RAIL_ITEM_CLASS,
                   isActive
-                    ? "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    ? "bg-surface font-medium text-accent-strong"
+                    : "text-muted-foreground hover:bg-surface/60 hover:text-accent-strong",
                 )}
               >
-                <span
-                  className={cn(
-                    "shrink-0",
-                    isActive ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {entry.icon}
-                </span>
+                <span className="shrink-0">{entry.icon}</span>
                 <span className="truncate">{entry.label}</span>
               </Link>
             );
           })}
         </nav>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="max-w-3xl px-4 py-5 md:px-6">{children}</div>
-        </div>
+        <PageBody width="narrow">{children}</PageBody>
       </div>
-    </div>
+    </Page>
   );
 }
 
-/**
- * A labelled block inside a settings section. Hairline rule instead of a card
- * border — the sections stay flat and scannable.
- */
+/** A labelled block inside a settings section: a Section with an optional one-line note. */
 export function SettingsGroup({
   label,
   description,
@@ -120,24 +101,16 @@ export function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-4 py-6 first:pt-0 [&+&]:border-t">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <h2 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </h2>
-          {description && (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          )}
-        </div>
-        {actions}
-      </div>
+    <Section title={label} actions={actions}>
+      {description && (
+        <p className="-mt-1 text-xs text-muted-foreground">{description}</p>
+      )}
       {children}
-    </section>
+    </Section>
   );
 }
 
-/** A single labelled control row: label + optional hint on the left, control right. */
+/** One setting: label (and an optional terse hint) on the left, its control on the right. */
 export function SettingsRow({
   label,
   hint,
@@ -154,31 +127,29 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "flex gap-3",
+        "flex min-h-9 gap-2",
         stacked
           ? "flex-col"
           : "flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-6",
       )}
     >
-      <div className="min-w-0 space-y-0.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
         {/* Most rows hold a Radix control that carries its own aria-label, so a
             bare <label> would point at nothing — only emit one when bound. */}
         {htmlFor ? (
-          <label
-            htmlFor={htmlFor}
-            className="block text-sm font-medium leading-none"
-          >
+          <label htmlFor={htmlFor} className="text-sm text-accent-strong">
             {label}
           </label>
         ) : (
-          <span className="block text-sm font-medium leading-none">
-            {label}
-          </span>
+          <span className="text-sm text-accent-strong">{label}</span>
         )}
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       <div
-        className={cn("min-w-0", stacked ? "w-full" : "sm:w-72 sm:shrink-0")}
+        className={cn(
+          "flex min-w-0 items-center",
+          stacked ? "w-full" : "sm:w-72 sm:shrink-0 sm:justify-end",
+        )}
       >
         {children}
       </div>
@@ -190,42 +161,47 @@ export function SettingsSkeleton({ active }: { active: string }) {
   // Match the real shell's rail exactly, extra slots included, so the
   // placeholder is not one row short and does not shift on mount.
   const { slots } = useAdmin();
-  const railSlugs = [
-    ...SETTINGS_SECTIONS.map((section) => section.slug),
-    ...(slots?.settingsExtraSections ?? []).map((section) => section.slug),
-  ];
+  const entries = useRailEntries();
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <HeaderBarSkeleton
-        icon={<Settings2 className="size-4 text-muted-foreground" />}
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<Settings2 />}
+        crumbs={[{ label: "Settings" }]}
+        title={
+          entries.find((entry) => entry.slug === active)?.label ?? "Settings"
+        }
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <nav className="flex shrink-0 gap-1 overflow-hidden border-b px-3 py-2 md:w-52 md:flex-col md:gap-0.5 md:border-b-0 md:border-r md:px-2 md:py-3">
-          {railSlugs.map((slug) => (
+        <nav className={RAIL_CLASS}>
+          {entries.map((entry) => (
             <div
-              key={slug}
+              key={entry.slug}
               className={cn(
-                "flex items-center gap-2 rounded-sm px-2.5 py-1.5",
-                slug === active && "bg-accent",
+                RAIL_ITEM_CLASS,
+                "text-muted-foreground",
+                entry.slug === active && "bg-surface",
               )}
             >
-              <Skeleton className="size-3.5 shrink-0 rounded-xs" />
-              <Skeleton className="h-3 w-20" />
+              <span className="shrink-0">{entry.icon}</span>
+              <span className="truncate">{entry.label}</span>
             </div>
           ))}
         </nav>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="max-w-3xl space-y-8 px-4 py-5 md:px-6">
-            {[0, 1, 2].map((row) => (
-              <div key={row} className="space-y-3">
-                <Skeleton className="h-2.5 w-24" />
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-8 w-full max-w-sm" />
-              </div>
-            ))}
-          </div>
-        </div>
+        <PageBody width="narrow">
+          {[0, 1, 2].map((group) => (
+            <div key={group} className="flex flex-col gap-3">
+              <Skeleton className="h-3 w-24" />
+              {[0, 1].map((row) => (
+                <div key={row} className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-8 w-56" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </PageBody>
       </div>
-    </div>
+    </Page>
   );
 }

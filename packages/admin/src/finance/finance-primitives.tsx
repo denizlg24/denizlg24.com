@@ -1,9 +1,11 @@
 "use client";
 
 import type { FinanceAccount } from "@repo/schemas";
-import { Label } from "@repo/ui/label";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormField } from "@repo/ui/form-dialog";
+import { SectionLabel } from "@repo/ui/section";
+import { Stat } from "@repo/ui/stat";
 import type { StatusTone } from "@repo/ui/status-dot";
-import { cn } from "@repo/ui/utils";
 import { formatDistanceToNowStrict } from "date-fns";
 import type { ReactNode } from "react";
 
@@ -22,6 +24,12 @@ export const CONNECTION_TONE: Record<
   disconnected: "muted",
 };
 
+/*
+ * The four helpers below predate @repo/ui's section/stat/empty-state/form
+ * primitives. Finance itself uses those directly; hours and holdings still
+ * import these names, so they stay as thin adapters onto the primitives.
+ */
+
 export function SectionHead({
   label,
   children,
@@ -29,15 +37,7 @@ export function SectionHead({
   label: string;
   children?: ReactNode;
 }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-      {children}
-    </div>
-  );
+  return <SectionLabel actions={children}>{label}</SectionLabel>;
 }
 
 export function Figure({
@@ -51,27 +51,7 @@ export function Figure({
   meta?: ReactNode;
   tone?: "good" | "critical";
 }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mt-1.5 truncate text-[26px] font-semibold leading-none tabular-nums tracking-tight",
-          tone === "good" && "text-status-good",
-          tone === "critical" && "text-status-critical",
-        )}
-      >
-        {value}
-      </div>
-      {meta !== undefined && (
-        <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
-          {meta}
-        </div>
-      )}
-    </div>
-  );
+  return <Stat label={label} value={value} hint={meta} tone={tone} />;
 }
 
 export function Empty({
@@ -81,16 +61,7 @@ export function Empty({
   label: string;
   compact?: boolean;
 }) {
-  return (
-    <div
-      className={cn(
-        "text-xs text-muted-foreground",
-        compact ? "py-3" : "py-14 text-center",
-      )}
-    >
-      {label}
-    </div>
-  );
+  return <EmptyState label={label} compact={compact} />;
 }
 
 export function FieldRow({
@@ -105,14 +76,8 @@ export function FieldRow({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
-      <Label
-        htmlFor={htmlFor}
-        className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
-      >
-        {label}
-      </Label>
+    <FormField label={label} htmlFor={htmlFor} className={className}>
       {children}
-    </div>
+    </FormField>
   );
 }

@@ -1,36 +1,15 @@
 "use client";
 
 import type { ICalendarEvent } from "@repo/schemas";
-import { Button } from "@repo/ui/button";
 import { cn } from "@repo/ui/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
+const MAX_CHIPS = 5;
 
 function getMonthData(year: number, month: number) {
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const daysInMonth = lastDay.getDate();
-
-  let startDow = firstDay.getDay() - 1;
-  if (startDow < 0) startDow = 6;
-
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDow = (new Date(year, month, 1).getDay() + 6) % 7;
   return { daysInMonth, startDow };
 }
 
@@ -47,232 +26,176 @@ function formatEventTime(dateStr: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function eventKindClass(event: ICalendarEvent) {
-  if (event.kind === "meeting") return "border-l-2 border-l-emerald-400";
-  if (event.kind === "flight") return "border-l-2 border-l-indigo-400";
-  if (event.kind === "holiday") return "border-l-2 border-l-amber-400";
-  if (event.kind === "birthday") return "border-l-2 border-l-sky-400";
-  return "";
+export function toCalendarDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** The day an event belongs to: its stored calendar date, else its local start day. */
+export function eventDateKey(event: ICalendarEvent) {
+  return event.calendarDate ?? toCalendarDateKey(new Date(event.date));
+}
+
+export function compareEvents(left: ICalendarEvent, right: ICalendarEvent) {
+  if (left.isAllDay !== right.isAllDay) return left.isAllDay ? -1 : 1;
+  return new Date(left.date).getTime() - new Date(right.date).getTime();
+}
+
+/** Left-edge accent per kind, from the status palette; plain events carry none. */
+export const EVENT_KIND_ACCENT: Record<ICalendarEvent["kind"], string> = {
+  manual: "border-l-transparent",
+  meeting: "border-l-status-good",
+  flight: "border-l-status-info",
+  holiday: "border-l-status-warning",
+  birthday: "border-l-status-serious",
+};
+
+/** The same palette as a fill, for a dot or bar beside a row. */
+export const EVENT_KIND_DOT: Record<ICalendarEvent["kind"], string> = {
+  manual: "bg-border",
+  meeting: "bg-status-good",
+  flight: "bg-status-info",
+  holiday: "bg-status-warning",
+  birthday: "bg-status-serious",
+};
+
+export function eventChipClass(event: ICalendarEvent) {
+  return cn(
+    "border-l-2 bg-surface text-accent-strong dark:bg-muted",
+    EVENT_KIND_ACCENT[event.kind] ?? EVENT_KIND_ACCENT.manual,
+    event.status === "completed" && "text-muted-foreground line-through",
+    event.status === "canceled" &&
+      "text-muted-foreground line-through opacity-50",
+  );
 }
 
 interface CalendarGridProps {
+  year: number;
+  /** 0-based. */
+  month: number;
   events?: ICalendarEvent[];
   onEventClick?: (event: ICalendarEvent) => void;
   onDayClick?: (date: Date) => void;
-  onMonthChange?: (start: Date, end: Date) => void;
 }
 
 export function CalendarGrid({
+  year,
+  month,
   events = [],
   onEventClick,
   onDayClick,
-  onMonthChange,
 }: CalendarGridProps) {
   const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
-
-  const { daysInMonth, startDow } = useMemo(
-    () => getMonthData(year, month),
-    [year, month],
-  );
-
-  const totalCells = startDow + daysInMonth;
-  const rows = Math.ceil(totalCells / 7);
-
-  function notifyMonth(y: number, m: number) {
-    const start = new Date(y, m, 1);
-    const end = new Date(y, m + 1, 0, 23, 59, 59);
-    onMonthChange?.(start, end);
-  }
-
-  function prevMonth() {
-    const newMonth = month === 0 ? 11 : month - 1;
-    const newYear = month === 0 ? year - 1 : year;
-    setMonth(newMonth);
-    setYear(newYear);
-    notifyMonth(newYear, newMonth);
-  }
-
-  function nextMonth() {
-    const newMonth = month === 11 ? 0 : month + 1;
-    const newYear = month === 11 ? year + 1 : year;
-    setMonth(newMonth);
-    setYear(newYear);
-    notifyMonth(newYear, newMonth);
-  }
-
-  function goToToday() {
-    setYear(today.getFullYear());
-    setMonth(today.getMonth());
-    notifyMonth(today.getFullYear(), today.getMonth());
-  }
+  const { daysInMonth, startDow } = getMonthData(year, month);
+  const rows = Math.ceil((startDow + daysInMonth) / 7);
 
   const eventsByDate = useMemo(() => {
-    const groupedEvents = new Map<string, ICalendarEvent[]>();
+    const grouped = new Map<string, ICalendarEvent[]>();
     for (const event of events) {
-      const key = event.calendarDate ?? event.date.slice(0, 10);
-      const list = groupedEvents.get(key) ?? [];
+      const key = eventDateKey(event);
+      const list = grouped.get(key) ?? [];
       list.push(event);
-      groupedEvents.set(key, list);
+      grouped.set(key, list);
     }
-
-    for (const list of groupedEvents.values()) {
-      list.sort((left, right) => {
-        if (left.isAllDay !== right.isAllDay) return left.isAllDay ? -1 : 1;
-        return new Date(left.date).getTime() - new Date(right.date).getTime();
-      });
-    }
-
-    return groupedEvents;
+    for (const list of grouped.values()) list.sort(compareEvents);
+    return grouped;
   }, [events]);
 
-  const cells = useMemo(() => {
-    const monthCells: { day: number | null; date: Date | null; key: string }[] =
-      [];
-    for (let i = 0; i < rows * 7; i++) {
-      const dayNum = i - startDow + 1;
-      if (dayNum < 1 || dayNum > daysInMonth) {
-        monthCells.push({
-          day: null,
-          date: null,
-          key: `blank-${year}-${month}-${i}`,
-        });
-      } else {
-        monthCells.push({
-          day: dayNum,
-          date: new Date(year, month, dayNum),
-          key: `${year}-${month}-${dayNum}`,
-        });
-      }
+  const cells = Array.from({ length: rows * 7 }, (_, i) => {
+    const dayNum = i - startDow + 1;
+    if (dayNum < 1 || dayNum > daysInMonth) {
+      return { day: null, date: null, key: `blank-${year}-${month}-${i}` };
     }
-
-    return monthCells;
-  }, [daysInMonth, month, rows, startDow, year]);
-
-  const isCurrentMonth =
-    year === today.getFullYear() && month === today.getMonth();
+    return {
+      day: dayNum,
+      date: new Date(year, month, dayNum),
+      key: `${year}-${month}-${dayNum}`,
+    };
+  });
 
   return (
-    <div className="flex flex-col gap-3 max-w-5xl w-full mx-auto px-2 sm:px-4">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center">
-        <div className="justify-self-start" />
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-xs" onClick={prevMonth}>
-            <ChevronLeft />
-          </Button>
-          <h2 className="min-w-32 text-center text-sm font-semibold sm:min-w-40 sm:text-lg">
-            {MONTHS[month]} {year}
-          </h2>
-          <Button variant="ghost" size="icon-xs" onClick={nextMonth}>
-            <ChevronRight />
-          </Button>
-        </div>
-        <div className="justify-self-end">
-          {!isCurrentMonth && (
-            <Button variant="outline" size="xs" onClick={goToToday}>
-              Today
-            </Button>
-          )}
-        </div>
-      </div>
+    <div className="overflow-x-auto rounded-md border">
+      <div className="grid min-w-0 grid-cols-7 md:min-w-140">
+        {DAYS.map((day) => (
+          <div
+            key={day}
+            className="border-r border-b px-1 py-1.5 text-center text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground last:border-r-0 sm:px-2"
+          >
+            {day}
+          </div>
+        ))}
 
-      <div className="overflow-x-auto border border-b-0 rounded-lg">
-        <div
-          className="grid min-w-0 md:min-w-140"
-          style={{ gridTemplateColumns: "repeat(7, 1fr)" }}
-        >
-          {DAYS.map((day, index) => (
+        {cells.map((cell, index) => {
+          const isToday = cell.date !== null && isSameDay(cell.date, today);
+          const dateKey = cell.date ? toCalendarDateKey(cell.date) : null;
+          const dayEvents = dateKey ? (eventsByDate.get(dateKey) ?? []) : [];
+          const lastRow = index >= (rows - 1) * 7;
+
+          return (
             <div
-              key={day}
+              key={cell.key}
               className={cn(
-                "border-b border-r p-1 text-center text-[10px] font-medium sm:p-2 sm:text-sm",
-                index === 6 && "border-r-0",
+                "relative flex aspect-square flex-col gap-1 overflow-hidden border-r border-b p-1 pt-6 text-left transition-colors sm:p-1.5 sm:pt-7",
+                "nth-[7n]:border-r-0",
+                lastRow && "border-b-0",
+                cell.day === null
+                  ? "bg-surface/30"
+                  : "cursor-pointer hover:bg-surface/50",
               )}
             >
-              {day}
-            </div>
-          ))}
-
-          {cells.map((cell) => {
-            const isToday = cell.date !== null && isSameDay(cell.date, today);
-            const dateKey = cell.date
-              ? `${cell.date.getFullYear()}-${String(cell.date.getMonth() + 1).padStart(2, "0")}-${String(cell.date.getDate()).padStart(2, "0")}`
-              : null;
-            const dayEvents = dateKey ? (eventsByDate.get(dateKey) ?? []) : [];
-
-            return (
-              <div
-                key={cell.key}
-                className={cn(
-                  "relative border-b border-r aspect-square p-1 text-left transition-colors overflow-hidden flex flex-col gap-1 pt-6 sm:p-1.5 sm:pt-8",
-                  "last:border-r-0 nth-[7n]:border-r-0",
-                  cell.day === null
-                    ? "bg-muted/30 cursor-default"
-                    : "hover:bg-accent/20 cursor-pointer",
-                )}
-              >
-                {cell.day !== null && (
-                  <>
-                    <button
-                      type="button"
-                      className="absolute inset-0 z-0 text-left"
-                      onClick={() => cell.date && onDayClick?.(cell.date)}
-                      aria-label={`Open ${dateKey}`}
-                    />
-                    <span
-                      className={cn(
-                        "pointer-events-none z-10 inline-flex items-center justify-center text-xs leading-none absolute top-1 right-1",
-                        isToday &&
-                          "bg-accent-strong text-background rounded-full size-5 font-bold",
-                      )}
-                    >
-                      {cell.day}
-                    </span>
-
-                    {dayEvents.length > 0 && (
-                      <div className="flex flex-col gap-0.5 overflow-hidden min-w-0 w-full">
-                        <span className="mx-auto size-1.5 rounded-full bg-accent-strong md:hidden" />
-                        {dayEvents.slice(0, 5).map((event) => (
-                          <button
-                            type="button"
-                            key={event._id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEventClick?.(event);
-                            }}
-                            className={cn(
-                              "relative z-10 hidden text-[10px] leading-tight text-left rounded px-1 py-0.5 transition-opacity hover:opacity-80 overflow-hidden text-ellipsis whitespace-nowrap min-w-0 md:block",
-                              eventKindClass(event),
-                              event.status === "completed" &&
-                                "bg-accent text-accent-strong line-through opacity-60",
-                              event.status === "canceled" &&
-                                "bg-muted text-foreground line-through opacity-40",
-                              event.status === "scheduled" &&
-                                "bg-accent-strong text-background",
-                            )}
-                          >
-                            <span className="opacity-70">
-                              {event.isAllDay
-                                ? "All day"
-                                : formatEventTime(event.date)}
-                            </span>{" "}
-                            {event.title}
-                          </button>
-                        ))}
-                        {dayEvents.length > 5 && (
-                          <span className="hidden text-[10px] text-muted-foreground px-1 md:inline">
-                            +{dayEvents.length - 5} more
-                          </span>
-                        )}
-                      </div>
+              {cell.date !== null && (
+                <>
+                  <button
+                    type="button"
+                    className="absolute inset-0 z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                    onClick={() => cell.date && onDayClick?.(cell.date)}
+                    aria-label={`Open ${dateKey}`}
+                  />
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute top-1 right-1 z-10 inline-flex size-5 items-center justify-center text-xs tabular-nums leading-none text-muted-foreground",
+                      isToday &&
+                        "rounded-full bg-accent-strong font-semibold text-background",
                     )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  >
+                    {cell.day}
+                  </span>
+
+                  {dayEvents.length > 0 && (
+                    <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden">
+                      <span className="mx-auto size-1.5 rounded-full bg-accent-strong md:hidden" />
+                      {dayEvents.slice(0, MAX_CHIPS).map((event) => (
+                        <button
+                          type="button"
+                          key={event._id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEventClick?.(event);
+                          }}
+                          className={cn(
+                            "relative z-10 hidden min-w-0 overflow-hidden rounded-sm px-1 py-0.5 text-left text-[10px] leading-tight text-ellipsis whitespace-nowrap transition-colors hover:bg-muted md:block",
+                            eventChipClass(event),
+                          )}
+                        >
+                          <span className="tabular-nums text-muted-foreground">
+                            {event.isAllDay
+                              ? "All day"
+                              : formatEventTime(event.date)}
+                          </span>{" "}
+                          {event.title}
+                        </button>
+                      ))}
+                      {dayEvents.length > MAX_CHIPS && (
+                        <span className="hidden px-1 text-[10px] tabular-nums text-muted-foreground md:inline">
+                          +{dayEvents.length - MAX_CHIPS}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

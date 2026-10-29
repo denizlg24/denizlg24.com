@@ -1,223 +1,160 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { AlarmClock, History } from "lucide-react";
+import { Meter } from "@repo/ui/meter";
+import { Page, PageBody } from "@repo/ui/page";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { FilterTabs } from "@repo/ui/toolbar";
+import { isSameDay, isSameWeek } from "date-fns";
+import {
+  AlarmClock,
+  History,
+  Pause,
+  Play,
+  RotateCcw,
+  SkipForward,
+} from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { cn } from "@/lib/utils";
 import {
   DURATIONS,
   POMODORO_TARGET,
+  type TimerMode,
   usePomodoroStore,
 } from "@/stores/pomodoro";
+import { formatFocusMinutes } from "./format";
+
+const MODE_OPTIONS: { value: TimerMode; label: string }[] = [
+  { value: "focus", label: "Focus" },
+  { value: "break", label: "Break" },
+];
 
 export default function PomodoroPage() {
   const mode = usePomodoroStore((s) => s.mode);
   const seconds = usePomodoroStore((s) => s.seconds);
   const running = usePomodoroStore((s) => s.running);
-  const sessionCount = usePomodoroStore((s) => s.sessionCount);
+  const allSessions = usePomodoroStore((s) => s.allSessions);
   const toggleStartPause = usePomodoroStore((s) => s.toggleStartPause);
   const reset = usePomodoroStore((s) => s.reset);
   const switchMode = usePomodoroStore((s) => s.switchMode);
-  const clearAllSessions = usePomodoroStore((s) => s.clearAllSessions);
 
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   const totalDuration = DURATIONS[mode];
   const progress = (totalDuration - seconds) / totalDuration;
-  const cx = 200;
-  const cy = 200;
-  const r = 170;
-  const strokeWidth = 6;
-  const arcLength = Math.PI * r;
-  const filledLength = arcLength * progress;
-  const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
+
+  // Derived from the log rather than the store's sessionCount, which is only
+  // computed at hydrate and so keeps yesterday's count past midnight.
+  const stats = useMemo(() => {
+    const now = new Date();
+    let todayCount = 0;
+    let todaySeconds = 0;
+    let weekSeconds = 0;
+    for (const session of allSessions) {
+      const completed = new Date(session.completedAt);
+      if (isSameDay(completed, now)) {
+        todayCount++;
+        todaySeconds += session.duration;
+      }
+      if (isSameWeek(completed, now, { weekStartsOn: 1 })) {
+        weekSeconds += session.duration;
+      }
+    }
+    return { todayCount, todaySeconds, weekSeconds };
+  }, [allSessions]);
 
   return (
-    <div className="flex flex-col gap-2 pb-4 h-full relative overflow-hidden">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0 z-10">
-        <AlarmClock className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Pomodoro</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          asChild
-        >
+    <Page>
+      <DashboardPageHeader icon={<AlarmClock />} title="Pomodoro">
+        <Button variant="ghost" size="sm" asChild>
           <Link href="/dashboard/pomodoro/history">
-            <History className="size-3.5" />
-            <span className="text-xs">History</span>
+            <History />
+            History
           </Link>
         </Button>
-      </div>
+      </DashboardPageHeader>
 
-      <div className="w-full min-h-0 flex-1 overflow-y-auto flex flex-col items-center pt-12 px-4 max-w-xl mx-auto z-10">
-        <div className="flex items-center gap-6 mb-2">
-          <span
-            className={cn(
-              "text-xs tracking-widest uppercase transition-colors",
-              mode === "focus"
-                ? "text-card-foreground font-medium"
-                : "text-muted-foreground/50",
-            )}
-          >
-            Focus
-          </span>
-          <span className="text-muted-foreground/30 text-xs">{"/"}</span>
-          <span
-            className={cn(
-              "text-xs tracking-widest uppercase transition-colors",
-              mode === "break"
-                ? "text-card-foreground font-medium"
-                : "text-muted-foreground/50",
-            )}
-          >
-            Break
-          </span>
-        </div>
-        <div className="relative w-full aspect-20/11">
-          <svg viewBox="0 0 400 220" className="w-full h-full" fill="none">
-            <path
-              d={arcPath}
-              stroke="currentColor"
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-              className="text-border"
-              fill="none"
-            />
-            <path
-              d={arcPath}
-              stroke="currentColor"
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-              strokeDasharray={`${arcLength}`}
-              strokeDashoffset={`${arcLength - filledLength}`}
-              className="text-primary transition-[stroke-dashoffset] duration-1000 ease-linear"
-              fill="none"
-            />
+      <PageBody width="narrow" className="gap-12 py-12">
+        <div className="flex flex-col items-center gap-8">
+          <FilterTabs
+            value={mode}
+            onChange={(next) => {
+              if (next !== mode) switchMode(next);
+            }}
+            options={MODE_OPTIONS}
+          />
 
-            {Array.from({
-              length: Math.floor(totalDuration / 60 / 5) + 1,
-            }).map((_, i) => {
-              const angle = Math.PI * (1 - (i * 5 * 60) / totalDuration);
-              const outerR = r + 12;
-              const innerR = r + 6;
-              return (
-                <line
-                  key={i}
-                  x1={cx + innerR * Math.cos(angle)}
-                  y1={cy - innerR * Math.sin(angle)}
-                  x2={cx + outerR * Math.cos(angle)}
-                  y2={cy - outerR * Math.sin(angle)}
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  strokeLinecap="round"
-                  className="text-muted-foreground/25"
-                />
-              );
-            })}
-          </svg>
-
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-[8%]">
-            <span className="text-7xl font-mono font-light text-card-foreground tabular-nums tracking-tight sm:text-8xl">
+          <div className="flex w-full max-w-md flex-col items-center gap-6">
+            <span
+              className={cn(
+                "font-calistoga text-8xl leading-none tabular-nums tracking-tight transition-colors sm:text-9xl",
+                running ? "text-accent-strong" : "text-accent-strong/70",
+              )}
+            >
               {String(mins).padStart(2, "0")}
               <span className="text-muted-foreground/40">:</span>
               {String(secs).padStart(2, "0")}
             </span>
+            <Meter value={progress} className="w-full" />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Reset"
+              className="text-muted-foreground"
+              onClick={reset}
+            >
+              <RotateCcw />
+            </Button>
+            <Button size="lg" className="min-w-28" onClick={toggleStartPause}>
+              {running ? <Pause /> : <Play />}
+              {running ? "Pause" : "Start"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Skip"
+              className="text-muted-foreground"
+              onClick={() => switchMode(mode === "focus" ? "break" : "focus")}
+            >
+              <SkipForward />
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-1.5" aria-hidden>
+            {Array.from({ length: POMODORO_TARGET }).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "size-1.5 rounded-full",
+                  i < stats.todayCount ? "bg-accent-strong" : "bg-border",
+                )}
+              />
+            ))}
           </div>
         </div>
 
-        <div className="flex items-center gap-8 mt-2">
-          <button
-            onClick={reset}
-            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-            aria-label="Reset timer"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-          </button>
-
-          <button
-            onClick={toggleStartPause}
-            className="flex items-center justify-center size-14 rounded-full border border-border text-card-foreground hover:bg-secondary transition-colors"
-            aria-label={running ? "Pause timer" : "Start timer"}
-          >
-            {running ? (
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <rect x="6" y="4" width="4" height="16" rx="1" />
-                <rect x="14" y="4" width="4" height="16" rx="1" />
-              </svg>
-            ) : (
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.5-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14Z" />
-              </svg>
-            )}
-          </button>
-
-          <button
-            onClick={() => switchMode(mode === "focus" ? "break" : "focus")}
-            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-            aria-label="Skip to next mode"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polygon
-                points="5 4 15 12 5 20 5 4"
-                fill="currentColor"
-                stroke="none"
-              />
-              <line x1="19" y1="5" x2="19" y2="19" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 mt-6">
-          {Array.from({ length: POMODORO_TARGET }).map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                "size-2 rounded-full transition-colors",
-                i < sessionCount
-                  ? "bg-primary"
-                  : "border border-muted-foreground/30",
-              )}
-            />
-          ))}
-          {sessionCount > POMODORO_TARGET && (
-            <span className="text-xs text-muted-foreground ml-1">
-              +{sessionCount - POMODORO_TARGET}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
+        <StatGroup>
+          <Stat
+            label="Today"
+            value={`${stats.todayCount}/${POMODORO_TARGET}`}
+            tone={stats.todayCount >= POMODORO_TARGET ? "good" : "default"}
+          />
+          <Stat
+            label="Focus today"
+            value={formatFocusMinutes(stats.todaySeconds)}
+          />
+          <Stat
+            label="This week"
+            value={formatFocusMinutes(stats.weekSeconds)}
+          />
+          <Stat label="Sessions" value={allSessions.length} />
+        </StatGroup>
+      </PageBody>
+    </Page>
   );
 }

@@ -11,6 +11,8 @@ import type {
   ChangelogInline,
   ChangelogRelease,
 } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
+import { EmptyState } from "@repo/ui/empty-state";
 import { compareVersions } from "@repo/utils/changelog";
 import { useEffect, useState } from "react";
 import { useDesktopAdmin } from "@/hooks/use-desktop-admin";
@@ -51,7 +53,7 @@ export function ReleaseNotesPage({
       ) : (
         <SettingsShell active="release-notes">
           {releases.length === 0 ? (
-            <p className="text-xs text-muted-foreground">—</p>
+            <EmptyState label="No releases" />
           ) : (
             releases.map((release) => (
               <Release
@@ -82,7 +84,7 @@ function Release({
       label={`v${release.version}`}
       actions={
         <span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
-          {current && <span className="text-foreground">Installed</span>}
+          {current && <Badge variant="good">Installed</Badge>}
           {release.date && (
             <time dateTime={release.date}>
               {dateFormat.format(new Date(`${release.date}T00:00:00Z`))}
@@ -91,11 +93,16 @@ function Release({
         </span>
       }
     >
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         {release.sections.map((section, index) => (
-          <div key={section.title ?? `intro-${index}`} className="space-y-1.5">
+          <div
+            key={section.title ?? `intro-${index}`}
+            className="flex flex-col gap-1.5"
+          >
             {section.title && (
-              <h3 className="text-xs font-medium">{section.title}</h3>
+              <h3 className="text-sm font-medium text-accent-strong">
+                {section.title}
+              </h3>
             )}
             {section.blocks.map((block, blockIndex) => (
               <Block key={`${block.type}-${blockIndex}`} block={block} />
@@ -116,7 +123,7 @@ function Block({ block }: { block: ChangelogBlock }) {
     );
   }
   return (
-    <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground marker:text-muted-foreground/50">
+    <ul className="flex list-disc flex-col gap-1 pl-4 text-sm text-muted-foreground marker:text-muted-foreground/50">
       {block.items.map((item, index) => (
         <li key={index}>
           <Inline content={item} />
@@ -132,7 +139,7 @@ function Inline({ content }: { content: ChangelogInline[] }) {
     switch (token.type) {
       case "strong":
         return (
-          <strong key={key} className="font-medium text-foreground">
+          <strong key={key} className="font-medium text-accent-strong">
             {token.text}
           </strong>
         );
@@ -140,7 +147,7 @@ function Inline({ content }: { content: ChangelogInline[] }) {
         return (
           <code
             key={key}
-            className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground"
+            className="rounded bg-surface px-1 py-0.5 font-mono text-[0.85em] text-accent-strong"
           >
             {token.text}
           </code>
@@ -150,7 +157,7 @@ function Inline({ content }: { content: ChangelogInline[] }) {
           <button
             key={key}
             type="button"
-            className="text-foreground underline decoration-border underline-offset-4"
+            className="text-accent-strong underline decoration-border underline-offset-4"
             onClick={() => void desktopPlatform.openExternal(token.href)}
           >
             {token.text}

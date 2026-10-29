@@ -1,15 +1,14 @@
 "use client";
 
 import type { PiCronHistoryEntry } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@repo/ui/dialog";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Skeleton } from "@repo/ui/skeleton";
+import { cn } from "@repo/ui/utils";
 import { tryFormatJson } from "@repo/utils";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, History } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAdmin } from "../../provider";
 
@@ -18,15 +17,13 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
   const detail = entry.error || entry.response;
   const toggleLabel = expanded ? "Collapse log" : "Show full log";
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-border/30 last:border-0">
+    <div className="flex items-start gap-3 py-2.5">
       <StatusBadge status={entry.status} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-muted-foreground/60 tabular-nums">
-            {entry.duration_ms}ms
-          </span>
-          <span className="text-muted-foreground/60">·</span>
-          <span className="text-[11px] text-muted-foreground/70">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+          <span className="font-mono">{entry.duration_ms}ms</span>
+          <span>·</span>
+          <span>
             {new Date(entry.started_at).toLocaleString([], {
               month: "short",
               day: "numeric",
@@ -38,21 +35,22 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
         </div>
         {expanded ? (
           <pre
-            className={`mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] ${
-              entry.error ? "text-destructive" : "text-muted-foreground"
-            }`}
+            className={cn(
+              "mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-surface p-2 font-mono text-[11px]",
+              entry.error ? "text-destructive" : "text-muted-foreground",
+            )}
           >
             {tryFormatJson(detail)}
           </pre>
         ) : (
           <>
             {entry.error && (
-              <p className="text-[11px] text-destructive font-mono mt-1 truncate">
+              <p className="mt-1 truncate font-mono text-[11px] text-destructive">
                 {entry.error}
               </p>
             )}
             {entry.response && !entry.error && (
-              <p className="text-[11px] text-muted-foreground/60 font-mono mt-1 truncate max-w-full">
+              <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
                 {entry.response.slice(0, 120)}
               </p>
             )}
@@ -63,18 +61,14 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-6 shrink-0"
+          size="icon-xs"
+          className="shrink-0 text-muted-foreground"
           aria-label={toggleLabel}
           title={toggleLabel}
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
         >
-          {expanded ? (
-            <ChevronUp className="size-3.5" />
-          ) : (
-            <ChevronDown className="size-3.5" />
-          )}
+          {expanded ? <ChevronUp /> : <ChevronDown />}
         </Button>
       )}
     </div>
@@ -84,13 +78,9 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
 function StatusBadge({ status }: { status: number }) {
   const ok = status >= 200 && status < 300;
   return (
-    <span
-      className={`text-[11px] font-mono tabular-nums px-1.5 py-0.5 rounded ${
-        ok ? "text-accent bg-accent/10" : "text-red-500 bg-red-500/10"
-      }`}
-    >
+    <Badge variant={ok ? "good" : "critical"} className="font-mono">
       {status}
-    </span>
+    </Badge>
   );
 }
 
@@ -137,31 +127,33 @@ export function JobHistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="text-sm">
-            History —{" "}
+      <DialogContent
+        className="flex flex-col gap-0 overflow-hidden p-0"
+        aria-describedby={undefined}
+      >
+        <div className="shrink-0 border-b px-5 pt-4 pb-3 pr-12">
+          <DialogTitle>
+            History{" "}
             <span className="font-mono text-muted-foreground">{jobName}</span>
           </DialogTitle>
-        </DialogHeader>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : entries.length === 0 ? (
-          <p className="text-xs text-muted-foreground/70 text-center py-12">
-            No execution history yet
-          </p>
-        ) : (
-          <div className="overflow-auto flex-1 -mx-6 px-6">
-            <div className="flex flex-col">
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-3">
+          {loading ? (
+            <div className="flex flex-col gap-3 py-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full" />
+              ))}
+            </div>
+          ) : entries.length === 0 ? (
+            <EmptyState compact icon={<History />} label="No runs" />
+          ) : (
+            <div className="flex flex-col divide-y divide-border/70">
               {entries.map((entry) => (
                 <HistoryEntry key={entry.id} entry={entry} />
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

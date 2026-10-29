@@ -13,9 +13,14 @@ import type {
 } from "@repo/markets/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton, ConfirmDialog } from "@repo/ui/confirm-button";
+import { DropdownMenuItem } from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { ScrollArea } from "@repo/ui/scroll-area";
+import { List, ListRow } from "@repo/ui/list";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -26,23 +31,40 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Stat, StatGroup, type StatTone } from "@repo/ui/stat";
 import { Switch } from "@repo/ui/switch";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@repo/ui/table";
+import { RowActions } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import {
+  Briefcase,
   ChartCandlestick,
   LayoutGrid,
   Plus,
   RefreshCw,
   Table as TableIcon,
   Trash2,
-  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAdmin } from "../provider";
 import {
   fracPct,
@@ -67,6 +89,32 @@ const OWNER_ENTERED = new Set<TradeSource>(["manual", "deposit", "withdrawal"]);
 /** Half the server's quote TTL, so a refresh never sits on a stale batch. */
 const PERFORMANCE_REFRESH_MS = 60_000;
 
+/** Money figures run to twelve characters; the default 7rem column clips them. */
+const MONEY_STATS = "sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]";
+
+/** A pane that keeps a long book from pushing the next row off screen. */
+const PANE_SCROLL = "max-h-[30rem] overflow-y-auto overscroll-contain";
+
+type NewPortfolioInput = {
+  name: string;
+  initialCash: number;
+  benchmark: string | null;
+  inceptionDate: string;
+  reinvestDividends: boolean;
+  allowShorts: boolean;
+  margin: Portfolio["margin"];
+};
+
+function statTone(value: number | null | undefined): StatTone {
+  if (value === null || value === undefined || value === 0) return "default";
+  return value > 0 ? "good" : "critical";
+}
+
+function signedPercent(value: number | null | undefined, digits = 2) {
+  if (value === null || value === undefined) return undefined;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
 export interface PortfoliosPageProps {
   /** Passed as a prop, not a route param: desktop is a static export. */
   portfolioId?: string;
@@ -80,7 +128,7 @@ export function PortfoliosPage({
   onSelectPortfolio,
   onSelectTicker,
 }: PortfoliosPageProps) {
-  const { client, routes } = useAdmin();
+  const { client, routes, slots } = useAdmin();
   const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
   const [selected, setSelected] = useState<string | null>(portfolioId ?? null);
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(
@@ -90,6 +138,7 @@ export function PortfoliosPage({
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,9 +166,12 @@ export function PortfoliosPage({
   }, [portfolioId]);
 
   // Fall back to the first portfolio so the surface is never blank while one
-  // exists — a missing `?portfolio=` is the common case, not an error.
+  // exists — a missing `?portfolio=` is the common case, not an error. An id
+  // that no longer exists (a stale link to a deleted book) falls back too,
+  // rather than leaving a header with no portfolio under it.
   useEffect(() => {
-    if (selected || !portfolios || portfolios.length === 0) return;
+    if (!portfolios || portfolios.length === 0) return;
+    if (selected && portfolios.some((item) => item.id === selected)) return;
     setSelected(portfolios[0]?.id ?? null);
   }, [portfolios, selected]);
 
@@ -226,15 +278,7 @@ export function PortfoliosPage({
   );
 
   const create = useCallback(
-    async (input: {
-      name: string;
-      initialCash: number;
-      benchmark: string | null;
-      inceptionDate: string;
-      reinvestDividends: boolean;
-      allowShorts: boolean;
-      margin: Portfolio["margin"];
-    }) => {
+    async (input: NewPortfolioInput) => {
       const { portfolio: created } = await client.post<{
         portfolio: Portfolio;
       }>("/markets/portfolios", { ...input, baseCurrency: "USD" });
@@ -257,10 +301,15 @@ export function PortfoliosPage({
       return;
     }
     const remaining = await loadPortfolios();
-    setSelected(remaining[0]?.id ?? null);
+    const next = remaining[0]?.id ?? null;
+    setSelected(next);
     setPerformance(null);
     setTrades([]);
-  }, [client, selected, loadPortfolios]);
+    setOrders([]);
+    // The route still names the deleted id; left alone, a reload would ask
+    // for a portfolio that no longer exists.
+    if (next) onSelectPortfolio?.(next);
+  }, [client, selected, loadPortfolios, onSelectPortfolio]);
 
   /** Rebuilds dividend and split rows against whatever bars are now cached. */
   const sync = useCallback(async () => {
@@ -329,164 +378,172 @@ export function PortfoliosPage({
   if (portfolios === null) return <PortfoliosSkeleton />;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 sm:flex-nowrap sm:py-0">
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<Briefcase />}
+        crumbs={[{ label: "Markets", href: routes.markets }]}
+        title="Portfolios"
+      >
         {portfolios.length > 0 ? (
           <Select value={selected ?? undefined} onValueChange={choose}>
-            <SelectTrigger size="sm" className="h-8 w-40 text-xs sm:w-56">
+            <SelectTrigger size="sm" className="w-36 sm:w-52">
               <SelectValue placeholder="Portfolio" />
             </SelectTrigger>
             <SelectContent>
               {portfolios.map((item) => (
-                <SelectItem key={item.id} value={item.id} className="text-xs">
+                <SelectItem key={item.id} value={item.id}>
                   {item.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         ) : null}
-
-        <NewPortfolioSheet onCreate={create} />
-
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          <a
-            href={routes.markets}
-            className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
-          >
-            <ChartCandlestick className="size-3.5" />
-            Markets
+        <Button variant="ghost" size="icon-sm" asChild>
+          <a href={routes.markets} aria-label="Markets">
+            <ChartCandlestick />
           </a>
-          {portfolio ? (
-            <>
+        </Button>
+        {portfolio ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Sync dividends and splits"
+            disabled={syncing}
+            onClick={() => void sync()}
+          >
+            <RefreshCw className={cn(syncing && "animate-spin")} />
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
+          <Plus />
+          New
+        </Button>
+        {portfolio ? (
+          <RowActions label="Portfolio actions">
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setConfirmingDelete(true)}
+            >
+              <Trash2 />
+              Delete portfolio
+            </DropdownMenuItem>
+          </RowActions>
+        ) : null}
+      </PageHeader>
+
+      <PageBody width="full">
+        {!portfolio ? (
+          <EmptyState
+            icon={<Briefcase />}
+            label="No portfolios"
+            action={
               <Button
+                variant="outline"
                 size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={syncing}
-                onClick={() => void sync()}
+                onClick={() => setCreating(true)}
               >
-                <RefreshCw
-                  className={`size-3 ${syncing ? "animate-spin" : ""}`}
-                />
-                Actions
+                <Plus />
+                New portfolio
               </Button>
-              {confirmingDelete ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 max-w-40 px-2 text-red-600 text-xs"
-                    onClick={() => void remove()}
-                  >
-                    <span className="truncate">Delete {portfolio.name}?</span>
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    className="size-7 text-muted-foreground"
-                    aria-label="Cancel delete"
-                    onClick={() => setConfirmingDelete(false)}
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  className="size-7 text-muted-foreground hover:text-red-600"
-                  aria-label="Delete portfolio"
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              )}
-            </>
-          ) : null}
-        </div>
-      </div>
-
-      {!portfolio ? (
-        <div className="px-4 py-3 text-muted-foreground text-xs">—</div>
-      ) : loading ? (
-        <PortfoliosBodySkeleton />
-      ) : error ? (
-        <div className="px-4 py-3 text-red-600 text-xs">{error}</div>
-      ) : !performance ? (
-        <div className="px-4 py-3 text-muted-foreground text-xs">—</div>
-      ) : (
-        // The dashboard shell clips at the viewport, so a page that outgrows it
-        // is cut off rather than scrolled. This column takes the scroll at every
-        // width: `lg:overflow-hidden` assumed the metrics, chart and panes always
-        // fit above lg, and on any window shorter than about 900px they do not —
-        // the panes were squeezed to nothing and the rest was simply unreachable.
-        // The panes still grow to fill a tall window, but not below the floor set
-        // on the grid, which is what makes this scroll rather than clip.
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <MetricsRow
-            metrics={performance.metrics}
-            benchmark={portfolio.benchmark}
+            }
           />
-
-          {/* Only shown once the book has a reason for it. A long-only cash
-              account has no margin story, and a strip of zeroes above the chart
-              is one more row between the owner and the numbers. */}
-          {portfolio.margin.enabled ||
-          portfolio.allowShorts ||
-          performance.margin.shortExposure > 0 ? (
-            <MarginStrip
-              margin={performance.margin}
-              baseCurrency={portfolio.baseCurrency}
+        ) : loading ? (
+          <PortfoliosBodySkeleton />
+        ) : error ? (
+          <p className="text-destructive text-sm">{error}</p>
+        ) : !performance ? (
+          <EmptyState icon={<Briefcase />} label="—" />
+        ) : (
+          <>
+            <Metrics
+              metrics={performance.metrics}
+              benchmark={portfolio.benchmark}
             />
-          ) : null}
 
-          <PortfolioPerformanceChart
-            portfolio={portfolio}
-            performance={performance}
-          />
+            {/* Only shown once the book has a reason for it. A long-only cash
+                account has no margin story, and a row of zeroes above the chart
+                is one more row between the owner and the numbers. */}
+            {portfolio.margin.enabled ||
+            portfolio.allowShorts ||
+            performance.margin.shortExposure > 0 ? (
+              <MarginStrip
+                margin={performance.margin}
+                baseCurrency={portfolio.baseCurrency}
+              />
+            ) : null}
 
-          <div className="grid grid-cols-1 lg:min-h-[24rem] lg:flex-1 lg:grid-cols-3">
-            <Positions
-              positions={performance.positions}
-              cash={performance.metrics.cash}
-              onSelectTicker={selectTicker}
+            <PortfolioPerformanceChart
+              portfolio={portfolio}
+              performance={performance}
             />
-            <div className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
-              <div className="flex h-8 shrink-0 items-center justify-between border-b px-4">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                  Book
-                </span>
-                <OrderSheet
-                  onSubmit={placeOrder}
-                  baseCurrency={portfolio.baseCurrency}
-                  positions={performance.positions}
-                  margin={performance.margin}
-                  marginConfig={portfolio.margin}
-                  allowShorts={portfolio.allowShorts}
-                />
-              </div>
-              <OrderBlotter
-                orders={orders}
-                onCancel={cancelOrder}
+
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+              <Positions
+                positions={performance.positions}
+                cash={performance.metrics.cash}
                 onSelectTicker={selectTicker}
               />
+              <Section
+                title="Book"
+                count={
+                  orders.filter(
+                    (order) =>
+                      order.status === "working" || order.status === "pending",
+                  ).length || undefined
+                }
+                actions={
+                  <OrderSheet
+                    onSubmit={placeOrder}
+                    baseCurrency={portfolio.baseCurrency}
+                    positions={performance.positions}
+                    margin={performance.margin}
+                    marginConfig={portfolio.margin}
+                    allowShorts={portfolio.allowShorts}
+                  />
+                }
+              >
+                <OrderBlotter
+                  orders={orders}
+                  onCancel={cancelOrder}
+                  onSelectTicker={selectTicker}
+                />
+              </Section>
+              <TradeLog
+                trades={trades}
+                onAdd={addTrade}
+                onDelete={deleteTrade}
+                baseCurrency={portfolio.baseCurrency}
+                cash={performance.metrics.cash}
+                positions={performance.positions}
+              />
             </div>
-            <TradeLog
-              trades={trades}
-              onAdd={addTrade}
-              onDelete={deleteTrade}
-              baseCurrency={portfolio.baseCurrency}
-              cash={performance.metrics.cash}
-              positions={performance.positions}
-            />
-          </div>
-        </div>
-      )}
-    </div>
+          </>
+        )}
+      </PageBody>
+
+      <NewPortfolioDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreate={create}
+      />
+
+      {portfolio ? (
+        <ConfirmDialog
+          open={confirmingDelete}
+          onOpenChange={setConfirmingDelete}
+          title={`Delete ${portfolio.name}?`}
+          description="Trades, orders and history go with it."
+          actionLabel="Delete"
+          destructive
+          onConfirm={remove}
+        />
+      ) : null}
+    </Page>
   );
 }
 
-function MetricsRow({
+function Metrics({
   metrics,
   benchmark,
 }: {
@@ -494,88 +551,67 @@ function MetricsRow({
   benchmark: string | null;
 }) {
   return (
-    <div className="grid shrink-0 grid-cols-3 gap-x-3 gap-y-1 border-b px-4 py-2 text-xs sm:grid-cols-5 sm:gap-x-6 xl:grid-cols-8">
-      <Metric label="Value" value={money(metrics.totalValue)} />
-      <Metric
-        label="Day"
-        value={signedMoney(metrics.dayPnl)}
-        percent={metrics.dayPnlPercent}
-        tone={metrics.dayPnl}
-      />
-      <Metric
-        label="Total"
-        value={signedMoney(metrics.totalPnl)}
-        percent={metrics.totalPnlPercent}
-        tone={metrics.totalPnl}
-      />
-      <Metric label="Cash" value={money(metrics.cash)} />
-      <Metric
-        label="Realised"
-        value={signedMoney(metrics.realizedPnl)}
-        tone={metrics.realizedPnl}
-      />
-      <Metric
-        label="Unrealised"
-        value={signedMoney(metrics.unrealizedPnl)}
-        tone={metrics.unrealizedPnl}
-      />
-      <Metric label="CAGR" value={fracPct(metrics.cagr)} tone={metrics.cagr} />
-      <Metric label="Vol" value={fracPct(metrics.volatility)} />
-      {/* A drawdown is reported as a positive fraction; negating it keeps the
-          sign convention of every other PnL figure on the row. */}
-      <Metric
-        label="Max DD"
-        value={
-          metrics.maxDrawdown === null
-            ? "—"
-            : `-${(metrics.maxDrawdown * 100).toFixed(2)}%`
-        }
-        tone={metrics.maxDrawdown ? -1 : null}
-      />
-      <Metric label="Sharpe" value={num(metrics.sharpe)} />
-      <Metric label="Sortino" value={num(metrics.sortino)} />
-      <Metric label="Beta" value={num(metrics.beta)} />
-      <Metric
-        label="Alpha"
-        value={fracPct(metrics.alpha)}
-        tone={metrics.alpha}
-      />
-      <Metric
-        label={benchmark ?? "Bench"}
-        value={pct(metrics.benchmarkReturn)}
-        tone={metrics.benchmarkReturn}
-      />
-      <Metric label="Win" value={pct(metrics.winRate)} />
-      <Metric label="Trades" value={String(metrics.tradeCount)} />
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  percent,
-  tone,
-}: {
-  label: string;
-  value: string;
-  percent?: number | null;
-  tone?: number | null;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="truncate text-[10px] text-muted-foreground uppercase tracking-wide">
-        {label}
-      </div>
-      <div className={`truncate tabular-nums ${toneClass(tone)}`}>
-        {value}
-        {percent !== undefined && percent !== null ? (
-          <span className="ml-1 text-[10px]">
-            {percent >= 0 ? "+" : ""}
-            {percent.toFixed(2)}%
-          </span>
-        ) : null}
-      </div>
+    <div className="flex flex-col gap-6">
+      <StatGroup className={MONEY_STATS}>
+        <Stat label="Value" value={money(metrics.totalValue)} />
+        <Stat
+          label="Day"
+          value={signedMoney(metrics.dayPnl)}
+          hint={signedPercent(metrics.dayPnlPercent)}
+          tone={statTone(metrics.dayPnl)}
+        />
+        <Stat
+          label="Total"
+          value={signedMoney(metrics.totalPnl)}
+          hint={signedPercent(metrics.totalPnlPercent)}
+          tone={statTone(metrics.totalPnl)}
+        />
+        <Stat label="Cash" value={money(metrics.cash)} />
+        <Stat
+          label="Realised"
+          value={signedMoney(metrics.realizedPnl)}
+          tone={statTone(metrics.realizedPnl)}
+        />
+        <Stat
+          label="Unrealised"
+          value={signedMoney(metrics.unrealizedPnl)}
+          tone={statTone(metrics.unrealizedPnl)}
+        />
+      </StatGroup>
+      <StatGroup>
+        <Stat
+          label="CAGR"
+          value={fracPct(metrics.cagr)}
+          tone={statTone(metrics.cagr)}
+        />
+        <Stat label="Vol" value={fracPct(metrics.volatility)} />
+        {/* A drawdown is reported as a positive fraction; negating it keeps the
+            sign convention of every other PnL figure. */}
+        <Stat
+          label="Max DD"
+          value={
+            metrics.maxDrawdown === null
+              ? "—"
+              : `-${(metrics.maxDrawdown * 100).toFixed(2)}%`
+          }
+          tone={metrics.maxDrawdown ? "critical" : "default"}
+        />
+        <Stat label="Sharpe" value={num(metrics.sharpe)} />
+        <Stat label="Sortino" value={num(metrics.sortino)} />
+        <Stat label="Beta" value={num(metrics.beta)} />
+        <Stat
+          label="Alpha"
+          value={fracPct(metrics.alpha)}
+          tone={statTone(metrics.alpha)}
+        />
+        <Stat
+          label={benchmark ?? "Bench"}
+          value={pct(metrics.benchmarkReturn)}
+          tone={statTone(metrics.benchmarkReturn)}
+        />
+        <Stat label="Win" value={pct(metrics.winRate)} />
+        <Stat label="Trades" value={String(metrics.tradeCount)} />
+      </StatGroup>
     </div>
   );
 }
@@ -594,117 +630,113 @@ function Positions({
   const open = positions.filter((position) => position.quantity !== 0);
   const [view, setView] = useState<"map" | "table">("map");
 
-  // Tall enough below lg to hold the 280px treemap plus its header.
   return (
-    <div className="flex h-[22rem] min-h-0 flex-col border-b lg:h-auto lg:border-r lg:border-b-0">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b px-4 text-[10px] text-muted-foreground uppercase tracking-wide">
-        <span>Positions</span>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="tabular-nums">Cash {money(cash)}</span>
-          <button
-            type="button"
+    <Section
+      title="Positions"
+      count={open.length || undefined}
+      actions={
+        <>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            Cash {money(cash)}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={() => setView(view === "map" ? "table" : "map")}
             aria-label={view === "map" ? "Show table" : "Show map"}
-            className="rounded p-0.5 hover:text-foreground"
           >
-            {view === "map" ? (
-              <TableIcon className="size-3.5" />
-            ) : (
-              <LayoutGrid className="size-3.5" />
-            )}
-          </button>
-        </div>
-      </div>
-      <ScrollArea className="min-h-0 flex-1" scrollbars="both">
-        {view === "map" ? (
-          <div className="p-2">
-            <PositionTreemap
-              positions={positions}
-              cash={cash}
-              height={280}
-              onSelect={onSelectTicker}
-            />
-          </div>
-        ) : open.length === 0 ? (
-          <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
-        ) : (
-          <table className="w-full text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
-            <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              <tr className="border-b">
-                <th className="px-3 py-1 text-left font-normal">Symbol</th>
-                <th className="px-1.5 py-1 text-right font-normal">Qty</th>
+            {view === "map" ? <TableIcon /> : <LayoutGrid />}
+          </Button>
+        </>
+      }
+    >
+      {view === "map" ? (
+        <PositionTreemap
+          positions={positions}
+          cash={cash}
+          height={280}
+          onSelect={onSelectTicker}
+        />
+      ) : open.length === 0 ? (
+        <EmptyState compact label="No positions" />
+      ) : (
+        <div className={PANE_SCROLL}>
+          <Table className="text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-0">Symbol</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
                 {/* Average cost and weight are the two the owner can recover
                     from the rows either side of them, so they go first when the
                     pane is narrow. */}
-                <th className="hidden px-1.5 py-1 text-right font-normal xl:table-cell">
+                <TableHead className="hidden text-right xl:table-cell">
                   Avg
-                </th>
-                <th className="px-1.5 py-1 text-right font-normal">Last</th>
-                <th className="px-1.5 py-1 text-right font-normal">Value</th>
-                <th className="px-1.5 py-1 text-right font-normal">Day</th>
-                <th className="px-1.5 py-1 text-right font-normal">PnL</th>
-                <th className="hidden px-3 py-1 text-right font-normal xl:table-cell">
+                </TableHead>
+                <TableHead className="text-right">Last</TableHead>
+                <TableHead className="text-right">Value</TableHead>
+                <TableHead className="text-right">Day</TableHead>
+                <TableHead className="text-right">PnL</TableHead>
+                <TableHead className="hidden pr-0 text-right xl:table-cell">
                   Wt
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {open.map((position) => (
-                <tr
+                <TableRow
                   key={position.ticker}
                   onClick={() => onSelectTicker?.(position.ticker)}
-                  className="cursor-pointer border-b last:border-b-0 hover:bg-muted/50"
+                  className="cursor-pointer hover:bg-surface/70"
                 >
-                  <td className="max-w-28 truncate px-3 py-1 font-medium">
+                  <TableCell className="max-w-28 truncate pl-0 font-medium text-accent-strong">
                     {position.ticker}
                     {position.side === "short" ? (
-                      <span className="ml-1 text-[9px] text-red-600 uppercase">
+                      <Badge variant="critical" className="ml-1.5">
                         short
-                      </span>
+                      </Badge>
                     ) : null}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
                     {trimQuantity(position.quantity)}
-                  </td>
-                  <td className="hidden px-1.5 py-1 text-right tabular-nums xl:table-cell">
+                  </TableCell>
+                  <TableCell className="hidden text-right tabular-nums xl:table-cell">
                     {position.avgCost.toFixed(2)}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
                     {position.lastPrice?.toFixed(2) ?? "—"}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
                     {money(position.marketValue)}
-                  </td>
-                  <td
-                    className={`px-1.5 py-1 text-right tabular-nums ${toneClass(
-                      position.dayChangePercent,
-                    )}`}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right tabular-nums",
+                      toneClass(position.dayChangePercent),
+                    )}
                   >
-                    {position.dayChangePercent === null
-                      ? "—"
-                      : `${position.dayChangePercent >= 0 ? "+" : ""}${position.dayChangePercent.toFixed(2)}%`}
-                  </td>
-                  <td
-                    className={`px-1.5 py-1 text-right tabular-nums ${toneClass(
-                      position.unrealizedPnl,
-                    )}`}
+                    {signedPercent(position.dayChangePercent) ?? "—"}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right tabular-nums",
+                      toneClass(position.unrealizedPnl),
+                    )}
                   >
                     {signedMoney(position.unrealizedPnl)}
                     <span className="ml-1 text-[10px]">
-                      {position.unrealizedPnlPercent >= 0 ? "+" : ""}
-                      {position.unrealizedPnlPercent.toFixed(1)}%
+                      {signedPercent(position.unrealizedPnlPercent, 1)}
                     </span>
-                  </td>
-                  <td className="hidden px-3 py-1 text-right text-muted-foreground tabular-nums xl:table-cell">
+                  </TableCell>
+                  <TableCell className="hidden pr-0 text-right text-muted-foreground tabular-nums xl:table-cell">
                     {(position.weight * 100).toFixed(1)}%
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        )}
-      </ScrollArea>
-    </div>
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -729,77 +761,66 @@ function TradeLog({
   );
 
   return (
-    <div className="flex h-80 min-h-0 flex-col lg:h-auto">
-      <div className="flex h-8 shrink-0 items-center justify-between border-b px-4">
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          Trades
-        </span>
+    <Section
+      title="Trades"
+      count={ordered.length || undefined}
+      actions={
         <TradeSheet
           onSubmit={onAdd}
           baseCurrency={baseCurrency}
           cash={cash}
           positions={positions}
         />
-      </div>
-      <ScrollArea className="min-h-0 flex-1" scrollbars="both">
-        {ordered.length === 0 ? (
-          <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
-        ) : (
-          // No `min-w`: an arbitrary floor is what forced this to scroll
-          // sideways in a pane narrower than the guess. `whitespace-nowrap` lets
-          // the browser compute the table's real minimum from its content, so it
-          // scrolls only when it genuinely cannot fit.
-          <table className="w-full text-xs [&_td]:whitespace-nowrap">
-            <tbody>
-              {ordered.map((trade) => (
-                <tr
-                  key={trade.id}
-                  className="group border-b last:border-b-0 hover:bg-muted/50"
-                >
-                  <td className="px-3 py-1 text-muted-foreground tabular-nums">
-                    {trade.executedAt.slice(0, 10)}
-                  </td>
-                  <td className="py-1">
-                    <SourceBadge source={trade.source} side={trade.side} />
-                  </td>
-                  <td className="max-w-24 truncate px-1.5 py-1 font-medium">
-                    {trade.ticker}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
-                    {trimQuantity(trade.quantity)}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
-                    {trade.price.toFixed(2)}
-                  </td>
-                  <td className="px-1.5 py-1 text-right tabular-nums">
-                    {money(trade.quantity * trade.price)}
-                  </td>
-                  {/* Fees are almost always zero here and are the first thing
-                      worth losing when the pane is narrow. */}
-                  <td className="hidden px-1.5 py-1 text-right text-muted-foreground tabular-nums xl:table-cell">
-                    {trade.fees > 0 ? trade.fees.toFixed(2) : ""}
-                  </td>
-                  <td className="w-8 px-1.5 py-1 text-right">
-                    {/* Generated rows are rebuilt from cached actions, so only
-                        what the owner entered can be removed. */}
-                    {OWNER_ENTERED.has(trade.source) ? (
-                      <button
-                        type="button"
+      }
+    >
+      {ordered.length === 0 ? (
+        <EmptyState compact label="No trades" />
+      ) : (
+        <List className={PANE_SCROLL}>
+          {ordered.map((trade) => (
+            <ListRow
+              key={trade.id}
+              title={trade.ticker}
+              description={`${trade.executedAt.slice(0, 10)} · ${trimQuantity(
+                trade.quantity,
+              )} @ ${trade.price.toFixed(2)}${
+                trade.fees > 0 ? ` · fee ${trade.fees.toFixed(2)}` : ""
+              }`}
+              meta={
+                <>
+                  <SourceBadge source={trade.source} side={trade.side} />
+                  {money(trade.quantity * trade.price)}
+                </>
+              }
+              trailing={
+                // Generated rows are rebuilt from cached actions, so only what
+                // the owner entered can be removed.
+                OWNER_ENTERED.has(trade.source) ? (
+                  <ConfirmButton
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
                         aria-label="Delete trade"
-                        onClick={() => void onDelete(trade.id)}
-                        className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-600 group-hover:opacity-100"
+                        className="text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100"
                       >
-                        <X className="size-3" />
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </ScrollArea>
-    </div>
+                        <Trash2 />
+                      </Button>
+                    }
+                    title={`Delete ${trade.ticker} trade?`}
+                    actionLabel="Delete"
+                    destructive
+                    onConfirm={() => onDelete(trade.id)}
+                  />
+                ) : (
+                  <span className="size-6" />
+                )
+              }
+            />
+          ))}
+        </List>
+      )}
+    </Section>
   );
 }
 
@@ -811,20 +832,41 @@ function SourceBadge({
   side: "buy" | "sell";
 }) {
   if (source === "manual") {
-    return (
-      <span
-        className={`text-[10px] uppercase ${
-          side === "buy" ? "text-emerald-600" : "text-red-600"
-        }`}
-      >
-        {side}
-      </span>
-    );
+    return <Badge variant={side === "buy" ? "good" : "critical"}>{side}</Badge>;
   }
+  return <Badge variant="outline">{source}</Badge>;
+}
+
+function TicketSheet({
+  label,
+  title,
+  open,
+  onOpenChange,
+  children,
+}: {
+  label: string;
+  title: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
   return (
-    <Badge variant="outline" className="px-1 py-0 text-[9px] uppercase">
-      {source}
-    </Badge>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="xs">
+          <Plus />
+          {label}
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-full gap-0 sm:max-w-md">
+        <SheetHeader className="pb-3">
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6">
+          {children}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -840,30 +882,21 @@ function TradeSheet({
   positions: Position[];
 }) {
   const [open, setOpen] = useState(false);
-
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
-          <Plus className="size-3" />
-          Trade
-        </Button>
-      </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-sm">
-        <SheetHeader>
-          <SheetTitle className="text-sm">New trade</SheetTitle>
-        </SheetHeader>
-        <div className="px-4">
-          <TradeTicket
-            baseCurrency={baseCurrency}
-            cash={cash}
-            positions={positions}
-            onSubmit={onSubmit}
-            onDone={() => setOpen(false)}
-          />
-        </div>
-      </SheetContent>
-    </Sheet>
+    <TicketSheet
+      label="Trade"
+      title="New trade"
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <TradeTicket
+        baseCurrency={baseCurrency}
+        cash={cash}
+        positions={positions}
+        onSubmit={onSubmit}
+        onDone={() => setOpen(false)}
+      />
+    </TicketSheet>
   );
 }
 
@@ -883,61 +916,57 @@ function OrderSheet({
   allowShorts: boolean;
 }) {
   const [open, setOpen] = useState(false);
-
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
-          <Plus className="size-3" />
-          Order
-        </Button>
-      </SheetTrigger>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-sm">
-        <SheetHeader>
-          <SheetTitle className="text-sm">New order</SheetTitle>
-        </SheetHeader>
-        <div className="px-4 pb-6">
-          <OrderTicket
-            baseCurrency={baseCurrency}
-            positions={positions}
-            margin={margin}
-            marginConfig={marginConfig}
-            allowShorts={allowShorts}
-            onSubmit={onSubmit}
-            onDone={() => setOpen(false)}
-          />
-        </div>
-      </SheetContent>
-    </Sheet>
+    <TicketSheet
+      label="Order"
+      title="New order"
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <OrderTicket
+        baseCurrency={baseCurrency}
+        positions={positions}
+        margin={margin}
+        marginConfig={marginConfig}
+        allowShorts={allowShorts}
+        onSubmit={onSubmit}
+        onDone={() => setOpen(false)}
+      />
+    </TicketSheet>
   );
 }
 
-function NewPortfolioSheet({
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function NewPortfolioDialog({
+  open,
+  onOpenChange,
   onCreate,
 }: {
-  onCreate: (input: {
-    name: string;
-    initialCash: number;
-    benchmark: string | null;
-    inceptionDate: string;
-    reinvestDividends: boolean;
-    allowShorts: boolean;
-    margin: Portfolio["margin"];
-  }) => Promise<void>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (input: NewPortfolioInput) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [initialCash, setInitialCash] = useState("10000");
   const [benchmark, setBenchmark] = useState("SPY");
-  const [inceptionDate, setInceptionDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [inceptionDate, setInceptionDate] = useState(today);
   const [reinvest, setReinvest] = useState(false);
   const [allowShorts, setAllowShorts] = useState(false);
   const [useMargin, setUseMargin] = useState(false);
   const [borrowRate, setBorrowRate] = useState("3");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+
+  // A dialog left open overnight would otherwise default to yesterday.
+  useEffect(() => {
+    if (open) {
+      setInceptionDate(today());
+      setProblem(null);
+    }
+  }, [open]);
 
   const submit = useCallback(async () => {
     if (!name.trim()) {
@@ -964,7 +993,7 @@ function NewPortfolioSheet({
         },
       });
       setName("");
-      setOpen(false);
+      onOpenChange(false);
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : "Failed");
     } finally {
@@ -980,131 +1009,147 @@ function NewPortfolioSheet({
     useMargin,
     borrowRate,
     onCreate,
+    onOpenChange,
   ]);
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 px-2 text-xs">
-          <Plus className="size-3" />
-          New
-        </Button>
-      </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-sm">
-        <SheetHeader>
-          <SheetTitle className="text-sm">New portfolio</SheetTitle>
-        </SheetHeader>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New portfolio"
+      onSubmit={submit}
+      submitLabel="Create"
+      pending={busy}
+      footerStart={
+        problem ? (
+          <span className="truncate text-destructive text-xs">{problem}</span>
+        ) : null
+      }
+    >
+      <FormGrid>
+        <FormField
+          label="Name"
+          htmlFor="portfolio-name"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="portfolio-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+          />
+        </FormField>
+        <FormField label="Initial cash" htmlFor="portfolio-cash">
+          <Input
+            id="portfolio-cash"
+            value={initialCash}
+            onChange={(event) => setInitialCash(event.target.value)}
+            inputMode="decimal"
+            className="tabular-nums"
+          />
+        </FormField>
+        <FormField label="Benchmark" htmlFor="portfolio-benchmark">
+          <Input
+            id="portfolio-benchmark"
+            value={benchmark}
+            onChange={(event) => setBenchmark(event.target.value)}
+            className="uppercase"
+          />
+        </FormField>
+        <FormField label="Inception" htmlFor="portfolio-inception">
+          <Input
+            id="portfolio-inception"
+            type="date"
+            value={inceptionDate}
+            onChange={(event) => setInceptionDate(event.target.value)}
+            className="tabular-nums"
+          />
+        </FormField>
+        <FormField label="Borrow rate %/yr" htmlFor="portfolio-borrow">
+          <Input
+            id="portfolio-borrow"
+            value={borrowRate}
+            onChange={(event) => setBorrowRate(event.target.value)}
+            inputMode="decimal"
+            disabled={!useMargin}
+            className="tabular-nums"
+          />
+        </FormField>
+      </FormGrid>
+      <div className="flex flex-wrap gap-x-6 gap-y-3">
+        <SwitchField
+          id="portfolio-drip"
+          label="DRIP"
+          checked={reinvest}
+          onCheckedChange={setReinvest}
+        />
+        <SwitchField
+          id="portfolio-shorts"
+          label="Shorts"
+          checked={allowShorts}
+          onCheckedChange={setAllowShorts}
+        />
+        <SwitchField
+          id="portfolio-margin"
+          label="Margin"
+          checked={useMargin}
+          onCheckedChange={setUseMargin}
+        />
+      </div>
+    </FormDialog>
+  );
+}
 
-        <div className="space-y-3 px-4 text-xs">
-          <div className="space-y-1">
-            <Label className="text-xs">Name</Label>
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="h-8 text-xs"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Initial cash</Label>
-              <Input
-                value={initialCash}
-                onChange={(event) => setInitialCash(event.target.value)}
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Benchmark</Label>
-              <Input
-                value={benchmark}
-                onChange={(event) => setBenchmark(event.target.value)}
-                className="h-8 text-xs uppercase"
-              />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Inception</Label>
-            <Input
-              type="date"
-              value={inceptionDate}
-              onChange={(event) => setInceptionDate(event.target.value)}
-              className="h-8 text-xs tabular-nums"
-            />
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
-            <Label htmlFor="portfolio-drip" className="text-xs">
-              <Switch
-                id="portfolio-drip"
-                checked={reinvest}
-                onCheckedChange={setReinvest}
-              />
-              DRIP
-            </Label>
-            <Label htmlFor="portfolio-shorts" className="text-xs">
-              <Switch
-                id="portfolio-shorts"
-                checked={allowShorts}
-                onCheckedChange={setAllowShorts}
-              />
-              Shorts
-            </Label>
-            <Label htmlFor="portfolio-margin" className="text-xs">
-              <Switch
-                id="portfolio-margin"
-                checked={useMargin}
-                onCheckedChange={setUseMargin}
-              />
-              Margin
-            </Label>
-          </div>
-          {useMargin ? (
-            <div className="space-y-1">
-              <Label className="text-xs">Borrow rate %/yr</Label>
-              <Input
-                value={borrowRate}
-                onChange={(event) => setBorrowRate(event.target.value)}
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-          ) : null}
-          {problem ? <div className="text-red-600">{problem}</div> : null}
-        </div>
-
-        <SheetFooter>
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            disabled={busy}
-            onClick={() => void submit()}
-          >
-            Create
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+function SwitchField({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label htmlFor={id} className="flex items-center gap-2 text-sm">
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      {label}
+    </label>
   );
 }
 
 function PortfoliosBodySkeleton() {
   return (
-    <div className="space-y-3 p-4">
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-[240px] w-full" />
-      <Skeleton className="h-40 w-full" />
+    <div className="flex flex-col gap-8">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-6">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-2">
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-6 w-24" />
+          </div>
+        ))}
+      </div>
+      <Skeleton className="h-[300px] w-full" />
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
     </div>
   );
 }
 
+/** Rendered as a Suspense fallback outside the AdminProvider, so no `useAdmin`. */
 export function PortfoliosSkeleton() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center gap-2 border-b px-4">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-8 w-16" />
-      </div>
-      <PortfoliosBodySkeleton />
-    </div>
+    <Page>
+      <PageHeader icon={<Briefcase />} title="Portfolios">
+        <Skeleton className="h-7 w-52" />
+      </PageHeader>
+      <PageBody width="full">
+        <PortfoliosBodySkeleton />
+      </PageBody>
+    </Page>
   );
 }

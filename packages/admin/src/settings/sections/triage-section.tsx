@@ -6,6 +6,7 @@ import type {
   TriageCategory,
   TriageSettingsResponse,
 } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import { Input } from "@repo/ui/input";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Slider } from "@repo/ui/slider";
@@ -61,7 +62,7 @@ function RoutingRow({
           CATEGORY_SPINE[category],
         )}
       />
-      <span className="w-28 shrink-0 truncate text-xs">
+      <span className="w-28 shrink-0 truncate text-sm text-accent-strong">
         {CATEGORY_LABELS[category]}
       </span>
 
@@ -82,8 +83,10 @@ function RoutingRow({
         />
         <span
           className={cn(
-            "w-9 shrink-0 text-right text-[11px] tabular-nums",
-            routing.autoAccept ? "text-foreground" : "text-muted-foreground/50",
+            "w-9 shrink-0 text-right text-xs tabular-nums",
+            routing.autoAccept
+              ? "text-accent-strong"
+              : "text-muted-foreground/60",
           )}
         >
           {(routing.autoAcceptThreshold * 100).toFixed(0)}%
@@ -124,28 +127,25 @@ function CourseSenderDomains({
   };
 
   return (
-    <div className="space-y-2.5">
+    <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-1.5">
         {domains.map((domain) => (
-          <span
-            key={domain}
-            className="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px]"
-          >
+          <Badge key={domain} variant="secondary" className="gap-1 pr-0.5">
             {domain}
             <button
               type="button"
               aria-label={`Remove ${domain}`}
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-accent-strong"
               onClick={() =>
                 onChange(domains.filter((entry) => entry !== domain))
               }
             >
               <X className="size-3" />
             </button>
-          </span>
+          </Badge>
         ))}
         {domains.length === 0 && (
-          <span className="text-[11px] text-muted-foreground">any sender</span>
+          <span className="text-xs text-muted-foreground">Any sender</span>
         )}
       </div>
       <Input
@@ -160,7 +160,7 @@ function CourseSenderDomains({
             add();
           }
         }}
-        className="h-8 max-w-xs text-xs"
+        className="max-w-xs"
       />
     </div>
   );
@@ -273,14 +273,17 @@ export function TriageSection() {
 
   if (loading || !data) {
     return (
-      <div className="space-y-8">
-        {[0, 1, 2].map((row) => (
-          <div key={row} className="space-y-3">
-            <Skeleton className="h-2.5 w-24" />
-            <Skeleton className="h-8 w-full max-w-sm" />
+      <>
+        {[0, 1, 2].map((group) => (
+          <div key={group} className="flex flex-col gap-3">
+            <Skeleton className="h-3 w-24" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-8 w-56" />
+            </div>
           </div>
         ))}
-      </div>
+      </>
     );
   }
 
@@ -290,73 +293,76 @@ export function TriageSection() {
         label="Runner"
         actions={
           data.lastRunAt && (
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-              last run {new Date(data.lastRunAt).toLocaleString()}
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {new Date(data.lastRunAt).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
             </span>
           )
         }
       >
-        <div className="space-y-6">
-          <SettingsRow label="Enabled">
-            <div className="flex sm:justify-end">
-              <Switch
-                checked={data.enabled}
-                onCheckedChange={(value) => void commit({ enabled: value })}
-              />
-            </div>
-          </SettingsRow>
+        <SettingsRow label="Enabled">
+          <Switch
+            checked={data.enabled}
+            aria-label="Triage enabled"
+            onCheckedChange={(value) => void commit({ enabled: value })}
+          />
+        </SettingsRow>
 
-          <SettingsRow label="Interval">
-            <Input
-              type="number"
-              min={15}
-              value={interval}
-              onChange={(event) => setIntervalValue(event.target.value)}
-              onBlur={commitInterval}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
-              }}
-              className="h-8 w-full text-xs tabular-nums"
-            />
-          </SettingsRow>
+        <SettingsRow label="Interval (min)" htmlFor="triage-interval">
+          <Input
+            id="triage-interval"
+            type="number"
+            min={15}
+            value={interval}
+            onChange={(event) => setIntervalValue(event.target.value)}
+            onBlur={commitInterval}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+            className="w-full tabular-nums"
+          />
+        </SettingsRow>
 
-          <SettingsRow label="Extraction model">
-            <RequiredSettingsModelPicker
-              value={data.fullModel}
-              models={models}
-              loading={modelsLoading}
-              error={modelsError}
-              stale={stale}
-              onRetry={retry}
-              onChange={(value) => void commit({ fullModel: value })}
-            />
-          </SettingsRow>
-        </div>
+        <SettingsRow label="Extraction model">
+          <RequiredSettingsModelPicker
+            value={data.fullModel}
+            models={models}
+            loading={modelsLoading}
+            error={modelsError}
+            stale={stale}
+            onRetry={retry}
+            onChange={(value) => void commit({ fullModel: value })}
+          />
+        </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup
-        label="Review threshold"
-        actions={
-          <span className="shrink-0 text-sm font-medium tabular-nums">
-            {(data.classificationConfidenceThreshold * 100).toFixed(0)}%
-          </span>
-        }
-      >
-        <Slider
-          min={0.5}
-          max={1}
-          step={0.01}
-          aria-label="Manual review threshold"
-          value={[data.classificationConfidenceThreshold]}
-          onValueChange={([value]) =>
-            value !== undefined &&
-            preview({ classificationConfidenceThreshold: value })
-          }
-          onValueCommit={([value]) =>
-            value !== undefined &&
-            void commit({ classificationConfidenceThreshold: value })
-          }
-        />
+      <SettingsGroup label="Review">
+        <SettingsRow label="Threshold">
+          <div className="flex w-full items-center gap-2.5">
+            <Slider
+              min={0.5}
+              max={1}
+              step={0.01}
+              aria-label="Manual review threshold"
+              value={[data.classificationConfidenceThreshold]}
+              onValueChange={([value]) =>
+                value !== undefined &&
+                preview({ classificationConfidenceThreshold: value })
+              }
+              onValueCommit={([value]) =>
+                value !== undefined &&
+                void commit({ classificationConfidenceThreshold: value })
+              }
+            />
+            <span className="w-9 shrink-0 text-right text-xs tabular-nums text-accent-strong">
+              {(data.classificationConfidenceThreshold * 100).toFixed(0)}%
+            </span>
+          </div>
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup label="Course senders">
@@ -367,7 +373,7 @@ export function TriageSection() {
       </SettingsGroup>
 
       <SettingsGroup label="Category automation">
-        <div className="divide-y">
+        <div className="flex flex-col divide-y divide-border/70">
           {TRIAGE_CATEGORIES.map((category) => (
             <RoutingRow
               key={category}

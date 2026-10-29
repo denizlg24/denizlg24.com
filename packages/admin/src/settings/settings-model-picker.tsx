@@ -33,17 +33,17 @@ function CatalogStatus({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="min-w-0 flex-1 truncate text-[11px] text-status-warning">
+      <span className="min-w-0 flex-1 truncate text-xs text-status-warning">
         {error ?? "Stale catalog"}
       </span>
       {onRetry && (
         <Button
           variant="ghost"
-          size="sm"
-          className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+          size="xs"
+          className="shrink-0 text-muted-foreground"
           onClick={onRetry}
         >
-          <RotateCcw className="size-3" />
+          <RotateCcw />
           Retry
         </Button>
       )}
@@ -81,14 +81,14 @@ export function SettingsModelPicker({
 
   if (!Hosted) {
     return (
-      <div className="space-y-1.5">
+      <div className="flex w-full flex-col gap-1.5">
         <ModelSelect
           value={value}
           onChange={onChange}
           models={models}
           defaultLabel={defaultLabel}
           disabled={disabled}
-          className="h-8 w-full text-xs"
+          className="w-full"
         />
         <CatalogStatus error={error} stale={stale} onRetry={onRetry} />
       </div>
@@ -96,7 +96,7 @@ export function SettingsModelPicker({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="flex w-full flex-col gap-1.5">
       <Hosted
         model={value}
         onModelChange={(next) => onChange(next)}
@@ -108,23 +108,22 @@ export function SettingsModelPicker({
         requiredCapabilities={requiredCapabilities}
         className={cn("w-full", disabled && "pointer-events-none opacity-50")}
       />
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-          {value === null ? defaultLabel : ""}
+      {value === null ? (
+        <span className="truncate text-xs text-muted-foreground">
+          {defaultLabel}
         </span>
-        {value !== null && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
-            disabled={disabled}
-            onClick={() => onChange(null)}
-          >
-            <RotateCcw className="size-3" />
-            {defaultLabel}
-          </Button>
-        )}
-      </div>
+      ) : (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="max-w-full self-start text-muted-foreground"
+          disabled={disabled}
+          onClick={() => onChange(null)}
+        >
+          <RotateCcw />
+          <span className="truncate">{defaultLabel}</span>
+        </Button>
+      )}
     </div>
   );
 }
@@ -150,13 +149,13 @@ export function RequiredSettingsModelPicker({
 
   if (!Hosted) {
     return (
-      <div className="space-y-1.5">
+      <div className="flex w-full flex-col gap-1.5">
         <RequiredModelSelect
           value={value}
           onChange={onChange}
           models={models}
           disabled={disabled}
-          className="h-8 w-full text-xs"
+          className="w-full"
         />
         <CatalogStatus error={error} stale={stale} onRetry={onRetry} />
       </div>

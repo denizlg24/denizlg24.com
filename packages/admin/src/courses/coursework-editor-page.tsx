@@ -8,9 +8,12 @@ import type {
   ICourseAssignmentLink,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import { DateTimePicker } from "@repo/ui/date-time-picker";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { List, ListRow } from "@repo/ui/list";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -18,13 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { Separator } from "@repo/ui/separator";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
+import { FilterTabs } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
   ExternalLink,
   GraduationCap,
-  Loader2,
   Paperclip,
   Plus,
   Trash2,
@@ -59,7 +62,8 @@ export const ASSIGNMENT_TYPES: {
   { value: "reading", label: "Reading" },
 ];
 
-const ICON = <GraduationCap className="size-4 text-muted-foreground" />;
+const ICON = <GraduationCap />;
+const FORM_ID = "coursework-form";
 
 type LinkDraft = Omit<ICourseAssignmentLink, "_id"> & { _id?: string };
 type FileDraft = Omit<ICourseAssignmentFile, "_id"> & { _id?: string };
@@ -107,88 +111,8 @@ function parseNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function FieldRow({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("space-y-1.5", className)}>
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function LaneToggle({
-  assessed,
-  onChange,
-}: {
-  assessed: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex gap-4">
-      {[
-        { label: "Assessed", value: true },
-        { label: "Deadline", value: false },
-      ].map((option) => (
-        <button
-          key={option.label}
-          type="button"
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "flex-1 border-b-2 py-1.5 text-xs transition-colors",
-            assessed === option.value
-              ? "border-foreground font-medium text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Status as a visible row of transitions rather than a select.
- *
- * On the sheet this was one option in a dropdown among five, which is most of
- * why the field read as decorative. Here the current state and every state it
- * can move to are on screen at once.
- */
-function StatusPicker({
-  status,
-  onChange,
-}: {
-  status: CourseAssignmentStatus;
-  onChange: (value: CourseAssignmentStatus) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {ASSIGNMENT_STATUSES.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded-full border px-2.5 py-1 text-xs transition-colors",
-            status === option.value
-              ? "border-foreground bg-foreground/5 font-medium"
-              : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
-            status === option.value && STATUS_TONE[option.value],
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
+function isAssignmentType(value: string): value is CourseAssignmentType {
+  return ASSIGNMENT_TYPES.some((option) => option.value === value);
 }
 
 export function CourseworkEditorPage({
@@ -396,11 +320,7 @@ export function CourseworkEditorPage({
 
   if (notFound) {
     return (
-      <DetailNotFound
-        {...shell}
-        title="Work not found"
-        message="This coursework row could not be loaded."
-      />
+      <DetailNotFound {...shell} title="Work not found" message="Not found" />
     );
   }
 
@@ -411,55 +331,74 @@ export function CourseworkEditorPage({
       actions={
         <>
           {assignment && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs text-destructive hover:text-destructive"
-              onClick={remove}
-              disabled={deleting || saving}
-            >
-              {deleting ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="size-3.5" />
-              )}
-              <span className="hidden sm:inline">Delete</span>
-            </Button>
+            <ConfirmButton
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={deleting || saving}
+                >
+                  <Trash2 />
+                </Button>
+              }
+              title={`Delete "${assignment.title}"?`}
+              actionLabel="Delete"
+              destructive
+              pending={deleting}
+              onConfirm={remove}
+            />
           )}
           <Button
             size="sm"
-            className="h-8 text-xs"
-            onClick={submit}
+            type="submit"
+            form={FORM_ID}
             disabled={!title.trim() || saving || deleting}
           >
-            {saving && <Loader2 className="size-3.5 animate-spin" />}
+            {saving && <Spinner className="size-3.5" />}
             Save
           </Button>
         </>
       }
     >
-      <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
-        <div className="space-y-5">
-          <FieldRow label="Title">
+      <form
+        id={FORM_ID}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+        className="grid gap-x-10 gap-y-8 lg:grid-cols-[1.3fr_1fr]"
+      >
+        <div className="flex min-w-0 flex-col gap-5">
+          <FormField label="Title" htmlFor="work-title">
             <Input
+              id="work-title"
               value={title}
               autoFocus={mode === "create"}
               onChange={(event) => setTitle(event.target.value)}
             />
-          </FieldRow>
+          </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Lane">
-              <LaneToggle assessed={assessed} onChange={setAssessed} />
-            </FieldRow>
-            <FieldRow label="Type">
+          <FormGrid>
+            <FormField label="Lane">
+              <FilterTabs
+                value={assessed ? "assessed" : "deadline"}
+                onChange={(value) => setAssessed(value === "assessed")}
+                options={[
+                  { value: "assessed", label: "Assessed" },
+                  { value: "deadline", label: "Deadline" },
+                ]}
+              />
+            </FormField>
+            <FormField label="Type" htmlFor="work-type">
               <Select
                 value={type}
-                onValueChange={(value) =>
-                  setType(value as CourseAssignmentType)
-                }
+                onValueChange={(value) => {
+                  if (isAssignmentType(value)) setType(value);
+                }}
               >
-                <SelectTrigger>
+                <SelectTrigger id="work-type" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -470,70 +409,91 @@ export function CourseworkEditorPage({
                   ))}
                 </SelectContent>
               </Select>
-            </FieldRow>
-          </div>
+            </FormField>
+          </FormGrid>
 
-          <FieldRow label="Status">
-            <StatusPicker status={status} onChange={setStatus} />
-          </FieldRow>
+          <FormField label="Status">
+            <FilterTabs
+              value={status}
+              onChange={setStatus}
+              options={ASSIGNMENT_STATUSES.map((option) => ({
+                value: option.value,
+                label: (
+                  <span
+                    className={cn(
+                      status === option.value && STATUS_TONE[option.value],
+                    )}
+                  >
+                    {option.label}
+                  </span>
+                ),
+              }))}
+              className="flex-wrap"
+            />
+          </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Due">
+          <FormGrid>
+            <FormField label="Due">
               <DateTimePicker
                 value={dueAt || undefined}
                 onValueChange={(next) => setDueAt(next ?? "")}
                 clearable
                 aria-label="Due"
               />
-            </FieldRow>
-            <FieldRow label="Submitted">
-              <p className="py-2 font-mono text-xs tabular-nums text-muted-foreground">
+            </FormField>
+            <FormField label="Submitted">
+              <p className="flex h-8 items-center text-sm tabular-nums text-muted-foreground">
                 {assignment?.submittedAt
                   ? new Date(assignment.submittedAt).toLocaleString()
                   : "—"}
               </p>
-            </FieldRow>
-          </div>
+            </FormField>
+          </FormGrid>
 
-          <FieldRow label="Notes">
+          <FormField label="Notes" htmlFor="work-notes">
             <Textarea
+              id="work-notes"
               value={notes}
-              rows={5}
+              rows={6}
               onChange={(event) => setNotes(event.target.value)}
             />
-          </FieldRow>
+          </FormField>
         </div>
 
-        <div className="space-y-5">
+        <div className="flex min-w-0 flex-col gap-8">
           {assessed && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <FieldRow label="Score">
+            <Section title="Grade">
+              <FormGrid>
+                <FormField label="Score" htmlFor="work-score">
                   <Input
+                    id="work-score"
                     type="number"
                     min="0"
                     step="0.01"
                     value={score}
                     onChange={(event) => setScore(event.target.value)}
                   />
-                </FieldRow>
-                <FieldRow label="Max">
+                </FormField>
+                <FormField label="Max" htmlFor="work-max">
                   <Input
+                    id="work-max"
                     type="number"
                     min="0"
                     step="0.01"
                     value={maxScore}
                     onChange={(event) => setMaxScore(event.target.value)}
                   />
-                </FieldRow>
-                <FieldRow label="Letter">
+                </FormField>
+                <FormField label="Letter" htmlFor="work-letter">
                   <Input
+                    id="work-letter"
                     value={letter}
                     onChange={(event) => setLetter(event.target.value)}
                   />
-                </FieldRow>
-                <FieldRow label="Weight">
+                </FormField>
+                <FormField label="Weight %" htmlFor="work-weight">
                   <Input
+                    id="work-weight"
                     type="number"
                     min="0"
                     max="100"
@@ -541,129 +501,133 @@ export function CourseworkEditorPage({
                     value={weight}
                     onChange={(event) => setWeight(event.target.value)}
                   />
-                </FieldRow>
-              </div>
-              <FieldRow label="Grade notes">
-                <Input
-                  value={gradeNotes}
-                  onChange={(event) => setGradeNotes(event.target.value)}
-                />
-              </FieldRow>
-              <Separator />
-            </>
+                </FormField>
+                <FormField
+                  label="Grade notes"
+                  htmlFor="work-grade-notes"
+                  className="sm:col-span-2"
+                >
+                  <Input
+                    id="work-grade-notes"
+                    value={gradeNotes}
+                    onChange={(event) => setGradeNotes(event.target.value)}
+                  />
+                </FormField>
+              </FormGrid>
+            </Section>
           )}
 
-          <FieldRow label="Links">
-            <div className="space-y-2">
-              {links.map((link, index) => (
-                <div
-                  key={link._id ?? `${link.url}-${index}`}
-                  className="flex items-center gap-2 border-b border-border/60 pb-1.5"
-                >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs hover:underline"
+          <Section title="Links" count={links.length}>
+            {links.length > 0 && (
+              <List>
+                {links.map((link, index) => (
+                  <ListRow
+                    key={link._id ?? `${link.url}-${index}`}
+                    leading={<ExternalLink />}
+                    title={link.label}
+                    description={link.url}
                     onClick={() => platform.openExternal(link.url)}
-                  >
-                    <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{link.label}</span>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-5 shrink-0"
-                    onClick={() =>
-                      setLinks(links.filter((_, at) => at !== index))
+                    trailing={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() =>
+                          setLinks(links.filter((_, at) => at !== index))
+                        }
+                        aria-label={`Remove ${link.label}`}
+                      >
+                        <X />
+                      </Button>
                     }
-                    aria-label={`Remove ${link.label}`}
-                  >
-                    <X className="size-3" />
-                  </Button>
-                </div>
-              ))}
-              <div className="grid grid-cols-[1fr_1.4fr_auto] gap-2">
-                <Input
-                  className="h-8 text-xs"
-                  value={linkLabel}
-                  placeholder="Label"
-                  onChange={(event) => setLinkLabel(event.target.value)}
-                />
-                <Input
-                  className="h-8 text-xs"
-                  value={linkUrl}
-                  placeholder="https://"
-                  onChange={(event) => setLinkUrl(event.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  onClick={addLink}
-                  disabled={!linkUrl.trim()}
-                  aria-label="Add link"
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-          </FieldRow>
-
-          <FieldRow label="Files">
-            <div className="space-y-2">
-              {files.map((file, index) => (
-                <div
-                  key={file._id ?? `${file.url}-${index}`}
-                  className="flex items-center gap-2 border-b border-border/60 pb-1.5"
-                >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs hover:underline"
-                    onClick={() => platform.openExternal(file.url)}
-                  >
-                    <Paperclip className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{file.name}</span>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-5 shrink-0"
-                    onClick={() =>
-                      setFiles(files.filter((_, at) => at !== index))
-                    }
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X className="size-3" />
-                  </Button>
-                </div>
-              ))}
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleUpload}
+                  />
+                ))}
+              </List>
+            )}
+            <div className="grid grid-cols-[1fr_1.4fr_auto] gap-2">
+              <Input
+                value={linkLabel}
+                placeholder="Label"
+                aria-label="Link label"
+                onChange={(event) => setLinkLabel(event.target.value)}
+              />
+              <Input
+                value={linkUrl}
+                placeholder="https://"
+                aria-label="Link URL"
+                onChange={(event) => setLinkUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addLink();
+                  }
+                }}
               />
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-8"
+                size="icon"
+                onClick={addLink}
+                disabled={!linkUrl.trim()}
+                aria-label="Add link"
+              >
+                <Plus />
+              </Button>
+            </div>
+          </Section>
+
+          <Section
+            title="Files"
+            count={files.length}
+            actions={
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploading ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Upload className="size-3.5" />
-                )}
+                {uploading ? <Spinner className="size-3" /> : <Upload />}
                 Upload
               </Button>
-            </div>
-          </FieldRow>
+            }
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleUpload}
+            />
+            {files.length === 0 ? (
+              <p className="text-sm text-muted-foreground">—</p>
+            ) : (
+              <List>
+                {files.map((file, index) => (
+                  <ListRow
+                    key={file._id ?? `${file.url}-${index}`}
+                    leading={<Paperclip />}
+                    title={file.name}
+                    onClick={() => platform.openExternal(file.url)}
+                    trailing={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() =>
+                          setFiles(files.filter((_, at) => at !== index))
+                        }
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X />
+                      </Button>
+                    }
+                  />
+                ))}
+              </List>
+            )}
+          </Section>
         </div>
-      </div>
+      </form>
     </DetailPageShell>
   );
 }

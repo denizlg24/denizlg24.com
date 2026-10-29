@@ -3,6 +3,8 @@
 import type { ICourseReadingSummary, IPaper } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { List, ListRow } from "@repo/ui/list";
+import { Meter } from "@repo/ui/meter";
 import {
   Select,
   SelectContent,
@@ -10,7 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { FileUp, Loader2, X } from "lucide-react";
+import { Spinner } from "@repo/ui/spinner";
+import { cn } from "@repo/ui/utils";
+import { BookOpen, FileUp, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PapersResponse } from "../papers/papers-page";
@@ -31,7 +36,8 @@ export function CourseReadingsPanel({
   readings: ICourseReadingSummary[];
   onRefresh: () => Promise<void>;
 }) {
-  const { client, platform } = useAdmin();
+  const { client, routes } = useAdmin();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachable, setAttachable] = useState<IPaper[]>([]);
   const [busy, setBusy] = useState(false);
@@ -106,12 +112,13 @@ export function CourseReadingsPanel({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <Select
           value=""
           onOpenChange={(open) => open && void loadAttachable()}
           onValueChange={(paperId) => void attach(paperId)}
+          disabled={busy}
         >
           <SelectTrigger size="sm" className="flex-1">
             <SelectValue placeholder="Link reading" />
@@ -138,23 +145,18 @@ export function CourseReadingsPanel({
         <Button
           size="sm"
           variant="outline"
-          className="h-8"
           disabled={busy}
           onClick={() => fileInputRef.current?.click()}
         >
-          {busy ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <FileUp className="size-3.5" />
-          )}
+          {busy ? <Spinner className="size-3.5" /> : <FileUp />}
           Upload
         </Button>
       </div>
 
       {readings.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">—</p>
+        <p className="py-2 text-sm text-muted-foreground">No readings</p>
       ) : (
-        <div>
+        <List>
           {readings.map((reading) => {
             const percent = percentRead(
               reading.currentPage,
@@ -164,74 +166,62 @@ export function CourseReadingsPanel({
             const due = dueLabel(reading.dueAt);
             const overdue = isOverdue(reading);
             return (
-              <div
-                key={reading._id}
-                className="group border-b border-border/60 py-2 last:border-b-0"
-              >
-                <div className="flex items-baseline gap-2">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
-                    onClick={() =>
-                      platform.navigate(
-                        `/papers?paper=${encodeURIComponent(reading._id)}`,
-                      )
-                    }
-                  >
-                    {reading.title}
-                  </button>
-                  <Badge
-                    variant={
-                      reading.readingStatus === "reading"
-                        ? "default"
-                        : "secondary"
-                    }
-                    className="shrink-0 text-[9px]"
-                  >
-                    {READING_STATUS_LABEL[reading.readingStatus]}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-5 shrink-0 opacity-0 group-hover:opacity-100"
-                    disabled={busy}
-                    onClick={() => void detach(reading._id)}
-                    aria-label={`Unlink ${reading.title}`}
-                  >
-                    <X className="size-3" />
-                  </Button>
-                </div>
-                <div className="mt-1 flex items-center gap-3 font-mono text-[10px] tabular-nums text-muted-foreground">
-                  {reading.authorLine && (
-                    <span className="min-w-0 truncate">
-                      {reading.authorLine}
-                    </span>
-                  )}
-                  <span className="flex-1" />
-                  {percent !== undefined && (
-                    <span>
-                      p. {reading.currentPage ?? "—"} /{" "}
-                      {reading.totalPages ?? "—"} · {percent}%
-                    </span>
-                  )}
-                  {due && (
-                    <span className={overdue ? "text-destructive" : ""}>
-                      {due}
-                    </span>
-                  )}
-                </div>
+              <div key={reading._id} className="flex flex-col">
+                <ListRow
+                  leading={<BookOpen />}
+                  title={reading.title}
+                  description={reading.authorLine || undefined}
+                  onClick={() =>
+                    router.push(
+                      `${routes.papers.root}?paper=${encodeURIComponent(reading._id)}`,
+                    )
+                  }
+                  meta={
+                    <>
+                      {percent !== undefined && (
+                        <span>
+                          p. {reading.currentPage ?? "—"}/
+                          {reading.totalPages ?? "—"} · {percent}%
+                        </span>
+                      )}
+                      {due && (
+                        <span className={cn(overdue && "text-status-critical")}>
+                          {due}
+                        </span>
+                      )}
+                      <Badge
+                        variant={
+                          reading.readingStatus === "reading"
+                            ? "info"
+                            : "secondary"
+                        }
+                      >
+                        {READING_STATUS_LABEL[reading.readingStatus]}
+                      </Badge>
+                    </>
+                  }
+                  trailing={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={busy}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void detach(reading._id);
+                      }}
+                      aria-label={`Unlink ${reading.title}`}
+                    >
+                      <X />
+                    </Button>
+                  }
+                />
                 {percent !== undefined && (
-                  <div className="mt-1.5 h-px bg-border">
-                    <div
-                      className="h-px bg-foreground/60"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
+                  <Meter value={percent / 100} className="mb-1 ml-8 w-auto" />
                 )}
               </div>
             );
           })}
-        </div>
+        </List>
       )}
     </div>
   );

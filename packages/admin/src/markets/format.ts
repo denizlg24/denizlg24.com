@@ -6,7 +6,7 @@ export function localNow(): string {
 
 export function toneClass(value: number | null | undefined): string {
   if (value === null || value === undefined || value === 0) return "";
-  return value > 0 ? "text-emerald-600" : "text-red-600";
+  return value > 0 ? "text-status-good" : "text-status-critical";
 }
 
 export function money(value: number): string {

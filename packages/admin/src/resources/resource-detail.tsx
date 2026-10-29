@@ -1,31 +1,35 @@
 "use client";
 
 import type { ICapability, IResource } from "@repo/schemas";
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { ExternalLink, Loader2, Power, RefreshCw } from "lucide-react";
+import { ConfirmButton, ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List, ListRow } from "@repo/ui/list";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { StatusDot } from "@repo/ui/status-dot";
+import { ExternalLink, Power, RefreshCw, Server } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { AddCapabilityDialog } from "./add-capability-dialog";
 import { CapabilitySection } from "./capability-section";
 import { PiCronDashboard } from "./picron/picron-dashboard";
+import {
+  getResourceStatus,
+  RESOURCE_STATUS_TONE,
+  RESOURCE_TYPE_LABELS,
+  usagePercentTone,
+} from "./status";
 import { SubResourcesSection } from "./sub-resources-section";
 import { UptimeBar } from "./uptime-bar";
 
-function getMetricColor(percent: number | null): string {
-  if (percent == null) return "text-muted-foreground";
-  if (percent > 90) return "text-red-600 dark:text-red-400";
-  if (percent > 70) return "text-yellow-600 dark:text-yellow-400";
-  return "text-accent-foreground";
+function percent(value: number | null | undefined): string {
+  return value != null ? `${value}%` : "—";
 }
 
 export function ResourceDetail({
@@ -39,7 +43,6 @@ export function ResourceDetail({
   const [addCapOpen, setAddCapOpen] = useState(false);
   const [deleteCapTarget, setDeleteCapTarget] = useState<string | null>(null);
   const [selectedCap, setSelectedCap] = useState<ICapability | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [services, setServices] = useState<Array<{
@@ -94,26 +97,17 @@ export function ResourceDetail({
     }
   };
 
-  const handleDeleteCapability = async () => {
-    if (!deleteCapTarget) return;
-    setDeleting(true);
+  const handleDeleteCapability = async (capId: string) => {
     try {
-      await client.del(
-        `resources/${resource._id}/capabilities/${deleteCapTarget}`,
-      );
+      await client.del(`resources/${resource._id}/capabilities/${capId}`);
       onUpdate({
         ...resource,
-        capabilities: resource.capabilities.filter(
-          (c) => c._id !== deleteCapTarget,
-        ),
+        capabilities: resource.capabilities.filter((c) => c._id !== capId),
       });
-      if (selectedCap?._id === deleteCapTarget) setSelectedCap(null);
-      setDeleteCapTarget(null);
+      if (selectedCap?._id === capId) setSelectedCap(null);
       toast.success("Capability removed");
     } catch {
       toast.error("Failed to delete capability");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -161,251 +155,222 @@ export function ResourceDetail({
     }
   };
 
+  const status = getResourceStatus(resource);
+  const history = resource.uptime?.dailyHistory ?? [];
+  const deleteCapLabel =
+    resource.capabilities.find((c) => c._id === deleteCapTarget)?.label ??
+    "capability";
+  // The selection is held as a snapshot; read the live row so a toggle shows.
+  const liveSelectedCap = selectedCap
+    ? (resource.capabilities.find((c) => c._id === selectedCap._id) ?? null)
+    : null;
+
   return (
-    <div className="min-w-0 flex-1 overflow-auto">
-      <div className="px-4 py-6 sm:px-6">
-        <div className="flex min-w-0 items-start gap-4 mb-6 sm:gap-6">
-          <div className="flex-1 min-w-0">
-            {/* text-overflow never applies to a flex box, so the ellipsis has
-                to live on an inner text-only span. */}
-            <p className="text-xs text-muted-foreground/70 font-mono mb-1 flex min-w-0 items-center gap-1.5">
-              <span className="truncate">{resource.url}</span>
-              <button
-                type="button"
-                aria-label="Open resource URL"
-                onClick={() => platform.openExternal(resource.url)}
-                className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-              >
-                <ExternalLink className="size-3" />
-              </button>
-            </p>
-            {resource.description && (
-              <p className="text-xs text-muted-foreground/60 mt-1">
-                {resource.description}
-              </p>
-            )}
-          </div>
+    <>
+      <PageTitle
+        title={resource.name}
+        meta={
+          <>
+            <span className="flex items-center gap-1.5">
+              <StatusDot tone={RESOURCE_STATUS_TONE[status]} />
+              {status}
+            </span>
+            <Badge variant="outline" className="font-mono">
+              {RESOURCE_TYPE_LABELS[resource.type]}
+            </Badge>
+            {!resource.isActive && <Badge variant="secondary">inactive</Badge>}
+          </>
+        }
+        actions={
+          agent.enabled ? (
+            <ConfirmButton
+              trigger={
+                <Button variant="ghost" size="sm" disabled={rebooting}>
+                  {rebooting ? <Spinner className="size-3.5" /> : <Power />}
+                  Reboot
+                </Button>
+              }
+              title={`Reboot ${resource.name}?`}
+              actionLabel="Reboot"
+              destructive
+              onConfirm={handleReboot}
+            />
+          ) : undefined
+        }
+      />
 
-          {uptimePercent != null && (
-            <div className="text-right shrink-0">
-              <p className="text-2xl font-mono font-semibold tabular-nums tracking-tight">
-                {uptimePercent.toFixed(1)}
-                <span className="text-sm text-muted-foreground/60">%</span>
-              </p>
-              <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-                uptime
-              </p>
-            </div>
+      <Properties>
+        <Property label="URL">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-mono text-xs">{resource.url}</span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Open resource URL"
+              className="text-muted-foreground"
+              onClick={() => platform.openExternal(resource.url)}
+            >
+              <ExternalLink />
+            </Button>
+          </span>
+        </Property>
+        {resource.description && (
+          <Property label="Description">{resource.description}</Property>
+        )}
+        <Property label="Agent">
+          {agent.enabled ? (
+            <span className="font-mono text-xs">{agent.nodeId || "—"}</span>
+          ) : (
+            <span className="text-muted-foreground">off</span>
           )}
-        </div>
+        </Property>
+        {lastChecked && (
+          <Property label="Checked">
+            <span className="tabular-nums">
+              {new Date(lastChecked).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </Property>
+        )}
+      </Properties>
 
-        <Tabs defaultValue="overview" className="gap-6">
-          <TabsList variant="line">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="sub-resources">Sub-resources</TabsTrigger>
-            <TabsTrigger value="capabilities">
-              Capabilities
-              {resource.capabilities.length > 0 && (
-                <span className="ml-1 font-mono text-[10px] text-muted-foreground/60">
-                  {resource.capabilities.length}
-                </span>
+      <StatGroup>
+        <Stat
+          label="Uptime"
+          value={uptimePercent != null ? `${uptimePercent.toFixed(1)}%` : "—"}
+          tone={uptimePercent != null ? "default" : "muted"}
+        />
+        {agent.enabled && (
+          <>
+            <Stat
+              label="CPU"
+              value={percent(metrics?.cpuUsagePercent)}
+              tone={usagePercentTone(metrics?.cpuUsagePercent)}
+            />
+            <Stat
+              label="RAM"
+              value={percent(metrics?.memoryUsagePercent)}
+              tone={usagePercentTone(metrics?.memoryUsagePercent)}
+            />
+            <Stat
+              label="Disk"
+              value={percent(metrics?.diskUsagePercent)}
+              tone={usagePercentTone(metrics?.diskUsagePercent)}
+            />
+          </>
+        )}
+      </StatGroup>
+
+      {history.length > 0 && (
+        <Section title="30 days">
+          <div className="flex flex-col gap-1.5">
+            <UptimeBar history={history} />
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>30d ago</span>
+              <span>today</span>
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {agent.enabled && (
+        <Section
+          title="Services"
+          count={services ? services.length : undefined}
+          actions={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Load services"
+              onClick={handleLoadServices}
+              disabled={loadingServices}
+            >
+              {loadingServices ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <RefreshCw />
               )}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="mt-0">
-            {agent.enabled && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-8 text-sm font-mono sm:gap-x-6">
-                <div className="flex shrink-0 items-baseline gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                    cpu
-                  </span>
-                  <span
-                    className={`font-semibold tabular-nums ${getMetricColor(metrics?.cpuUsagePercent ?? null)}`}
-                  >
-                    {metrics?.cpuUsagePercent != null
-                      ? `${metrics.cpuUsagePercent}%`
-                      : "—"}
-                  </span>
-                </div>
-                <span className="text-muted-foreground/30">|</span>
-                <div className="flex shrink-0 items-baseline gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                    ram
-                  </span>
-                  <span
-                    className={`font-semibold tabular-nums ${getMetricColor(metrics?.memoryUsagePercent ?? null)}`}
-                  >
-                    {metrics?.memoryUsagePercent != null
-                      ? `${metrics.memoryUsagePercent}%`
-                      : "—"}
-                  </span>
-                </div>
-                <span className="text-muted-foreground/30">|</span>
-                <div className="flex shrink-0 items-baseline gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                    disk
-                  </span>
-                  <span
-                    className={`font-semibold tabular-nums ${getMetricColor(metrics?.diskUsagePercent ?? null)}`}
-                  >
-                    {metrics?.diskUsagePercent != null
-                      ? `${metrics.diskUsagePercent}%`
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {resource.uptime && resource.uptime.dailyHistory.length > 0 && (
-              <div className="mb-8">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60 mb-2">
-                  30-day uptime
-                </p>
-                <UptimeBar history={resource.uptime.dailyHistory} />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-[11px] text-muted-foreground/70 font-mono">
-                    30d ago
-                  </span>
-                  <span className="text-[11px] text-muted-foreground/70 font-mono">
-                    today
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {agent.enabled && (
-              <div className="flex items-center gap-4 text-xs text-muted-foreground/60 mb-8 flex-wrap">
-                <span className="font-mono">
-                  node: {agent.nodeId || "unset"}
-                </span>
-                <span className="text-muted-foreground/60">&middot;</span>
-                <span className="font-mono">
-                  status: {agent.lastStatus ?? "unknown"}
-                </span>
-                {lastChecked && (
-                  <>
-                    <span className="text-muted-foreground/60">&middot;</span>
-                    <span>
-                      checked{" "}
-                      {new Date(lastChecked).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </>
-                )}
-                <div className="flex-1" />
+            </Button>
+          }
+        >
+          {services === null ? (
+            <EmptyState
+              compact
+              icon={<Server />}
+              label="Not loaded"
+              action={
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-6 text-xs gap-1 text-muted-foreground"
                   onClick={handleLoadServices}
                   disabled={loadingServices}
                 >
-                  {loadingServices ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3" />
-                  )}
-                  Services
+                  Load
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs gap-1 text-destructive hover:text-destructive"
-                  onClick={handleReboot}
-                  disabled={rebooting}
-                >
-                  {rebooting ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <Power className="size-3" />
-                  )}
-                  Reboot
-                </Button>
-              </div>
-            )}
-
-            {services && (
-              <div>
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-2">
-                  Services
-                </p>
-                <div className="flex flex-col gap-1">
-                  {services.map((svc) => (
-                    <div
-                      key={svc.name}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border/50"
-                    >
-                      <span
-                        className={`size-1.5 rounded-full shrink-0 ${svc.status === "running" ? "bg-accent" : "bg-red-500"}`}
-                      />
-                      <span className="text-sm font-mono flex-1 min-w-0 truncate">
-                        {svc.name}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground font-mono uppercase shrink-0">
-                        {svc.status}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs gap-1 text-muted-foreground"
-                        onClick={() => handleRestartService(svc.name)}
-                        disabled={restartingService === svc.name}
-                      >
-                        {restartingService === svc.name ? (
-                          <Loader2 className="size-3 animate-spin" />
-                        ) : (
-                          <RefreshCw className="size-3" />
-                        )}
-                        Restart
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!agent.enabled && !services && (
-              <p className="text-xs text-muted-foreground/60 py-4">
-                Agent service is disabled for this resource.
-              </p>
-            )}
-          </TabsContent>
-
-          <TabsContent value="sub-resources" className="mt-0">
-            <SubResourcesSection resourceId={resource._id} />
-          </TabsContent>
-
-          <TabsContent
-            value="capabilities"
-            className="mt-0 flex flex-col gap-6"
-          >
-            <CapabilitySection
-              capabilities={resource.capabilities}
-              onAdd={() => setAddCapOpen(true)}
-              onToggle={handleToggleCapability}
-              onDelete={(capId) => setDeleteCapTarget(capId)}
-              onSelect={(cap) =>
-                setSelectedCap(selectedCap?._id === cap._id ? null : cap)
               }
-              selectedId={selectedCap?._id ?? null}
             />
-
-            {selectedCap && selectedCap.type === "picron" && (
-              <div className="border-t border-border/30 pt-6">
-                <PiCronDashboard
-                  resourceId={resource._id}
-                  capability={selectedCap}
+          ) : services.length === 0 ? (
+            <EmptyState compact icon={<Server />} label="No services" />
+          ) : (
+            <List>
+              {services.map((svc) => (
+                <ListRow
+                  key={svc.name}
+                  leading={
+                    <StatusDot
+                      tone={svc.status === "running" ? "good" : "critical"}
+                      label={svc.status}
+                    />
+                  }
+                  title={<span className="font-mono">{svc.name}</span>}
+                  meta={<span>{svc.status}</span>}
+                  trailing={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      onClick={() => handleRestartService(svc.name)}
+                      disabled={restartingService === svc.name}
+                    >
+                      {restartingService === svc.name ? (
+                        <Spinner className="size-3.5" />
+                      ) : (
+                        <RefreshCw />
+                      )}
+                      Restart
+                    </Button>
+                  }
                 />
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+              ))}
+            </List>
+          )}
+        </Section>
+      )}
+
+      <SubResourcesSection resourceId={resource._id} />
+
+      <CapabilitySection
+        capabilities={resource.capabilities}
+        onAdd={() => setAddCapOpen(true)}
+        onToggle={handleToggleCapability}
+        onDelete={(capId) => setDeleteCapTarget(capId)}
+        onSelect={(cap) =>
+          setSelectedCap(selectedCap?._id === cap._id ? null : cap)
+        }
+        selectedId={selectedCap?._id ?? null}
+      />
+
+      {liveSelectedCap && liveSelectedCap.type === "picron" && (
+        <PiCronDashboard
+          key={liveSelectedCap._id}
+          resourceId={resource._id}
+          capability={liveSelectedCap}
+        />
+      )}
 
       <AddCapabilityDialog
         open={addCapOpen}
@@ -413,36 +378,17 @@ export function ResourceDetail({
         onSubmit={handleAddCapability}
       />
 
-      <Dialog
+      <ConfirmDialog
         open={!!deleteCapTarget}
-        onOpenChange={(o) => !o && setDeleteCapTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Capability</DialogTitle>
-            <DialogDescription>
-              This will remove the capability and all associated configuration.
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteCapTarget(null)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteCapability}
-              disabled={deleting}
-            >
-              {deleting ? "Removing..." : "Remove"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        onOpenChange={(open) => !open && setDeleteCapTarget(null)}
+        title={`Delete ${deleteCapLabel}?`}
+        description="Its configuration goes with it."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteCapTarget) void handleDeleteCapability(deleteCapTarget);
+        }}
+      />
+    </>
   );
 }

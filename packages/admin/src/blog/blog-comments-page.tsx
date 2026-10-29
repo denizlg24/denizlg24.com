@@ -1,43 +1,37 @@
 "use client";
 
 import type { IBlogComment } from "@repo/schemas";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import { SortHeader } from "@repo/ui/data-table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { PageHeader } from "@repo/ui/page-header";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
 import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
-import { Separator } from "@repo/ui/separator";
 import { Skeleton } from "@repo/ui/skeleton";
-import { TableSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import type { ColumnDef } from "@tanstack/react-table";
+import { TableSkeleton } from "@repo/ui/skeleton-blocks";
 import {
-  Check,
-  MessageCircle,
-  MoreHorizontal,
-  RefreshCw,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+  FilterTabs,
+  RowActions,
+  SearchField,
+  ToolbarSpacer,
+} from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Check, MessageCircle, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
+import { formatRelativeDate } from "../projects/document-editor";
 import { useAdmin } from "../provider";
 
 interface CommentWithBlogTitle extends IBlogComment {
@@ -52,57 +46,63 @@ interface CommentStats {
 }
 
 type CommentFilter = "all" | "pending" | "approved" | "deleted";
+type CommentState = Exclude<CommentFilter, "all">;
 
-function formatRelativeDate(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
+const ICON = <MessageCircle />;
 
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+function commentState(comment: CommentWithBlogTitle): CommentState {
+  if (comment.isDeleted) return "deleted";
+  return comment.isApproved ? "approved" : "pending";
+}
 
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
+const STATE_BADGE: Record<
+  CommentState,
+  { label: string; variant: "warning" | "good" | "critical" }
+> = {
+  pending: { label: "Pending", variant: "warning" },
+  approved: { label: "Approved", variant: "good" },
+  deleted: { label: "Deleted", variant: "critical" },
+};
+
+function CommentsHeader({ children }: { children?: ReactNode }) {
+  const { slots } = useAdmin();
+  return (
+    <PageHeader leading={slots?.sidebarTrigger} icon={ICON} title="Comments">
+      {children}
+    </PageHeader>
+  );
 }
 
 export function BlogCommentsSkeleton() {
-  const { slots } = useAdmin();
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<MessageCircle className="size-4 text-muted-foreground" />}
-        title="Comments"
-      />
-      <div className="px-4 flex flex-col gap-6 pt-3">
-        <div className="flex items-baseline gap-8">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <Skeleton className="h-3 w-14" />
-              <Skeleton className="h-6 w-8" />
-            </div>
-          ))}
-        </div>
-        <TabStripSkeleton widths={["w-10", "w-16", "w-20", "w-16"]} />
+    <Page>
+      <CommentsHeader />
+      <PageToolbar>
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-5 w-64" />
+      </PageToolbar>
+      <PageBody width="wide">
         <TableSkeleton
-          rows={6}
+          rows={8}
           widths={["w-24", "w-32", "flex-1", "w-16", "w-16", "w-8"]}
         />
-      </div>
-    </div>
+      </PageBody>
+    </Page>
+  );
+}
+
+function matchesQuery(comment: CommentWithBlogTitle, query: string): boolean {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return (
+    comment.authorName.toLowerCase().includes(needle) ||
+    comment.content.toLowerCase().includes(needle) ||
+    (comment.blogTitle ?? "").toLowerCase().includes(needle)
   );
 }
 
 export function BlogCommentsPage() {
-  const { client, slots } = useAdmin();
+  const { client } = useAdmin();
 
   const [comments, setComments] = useState<CommentWithBlogTitle[]>([]);
   const [stats, setStats] = useState<CommentStats>({
@@ -112,11 +112,12 @@ export function BlogCommentsPage() {
     deleted: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<CommentFilter>("all");
+  const [query, setQuery] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<CommentWithBlogTitle | null>(
     null,
   );
-  const [deleting, setDeleting] = useState(false);
 
   const fetchComments = useCallback(async () => {
     try {
@@ -130,384 +131,248 @@ export function BlogCommentsPage() {
       toast.error("Failed to load comments");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [client]);
 
   useEffect(() => {
-    fetchComments();
+    void fetchComments();
   }, [fetchComments]);
 
-  const filteredComments = useMemo(() => {
-    if (filter === "all") return comments;
-    if (filter === "pending")
-      return comments.filter((c) => !c.isApproved && !c.isDeleted);
-    if (filter === "approved")
-      return comments.filter((c) => c.isApproved && !c.isDeleted);
-    return comments.filter((c) => c.isDeleted);
-  }, [comments, filter]);
-
-  const handleApprove = async (
-    e: React.MouseEvent,
-    comment: CommentWithBlogTitle,
-  ) => {
-    e.stopPropagation();
-
-    setComments((prev) =>
-      prev.map((c) => (c._id === comment._id ? { ...c, isApproved: true } : c)),
-    );
-    setStats((prev) => ({
-      ...prev,
-      pending: prev.pending - 1,
-      approved: prev.approved + 1,
-    }));
-
-    try {
-      await client.patch<{ success: boolean }>(`comments/${comment._id}`, {
-        action: "approve",
-      });
-    } catch {
-      toast.error("Failed to approve comment");
-      setComments((prev) =>
-        prev.map((c) =>
-          c._id === comment._id ? { ...c, isApproved: comment.isApproved } : c,
-        ),
-      );
-      setStats((prev) => ({
-        ...prev,
-        pending: prev.pending + 1,
-        approved: prev.approved - 1,
-      }));
-    }
-  };
-
-  const handleReject = async (
-    e: React.MouseEvent,
-    comment: CommentWithBlogTitle,
-  ) => {
-    e.stopPropagation();
-
-    setComments((prev) =>
-      prev.map((c) =>
-        c._id === comment._id ? { ...c, isApproved: false } : c,
+  const visibleComments = useMemo(
+    () =>
+      comments.filter(
+        (comment) =>
+          (filter === "all" || commentState(comment) === filter) &&
+          matchesQuery(comment, query.trim()),
       ),
-    );
-    setStats((prev) => ({
-      ...prev,
-      approved: prev.approved - 1,
-      pending: prev.pending + 1,
-    }));
+    [comments, filter, query],
+  );
 
-    try {
-      await client.patch<{ success: boolean }>(`comments/${comment._id}`, {
-        action: "reject",
-      });
-    } catch {
-      toast.error("Failed to reject comment");
+  const setApproval = useCallback(
+    async (comment: CommentWithBlogTitle, approve: boolean) => {
+      if (comment.isApproved === approve) return;
+      const from: CommentState = approve ? "pending" : "approved";
+      const to: CommentState = approve ? "approved" : "pending";
+      const move = (a: CommentState, b: CommentState) =>
+        setStats((prev) => ({ ...prev, [a]: prev[a] - 1, [b]: prev[b] + 1 }));
+
       setComments((prev) =>
         prev.map((c) =>
-          c._id === comment._id ? { ...c, isApproved: comment.isApproved } : c,
+          c._id === comment._id ? { ...c, isApproved: approve } : c,
         ),
       );
-      setStats((prev) => ({
-        ...prev,
-        approved: prev.approved + 1,
-        pending: prev.pending - 1,
-      }));
-    }
-  };
+      move(from, to);
+
+      try {
+        await client.patch<{ success: boolean }>(`comments/${comment._id}`, {
+          action: approve ? "approve" : "reject",
+        });
+      } catch {
+        toast.error(
+          approve ? "Failed to approve comment" : "Failed to reject comment",
+        );
+        setComments((prev) =>
+          prev.map((c) =>
+            c._id === comment._id
+              ? { ...c, isApproved: comment.isApproved }
+              : c,
+          ),
+        );
+        move(to, from);
+      }
+    },
+    [client],
+  );
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
     try {
-      await client.del<{ success: boolean }>(`comments/${deleteTarget._id}`);
-      setComments((prev) =>
-        prev.map((c) =>
-          c._id === deleteTarget._id ? { ...c, isDeleted: true } : c,
-        ),
-      );
-      setStats((prev) => {
-        const wasPending = !deleteTarget.isApproved && !deleteTarget.isDeleted;
-        const wasApproved = deleteTarget.isApproved && !deleteTarget.isDeleted;
-        return {
+      const result = await client.del<{
+        success: boolean;
+        softDeleted?: boolean;
+      }>(`comments/${target._id}`);
+      const previous = commentState(target);
+      // A comment with replies is only marked deleted; one without is gone.
+      if (result.softDeleted) {
+        setComments((prev) =>
+          prev.map((c) =>
+            c._id === target._id ? { ...c, isDeleted: true } : c,
+          ),
+        );
+        setStats((prev) => ({
           ...prev,
-          pending: wasPending ? prev.pending - 1 : prev.pending,
-          approved: wasApproved ? prev.approved - 1 : prev.approved,
+          [previous]: prev[previous] - 1,
           deleted: prev.deleted + 1,
-        };
-      });
+        }));
+      } else {
+        setComments((prev) => prev.filter((c) => c._id !== target._id));
+        setStats((prev) => ({
+          ...prev,
+          [previous]: prev[previous] - 1,
+          total: prev.total - 1,
+        }));
+      }
       toast.success("Comment deleted");
     } catch {
       toast.error("Failed to delete comment");
     }
-    setDeleting(false);
-    setDeleteTarget(null);
   };
 
-  const getCommentStatus = (
-    comment: CommentWithBlogTitle,
-  ): {
-    label: string;
-    variant: "outline" | "secondary" | "default" | "destructive";
-  } => {
-    if (comment.isDeleted) return { label: "Deleted", variant: "destructive" };
-    if (comment.isApproved) return { label: "Approved", variant: "default" };
-    return { label: "Pending", variant: "outline" };
-  };
-
-  const columns: ColumnDef<CommentWithBlogTitle, unknown>[] = [
-    {
-      accessorKey: "authorName",
-      header: "Author",
-      cell: ({ row }) => (
-        <span className="font-medium">{row.getValue("authorName")}</span>
-      ),
-    },
-    {
-      accessorKey: "blogTitle",
-      meta: { className: "hidden md:table-cell" },
-      header: "Post",
-      cell: ({ row }) => (
-        <span className="text-muted-foreground truncate block max-w-[150px]">
-          {row.original.blogTitle ?? "-"}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "content",
-      meta: { className: "hidden lg:table-cell" },
-      header: "Content",
-      cell: ({ row }) => (
-        <span className="text-muted-foreground truncate block max-w-[250px]">
-          {row.getValue("content")}
-        </span>
-      ),
-    },
-    {
-      id: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = getCommentStatus(row.original);
-        return (
-          <Badge variant={status.variant} className="text-[10px]">
-            {status.label}
-          </Badge>
-        );
+  const columns = useMemo<ColumnDef<CommentWithBlogTitle, unknown>[]>(
+    () => [
+      {
+        accessorKey: "authorName",
+        header: ({ column }) => <SortHeader label="Author" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-accent-strong">{row.original.authorName}</span>
+        ),
       },
-    },
-    {
-      accessorKey: "createdAt",
-      meta: { className: "hidden md:table-cell" },
-      header: ({ column }) => <SortHeader label="Date" column={column} />,
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">
-          {formatRelativeDate(row.getValue("createdAt"))}
-        </span>
-      ),
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => {
-        const comment = row.original;
-        if (comment.isDeleted) return null;
-
-        return (
-          <div className="flex items-center gap-1">
-            {!comment.isApproved && (
+      {
+        accessorKey: "content",
+        header: "Comment",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex min-w-0 flex-col">
+            <span className="block max-w-[32rem] truncate">
+              {row.original.content}
+            </span>
+            {row.original.blogTitle ? (
+              <span className="block max-w-[32rem] truncate text-[11px] text-muted-foreground">
+                {row.original.blogTitle}
+              </span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        accessorFn: commentState,
+        cell: ({ row }) => {
+          const badge = STATE_BADGE[commentState(row.original)];
+          return <Badge variant={badge.variant}>{badge.label}</Badge>;
+        },
+      },
+      {
+        accessorKey: "createdAt",
+        meta: { className: "hidden md:table-cell" },
+        header: ({ column }) => <SortHeader label="Date" column={column} />,
+        cell: ({ row }) => (
+          <span className="tabular-nums text-muted-foreground">
+            {formatRelativeDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        meta: { className: "w-20" },
+        cell: ({ row }) => {
+          const comment = row.original;
+          if (comment.isDeleted) return null;
+          return (
+            <div className="flex items-center justify-end gap-0.5">
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-green-600 hover:text-green-700"
-                onClick={(e) => handleApprove(e, comment)}
-                title="Approve"
+                size="icon-sm"
+                aria-label={comment.isApproved ? "Reject" : "Approve"}
+                className="text-muted-foreground"
+                onClick={() => void setApproval(comment, !comment.isApproved)}
               >
-                <Check className="size-3.5" />
+                {comment.isApproved ? <X /> : <Check />}
               </Button>
-            )}
-            {comment.isApproved && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-orange-500 hover:text-orange-600"
-                onClick={(e) => handleReject(e, comment)}
-                title="Reject"
-              >
-                <X className="size-3.5" />
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={(e) => e.stopPropagation()}
+              <RowActions>
+                <DropdownMenuItem
+                  onClick={() => void setApproval(comment, !comment.isApproved)}
                 >
-                  <MoreHorizontal className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!comment.isApproved ? (
-                  <DropdownMenuItem onClick={(e) => handleApprove(e, comment)}>
-                    <Check className="size-3.5" />
-                    Approve
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={(e) => handleReject(e, comment)}>
-                    <X className="size-3.5" />
-                    Reject
-                  </DropdownMenuItem>
-                )}
+                  {comment.isApproved ? <X /> : <Check />}
+                  {comment.isApproved ? "Reject" : "Approve"}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(comment);
-                  }}
+                  variant="destructive"
+                  onClick={() => setDeleteTarget(comment)}
                 >
-                  <Trash2 className="size-3.5" />
+                  <Trash2 />
                   Delete
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
+              </RowActions>
+            </div>
+          );
+        },
       },
-    },
-  ];
+    ],
+    [setApproval],
+  );
 
-  if (loading) {
-    return <BlogCommentsSkeleton />;
-  }
+  if (loading) return <BlogCommentsSkeleton />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<MessageCircle className="size-4 text-muted-foreground" />}
-        title="Comments"
-      >
+    <Page>
+      <CommentsHeader>
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={refreshing}
           onClick={() => {
-            setLoading(true);
-            fetchComments();
+            setRefreshing(true);
+            void fetchComments();
           }}
         >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
         </Button>
-      </PageHeader>
+      </CommentsHeader>
 
-      <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
-        <div className="flex items-baseline gap-8 flex-wrap">
-          <Stat label="Total" value={stats.total} />
-          <Stat
-            label="Pending"
-            value={stats.pending}
-            highlight={stats.pending > 0}
-          />
-          <Stat label="Approved" value={stats.approved} />
-          <Stat label="Deleted" value={stats.deleted} />
-        </div>
-
-        <Separator />
-
-        <Tabs
+      <PageToolbar>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search author, comment, post"
+          className="w-64"
+        />
+        <FilterTabs<CommentFilter>
           value={filter}
-          onValueChange={(v) => setFilter(v as CommentFilter)}
-        >
-          <TabsList variant="line">
-            <TabsTrigger value="all">
-              All
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.total}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="pending">
-              Pending
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.pending}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="approved">
-              Approved
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.approved}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="deleted">
-              Deleted
-              <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
-                {stats.deleted}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          onChange={setFilter}
+          options={[
+            { value: "all", label: "All", count: stats.total },
+            { value: "pending", label: "Pending", count: stats.pending },
+            { value: "approved", label: "Approved", count: stats.approved },
+            { value: "deleted", label: "Deleted", count: stats.deleted },
+          ]}
+        />
+        <ToolbarSpacer />
+      </PageToolbar>
 
-        <div className="min-h-0 flex-1">
+      <PageBody width="wide">
+        {comments.length === 0 ? (
+          <EmptyState icon={ICON} label="No comments" />
+        ) : (
           <PaginatedDataTable
             columns={columns}
-            data={filteredComments}
-            emptyMessage="No comments found"
+            data={visibleComments}
+            emptyMessage="No matching comments"
             initialSorting={[{ id: "createdAt", desc: true }]}
-            searchPlaceholder="Search author, content..."
           />
-        </div>
-      </div>
+        )}
+      </PageBody>
 
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete comment?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will delete the comment by &ldquo;{deleteTarget?.authorName}
-              &rdquo;. Comments with replies will be soft-deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={`text-lg font-semibold tabular-nums tracking-tight ${
-          highlight ? "text-primary" : ""
-        }`}
-      >
-        {value}
-      </p>
-    </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete comment?"
+        description={
+          deleteTarget ? `Comment by ${deleteTarget.authorName}.` : undefined
+        }
+        actionLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+      />
+    </Page>
   );
 }

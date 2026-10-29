@@ -1,13 +1,13 @@
 "use client";
 
-import { PageHeader } from "@repo/ui/page-header";
+import { PageHeader } from "@repo/ui/page";
 import type { ComponentProps } from "react";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/workspace/sidebar-trigger";
 
-// Desktop wrapper over @repo/ui's PageHeader that injects the mobile-only nav
-// trigger into the leading slot. Keeps @repo/ui free of the desktop sidebar
-// (which couples to user-settings) and keeps the trigger DRY across pages.
-// A caller-supplied `leading` (e.g. a back button) renders after the trigger.
+/**
+ * @repo/ui's PageHeader with the sidebar trigger in the leading slot; a
+ * caller-supplied `leading` (a back button) renders after it.
+ */
 export function DashboardPageHeader({
   leading,
   ...props
@@ -17,7 +17,7 @@ export function DashboardPageHeader({
       {...props}
       leading={
         <>
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
+          <SidebarTrigger />
           {leading}
         </>
       }

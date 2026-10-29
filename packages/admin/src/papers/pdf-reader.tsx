@@ -1,7 +1,10 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import { PageHeader } from "@repo/ui/page";
 import { Slider } from "@repo/ui/slider";
+import { Spinner } from "@repo/ui/spinner";
+import { SearchField } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
   ChevronLeft,
@@ -10,7 +13,6 @@ import {
   Highlighter,
   Info,
   ListTree,
-  Loader2,
   Pause,
   Search,
   Volume2,
@@ -106,8 +108,7 @@ function SpeakDocumentButton({
     <Button
       type="button"
       variant={speech.state === "idle" ? "ghost" : "secondary"}
-      size={compact ? "icon" : "sm"}
-      className={compact ? "size-8 shrink-0" : "h-7 text-[11px]"}
+      size={compact ? "icon-sm" : "sm"}
       disabled={!document}
       onClick={start}
       aria-label={
@@ -118,17 +119,13 @@ function SpeakDocumentButton({
       }
     >
       {speech.state === "loading" ? (
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner className="size-3.5" />
       ) : speech.state === "playing" ? (
-        <Pause className="size-4" />
+        <Pause />
       ) : (
-        <Volume2 className="size-4" />
+        <Volume2 />
       )}
-      {!compact && (
-        <span className="ml-1">
-          {speech.state === "idle" ? "Listen" : "Stop"}
-        </span>
-      )}
+      {!compact && (speech.state === "idle" ? "Listen" : "Stop")}
     </Button>
   );
 }
@@ -158,13 +155,13 @@ function useDocumentPages(onTotalPages: (total: number) => void) {
 }
 
 const documentLoading = (
-  <div className="flex min-h-80 items-center justify-center text-xs text-muted-foreground">
-    Loading PDF…
+  <div className="flex min-h-80 items-center justify-center">
+    <Spinner className="size-4 text-muted-foreground" />
   </div>
 );
 
 const documentError = (
-  <div className="flex min-h-80 items-center justify-center text-xs text-destructive">
+  <div className="flex min-h-80 items-center justify-center text-sm text-muted-foreground">
     PDF unavailable
   </div>
 );
@@ -201,7 +198,7 @@ function PageJump({
   return (
     <span
       className={cn(
-        "flex items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground",
+        "flex items-center gap-1 text-xs tabular-nums text-muted-foreground",
         className,
       )}
     >
@@ -218,7 +215,7 @@ function PageJump({
           if (event.key === "Escape") setDraft("");
         }}
         aria-label="Page number"
-        className="w-9 bg-transparent text-right tabular-nums outline-none focus:text-foreground"
+        className="w-10 rounded bg-transparent px-0.5 text-right tabular-nums outline-none hover:bg-surface focus:bg-surface focus:text-accent-strong [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
       />
       <span>/ {numPages || "\u2014"}</span>
     </span>
@@ -276,46 +273,43 @@ export function InlinePdfReader({
   };
 
   return (
-    <div className="border-b bg-muted/20">
-      <div className="flex h-9 items-center gap-2 border-b bg-background/80 px-3">
+    <div className="border-b bg-surface/40">
+      <div className="flex h-10 items-center gap-2 border-b bg-background px-3">
         <FileText className="size-3.5 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {fileName}
         </span>
         {onHighlightSelection && selection && (
           <Button
             variant="outline"
-            size="sm"
-            className="h-6 text-[10px]"
+            size="xs"
             onClick={() => {
               onHighlightSelection(selection, page);
               window.getSelection()?.removeAllRanges();
               setSelection("");
             }}
           >
-            <Highlighter className="size-3" /> Highlight
+            <Highlighter /> Highlight
           </Button>
         )}
         <Button
           variant="ghost"
-          size="icon"
-          className="size-6"
+          size="icon-sm"
           disabled={page <= 1}
           onClick={() => turn(-1)}
           aria-label="Previous page"
         >
-          <ChevronLeft className="size-3.5" />
+          <ChevronLeft />
         </Button>
         <PageJump page={page} numPages={numPages} onPageChange={onPageChange} />
         <Button
           variant="ghost"
-          size="icon"
-          className="size-6"
+          size="icon-sm"
           disabled={!numPages || page >= numPages}
           onClick={() => turn(1)}
           aria-label="Next page"
         >
-          <ChevronRight className="size-3.5" />
+          <ChevronRight />
         </Button>
       </div>
       <div
@@ -324,7 +318,7 @@ export function InlinePdfReader({
         tabIndex={0}
         onKeyDown={onKey}
         onMouseUp={() => setSelection(selectionText())}
-        className="flex max-h-[70vh] min-h-[32rem] justify-center overflow-auto p-3 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex max-h-[70vh] min-h-[32rem] justify-center overflow-auto p-3 outline-none focus-visible:ring-1 focus-visible:ring-ring/40 [&_.react-pdf__Page]:ring-1 [&_.react-pdf__Page]:ring-border"
       >
         <Document
           suspense={false}
@@ -645,18 +639,17 @@ export function MobilePdfReader({
       <ReaderBar
         visible={chromeVisible}
         position="top"
-        className="flex items-center gap-2 px-3"
+        className="flex h-11 items-center gap-1 px-3"
       >
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
+          size="icon-sm"
           onClick={onClose}
           aria-label="Close reader"
         >
-          <X className="size-4" />
+          <X />
         </Button>
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-accent-strong">
           {title}
         </span>
         <SpeakDocumentButton
@@ -666,109 +659,51 @@ export function MobilePdfReader({
           compact
         />
         <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
+          variant={panel === "search" ? "secondary" : "ghost"}
+          size="icon-sm"
           onClick={() => {
             setPanel((current) => (current === "search" ? null : "search"));
             setChromeVisible(true);
           }}
           aria-label="Search document"
         >
-          <Search className="size-4" />
+          <Search />
         </Button>
         <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
+          variant={panel === "outline" ? "secondary" : "ghost"}
+          size="icon-sm"
           onClick={() => {
             setPanel((current) => (current === "outline" ? null : "outline"));
             setChromeVisible(true);
           }}
           aria-label="Document outline"
         >
-          <ListTree className="size-4" />
+          <ListTree />
         </Button>
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
+          size="icon-sm"
           onClick={onOpenDetails}
           aria-label="Reading details"
         >
-          <Info className="size-4" />
+          <Info />
         </Button>
       </ReaderBar>
 
       {panel ? (
-        <div className="absolute inset-x-2 top-12 bottom-20 z-20 overflow-y-auto rounded-md border bg-background shadow-lg">
-          {panel === "search" ? (
-            <div>
-              <div className="sticky top-0 border-b bg-background p-3">
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search"
-                  aria-label="Search PDF text"
-                  className="h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="mt-1.5 font-mono text-[9px] text-muted-foreground">
-                  {navigation.searching
-                    ? "Searching…"
-                    : `${navigation.matches.length} matches`}
-                </p>
-              </div>
-              <div className="divide-y">
-                {navigation.matches.map((match) => (
-                  <button
-                    key={`${match.page}:${match.index}`}
-                    type="button"
-                    className="block w-full p-3 text-left"
-                    onClick={() => {
-                      onPageChange(match.page);
-                      setPanel(null);
-                    }}
-                  >
-                    <span className="font-mono text-[9px] text-muted-foreground">
-                      p. {match.page}
-                    </span>
-                    <span className="mt-1 block text-xs leading-5">
-                      {match.excerpt}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {navigation.outline.map((entry, index) => (
-                <button
-                  key={`${entry.title}:${index}`}
-                  type="button"
-                  disabled={!entry.page}
-                  className="block w-full py-3 pr-3 text-left text-xs disabled:opacity-40"
-                  style={{ paddingLeft: `${12 + entry.depth * 14}px` }}
-                  onClick={() => {
-                    if (entry.page) onPageChange(entry.page);
-                    setPanel(null);
-                  }}
-                >
-                  {entry.title}
-                  {entry.page ? (
-                    <span className="ml-2 font-mono text-[9px] text-muted-foreground">
-                      {entry.page}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-              {navigation.outline.length === 0 ? (
-                <p className="p-4 text-center text-xs text-muted-foreground">
-                  —
-                </p>
-              ) : null}
-            </div>
-          )}
+        <div className="absolute inset-x-2 top-12 bottom-20 z-20 overflow-y-auto rounded-lg border bg-popover shadow-lg">
+          <NavigationPanel
+            panel={panel}
+            query={query}
+            onQueryChange={setQuery}
+            searching={navigation.searching}
+            matches={navigation.matches}
+            outline={navigation.outline}
+            onNavigate={(target) => {
+              onPageChange(target);
+              setPanel(null);
+            }}
+          />
         </div>
       ) : null}
 
@@ -817,14 +752,14 @@ export function MobilePdfReader({
           <Button
             variant="outline"
             size="sm"
-            className="h-7 self-start text-[11px]"
+            className="self-start"
             onClick={() => {
               onHighlightSelection(selection, page);
               window.getSelection()?.removeAllRanges();
               setSelection("");
             }}
           >
-            <Highlighter className="size-3" /> Highlight selection
+            <Highlighter /> Highlight
           </Button>
         )}
         <Slider
@@ -837,7 +772,7 @@ export function MobilePdfReader({
             if (next && next !== page) turn(next - page);
           }}
         />
-        <div className="flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
+        <div className="flex items-center justify-between text-xs tabular-nums text-muted-foreground">
           <span className="flex items-center gap-1">
             <PageJump
               page={page}
@@ -891,10 +826,7 @@ export function DesktopPdfReader({
   const [selection, setSelection] = useState("");
   const [panel, setPanel] = useState<"search" | "outline" | null>(null);
   const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [matches, setMatches] = useState<PdfSearchResult[]>([]);
-  const [outline, setOutline] = useState<ResolvedOutlineEntry[]>([]);
-  const textCache = useRef(new Map<number, string>());
+  const { searching, matches, outline } = usePdfNavigation(document, query);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const turn = useCallback(
@@ -941,83 +873,8 @@ export function DesktopPdfReader({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, turn]);
 
-  useEffect(() => {
-    if (!document) return;
-    let cancelled = false;
-    void document.getOutline().then(async (nodes) => {
-      const flat = flattenPdfOutline(nodes ?? []);
-      const resolved = await Promise.all(
-        flat.map(async (entry) => ({
-          ...entry,
-          page: await outlinePage(document, entry.destination).catch(
-            () => undefined,
-          ),
-        })),
-      );
-      if (!cancelled) setOutline(resolved);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [document]);
-
-  useEffect(() => {
-    if (!document || !query.trim()) {
-      setMatches([]);
-      setSearching(false);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      void (async () => {
-        const found: PdfSearchResult[] = [];
-        // Text extraction is independent per page. Work in bounded parallel
-        // batches so large papers do not create hundreds of worker requests at
-        // once, while avoiding a page-by-page network/worker waterfall.
-        for (let start = 1; start <= document.numPages; start += 8) {
-          const pageNumbers = Array.from(
-            { length: Math.min(8, document.numPages - start + 1) },
-            (_, index) => start + index,
-          );
-          const texts = await Promise.all(
-            pageNumbers.map(async (pageNumber) => {
-              const cached = textCache.current.get(pageNumber);
-              if (cached !== undefined) return cached;
-              const pdfPage = await document.getPage(pageNumber);
-              const content = await pdfPage.getTextContent();
-              const text = content.items
-                .map((item) => ("str" in item ? item.str : ""))
-                .join(" ");
-              textCache.current.set(pageNumber, text);
-              return text;
-            }),
-          );
-          if (cancelled) return;
-          for (const [index, text] of texts.entries()) {
-            found.push(
-              ...findPdfMatches(text, query, pageNumbers[index] ?? start),
-            );
-          }
-        }
-        if (cancelled) return;
-        startTransition(() => {
-          setMatches(found);
-          setSearching(false);
-        });
-      })().catch(() => {
-        if (!cancelled) setSearching(false);
-      });
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [document, query]);
-
   const handleDocumentLoad = useCallback(
     (loaded: PDFDocumentProxy) => {
-      textCache.current = new Map();
       setDocument(loaded);
       handleLoad(loaded);
     },
@@ -1026,144 +883,90 @@ export function DesktopPdfReader({
 
   return (
     <div className="fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-50 flex flex-col bg-background">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={onClose}
-          aria-label="Close reader"
-        >
-          <X className="size-4" />
-        </Button>
-        <FileText className="size-3.5 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">{title}</p>
-          <p className="truncate font-mono text-[9px] text-muted-foreground">
-            {fileName}
-          </p>
-        </div>
-        <SpeakDocumentButton
-          document={document}
-          page={page}
-          onPageChange={onPageChange}
-        />
+      <PageHeader
+        leading={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close reader"
+          >
+            <X />
+          </Button>
+        }
+        icon={<FileText />}
+        title={title}
+      >
+        <span className="mr-2 hidden max-w-60 truncate text-xs text-muted-foreground lg:inline">
+          {fileName}
+        </span>
         {onHighlightSelection && selection ? (
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[11px]"
             onClick={() => {
               onHighlightSelection(selection, page);
               window.getSelection()?.removeAllRanges();
               setSelection("");
             }}
           >
-            <Highlighter className="size-3" /> Highlight
+            <Highlighter /> Highlight
           </Button>
         ) : null}
+        <SpeakDocumentButton
+          document={document}
+          page={page}
+          onPageChange={onPageChange}
+        />
         <Button
           variant={panel === "search" ? "secondary" : "ghost"}
-          size="icon"
-          className="size-8"
+          size="icon-sm"
           onClick={() =>
             setPanel((current) => (current === "search" ? null : "search"))
           }
           aria-label="Search document"
         >
-          <Search className="size-4" />
+          <Search />
         </Button>
         <Button
           variant={panel === "outline" ? "secondary" : "ghost"}
-          size="icon"
-          className="size-8"
+          size="icon-sm"
           onClick={() =>
             setPanel((current) => (current === "outline" ? null : "outline"))
           }
           aria-label="Document outline"
         >
-          <ListTree className="size-4" />
+          <ListTree />
         </Button>
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8"
+          size="icon-sm"
           onClick={onOpenDetails}
           aria-label="Reading details"
         >
-          <Info className="size-4" />
+          <Info />
         </Button>
-      </header>
+      </PageHeader>
 
       <div className="flex min-h-0 flex-1">
         {panel ? (
           <aside className="w-80 shrink-0 overflow-y-auto border-r bg-background">
-            {panel === "search" ? (
-              <div>
-                <div className="sticky top-0 border-b bg-background p-3">
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search"
-                    aria-label="Search PDF text"
-                    className="h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  <p className="mt-1.5 font-mono text-[9px] text-muted-foreground">
-                    {searching ? "Searching…" : `${matches.length} matches`}
-                  </p>
-                </div>
-                <div className="divide-y">
-                  {matches.map((match) => (
-                    <button
-                      key={`${match.page}:${match.index}`}
-                      type="button"
-                      className="block w-full p-3 text-left hover:bg-muted/50"
-                      onClick={() => onPageChange(match.page)}
-                    >
-                      <span className="font-mono text-[9px] text-muted-foreground">
-                        p. {match.page}
-                      </span>
-                      <span className="mt-1 block text-[11px] leading-4">
-                        {match.excerpt}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {outline.map((entry, index) => (
-                  <button
-                    key={`${entry.title}:${index}`}
-                    type="button"
-                    disabled={!entry.page}
-                    className="block w-full py-2 pr-3 text-left text-xs hover:bg-muted/50 disabled:opacity-40"
-                    style={{ paddingLeft: `${12 + entry.depth * 14}px` }}
-                    onClick={() => entry.page && onPageChange(entry.page)}
-                  >
-                    {entry.title}
-                    {entry.page ? (
-                      <span className="ml-2 font-mono text-[9px] text-muted-foreground">
-                        {entry.page}
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-                {outline.length === 0 ? (
-                  <p className="p-4 text-center text-xs text-muted-foreground">
-                    —
-                  </p>
-                ) : null}
-              </div>
-            )}
+            <NavigationPanel
+              panel={panel}
+              query={query}
+              onQueryChange={setQuery}
+              searching={searching}
+              matches={matches}
+              outline={outline}
+              onNavigate={onPageChange}
+            />
           </aside>
         ) : null}
 
         <div
           ref={containerRef}
           onMouseUp={() => setSelection(selectionText())}
-          className="min-w-0 flex-1 overflow-auto bg-muted/25 p-6 dark:[&_.react-pdf__Page]:[filter:invert(1)_hue-rotate(180deg)]"
+          className="min-w-0 flex-1 overflow-auto bg-surface/40 p-6 dark:[&_.react-pdf__Page]:[filter:invert(1)_hue-rotate(180deg)]"
         >
           <Document
             suspense={false}
@@ -1172,7 +975,7 @@ export function DesktopPdfReader({
             loading={documentLoading}
             error={documentError}
           >
-            <div className="mx-auto w-fit overflow-hidden shadow-sm">
+            <div className="mx-auto w-fit overflow-hidden ring-1 ring-border">
               <Page
                 pageNumber={page}
                 width={clamp(width - 64, 320, 900)}
@@ -1185,29 +988,113 @@ export function DesktopPdfReader({
         </div>
       </div>
 
-      <footer className="flex h-11 shrink-0 items-center justify-center gap-2 border-t bg-background px-3">
+      <footer className="flex h-11 shrink-0 items-center justify-center gap-1 border-t bg-background px-3">
         <Button
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="icon-sm"
           disabled={page <= 1}
           onClick={() => turn(-1)}
           aria-label="Previous page"
         >
-          <ChevronLeft className="size-4" />
+          <ChevronLeft />
         </Button>
         <PageJump page={page} numPages={numPages} onPageChange={onPageChange} />
         <Button
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="icon-sm"
           disabled={!numPages || page >= numPages}
           onClick={() => turn(1)}
           aria-label="Next page"
         >
-          <ChevronRight className="size-4" />
+          <ChevronRight />
         </Button>
       </footer>
+    </div>
+  );
+}
+
+/** Search results or the outline, shared by both full-screen readers. */
+function NavigationPanel({
+  panel,
+  query,
+  onQueryChange,
+  searching,
+  matches,
+  outline,
+  onNavigate,
+}: {
+  panel: "search" | "outline";
+  query: string;
+  onQueryChange: (query: string) => void;
+  searching: boolean;
+  matches: PdfSearchResult[];
+  outline: ResolvedOutlineEntry[];
+  onNavigate: (page: number) => void;
+}) {
+  if (panel === "search") {
+    return (
+      <div>
+        <div className="sticky top-0 flex flex-col gap-1.5 border-b bg-inherit p-2">
+          <SearchField
+            value={query}
+            onChange={onQueryChange}
+            autoFocus
+            className="w-full"
+          />
+          <span className="flex items-center gap-1.5 px-1 text-xs tabular-nums text-muted-foreground">
+            {searching ? (
+              <Spinner className="size-3" />
+            ) : (
+              `${matches.length} matches`
+            )}
+          </span>
+        </div>
+        <div className="flex flex-col p-1">
+          {matches.map((match) => (
+            <button
+              key={`${match.page}:${match.index}`}
+              type="button"
+              className="flex flex-col gap-0.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-surface/70"
+              onClick={() => onNavigate(match.page)}
+            >
+              <span className="text-xs tabular-nums text-muted-foreground">
+                p. {match.page}
+              </span>
+              <span className="text-xs leading-5 text-accent-strong">
+                {match.excerpt}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (outline.length === 0) {
+    return (
+      <div className="py-10 text-center text-sm text-muted-foreground">
+        No outline
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col p-1">
+      {outline.map((entry, index) => (
+        <button
+          key={`${entry.title}:${index}`}
+          type="button"
+          disabled={!entry.page}
+          className="flex items-baseline gap-2 rounded-md py-1.5 pr-2 text-left text-xs text-accent-strong transition-colors hover:bg-surface/70 disabled:opacity-40"
+          style={{ paddingLeft: `${8 + entry.depth * 14}px` }}
+          onClick={() => entry.page && onNavigate(entry.page)}
+        >
+          <span className="min-w-0 flex-1">{entry.title}</span>
+          {entry.page ? (
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {entry.page}
+            </span>
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }
@@ -1227,9 +1114,12 @@ function ReaderBar({
   const edge = position === "top" ? "top-0 border-b" : "bottom-0 border-t";
   return (
     <div
-      className={`absolute inset-x-0 ${edge} z-10 bg-background/95 backdrop-blur transition-transform duration-200 ${
-        visible ? "translate-y-0" : hidden
-      } ${className ?? ""}`}
+      className={cn(
+        "absolute inset-x-0 z-10 bg-background/95 backdrop-blur transition-transform duration-200",
+        edge,
+        visible ? "translate-y-0" : hidden,
+        className,
+      )}
     >
       {children}
     </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import type { SymbolSearchResult } from "@repo/markets/schemas";
-import { Input } from "@repo/ui/input";
-import { Search } from "lucide-react";
+import { SearchField } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 
@@ -44,42 +44,53 @@ export function SymbolSearch({
     };
   }, [client, query]);
 
+  const pick = (ticker: string) => {
+    onSelect(ticker);
+    setQuery("");
+    setOpen(false);
+  };
+
   return (
     // The list closes on focus leaving the container rather than on the input's
     // own blur, so Tab can reach the results; selection is bound to `click`,
     // which Enter and Space fire and `onMouseDown` does not.
     <div
-      className={`relative ${className}`}
+      className={cn("relative", className)}
       onFocus={() => setOpen(true)}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+        if (
+          event.key === "Enter" &&
+          event.target instanceof HTMLInputElement &&
+          results[0]
+        ) {
+          event.preventDefault();
+          pick(results[0].ticker);
+        }
+      }}
     >
-      <Search className="-translate-y-1/2 absolute top-1/2 left-2 h-3.5 w-3.5 text-muted-foreground" />
-      <Input
+      <SearchField
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") setOpen(false);
-        }}
+        onChange={setQuery}
         placeholder={placeholder}
-        className="h-8 pl-7 text-xs"
+        className="w-full"
       />
       {open && results.length > 0 ? (
-        <div className="absolute top-9 left-0 z-50 w-full overflow-hidden rounded-md border bg-popover shadow-md">
+        <div className="absolute top-8 left-0 z-50 w-full min-w-56 overflow-hidden rounded-md border bg-popover p-1 shadow-md">
           {results.slice(0, 12).map((result) => (
             <button
               key={result.ticker}
               type="button"
-              onClick={() => {
-                onSelect(result.ticker);
-                setQuery("");
-                setOpen(false);
-              }}
-              className="flex w-full items-baseline justify-between px-2 py-1.5 text-left text-xs hover:bg-muted"
+              onClick={() => pick(result.ticker)}
+              className="flex w-full items-baseline justify-between gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none"
             >
-              <span className="font-medium">{result.ticker}</span>
-              <span className="ml-2 truncate text-muted-foreground">
+              <span className="font-medium text-accent-strong">
+                {result.ticker}
+              </span>
+              <span className="truncate text-muted-foreground">
                 {result.name}
               </span>
             </button>

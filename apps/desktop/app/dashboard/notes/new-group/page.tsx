@@ -1,10 +1,12 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import { ArrowLeft, FolderPlus, Loader2 } from "lucide-react";
+import { FolderPlus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -13,8 +15,6 @@ import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { INoteGroup } from "@/lib/data-types";
 import { GroupTreeCombobox } from "../_components/group-tree-combobox";
-
-const NONE_VALUE = "__none__";
 
 export default function NewGroupPage() {
   const router = useRouter();
@@ -28,12 +28,11 @@ export default function NewGroupPage() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [parentId, setParentId] = useState<string>(
-    () => searchParams.get("parent") ?? NONE_VALUE,
+  const [parentId, setParentId] = useState<string | null>(
+    () => searchParams.get("parent") ?? null,
   );
   const [groups, setGroups] = useState<INoteGroup[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const selectedParentIds = parentId === NONE_VALUE ? [] : [parentId];
 
   useEffect(() => {
     if (!api) return;
@@ -51,14 +50,13 @@ export default function NewGroupPage() {
       });
   }, [api]);
 
+  const parent = groups.find((group) => group._id === parentId);
+
   const submit = async () => {
     if (!api || submitting) return;
 
     const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("Name is required");
-      return;
-    }
+    if (!trimmedName) return;
 
     setSubmitting(true);
 
@@ -67,7 +65,7 @@ export default function NewGroupPage() {
       body: {
         name: trimmedName,
         description: description.trim() || undefined,
-        parentId: parentId === NONE_VALUE ? null : parentId,
+        parentId,
       },
     });
 
@@ -83,77 +81,73 @@ export default function NewGroupPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => router.push("/dashboard/notes")}
-            title="Back"
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <FolderPlus className="size-4" />
-          <h1 className="text-sm font-medium">New group</h1>
-        </div>
-
+    <Page>
+      <PageHeader
+        leading={<SidebarTrigger className="-ml-1 size-7 md:hidden" />}
+        icon={<FolderPlus />}
+        title="New group"
+        crumbs={[
+          { label: "Notes", onClick: () => router.push("/dashboard/notes") },
+        ]}
+      >
         <Button
           size="sm"
-          className="h-7"
-          onClick={submit}
-          disabled={submitting}
+          onClick={() => void submit()}
+          disabled={submitting || !api || name.trim().length === 0}
         >
-          {submitting && <Loader2 className="size-3.5 animate-spin" />}
+          {submitting && <Spinner className="size-3.5" />}
           Create
         </Button>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-xl space-y-5 p-6">
-          <div className="space-y-2">
-            <Label className="text-xs">Name</Label>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  void submit();
-                }
-              }}
-              placeholder="Research"
-              className="h-8 text-xs"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Description</Label>
-            <Textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="What this group is about…"
-              className="min-h-20 text-xs"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Parent group</Label>
-            <GroupTreeCombobox
-              groups={groups}
-              value={selectedParentIds}
-              onChange={(next) => setParentId(next.at(-1) ?? NONE_VALUE)}
-              placeholder="Choose parent group…"
-              searchPlaceholder="Search group hierarchy…"
-              emptyMessage="No groups yet"
-            />
-            <p className="text-[10px] text-muted-foreground">
-              Leave empty to create a top-level group.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+      <PageBody width="narrow">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <FormGrid>
+            <FormField label="Name" htmlFor="group-name">
+              <Input
+                id="group-name"
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Parent">
+              <div className="flex h-8 items-center gap-1">
+                <span className="min-w-0 truncate text-sm text-accent-strong">
+                  {parent?.name ?? "Top level"}
+                </span>
+                <GroupTreeCombobox
+                  groups={groups}
+                  value={parentId ? [parentId] : []}
+                  onChange={(next) =>
+                    setParentId(next.find((id) => id !== parentId) ?? null)
+                  }
+                  placeholder="Choose"
+                  searchPlaceholder="Search groups…"
+                  emptyMessage="No groups"
+                />
+              </div>
+            </FormField>
+            <FormField
+              label="Description"
+              htmlFor="group-description"
+              className="sm:col-span-2"
+            >
+              <Textarea
+                id="group-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                className="min-h-32"
+              />
+            </FormField>
+          </FormGrid>
+        </form>
+      </PageBody>
+    </Page>
   );
 }

@@ -2,8 +2,9 @@
 
 import { Copy, Minus, Square, X } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { BackgroundActionsMenu } from "@/components/voice-notes/background-actions-menu";
+import { FavoriteToggle } from "@/components/workspace/favorite-toggle";
 import { isTauri } from "@/lib/platform";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
 
@@ -108,6 +109,9 @@ export function TitleBar() {
           {title}
         </span>
         <div className="ml-auto mr-4 flex items-center gap-1">
+          <Suspense fallback={null}>
+            <FavoriteToggle />
+          </Suspense>
           <BackgroundActionsMenu align="end" />
           <BackgroundTasksIndicator />
         </div>
@@ -127,6 +131,9 @@ export function TitleBar() {
         >
           {title}
         </span>
+        <Suspense fallback={null}>
+          <FavoriteToggle />
+        </Suspense>
         <BackgroundActionsMenu align="start" />
         <BackgroundTasksIndicator />
       </div>
@@ -135,7 +142,7 @@ export function TitleBar() {
         <button
           type="button"
           onClick={() => appWindow?.minimize()}
-          className="inline-flex h-8 w-10 items-center justify-center text-foreground hover:bg-accent/50"
+          className="inline-flex h-8 w-10 items-center justify-center text-foreground hover:bg-surface"
           aria-label="Minimize"
         >
           <Minus className="size-4" />
@@ -144,7 +151,7 @@ export function TitleBar() {
         <button
           type="button"
           onClick={() => appWindow?.toggleMaximize()}
-          className="inline-flex h-8 w-10 items-center justify-center text-foreground hover:bg-accent/50"
+          className="inline-flex h-8 w-10 items-center justify-center text-foreground hover:bg-surface"
           aria-label={isMaximized ? "Restore" : "Maximize"}
         >
           {isMaximized ? (

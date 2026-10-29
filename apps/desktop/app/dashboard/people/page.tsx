@@ -1,34 +1,33 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { Page, PageBody, PageToolbar } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { SplitList, SplitView } from "@repo/ui/split-view";
 import { Textarea } from "@repo/ui/textarea";
 import {
+  type FilterOption,
+  FilterTabs,
+  SearchField,
+  ToolbarSpacer,
+} from "@repo/ui/toolbar";
+import {
   FolderPlus,
-  FolderTree,
-  LayoutGrid,
-  List,
+  List as ListIcon,
   Loader2,
+  Network,
   RefreshCcw,
   UserPlus,
   UsersRound,
-  X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import { useEntityGraphData } from "@/components/graph/entity-graph";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -38,17 +37,31 @@ import type {
   IPersonGroup,
 } from "@/lib/data-types";
 import { buildDescendantIdMap, buildPathLabelMap } from "@/lib/note-group-tree";
+import { cn } from "@/lib/utils";
 import { PersonDetail } from "./_components/person-detail";
 import { getPersonGroupIds, PersonGraph } from "./_components/person-graph";
 import { PersonGroupDetail } from "./_components/person-group-detail";
 import { PersonList } from "./_components/person-list";
 
 type View = "graph" | "list";
+type Selection =
+  | { kind: "person"; id: string }
+  | { kind: "group"; id: string }
+  | null;
+
+const ALL = "all";
 
 function matchesQuery(person: IPerson, query: string, groupLabels: string[]) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
-  return [person.name, person.placeMet, person.notes, ...groupLabels]
+  return [
+    person.name,
+    person.placeMet,
+    person.notes,
+    person.email,
+    person.phone,
+    ...groupLabels,
+  ]
     .filter((value): value is string => Boolean(value))
     .some((value) => value.toLowerCase().includes(normalized));
 }
@@ -62,21 +75,19 @@ export default function PeoplePage() {
     return new denizApi();
   }, [settings, loadingSettings]);
 
-  const [view, setView] = useState<View>("graph");
+  const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [people, setPeople] = useState<IPerson[]>([]);
   const [groups, setGroups] = useState<IPersonGroup[]>([]);
   const [edges, setEdges] = useState<IPersonEdge[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
   const [query, setQuery] = useState("");
-  const [selectedGroupFilters, setSelectedGroupFilters] = useState<string[]>(
-    [],
-  );
+  const [groupFilter, setGroupFilter] = useState<string>(ALL);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [groupDescription, setGroupDescription] = useState("");
+  const [groupPending, setGroupPending] = useState(false);
 
   const load = useCallback(
     async (silent = false) => {
@@ -103,71 +114,126 @@ export default function PeoplePage() {
     void load();
   }, [load]);
 
+  const personParam = searchParams.get("person");
   useEffect(() => {
-    const personId = searchParams.get("person");
-    if (personId && people.some((person) => person._id === personId)) {
-      setSelectedGroupId(null);
-      setSelectedId(personId);
+    if (personParam && people.some((person) => person._id === personParam)) {
+      setSelection({ kind: "person", id: personParam });
+      setView("list");
     }
-  }, [people, searchParams]);
+  }, [people, personParam]);
 
   const pathLabelById = useMemo(() => buildPathLabelMap(groups), [groups]);
   const descendantIdsByGroup = useMemo(
     () => buildDescendantIdMap(groups),
     [groups],
   );
-  const selectedGroupScope = useMemo(() => {
-    const next = new Set<string>();
-    for (const groupId of selectedGroupFilters) {
-      for (const scopedId of descendantIdsByGroup.get(groupId) ?? [groupId]) {
-        next.add(scopedId);
-      }
-    }
-    return next;
-  }, [descendantIdsByGroup, selectedGroupFilters]);
+  const groupScope = useMemo(() => {
+    if (groupFilter === ALL) return null;
+    return descendantIdsByGroup.get(groupFilter) ?? new Set([groupFilter]);
+  }, [descendantIdsByGroup, groupFilter]);
 
-  const filteredPeople = useMemo(
+  const searchedPeople = useMemo(
     () =>
       people.filter((person) => {
         const labels = person.groupIds
           .map((groupId) => pathLabelById.get(groupId))
           .filter((label): label is string => Boolean(label));
-        if (!matchesQuery(person, query, labels)) return false;
-        if (
-          selectedGroupScope.size > 0 &&
-          !person.groupIds.some((groupId) => selectedGroupScope.has(groupId))
-        ) {
-          return false;
-        }
-        return true;
+        return matchesQuery(person, query, labels);
       }),
-    [pathLabelById, people, query, selectedGroupScope],
+    [pathLabelById, people, query],
   );
 
-  const sortedPeople = useMemo(
+  const visiblePeople = useMemo(
     () =>
-      [...filteredPeople].sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() -
-          new Date(left.updatedAt).getTime(),
-      ),
-    [filteredPeople],
+      searchedPeople
+        .filter(
+          (person) =>
+            !groupScope ||
+            person.groupIds.some((groupId) => groupScope.has(groupId)),
+        )
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [groupScope, searchedPeople],
   );
+
+  const rootGroups = useMemo(
+    () =>
+      groups
+        .filter(
+          (group) =>
+            !group.parentId ||
+            !groups.some((candidate) => candidate._id === group.parentId),
+        )
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [groups],
+  );
+
+  const filterOptions = useMemo<FilterOption<string>[]>(() => {
+    const countIn = (groupId: string) => {
+      const scope = descendantIdsByGroup.get(groupId) ?? new Set([groupId]);
+      return searchedPeople.filter((person) =>
+        person.groupIds.some((id) => scope.has(id)),
+      ).length;
+    };
+    return [
+      { value: ALL, label: "All", count: searchedPeople.length },
+      ...rootGroups.map((group) => ({
+        value: group._id,
+        label: group.name,
+        count: countIn(group._id),
+      })),
+    ];
+  }, [descendantIdsByGroup, rootGroups, searchedPeople]);
+
+  useEffect(() => {
+    if (groupFilter !== ALL && !groups.some((g) => g._id === groupFilter)) {
+      setGroupFilter(ALL);
+    }
+  }, [groupFilter, groups]);
+
+  const relationCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const edge of edges) {
+      counts.set(edge.from, (counts.get(edge.from) ?? 0) + 1);
+      counts.set(edge.to, (counts.get(edge.to) ?? 0) + 1);
+    }
+    return counts;
+  }, [edges]);
+
   const { visibleGroups: graphGroups, visibleEdges: graphEdges } =
     useEntityGraphData({
-      items: sortedPeople,
+      items: visiblePeople,
       groups,
       edges,
       getItemGroupIds: getPersonGroupIds,
     });
+
   const selectedPerson = useMemo(
-    () => people.find((person) => person._id === selectedId) ?? null,
-    [people, selectedId],
+    () =>
+      selection?.kind === "person"
+        ? (people.find((person) => person._id === selection.id) ?? null)
+        : null,
+    [people, selection],
   );
   const selectedGroup = useMemo(
-    () => groups.find((group) => group._id === selectedGroupId) ?? null,
-    [groups, selectedGroupId],
+    () =>
+      selection?.kind === "group"
+        ? (groups.find((group) => group._id === selection.id) ?? null)
+        : null,
+    [groups, selection],
   );
+
+  const selectPerson = (person: IPerson) => {
+    setSelection({ kind: "person", id: person._id });
+    setView("list");
+  };
+  const selectGroup = (group: IPersonGroup) => {
+    setSelection({ kind: "group", id: group._id });
+    setView("list");
+  };
+  const clearSelection = () => {
+    setSelection(null);
+    if (personParam) router.replace("/dashboard/people");
+  };
 
   const savePerson = async (id: string, body: Record<string, unknown>) => {
     if (!api) return null;
@@ -182,7 +248,8 @@ export default function PeoplePage() {
     setPeople((current) =>
       current.map((person) => (person._id === id ? result.person : person)),
     );
-    toast.success("Person saved");
+    toast.success("Saved");
+    // Relations are symmetric: the other ends' edges changed server-side.
     await load(true);
     return result.person;
   };
@@ -196,12 +263,12 @@ export default function PeoplePage() {
       toast.error(result.message);
       return;
     }
-    setSelectedId(null);
+    clearSelection();
     setPeople((current) => current.filter((person) => person._id !== id));
     setEdges((current) =>
       current.filter((edge) => edge.from !== id && edge.to !== id),
     );
-    toast.success("Person deleted");
+    toast.success("Deleted");
   };
 
   const createPersonGroup = async (name: string, description?: string) => {
@@ -226,11 +293,15 @@ export default function PeoplePage() {
   };
 
   const createGroup = async () => {
+    setGroupPending(true);
     const group = await createPersonGroup(groupName, groupDescription);
+    setGroupPending(false);
     if (!group) return;
     setCreatingGroup(false);
     setGroupName("");
     setGroupDescription("");
+    setSelection({ kind: "group", id: group._id });
+    setView("list");
   };
 
   const updateGroup = async (id: string, patch: Partial<IPersonGroup>) => {
@@ -258,224 +329,180 @@ export default function PeoplePage() {
       toast.error(result.message);
       return;
     }
-    setSelectedGroupId(null);
+    setSelection(null);
     await load(true);
   };
 
-  if (loading) return <PeopleLoadingSkeleton />;
-
-  if (selectedPerson) {
-    return (
-      <PersonDetail
-        person={selectedPerson}
-        people={people}
-        groups={groups}
-        edges={edges}
-        api={api}
-        onCreateGroup={(name) => createPersonGroup(name)}
-        onBack={() => {
-          setSelectedId(null);
-          router.replace("/dashboard/people");
-        }}
-        onSave={(body) => savePerson(selectedPerson._id, body)}
-        onDelete={() => deletePerson(selectedPerson._id)}
-      />
-    );
-  }
-
-  if (selectedGroup) {
-    return (
-      <PersonGroupDetail
-        group={selectedGroup}
-        groups={groups}
-        people={people}
-        onBack={() => setSelectedGroupId(null)}
-        onUpdate={updateGroup}
-        onDelete={deleteGroup}
-        onSelectPerson={(person) => {
-          setSelectedGroupId(null);
-          setSelectedId(person._id);
-        }}
-      />
-    );
-  }
-
-  const hasActiveFilters =
-    query.trim().length > 0 || selectedGroupFilters.length > 0;
+  const detailOpen = Boolean(selectedPerson || selectedGroup);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 md:h-12 md:flex-nowrap md:py-0">
-        <div className="flex w-full items-center gap-2 md:w-auto">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <UsersRound className="size-4" />
-          <h1 className="text-sm font-medium">People</h1>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground md:ml-0">
-            {sortedPeople.length} / {people.length} · {groups.length} groups
-          </span>
-        </div>
-        <div className="flex w-full grow items-center gap-2 md:ml-2 md:w-auto">
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search name, notes, place…"
-            className="h-7 w-full! max-w-full! text-xs"
-          />
-          <Tabs value={view} onValueChange={(value) => setView(value as View)}>
-            <TabsList className="h-7!">
-              <TabsTrigger value="graph" className="h-5.5 px-2 text-xs">
-                <LayoutGrid className="size-3.5" />
-              </TabsTrigger>
-              <TabsTrigger value="list" className="h-5.5 px-2 text-xs">
-                <List className="size-3.5" />
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => void load(true)}
-          >
-            {refreshing ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCcw className="size-3.5" />
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => setCreatingGroup(true)}
-          >
-            <FolderPlus className="size-3.5" />
-            <span className="hidden lg:inline">Group</span>
-          </Button>
-          <Button
-            size="sm"
-            className="h-7"
-            onClick={() => router.push("/dashboard/people/new")}
-          >
-            <UserPlus className="size-3.5" />
-            <span className="hidden lg:inline">Person</span>
-          </Button>
-        </div>
-      </div>
+    <Page>
+      <DashboardPageHeader icon={<UsersRound />} title="People">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={view === "list" ? "Graph" : "List"}
+          onClick={() => setView(view === "list" ? "graph" : "list")}
+        >
+          {view === "list" ? <Network /> : <ListIcon />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Refresh"
+          disabled={refreshing || loading}
+          onClick={() => void load(true)}
+        >
+          {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCcw />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setCreatingGroup(true)}
+        >
+          <FolderPlus />
+          Group
+        </Button>
+        <Button size="sm" onClick={() => router.push("/dashboard/people/new")}>
+          <UserPlus />
+          Person
+        </Button>
+      </DashboardPageHeader>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <span className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-          <FolderTree className="size-3.5" />
-        </span>
-        <GroupTreeCombobox
-          groups={groups}
-          value={selectedGroupFilters}
-          onChange={setSelectedGroupFilters}
-          placeholder="Filter groups…"
-          searchPlaceholder="Search group hierarchy…"
-          emptyMessage="No groups yet"
+      <PageToolbar>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search people"
+          className="w-full sm:w-64"
         />
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-7 px-2 text-xs"
-            onClick={() => {
-              setQuery("");
-              setSelectedGroupFilters([]);
-            }}
-          >
-            <X className="size-3.5" />
-            Clear
-          </Button>
-        )}
-      </div>
+        <FilterTabs
+          value={groupFilter}
+          onChange={setGroupFilter}
+          options={filterOptions}
+          className="min-w-0 overflow-x-auto"
+        />
+        <ToolbarSpacer />
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {visiblePeople.length}/{people.length}
+        </span>
+      </PageToolbar>
 
-      <div className="flex-1 overflow-hidden">
-        {view === "graph" ? (
+      {loading ? (
+        <PeopleLoadingSkeleton />
+      ) : view === "graph" ? (
+        <PageBody bleed>
           <PersonGraph
-            people={sortedPeople}
+            people={visiblePeople}
             groups={graphGroups}
             edges={graphEdges}
-            onSelectPerson={(person) => {
-              setSelectedGroupId(null);
-              setSelectedId(person._id);
-            }}
-            onSelectGroup={(group) => {
-              setSelectedId(null);
-              setSelectedGroupId(group._id);
-            }}
+            onSelectPerson={selectPerson}
+            onSelectGroup={selectGroup}
           />
-        ) : (
-          <PersonList
-            people={sortedPeople}
-            groups={groups}
-            onSelect={(person) => {
-              setSelectedGroupId(null);
-              setSelectedId(person._id);
-            }}
-            onSelectGroup={(group) => {
-              setSelectedId(null);
-              setSelectedGroupId(group._id);
-            }}
-          />
-        )}
-      </div>
+        </PageBody>
+      ) : (
+        <SplitView
+          detailOpen={detailOpen}
+          listWidth="md:w-80"
+          list={
+            <SplitList>
+              <PersonList
+                people={visiblePeople}
+                groups={groups}
+                relationCounts={relationCounts}
+                selectedId={selectedPerson?._id ?? null}
+                onSelect={selectPerson}
+              />
+            </SplitList>
+          }
+          detail={
+            selectedPerson ? (
+              <PersonDetail
+                key={selectedPerson._id}
+                person={selectedPerson}
+                people={people}
+                groups={groups}
+                edges={edges}
+                api={api}
+                onCreateGroup={(name) => createPersonGroup(name)}
+                onBack={clearSelection}
+                onSave={(body) => savePerson(selectedPerson._id, body)}
+                onDelete={() => deletePerson(selectedPerson._id)}
+              />
+            ) : selectedGroup ? (
+              <PersonGroupDetail
+                key={selectedGroup._id}
+                group={selectedGroup}
+                groups={groups}
+                people={people}
+                onBack={clearSelection}
+                onUpdate={updateGroup}
+                onDelete={deleteGroup}
+                onSelectPerson={selectPerson}
+              />
+            ) : (
+              <EmptyState icon={<UsersRound />} label="No person selected" />
+            )
+          }
+        />
+      )}
 
-      <Dialog open={creatingGroup} onOpenChange={setCreatingGroup}>
-        <DialogContent className="max-w-md">
-          <DialogTitle>New people group</DialogTitle>
-          <DialogDescription className="sr-only">
-            Create a group for people.
-          </DialogDescription>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Name</Label>
-              <Input
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Description</Label>
-              <Textarea
-                value={groupDescription}
-                onChange={(event) => setGroupDescription(event.target.value)}
-              />
-            </div>
-          </div>
-          <Button size="sm" onClick={createGroup} disabled={!groupName.trim()}>
-            Create
-          </Button>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <FormDialog
+        open={creatingGroup}
+        onOpenChange={setCreatingGroup}
+        title="New group"
+        submitLabel="Create"
+        submitDisabled={!groupName.trim()}
+        pending={groupPending}
+        onSubmit={createGroup}
+      >
+        <FormGrid>
+          <FormField
+            label="Name"
+            htmlFor="person-group-name"
+            className="sm:col-span-2"
+          >
+            <Input
+              id="person-group-name"
+              autoFocus
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Description"
+            htmlFor="person-group-description"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              id="person-group-description"
+              rows={6}
+              value={groupDescription}
+              onChange={(event) => setGroupDescription(event.target.value)}
+            />
+          </FormField>
+        </FormGrid>
+      </FormDialog>
+    </Page>
   );
 }
 
 function PeopleLoadingSkeleton() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-          <UsersRound className="size-4" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-7 w-72" />
-          <Skeleton className="h-7 w-16" />
-          <Skeleton className="h-7 w-24" />
-          <Skeleton className="h-7 w-20" />
-        </div>
+    <div className="flex min-h-0 flex-1">
+      <div className="flex w-full flex-col gap-1 border-r p-2 md:w-80">
+        {Array.from({ length: 12 }).map((_, index) => (
+          <div key={index} className="flex h-11 items-center gap-3 px-2">
+            <Skeleton className="size-5 rounded-full" />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Skeleton className={cn("h-3.5", index % 2 ? "w-28" : "w-36")} />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-3 w-10" />
+          </div>
+        ))}
       </div>
-      <div className="flex items-center gap-2 border-b px-4 py-1">
-        <Skeleton className="h-7 w-44" />
-        <Skeleton className="ml-auto h-7 w-24" />
-      </div>
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
+      <div className="hidden flex-1 md:block" />
     </div>
   );
 }

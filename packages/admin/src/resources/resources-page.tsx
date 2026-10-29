@@ -2,22 +2,22 @@
 
 import type { IResource } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import { Activity, ArrowLeft, Loader2, Plus, Radio } from "lucide-react";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List } from "@repo/ui/list";
+import { Page, PageBody, PageHeader } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { Stat, StatGroup } from "@repo/ui/stat";
+import { StatusDot } from "@repo/ui/status-dot";
+import { Activity, Pencil, Plus, Radio } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { CreateResourceDialog } from "./create-resource-dialog";
 import { ResourceDetail } from "./resource-detail";
 import { ResourceRow } from "./resource-row";
-import { getResourceStatus } from "./status";
+import { getResourceStatus, RESOURCE_STATUS_TONE } from "./status";
 
 interface HealthCheckResult {
   resourceId: string;
@@ -29,68 +29,42 @@ interface HealthCheckResult {
   } | null;
 }
 
-function StatusPing({
-  status,
-}: {
-  status: ReturnType<typeof getResourceStatus>;
-}) {
-  if (status === "up") {
-    return (
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full rounded-full bg-accent opacity-40 animate-ping" />
-        <span className="relative inline-flex size-2 rounded-full bg-accent" />
-      </span>
-    );
-  }
-  if (status === "degraded") {
-    return (
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full rounded-full bg-amber-400 opacity-40 animate-ping" />
-        <span className="relative inline-flex size-2 rounded-full bg-amber-400" />
-      </span>
-    );
-  }
-  if (status === "down") {
-    return (
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full rounded-full bg-red-400 opacity-40 animate-ping" />
-        <span className="relative inline-flex size-2 rounded-full bg-red-500" />
-      </span>
-    );
-  }
-  return <span className="size-2 rounded-full bg-muted-foreground/30" />;
-}
-
 export function ResourcesSkeleton() {
   const { slots } = useAdmin();
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        {slots?.sidebarTrigger}
-        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
-        <div className="flex-1" />
-        <div className="h-7 w-24 bg-muted/50 rounded animate-pulse" />
-      </div>
-      <div className="flex-1 overflow-auto">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-4 px-4 py-3 border-b border-border/50"
-          >
-            <div className="size-2 bg-muted/50 rounded-full animate-pulse" />
-            <div className="flex-1 flex flex-col gap-1.5">
-              <div className="h-3.5 w-40 bg-muted/50 rounded animate-pulse" />
-              <div className="h-2.5 w-56 bg-muted/50 rounded animate-pulse" />
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<Radio />}
+        title="Resources"
+      >
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-16" />
+      </PageHeader>
+      <PageBody>
+        <StatGroup>
+          {["Total", "Up", "Down"].map((label) => (
+            <div key={label} className="flex flex-col gap-1">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="h-6 w-8" />
             </div>
-            <div className="hidden md:flex gap-6">
-              <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
-              <div className="h-4 w-14 bg-muted/50 rounded animate-pulse" />
-              <div className="h-4 w-14 bg-muted/50 rounded animate-pulse" />
+          ))}
+        </StatGroup>
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex min-h-12 items-center gap-3 py-2">
+              <Skeleton className="size-2 rounded-full" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-2.5 w-56" />
+              </div>
+              <Skeleton className="hidden h-4 w-44 md:block" />
+              <Skeleton className="hidden h-6 w-32 md:block" />
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -108,7 +82,6 @@ export function ResourcesPage() {
     null,
   );
   const [deleteTarget, setDeleteTarget] = useState<IResource | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [healthChecking, setHealthChecking] = useState(false);
 
   useEffect(() => {
@@ -162,19 +135,14 @@ export function ResourcesPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  const handleDelete = async (target: IResource) => {
     try {
-      await client.del(`resources/${deleteTarget._id}`);
-      setResources((prev) => prev.filter((r) => r._id !== deleteTarget._id));
-      if (selectedResourceId === deleteTarget._id) setSelectedResourceId(null);
-      setDeleteTarget(null);
+      await client.del(`resources/${target._id}`);
+      setResources((prev) => prev.filter((r) => r._id !== target._id));
+      if (selectedResourceId === target._id) setSelectedResourceId(null);
       toast.success("Resource deleted");
     } catch {
       toast.error("Failed to delete resource");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -255,114 +223,126 @@ export function ResourcesPage() {
     return <ResourcesSkeleton />;
   }
 
-  const totalResources = resources.length;
   const healthyCount = resources.filter(
     (r) => getResourceStatus(r) === "up",
+  ).length;
+  const degradedCount = resources.filter(
+    (r) => getResourceStatus(r) === "degraded",
   ).length;
   const unhealthyCount = resources.filter(
     (r) => getResourceStatus(r) === "down",
   ).length;
 
+  const healthCheckButton = (onClick: () => void, label: string) => (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      disabled={healthChecking || resources.length === 0}
+    >
+      {healthChecking ? <Spinner className="size-3.5" /> : <Activity />}
+      {label}
+    </Button>
+  );
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        {slots?.sidebarTrigger}
-        {selectedResource ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={() => setSelectedResourceId(null)}
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-            <StatusPing status={getResourceStatus(selectedResource)} />
-            <span className="text-sm font-semibold flex-1 truncate">
-              {selectedResource.name}
-            </span>
-          </>
-        ) : (
-          <>
-            <Radio className="size-4 text-muted-foreground" />
-            <span className="text-sm font-semibold flex-1">Resources</span>
-
-            <div className="hidden sm:flex items-center gap-3 mr-3 text-xs">
-              <span className="font-mono text-muted-foreground/70 tabular-nums">
-                {totalResources}{" "}
-                <span className="text-[9px] uppercase tracking-wider">
-                  total
-                </span>
-              </span>
-              {healthyCount > 0 && (
-                <span className="font-mono text-accent tabular-nums">
-                  {healthyCount}{" "}
-                  <span className="text-[9px] uppercase tracking-wider">
-                    up
-                  </span>
-                </span>
-              )}
-              {unhealthyCount > 0 && (
-                <span className="font-mono text-red-500/70 tabular-nums">
-                  {unhealthyCount}{" "}
-                  <span className="text-[9px] uppercase tracking-wider">
-                    down
-                  </span>
-                </span>
-              )}
-            </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleHealthCheckAll}
-              disabled={healthChecking || resources.length === 0}
-              className="gap-1.5 text-muted-foreground"
-            >
-              {healthChecking ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Activity className="size-3" />
-              )}
-              Check All
-            </Button>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-3" /> New
-            </Button>
-          </>
-        )}
-      </div>
+    <Page>
+      {selectedResource ? (
+        <PageHeader
+          leading={slots?.sidebarTrigger}
+          crumbs={[
+            { label: "Resources", onClick: () => setSelectedResourceId(null) },
+          ]}
+          icon={
+            <StatusDot
+              tone={RESOURCE_STATUS_TONE[getResourceStatus(selectedResource)]}
+            />
+          }
+          title={selectedResource.name}
+        >
+          {healthCheckButton(
+            () => handleSingleHealthCheck(selectedResource),
+            "Check",
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Edit resource"
+            onClick={() => setEditingResource(selectedResource)}
+          >
+            <Pencil />
+          </Button>
+        </PageHeader>
+      ) : (
+        <PageHeader
+          leading={slots?.sidebarTrigger}
+          icon={<Radio />}
+          title="Resources"
+        >
+          {healthCheckButton(handleHealthCheckAll, "Check all")}
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus /> New
+          </Button>
+        </PageHeader>
+      )}
 
       {selectedResource ? (
-        <ResourceDetail
-          resource={selectedResource}
-          onUpdate={handleResourceUpdate}
-        />
+        <PageBody>
+          <ResourceDetail
+            key={selectedResource._id}
+            resource={selectedResource}
+            onUpdate={handleResourceUpdate}
+          />
+        </PageBody>
       ) : resources.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground/60">
-          <Radio className="size-8 opacity-30" />
-          <p className="text-sm">No resources yet</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="size-3" /> Add Resource
-          </Button>
-        </div>
+        <PageBody>
+          <EmptyState
+            icon={<Radio />}
+            label="No resources"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus /> Add
+              </Button>
+            }
+          />
+        </PageBody>
       ) : (
-        <div className="flex-1 overflow-auto">
-          {resources.map((resource) => (
-            <ResourceRow
-              key={resource._id}
-              resource={resource}
-              onSelect={() => setSelectedResourceId(resource._id)}
-              onEdit={() => setEditingResource(resource)}
-              onDelete={() => setDeleteTarget(resource)}
-              onHealthCheck={() => handleSingleHealthCheck(resource)}
+        <PageBody>
+          <StatGroup>
+            <Stat label="Total" value={resources.length} />
+            <Stat
+              label="Up"
+              value={healthyCount}
+              tone={healthyCount > 0 ? "good" : "muted"}
             />
-          ))}
-        </div>
+            <Stat
+              label="Degraded"
+              value={degradedCount}
+              tone={degradedCount > 0 ? "warning" : "muted"}
+            />
+            <Stat
+              label="Down"
+              value={unhealthyCount}
+              tone={unhealthyCount > 0 ? "critical" : "muted"}
+            />
+          </StatGroup>
+          <List divided>
+            {resources.map((resource) => (
+              <ResourceRow
+                key={resource._id}
+                resource={resource}
+                onSelect={() => setSelectedResourceId(resource._id)}
+                onEdit={() => setEditingResource(resource)}
+                onDelete={() => setDeleteTarget(resource)}
+                onHealthCheck={() => handleSingleHealthCheck(resource)}
+              />
+            ))}
+          </List>
+        </PageBody>
       )}
 
       <CreateResourceDialog
@@ -379,36 +359,17 @@ export function ResourcesPage() {
         key={editingResource?._id ?? "edit-dialog"}
       />
 
-      <Dialog
+      <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Resource</DialogTitle>
-            <DialogDescription>
-              Delete &quot;{deleteTarget?.name}&quot;? All capabilities and
-              monitoring data will be permanently removed.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete Resource"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        title={`Delete ${deleteTarget?.name ?? "resource"}?`}
+        description="Capabilities and monitoring history go with it."
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
+    </Page>
   );
 }

@@ -37,24 +37,21 @@ export const STATUS_LABELS: Record<CourseAssignmentStatus, string> =
     ASSIGNMENT_STATUSES.map((s) => [s.value, s.label]),
   ) as Record<CourseAssignmentStatus, string>;
 
-/**
- * Tailwind classes for a status pill. Deliberately not tied to the semantic
- * colour tokens: these are five neighbouring states, not five severities.
- */
+/** Text colour per status, from the `--status-*` tokens. */
 export const STATUS_TONE: Record<CourseAssignmentStatus, string> = {
   planned: "text-muted-foreground",
-  "in-progress": "text-blue-600 dark:text-blue-400",
-  submitted: "text-amber-600 dark:text-amber-400",
-  graded: "text-emerald-600 dark:text-emerald-400",
+  "in-progress": "text-status-info",
+  submitted: "text-status-warning",
+  graded: "text-status-good",
   archived: "text-muted-foreground/60",
 };
 
-/** Fill colours for the progress strip, matching STATUS_TONE's text colours. */
+/** Fill colours for the progress strip, matching STATUS_TONE. */
 export const STATUS_BAR: Record<CourseAssignmentStatus, string> = {
   planned: "bg-muted-foreground/30",
-  "in-progress": "bg-blue-500",
-  submitted: "bg-amber-500",
-  graded: "bg-emerald-500",
+  "in-progress": "bg-status-info",
+  submitted: "bg-status-warning",
+  graded: "bg-status-good",
   archived: "bg-muted-foreground/20",
 };
 

@@ -9,14 +9,16 @@ import type {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
 import { Input } from "@repo/ui/input";
+import { List, ListRow } from "@repo/ui/list";
 import { Skeleton } from "@repo/ui/skeleton";
-import { cn } from "@repo/ui/utils";
+import { Spinner } from "@repo/ui/spinner";
 import {
   Check,
   Copy,
   ExternalLink,
-  Loader2,
+  KeyRound,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -25,7 +27,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../../provider";
-import { SettingsGroup } from "../settings-shell";
+import { SettingsGroup, SettingsRow } from "../settings-shell";
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, {
@@ -53,39 +55,29 @@ function SecretReveal({
       await platform.copyText(secret);
       setCopied(true);
     } catch {
-      toast.error("Clipboard unavailable — select the value manually");
+      toast.error("Copy failed");
     }
   };
 
   return (
-    <div className="flex items-center gap-2 border-l-2 border-status-warning bg-status-warning/5 py-2 pl-3 pr-2">
+    <div className="flex items-center gap-2 border-l-2 border-status-warning py-1 pl-3">
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-status-warning">
           Shown once
         </div>
-        <code className="mt-0.5 block truncate font-mono text-xs">
+        <code className="mt-0.5 block select-all truncate font-mono text-xs text-accent-strong">
           {secret}
         </code>
       </div>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         aria-label="Copy key"
-        className="size-7 shrink-0"
         onClick={() => void copy()}
       >
-        {copied ? (
-          <Check className="size-3.5 text-status-good" />
-        ) : (
-          <Copy className="size-3.5" />
-        )}
+        {copied ? <Check className="text-status-good" /> : <Copy />}
       </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 shrink-0 text-xs"
-        onClick={onDismiss}
-      >
+      <Button variant="ghost" size="sm" onClick={onDismiss}>
         Done
       </Button>
     </div>
@@ -104,57 +96,56 @@ function ApiKeyRow({
   const [busy, setBusy] = useState(false);
 
   return (
-    <div className="group flex items-center gap-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-xs">{apiKey.name}</div>
-        <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-          {formatDate(apiKey.createdAt)}
-        </div>
-      </div>
-
-      <ConfirmButton
-        title={`Rotate ${apiKey.name}?`}
-        description="The current key stops working immediately. The replacement is shown once."
-        actionLabel="Rotate"
-        onConfirm={async () => {
-          setBusy(true);
-          await onRotate(apiKey.id);
-          setBusy(false);
-        }}
-        trigger={
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={busy}
-            aria-label={`Rotate ${apiKey.name}`}
-            className="size-7 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3.5" />
-            )}
-          </Button>
-        }
-      />
-
-      <ConfirmButton
-        title={`Delete ${apiKey.name}?`}
-        description="Anything signing with this key stops working immediately."
-        actionLabel="Delete"
-        onConfirm={() => onDelete(apiKey.id)}
-        trigger={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={`Delete ${apiKey.name}`}
-            className="size-7 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        }
-      />
-    </div>
+    <ListRow
+      leading={<KeyRound />}
+      title={<span className="font-mono">{apiKey.name}</span>}
+      meta={formatDate(apiKey.createdAt)}
+      trailing={
+        <>
+          <ConfirmButton
+            title={`Rotate ${apiKey.name}?`}
+            description="The current key stops working."
+            actionLabel="Rotate"
+            onConfirm={async () => {
+              setBusy(true);
+              try {
+                await onRotate(apiKey.id);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy}
+                aria-label={`Rotate ${apiKey.name}`}
+                className="text-muted-foreground"
+              >
+                {busy ? <Spinner className="size-3.5" /> : <RefreshCw />}
+              </Button>
+            }
+          />
+          <ConfirmButton
+            title={`Delete ${apiKey.name}?`}
+            description="Anything signing with it stops working."
+            actionLabel="Delete"
+            destructive
+            onConfirm={() => onDelete(apiKey.id)}
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Delete ${apiKey.name}`}
+                className="text-muted-foreground"
+              >
+                <Trash2 />
+              </Button>
+            }
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -221,63 +212,59 @@ function ApiKeysGroup() {
       label="API keys"
       actions={
         keys && (
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             {keys.length}
           </span>
         )
       }
     >
-      <div className="space-y-3">
-        {secret && (
-          <SecretReveal secret={secret} onDismiss={() => setSecret(null)} />
-        )}
+      {secret && (
+        <SecretReveal secret={secret} onDismiss={() => setSecret(null)} />
+      )}
 
-        <div className="flex items-center gap-2">
-          <Input
-            value={name}
-            placeholder="New key name"
-            className="h-8 min-w-0 flex-1 text-xs"
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void create();
-            }}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Create API key"
-            className="size-8 shrink-0"
-            disabled={creating || !name.trim()}
-            onClick={() => void create()}
-          >
-            {creating ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Plus className="size-3.5" />
-            )}
-          </Button>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
+        }}
+      >
+        <Input
+          value={name}
+          placeholder="Key name"
+          aria-label="New key name"
+          className="min-w-0 flex-1"
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={creating || !name.trim()}
+        >
+          {creating ? <Spinner className="size-3.5" /> : <Plus />}
+          Create
+        </Button>
+      </form>
+
+      {keys === null ? (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
         </div>
-
-        {keys === null ? (
-          <div className="space-y-2 pt-1">
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </div>
-        ) : keys.length === 0 ? (
-          <p className="py-3 text-xs text-muted-foreground">—</p>
-        ) : (
-          <div className="divide-y">
-            {keys.map((apiKey) => (
-              <ApiKeyRow
-                key={apiKey.id}
-                apiKey={apiKey}
-                onRotate={rotate}
-                onDelete={remove}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      ) : keys.length === 0 ? (
+        <EmptyState compact icon={<KeyRound />} label="No keys" />
+      ) : (
+        <List divided>
+          {keys.map((apiKey) => (
+            <ApiKeyRow
+              key={apiKey.id}
+              apiKey={apiKey}
+              onRotate={rotate}
+              onDelete={remove}
+            />
+          ))}
+        </List>
+      )}
     </SettingsGroup>
   );
 }
@@ -325,86 +312,70 @@ function InstagramGroup() {
       {loading ? (
         <Skeleton className="h-9 w-full" />
       ) : failed ? (
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-[11px] text-status-warning">
-            Load failed
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
-            onClick={() => void load()}
-          >
-            <RotateCcw className="size-3" />
-            Retry
-          </Button>
-        </div>
+        <EmptyState
+          compact
+          label="Load failed"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              <RotateCcw /> Retry
+            </Button>
+          }
+        />
       ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          {status?.token ? (
-            <>
+        <SettingsRow
+          label="Token"
+          hint={status?.token ? formatDate(status.token.expiresAt) : undefined}
+        >
+          <div className="flex items-center gap-2">
+            {status?.token ? (
               <Badge
                 variant={
                   days === null || days < 0
-                    ? "destructive"
+                    ? "critical"
                     : days <= 7
-                      ? "outline"
+                      ? "warning"
                       : "secondary"
                 }
-                className={cn(
-                  "shrink-0 tabular-nums",
-                  days !== null &&
-                    days >= 0 &&
-                    days <= 7 &&
-                    "border-status-warning text-status-warning",
-                )}
               >
-                {days !== null && days < 0 ? "Expired" : `Expires in ${days}d`}
+                {days !== null && days < 0 ? "Expired" : `${days}d left`}
               </Badge>
-              <span className="min-w-0 flex-1 truncate text-[11px] tabular-nums text-muted-foreground">
-                {formatDate(status.token.expiresAt)}
+            ) : (
+              <span className="text-sm text-muted-foreground">Not linked</span>
+            )}
+            {authorizeUrl ? (
+              <Button
+                variant="outline"
+                onClick={() => void platform.openExternal(authorizeUrl)}
+              >
+                <ExternalLink />
+                {status?.token ? "Relink" : "Link"}
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Linking unavailable
               </span>
-            </>
-          ) : (
-            <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-              Not linked
-            </span>
-          )}
-
-          {authorizeUrl && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 gap-1.5 text-xs"
-              onClick={() => void platform.openExternal(authorizeUrl)}
-            >
-              <ExternalLink className="size-3.5" />
-              {status?.token ? "Relink" : "Link"}
-            </Button>
-          )}
-
-          {status?.token && (
-            <ConfirmButton
-              title="Delete Instagram token?"
-              description="The public feed stops updating until a new token is linked."
-              actionLabel="Delete"
-              onConfirm={remove}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Delete Instagram token"
-                  className="size-8 shrink-0"
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              }
-            />
-          )}
-        </div>
-      )}
-      {!loading && !failed && !authorizeUrl && (
-        <p className="text-[11px] text-muted-foreground">Unavailable</p>
+            )}
+            {status?.token && (
+              <ConfirmButton
+                title="Delete Instagram token?"
+                description="The public feed stops updating."
+                actionLabel="Delete"
+                destructive
+                onConfirm={remove}
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Delete Instagram token"
+                    className="text-muted-foreground"
+                  >
+                    <Trash2 />
+                  </Button>
+                }
+              />
+            )}
+          </div>
+        </SettingsRow>
       )}
     </SettingsGroup>
   );

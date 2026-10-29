@@ -31,7 +31,9 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
+import { Page, PageBody } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { cn } from "@repo/ui/utils";
 import {
@@ -40,7 +42,6 @@ import {
   CloudCheck,
   CloudUpload,
   Download,
-  Loader2,
   Settings2,
   Sparkles,
 } from "lucide-react";
@@ -176,7 +177,7 @@ function WorkspaceRightDock({
             <TabsTrigger
               key={entry.value}
               value={entry.value}
-              className="h-full flex-none px-0.5 text-[11px] after:bottom-0!"
+              className="h-full flex-none px-0.5 text-xs after:bottom-0!"
             >
               {entry.label}
             </TabsTrigger>
@@ -190,9 +191,6 @@ function WorkspaceRightDock({
           aria-label={
             agentSettingsOpen ? "Close agent settings" : "Open agent settings"
           }
-          title={
-            agentSettingsOpen ? "Close Agent Settings" : "Open Agent Settings"
-          }
           onClick={() => {
             if (tab !== "agent") {
               setTab("agent");
@@ -202,7 +200,7 @@ function WorkspaceRightDock({
             setAgentSettingsOpen((current) => !current);
           }}
         >
-          <Settings2 className="size-4" />
+          <Settings2 />
         </Button>
       </div>
       <TabsContent value="pdf" className="mt-0 min-h-0 flex-1">
@@ -263,14 +261,21 @@ function WorkspaceRightDock({
 
 export function LatexWorkspaceSkeleton() {
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Skeleton className="h-12 w-full shrink-0 rounded-none" />
-      <div className="flex min-h-0 flex-1 gap-px pt-px">
-        <Skeleton className="hidden h-full w-56 rounded-none md:block" />
-        <Skeleton className="h-full flex-1 rounded-none" />
-        <Skeleton className="hidden h-full w-80 rounded-none md:block" />
+    <Page>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+        <Skeleton className="size-7" />
+        <Skeleton className="size-7" />
+        <Skeleton className="h-4 w-40" />
+        <div className="flex-1" />
+        <Skeleton className="h-7 w-16" />
+        <Skeleton className="h-7 w-20" />
       </div>
-    </div>
+      <PageBody bleed className="flex">
+        <Skeleton className="hidden h-full w-56 rounded-none border-r md:block" />
+        <Skeleton className="h-full flex-1 rounded-none opacity-60" />
+        <Skeleton className="hidden h-full w-80 rounded-none border-l md:block" />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -803,14 +808,16 @@ export function LatexWorkspacePage({
   ) : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Page>
       {serverConflict ? (
-        <Alert variant="destructive" className="rounded-none border-x-0">
+        <Alert
+          variant="destructive"
+          className="rounded-none border-x-0 border-t-0"
+        >
           <CloudAlert />
           <AlertTitle>Cloud revision changed</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
-            Your local source is still stored on this device. Load the cloud
-            copy or preserve the local source as a new project.
+            Local draft kept on this device.
             <Button
               size="sm"
               variant="outline"
@@ -825,11 +832,11 @@ export function LatexWorkspacePage({
         </Alert>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <PageBody bleed className="flex">
         <LatexEditor
           ref={editorRef}
           project={project}
-          className="min-h-0 rounded-none border-0"
+          className="h-full min-h-0 rounded-none border-0"
           headerLeading={
             <div className="flex items-center gap-0.5">
               {slots?.sidebarTrigger}
@@ -850,50 +857,48 @@ export function LatexWorkspacePage({
             <div className="flex items-center gap-2">
               <span
                 className={cn(
-                  "hidden items-center gap-1.5 text-[11px] sm:flex",
+                  "hidden items-center gap-1.5 text-xs sm:flex",
                   saveState === "saved"
                     ? "text-muted-foreground"
                     : saveState === "conflict" || saveState === "error"
-                      ? "text-destructive"
-                      : "text-amber-600",
+                      ? "text-status-critical"
+                      : "text-status-warning",
                 )}
               >
                 {saveState === "saving" ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Spinner className="size-3.5" />
                 ) : saveState === "saved" ? (
-                  <CloudCheck className="size-3.5 text-primary" />
+                  <CloudCheck className="size-3.5" />
                 ) : saveState === "conflict" || saveState === "error" ? (
-                  <CloudAlert className="size-3.5 text-destructive" />
+                  <CloudAlert className="size-3.5" />
                 ) : (
                   <CloudUpload className="size-3.5" />
                 )}
                 {saveLabel}
               </span>
               {completionEnabled ? (
-                <span className="hidden items-center gap-1 text-[11px] text-muted-foreground tabular-nums xl:flex">
+                <span className="hidden items-center gap-1 text-xs text-muted-foreground tabular-nums xl:flex">
                   {completionStatus === "processing" ? (
                     <>
-                      <Loader2 className="size-3.5 animate-spin" /> Suggesting…
+                      <Spinner className="size-3.5" /> Suggesting
                     </>
                   ) : completionStatus === "ready" ? (
                     <>
-                      <span className="size-1.5 rounded-full bg-primary" />
+                      <span className="size-1.5 rounded-full bg-status-good" />
                       Suggestion
                       {completionLatency !== null
                         ? ` ${completionLatency} ms`
                         : " ready"}
                     </>
                   ) : completionLatency !== null ? (
-                    <>Last suggestion {completionLatency} ms</>
-                  ) : (
-                    <>Inline suggestions</>
-                  )}
+                    <>{completionLatency} ms</>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Request inline suggestion"
-                    title="Request suggestion (Ctrl/Command + Shift + Space)"
+                    title="⌘⇧Space"
                     disabled={completionStatus === "processing"}
                     onClick={() => completionTriggerRef.current?.()}
                   >
@@ -905,12 +910,11 @@ export function LatexWorkspacePage({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 text-xs"
                   disabled={!record.compiledPdf || downloading !== null}
                   onClick={() => void download("pdf")}
                 >
                   {downloading === "pdf" ? (
-                    <Loader2 className="animate-spin" />
+                    <Spinner className="size-3.5" />
                   ) : (
                     <Download />
                   )}
@@ -919,12 +923,11 @@ export function LatexWorkspacePage({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 text-xs"
                   disabled={downloading !== null}
                   onClick={() => void download("source")}
                 >
                   {downloading === "source" ? (
-                    <Loader2 className="animate-spin" />
+                    <Spinner className="size-3.5" />
                   ) : (
                     <Download />
                   )}
@@ -1039,7 +1042,7 @@ export function LatexWorkspacePage({
           )}
           compileLabel="Compile"
         />
-      </div>
+      </PageBody>
 
       <AlertDialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
         <AlertDialogContent size="sm">
@@ -1047,8 +1050,8 @@ export function LatexWorkspacePage({
             <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
             <AlertDialogDescription>
               {serverConflict
-                ? "This draft conflicts with the cloud revision and only exists on this device."
-                : "The latest edits are not synced to the cloud yet."}
+                ? "Conflicts with the cloud revision; only on this device."
+                : "Not synced to the cloud."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1064,6 +1067,6 @@ export function LatexWorkspacePage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </Page>
   );
 }

@@ -3,8 +3,13 @@
 import type { FinanceAccount, FinanceDashboardResponse } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { List, ListRow } from "@repo/ui/list";
+import { PageTitle } from "@repo/ui/page";
+import { Properties, Property } from "@repo/ui/properties";
+import { Section } from "@repo/ui/section";
 import { StatusDot } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
 import { Landmark, Loader2, Unlink } from "lucide-react";
@@ -18,14 +23,9 @@ import {
 } from "../detail-page-shell";
 import { useAdmin } from "../provider";
 import { disconnectFinanceAccount, updateFinanceAccount } from "./finance-data";
-import {
-  CONNECTION_TONE,
-  Empty,
-  FieldRow,
-  relative,
-} from "./finance-primitives";
+import { CONNECTION_TONE, relative } from "./finance-primitives";
 
-const ICON = <Landmark className="size-4 text-muted-foreground" />;
+const ICON = <Landmark />;
 
 /**
  * The linked-account list, and one account's settings when the URL names one.
@@ -79,7 +79,7 @@ export function FinanceAccountsPage({
       );
     }
     return (
-      <DetailPageShell {...shell} title={account.displayName}>
+      <DetailPageShell {...shell} title="Account">
         <AccountSettings
           account={account}
           onClose={() => router.push(routes.finance.accounts)}
@@ -92,34 +92,31 @@ export function FinanceAccountsPage({
   return (
     <DetailPageShell {...shell} title="Accounts">
       {accounts.length === 0 ? (
-        <Empty label="—" />
+        <EmptyState icon={<Landmark />} label="No accounts" />
       ) : (
-        <div>
-          {accounts.map((account) => (
-            <button
-              key={account.id}
-              type="button"
-              onClick={() => router.push(routes.finance.account(account.id))}
-              className="flex w-full items-center gap-3 border-b border-border/60 py-3 text-left last:border-b-0 hover:bg-muted/40"
-            >
-              <StatusDot
-                tone={CONNECTION_TONE[account.connection.status]}
-                label={account.connection.status}
+        <Section title="Accounts" count={accounts.length}>
+          <List divided>
+            {accounts.map((account) => (
+              <ListRow
+                key={account.id}
+                onClick={() => router.push(routes.finance.account(account.id))}
+                leading={
+                  <StatusDot
+                    tone={CONNECTION_TONE[account.connection.status]}
+                    label={account.connection.status.replaceAll("_", " ")}
+                  />
+                }
+                title={account.displayName}
+                description={account.institutionName}
+                meta={
+                  account.connection.accessValidUntil
+                    ? `expires ${relative(account.connection.accessValidUntil)}`
+                    : account.connection.status.replaceAll("_", " ")
+                }
               />
-              <span className="min-w-0 flex-1 truncate text-[13px]">
-                {account.displayName}
-              </span>
-              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-                {account.institutionName}
-              </span>
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {account.connection.accessValidUntil
-                  ? `expires ${relative(account.connection.accessValidUntil)}`
-                  : account.connection.status}
-              </span>
-            </button>
-          ))}
-        </div>
+            ))}
+          </List>
+        </Section>
       )}
     </DetailPageShell>
   );
@@ -130,21 +127,24 @@ function AccountSettings({
   onClose,
   onSaved,
 }: {
-  account: FinanceAccount | null;
+  account: FinanceAccount;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const { client } = useAdmin();
-  const [displayName, setDisplayName] = useState("");
-  const [dailyLimit, setDailyLimit] = useState(4);
-  const [reserve, setReserve] = useState(1);
-  const [timezone, setTimezone] = useState("UTC");
-  const [countsFailed, setCountsFailed] = useState(true);
-  const [attendedExempt, setAttendedExempt] = useState(false);
+  const [displayName, setDisplayName] = useState(account.displayName);
+  const [dailyLimit, setDailyLimit] = useState(account.budget.dailyFetchLimit);
+  const [reserve, setReserve] = useState(account.budget.reservedManualFetches);
+  const [timezone, setTimezone] = useState(account.budget.budgetTimezone);
+  const [countsFailed, setCountsFailed] = useState(
+    account.budget.countsFailedAttempts,
+  );
+  const [attendedExempt, setAttendedExempt] = useState(
+    account.budget.attendedCallsExempt,
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!account) return;
     setDisplayName(account.displayName);
     setDailyLimit(account.budget.dailyFetchLimit);
     setReserve(account.budget.reservedManualFetches);
@@ -153,146 +153,187 @@ function AccountSettings({
     setAttendedExempt(account.budget.attendedCallsExempt);
   }, [account]);
 
-  if (!account) return null;
+  const status = account.connection.status.replaceAll("_", " ");
+  const limitValid = Number.isInteger(dailyLimit) && dailyLimit >= 1;
+  const reserveValid =
+    Number.isInteger(reserve) && reserve >= 0 && reserve < dailyLimit;
+  const ready =
+    limitValid && reserveValid && displayName.trim().length > 0 && !saving;
+
+  async function save() {
+    if (!ready) return;
+    setSaving(true);
+    try {
+      await updateFinanceAccount(client, account.id, {
+        displayName: displayName.trim(),
+        dailyFetchLimit: dailyLimit,
+        reservedManualFetches: reserve,
+        budgetTimezone: timezone,
+        countsFailedAttempts: countsFailed,
+        attendedCallsExempt: attendedExempt,
+      });
+      toast.success("Account updated");
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function disconnect() {
+    try {
+      await disconnectFinanceAccount(client, account.id);
+      toast.success("Account disconnected");
+      await onSaved();
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Disconnect failed");
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      <p className="text-xs text-muted-foreground">{account.institutionName}</p>
-      {account && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Connection</span>
-            <span className="flex items-center gap-2">
+    <>
+      <PageTitle
+        title={account.displayName}
+        meta={
+          <>
+            <span>{account.institutionName}</span>
+            <span className="flex items-center gap-1.5">
               <StatusDot
                 tone={CONNECTION_TONE[account.connection.status]}
-                label={account.connection.status.replaceAll("_", " ")}
+                label={status}
               />
-              {account.connection.status.replaceAll("_", " ")}
+              {status}
             </span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Access valid until</span>
-            <span className="tabular-nums">
-              {account.connection.accessValidUntil
-                ? relative(account.connection.accessValidUntil)
-                : "—"}
-            </span>
-          </div>
+          </>
+        }
+      />
 
-          <FieldRow label="Name" htmlFor="account-name">
-            <Input
-              id="account-name"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-            />
-          </FieldRow>
+      <Properties>
+        <Property label="Currency">{account.currency}</Property>
+        <Property label="Access until">
+          <span className="tabular-nums">
+            {account.connection.accessValidUntil
+              ? relative(account.connection.accessValidUntil)
+              : "—"}
+          </span>
+        </Property>
+        <Property label="Fetches today">
+          <span className="tabular-nums">
+            {account.budget.fetchesUsed}/{account.budget.dailyFetchLimit}
+          </span>
+        </Property>
+        <Property label="Last synced">
+          <span className="tabular-nums">{relative(account.lastSyncedAt)}</span>
+        </Property>
+      </Properties>
 
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Daily limit" htmlFor="account-limit">
+      <form
+        className="flex flex-col gap-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <Section title="Settings">
+          <FormGrid>
+            <FormField
+              label="Name"
+              htmlFor="account-name"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="account-name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Daily limit" htmlFor="account-limit">
               <Input
                 id="account-limit"
                 type="number"
                 min={1}
                 value={dailyLimit}
                 className="tabular-nums"
+                aria-invalid={!limitValid}
                 onChange={(event) => setDailyLimit(Number(event.target.value))}
               />
-            </FieldRow>
-            <FieldRow label="Manual reserve" htmlFor="account-reserve">
+            </FormField>
+            <FormField
+              label="Manual reserve"
+              htmlFor="account-reserve"
+              error={
+                limitValid && !reserveValid
+                  ? "Must be below the daily limit"
+                  : undefined
+              }
+            >
               <Input
                 id="account-reserve"
                 type="number"
                 min={0}
                 value={reserve}
                 className="tabular-nums"
-                aria-invalid={reserve >= dailyLimit}
+                aria-invalid={!reserveValid}
                 onChange={(event) => setReserve(Number(event.target.value))}
               />
-            </FieldRow>
-          </div>
-          <FieldRow label="Budget timezone" htmlFor="account-tz">
-            <Input
-              id="account-tz"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-            />
-          </FieldRow>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="account-failed" className="text-xs font-normal">
-                Count failed attempts
-              </Label>
+            </FormField>
+            <FormField
+              label="Budget timezone"
+              htmlFor="account-tz"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="account-tz"
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+              />
+            </FormField>
+          </FormGrid>
+          <Properties>
+            <Property label="Count failed attempts">
               <Switch
                 id="account-failed"
+                aria-label="Count failed attempts"
                 checked={countsFailed}
                 onCheckedChange={setCountsFailed}
               />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="account-attended" className="text-xs font-normal">
-                Attended calls exempt
-              </Label>
+            </Property>
+            <Property label="Attended calls exempt">
               <Switch
                 id="account-attended"
+                aria-label="Attended calls exempt"
                 checked={attendedExempt}
                 onCheckedChange={setAttendedExempt}
               />
-            </div>
-          </div>
+            </Property>
+          </Properties>
+        </Section>
 
-          <Button
-            className="w-full"
-            disabled={saving || reserve >= dailyLimit || !displayName.trim()}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                await updateFinanceAccount(client, account.id, {
-                  displayName: displayName.trim(),
-                  dailyFetchLimit: dailyLimit,
-                  reservedManualFetches: reserve,
-                  budgetTimezone: timezone,
-                  countsFailedAttempts: countsFailed,
-                  attendedCallsExempt: attendedExempt,
-                });
-                toast.success("Account updated");
-                await onSaved();
-              } catch (error) {
-                toast.error(
-                  error instanceof Error ? error.message : "Update failed",
-                );
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-
+        <div className="flex items-center gap-2 border-t pt-4">
           <ConfirmButton
             title={`Disconnect ${account.displayName}?`}
             actionLabel="Disconnect"
-            onConfirm={async () => {
-              try {
-                await disconnectFinanceAccount(client, account.id);
-                toast.success("Account disconnected");
-                await onSaved();
-              } catch (error) {
-                toast.error(
-                  error instanceof Error ? error.message : "Disconnect failed",
-                );
-              }
-            }}
+            destructive
+            onConfirm={disconnect}
             trigger={
-              <Button variant="ghost" className="w-full text-destructive">
-                <Unlink className="size-4" />
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Unlink />
                 Disconnect
               </Button>
             }
           />
+          <Button type="submit" className="ml-auto" disabled={!ready}>
+            {saving && <Loader2 className="animate-spin" />}
+            Save
+          </Button>
         </div>
-      )}
-    </div>
+      </form>
+    </>
   );
 }

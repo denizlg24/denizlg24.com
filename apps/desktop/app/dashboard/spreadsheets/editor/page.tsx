@@ -1,26 +1,16 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import { Page, PageBody } from "@repo/ui/page";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
-import {
-  ArrowLeft,
-  Check,
-  Download,
-  Loader2,
-  Pencil,
-  Save,
-  Sheet,
-} from "lucide-react";
+import { Download, Pencil, Save, Sheet } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -33,36 +23,40 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { FortuneSheetBook, ISpreadsheet } from "@/lib/data-types";
+import { downloadSpreadsheet } from "../_components/download";
+
+const LIST_HREF = "/dashboard/spreadsheets";
 
 const SpreadsheetEditor = dynamic(
   () => import("./_components/spreadsheet-editor"),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    ),
+    loading: () => <Skeleton className="h-full w-full rounded-none" />,
   },
 );
 
+function parseTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
 function EditorSkeleton() {
   return (
-    <div className="flex flex-col gap-2 pb-0 h-full">
+    <Page>
       <DashboardPageHeader
-        icon={<Sheet className="size-4 text-muted-foreground" />}
+        crumbs={[{ label: "Spreadsheets" }]}
+        icon={<Sheet />}
         title={<Skeleton className="h-4 w-40" />}
-      >
-        <Skeleton className="h-8 w-20" />
-      </DashboardPageHeader>
-      <div className="px-4 pt-3 flex-1">
-        <Skeleton className="h-full w-full" />
-      </div>
-    </div>
+      />
+      <PageBody bleed>
+        <Skeleton className="h-full w-full rounded-none" />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -71,21 +65,23 @@ function EditorInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
 
-  const { settings, loading: loadingSettings } = useUserSettings();
-  const api = useMemo(() => {
-    if (loadingSettings) return null;
-    return new denizApi();
-  }, [settings, loadingSettings]);
+  const { loading: loadingSettings } = useUserSettings();
+  const api = useMemo(
+    () => (loadingSettings ? null : new denizApi()),
+    [loadingSettings],
+  );
 
   const [meta, setMeta] = useState<ISpreadsheet | null>(null);
   const [content, setContent] = useState<FortuneSheetBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsPending, setDetailsPending] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
   const [draftTags, setDraftTags] = useState("");
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const currentBookRef = useRef<FortuneSheetBook | null>(null);
 
@@ -116,7 +112,7 @@ function EditorInner() {
   }, []);
 
   const handleSave = async () => {
-    if (!api || !id || !currentBookRef.current) return;
+    if (!api || !id || !currentBookRef.current || saving) return;
     setSaving(true);
     const result = await api.PATCH<{ spreadsheet: ISpreadsheet }>({
       endpoint: `spreadsheets/${id}`,
@@ -129,238 +125,168 @@ function EditorInner() {
     }
     setMeta(result.spreadsheet);
     setDirty(false);
-    toast.success("Saved");
   };
 
-  const handleExport = async () => {
-    if (!api || !id || !meta) return;
-    const res = await api.GET_RAW({
-      endpoint: `spreadsheets/${id}/export`,
-    });
-    if ("code" in res) {
-      toast.error("Failed to export");
-      return;
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${meta.title}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const openRename = () => {
-    if (!meta) return;
-    setDraftTitle(meta.title);
-    setDraftDesc(meta.description ?? "");
-    setDraftTags(meta.tags.join(", "));
-    setRenameOpen(true);
-  };
-
-  const handleRename = async () => {
-    if (!api || !id) return;
-    const result = await api.PATCH<{ spreadsheet: ISpreadsheet }>({
-      endpoint: `spreadsheets/${id}`,
-      body: {
-        title: draftTitle.trim(),
-        description: draftDesc.trim() || undefined,
-        tags: draftTags
-          ? draftTags
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean)
-          : [],
-      },
-    });
-    if ("code" in result) {
-      toast.error("Failed to update");
-      return;
-    }
-    setMeta(result.spreadsheet);
-    setRenameOpen(false);
-    toast.success("Updated");
-  };
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
-        if (dirty && !saving) handleSave();
+        if (dirtyRef.current) void saveRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, saving, handleSave]);
+  }, []);
 
-  if (!id) {
+  const leave = () => {
+    if (dirty) setLeaveOpen(true);
+    else router.push(LIST_HREF);
+  };
+
+  const openDetails = () => {
+    if (!meta) return;
+    setDraftTitle(meta.title);
+    setDraftDesc(meta.description ?? "");
+    setDraftTags(meta.tags.join(", "));
+    setDetailsOpen(true);
+  };
+
+  const handleDetails = async () => {
+    if (!api || !id || !draftTitle.trim()) return;
+    setDetailsPending(true);
+    const result = await api.PATCH<{ spreadsheet: ISpreadsheet }>({
+      endpoint: `spreadsheets/${id}`,
+      body: {
+        title: draftTitle.trim(),
+        description: draftDesc.trim() || undefined,
+        tags: parseTags(draftTags),
+      },
+    });
+    setDetailsPending(false);
+    if ("code" in result) {
+      toast.error("Failed to update");
+      return;
+    }
+    setMeta(result.spreadsheet);
+    setDetailsOpen(false);
+  };
+
+  if (!id || (!loading && !loadingSettings && (!meta || !content))) {
     return (
-      <div className="flex flex-col gap-2 pb-8">
+      <Page>
         <DashboardPageHeader
-          leading={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => router.push("/dashboard/spreadsheets")}
-            >
-              <ArrowLeft className="size-3.5" />
-            </Button>
-          }
-          icon={<Sheet className="size-4 text-muted-foreground" />}
-          title="Missing id"
-        />
-        <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
-          No spreadsheet id provided.
-        </div>
-      </div>
-    );
-  }
-
-  if (loadingSettings || loading) return <EditorSkeleton />;
-
-  if (!meta || !content) {
-    return (
-      <div className="flex flex-col gap-2 pb-8">
-        <DashboardPageHeader
-          leading={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => router.push("/dashboard/spreadsheets")}
-            >
-              <ArrowLeft className="size-3.5" />
-            </Button>
-          }
-          icon={<Sheet className="size-4 text-muted-foreground" />}
+          crumbs={[
+            { label: "Spreadsheets", onClick: () => router.push(LIST_HREF) },
+          ]}
+          icon={<Sheet />}
           title="Not found"
         />
-        <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
-          Spreadsheet not found.
-        </div>
-      </div>
+        <EmptyState icon={<Sheet />} label="Spreadsheet not found" />
+      </Page>
     );
   }
 
+  if (loadingSettings || loading || !meta || !content)
+    return <EditorSkeleton />;
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <SidebarTrigger className="-ml-1 size-7 md:hidden" />
+    <Page>
+      <DashboardPageHeader
+        crumbs={[{ label: "Spreadsheets", onClick: leave }]}
+        icon={<Sheet />}
+        title={meta.title}
+      >
+        <span className="mr-2 hidden text-xs tabular-nums text-muted-foreground md:inline">
+          {meta.rowCount}×{meta.colCount} · {meta.sheetCount}{" "}
+          {meta.sheetCount === 1 ? "sheet" : "sheets"}
+        </span>
+        {dirty ? (
+          <Badge variant="warning">Unsaved</Badge>
+        ) : (
+          <Badge variant="ghost">Saved</Badge>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Edit details"
+          onClick={openDetails}
+        >
+          <Pencil />
+        </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0"
-          onClick={() => router.push("/dashboard/spreadsheets")}
+          onClick={() => api && downloadSpreadsheet(api, meta)}
         >
-          <ArrowLeft className="size-3.5" />
+          <Download /> Export
         </Button>
-        <Sheet className="size-4 text-muted-foreground" />
-        <button
-          onClick={openRename}
-          className="flex items-center gap-1.5 text-sm font-semibold hover:text-muted-foreground transition-colors"
-        >
-          {meta.title}
-          <Pencil className="size-3 opacity-40" />
-        </button>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          {meta.rowCount}×{meta.colCount} · {meta.sheetCount} sheet
-          {meta.sheetCount > 1 ? "s" : ""}
-        </span>
-        <div className="flex-1" />
-        <span className="text-[11px] text-muted-foreground">
-          {dirty ? (
-            <span className="text-amber-600 dark:text-amber-500">
-              Unsaved changes
-            </span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <Check className="size-3" />
-              Saved
-            </span>
-          )}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={handleExport}
-        >
-          <Download className="size-3.5" />
-          Export
-        </Button>
-        <Button
-          variant={dirty ? "default" : "ghost"}
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={handleSave}
-          disabled={!dirty || saving}
-        >
-          {saving ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Save className="size-3.5" />
-          )}
+        <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+          {saving ? <Spinner className="size-3.5" /> : <Save />}
           Save
         </Button>
-      </div>
+      </DashboardPageHeader>
 
-      <div className="flex-1 min-h-0">
+      <PageBody bleed>
         <SpreadsheetEditor initial={content} onChange={handleChange} />
-      </div>
+      </PageBody>
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit details</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Title</Label>
-              <Input
-                value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Description</Label>
-              <Textarea
-                value={draftDesc}
-                onChange={(e) => setDraftDesc(e.target.value)}
-                rows={2}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Tags</Label>
-              <Input
-                value={draftTags}
-                onChange={(e) => setDraftTags(e.target.value)}
-                placeholder="comma-separated"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setRenameOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleRename}
-              disabled={!draftTitle.trim()}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <FormDialog
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        title="Edit details"
+        submitDisabled={!draftTitle.trim()}
+        pending={detailsPending}
+        onSubmit={handleDetails}
+      >
+        <FormGrid>
+          <FormField label="Title" htmlFor="sheet-details-title">
+            <Input
+              id="sheet-details-title"
+              autoFocus
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Tags"
+            htmlFor="sheet-details-tags"
+            hint="Comma-separated"
+          >
+            <Input
+              id="sheet-details-tags"
+              value={draftTags}
+              onChange={(e) => setDraftTags(e.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Description"
+            htmlFor="sheet-details-description"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              id="sheet-details-description"
+              value={draftDesc}
+              onChange={(e) => setDraftDesc(e.target.value)}
+              rows={3}
+            />
+          </FormField>
+        </FormGrid>
+      </FormDialog>
+
+      <ConfirmDialog
+        open={leaveOpen}
+        onOpenChange={setLeaveOpen}
+        title="Discard unsaved changes?"
+        actionLabel="Discard"
+        destructive
+        onConfirm={() => router.push(LIST_HREF)}
+      />
+    </Page>
   );
 }
 

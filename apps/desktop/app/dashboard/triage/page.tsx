@@ -1,9 +1,15 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { cn } from "@repo/ui/utils";
-import { Archive, Brain, Loader2, Play } from "lucide-react";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { EmptyState } from "@repo/ui/empty-state";
+import { List } from "@repo/ui/list";
+import { Page, PageBody, PageToolbar } from "@repo/ui/page";
+import { Spinner } from "@repo/ui/spinner";
+import { SplitList, SplitView } from "@repo/ui/split-view";
+import { FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
+import { Archive, Brain, Inbox, Mail, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
@@ -20,7 +26,10 @@ import type {
   TriageWarmBodiesResponse,
 } from "@/lib/data-types";
 import { TriageDetail } from "./_components/triage-detail";
-import { TriageLoadingSkeleton } from "./_components/triage-loading-skeleton";
+import {
+  TriageListSkeleton,
+  TriageLoadingSkeleton,
+} from "./_components/triage-loading-skeleton";
 import { TriagePagination } from "./_components/triage-pagination";
 import { TriageRow } from "./_components/triage-row";
 
@@ -28,8 +37,8 @@ const TRIAGE_PAGE_SIZE = 12;
 const PREFETCH_PAGE_COUNT = 3;
 
 const FILTERS: { value: TriageFilter; label: string }[] = [
-  { value: "review", label: "Needs Review" },
-  { value: "action-needed", label: "Action Needed" },
+  { value: "review", label: "Review" },
+  { value: "action-needed", label: "Action" },
   { value: "purchases", label: "Purchases" },
   { value: "scheduled", label: "Scheduled" },
   { value: "fyi", label: "FYI" },
@@ -38,10 +47,6 @@ const FILTERS: { value: TriageFilter; label: string }[] = [
   { value: "spam", label: "Spam" },
   { value: "archived", label: "Archived" },
 ];
-
-function isTriageFilter(value: string): value is TriageFilter {
-  return FILTERS.some((filter) => filter.value === value);
-}
 
 function getPrefetchBlockStart(pageIndex: number) {
   return Math.floor(pageIndex / PREFETCH_PAGE_COUNT) * PREFETCH_PAGE_COUNT;
@@ -217,6 +222,13 @@ export default function TriagePage() {
     await fetchItems({ force: true, pageIndex: 0 });
   }, [fetchItems, resetItemsCache]);
 
+  // A change made from the open detail keeps the list where it is: the split
+  // view shows both, so jumping back to page one would lose the reader's place.
+  const reloadCurrentPage = useCallback(async () => {
+    loadedBlocksRef.current = new Set();
+    await fetchItems({ force: true });
+  }, [fetchItems]);
+
   /**
    * Applies a verdict without leaving the list.
    *
@@ -373,109 +385,69 @@ export default function TriagePage() {
   }
 
   const reviewCount = stats.review ?? 0;
+  const archivable = filter !== "archived" && filter !== "review";
 
-  // Selecting an item swaps the whole surface for the email, matching the
-  // inbox's list/detail flow rather than overlaying a sheet.
-  if (api && selectedItem) {
-    return (
-      <TriageDetail
-        api={api}
-        item={selectedItem}
-        detailCache={detailCacheRef}
-        onBack={() => setSelectedItem(null)}
-        onChanged={() => refreshItems()}
-      />
-    );
-  }
+  const changeFilter = (value: TriageFilter) => {
+    if (value === filter) return;
+    setSelectedItem(null);
+    resetItemsCache();
+    setPageIndex(0);
+    setFilter(value);
+  };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <Page>
       <DashboardPageHeader
-        icon={<Brain className="size-4 text-muted-foreground" />}
+        icon={<Brain />}
         title={
-          <span className="flex items-baseline gap-2">
-            <span>Triage</span>
-            {reviewCount > 0 && (
-              <span className="text-xs font-normal tabular-nums text-status-warning">
-                {reviewCount} to review
-              </span>
-            )}
+          <span className="flex items-center gap-2">
+            Triage
+            {reviewCount > 0 ? (
+              <Badge variant="warning">{reviewCount}</Badge>
+            ) : null}
           </span>
         }
       >
-        {filter !== "archived" && filter !== "review" && totalRows > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={handleArchiveAll}
-            disabled={loading || archivingAll}
-          >
-            {archivingAll ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Archive className="size-3.5" />
-            )}
-            Archive {totalRows}
-          </Button>
-        )}
+        {archivable && totalRows > 0 ? (
+          <ConfirmButton
+            trigger={
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={loading || archivingAll}
+              >
+                {archivingAll ? <Spinner className="size-3.5" /> : <Archive />}
+                Archive {totalRows}
+              </Button>
+            }
+            title={`Archive ${totalRows} ${activeFilterLabel.toLowerCase()}?`}
+            actionLabel="Archive"
+            onConfirm={handleArchiveAll}
+          />
+        ) : null}
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 text-xs"
+          variant="ghost"
           onClick={handleRun}
           disabled={running || !api}
         >
-          {running ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Play className="size-3.5" />
-          )}
-          Run now
+          {running ? <Spinner className="size-3.5" /> : <Play />}
+          Run
         </Button>
       </DashboardPageHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-4 pt-2">
-        <Tabs
-          className="min-w-0 shrink-0"
+      <PageToolbar>
+        <FilterTabs
           value={filter}
-          onValueChange={(value) => {
-            if (isTriageFilter(value) && value !== filter) {
-              setSelectedItem(null);
-              resetItemsCache();
-              setPageIndex(0);
-              setFilter(value);
-            }
-          }}
-        >
-          <TabsList
-            variant="line"
-            className="max-w-full justify-start overflow-x-auto overflow-y-hidden"
-          >
-            {FILTERS.map((entry) => {
-              const count = stats[entry.value] ?? 0;
-              return (
-                <TabsTrigger key={entry.value} value={entry.value}>
-                  {entry.label}
-                  {count > 0 && (
-                    <span
-                      className={cn(
-                        "ml-1.5 tabular-nums",
-                        entry.value === filter
-                          ? "text-muted-foreground"
-                          : "text-muted-foreground/50",
-                      )}
-                    >
-                      {count}
-                    </span>
-                  )}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
-
-        {totalRows > 0 && (
+          onChange={changeFilter}
+          options={FILTERS.map((entry) => ({
+            value: entry.value,
+            label: entry.label,
+            count: stats[entry.value] ? stats[entry.value] : undefined,
+          }))}
+        />
+        <ToolbarSpacer />
+        {totalRows > 0 ? (
           <TriagePagination
             pageIndex={pageIndex}
             pageSize={TRIAGE_PAGE_SIZE}
@@ -483,37 +455,59 @@ export default function TriagePage() {
             disabled={loading}
             onPageChange={setPageIndex}
           />
-        )}
+        ) : null}
+      </PageToolbar>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {currentPageLoading ? (
-            <TriageLoadingSkeleton contentOnly />
-          ) : items.length === 0 ? (
-            <p className="py-16 text-center text-xs text-muted-foreground">—</p>
-          ) : (
-            <div className="divide-y">
-              {items.map((item) => (
-                <TriageRow
-                  key={item._id}
-                  item={item}
-                  selected={item._id === selectedItem?._id}
-                  busy={decidingIds.has(item._id)}
-                  onSelect={() => setSelectedItem(item)}
-                  onConfirm={() =>
-                    void decideInline(item, {
-                      category: item.category,
-                      userStatus: "reviewed",
-                    })
-                  }
-                  onRecategorize={(category) =>
-                    void decideInline(item, { category })
-                  }
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+      <PageBody bleed className="flex">
+        <SplitView
+          listWidth="md:w-[26rem]"
+          detailOpen={selectedItem !== null}
+          list={
+            <SplitList>
+              {currentPageLoading ? (
+                <TriageListSkeleton />
+              ) : items.length === 0 ? (
+                <EmptyState icon={<Inbox />} label="Nothing here" />
+              ) : (
+                <List>
+                  {items.map((item) => (
+                    <TriageRow
+                      key={item._id}
+                      item={item}
+                      selected={item._id === selectedItem?._id}
+                      busy={decidingIds.has(item._id)}
+                      onSelect={() => setSelectedItem(item)}
+                      onConfirm={() =>
+                        void decideInline(item, {
+                          category: item.category,
+                          userStatus: "reviewed",
+                        })
+                      }
+                      onRecategorize={(category) =>
+                        void decideInline(item, { category })
+                      }
+                    />
+                  ))}
+                </List>
+              )}
+            </SplitList>
+          }
+          detail={
+            api && selectedItem ? (
+              <TriageDetail
+                key={selectedItem._id}
+                api={api}
+                item={selectedItem}
+                detailCache={detailCacheRef}
+                onBack={() => setSelectedItem(null)}
+                onChanged={reloadCurrentPage}
+              />
+            ) : (
+              <EmptyState icon={<Mail />} label="No message selected" />
+            )
+          }
+        />
+      </PageBody>
+    </Page>
   );
 }

@@ -6,14 +6,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  DetailNotFound,
-  DetailPageShell,
-  DetailPageSkeleton,
-} from "../detail-page-shell";
+  DocumentEditorSkeleton,
+  DocumentNotFound,
+} from "../projects/document-editor";
 import { useAdmin } from "../provider";
 import { TimelineForm } from "./timeline-form";
 
-const ICON = <Milestone className="size-4 text-muted-foreground" />;
+const ICON = <Milestone />;
 
 export function TimelineEditorPage({
   mode,
@@ -49,29 +48,24 @@ export function TimelineEditorPage({
     void load();
   }, [load]);
 
-  const title = mode === "edit" ? "Edit Entry" : "New Entry";
   const shell = { icon: ICON, backTo, backLabel: "Timeline" } as const;
 
-  if (loading) return <DetailPageSkeleton {...shell} title={title} rows={2} />;
+  if (loading) {
+    return <DocumentEditorSkeleton {...shell} title="Entry" properties={5} />;
+  }
 
   if (mode === "edit" && !item) {
-    return (
-      <DetailNotFound
-        {...shell}
-        title="Entry not found"
-        message="This entry could not be loaded."
-      />
-    );
+    return <DocumentNotFound {...shell} label="Entry not found" />;
   }
 
   return (
-    <DetailPageShell {...shell} title={mode === "edit" ? item?.title : title}>
-      <TimelineForm
-        mode={mode}
-        item={item ?? undefined}
-        onSuccess={() => router.push(backTo)}
-        onCancel={() => router.push(backTo)}
-      />
-    </DetailPageShell>
+    <TimelineForm
+      key={item?._id ?? "new"}
+      mode={mode}
+      item={item ?? undefined}
+      {...shell}
+      onSuccess={() => router.push(backTo)}
+      onDeleted={() => router.push(backTo)}
+    />
   );
 }

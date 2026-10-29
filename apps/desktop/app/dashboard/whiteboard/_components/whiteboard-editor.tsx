@@ -6,7 +6,8 @@ import type {
   TextFontFamily,
 } from "@repo/schemas";
 import { whiteboardElementKind } from "@repo/schemas";
-import { Spinner } from "@repo/ui/spinner";
+import { Page, PageBody } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   DEFAULT_FONT_FAMILY,
   WHITEBOARD_FONT_FAMILIES,
@@ -14,11 +15,15 @@ import {
 } from "@repo/whiteboard-render";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { PenTool } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import type { DrawSettings } from "@/hooks/use-whiteboard-canvas";
-import { useWhiteboardCanvas } from "@/hooks/use-whiteboard-canvas";
+import {
+  isCreationTool,
+  useWhiteboardCanvas,
+} from "@/hooks/use-whiteboard-canvas";
 import { useWhiteboardHistory } from "@/hooks/use-whiteboard-history";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IWhiteboardElement } from "@/lib/data-types";
@@ -26,13 +31,12 @@ import { isTauri, platformFetch } from "@/lib/platform";
 import { saveFile } from "@/lib/platform-fs";
 import { extractDirectory } from "@/lib/user-settings";
 import { cn } from "@/lib/utils";
-import { hitTest } from "@/lib/whiteboard-geometry";
 import type { WhiteboardTool } from "@/lib/whiteboard-types";
 import { WhiteboardBottomBar } from "./whiteboard-bottom-bar";
 import { WhiteboardCanvas } from "./whiteboard-canvas";
 import { WhiteboardLayersPanel } from "./whiteboard-layers-panel";
 import { WhiteboardStylePanel } from "./whiteboard-style-panel";
-import { WhiteboardTopBar } from "./whiteboard-top-bar";
+import { WhiteboardHeaderActions, WhiteboardTitle } from "./whiteboard-top-bar";
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,6 +91,18 @@ const TOOL_KEYS: Record<string, WhiteboardTool> = {
   b: "bucket",
 };
 
+/** Focus inside any of these owns the keyboard; board shortcuts stand down. */
+const KEYBOARD_OWNER_SELECTOR =
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="menu"], [role="listbox"], [role="slider"], [role="dialog"], [role="combobox"]';
+
+const SHAPE_TOOLS: ReadonlySet<WhiteboardTool> = new Set([
+  "rectangle",
+  "square",
+  "circle",
+  "line",
+  "arrow",
+]);
+
 interface WhiteboardEditorProps {
   id?: string;
   onBack?: () => void;
@@ -100,10 +116,10 @@ export function WhiteboardEditor({
 }: WhiteboardEditorProps) {
   const { settings, loading: loadingSettings, setSettings } = useUserSettings();
 
-  const API = useMemo(() => {
-    if (loadingSettings) return null;
-    return new denizApi();
-  }, [settings, loadingSettings]);
+  const API = useMemo(
+    () => (loadingSettings ? null : new denizApi()),
+    [loadingSettings],
+  );
 
   const [loading, setLoading] = useState(true);
   const [whiteboard, setWhiteboard] = useState<IWhiteboard | null>(null);
@@ -378,10 +394,19 @@ export function WhiteboardEditor({
 
   const isTypingTarget = useCallback(
     (target: EventTarget | null) =>
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      canvas.textBox !== null,
+      canvas.textBox !== null ||
+      (target instanceof Element &&
+        target.closest(KEYBOARD_OWNER_SELECTOR) !== null),
     [canvas.textBox],
+  );
+
+  const { setSelectedElementIds } = canvas;
+  const selectTool = useCallback(
+    (tool: WhiteboardTool) => {
+      if (isCreationTool(tool)) setSelectedElementIds(new Set());
+      setSelectedTool(tool);
+    },
+    [setSelectedElementIds],
   );
 
   useEffect(() => {
@@ -399,6 +424,8 @@ export function WhiteboardEditor({
       const mod = e.ctrlKey || e.metaKey;
 
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (canvas.selectedElementIds.size === 0) return;
+        e.preventDefault();
         canvas.deleteSelected();
         return;
       }
@@ -418,6 +445,7 @@ export function WhiteboardEditor({
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
         canvas.selectAll();
+        setSelectedTool("pointer");
         return;
       }
       if (mod && e.key.toLowerCase() === "c") {
@@ -467,31 +495,41 @@ export function WhiteboardEditor({
         canvas.nudgeSelected(dx, dy);
         return;
       }
+      /* Text editing handles its own Escape (commit and select). Here each
+         press undoes one layer: the running gesture, the selection, then
+         the tool. */
       if (e.key === "Escape") {
-        canvas.setSelectedElementIds(new Set());
-        canvas.cancelText();
+        if (canvas.cancelGesture()) return;
+        if (canvas.selectedElementIds.size > 0) {
+          canvas.setSelectedElementIds(new Set());
+          return;
+        }
+        setSelectedTool("pointer");
         return;
       }
-      if (!mod) {
+      if (!mod && !e.altKey) {
         const tool = TOOL_KEYS[e.key.toLowerCase()];
-        if (tool) setSelectedTool(tool);
+        if (tool) selectTool(tool);
       }
     };
 
+    const releaseSpace = () => {
+      setSpaceActive(false);
+      canvas.setSpacePan(false);
+    };
     const upHandler = (e: KeyboardEvent) => {
-      if (e.key === " ") {
-        setSpaceActive(false);
-        canvas.setSpacePan(false);
-      }
+      if (e.key === " ") releaseSpace();
     };
 
     window.addEventListener("keydown", handler);
     window.addEventListener("keyup", upHandler);
+    window.addEventListener("blur", releaseSpace);
     return () => {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("keyup", upHandler);
+      window.removeEventListener("blur", releaseSpace);
     };
-  }, [canvas, history, handleSave, isTypingTarget]);
+  }, [canvas, history, handleSave, isTypingTarget, selectTool]);
 
   useEffect(() => {
     const handler = async (e: ClipboardEvent) => {
@@ -540,44 +578,31 @@ export function WhiteboardEditor({
     ],
   );
 
-  const SHAPE_TOOLS: WhiteboardTool[] = useMemo(
-    () => ["rectangle", "square", "circle", "line", "arrow"],
-    [],
-  );
-
   const wrappedPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       canvas.onPointerDown(e, selectedTool, drawSettings);
-      if (selectedTool === "bucket") setSelectedTool("pointer");
+      if (selectedTool === "bucket" && e.button === 0 && !spaceActive)
+        setSelectedTool("pointer");
     },
-    [canvas, selectedTool, drawSettings],
+    [canvas, selectedTool, drawSettings, spaceActive],
   );
 
+  /* tldraw's model: a shape hands over to select with itself selected, a pen
+     stroke keeps the pen. A press that created nothing keeps the tool. */
   const wrappedPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      canvas.onPointerUp(e, selectedTool);
-      if (SHAPE_TOOLS.includes(selectedTool)) setSelectedTool("pointer");
+      const created = canvas.onPointerUp(e, selectedTool);
+      if (created && SHAPE_TOOLS.has(selectedTool)) setSelectedTool("pointer");
     },
-    [canvas, selectedTool, SHAPE_TOOLS],
+    [canvas, selectedTool],
   );
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const wx =
-        (e.clientX - rect.left - canvas.viewState.x) / canvas.viewState.zoom;
-      const wy =
-        (e.clientY - rect.top - canvas.viewState.y) / canvas.viewState.zoom;
-      const sorted = [...history.elements].sort((a, b) => b.zIndex - a.zIndex);
-      for (const el of sorted) {
-        if (whiteboardElementKind(el) === "text" && hitTest(el, wx, wy, 4)) {
-          canvas.beginEditText(el.id);
-          setSelectedTool("pointer");
-          return;
-        }
-      }
+      if (selectedTool !== "pointer" && selectedTool !== "text") return;
+      if (canvas.onDoubleClick(e)) setSelectedTool("pointer");
     },
-    [canvas, history.elements],
+    [canvas, selectedTool],
   );
 
   const handleColorChange = useCallback(
@@ -610,11 +635,22 @@ export function WhiteboardEditor({
     [canvas],
   );
 
+  const crumbs = onBack
+    ? [{ label: "Whiteboards", onClick: onBack }]
+    : undefined;
+
   if (loading || !whiteboard) {
     return (
-      <div className="w-dvw h-full overflow-clip relative flex items-center justify-center">
-        <Spinner />
-      </div>
+      <Page>
+        <DashboardPageHeader
+          icon={<PenTool />}
+          crumbs={crumbs}
+          title={<Skeleton className="h-3.5 w-32" />}
+        />
+        <PageBody bleed>
+          <Skeleton className="absolute bottom-3 left-1/2 h-9 w-96 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-lg" />
+        </PageBody>
+      </Page>
     );
   }
 
@@ -624,136 +660,145 @@ export function WhiteboardEditor({
   const cursorClass = spaceActive ? "cursor-grab" : CURSOR_MAP[selectedTool];
 
   return (
-    <div
-      className={cn(
-        "whiteboard-container w-dvw h-full overflow-clip relative",
-        cursorClass,
-      )}
-      onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
-    >
-      <SidebarTrigger className="absolute left-2 top-2 z-20 size-7 bg-background/80 md:hidden" />
-      <WhiteboardCanvas
-        elements={history.elements}
-        background={background}
-        viewState={canvas.viewState}
-        selectedTool={selectedTool}
-        selectedElementIds={canvas.selectedElementIds}
-        selectionRect={canvas.selectionRect}
-        activeDrawing={canvas.activeDrawing}
-        textBox={canvas.textBox}
-        textDraft={canvas.textDraft}
-        onPointerDown={wrappedPointerDown}
-        onPointerMove={(e) => canvas.onPointerMove(e, selectedTool)}
-        onPointerUp={wrappedPointerUp}
-        onWheel={canvas.onWheel}
-        onDoubleClick={handleDoubleClick}
-        onTextCommit={(t, w, h) => {
-          canvas.commitText(t, w, h);
-          setSelectedTool("pointer");
-        }}
-        onTextCancel={() => {
-          canvas.cancelText();
-          setSelectedTool("pointer");
-        }}
-        onStartResize={canvas.startResize}
-        onStartRotate={(e) => {
-          const svg = (e.target as SVGElement).ownerSVGElement;
-          if (!svg) return;
-          const rect = svg.getBoundingClientRect();
-          const wx =
-            (e.clientX - rect.left - canvas.viewState.x) /
-            canvas.viewState.zoom;
-          const wy =
-            (e.clientY - rect.top - canvas.viewState.y) / canvas.viewState.zoom;
-          canvas.startRotate(wx, wy);
-        }}
-        onComponentDataChange={canvas.updateComponentData}
-        onComponentDelete={canvas.deleteElement}
-      />
-
-      <WhiteboardTopBar
-        boardName={whiteboard.name}
-        hasChanges={hasChanges}
-        isSaving={isSaving}
-        viewState={canvas.viewState}
-        selectedCount={canvas.selectedElementIds.size}
-        background={background}
-        onBackgroundChange={applyBackground}
-        onSave={handleSave}
-        onDiscard={handleDiscard}
-        onDeleteSelected={canvas.deleteSelected}
-        onResetView={() => canvas.setViewState({ x: 0, y: 0, zoom: 1 })}
-        onZoomIn={() =>
-          canvas.setViewState((p) => ({
-            ...p,
-            zoom: Math.min(5, p.zoom * 1.25),
-          }))
-        }
-        onZoomOut={() =>
-          canvas.setViewState((p) => ({
-            ...p,
-            zoom: Math.max(0.1, p.zoom / 1.25),
-          }))
-        }
-        onExportPNG={handleExportPNG}
-        onRename={todayMode ? undefined : handleRename}
-        onBack={onBack}
-        onClear={todayMode ? handleClear : undefined}
-      />
-
-      {selectedTool === "pointer" &&
-        selectedElements.length > 0 &&
-        !canvas.textBox && (
-          <WhiteboardStylePanel
-            selected={selectedElements}
-            onUpdateStyle={canvas.updateSelectedStyle}
-            onReorder={canvas.reorderZ}
-            recents={recentColors}
-            onPickColor={addRecent}
+    <Page>
+      <DashboardPageHeader
+        icon={<PenTool />}
+        crumbs={crumbs}
+        title={
+          <WhiteboardTitle
+            name={whiteboard.name}
+            onRename={todayMode ? undefined : handleRename}
           />
-        )}
-
-      {layersOpen && (
-        <WhiteboardLayersPanel
-          elements={history.elements}
-          selectedIds={canvas.selectedElementIds}
-          onSelect={(id, additive) =>
-            canvas.setSelectedElementIds((prev) => {
-              const next = additive ? new Set(prev) : new Set<string>();
-              if (additive && next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            })
+        }
+      >
+        <WhiteboardHeaderActions
+          hasChanges={hasChanges}
+          isSaving={isSaving}
+          viewState={canvas.viewState}
+          selectedCount={canvas.selectedElementIds.size}
+          background={background}
+          onBackgroundChange={applyBackground}
+          onSave={handleSave}
+          onDiscard={handleDiscard}
+          onDeleteSelected={canvas.deleteSelected}
+          onResetView={() => canvas.setViewState({ x: 0, y: 0, zoom: 1 })}
+          onZoomIn={() =>
+            canvas.setViewState((p) => ({
+              ...p,
+              zoom: Math.min(5, p.zoom * 1.25),
+            }))
           }
-          onMoveZ={canvas.moveElementZ}
-          onDelete={canvas.deleteElement}
-          onClose={() => setLayersOpen(false)}
+          onZoomOut={() =>
+            canvas.setViewState((p) => ({
+              ...p,
+              zoom: Math.max(0.1, p.zoom / 1.25),
+            }))
+          }
+          onExportPNG={handleExportPNG}
+          onClear={todayMode ? handleClear : undefined}
         />
-      )}
+      </DashboardPageHeader>
+      <PageBody bleed>
+        <div
+          className={cn(
+            "whiteboard-container absolute inset-0 overflow-clip",
+            cursorClass,
+          )}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+        >
+          <WhiteboardCanvas
+            elements={history.elements}
+            background={background}
+            viewState={canvas.viewState}
+            selectedTool={selectedTool}
+            selectedElementIds={canvas.selectedElementIds}
+            selectionRect={canvas.selectionRect}
+            activeDrawing={canvas.activeDrawing}
+            textBox={canvas.textBox}
+            textDraft={canvas.textDraft}
+            onPointerDown={wrappedPointerDown}
+            onPointerMove={(e) => canvas.onPointerMove(e, selectedTool)}
+            onPointerUp={wrappedPointerUp}
+            onPointerCancel={canvas.cancelGesture}
+            onWheel={canvas.onWheel}
+            onDoubleClick={handleDoubleClick}
+            onTextCommit={(t, w, h, select) => {
+              canvas.commitText(t, w, h, select);
+              setSelectedTool("pointer");
+            }}
+            onStartResize={canvas.startResize}
+            onStartRotate={(e) => {
+              const svg = (e.target as SVGElement).ownerSVGElement;
+              if (!svg) return;
+              const rect = svg.getBoundingClientRect();
+              const wx =
+                (e.clientX - rect.left - canvas.viewState.x) /
+                canvas.viewState.zoom;
+              const wy =
+                (e.clientY - rect.top - canvas.viewState.y) /
+                canvas.viewState.zoom;
+              canvas.startRotate(wx, wy);
+            }}
+            onComponentDataChange={canvas.updateComponentData}
+            onComponentDelete={canvas.deleteElement}
+          />
 
-      <WhiteboardBottomBar
-        selectedTool={selectedTool}
-        penThickness={penThickness}
-        highlighterThickness={highlighterThickness}
-        selectedColor={color}
-        recentColors={recentColors}
-        canUndo={history.canUndo}
-        canRedo={history.canRedo}
-        layersOpen={layersOpen}
-        onToolChange={setSelectedTool}
-        onPenThicknessChange={setPenThickness}
-        onHighlighterThicknessChange={setHighlighterThickness}
-        onColorChange={handleColorChange}
-        onUndo={history.undo}
-        onRedo={history.redo}
-        onToggleLayers={() => setLayersOpen((v) => !v)}
-        onAddComponent={(componentType, defaultSize, defaultData) => {
-          canvas.addComponent(componentType, defaultSize, defaultData);
-          setSelectedTool("pointer");
-        }}
-        onImageUpload={handleImageUpload}
-      />
-    </div>
+          {selectedTool === "pointer" &&
+            selectedElements.length > 0 &&
+            !canvas.textBox && (
+              <WhiteboardStylePanel
+                selected={selectedElements}
+                onUpdateStyle={canvas.updateSelectedStyle}
+                onReorder={canvas.reorderZ}
+                recents={recentColors}
+                onPickColor={addRecent}
+              />
+            )}
+
+          {layersOpen && (
+            <WhiteboardLayersPanel
+              elements={history.elements}
+              selectedIds={canvas.selectedElementIds}
+              onSelect={(id, additive) => {
+                canvas.setSelectedElementIds((prev) => {
+                  const next = additive ? new Set(prev) : new Set<string>();
+                  if (additive && next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+                setSelectedTool("pointer");
+              }}
+              onMoveZ={canvas.moveElementZ}
+              onDelete={canvas.deleteElement}
+              onClose={() => setLayersOpen(false)}
+            />
+          )}
+
+          <WhiteboardBottomBar
+            selectedTool={selectedTool}
+            penThickness={penThickness}
+            highlighterThickness={highlighterThickness}
+            selectedColor={color}
+            recentColors={recentColors}
+            canUndo={history.canUndo}
+            canRedo={history.canRedo}
+            layersOpen={layersOpen}
+            onToolChange={selectTool}
+            onPenThicknessChange={setPenThickness}
+            onHighlighterThicknessChange={setHighlighterThickness}
+            onColorChange={handleColorChange}
+            onUndo={history.undo}
+            onRedo={history.redo}
+            onToggleLayers={() => setLayersOpen((v) => !v)}
+            onAddComponent={(componentType, defaultSize, defaultData) => {
+              canvas.addComponent(componentType, defaultSize, defaultData);
+              setSelectedTool("pointer");
+            }}
+            onImageUpload={handleImageUpload}
+          />
+        </div>
+      </PageBody>
+    </Page>
   );
 }

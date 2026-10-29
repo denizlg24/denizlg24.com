@@ -8,27 +8,56 @@ import type {
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
-  Inbox,
-  Loader2,
-  Mail,
-  Pencil,
-  RefreshCw,
-  Settings,
-} from "lucide-react";
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@repo/ui/dropdown-menu";
+import { EmptyState } from "@repo/ui/empty-state";
+import { Page, PageBody, PageHeader, PageToolbar } from "@repo/ui/page";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Spinner } from "@repo/ui/spinner";
+import { SplitView } from "@repo/ui/split-view";
+import { FilterTabs, RowActions, ToolbarSpacer } from "@repo/ui/toolbar";
+import { Inbox, Mail, Pencil, Plus, RefreshCw, Settings } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { AccountSidebar } from "./account-sidebar";
 import { AddAccountDialog } from "./add-account-dialog";
 import { ComposeDialog } from "./compose-dialog";
-import { EmailDetail } from "./email-detail";
-import { EmailList } from "./email-list";
+import { type ComposeDraft, EmailDetail } from "./email-detail";
+import { EmailList, EmailListSkeleton } from "./email-list";
+
+const LIST_WIDTH = "md:w-96";
+
+function accountLabel(account: IEmailAccount) {
+  return account.displayName || account.user.split("@")[0] || account.user;
+}
 
 export function InboxSkeleton() {
+  const { slots } = useAdmin();
   return (
-    <div className="flex items-center justify-center h-full">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-    </div>
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<Inbox />}
+        title="Inbox"
+      />
+      <PageToolbar>
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-16" />
+      </PageToolbar>
+      <PageBody bleed className="flex">
+        <SplitView
+          listWidth={LIST_WIDTH}
+          detailOpen={false}
+          list={
+            <div className="p-2">
+              <EmailListSkeleton />
+            </div>
+          }
+          detail={null}
+        />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -46,15 +75,15 @@ export function InboxPage() {
     null,
   );
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeReplyTo, setComposeReplyTo] = useState<
-    { address: string; subject: string } | undefined
-  >(undefined);
+  const [composeDraft, setComposeDraft] = useState<ComposeDraft | undefined>(
+    undefined,
+  );
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   const emailCache = useRef<Map<string, IFullEmail>>(new Map());
   const attachmentCache = useRef<Map<string, IEmailAttachment[]>>(new Map());
   const emailListCache = useRef<Map<string, IEmail[]>>(new Map());
-  const didInitialSelect = useRef(false);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -62,65 +91,76 @@ export function InboxPage() {
         "email-accounts",
       );
       setAccounts(result.accounts);
-      if (!didInitialSelect.current && result.accounts.length > 0) {
-        didInitialSelect.current = true;
-        setSelectedAccountId(result.accounts[0]._id);
-      }
+      setSelectedAccountId((current) =>
+        current && result.accounts.some((account) => account._id === current)
+          ? current
+          : (result.accounts[0]?._id ?? null),
+      );
     } catch {
-      // leave accounts as-is on failure
+      // keep the accounts already shown
     } finally {
       setLoadingAccounts(false);
     }
   }, [client]);
 
   useEffect(() => {
-    fetchAccounts();
+    void fetchAccounts();
   }, [fetchAccounts]);
+
+  const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
 
   const handleSelectAccount = (id: string) => {
     setSelectedAccountId(id);
     setSelectedEmail(null);
   };
 
-  const handleSelectEmail = (email: IEmail) => {
-    setSelectedEmail(email);
-  };
-
-  const handleBack = () => {
-    setSelectedEmail(null);
-  };
-
-  const handleCompose = (replyTo?: { address: string; subject: string }) => {
+  const handleCompose = (draft?: ComposeDraft) => {
     void fetchAccounts();
-    setComposeReplyTo(replyTo);
+    setComposeDraft(draft);
     setComposeOpen(true);
+  };
+
+  const syncAccounts = async (targets: IEmailAccount[]) => {
+    if (syncing || targets.length === 0) return;
+    setSyncing(true);
+    let failed = 0;
+    for (const account of targets) {
+      try {
+        await client.post<{ message: string }>(
+          `email-accounts/${account._id}/sync`,
+          {},
+        );
+      } catch {
+        failed++;
+      }
+    }
+    setSyncing(false);
+    if (failed === 0) toast.success("Synced");
+    else if (failed === targets.length) toast.error("Sync failed");
+    else toast.warning(`${targets.length - failed} synced, ${failed} failed`);
+    setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleAccountSaved = async (account?: IEmailAccount) => {
     if (account) {
-      setAccounts((currentAccounts) => {
-        const existingIndex = currentAccounts.findIndex(
-          (item) => item._id === account._id,
-        );
-        if (existingIndex === -1) return [account, ...currentAccounts];
-
-        return currentAccounts.map((item) =>
-          item._id === account._id ? account : item,
-        );
-      });
+      setAccounts((current) =>
+        current.some((item) => item._id === account._id)
+          ? current.map((item) => (item._id === account._id ? account : item))
+          : [account, ...current],
+      );
+      setSelectedAccountId((current) => current ?? account._id);
     }
-
     await fetchAccounts();
   };
 
-  const handleAddAccount = () => {
-    setEditingAccount(null);
-    setAddAccountOpen(true);
-  };
-
-  const handleEditAccount = (account: IEmailAccount) => {
-    setAddAccountOpen(false);
-    setEditingAccount(account);
+  const handleAccountDeleted = async (accountId: string) => {
+    emailListCache.current.delete(accountId);
+    setAccounts((current) => current.filter((item) => item._id !== accountId));
+    if (selectedAccountId === accountId) {
+      setSelectedAccountId(null);
+      setSelectedEmail(null);
+    }
+    await fetchAccounts();
   };
 
   const handleAccountDialogOpenChange = (open: boolean) => {
@@ -132,227 +172,153 @@ export function InboxPage() {
     setEditingAccount(null);
   };
 
-  const handleSyncComplete = () => {
-    setRefreshTrigger((prev) => prev + 1);
-  };
-
-  const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
   const accountDialogOpen = addAccountOpen || editingAccount !== null;
 
   return (
-    <div className="flex h-full">
-      <AccountSidebar
-        accounts={accounts}
-        selectedAccountId={selectedAccountId}
-        onSelectAccount={handleSelectAccount}
-        onShowAllAccounts={() => {
-          setSelectedAccountId(null);
-          setSelectedEmail(null);
-        }}
-        loading={loadingAccounts}
-        onSyncComplete={handleSyncComplete}
-        onAddAccount={handleAddAccount}
-        onEditAccount={handleEditAccount}
-      />
+    <Page>
+      <PageHeader
+        leading={slots?.sidebarTrigger}
+        icon={<Inbox />}
+        title="Inbox"
+      >
+        {selectedAccount ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Sync"
+            disabled={syncing}
+            onClick={() => void syncAccounts([selectedAccount])}
+          >
+            {syncing ? <Spinner className="size-3.5" /> : <RefreshCw />}
+          </Button>
+        ) : null}
+        <RowActions label="Accounts">
+          <DropdownMenuItem
+            disabled={syncing || accounts.length === 0}
+            onSelect={() => void syncAccounts(accounts)}
+          >
+            <RefreshCw />
+            Sync all
+          </DropdownMenuItem>
+          {selectedAccount ? (
+            <DropdownMenuItem
+              onSelect={() => setEditingAccount(selectedAccount)}
+            >
+              <Settings />
+              Edit {accountLabel(selectedAccount)}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              setEditingAccount(null);
+              setAddAccountOpen(true);
+            }}
+          >
+            <Plus />
+            Add account
+          </DropdownMenuItem>
+        </RowActions>
+        <Button
+          size="sm"
+          disabled={accounts.length === 0}
+          onClick={() => handleCompose()}
+        >
+          <Pencil />
+          Compose
+        </Button>
+      </PageHeader>
 
-      <div className="flex-1 min-w-0 flex flex-col h-full">
-        {selectedEmail && selectedAccountId ? (
-          <EmailDetail
-            email={selectedEmail}
-            accountId={selectedAccountId}
-            onBack={handleBack}
-            onCompose={handleCompose}
-            emailCache={emailCache}
-            attachmentCache={attachmentCache}
+      {accounts.length > 1 && selectedAccountId ? (
+        <PageToolbar>
+          <FilterTabs
+            value={selectedAccountId}
+            onChange={handleSelectAccount}
+            options={accounts.map((account) => ({
+              value: account._id,
+              label: accountLabel(account),
+            }))}
           />
-        ) : selectedAccountId && selectedAccount ? (
-          <div className="flex flex-col h-full">
-            <EmailList
-              accountId={selectedAccountId}
-              accountName={selectedAccount.user}
-              onSelectEmail={handleSelectEmail}
-              selectedEmailId={selectedEmail?._id ?? null}
-              refreshTrigger={refreshTrigger}
-              emailListCache={emailListCache}
-              onBack={() => setSelectedAccountId(null)}
-            />
+          <ToolbarSpacer />
+        </PageToolbar>
+      ) : null}
 
-            <div className="absolute bottom-6 right-6">
+      <PageBody bleed className="flex">
+        {loadingAccounts ? (
+          <SplitView
+            listWidth={LIST_WIDTH}
+            detailOpen={false}
+            list={
+              <div className="p-2">
+                <EmailListSkeleton />
+              </div>
+            }
+            detail={null}
+          />
+        ) : !selectedAccount ? (
+          <EmptyState
+            icon={<Inbox />}
+            label="No accounts"
+            action={
               <Button
-                size="lg"
-                className="rounded-full h-12 w-12 shadow-lg"
-                onClick={() => handleCompose()}
+                variant="outline"
+                size="sm"
+                onClick={() => setAddAccountOpen(true)}
               >
-                <Pencil className="h-5 w-5" />
+                <Plus />
+                Add account
               </Button>
-            </div>
-          </div>
+            }
+          />
         ) : (
-          <AccountsOverview
-            accounts={accounts}
-            loading={loadingAccounts}
-            onSelectAccount={handleSelectAccount}
-            onSyncComplete={handleSyncComplete}
-            onCompose={() => handleCompose()}
-            onEditAccount={handleEditAccount}
+          <SplitView
+            listWidth={LIST_WIDTH}
+            detailOpen={selectedEmail !== null}
+            list={
+              <EmailList
+                key={`${selectedAccount._id}:${refreshTrigger}`}
+                accountId={selectedAccount._id}
+                onSelectEmail={setSelectedEmail}
+                selectedEmailId={selectedEmail?._id ?? null}
+                emailListCache={emailListCache}
+                syncing={syncing}
+                onSync={() => void syncAccounts([selectedAccount])}
+              />
+            }
+            detail={
+              selectedEmail ? (
+                <EmailDetail
+                  key={selectedEmail._id}
+                  email={selectedEmail}
+                  account={selectedAccount}
+                  onBack={() => setSelectedEmail(null)}
+                  onCompose={handleCompose}
+                  emailCache={emailCache}
+                  attachmentCache={attachmentCache}
+                />
+              ) : (
+                <EmptyState icon={<Mail />} label="No message selected" />
+              )
+            }
           />
         )}
-      </div>
+      </PageBody>
 
       <ComposeDialog
         open={composeOpen}
         onOpenChange={setComposeOpen}
         accounts={accounts}
         selectedAccountId={selectedAccountId}
-        replyTo={composeReplyTo}
+        draft={composeDraft}
       />
 
       <AddAccountDialog
         open={accountDialogOpen}
         onOpenChange={handleAccountDialogOpenChange}
         onAccountAdded={handleAccountSaved}
+        onAccountDeleted={handleAccountDeleted}
         account={editingAccount}
       />
-    </div>
-  );
-}
-
-function AccountsOverview({
-  accounts,
-  loading,
-  onSelectAccount,
-  onSyncComplete,
-  onCompose,
-  onEditAccount,
-}: {
-  accounts: IEmailAccount[];
-  loading: boolean;
-  onSelectAccount: (id: string) => void;
-  onSyncComplete: () => void;
-  onCompose: () => void;
-  onEditAccount: (account: IEmailAccount) => void;
-}) {
-  const { client, slots } = useAdmin();
-  const [syncingAll, setSyncingAll] = useState(false);
-
-  const handleSyncAll = async () => {
-    setSyncingAll(true);
-    let succeeded = 0;
-    let failed = 0;
-
-    for (const account of accounts) {
-      try {
-        await client.post<{ message: string }>(
-          `email-accounts/${account._id}/sync`,
-          {},
-        );
-        succeeded++;
-      } catch {
-        failed++;
-      }
-    }
-
-    if (failed === 0) {
-      toast.success(`Synced ${succeeded} account${succeeded !== 1 ? "s" : ""}`);
-    } else {
-      toast.warning(`${succeeded} synced, ${failed} failed`);
-    }
-    onSyncComplete();
-    setSyncingAll(false);
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b shrink-0 sm:px-6">
-        <div className="flex items-center gap-2">
-          {slots?.sidebarTrigger}
-          <div>
-            <h1 className="text-sm font-semibold">All Inboxes</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {accounts.length} account{accounts.length !== 1 && "s"} connected
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={handleSyncAll}
-            disabled={syncingAll || accounts.length === 0}
-          >
-            {syncingAll ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden sm:inline">Sync All</span>
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={onCompose}>
-            <Pencil className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Compose</span>
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center">
-            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-              <Inbox className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">No email accounts</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                Add email accounts from the web dashboard to start viewing your
-                inbox here.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="p-3 sm:p-6">
-            <div className="space-y-1">
-              {accounts.map((account) => (
-                <div
-                  key={account._id}
-                  className="group flex w-full items-center gap-2 rounded-lg px-4 py-3.5 text-left transition-colors hover:bg-muted/50"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSelectAccount(account._id)}
-                    className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                  >
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
-                      {account.user[0].toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{account.user}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {account.host} &middot; {account.inboxName}
-                      </p>
-                    </div>
-                    <Mail className="h-4 w-4 text-muted-foreground " />
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 opacity-100"
-                    onClick={() => onEditAccount(account)}
-                  >
-                    <Settings className="h-4 w-4" />
-                    <span className="sr-only">Edit account</span>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    </Page>
   );
 }

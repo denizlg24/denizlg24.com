@@ -1,54 +1,29 @@
 "use client";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
+import { ConfirmDialog } from "@repo/ui/confirm-button";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@repo/ui/dropdown-menu";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
-import { Switch } from "@repo/ui/switch";
-import { Textarea } from "@repo/ui/textarea";
+import { RowActions } from "@repo/ui/toolbar";
+import { cn } from "@repo/ui/utils";
 import {
   ChevronsRight,
-  MoreHorizontal,
-  Palette,
+  Eraser,
   PanelLeftClose,
   Pencil,
   Plus,
+  Settings2,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { IKanbanCard, IKanbanColumn } from "@/lib/data-types";
 import {
-  COLUMN_COLORS,
-  ColumnColorPicker,
-  ColumnIconPicker,
+  ColumnDialog,
+  type ColumnFormValues,
+  resolveColumnIcon,
 } from "./column-customization";
 import { KanbanCardItem } from "./kanban-card-item";
 
@@ -57,20 +32,15 @@ export type DraggingState =
   | { kind: "card"; cardId: string; fromColumnId: string }
   | { kind: "column"; columnId: string };
 
-type ColumnUpdates = {
-  title?: string;
-  description?: string;
-  color?: string;
-  icon?: string;
-  wipLimit?: number | null;
-  isDoneColumn?: boolean;
+export type ColumnUpdates = Partial<ColumnFormValues> & {
   isCollapsed?: boolean;
-  sortRule?: "manual" | "priority" | "dueDate";
 };
 
 interface Props {
   column: ColumnWithCards;
   dragging: DraggingState | null;
+  /** Where a dragged card would land in this column; undefined when not here. */
+  dropBeforeCardId: string | null | undefined;
   onCardDragStart: (cardId: string, fromColumnId: string) => void;
   onColumnDragStart: (columnId: string) => void;
   onCardDragOver: (columnId: string, beforeCardId: string | null) => void;
@@ -84,9 +54,14 @@ interface Props {
 
 const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
 
+function DropLine() {
+  return <div className="-my-1 h-0.5 shrink-0 rounded-full bg-ring" />;
+}
+
 export function KanbanColumn({
   column,
   dragging,
+  dropBeforeCardId,
   onCardDragStart,
   onColumnDragStart,
   onCardDragOver,
@@ -103,14 +78,7 @@ export function KanbanColumn({
   const [newCardTitle, setNewCardTitle] = useState("");
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
-  const [editDescription, setEditDescription] = useState(
-    column.description ?? "",
-  );
-  const [editColor, setEditColor] = useState(column.color ?? COLUMN_COLORS[0]);
-  const [editIcon, setEditIcon] = useState(column.icon ?? "circle");
-  const [editWip, setEditWip] = useState(column.wipLimit?.toString() ?? "");
-  const [editDone, setEditDone] = useState(column.isDoneColumn ?? false);
-  const [editSort, setEditSort] = useState(column.sortRule ?? "manual");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sortRule = column.sortRule ?? "manual";
   const cards = useMemo(() => {
@@ -124,66 +92,101 @@ export function KanbanColumn({
     });
   }, [column.cards, sortRule]);
 
+  const Icon = resolveColumnIcon(column.icon);
+  const overLimit =
+    column.wipLimit !== undefined && column.cards.length > column.wipLimit;
+  const draggingCardId = dragging?.kind === "card" ? dragging.cardId : null;
+
   const addCard = () => {
     if (!newCardTitle.trim()) return;
     onAddCard(column._id, newCardTitle.trim());
     setNewCardTitle("");
-    setAddingCard(false);
   };
-  const openCustomize = () => {
-    setEditDescription(column.description ?? "");
-    setEditColor(column.color ?? COLUMN_COLORS[0]);
-    setEditIcon(column.icon ?? "circle");
-    setEditWip(column.wipLimit?.toString() ?? "");
-    setEditDone(column.isDoneColumn ?? false);
-    setEditSort(column.sortRule ?? "manual");
-    setCustomizeOpen(true);
+
+  const startRename = () => {
+    setTitle(column.title);
+    setEditingTitle(true);
   };
-  const saveCustomize = () => {
-    const parsedWip = Number.parseInt(editWip, 10);
-    onUpdateColumn(column._id, {
-      description: editDescription.trim(),
-      color: editColor,
-      icon: editIcon,
-      wipLimit: parsedWip > 0 ? parsedWip : null,
-      isDoneColumn: editDone,
-      sortRule: editSort,
-    });
-    setCustomizeOpen(false);
+
+  const commitRename = () => {
+    const next = title.trim();
+    if (next && next !== column.title)
+      onUpdateColumn(column._id, { title: next });
+    setEditingTitle(false);
   };
+
+  const dialogs = (
+    <>
+      <ColumnDialog
+        open={customizeOpen}
+        onOpenChange={setCustomizeOpen}
+        column={column}
+        onSubmit={(values) => onUpdateColumn(column._id, values)}
+      />
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={`Clear ${column.title}?`}
+        description={`${column.cards.length} cards will be deleted.`}
+        actionLabel="Clear"
+        destructive
+        onConfirm={() => onClearColumn(column._id)}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`Delete ${column.title}?`}
+        description={
+          column.cards.length
+            ? `${column.cards.length} cards will be deleted with it.`
+            : undefined
+        }
+        actionLabel="Delete"
+        destructive
+        onConfirm={() => onDeleteColumn(column._id)}
+      />
+    </>
+  );
 
   if (column.isCollapsed) {
     return (
-      <button
-        type="button"
-        className="flex h-full w-11 shrink-0 flex-col items-center gap-3 border-r border-border/70 py-3 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-        onClick={() => onUpdateColumn(column._id, { isCollapsed: false })}
-        onMouseUp={() => dragging?.kind === "card" && onDrop(column._id)}
-        title={`Expand ${column.title}`}
-      >
-        <ChevronsRight className="size-4" />
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
-          {column.cards.length}
-        </span>
-        <span className="mt-1 [writing-mode:vertical-rl] text-xs font-medium">
-          {column.title}
-        </span>
-      </button>
+      <>
+        <button
+          type="button"
+          className="flex h-full w-10 shrink-0 flex-col items-center gap-3 rounded-lg bg-surface/40 py-3 text-muted-foreground transition-colors hover:bg-surface/70 hover:text-accent-strong"
+          onClick={() => onUpdateColumn(column._id, { isCollapsed: false })}
+          onMouseUp={() => dragging?.kind === "card" && onDrop(column._id)}
+          aria-label={`Expand ${column.title}`}
+        >
+          <ChevronsRight className="size-4" />
+          <span className="text-xs tabular-nums">{column.cards.length}</span>
+          <span className="mt-1 text-xs font-medium [writing-mode:vertical-rl]">
+            {column.title}
+          </span>
+        </button>
+        {dialogs}
+      </>
     );
   }
 
   return (
     <>
       <section
-        className="flex h-full w-70 shrink-0 flex-col border-r border-border/70 pr-3"
+        className={cn(
+          "flex h-full w-72 shrink-0 flex-col rounded-lg bg-surface/40 dark:bg-surface/25",
+          dragging?.kind === "column" &&
+            dragging.columnId === column._id &&
+            "opacity-40",
+        )}
         onMouseUp={() => dragging && onDrop(column._id)}
       >
         <header
-          className="flex shrink-0 cursor-grab items-center gap-2 border-b border-border/70 px-1 pb-2 pt-1"
+          className="flex h-10 shrink-0 cursor-grab items-center gap-2 px-3 active:cursor-grabbing"
           onMouseDown={(event) => {
             if (
               event.button !== 0 ||
-              (event.target as HTMLElement).closest("button,input")
+              !(event.target instanceof Element) ||
+              event.target.closest("button,input")
             )
               return;
             const startX = event.clientX;
@@ -193,243 +196,140 @@ export function KanbanColumn({
                 Math.abs(moveEvent.clientX - startX) > 5 ||
                 Math.abs(moveEvent.clientY - startY) > 5
               ) {
+                cleanup();
                 onColumnDragStart(column._id);
-                window.removeEventListener("mousemove", move);
               }
             };
-            window.addEventListener("mousemove", move, { once: true });
+            const cleanup = () => {
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", cleanup);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", cleanup);
           }}
         >
-          <span
-            className="size-2 rounded-full"
-            style={{ backgroundColor: column.color ?? "currentColor" }}
+          <Icon
+            className="size-3.5 shrink-0"
+            style={{ color: column.color ?? undefined }}
           />
           {editingTitle ? (
             <Input
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => {
-                if (title.trim())
-                  onUpdateColumn(column._id, { title: title.trim() });
-                setEditingTitle(false);
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setEditingTitle(false);
               }}
-              className="h-6 flex-1 border-0 px-0 text-sm font-medium shadow-none"
+              className="h-7 flex-1 px-1.5 text-sm"
             />
           ) : (
             <span
-              className={`min-w-0 flex-1 truncate text-sm font-medium ${column.isDoneColumn ? "text-primary" : ""}`}
+              onDoubleClick={startRename}
+              className="min-w-0 truncate text-sm font-medium text-accent-strong"
             >
               {column.title}
             </span>
           )}
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span
+            className={cn(
+              "text-xs tabular-nums text-muted-foreground",
+              overLimit && "font-medium text-status-critical",
+            )}
+          >
             {column.cards.length}
             {column.wipLimit ? `/${column.wipLimit}` : ""}
           </span>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          <span className="flex-1" />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             onClick={() => setAddingCard(true)}
             aria-label={`Add card to ${column.title}`}
           >
-            <Plus className="size-3.5" />
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={`${column.title} options`}
-              >
-                <MoreHorizontal className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setEditingTitle(true)}>
-                <Pencil className="mr-2 size-3.5" /> Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={openCustomize}>
-                <Palette className="mr-2 size-3.5" /> Customize
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  onUpdateColumn(column._id, { isCollapsed: true })
-                }
-              >
-                <PanelLeftClose className="mr-2 size-3.5" /> Collapse
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!column.cards.length}
-                onClick={() => setClearOpen(true)}
-              >
-                <Trash2 className="mr-2 size-3.5" /> Clear cards
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => onDeleteColumn(column._id)}
-              >
-                <Trash2 className="mr-2 size-3.5" /> Delete column
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <Plus />
+          </Button>
+          <RowActions label={`${column.title} options`}>
+            <DropdownMenuItem onClick={startRename}>
+              <Pencil /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setCustomizeOpen(true)}>
+              <Settings2 /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onUpdateColumn(column._id, { isCollapsed: true })}
+            >
+              <PanelLeftClose /> Collapse
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={!column.cards.length}
+              onClick={() => setClearOpen(true)}
+            >
+              <Eraser /> Clear cards
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 /> Delete
+            </DropdownMenuItem>
+          </RowActions>
         </header>
         {column.description && (
-          <p className="shrink-0 border-b border-border/50 px-1 py-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="shrink-0 px-3 pb-2 text-xs leading-relaxed text-muted-foreground">
             {column.description}
           </p>
         )}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-2 pr-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
           {addingCard && (
-            <div className="rounded-lg bg-card p-2 ring-1 ring-border/70">
-              <Input
-                autoFocus
-                value={newCardTitle}
-                onChange={(e) => setNewCardTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addCard();
-                  if (e.key === "Escape") setAddingCard(false);
-                }}
-                placeholder="Card title…"
-                className="h-8 text-sm"
-              />
-              <div className="mt-2 flex gap-1">
-                <Button size="sm" onClick={addCard}>
-                  Add
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setAddingCard(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
+            <Input
+              autoFocus
+              value={newCardTitle}
+              onChange={(e) => setNewCardTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addCard();
+                if (e.key === "Escape") {
+                  setNewCardTitle("");
+                  setAddingCard(false);
+                }
+              }}
+              onBlur={() => {
+                if (!newCardTitle.trim()) setAddingCard(false);
+              }}
+              placeholder="Title"
+              className="shrink-0 bg-background"
+            />
           )}
           {cards.map((card, index) => (
-            <KanbanCardItem
-              key={card._id}
-              card={card}
-              columnColor={column.color}
-              isDoneColumn={column.isDoneColumn ?? false}
-              nextCardId={cards[index + 1]?._id ?? null}
-              isDraggingCard={dragging?.kind === "card"}
-              manualSort={sortRule === "manual"}
-              onDragStart={() => onCardDragStart(card._id, column._id)}
-              onDragOver={(before) => onCardDragOver(column._id, before)}
-              onDrop={() => onDrop(column._id)}
-              onClick={() => onCardClick(card)}
-            />
+            <Fragment key={card._id}>
+              {dropBeforeCardId === card._id && <DropLine />}
+              <KanbanCardItem
+                card={card}
+                isDoneColumn={column.isDoneColumn ?? false}
+                nextCardId={cards[index + 1]?._id ?? null}
+                isDraggingCard={draggingCardId !== null}
+                isDragged={draggingCardId === card._id}
+                manualSort={sortRule === "manual"}
+                onDragStart={() => onCardDragStart(card._id, column._id)}
+                onDragOver={(before) => onCardDragOver(column._id, before)}
+                onDrop={() => onDrop(column._id)}
+                onClick={() => onCardClick(card)}
+              />
+            </Fragment>
           ))}
+          {dropBeforeCardId === null && <DropLine />}
           <div
             className="min-h-8 flex-1"
-            onMouseEnter={() =>
-              dragging?.kind === "card" && onCardDragOver(column._id, null)
+            onMouseMove={() =>
+              draggingCardId !== null && onCardDragOver(column._id, null)
             }
           />
         </div>
       </section>
-
-      <Dialog open={customizeOpen} onOpenChange={setCustomizeOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base">Customize column</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                placeholder="What belongs in this column?"
-                className="min-h-20"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Sort cards</Label>
-                <Select
-                  value={editSort}
-                  onValueChange={(value) =>
-                    setEditSort(value as typeof editSort)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Manual</SelectItem>
-                    <SelectItem value="priority">Priority</SelectItem>
-                    <SelectItem value="dueDate">Due date</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>WIP limit</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={editWip}
-                  onChange={(e) => setEditWip(e.target.value)}
-                  placeholder="No limit"
-                />
-              </div>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
-              <div>
-                <Label htmlFor={`done-${column._id}`}>Done column</Label>
-                <p className="text-xs text-muted-foreground">
-                  Cards here count as complete.
-                </p>
-              </div>
-              <Switch
-                id={`done-${column._id}`}
-                checked={editDone}
-                onCheckedChange={setEditDone}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Color</Label>
-              <ColumnColorPicker value={editColor} onChange={setEditColor} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Icon</Label>
-              <ColumnIconPicker
-                value={editIcon}
-                onChange={setEditIcon}
-                color={editColor}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setCustomizeOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={saveCustomize}>Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear this column?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes every card from “{column.title}”.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => onClearColumn(column._id)}
-            >
-              Clear
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {dialogs}
     </>
   );
 }

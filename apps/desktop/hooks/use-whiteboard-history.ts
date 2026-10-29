@@ -1,15 +1,19 @@
 "use client";
 
 import type { IWhiteboardBackground } from "@repo/schemas";
-import { useCallback, useRef, useState } from "react";
+import { type SetStateAction, useCallback, useRef, useState } from "react";
 import type { IWhiteboardElement } from "@/lib/data-types";
 import type { HistoryEntry } from "@/lib/whiteboard-types";
 
 const MAX_HISTORY = 200;
 
 export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
-  const [elements, setElements] =
+  const [elements, setElementsState] =
     useState<IWhiteboardElement[]>(initialElements);
+  /* The ref is the source of truth so pointer handlers read the board as it is
+     now, not as of their last render, and so history is pushed outside state
+     updaters (which StrictMode runs twice). */
+  const elementsRef = useRef(initialElements);
   const undoStack = useRef<HistoryEntry[]>([]);
   const redoStack = useRef<HistoryEntry[]>([]);
   const backgroundApplier = useRef<
@@ -28,6 +32,18 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
     [],
   );
 
+  const setElements = useCallback(
+    (action: SetStateAction<IWhiteboardElement[]>) => {
+      const next =
+        typeof action === "function" ? action(elementsRef.current) : action;
+      elementsRef.current = next;
+      setElementsState(next);
+    },
+    [],
+  );
+
+  const getElements = useCallback(() => elementsRef.current, []);
+
   const pushAction = useCallback((entry: HistoryEntry) => {
     undoStack.current.push(entry);
     if (undoStack.current.length > MAX_HISTORY) {
@@ -39,44 +55,45 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
 
   const addElements = useCallback(
     (newEls: IWhiteboardElement[]) => {
-      setElements((prev) => {
-        pushAction({ type: "add", before: [], after: newEls });
-        return [...prev, ...newEls];
-      });
+      if (newEls.length === 0) return;
+      pushAction({ type: "add", before: [], after: newEls });
+      setElements([...elementsRef.current, ...newEls]);
     },
-    [pushAction],
+    [pushAction, setElements],
   );
 
   const removeElements = useCallback(
     (ids: Set<string>) => {
-      setElements((prev) => {
-        const removed = prev.filter((el) => ids.has(el.id));
-        if (removed.length === 0) return prev;
-        pushAction({ type: "remove", before: removed, after: [] });
-        return prev.filter((el) => !ids.has(el.id));
-      });
+      const prev = elementsRef.current;
+      const removed = prev.filter((el) => ids.has(el.id));
+      if (removed.length === 0) return;
+      pushAction({ type: "remove", before: removed, after: [] });
+      setElements(prev.filter((el) => !ids.has(el.id)));
     },
-    [pushAction],
+    [pushAction, setElements],
   );
 
   const updateElements = useCallback(
     (updated: IWhiteboardElement[]) => {
-      setElements((prev) => {
-        const updatedMap = new Map(updated.map((el) => [el.id, el]));
-        const before = prev.filter((el) => updatedMap.has(el.id));
-        pushAction({ type: "update", before, after: updated });
-        return prev.map((el) => updatedMap.get(el.id) ?? el);
-      });
+      if (updated.length === 0) return;
+      const prev = elementsRef.current;
+      const updatedMap = new Map(updated.map((el) => [el.id, el]));
+      const before = prev.filter((el) => updatedMap.has(el.id));
+      pushAction({ type: "update", before, after: updated });
+      setElements(prev.map((el) => updatedMap.get(el.id) ?? el));
     },
-    [pushAction],
+    [pushAction, setElements],
   );
 
-  const replaceAll = useCallback((els: IWhiteboardElement[]) => {
-    setElements(els);
-    undoStack.current = [];
-    redoStack.current = [];
-    setRevision((r) => r + 1);
-  }, []);
+  const replaceAll = useCallback(
+    (els: IWhiteboardElement[]) => {
+      setElements(els);
+      undoStack.current = [];
+      redoStack.current = [];
+      setRevision((r) => r + 1);
+    },
+    [setElements],
+  );
 
   const undo = useCallback(() => {
     const entry = undoStack.current.pop();
@@ -133,7 +150,7 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
 
     redoStack.current.push(entry);
     setRevision((r) => r + 1);
-  }, []);
+  }, [setElements]);
 
   const redo = useCallback(() => {
     const entry = redoStack.current.pop();
@@ -188,10 +205,11 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
 
     undoStack.current.push(entry);
     setRevision((r) => r + 1);
-  }, []);
+  }, [setElements]);
 
   return {
     elements,
+    getElements,
     setElements,
     addElements,
     removeElements,

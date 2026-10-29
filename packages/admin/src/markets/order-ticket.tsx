@@ -11,8 +11,8 @@ import type {
   TimeInForce,
 } from "@repo/markets/schemas";
 import { Button } from "@repo/ui/button";
+import { FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
@@ -20,12 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
-import { money, toneClass, trimQuantity } from "./format";
+import { money, trimQuantity } from "./format";
 import { SymbolSearch } from "./symbol-search";
+import {
+  FractionBar,
+  Preview,
+  PreviewRow,
+  SizeField,
+  TickerLine,
+  TicketNotices,
+} from "./ticket-fields";
 
 /** Shares, or an amount of money converted to shares at the working price. */
 type SizingMode = "shares" | "value";
@@ -258,7 +267,9 @@ export function OrderTicket({
         fees: Number(fees) || 0,
         ...(note ? { note } : {}),
         bracket:
-          bracket && (takeProfit || stopLoss)
+          // The bracket fields hide under reduce-only, but their state does
+          // not reset; without this a hidden bracket still went out.
+          bracket && !reduceOnly && (takeProfit || stopLoss)
             ? {
                 takeProfitPrice: takeProfit ? Number(takeProfit) : null,
                 stopLossPrice: stopLoss ? Number(stopLoss) : null,
@@ -300,264 +311,226 @@ export function OrderTicket({
   const needsLimit = type === "limit" || type === "stop_limit";
   const needsStop = type === "stop" || type === "stop_limit";
 
+  const holding =
+    held && held.quantity !== 0
+      ? `${held.quantity < 0 ? "short " : ""}${trimQuantity(
+          Math.abs(held.quantity),
+        )} @ ${held.avgCost.toFixed(2)}`
+      : null;
+
   return (
-    <div className="space-y-3 text-xs">
+    <div className="flex flex-col gap-4">
       <Tabs
         value={side}
-        onValueChange={(next) => setSide(next as "buy" | "sell")}
+        onValueChange={(next) => setSide(next === "sell" ? "sell" : "buy")}
       >
-        <TabsList variant="line" className="h-7">
-          <TabsTrigger value="buy" className="px-2 text-xs">
+        <TabsList variant="line">
+          <TabsTrigger value="buy">
             {held && held.quantity < 0 ? "Buy / cover" : "Buy"}
           </TabsTrigger>
-          <TabsTrigger value="sell" className="px-2 text-xs">
+          <TabsTrigger value="sell">
             {held && held.quantity > 0 ? "Sell" : "Sell short"}
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
       {fixedTicker ? (
-        <div className="flex items-baseline justify-between">
-          <span className="font-medium text-sm tabular-nums">
-            {fixedTicker}
-          </span>
-          <PositionChip position={held} />
-        </div>
+        <TickerLine ticker={fixedTicker} holding={holding} />
       ) : (
-        <div className="space-y-1">
-          <Label className="text-xs">Symbol</Label>
+        <FormField label="Symbol">
           <SymbolSearch onSelect={pickTicker} className="w-full" />
-          {ticker ? (
-            <div className="flex items-baseline justify-between pt-0.5">
-              <span className="font-medium tabular-nums">{ticker}</span>
-              <PositionChip position={held} />
-            </div>
-          ) : null}
-        </div>
+          {ticker ? <TickerLine ticker={ticker} holding={holding} /> : null}
+        </FormField>
       )}
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Type</Label>
+      <FormGrid>
+        <FormField label="Type">
           <Select
             value={type}
             onValueChange={(next) => setType(next as OrderType)}
           >
-            <SelectTrigger size="sm" className="h-8 w-full text-xs">
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(TYPE_LABELS) as OrderType[]).map((option) => (
-                <SelectItem key={option} value={option} className="text-xs">
+                <SelectItem key={option} value={option}>
                   {TYPE_LABELS[option]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Time in force</Label>
+        </FormField>
+        <FormField label="Time in force">
           <Select
             value={timeInForce}
             onValueChange={(next) => setTimeInForce(next as TimeInForce)}
           >
-            <SelectTrigger size="sm" className="h-8 w-full text-xs">
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(TIF_LABELS) as TimeInForce[]).map((option) => (
-                <SelectItem key={option} value={option} className="text-xs">
+                <SelectItem key={option} value={option}>
                   {TIF_LABELS[option]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-      </div>
+        </FormField>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">
-              {sizing === "shares" ? "Quantity" : `Value (${baseCurrency})`}
-            </Label>
-            <button
-              type="button"
-              onClick={() =>
-                setSizing(sizing === "shares" ? "value" : "shares")
-              }
-              className="text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              {sizing === "shares" ? baseCurrency : "shares"}
-            </button>
-          </div>
+        <SizeField
+          id="order-size"
+          shares={sizing === "shares"}
+          baseCurrency={baseCurrency}
+          value={sizing === "shares" ? quantity : value}
+          onValueChange={sizing === "shares" ? setQuantity : setValue}
+          onToggleUnit={() =>
+            setSizing(sizing === "shares" ? "value" : "shares")
+          }
+        />
+        <FormField label="Last" htmlFor="order-last">
           <Input
-            value={sizing === "shares" ? quantity : value}
-            onChange={(event) =>
-              sizing === "shares"
-                ? setQuantity(event.target.value)
-                : setValue(event.target.value)
-            }
-            inputMode="decimal"
-            className="h-8 text-xs tabular-nums"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Last</Label>
-          <Input
+            id="order-last"
             value={last === null ? "" : last.toFixed(2)}
             readOnly
-            className="h-8 bg-muted/40 text-xs tabular-nums"
+            tabIndex={-1}
+            className="text-muted-foreground tabular-nums"
           />
+        </FormField>
+        <div className="sm:col-span-2">
+          <FractionBar onPick={applyFraction} />
         </div>
-      </div>
 
-      <div className="flex gap-1">
-        {[0.25, 0.5, 0.75, 1].map((fraction) => (
-          <button
-            key={fraction}
-            type="button"
-            onClick={() => applyFraction(fraction)}
-            className="flex-1 rounded border py-0.5 text-[10px] text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-          >
-            {fraction === 1 ? "Max" : `${fraction * 100}%`}
-          </button>
-        ))}
-      </div>
-
-      {needsLimit || needsStop ? (
-        <div className="grid grid-cols-2 gap-2">
-          {needsStop ? (
-            <div className="space-y-1">
-              <Label className="text-xs">Stop</Label>
-              <Input
-                value={stopPrice}
-                onChange={(event) => setStopPrice(event.target.value)}
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-          ) : null}
-          {needsLimit ? (
-            <div className="space-y-1">
-              <Label className="text-xs">Limit</Label>
-              <Input
-                value={limitPrice}
-                onChange={(event) => setLimitPrice(event.target.value)}
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {type === "trailing_stop" ? (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Trail</Label>
+        {needsStop ? (
+          <FormField label="Stop" htmlFor="order-stop">
             <Input
-              value={trailValue}
-              onChange={(event) => setTrailValue(event.target.value)}
+              id="order-stop"
+              value={stopPrice}
+              onChange={(event) => setStopPrice(event.target.value)}
               inputMode="decimal"
-              className="h-8 text-xs tabular-nums"
+              className="tabular-nums"
             />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Basis</Label>
-            <Select
-              value={trailBasis}
-              onValueChange={(next) =>
-                setTrailBasis(next as "amount" | "percent")
-              }
-            >
-              <SelectTrigger size="sm" className="h-8 w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="percent" className="text-xs">
-                  Percent
-                </SelectItem>
-                <SelectItem value="amount" className="text-xs">
-                  {baseCurrency}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      ) : null}
+          </FormField>
+        ) : null}
+        {needsLimit ? (
+          <FormField label="Limit" htmlFor="order-limit">
+            <Input
+              id="order-limit"
+              value={limitPrice}
+              onChange={(event) => setLimitPrice(event.target.value)}
+              inputMode="decimal"
+              className="tabular-nums"
+            />
+          </FormField>
+        ) : null}
 
-      {timeInForce === "gtd" ? (
-        <div className="space-y-1">
-          <Label className="text-xs">Expires</Label>
-          <Input
-            type="datetime-local"
-            value={expiresAt}
-            onChange={(event) => setExpiresAt(event.target.value)}
-            className="h-8 text-xs tabular-nums"
-          />
-        </div>
-      ) : null}
+        {type === "trailing_stop" ? (
+          <>
+            <FormField label="Trail" htmlFor="order-trail">
+              <Input
+                id="order-trail"
+                value={trailValue}
+                onChange={(event) => setTrailValue(event.target.value)}
+                inputMode="decimal"
+                className="tabular-nums"
+              />
+            </FormField>
+            <FormField label="Basis">
+              <Select
+                value={trailBasis}
+                onValueChange={(next) =>
+                  setTrailBasis(next === "amount" ? "amount" : "percent")
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">Percent</SelectItem>
+                  <SelectItem value="amount">{baseCurrency}</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+          </>
+        ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Fees</Label>
+        {timeInForce === "gtd" ? (
+          <FormField
+            label="Expires"
+            htmlFor="order-expires"
+            className="sm:col-span-2"
+          >
+            <Input
+              id="order-expires"
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(event) => setExpiresAt(event.target.value)}
+              className="tabular-nums"
+            />
+          </FormField>
+        ) : null}
+
+        <FormField label="Fees" htmlFor="order-fees">
           <Input
+            id="order-fees"
             value={fees}
             onChange={(event) => setFees(event.target.value)}
             inputMode="decimal"
-            className="h-8 text-xs tabular-nums"
+            className="tabular-nums"
           />
-        </div>
-        <div className="flex items-end pb-1">
-          <Label htmlFor="order-reduce-only" className="text-xs">
-            <Switch
-              id="order-reduce-only"
-              checked={reduceOnly}
-              onCheckedChange={setReduceOnly}
-            />
-            Reduce only
-          </Label>
-        </div>
-      </div>
-
-      {reduceOnly ? null : (
-        <div className="space-y-2 border-t pt-2">
-          <Label htmlFor="order-bracket" className="text-xs">
-            <Switch
+        </FormField>
+        <div className="flex items-end gap-x-5 gap-y-2 pb-1.5">
+          <SwitchLabel
+            id="order-reduce-only"
+            label="Reduce only"
+            checked={reduceOnly}
+            onCheckedChange={setReduceOnly}
+          />
+          {reduceOnly ? null : (
+            <SwitchLabel
               id="order-bracket"
+              label="Bracket"
               checked={bracket}
               onCheckedChange={setBracket}
             />
-            Bracket
-          </Label>
-          {bracket ? (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Take profit</Label>
-                <Input
-                  value={takeProfit}
-                  onChange={(event) => setTakeProfit(event.target.value)}
-                  inputMode="decimal"
-                  className="h-8 text-xs tabular-nums"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Stop loss</Label>
-                <Input
-                  value={stopLoss}
-                  onChange={(event) => setStopLoss(event.target.value)}
-                  inputMode="decimal"
-                  className="h-8 text-xs tabular-nums"
-                />
-              </div>
-            </div>
-          ) : null}
+          )}
         </div>
-      )}
 
-      <div className="space-y-0.5 border-t pt-2 text-[11px]">
-        <Row
+        {!reduceOnly && bracket ? (
+          <>
+            <FormField label="Take profit" htmlFor="order-take-profit">
+              <Input
+                id="order-take-profit"
+                value={takeProfit}
+                onChange={(event) => setTakeProfit(event.target.value)}
+                inputMode="decimal"
+                className="tabular-nums"
+              />
+            </FormField>
+            <FormField label="Stop loss" htmlFor="order-stop-loss">
+              <Input
+                id="order-stop-loss"
+                value={stopLoss}
+                onChange={(event) => setStopLoss(event.target.value)}
+                inputMode="decimal"
+                className="tabular-nums"
+              />
+            </FormField>
+          </>
+        ) : null}
+
+        <FormField label="Note" htmlFor="order-note" className="sm:col-span-2">
+          <Input
+            id="order-note"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </FormField>
+      </FormGrid>
+
+      <Preview>
+        <PreviewRow
           label={sizing === "shares" ? "Notional" : "Shares"}
           value={
             sizing === "shares"
@@ -568,78 +541,56 @@ export function OrderTicket({
           }
         />
         {closing > 0 ? (
-          <Row
+          <PreviewRow
             label="Closes"
             value={trimQuantity(Number(closing.toFixed(4)))}
           />
         ) : null}
         {opening > 0 ? (
-          <Row
+          <PreviewRow
             label={willShort ? "Opens short" : "Opens"}
             value={trimQuantity(Number(opening.toFixed(4)))}
           />
         ) : null}
-        <Row
+        <PreviewRow
           label="Buying power"
           value={money(margin.buyingPower)}
           tone={overBuyingPower ? -1 : undefined}
         />
-      </div>
+      </Preview>
 
-      {problem ? <div className="text-red-600">{problem}</div> : null}
-      {!problem && willShort && !allowShorts ? (
-        <div className="text-amber-600">Shorting is off for this portfolio</div>
-      ) : null}
-      {!problem && overBuyingPower ? (
-        <div className="text-amber-600">
-          Needs {money(requirement)} against {money(margin.buyingPower)}
-        </div>
-      ) : null}
+      <TicketNotices
+        problem={problem}
+        warnings={[
+          willShort && !allowShorts && "Shorting is off for this portfolio",
+          overBuyingPower &&
+            `Needs ${money(requirement)} against ${money(margin.buyingPower)}`,
+        ]}
+      />
 
-      <div className="flex items-center gap-2 pt-1">
-        <Button
-          size="sm"
-          className="h-8 flex-1 text-xs"
-          disabled={busy}
-          onClick={() => void submit()}
-        >
-          {TYPE_LABELS[type]} {side === "buy" ? "buy" : "sell"}
-        </Button>
-        <Input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Note"
-          className="h-8 flex-1 text-xs"
-        />
-      </div>
+      <Button disabled={busy} onClick={() => void submit()}>
+        {busy ? <Spinner className="size-3.5" /> : null}
+        {TYPE_LABELS[type]} {side === "buy" ? "buy" : "sell"}
+      </Button>
     </div>
   );
 }
 
-function PositionChip({ position }: { position: Position | null }) {
-  if (!position || position.quantity === 0) return null;
-  return (
-    <span className="text-[10px] text-muted-foreground tabular-nums">
-      {position.quantity < 0 ? "short " : ""}
-      {trimQuantity(Math.abs(position.quantity))} @{" "}
-      {position.avgCost.toFixed(2)}
-    </span>
-  );
-}
-
-function Row({
+function SwitchLabel({
+  id,
   label,
-  value,
-  tone,
+  checked,
+  onCheckedChange,
 }: {
+  id: string;
   label: string;
-  value: string;
-  tone?: number;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-baseline justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`tabular-nums ${toneClass(tone)}`}>{value}</span>
-    </div>
+    <label htmlFor={id} className="flex items-center gap-2 text-sm">
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      {label}
+    </label>
   );
 }
