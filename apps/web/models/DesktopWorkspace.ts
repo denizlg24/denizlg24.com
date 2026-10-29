@@ -2,9 +2,9 @@ import type { Workspace } from "@repo/schemas";
 import mongoose from "mongoose";
 
 /**
- * The workspace desktop and web share, as one document. It is validated by
- * `workspaceSchema` on the way in and replaced whole on every save, so Mongo
- * holds it as an opaque value rather than a mirrored schema.
+ * The v1 workspace, one whole document. Superseded by `WorkspacePage` and
+ * `WorkspacePrefs`, which `lib/workspace` migrates it into on first use; it
+ * is kept as the backup and never written again.
  */
 export interface IDesktopWorkspace {
   _id: string;

@@ -1,107 +1,40 @@
-import {
-  type Workspace,
-  workspaceSaveSchema,
-  workspaceSchema,
-} from "@repo/schemas";
+import { workspaceSaveSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongodb";
-import { requireAdmin } from "@/lib/require-admin";
-import { DesktopWorkspace } from "@/models/DesktopWorkspace";
+import { readBody, withWorkspace } from "@/lib/workspace/http";
 
-const SINGLETON = "singleton";
-
-async function loadStored() {
-  const doc = await DesktopWorkspace.findById(SINGLETON).lean().exec();
-  if (!doc) return null;
-  const parsed = workspaceSchema.safeParse(doc.data);
-  return { savedAt: doc.data?.savedAt ?? null, workspace: parsed.data ?? null };
-}
+/*
+ * The v1 whole-document API, kept for desktop 3.0.0 on top of per-page
+ * storage. Nothing newer calls it.
+ *
+ * GET assembles the document from pages and prefs, records it as the base
+ * 3.0.0 now holds, and stamps `savedAt` with the server's now so 3.0.0 adopts
+ * it instead of pushing its own copy.
+ *
+ * PUT merges each page three ways — that base, the stored page, the incoming
+ * page — and writes only 3.0.0's own edits since the base, block by block and
+ * page field by page field, skipping any block or field someone else changed
+ * meanwhile. The incoming page then becomes the new base. A stale PUT
+ * therefore never undoes an agent's or the web's edit; on a collision the
+ * stored copy wins and 3.0.0's edit to that block is dropped. A page missing
+ * from the PUT is purged only when it is trashed and unchanged since 3.0.0
+ * last held it. `baseSavedAt` is ignored.
+ */
 
 export async function GET(request: NextRequest) {
-  const authError = await requireAdmin(request);
-  if (authError) return authError;
-
-  try {
-    await connectDB();
-    const stored = await loadStored();
-    return NextResponse.json({ workspace: stored?.workspace ?? null });
-  } catch (error) {
-    console.error("Failed to load workspace:", error);
-    return NextResponse.json(
-      { error: "Failed to load workspace" },
-      { status: 500 },
-    );
-  }
+  return withWorkspace(request, async (service) =>
+    NextResponse.json({ workspace: await service.compatGet() }),
+  );
 }
 
-/**
- * Desktop and web both write this document. A save names the `savedAt` it
- * was edited from; when the stored copy has moved on since, the save is
- * refused with the current copy so the client can adopt it instead of
- * overwriting it.
- */
 export async function PUT(request: NextRequest) {
-  const authError = await requireAdmin(request);
-  if (authError) return authError;
-
-  const parsed = workspaceSaveSchema.safeParse(
-    await request.json().catch(() => null),
-  );
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid workspace", issues: parsed.error.issues.slice(0, 5) },
-      { status: 400 },
+  return withWorkspace(request, async (service) => {
+    const { baseSavedAt: _ignored, ...workspace } = await readBody(
+      request,
+      workspaceSaveSchema,
     );
-  }
-  const { baseSavedAt, ...workspace } = parsed.data;
-
-  try {
-    await connectDB();
-    const savedAt = workspace.savedAt ?? new Date().toISOString();
-    const data = { ...workspace, savedAt };
-
-    if (baseSavedAt === undefined) {
-      await DesktopWorkspace.updateOne(
-        { _id: SINGLETON },
-        { $set: { data } },
-        { upsert: true },
-      ).exec();
-      return NextResponse.json({ savedAt });
-    }
-
-    const stored = await loadStored();
-    const storedAt = stored?.savedAt ?? null;
-    // A stored copy that no longer parses has nothing to protect.
-    if (stored?.workspace && storedAt !== baseSavedAt) {
-      return conflict(stored.workspace);
-    }
-
-    // The filter re-checks the stamp so a save landing in between still loses.
-    const result = stored
-      ? await DesktopWorkspace.updateOne(
-          { _id: SINGLETON, "data.savedAt": storedAt },
-          { $set: { data } },
-        ).exec()
-      : await DesktopWorkspace.updateOne(
-          { _id: SINGLETON },
-          { $setOnInsert: { data } },
-          { upsert: true },
-        ).exec();
-    const written = stored ? result.matchedCount > 0 : result.upsertedCount > 0;
-    if (!written) return conflict((await loadStored())?.workspace ?? null);
-    return NextResponse.json({ savedAt });
-  } catch (error) {
-    console.error("Failed to save workspace:", error);
-    return NextResponse.json(
-      { error: "Failed to save workspace" },
-      { status: 500 },
-    );
-  }
-}
-
-function conflict(workspace: Workspace | null) {
-  return NextResponse.json(
-    { error: "Workspace changed since this copy was loaded", workspace },
-    { status: 409 },
-  );
+    await service.compatPut(workspace);
+    return NextResponse.json({
+      savedAt: workspace.savedAt ?? new Date().toISOString(),
+    });
+  });
 }
