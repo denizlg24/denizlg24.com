@@ -1135,4 +1135,98 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect((await storedPage("alpha-log"))?.deletedAt).not.toBeNull();
     });
   });
+
+  describe("a revision written a round trip after its page", () => {
+    // Production talks to a Mongo on another host, so `commit`'s revision
+    // insert lands a round trip after the page's compare-and-set; anything
+    // reading in between sees the page at a rev its log does not have yet.
+    const lagging = () =>
+      createWorkspaceService({
+        ...mongoWorkspaceRepo,
+        async insertRevision(revision) {
+          await Bun.sleep(25);
+          return mongoWorkspaceRepo.insertRevision(revision);
+        },
+      });
+
+    async function untilRev(id: string, rev: number) {
+      while (((await storedPage(id))?.rev ?? 0) < rev) await Bun.sleep(1);
+    }
+
+    test("a rebase does not mistake it for lost history", async () => {
+      await migrated();
+      const service = lagging();
+      let doc = await service.getPage("alpha");
+      for (let i = 0; i < 10; i++) {
+        const results = await Promise.allSettled([
+          service.applyOps(
+            "alpha",
+            {
+              baseRev: doc.rev,
+              ops: [{ op: "update", id: "a-h", set: { text: `h${i}` } }],
+            },
+            OWNER,
+          ),
+          service.applyOps(
+            "alpha",
+            {
+              baseRev: doc.rev,
+              ops: [{ op: "update", id: "a-t", set: { markdown: `t${i}` } }],
+            },
+            AGENT,
+          ),
+        ]);
+        const refused = results.flatMap((r) =>
+          r.status === "rejected" ? [String(r.reason)] : [],
+        );
+        expect(refused).toEqual([]);
+        doc = await service.getPage("alpha");
+      }
+      expect(doc.rev).toBe(21);
+    });
+
+    test("revert to the rev just written rebuilds it", async () => {
+      const service = await migrated();
+      const writing = lagging().applyOps(
+        "alpha",
+        {
+          baseRev: 1,
+          ops: [{ op: "update", id: "a-t", set: { markdown: "new" } }],
+        },
+        OWNER,
+      );
+      await untilRev("alpha", 2);
+      const reverted = await service.revertToRev("alpha", 2, OWNER);
+      await writing;
+      expect(reverted.rev).toBe(2);
+      expect(reverted.blocks[1]).toEqual({
+        id: "a-t",
+        span: 6,
+        type: "text",
+        markdown: "new",
+      });
+    });
+
+    test("reverting an actor includes its revision still being written", async () => {
+      const service = await migrated();
+      const writing = lagging().applyOps(
+        "alpha",
+        {
+          baseRev: 1,
+          ops: [{ op: "update", id: "a-t", set: { markdown: "agent" } }],
+        },
+        AGENT,
+      );
+      await untilRev("alpha", 2);
+      const result = await service.revertActor("alpha", AGENT_ACTOR, 0, OWNER);
+      await writing;
+      expect(result.reverted).toBe(1);
+      expect(result.page.blocks[1]).toEqual({
+        id: "a-t",
+        span: 6,
+        type: "text",
+        markdown: "notes",
+      });
+    });
+  });
 });

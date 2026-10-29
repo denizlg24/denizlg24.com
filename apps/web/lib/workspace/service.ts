@@ -50,6 +50,7 @@ const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** Containers' clocks may disagree a little; the feed re-reads this much before `since`. */
 export const FEED_OVERLAP_MS = 5_000;
 const CAS_ATTEMPTS = 5;
+const HISTORY_SETTLE_MS = [5, 20, 50, 100];
 const MARKDOWN_CONTEXT_MAX = 24_000;
 
 export class WorkspaceError extends Error {
@@ -417,6 +418,26 @@ export function createWorkspaceService(
     }
   }
 
+  /**
+   * Revisions in (after, upTo]. `commit` writes the page first and its
+   * revision a round trip later, so a reader can hold a rev the log does not
+   * have yet; a short tail is re-read before it counts as missing. Callers
+   * decide what a gap that outlasts this means.
+   */
+  async function revisionsThrough(
+    id: string,
+    after: number,
+    upTo: number,
+  ): Promise<StoredRevision[]> {
+    let revisions = await repo.revisionsAfter(id, after, upTo);
+    for (const wait of HISTORY_SETTLE_MS) {
+      if (revisions.length >= upTo - after) break;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      revisions = await repo.revisionsAfter(id, after, upTo);
+    }
+    return revisions;
+  }
+
   async function reconstruct(id: string, rev: number): Promise<WorkspacePage> {
     const base = await repo.latestSnapshot(id, rev);
     if (!base?.snapshot) {
@@ -426,7 +447,7 @@ export function createWorkspaceService(
         `No history for rev ${rev}`,
       );
     }
-    const since = await repo.revisionsAfter(id, base.rev, rev);
+    const since = await revisionsThrough(id, base.rev, rev);
     if (since.length !== rev - base.rev) {
       throw new WorkspaceError(
         410,
@@ -747,7 +768,7 @@ export function createWorkspaceService(
           }
           const rebasing = request.baseRev < stored.rev;
           if (rebasing) {
-            const since = await repo.revisionsAfter(
+            const since = await revisionsThrough(
               id,
               request.baseRev,
               stored.rev,
@@ -841,7 +862,7 @@ export function createWorkspaceService(
       return retrying(async () => {
         const stored = await load(id);
         assertWritable(stored, caller);
-        const revisions = await repo.revisionsAfter(id, sinceRev, stored.rev);
+        const revisions = await revisionsThrough(id, sinceRev, stored.rev);
         const laterOthers = new Set<string>();
         const ops: WorkspaceAppliedOp[] = [];
         let skipped = 0;
