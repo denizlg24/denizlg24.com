@@ -8,18 +8,21 @@ import {
   test,
 } from "bun:test";
 import {
-  BLOCK_TYPES,
   type Block,
-  type BlockType,
-  pageSchema,
-  type Workspace,
+  type LegacyBlock,
+  type LegacyBlockType,
+  type LegacyPage,
+  type LegacyWorkspace,
+  legacyBlockSchema,
+  legacyPageSchema,
+  legacyWorkspaceSchema,
+  type RichText,
   type WorkspaceChanges,
-  type WorkspacePage,
   type WorkspacePageDoc,
   type WorkspaceRevisionSummary,
   workspaceAppliedOpSchema,
-  workspaceSchema,
 } from "@repo/schemas";
+import { treeIds } from "@repo/utils/workspace-tree";
 import type { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { NextRequest } from "next/server";
@@ -74,10 +77,23 @@ if (enabled) {
 
 const T0 = "2026-10-01T09:00:00.000Z";
 
+const runs = (text: string): RichText => [{ type: "text", text }];
+const para = (id: string, text: string): Block => ({
+  id,
+  type: "paragraph",
+  text: runs(text),
+});
+const heading = (id: string, text: string): Block => ({
+  id,
+  type: "heading",
+  level: 2,
+  text: runs(text),
+});
+
 function page(
   id: string,
-  fields: Partial<WorkspacePage> & { blocks: Block[] },
-): WorkspacePage {
+  fields: Partial<LegacyPage> & { blocks: LegacyBlock[] },
+): LegacyPage {
   return {
     id,
     title: id,
@@ -93,9 +109,9 @@ function page(
   };
 }
 
-/** One block of every type the base commit's `blockSchema` knows. */
-function everyBlock(): Block[] {
-  const blocks: Block[] = [
+/** One block of every type the v1 grid knew. */
+function everyBlock(): LegacyBlock[] {
+  const blocks: LegacyBlock[] = [
     { id: "h1", span: 6, type: "heading", text: "Week" },
     { id: "t1", span: 4, type: "text", markdown: "**bold**\n\n- a\n- b" },
     { id: "d1", span: 6, type: "divider" },
@@ -132,16 +148,20 @@ function everyBlock(): Block[] {
     { id: "at1", span: 6, type: "agent", title: "Ask" },
     { id: "mo1", span: 6, type: "modules", sections: ["money", "infra"] },
   ];
-  const covered = new Set<BlockType>(blocks.map((b) => b.type));
-  for (const type of BLOCK_TYPES) {
+  const covered = new Set<LegacyBlockType>(blocks.map((b) => b.type));
+  for (const type of LEGACY_TYPES) {
     if (!covered.has(type)) throw new Error(`Fixture lacks a ${type} block`);
   }
   return blocks;
 }
 
+const LEGACY_TYPES: LegacyBlockType[] = legacyBlockSchema.options.map(
+  (option) => option.shape.type.value,
+);
+
 /** A v1 document as production holds it: nested pages, trash, favorites. */
-function legacyWorkspace(): Workspace {
-  const pages: WorkspacePage[] = [
+function legacyWorkspace(): LegacyWorkspace {
+  const pages: LegacyPage[] = [
     page("home", { title: "Home", icon: "🏠", blocks: everyBlock() }),
     page("projects", {
       title: "Projects",
@@ -184,7 +204,7 @@ function legacyWorkspace(): Workspace {
       blocks: [],
     }),
   ];
-  return workspaceSchema.parse({
+  return legacyWorkspaceSchema.parse({
     version: 1,
     savedAt: "2026-10-28T18:30:00.000Z",
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
@@ -201,7 +221,7 @@ function legacyWorkspace(): Workspace {
 }
 
 /** Written exactly as the v1 `PUT /workspace` wrote it. */
-async function seedLegacy(workspace: Workspace = legacyWorkspace()) {
+async function seedLegacy(workspace: LegacyWorkspace = legacyWorkspace()) {
   await DesktopWorkspace.updateOne(
     { _id: "singleton" },
     { $set: { data: workspace } },
@@ -218,11 +238,17 @@ async function reset() {
   ]);
 }
 
-/** Seeds the v1 document and migrates it with a service of its own. */
-async function migrated(workspace?: Workspace) {
+/**
+ * Seeds the v1 document, migrates it with a service of its own and reads
+ * every page once, so each is a flow at rev 2.
+ */
+async function migrated(workspace?: LegacyWorkspace) {
   await seedLegacy(workspace);
   const service = createWorkspaceService(mongoWorkspaceRepo);
   await service.ensureMigrated();
+  for (const summary of await service.listPages()) {
+    await service.getPage(summary.id);
+  }
   return service;
 }
 
@@ -343,6 +369,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         inverse: [],
         touched: [],
         snapshot: null,
+        legacy: null,
       };
       await WorkspacePageRevisionModel.create(revision);
       await expect(
@@ -364,19 +391,32 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(docs.map((d) => d._id)).toEqual(ids);
       for (const doc of docs) {
         const expected = legacy.pages[doc._id];
-        const { _id, rev, changedAt, purgedAt, compatBase, ...fields } = doc;
-        // Strict: a field Mongo turned into null or dropped fails here.
-        expect(pageSchema.strict().parse({ ...fields, id: _id })).toEqual(
-          expected as WorkspacePage,
-        );
+        const {
+          _id,
+          rev,
+          changedAt,
+          purgedAt,
+          compatBase,
+          legacyBlocks,
+          blocks,
+          ...fields
+        } = doc;
+        // Strict: a field Mongo turned into null or dropped fails here. The
+        // grid waits in `legacyBlocks` until the page is first read.
+        expect(blocks).toEqual([]);
+        expect(
+          legacyPageSchema
+            .strict()
+            .parse({ ...fields, blocks: legacyBlocks, id: _id }),
+        ).toEqual(expected as LegacyPage);
         expect(rev).toBe(1);
         expect(changedAt).toBeInstanceOf(Date);
         expect(purgedAt).toBeNull();
         expect(compatBase).toBeNull();
       }
       const home = await storedPage("home");
-      expect(home?.blocks.map((b) => b.type).sort()).toEqual(
-        [...BLOCK_TYPES].sort(),
+      expect(home?.legacyBlocks?.map((b) => b.type).sort()).toEqual(
+        [...LEGACY_TYPES].sort(),
       );
 
       const revisions = await WorkspacePageRevisionModel.find().lean();
@@ -384,8 +424,9 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       for (const revision of revisions) {
         expect(revision.rev).toBe(1);
         expect(revision.kind).toBe("migrate");
-        expect(revision.snapshot).toEqual(
-          legacy.pages[revision.pageId] as WorkspacePage,
+        expect(revision.snapshot?.blocks).toEqual([]);
+        expect(revision.legacy).toEqual(
+          legacy.pages[revision.pageId] as LegacyPage,
         );
       }
 
@@ -413,7 +454,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         pages,
       );
       expect(await WorkspacePageRevisionModel.countDocuments()).toBe(
-        pages.length,
+        pages.length * 2,
       );
       expect(await WorkspacePrefsModel.findById("singleton").lean()).toEqual(
         prefs,
@@ -434,6 +475,14 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       for (const doc of await WorkspacePageModel.find().lean()) {
         expect(doc.rev).toBe(1);
       }
+
+      // Their first reads race too: one migration lands, the rest read it.
+      const reads = await Promise.all(services.map((s) => s.getPage("home")));
+      expect(reads.map((r) => r.rev)).toEqual([2, 2, 2, 2]);
+      expect(
+        await WorkspacePageRevisionModel.countDocuments({ pageId: "home" }),
+      ).toBe(2);
+      for (const read of reads) expect(read.blocks).toEqual(reads[0]?.blocks);
     });
 
     test("a run that died before prefs is finished by the next one", async () => {
@@ -474,17 +523,96 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const { pages } = (await response.json()) as {
         pages: { id: string; rev: number; blockCount: number }[];
       };
-      expect(pages.find((p) => p.id === "home")?.blockCount).toBe(
-        BLOCK_TYPES.length,
-      );
+      expect(pages.find((p) => p.id === "home")?.blockCount).toBe(16);
       const one = await routes.page.GET(
         request("/pages/alpha"),
         params("alpha"),
       );
       const body = (await one.json()) as { page: WorkspacePageDoc };
-      expect(body.page.blocks).toEqual(
-        legacyWorkspace().pages.alpha?.blocks ?? [],
-      );
+      expect(body.page.rev).toBe(2);
+      expect(body.page.blocks).toEqual([
+        heading("a-h", "Alpha"),
+        para("a-t", "notes"),
+      ]);
+    });
+
+    test("the first read turns the realistic grid into a flow, once, revertibly", async () => {
+      await seedLegacy();
+      const service = createWorkspaceService(mongoWorkspaceRepo);
+      await service.ensureMigrated();
+      const home = await service.getPage("home");
+      expect(home.rev).toBe(2);
+      expect(home.blocks.map((b) => b.type)).toEqual([
+        "heading",
+        "paragraph",
+        "bullet",
+        "bullet",
+        "divider",
+        "columns",
+        "subpages",
+        "greeting",
+        "columns",
+        "columns",
+        "columns",
+        "columns",
+        "now",
+        "board",
+        "agent",
+        "modules",
+      ]);
+      expect(home.blocks[1]).toEqual({
+        id: "t1",
+        type: "paragraph",
+        text: [{ type: "text", text: "bold", bold: true }],
+      });
+      const todoRow = home.blocks[5];
+      expect(
+        todoRow?.type === "columns" &&
+          todoRow.children.map((c) => [
+            c.width,
+            c.children.map((b) => [b.id, b.type]),
+          ]),
+      ).toEqual([
+        [
+          0.5,
+          [
+            ["td1-title", "heading"],
+            ["td1", "todo"],
+            ["i2", "todo"],
+          ],
+        ],
+        [0.5, [["l1", "links"]]],
+      ]);
+      const counts = home.blocks[8];
+      expect(
+        counts?.type === "columns" && counts.children.map((c) => c.width),
+      ).toEqual([2 / 6, 4 / 6]);
+      const ids = treeIds(home.blocks);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(home.blocks.find((b) => b.id === "at1")).toEqual({
+        id: "at1",
+        type: "agent",
+        title: "Ask",
+      });
+
+      expect((await storedPage("home"))?.legacyBlocks).toBeNull();
+      const revisions = await revisionsOf("home");
+      expect(revisions.map((r) => [r.rev, r.actor, r.kind])).toEqual([
+        [1, "owner", "migrate"],
+        [2, "migration", "migrate"],
+      ]);
+      expect(revisions[1]?.snapshot?.blocks).toEqual(home.blocks);
+
+      // Reading again changes nothing; restoring to rev 1 converts the grid
+      // afresh, which lands on the same flow.
+      expect((await service.getPage("home")).rev).toBe(2);
+      const restored = await service.revertToRev("home", 1, OWNER);
+      expect(restored.rev).toBe(2);
+      expect(restored.blocks).toEqual(home.blocks);
+
+      // What desktop 3.0.0 is served of it is a valid v1 grid.
+      const served = await service.compatGet();
+      expect(legacyWorkspaceSchema.safeParse(served).success).toBe(true);
     });
   });
 
@@ -499,31 +627,33 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       await migrated();
       const [first, second] = await Promise.all([
         post("alpha", {
-          baseRev: 1,
-          ops: [{ op: "update", id: "a-h", set: { text: "Alpha!" } }],
+          baseRev: 2,
+          ops: [{ op: "update", id: "a-h", set: { text: runs("Alpha!") } }],
         }),
         post("alpha", {
-          baseRev: 1,
-          ops: [{ op: "update", id: "a-t", set: { markdown: "edited" } }],
+          baseRev: 2,
+          ops: [{ op: "update", id: "a-t", set: { text: runs("edited") } }],
         }),
       ]);
       expect([first.status, second.status]).toEqual([200, 200]);
       const doc = await storedPage("alpha");
-      expect(doc?.rev).toBe(3);
+      expect(doc?.rev).toBe(4);
       expect(doc?.blocks).toEqual([
-        { id: "a-h", span: 6, type: "heading", text: "Alpha!" },
-        { id: "a-t", span: 6, type: "text", markdown: "edited" },
+        heading("a-h", "Alpha!"),
+        para("a-t", "edited"),
       ]);
-      expect((await revisionsOf("alpha")).map((r) => r.rev)).toEqual([1, 2, 3]);
+      expect((await revisionsOf("alpha")).map((r) => r.rev)).toEqual([
+        1, 2, 3, 4,
+      ]);
 
       const racing = await Promise.all([
         post("alpha", {
-          baseRev: 3,
-          ops: [{ op: "update", id: "a-t", set: { markdown: "mine" } }],
+          baseRev: 4,
+          ops: [{ op: "update", id: "a-t", set: { text: runs("mine") } }],
         }),
         post("alpha", {
-          baseRev: 3,
-          ops: [{ op: "update", id: "a-t", set: { markdown: "theirs" } }],
+          baseRev: 4,
+          ops: [{ op: "update", id: "a-t", set: { text: runs("theirs") } }],
         }),
       ]);
       const statuses = racing.map((r) => r.status).sort();
@@ -532,11 +662,98 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const body = (await loser?.json()) as ConflictBody;
       expect(body.code).toBe("CONFLICT");
       expect(body.conflicts).toEqual(["a-t"]);
-      expect(body.page?.rev).toBe(4);
-      expect((await storedPage("alpha"))?.rev).toBe(4);
+      expect(body.page?.rev).toBe(5);
+      expect((await storedPage("alpha"))?.rev).toBe(5);
       expect(
         await WorkspacePageRevisionModel.countDocuments({ pageId: "alpha" }),
-      ).toBe(4);
+      ).toBe(5);
+    });
+
+    test("nested inserts, moves and subtree deletes persist and rebase by ancestry", async () => {
+      await migrated();
+      const nested = await post("alpha", {
+        baseRev: 2,
+        ops: [
+          {
+            op: "insert",
+            block: {
+              id: "tg",
+              type: "toggle",
+              text: runs("More"),
+              children: [para("tg-1", "inside")],
+            },
+          },
+          { op: "move", id: "a-t", parentId: "tg", after: "tg-1" },
+          {
+            op: "insert",
+            block: {
+              id: "cols",
+              type: "columns",
+              children: [
+                { id: "c1", type: "column", width: 0.5, children: [] },
+                { id: "c2", type: "column", width: 0.5, children: [] },
+              ],
+            },
+          },
+          { op: "insert", block: para("in-c1", "left"), parentId: "c1" },
+        ],
+      });
+      expect(nested.status).toBe(200);
+      const doc = await storedPage("alpha");
+      expect(doc?.rev).toBe(3);
+      expect(treeIds(doc?.blocks ?? [])).toEqual([
+        "a-h",
+        "tg",
+        "tg-1",
+        "a-t",
+        "cols",
+        "c1",
+        "in-c1",
+        "c2",
+      ]);
+
+      // Someone moves the toggle; an edit inside it from before is refused.
+      expect(
+        (
+          await post("alpha", {
+            baseRev: 3,
+            ops: [{ op: "move", id: "tg", after: null }],
+          })
+        ).status,
+      ).toBe(200);
+      const stale = await post("alpha", {
+        baseRev: 3,
+        ops: [{ op: "update", id: "tg-1", set: { text: runs("x") } }],
+      });
+      expect(stale.status).toBe(409);
+      expect(((await stale.json()) as ConflictBody).conflicts).toEqual([
+        "tg-1",
+      ]);
+      // An edit in the other subtree rebases.
+      expect(
+        (
+          await post("alpha", {
+            baseRev: 3,
+            ops: [{ op: "update", id: "in-c1", set: { text: runs("y") } }],
+          })
+        ).status,
+      ).toBe(200);
+
+      const deleted = await post("alpha", {
+        baseRev: 5,
+        ops: [{ op: "delete", id: "tg" }],
+      });
+      expect(deleted.status).toBe(200);
+      expect(treeIds((await storedPage("alpha"))?.blocks ?? [])).toEqual([
+        "a-h",
+        "cols",
+        "c1",
+        "in-c1",
+        "c2",
+      ]);
+      const last = (await revisionsOf("alpha")).at(-1);
+      expect(last?.touched.sort()).toEqual(["a-t", "tg", "tg-1"]);
+      expect(last?.inverse[0]).toMatchObject({ op: "insert", after: null });
     });
 
     test("five concurrent inserts all land, each on its own rev", async () => {
@@ -544,19 +761,14 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const responses = await Promise.all(
         Array.from({ length: 5 }, (_, i) =>
           post("beta", {
-            baseRev: 1,
-            ops: [
-              {
-                op: "insert",
-                block: { id: `n${i}`, span: 6, type: "text", markdown: `${i}` },
-              },
-            ],
+            baseRev: 2,
+            ops: [{ op: "insert", block: para(`n${i}`, `${i}`) }],
           }),
         ),
       );
       expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
       const doc = await storedPage("beta");
-      expect(doc?.rev).toBe(6);
+      expect(doc?.rev).toBe(7);
       expect(doc?.blocks.map((b) => b.id).sort()).toEqual([
         "n0",
         "n1",
@@ -565,8 +777,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         "n4",
       ]);
       const revisions = await revisionsOf("beta");
-      expect(revisions.map((r) => r.rev)).toEqual([1, 2, 3, 4, 5, 6]);
-      for (const revision of revisions.slice(1)) {
+      expect(revisions.map((r) => r.rev)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      for (const revision of revisions.slice(2)) {
         // Stored ops must still be valid applied ops, anchors concrete.
         for (const op of revision.ops) {
           const parsed = workspaceAppliedOpSchema.parse(op);
@@ -580,23 +792,23 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(
         (
           await post("alpha", {
-            baseRev: 1,
+            baseRev: 2,
             ops: [{ op: "delete", id: "a-h" }],
           })
         ).status,
       ).toBe(200);
       const stale = await post("alpha", {
-        baseRev: 1,
+        baseRev: 2,
         ops: [
           {
             op: "insert",
-            block: { id: "x", span: 6, type: "divider" },
+            block: { id: "x", type: "divider" },
             after: "a-h",
           },
         ],
       });
       expect(stale.status).toBe(409);
-      expect((await storedPage("alpha"))?.rev).toBe(2);
+      expect((await storedPage("alpha"))?.rev).toBe(3);
     });
   });
 
@@ -615,7 +827,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(await storedPage("alpha")).toEqual(before);
       expect(
         await WorkspacePageRevisionModel.countDocuments({ pageId: "alpha" }),
-      ).toBe(1);
+      ).toBe(2);
     });
 
     test("two clients creating the same id: one 201, one 409, one revision", async () => {
@@ -627,7 +839,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
             body: {
               id: "fresh",
               title,
-              blocks: [{ id: "b", span: 6, type: "text", markdown: title }],
+              blocks: [para("b", title)],
             },
           }),
         );
@@ -725,11 +937,12 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(quiet.pages).toEqual([]);
 
       clock += 1_000;
+      const beta = await service.getPage("beta");
       await service.applyOps(
         "beta",
         {
-          baseRev: 1,
-          ops: [{ op: "insert", block: { id: "q", span: 6, type: "divider" } }],
+          baseRev: beta.rev,
+          ops: [{ op: "insert", block: { id: "q", type: "divider" } }],
         },
         OWNER,
       );
@@ -768,20 +981,15 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
     test("revert to a rev across a snapshot boundary rebuilds that rev exactly", async () => {
       const service = await migrated();
       const states = new Map<number, WorkspacePageDoc>();
-      states.set(1, await service.getPage("home"));
       let current = await service.getPage("home");
+      states.set(current.rev, current);
       for (let i = 0; current.rev < SNAPSHOT_EVERY + 5; i++) {
         const blocks = current.blocks;
         const step =
           i % 4 === 0
             ? {
                 op: "insert" as const,
-                block: {
-                  id: `r${i}`,
-                  span: 2 as const,
-                  type: "text" as const,
-                  markdown: `${i}`,
-                },
+                block: para(`r${i}`, `${i}`),
                 after: i % 8 === 0 ? null : undefined,
               }
             : i % 4 === 1
@@ -793,7 +1001,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
               : i % 4 === 2
                 ? {
                     op: "update" as const,
-                    id: "td1",
+                    id: "g1",
                     set: { title: `T${i}` },
                   }
                 : { op: "delete" as const, id: blocks[3]?.id ?? "d1" };
@@ -810,12 +1018,14 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       })
         .sort({ rev: 1 })
         .lean();
-      expect(snapshots.map((s) => s.rev)).toEqual([1, SNAPSHOT_EVERY]);
+      expect(snapshots.map((s) => s.rev)).toEqual([1, 2, SNAPSHOT_EVERY]);
 
-      for (const target of [SNAPSHOT_EVERY + 3, SNAPSHOT_EVERY - 1, 7, 1]) {
+      // Rev 1 is the grid; restoring to it converts it afresh, to rev 2's flow.
+      for (const target of [SNAPSHOT_EVERY + 3, SNAPSHOT_EVERY - 1, 7, 2, 1]) {
+        const expected = states.get(Math.max(target, 2));
         const reverted = await service.revertToRev("home", target, OWNER);
-        expect(reverted.blocks).toEqual(states.get(target)?.blocks ?? []);
-        expect(reverted.title).toBe(states.get(target)?.title ?? "");
+        expect(reverted.blocks).toEqual(expected?.blocks ?? []);
+        expect(reverted.title).toBe(expected?.title ?? "");
         const fromDb = await storedPage("home");
         expect(fromDb?.blocks).toEqual(reverted.blocks);
       }
@@ -826,14 +1036,11 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       let doc = await service.applyOps(
         "alpha",
         {
-          baseRev: 1,
+          baseRev: 2,
           ops: [
-            { op: "update", id: "a-t", set: { markdown: "agent text" } },
-            {
-              op: "insert",
-              block: { id: "ag", span: 6, type: "text", markdown: "agent" },
-            },
-            { op: "update", id: "a-h", set: { text: "Agent heading" } },
+            { op: "update", id: "a-t", set: { text: runs("agent text") } },
+            { op: "insert", block: para("ag", "agent") },
+            { op: "update", id: "a-h", set: { text: runs("Agent heading") } },
           ],
         },
         AGENT,
@@ -842,7 +1049,9 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         "alpha",
         {
           baseRev: doc.rev,
-          ops: [{ op: "update", id: "a-h", set: { text: "Owner heading" } }],
+          ops: [
+            { op: "update", id: "a-h", set: { text: runs("Owner heading") } },
+          ],
         },
         OWNER,
       );
@@ -864,8 +1073,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(body.skipped).toBe(1);
       expect(body.reverted).toBe(2);
       expect(body.page.blocks).toEqual([
-        { id: "a-h", span: 6, type: "heading", text: "Owner heading" },
-        { id: "a-t", span: 6, type: "text", markdown: "notes" },
+        heading("a-h", "Owner heading"),
+        para("a-t", "notes"),
       ]);
       const last = (await revisionsOf("alpha")).at(-1);
       expect(last?.kind).toBe("revert");
@@ -879,23 +1088,25 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         doc = await service.updateMeta("beta", { title: `b${i}` }, AGENT);
       }
       const all = await service.history("beta", { limit: 2 });
-      expect(all.map((r: WorkspaceRevisionSummary) => r.rev)).toEqual([5, 4]);
+      expect(all.map((r: WorkspaceRevisionSummary) => r.rev)).toEqual([6, 5]);
       expect(all[0]?.actor).toBe(AGENT_ACTOR);
       expect(all[0]?.via).toBe("mcp:mcp-svc");
-      const older = await service.history("beta", { limit: 10, before: 4 });
-      expect(older.map((r) => r.rev)).toEqual([3, 2, 1]);
-      expect(doc.rev).toBe(5);
+      const older = await service.history("beta", { limit: 10, before: 5 });
+      expect(older.map((r) => r.rev)).toEqual([4, 3, 2, 1]);
+      expect(older[2]?.actor).toBe("migration");
+      expect(doc.rev).toBe(6);
     });
   });
 
   describe("desktop 3.0.0 compatibility", () => {
-    async function compatGet(): Promise<Workspace> {
+    async function compatGet(): Promise<LegacyWorkspace> {
       const response = await routes.workspace.GET(request(""));
       expect(response.status).toBe(200);
-      return ((await response.json()) as { workspace: Workspace }).workspace;
+      return ((await response.json()) as { workspace: LegacyWorkspace })
+        .workspace;
     }
 
-    async function compatPut(workspace: Workspace) {
+    async function compatPut(workspace: LegacyWorkspace) {
       session = OWNER_SESSION;
       return routes.workspace.PUT(
         request("", { method: "PUT", body: workspace }),
@@ -906,7 +1117,16 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       await migrated();
       const held = await compatGet();
       const base = await storedPage("alpha");
-      expect(base?.compatBase).toEqual(held.pages.alpha as WorkspacePage);
+      expect(base?.compatBase).toEqual(held.pages.alpha as LegacyPage);
+      expect(held.pages.alpha?.blocks).toEqual([
+        { id: "a-h", span: 6, type: "heading", text: "Alpha" },
+        {
+          id: "a-t",
+          span: 6,
+          type: "text",
+          markdown: 'notes <!-- id="a-t" -->',
+        },
+      ]);
 
       session = AGENT_SESSION;
       const agentEdit = await routes.ops.POST(
@@ -914,8 +1134,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
           method: "POST",
           actor: AGENT_ACTOR,
           body: {
-            baseRev: 1,
-            ops: [{ op: "update", id: "a-h", set: { text: "Agent" } }],
+            baseRev: 2,
+            ops: [{ op: "update", id: "a-h", set: { text: runs("Agent") } }],
           },
         }),
         params("alpha"),
@@ -924,7 +1144,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
 
       const alpha = held.pages.alpha;
       if (!alpha) throw new Error("alpha missing");
-      const edited: Workspace = {
+      const edited: LegacyWorkspace = {
         ...held,
         pages: {
           ...held.pages,
@@ -945,16 +1165,17 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const doc = await storedPage("alpha");
       expect(doc?.title).toBe("Alpha (desktop)");
       expect(doc?.blocks).toEqual([
-        { id: "a-h", span: 6, type: "heading", text: "Agent" },
-        { id: "a-t", span: 6, type: "text", markdown: "desktop text" },
+        heading("a-h", "Agent"),
+        para("a-t", "desktop text"),
       ]);
       const revisions = await revisionsOf("alpha");
       expect(revisions.map((r) => [r.rev, r.actor, r.kind])).toEqual([
         [1, "owner", "migrate"],
-        [2, AGENT_ACTOR, "ops"],
-        [3, "owner", "compat"],
+        [2, "migration", "migrate"],
+        [3, AGENT_ACTOR, "ops"],
+        [4, "owner", "compat"],
       ]);
-      expect(doc?.compatBase).toEqual(edited.pages.alpha as WorkspacePage);
+      expect(doc?.compatBase).toEqual(edited.pages.alpha as LegacyPage);
       const prefs = await WorkspacePrefsModel.findById("singleton").lean();
       expect(prefs?.favorites).toEqual([
         "page:alpha",
@@ -970,8 +1191,10 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
           method: "POST",
           actor: AGENT_ACTOR,
           body: {
-            baseRev: 3,
-            ops: [{ op: "update", id: "a-t", set: { markdown: "agent wins" } }],
+            baseRev: 4,
+            ops: [
+              { op: "update", id: "a-t", set: { text: runs("agent wins") } },
+            ],
           },
         }),
         params("alpha"),
@@ -993,13 +1216,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         },
       });
       const after = await storedPage("alpha");
-      expect(after?.blocks[1]).toEqual({
-        id: "a-t",
-        span: 6,
-        type: "text",
-        markdown: "agent wins",
-      });
-      expect(after?.rev).toBe(4);
+      expect(after?.blocks[1]).toEqual(para("a-t", "agent wins"));
+      expect(after?.rev).toBe(5);
     });
 
     test("a write that read the page before a GET does not undo the base that GET recorded", async () => {
@@ -1023,8 +1241,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const writing = slow.applyOps(
         "alpha",
         {
-          baseRev: 1,
-          ops: [{ op: "update", id: "a-h", set: { text: "Agent" } }],
+          baseRev: 2,
+          ops: [{ op: "update", id: "a-h", set: { text: runs("Agent") } }],
         },
         AGENT,
       );
@@ -1034,7 +1252,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       await writing;
 
       expect((await storedPage("alpha"))?.compatBase).toEqual(
-        held.pages.alpha as WorkspacePage,
+        held.pages.alpha as LegacyPage,
       );
 
       // 3.0.0 deleted a block meanwhile; the agent's edit to another stays.
@@ -1051,7 +1269,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         },
       });
       expect((await storedPage("alpha"))?.blocks).toEqual([
-        { id: "a-h", span: 6, type: "heading", text: "Agent" },
+        heading("a-h", "Agent"),
       ]);
     });
 
@@ -1128,7 +1346,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       await Promise.all([compatPut(body), compatPut(body)]);
       const doc = await storedPage("desk");
       expect(doc?.rev).toBe(1);
-      expect(doc?.blocks).toEqual(created.blocks);
+      expect(doc?.blocks).toEqual([para("dk", "hi")]);
       expect(
         await WorkspacePageRevisionModel.countDocuments({ pageId: "desk" }),
       ).toBe(1);
@@ -1144,8 +1362,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
           method: "POST",
           actor: AGENT_ACTOR,
           body: {
-            baseRev: 1,
-            ops: [{ op: "update", id: "log-t", set: { markdown: "agent" } }],
+            baseRev: 2,
+            ops: [{ op: "update", id: "log-t", set: { text: runs("agent") } }],
           },
         }),
         params("alpha-log"),
@@ -1172,7 +1390,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(revert.status).toBe(423);
 
       const stored = await storedPage("alpha-log");
-      expect(stored?.rev).toBe(1);
+      expect(stored?.rev).toBe(2);
       expect(stored?.locked).toBe(true);
 
       session = OWNER_SESSION;
@@ -1180,8 +1398,8 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         request("/pages/alpha-log/ops", {
           method: "POST",
           body: {
-            baseRev: 1,
-            ops: [{ op: "update", id: "log-t", set: { markdown: "owner" } }],
+            baseRev: 2,
+            ops: [{ op: "update", id: "log-t", set: { text: runs("owner") } }],
           },
         }),
         params("alpha-log"),
@@ -1199,7 +1417,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       expect(archive.status).toBe(423);
       // Refused whole: nothing above the locked page was trashed either.
       expect((await storedPage("alpha"))?.deletedAt).toBeNull();
-      expect((await storedPage("alpha"))?.rev).toBe(1);
+      expect((await storedPage("alpha"))?.rev).toBe(2);
       expect((await storedPage("alpha-log"))?.deletedAt).toBeNull();
 
       session = OWNER_SESSION;
@@ -1223,7 +1441,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         await WorkspacePageRevisionModel.countDocuments({
           pageId: "alpha-log",
         }),
-      ).toBe(2);
+      ).toBe(3);
 
       const restore = await routes.restore.POST(
         request("/pages/alpha/restore", { method: "POST", actor: AGENT_ACTOR }),
@@ -1262,7 +1480,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
             "alpha",
             {
               baseRev: doc.rev,
-              ops: [{ op: "update", id: "a-h", set: { text: `h${i}` } }],
+              ops: [{ op: "update", id: "a-h", set: { text: runs(`h${i}`) } }],
             },
             OWNER,
           ),
@@ -1270,7 +1488,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
             "alpha",
             {
               baseRev: doc.rev,
-              ops: [{ op: "update", id: "a-t", set: { markdown: `t${i}` } }],
+              ops: [{ op: "update", id: "a-t", set: { text: runs(`t${i}`) } }],
             },
             AGENT,
           ),
@@ -1281,7 +1499,7 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         expect(refused).toEqual([]);
         doc = await service.getPage("alpha");
       }
-      expect(doc.rev).toBe(21);
+      expect(doc.rev).toBe(22);
     });
 
     test("revert to the rev just written rebuilds it", async () => {
@@ -1289,21 +1507,16 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const writing = lagging().applyOps(
         "alpha",
         {
-          baseRev: 1,
-          ops: [{ op: "update", id: "a-t", set: { markdown: "new" } }],
+          baseRev: 2,
+          ops: [{ op: "update", id: "a-t", set: { text: runs("new") } }],
         },
         OWNER,
       );
-      await untilRev("alpha", 2);
-      const reverted = await service.revertToRev("alpha", 2, OWNER);
+      await untilRev("alpha", 3);
+      const reverted = await service.revertToRev("alpha", 3, OWNER);
       await writing;
-      expect(reverted.rev).toBe(2);
-      expect(reverted.blocks[1]).toEqual({
-        id: "a-t",
-        span: 6,
-        type: "text",
-        markdown: "new",
-      });
+      expect(reverted.rev).toBe(3);
+      expect(reverted.blocks[1]).toEqual(para("a-t", "new"));
     });
 
     test("reverting an actor includes its revision still being written", async () => {
@@ -1311,21 +1524,16 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
       const writing = lagging().applyOps(
         "alpha",
         {
-          baseRev: 1,
-          ops: [{ op: "update", id: "a-t", set: { markdown: "agent" } }],
+          baseRev: 2,
+          ops: [{ op: "update", id: "a-t", set: { text: runs("agent") } }],
         },
         AGENT,
       );
-      await untilRev("alpha", 2);
+      await untilRev("alpha", 3);
       const result = await service.revertActor("alpha", AGENT_ACTOR, 0, OWNER);
       await writing;
       expect(result.reverted).toBe(1);
-      expect(result.page.blocks[1]).toEqual({
-        id: "a-t",
-        span: 6,
-        type: "text",
-        markdown: "notes",
-      });
+      expect(result.page.blocks[1]).toEqual(para("a-t", "notes"));
     });
   });
 });

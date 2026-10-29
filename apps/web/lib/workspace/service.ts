@@ -1,11 +1,13 @@
 import {
   type Block,
   HOME_PAGE_ID,
-  pageSchema,
+  type LegacyBlock,
+  type LegacyPage,
+  type LegacyWorkspace,
+  legacyPageSchema,
   SIDEBAR_DEFAULT_WIDTH,
   type SidebarPrefs,
   sidebarPrefsSchema,
-  type Workspace,
   type WorkspaceActor,
   type WorkspaceAppliedOp,
   type WorkspaceChanges,
@@ -24,6 +26,13 @@ import {
   workspaceRefSchema,
 } from "@repo/schemas";
 import {
+  downgradeBlocks,
+  downgradePage,
+  legacyBlockToFlow,
+  upgradeLegacyBlocks,
+  upgradeLegacyPage,
+} from "@repo/utils/workspace-legacy";
+import {
   blocksToMarkdown,
   markdownToBlocks,
   WorkspaceMarkdownError,
@@ -31,11 +40,18 @@ import {
 import {
   type AppliedOps,
   applyWorkspaceOps,
+  blockFields,
   deepEqual,
   diffWorkspacePages,
   orderAt,
   WorkspaceOpError,
 } from "@repo/utils/workspace-ops";
+import {
+  ancestorIds,
+  childrenOf,
+  findBlock,
+  treeIds,
+} from "@repo/utils/workspace-tree";
 import { z } from "zod";
 import type {
   StoredPage,
@@ -102,7 +118,11 @@ export function docOf(stored: StoredPage): WorkspacePageDoc {
 
 export function summaryOf(stored: StoredPage): WorkspacePageSummary {
   const { blocks, ...meta } = pageOf(stored);
-  return { ...meta, rev: stored.rev, blockCount: blocks.length };
+  return {
+    ...meta,
+    rev: stored.rev,
+    blockCount: stored.legacyBlocks?.length ?? blocks.length,
+  };
 }
 
 function revisionSummary(revision: StoredRevision): WorkspaceRevisionSummary {
@@ -119,9 +139,9 @@ function revisionSummary(revision: StoredRevision): WorkspaceRevisionSummary {
 }
 
 /** A page without the server's own stamps, for "did anything change". */
-function contentOf(
-  page: WorkspacePage,
-): Omit<WorkspacePage, "createdAt" | "updatedAt"> {
+function contentOf<T extends WorkspacePage | LegacyPage>(
+  page: T,
+): Omit<T, "createdAt" | "updatedAt"> {
   const { createdAt: _c, updatedAt: _u, ...content } = page;
   return content;
 }
@@ -198,14 +218,47 @@ function targetIds(op: WorkspaceAppliedOp): string[] {
   }
 }
 
-function combine(first: AppliedOps, second: AppliedOps): AppliedOps {
-  return {
-    page: second.page,
-    applied: [...first.applied, ...second.applied],
-    inverse: [...second.inverse, ...first.inverse],
-    touched: [...new Set([...first.touched, ...second.touched])],
-    skipped: second.skipped,
-  };
+/** Blocks a revision moved, removed or replaced: their subtrees changed place. */
+function displacedIds(revision: StoredRevision): string[] {
+  return revision.ops.flatMap((op) => {
+    switch (op.op) {
+      case "move":
+      case "delete":
+        return [op.id];
+      case "replace":
+        return revision.touched;
+      default:
+        return [];
+    }
+  });
+}
+
+/**
+ * The blocks of `ops` that conflict with what landed since their base rev:
+ * a target someone else touched, or one whose ancestors — where it sits now,
+ * or where the op puts it — someone else moved or deleted.
+ */
+export function rebaseConflicts(
+  blocks: readonly Block[],
+  ops: readonly WorkspaceOp[],
+  since: readonly StoredRevision[],
+): string[] {
+  const touched = new Set(since.flatMap((r) => r.touched));
+  const displaced = new Set(since.flatMap(displacedIds));
+  const conflicts = new Set<string>();
+  for (const op of ops) {
+    const destination =
+      (op.op === "insert" || op.op === "move") && op.parentId
+        ? [op.parentId, ...ancestorIds(blocks, op.parentId)]
+        : [];
+    for (const id of targetIds(op)) {
+      const chain = [...ancestorIds(blocks, id), ...destination];
+      if (touched.has(id) || chain.some((a) => displaced.has(a))) {
+        conflicts.add(id);
+      }
+    }
+  }
+  return [...conflicts];
 }
 
 const META_KEYS = [
@@ -218,61 +271,131 @@ const META_KEYS = [
   "deletedAt",
 ] as const;
 
+function withoutSpan(block: LegacyBlock): Omit<LegacyBlock, "span"> {
+  const { span: _span, ...rest } = block;
+  return rest;
+}
+
 /**
- * Desktop 3.0.0's edits since `base`, kept only where nobody else changed the
- * same thing since: a three-way merge per block and per page field, with the
- * stored copy winning every collision.
+ * Desktop 3.0.0's edits since it was served `base`, as ops on the stored
+ * flow. 3.0.0 only ever sees the flow downgraded (`downgradePage`, one v1
+ * block per flow block, same ids), so its PUT is diffed in that shape and
+ * each difference applies only when the stored flow, downgraded the same
+ * way, still reads as `base` there:
+ *
+ * - a v1 block whose content changed replaces its flow block in place (an
+ *   update when it converts back to one block of the same type, otherwise
+ *   the subtree is deleted and its conversion inserted where it stood);
+ * - a v1 block that vanished deletes its flow block and subtree;
+ * - a v1 block that is new is converted and inserted at the top level after
+ *   the block 3.0.0 put before it;
+ * - span and order changes are ignored: a grid cannot say where in the
+ *   flow a block belongs, so it never moves one;
+ * - page fields merge one by one, the stored value winning a collision.
+ *
+ * Throws `WorkspaceOpError` when the result cannot apply, and the caller
+ * then applies nothing for the page.
  */
 export function compatMergeOps(
-  base: WorkspacePage,
+  base: LegacyPage,
   stored: WorkspacePage,
-  incoming: WorkspacePage,
+  incoming: LegacyPage,
+  newId: () => string,
 ): WorkspaceAppliedOp[] {
-  const storedById = new Map(stored.blocks.map((b) => [b.id, b]));
+  const ops: WorkspaceAppliedOp[] = [];
+  let working = stored;
+  const emit = (op: WorkspaceAppliedOp) => {
+    working = applyWorkspaceOps(working, [op]).page;
+    ops.push(op);
+  };
+
+  const set: Extract<WorkspaceAppliedOp, { op: "page" }>["set"] = {};
+  let metaChanged = false;
+  for (const key of META_KEYS) {
+    if (incoming[key] !== base[key] && stored[key] === base[key]) {
+      Object.assign(set, { [key]: incoming[key] });
+      metaChanged = true;
+    }
+  }
+  if (metaChanged) emit({ op: "page", set });
+
   const baseById = new Map(base.blocks.map((b) => [b.id, b]));
-  const unchanged = (id: string) => {
+  const storedById = new Map(
+    downgradeBlocks(stored.blocks).map((b) => [b.id, b]),
+  );
+  const incomingIds = new Set(incoming.blocks.map((b) => b.id));
+  const untouched = (id: string) => {
     const now = storedById.get(id);
     const then = baseById.get(id);
     return now !== undefined && then !== undefined && deepEqual(now, then);
   };
-  const deleted = new Set<string>();
-  const out: WorkspaceAppliedOp[] = [];
-  for (const op of diffWorkspacePages(base, incoming)) {
-    switch (op.op) {
-      case "page": {
-        const set: Extract<WorkspaceAppliedOp, { op: "page" }>["set"] = {};
-        let any = false;
-        for (const key of META_KEYS) {
-          if (op.set[key] !== undefined && stored[key] === base[key]) {
-            Object.assign(set, { [key]: op.set[key] });
-            any = true;
-          }
-        }
-        if (any) out.push({ op: "page", set });
-        break;
+  const rootOf = (id: string) => {
+    const chain = [id, ...ancestorIds(working.blocks, id)];
+    return chain.at(-1) ?? id;
+  };
+
+  let anchor: string | null = null;
+  for (const block of incoming.blocks) {
+    const before = baseById.get(block.id);
+    if (!before) {
+      if (findBlock(working.blocks, block.id)) continue;
+      for (const flow of legacyBlockToFlow(block, newId)) {
+        emit({ op: "insert", block: flow, after: anchor });
+        anchor = flow.id;
       }
-      case "delete":
-        if (unchanged(op.id)) {
-          deleted.add(op.id);
-          out.push(op);
+      continue;
+    }
+    const location = findBlock(working.blocks, block.id);
+    if (
+      location &&
+      !deepEqual(withoutSpan(block), withoutSpan(before)) &&
+      untouched(block.id)
+    ) {
+      const replacement = legacyBlockToFlow(block, newId);
+      const [only] = replacement;
+      const current = location.block;
+      if (
+        replacement.length === 1 &&
+        only &&
+        only.id === current.id &&
+        only.type === current.type &&
+        deepEqual(childrenOf(only), childrenOf(current))
+      ) {
+        emit({
+          op: "update",
+          id: current.id,
+          set: blockFields(only),
+          replace: true,
+        });
+      } else {
+        const after =
+          location.index > 0
+            ? (location.siblings[location.index - 1]?.id ?? null)
+            : null;
+        const parentId = location.parentId;
+        emit({ op: "delete", id: current.id });
+        let previous = after;
+        for (const flow of replacement) {
+          emit({
+            op: "insert",
+            block: flow,
+            ...(parentId ? { parentId } : {}),
+            after: previous,
+          });
+          previous = flow.id;
         }
-        break;
-      case "update":
-        if (unchanged(op.id)) out.push(op);
-        break;
-      case "insert":
-        if (!storedById.has(op.block.id) || deleted.has(op.block.id)) {
-          out.push(op);
-        }
-        break;
-      case "move":
-        if (storedById.has(op.id)) out.push(op);
-        break;
-      case "replace":
-        break;
+      }
+    }
+    if (findBlock(working.blocks, block.id)) anchor = rootOf(block.id);
+  }
+
+  for (const block of base.blocks) {
+    if (incomingIds.has(block.id) || !untouched(block.id)) continue;
+    if (findBlock(working.blocks, block.id)) {
+      emit({ op: "delete", id: block.id });
     }
   }
-  return out;
+  return ops;
 }
 
 export interface WorkspaceServiceOptions {
@@ -302,12 +425,50 @@ export function createWorkspaceService(
     });
   }
 
+  /**
+   * Turns a page still holding its v1 grid into a flow, as one revision by
+   * `migration`. Deterministic, so a racing reader that loses the
+   * compare-and-set simply reads the winner's identical result.
+   */
+  async function migrate(stored: StoredPage): Promise<StoredPage> {
+    const legacy = stored.legacyBlocks;
+    if (!legacy) return stored;
+    const at = now();
+    const blocks = upgradeLegacyBlocks(legacy);
+    const next: StoredPage = {
+      ...stored,
+      blocks,
+      legacyBlocks: null,
+      rev: stored.rev + 1,
+      changedAt: at,
+    };
+    if (!(await repo.replacePage(stored.rev, next))) {
+      const current = await repo.getPage(stored.id);
+      if (!current) throw new WorkspaceError(404, "NOT_FOUND", stored.id);
+      return current.legacyBlocks ? migrate(current) : current;
+    }
+    await repo.insertRevision({
+      pageId: stored.id,
+      rev: next.rev,
+      actor: "migration",
+      via: null,
+      kind: "migrate",
+      at,
+      ops: [{ op: "replace", blocks }],
+      inverse: [],
+      touched: treeIds(blocks),
+      snapshot: pageOf(next),
+      legacy: null,
+    });
+    return next;
+  }
+
   async function load(id: string): Promise<StoredPage> {
     const page = await repo.getPage(id);
     if (!page || page.purgedAt) {
       throw new WorkspaceError(404, "NOT_FOUND", `No page ${id}`);
     }
-    return page;
+    return migrate(page);
   }
 
   function assertWritable(page: StoredPage, caller: WorkspaceCaller) {
@@ -367,6 +528,7 @@ export function createWorkspaceService(
       touched: result.touched,
       snapshot:
         snapshot || next.rev % SNAPSHOT_EVERY === 0 ? pageOf(next) : null,
+      legacy: null,
     });
     return next;
   }
@@ -407,6 +569,7 @@ export function createWorkspaceService(
     const tombstone: StoredPage = {
       ...stored,
       blocks: [],
+      legacyBlocks: null,
       rev: stored.rev + 1,
       updatedAt: at.toISOString(),
       changedAt: at,
@@ -456,7 +619,8 @@ export function createWorkspaceService(
         `History before rev ${rev} is incomplete`,
       );
     }
-    let page = base.snapshot;
+    // Restoring to a rev from before the flow converts that grid afresh.
+    let page = base.legacy ? upgradeLegacyPage(base.legacy) : base.snapshot;
     for (const revision of since) {
       page = applyWorkspaceOps(page, revision.ops).page;
     }
@@ -482,7 +646,8 @@ export function createWorkspaceService(
      * first time anything asks. Prefs are written last and mark completion;
      * pages and their first revision are insert-only, so a run that died
      * half-way, or two racing, finish with the same result. The v1 document
-     * is read, never written.
+     * is read, never written. Each page keeps its grid in `legacyBlocks`
+     * until its first read turns it into a flow (`migrate`).
      */
     async ensureMigrated(): Promise<void> {
       if (migrated) return;
@@ -497,7 +662,7 @@ export function createWorkspaceService(
         ? Object.values(record.pages)
         : [];
       for (const raw of rawPages) {
-        const parsed = pageSchema.safeParse(raw);
+        const parsed = legacyPageSchema.safeParse(raw);
         if (!parsed.success) {
           console.warn("Skipping an unreadable v1 workspace page");
           continue;
@@ -505,6 +670,8 @@ export function createWorkspaceService(
         const page = parsed.data;
         await repo.insertPage({
           ...page,
+          blocks: [],
+          legacyBlocks: page.blocks,
           rev: 1,
           changedAt: at,
           purgedAt: null,
@@ -520,7 +687,8 @@ export function createWorkspaceService(
           ops: [],
           inverse: [],
           touched: [],
-          snapshot: page,
+          snapshot: { ...page, blocks: [] },
+          legacy: page,
         });
       }
       const refs = z.array(workspaceRefSchema);
@@ -614,6 +782,7 @@ export function createWorkspaceService(
         rev: 1,
         changedAt: at,
         purgedAt: null,
+        legacyBlocks: null,
         compatBase: null,
       };
       if (!(await repo.insertPage(stored))) {
@@ -630,6 +799,7 @@ export function createWorkspaceService(
         inverse: [],
         touched: filled.touched,
         snapshot: page,
+        legacy: null,
       });
       return docOf(stored);
     },
@@ -751,8 +921,9 @@ export function createWorkspaceService(
 
     /**
      * Applies a batch. Written against the current rev it applies as is;
-     * against an older one it rebases when no revision since touched any
-     * block the batch targets, and is refused with the current page when one
+     * against an older one it rebases unless a revision since touched a
+     * block the batch targets or moved or deleted one of its ancestors
+     * (`rebaseConflicts`), and is refused with the current page when one
      * did. Page-field ops never conflict.
      */
     async applyOps(
@@ -777,10 +948,11 @@ export function createWorkspaceService(
             if (since.length !== stored.rev - request.baseRev) {
               throw conflict(stored, [], "History since baseRev is incomplete");
             }
-            const touched = new Set(since.flatMap((r) => r.touched));
-            const conflicts = [
-              ...new Set(request.ops.flatMap(targetIds)),
-            ].filter((blockId) => touched.has(blockId));
+            const conflicts = rebaseConflicts(
+              stored.blocks,
+              request.ops,
+              since,
+            );
             if (conflicts.length > 0) throw conflict(stored, conflicts);
           }
           let result: AppliedOps;
@@ -983,8 +1155,9 @@ export function createWorkspaceService(
 
     /** The open page for the agent's context: id, rev and markdown, bounded. */
     async pageContext(id: string) {
-      const stored = await repo.getPage(id);
-      if (!stored || stored.purgedAt) return null;
+      const found = await repo.getPage(id);
+      if (!found || found.purgedAt) return null;
+      const stored = await migrate(found);
       const markdown = blocksToMarkdown(stored.blocks);
       return {
         id: stored.id,
@@ -1000,18 +1173,21 @@ export function createWorkspaceService(
 
     /**
      * `GET /workspace` for desktop 3.0.0: the whole v1 document assembled
-     * from pages and prefs. Each page and the prefs remember what was served
-     * as the base a later whole-document PUT is merged against, and `savedAt`
+     * from pages and prefs, each flow downgraded to a grid
+     * (`downgradePage`). Each page and the prefs remember what was served as
+     * the base a later whole-document PUT is merged against, and `savedAt`
      * is the server's now, so 3.0.0 — which adopts the server copy only when
      * it is newer than its own — always adopts what it was given.
      */
-    async compatGet(): Promise<Workspace> {
-      const pages = await repo.listPages();
-      for (const page of pages) {
-        const content = pageOf(page);
-        if (!deepEqual(page.compatBase, content)) {
-          await repo.setCompatBase(page.id, content);
+    async compatGet(): Promise<LegacyWorkspace> {
+      const pages: LegacyPage[] = [];
+      for (const listed of await repo.listPages()) {
+        const page = await migrate(listed);
+        const served = downgradePage(pageOf(page));
+        if (!deepEqual(page.compatBase, served)) {
+          await repo.setCompatBase(page.id, served);
         }
+        pages.push(served);
       }
       const prefs = await repo.getPrefs();
       if (!prefs)
@@ -1021,7 +1197,7 @@ export function createWorkspaceService(
       return {
         version: 1,
         savedAt: now().toISOString(),
-        pages: Object.fromEntries(pages.map((p) => [p.id, pageOf(p)])),
+        pages: Object.fromEntries(pages.map((p) => [p.id, p])),
         ...input,
       };
     },
@@ -1030,9 +1206,10 @@ export function createWorkspaceService(
      * `PUT /workspace` from desktop 3.0.0, merged page by page against what
      * that client was last given (or last sent): only its own edits since
      * then apply, and only where nobody else changed the same block or page
-     * field meanwhile — the stored copy wins every collision.
+     * field meanwhile — the stored copy wins every collision
+     * (`compatMergeOps`). A page whose merge cannot apply keeps what it has.
      */
-    async compatPut(workspace: Workspace): Promise<void> {
+    async compatPut(workspace: LegacyWorkspace): Promise<void> {
       const incomingIds = new Set<string>();
       for (const incoming of Object.values(workspace.pages)) {
         incomingIds.add(incoming.id);
@@ -1049,10 +1226,14 @@ export function createWorkspaceService(
         ) {
           continue;
         }
+        const current = await migrate(stored);
         if (
-          deepEqual(contentOf(pageOf(stored)), contentOf(stored.compatBase))
+          deepEqual(
+            contentOf(downgradePage(pageOf(current))),
+            contentOf(stored.compatBase),
+          )
         ) {
-          await purgeOne(stored);
+          await purgeOne(current);
         }
       }
       const prefs = await repo.getPrefs();
@@ -1086,16 +1267,20 @@ export function createWorkspaceService(
     },
   };
 
-  async function compatPage(incoming: WorkspacePage): Promise<void> {
+  async function compatPage(incoming: LegacyPage): Promise<void> {
     const existing = await repo.getPage(incoming.id);
     if (!existing) {
       const at = now();
-      const page: WorkspacePage = { ...incoming, updatedAt: at.toISOString() };
+      const page: WorkspacePage = {
+        ...upgradeLegacyPage(incoming),
+        updatedAt: at.toISOString(),
+      };
       const inserted = await repo.insertPage({
         ...page,
         rev: 1,
         changedAt: at,
         purgedAt: null,
+        legacyBlocks: null,
         compatBase: incoming,
       });
       if (inserted) {
@@ -1108,8 +1293,9 @@ export function createWorkspaceService(
           at,
           ops: [{ op: "replace", blocks: page.blocks }],
           inverse: [],
-          touched: page.blocks.map((b) => b.id),
+          touched: treeIds(page.blocks),
           snapshot: page,
+          legacy: null,
         });
       }
       return;
@@ -1118,22 +1304,18 @@ export function createWorkspaceService(
     const base = existing.compatBase;
     await retrying(async () => {
       const stored = await load(incoming.id);
-      const ops = compatMergeOps(base, pageOf(stored), incoming);
-      if (ops.length === 0) return stored;
-      let result = applyWorkspaceOps(pageOf(stored), ops, { lenient: true });
-      const orphans = result.skipped
-        .filter((s) => s.code === "MISSING_ANCHOR" && s.op.op === "insert")
-        .map((s) => s.op)
-        .flatMap((op) =>
-          op.op === "insert" ? [{ ...op, after: undefined }] : [],
+      let result: AppliedOps;
+      try {
+        const ops = compatMergeOps(base, pageOf(stored), incoming, newId);
+        if (ops.length === 0) return stored;
+        result = applyWorkspaceOps(pageOf(stored), ops);
+      } catch (error) {
+        if (!(error instanceof WorkspaceOpError)) throw error;
+        console.warn(
+          `Desktop 3.0.0 edits to page ${incoming.id} could not apply: ${error.message}`,
         );
-      if (orphans.length > 0) {
-        result = combine(
-          result,
-          applyWorkspaceOps(result.page, orphans, { lenient: true }),
-        );
+        return stored;
       }
-      if (result.applied.length === 0) return stored;
       return commit(stored, result, OWNER_COMPAT, "compat");
     });
     await repo.setCompatBase(incoming.id, incoming);

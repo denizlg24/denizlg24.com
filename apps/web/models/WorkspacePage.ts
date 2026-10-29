@@ -1,4 +1,4 @@
-import type { Block, WorkspacePage } from "@repo/schemas";
+import type { Block, LegacyBlock, LegacyPage } from "@repo/schemas";
 import mongoose from "mongoose";
 
 /**
@@ -21,8 +21,10 @@ export interface IWorkspacePage {
   rev: number;
   changedAt: Date;
   purgedAt: Date | null;
-  /** What desktop 3.0.0 last held of this page; its whole-document PUT is merged against it. */
-  compatBase: WorkspacePage | null;
+  /** The v1 grid blocks of a page not yet turned into a flow; `blocks` is empty meanwhile. */
+  legacyBlocks: LegacyBlock[] | null;
+  /** The v1 page desktop 3.0.0 was last served; its whole-document PUT is merged against it. */
+  compatBase: LegacyPage | null;
 }
 
 const workspacePageSchema = new mongoose.Schema<IWorkspacePage>(
@@ -41,6 +43,7 @@ const workspacePageSchema = new mongoose.Schema<IWorkspacePage>(
     rev: { type: Number, required: true },
     changedAt: { type: Date, required: true },
     purgedAt: { type: Date, default: null },
+    legacyBlocks: { type: mongoose.Schema.Types.Mixed, default: null },
     compatBase: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { minimize: false, versionKey: false },

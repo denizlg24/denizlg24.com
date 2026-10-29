@@ -1,4 +1,5 @@
 import type {
+  LegacyPage,
   WorkspaceAppliedOp,
   WorkspacePage,
   WorkspaceRevisionKind,
@@ -21,6 +22,8 @@ export interface IWorkspacePageRevision {
   inverse: WorkspaceAppliedOp[];
   touched: string[];
   snapshot: WorkspacePage | null;
+  /** The v1 grid page the first revision of a migrated page held; its snapshot is empty. */
+  legacy: LegacyPage | null;
 }
 
 const workspacePageRevisionSchema = new mongoose.Schema<IWorkspacePageRevision>(
@@ -35,6 +38,7 @@ const workspacePageRevisionSchema = new mongoose.Schema<IWorkspacePageRevision>(
     inverse: { type: [mongoose.Schema.Types.Mixed], default: [] },
     touched: { type: [String], default: [] },
     snapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+    legacy: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { minimize: false, versionKey: false },
 );

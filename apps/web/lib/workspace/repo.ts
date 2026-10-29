@@ -1,4 +1,6 @@
 import type {
+  LegacyBlock,
+  LegacyPage,
   WorkspaceAppliedOp,
   WorkspacePage,
   WorkspacePrefs,
@@ -11,7 +13,10 @@ export interface StoredPage extends WorkspacePage {
   /** Server time of the last write; the change feed reads it. */
   changedAt: Date;
   purgedAt: Date | null;
-  compatBase: WorkspacePage | null;
+  /** Set until the page's v1 grid is turned into a flow on first read; `blocks` is empty meanwhile. */
+  legacyBlocks: LegacyBlock[] | null;
+  /** The v1 page desktop 3.0.0 was last served, which its next PUT is merged against. */
+  compatBase: LegacyPage | null;
 }
 
 export interface StoredRevision {
@@ -25,6 +30,8 @@ export interface StoredRevision {
   inverse: WorkspaceAppliedOp[];
   touched: string[];
   snapshot: WorkspacePage | null;
+  /** The v1 page a migrated page's first revision held; reconstruct converts it. */
+  legacy: LegacyPage | null;
 }
 
 export interface StoredPrefs extends WorkspacePrefs {
@@ -53,7 +60,7 @@ export interface WorkspaceRepo {
    * write that read the page earlier would otherwise put back an old one.
    */
   replacePage(expectedRev: number, page: StoredPage): Promise<boolean>;
-  setCompatBase(id: string, base: WorkspacePage | null): Promise<void>;
+  setCompatBase(id: string, base: LegacyPage | null): Promise<void>;
   /** Idempotent on (pageId, rev). */
   insertRevision(revision: StoredRevision): Promise<void>;
   /** Ascending, rev in (after, upTo]. */

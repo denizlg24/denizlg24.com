@@ -1,3 +1,5 @@
+import { legacyBlockSchema } from "@repo/schemas";
+import { z } from "zod";
 import { DesktopWorkspace } from "@/models/DesktopWorkspace";
 import {
   type IWorkspacePage,
@@ -31,9 +33,20 @@ function isDuplicateKey(error: unknown): boolean {
   );
 }
 
+/**
+ * A page whose `blocks` still hold v1 grid blocks (written before
+ * `legacyBlocks` existed) reads as one awaiting migration.
+ */
 function toStoredPage(doc: IWorkspacePage): StoredPage {
   const { _id, ...rest } = doc;
-  return { ...rest, id: _id };
+  const legacy = rest.legacyBlocks ?? null;
+  if (!legacy && rest.blocks.some((block) => "span" in block)) {
+    const parsed = z.array(legacyBlockSchema).safeParse(rest.blocks);
+    if (parsed.success) {
+      return { ...rest, id: _id, blocks: [], legacyBlocks: parsed.data };
+    }
+  }
+  return { ...rest, id: _id, legacyBlocks: legacy };
 }
 
 function toDoc(page: StoredPage): IWorkspacePage {
@@ -53,6 +66,7 @@ function toStoredRevision(doc: IWorkspacePageRevision): StoredRevision {
     inverse: doc.inverse,
     touched: doc.touched,
     snapshot: doc.snapshot,
+    legacy: doc.legacy ?? null,
   };
 }
 
