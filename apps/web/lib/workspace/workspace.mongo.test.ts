@@ -247,6 +247,7 @@ async function loadRoutes() {
     page: await import("@/app/api/admin/workspace/pages/[id]/route"),
     ops: await import("@/app/api/admin/workspace/pages/[id]/ops/route"),
     archive: await import("@/app/api/admin/workspace/pages/[id]/archive/route"),
+    restore: await import("@/app/api/admin/workspace/pages/[id]/restore/route"),
     revert: await import("@/app/api/admin/workspace/pages/[id]/revert/route"),
     changes: await import("@/app/api/admin/workspace/changes/route"),
   };
@@ -1087,6 +1088,51 @@ describe.skipIf(!enabled)("workspace on a real mongod", () => {
         params("alpha-log"),
       );
       expect(owner.status).toBe(200);
+    });
+
+    test("an agent cannot trash or purge a locked page through an unlocked ancestor", async () => {
+      await migrated();
+      session = AGENT_SESSION;
+      const archive = await routes.archive.POST(
+        request("/pages/alpha/archive", { method: "POST", actor: AGENT_ACTOR }),
+        params("alpha"),
+      );
+      expect(archive.status).toBe(423);
+      // Refused whole: nothing above the locked page was trashed either.
+      expect((await storedPage("alpha"))?.deletedAt).toBeNull();
+      expect((await storedPage("alpha"))?.rev).toBe(1);
+      expect((await storedPage("alpha-log"))?.deletedAt).toBeNull();
+
+      session = OWNER_SESSION;
+      expect(
+        (
+          await routes.archive.POST(
+            request("/pages/alpha/archive", { method: "POST" }),
+            params("alpha"),
+          )
+        ).status,
+      ).toBe(200);
+      session = AGENT_SESSION;
+      const purge = await routes.page.DELETE(
+        request("/pages/alpha", { method: "DELETE", actor: AGENT_ACTOR }),
+        params("alpha"),
+      );
+      expect(purge.status).toBe(423);
+      expect((await storedPage("alpha"))?.purgedAt).toBeNull();
+      expect((await storedPage("alpha-log"))?.purgedAt).toBeNull();
+      expect(
+        await WorkspacePageRevisionModel.countDocuments({
+          pageId: "alpha-log",
+        }),
+      ).toBe(2);
+
+      const restore = await routes.restore.POST(
+        request("/pages/alpha/restore", { method: "POST", actor: AGENT_ACTOR }),
+        params("alpha"),
+      );
+      expect(restore.status).toBe(423);
+      expect((await storedPage("alpha"))?.deletedAt).not.toBeNull();
+      expect((await storedPage("alpha-log"))?.deletedAt).not.toBeNull();
     });
   });
 });

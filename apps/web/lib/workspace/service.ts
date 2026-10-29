@@ -158,6 +158,18 @@ function descendants(pages: readonly StoredPage[], id: string): string[] {
   return out;
 }
 
+/**
+ * `id` and every page beneath it. A subtree write checks all of them before
+ * writing any, so a locked page deep inside refuses the whole write rather
+ * than leaving it half done.
+ */
+function subtree(pages: readonly StoredPage[], id: string): StoredPage[] {
+  return descendants(pages, id).flatMap((pid) => {
+    const page = pages.find((p) => p.id === pid);
+    return page ? [page] : [];
+  });
+}
+
 function siblingOrders(
   pages: readonly StoredPage[],
   parentId: string | null,
@@ -649,15 +661,15 @@ export function createWorkspaceService(
       if (id === HOME_PAGE_ID) {
         throw new WorkspaceError(400, "HOME", "Home cannot be archived");
       }
-      assertWritable(await load(id), caller);
+      await load(id);
       const pages = await repo.listPages();
+      const targets = subtree(pages, id).filter((page) => !page.deletedAt);
+      for (const page of targets) assertWritable(page, caller);
       const deletedAt = now().toISOString();
       const changed: WorkspacePageSummary[] = [];
-      for (const pid of descendants(pages, id)) {
-        const page = pages.find((p) => p.id === pid);
-        if (!page || page.deletedAt) continue;
+      for (const page of targets) {
         changed.push(
-          summaryOf(await writeMeta(pid, { deletedAt }, caller, "archive")),
+          summaryOf(await writeMeta(page.id, { deletedAt }, caller, "archive")),
         );
       }
       return changed;
@@ -671,13 +683,14 @@ export function createWorkspaceService(
       const root = await load(id);
       assertWritable(root, caller);
       const pages = await repo.listPages();
-      const changed: WorkspacePageSummary[] = [];
-      for (const pid of descendants(pages, id)) {
-        const page = pages.find((p) => p.id === pid);
-        if (!page) continue;
+      const writes: {
+        page: StoredPage;
+        set: Extract<WorkspaceAppliedOp, { op: "page" }>["set"];
+      }[] = [];
+      for (const page of subtree(pages, id)) {
         const set: Extract<WorkspaceAppliedOp, { op: "page" }>["set"] = {};
         if (page.deletedAt) set.deletedAt = null;
-        if (pid === id && page.parentId) {
+        if (page.id === id && page.parentId) {
           const parent = pages.find((p) => p.id === page.parentId);
           if (!parent || parent.deletedAt) {
             set.parentId = null;
@@ -685,8 +698,14 @@ export function createWorkspaceService(
             set.order = orderAt(top, top.length);
           }
         }
-        if (Object.keys(set).length === 0) continue;
-        changed.push(summaryOf(await writeMeta(pid, set, caller, "restore")));
+        if (Object.keys(set).length > 0) writes.push({ page, set });
+      }
+      for (const { page } of writes) assertWritable(page, caller);
+      const changed: WorkspacePageSummary[] = [];
+      for (const { page, set } of writes) {
+        changed.push(
+          summaryOf(await writeMeta(page.id, set, caller, "restore")),
+        );
       }
       return changed;
     },
@@ -702,12 +721,10 @@ export function createWorkspaceService(
         throw new WorkspaceError(409, "NOT_ARCHIVED", "Archive the page first");
       }
       const pages = await repo.listPages();
-      const ids = descendants(pages, id);
-      for (const pid of ids) {
-        const page = pages.find((p) => p.id === pid);
-        if (page) await purgeOne(page);
-      }
-      return ids;
+      const targets = subtree(pages, id);
+      for (const page of targets) assertWritable(page, caller);
+      for (const page of targets) await purgeOne(page);
+      return descendants(pages, id);
     },
 
     /**
