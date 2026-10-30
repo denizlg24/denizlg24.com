@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type LegacyBlock, legacyBlockSchema } from "@repo/schemas";
+import { type Block, type LegacyBlock, legacyBlockSchema } from "@repo/schemas";
 import { genBlock, genLegacyBlock, rng } from "./workspace-gen.test-util";
 import {
   downgradeBlocks,
@@ -91,6 +91,36 @@ describe("flow → v1 for desktop 3.0.0", () => {
         );
       }
     }
+  });
+
+  test("a record embed and a view become v1 text blocks holding their directive", () => {
+    const blocks: Block[] = [
+      { id: "r", type: "record", ref: "entity:paper:p9", mode: "card" },
+      {
+        id: "v",
+        type: "view",
+        source: "finance-entries",
+        layout: "table",
+        filters: [{ field: "currency", op: "is", value: "EUR" }],
+        sort: [],
+        limit: 25,
+      },
+    ];
+    const legacy = downgradeBlocks(blocks);
+    expect(legacy.map((b) => [b.id, b.type, b.span])).toEqual([
+      ["r", "text", 6],
+      ["v", "text", 6],
+    ]);
+    const [record, view] = legacy;
+    expect(record?.type === "text" && record.markdown).toBe(
+      ':::block{type="record" id="r"}\n{"ref":"entity:paper:p9","mode":"card"}\n:::',
+    );
+    expect(view?.type === "text" && view.markdown).toContain(
+      '"source":"finance-entries"',
+    );
+    expect(legacy.flatMap((item) => legacyBlockToFlow(item, newId))).toEqual(
+      blocks,
+    );
   });
 
   test("columns flatten into spans, ids kept", () => {

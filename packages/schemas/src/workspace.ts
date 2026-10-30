@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  ENTITY_KINDS,
+  type EntityKind,
+  entityRefSchema,
+  recordEmbedModeSchema,
+} from "./workspace-entities";
+import { viewConfigSchema } from "./workspace-views";
 
 export const BLOCK_SPANS = [2, 3, 4, 6] as const;
 export const blockSpanSchema = z.union([
@@ -43,13 +50,31 @@ export const textRunSchema = z.object({
 });
 export type TextRun = z.infer<typeof textRunSchema>;
 
-export const MENTION_KINDS = ["page", "person", "date"] as const;
+/** A date, or any entity kind (page and person among them). */
+export const MENTION_KINDS = [
+  "page",
+  "person",
+  "date",
+  "note",
+  "kanban-board",
+  "kanban-card",
+  "whiteboard",
+  "course",
+  "envelope",
+  "paper",
+  "voice-note",
+  "latex-project",
+  "calendar-event",
+] as const satisfies readonly (EntityKind | "date")[];
 export const mentionKindSchema = z.enum(MENTION_KINDS);
 export type MentionKind = z.infer<typeof mentionKindSchema>;
+// Every entity kind can be mentioned.
+const _everyEntityMentionable: readonly MentionKind[] = ENTITY_KINDS;
+void _everyEntityMentionable;
 
 /**
- * A page (live title), a person (`label` is the name when mentioned) or a
- * date (`id` is `YYYY-MM-DD`).
+ * A page (live title), a date (`id` is `YYYY-MM-DD`) or any other record
+ * (`label` is its title when mentioned; the record's own wins when it loads).
  */
 export const mentionRunSchema = z.object({
   type: z.literal("mention"),
@@ -216,6 +241,19 @@ const syncedSchema = z.object({
   pageId: z.string().max(64),
   blockId: z.string().max(64),
 });
+/** One record of a module or a page, as a card or the module's own view. Empty `ref` until picked. */
+const recordSchema = z.object({
+  ...id,
+  type: z.literal("record"),
+  ref: z.union([entityRefSchema, z.literal("")]),
+  mode: recordEmbedModeSchema.default("card"),
+});
+/** A live query over one module; see `workspace-views`. */
+const viewSchema = z.object({
+  ...widget,
+  type: z.literal("view"),
+  ...viewConfigSchema.shape,
+});
 /** A share of its row: the widths of a `columns` block's columns are normalised to sum to 1. */
 const columnSchema = z.object({
   id: z.string().min(1).max(64),
@@ -252,6 +290,8 @@ export const blockSchema = z.discriminatedUnion("type", [
   tocSchema,
   breadcrumbSchema,
   syncedSchema,
+  recordSchema,
+  viewSchema,
   columnsSchema,
   columnSchema,
   z.object({

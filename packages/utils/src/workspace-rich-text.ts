@@ -14,7 +14,8 @@ import {
  * A newline inside text is `<br>`; whitespace at either end of the line is a
  * numeric entity, so indentation and trimming cannot eat it. Mentions are
  * links whose text starts with `@`: `[@Name](person:id)`, `[@](page:id)`,
- * `[@2026-10-29](date:2026-10-29)`. A real link whose text starts with `@`
+ * `[@2026-10-29](date:2026-10-29)`, any other record `[@Title](note:id)`
+ * (every `MentionKind`). A real link whose text starts with `@`
  * escapes it.
  */
 
@@ -22,7 +23,7 @@ type Marks = Omit<TextRun, "type" | "text">;
 
 const MARK_KEYS = ["bold", "italic", "strike", "code", "link"] as const;
 const PUNCTUATION = /[!-/:-@[-`{-~]/;
-const MENTION_HREF = /^(page|person|date):(.+)$/;
+const MENTION_HREF = /^([a-z][a-z-]*):(.+)$/;
 
 function sameMarks(a: Marks, b: Marks): boolean {
   return MARK_KEYS.every((key) => a[key] === b[key]);

@@ -13,6 +13,7 @@
     "./workspace-rich-text": "./src/workspace-rich-text.ts",
     "./workspace-tree": "./src/workspace-tree.ts",
     "./workspace-legacy": "./src/workspace-legacy.ts",
+    "./workspace-views": "./src/workspace-views.ts",
     "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts"
   },
   "scripts": {

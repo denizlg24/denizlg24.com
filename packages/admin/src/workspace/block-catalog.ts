@@ -33,7 +33,9 @@ import {
   Pilcrow,
   Quote,
   Repeat2,
+  Rows3,
   Sigma,
+  SquareArrowOutUpRight,
   Sun,
   Table,
   UserSquare,
@@ -165,6 +167,12 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     category: "Layout",
     keywords: ["mirror", "reference", "embed", "transclude"],
   },
+  view: {
+    label: "View",
+    icon: Rows3,
+    category: "Layout",
+    keywords: ["database", "query", "table", "board", "gallery", "list"],
+  },
   links: {
     label: "Links",
     icon: Link2,
@@ -200,6 +208,12 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     icon: Bookmark,
     category: "Media",
     keywords: ["link", "url", "embed", "preview"],
+  },
+  record: {
+    label: "Embed…",
+    icon: SquareArrowOutUpRight,
+    category: "Media",
+    keywords: ["record", "note", "card", "person", "paper", "mention", "link"],
   },
   greeting: {
     label: "Greeting",

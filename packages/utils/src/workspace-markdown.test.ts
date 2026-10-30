@@ -190,3 +190,58 @@ describe("workspace markdown", () => {
     ).toThrow(/Unclosed/);
   });
 });
+
+describe("embeds and views", () => {
+  const blocks: Block[] = [
+    {
+      id: "p",
+      type: "paragraph",
+      text: [
+        { type: "text", text: "see " },
+        { type: "mention", kind: "kanban-card", id: "c1", label: "Ship v2" },
+      ],
+    },
+    { id: "r", type: "record", ref: "entity:note:6650f0c2", mode: "full" },
+    {
+      id: "v",
+      type: "view",
+      title: "Due this week",
+      source: "kanban-cards",
+      layout: "board",
+      filters: [
+        { field: "due", op: "next_days", value: 7 },
+        { field: "done", op: "is", value: false },
+      ],
+      sort: [{ field: "due", dir: "asc" }],
+      group: "column",
+      limit: 50,
+    },
+  ];
+
+  test("a record and a view are directives carrying their config, not rows", () => {
+    const markdown = blocksToMarkdown(blocks);
+    expect(markdown).toContain("[@Ship v2](kanban-card:c1)");
+    expect(markdown).toContain(':::block{type="record" id="r"}');
+    expect(markdown).toContain('"ref":"entity:note:6650f0c2"');
+    expect(markdown).toContain(
+      ':::block{type="view" id="v" title="Due this week"}',
+    );
+    expect(markdown).toContain('"source":"kanban-cards"');
+    expect(markdownToBlocks(markdown, { newId })).toEqual(blocks);
+  });
+
+  test("a hand-written view directive gets the config defaults", () => {
+    const [view] = markdownToBlocks(
+      ':::block{type="view"}\n{"source":"notes"}\n:::',
+      { newId },
+    );
+    expect(view).toMatchObject({
+      type: "view",
+      source: "notes",
+      layout: "table",
+      filters: [],
+      sort: [],
+      limit: 25,
+    });
+  });
+});

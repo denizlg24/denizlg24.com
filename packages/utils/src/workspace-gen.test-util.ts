@@ -8,7 +8,15 @@ import type {
   RichText,
   WorkspacePage,
 } from "@repo/schemas";
-import { CALLOUT_COLORS, WIDGET_TYPES } from "@repo/schemas";
+import {
+  CALLOUT_COLORS,
+  ENTITY_KINDS,
+  MENTION_KINDS,
+  VIEW_FILTER_OPS,
+  VIEW_LAYOUTS,
+  VIEW_SOURCE_IDS,
+  WIDGET_TYPES,
+} from "@repo/schemas";
 import { normalizeRuns } from "./workspace-rich-text";
 import { canContain, isContainerType } from "./workspace-tree";
 
@@ -104,7 +112,7 @@ export function genRichText(r: Rng): RichText {
   const count = r.int(5);
   for (let i = 0; i < count; i++) {
     if (r.next() < 0.15) {
-      const kind = r.pick(["page", "person", "date"] as const);
+      const kind = r.pick(MENTION_KINDS);
       runs.push({
         type: "mention",
         kind,
@@ -141,6 +149,8 @@ const LEAF_TYPES: BlockType[] = [
   "toc",
   "breadcrumb",
   "synced",
+  "record",
+  "view",
   ...WIDGET_TYPES,
 ];
 const CONTAINER_CHOICES: BlockType[] = [
@@ -289,6 +299,47 @@ export function genBlock(
     }
     case "synced":
       return { id, type, pageId: "p2", blockId: genId(r) };
+    case "record":
+      return {
+        id,
+        type,
+        ref:
+          r.next() < 0.2
+            ? ""
+            : `entity:${r.pick(ENTITY_KINDS)}:${r.pick(["a1", "6650f0c2", "x_y-z"])}`,
+        mode: r.pick(["card", "full"] as const),
+      };
+    case "view":
+      return {
+        id,
+        type,
+        source: r.pick(VIEW_SOURCE_IDS),
+        layout: r.pick(VIEW_LAYOUTS),
+        filters: Array.from({ length: r.int(3) }, () => ({
+          field: r.pick(["title", "due", "labels"]),
+          op: r.pick(VIEW_FILTER_OPS),
+          ...(r.next() < 0.8
+            ? {
+                value: r.pick([
+                  genText(r, false),
+                  3,
+                  true,
+                  ["a", "b c"],
+                  "2026-10-29",
+                ]),
+              }
+            : {}),
+        })),
+        sort:
+          r.next() < 0.5
+            ? [{ field: "due", dir: r.pick(["asc", "desc"] as const) }]
+            : [],
+        ...(r.next() < 0.4 ? { group: "column" } : {}),
+        limit: 1 + r.int(200),
+        ...(r.next() < 0.3 ? { fields: ["title", "due"] } : {}),
+        ...(r.next() < 0.2 ? { dateField: "due" } : {}),
+        ...title,
+      };
     case "links":
       return {
         id,

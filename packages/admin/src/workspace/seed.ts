@@ -77,6 +77,18 @@ export function createBlock(type: BlockType): Block {
       return { id, type, refs: [] };
     case "modules":
       return { id, type, sections: [] };
+    case "record":
+      return { id, type, ref: "", mode: "card" };
+    case "view":
+      return {
+        id,
+        type,
+        source: "kanban-cards",
+        layout: "table",
+        filters: [],
+        sort: [],
+        limit: 25,
+      };
     case "divider":
     case "toc":
     case "breadcrumb":
