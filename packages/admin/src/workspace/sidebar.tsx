@@ -57,7 +57,7 @@ import { pageTitle } from "./refs";
 import { childPages, templatePages, useWorkspaceStore } from "./store";
 import { TemplatePicker, useTemplatePicker } from "./template-picker";
 import { useActiveLocation, useWorkspaceNav } from "./use-workspace-nav";
-import { TriggersSheet } from "./workflows/triggers-sheet";
+import { TriggersDialog } from "./workflows/triggers-dialog";
 
 export const OPEN_COMMAND_PALETTE = "command-palette:open";
 
@@ -746,7 +746,7 @@ export function WorkspaceSidebarContent({
         </button>
         <TrashPopover />
         <TemplatePicker use="page" />
-        <TriggersSheet open={triggersOpen} onOpenChange={setTriggersOpen} />
+        <TriggersDialog open={triggersOpen} onOpenChange={setTriggersOpen} />
         <SidebarRow
           href={routes.settings}
           active={pathname.startsWith(routes.settings)}

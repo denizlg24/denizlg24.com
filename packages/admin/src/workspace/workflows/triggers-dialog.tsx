@@ -18,6 +18,7 @@ import {
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
+import { Dialog, DialogContent, DialogTitle } from "@repo/ui/dialog";
 import { EmptyState } from "@repo/ui/empty-state";
 import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
 import { Input } from "@repo/ui/input";
@@ -25,7 +26,6 @@ import { List, ListRow } from "@repo/ui/list";
 import { NativeSelect, NativeSelectOption } from "@repo/ui/native-select";
 import { SectionLabel } from "@repo/ui/section";
 import { SegmentedControl } from "@repo/ui/segmented-control";
-import { Sheet, SheetContent, SheetTitle } from "@repo/ui/sheet";
 import { StatusDot } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
 import { Textarea } from "@repo/ui/textarea";
@@ -436,7 +436,7 @@ function firingSummary(event: DomainEventRecord): string {
 }
 
 /** Every trigger, terse, and the events that came through lately. */
-export function TriggersSheet({
+export function TriggersDialog({
   open,
   onOpenChange,
 }: {
@@ -486,93 +486,85 @@ export function TriggersSheet({
   const names = new Map((triggers ?? []).map((t) => [t.id, t.name]));
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full gap-0 overflow-y-auto p-0 sm:max-w-xl"
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        size="lg"
+        className="flex h-[min(85vh,60rem)] flex-col gap-0 overflow-hidden p-0"
         aria-describedby={undefined}
       >
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+        <div className="flex shrink-0 items-center gap-2 border-b px-5 pt-4 pb-3 pr-12">
           <Zap className="size-4 text-muted-foreground" />
-          <SheetTitle className="flex-1 text-sm">Triggers</SheetTitle>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mr-8"
-            onClick={() => {
-              setEditing(null);
-              setDialog(true);
-            }}
-          >
-            <Plus />
-            New
-          </Button>
+          <DialogTitle className="flex-1">Triggers</DialogTitle>
         </div>
-        <div className="flex flex-col gap-6 px-4 py-4">
-          {triggers === null ? null : triggers.length === 0 ? (
-            <EmptyState compact icon={<Zap />} label="No triggers" />
-          ) : (
-            <List>
-              {triggers.map((trigger) => (
-                <ListRow
-                  key={trigger.id}
-                  onClick={() => {
-                    setEditing(trigger);
-                    setDialog(true);
-                  }}
-                  leading={
-                    <StatusDot
-                      tone={
-                        trigger.disabledReason
-                          ? "critical"
-                          : trigger.enabled
-                            ? "good"
-                            : "muted"
-                      }
-                      label={
-                        trigger.disabledReason
-                          ? "Turned off"
-                          : trigger.enabled
-                            ? "On"
-                            : "Off"
-                      }
-                    />
-                  }
-                  title={trigger.name}
-                  description={
-                    trigger.disabledReason ??
-                    `${EVENT_LABELS[trigger.event]}${trigger.filter.length ? ` · ${trigger.filter.length} if` : ""} · ${trigger.action.kind === "agent" ? "agent" : `${trigger.action.actions.length} actions`}`
-                  }
-                  meta={
-                    trigger.lastFiredAt ? (
-                      <span
-                        className={
-                          trigger.lastResult?.ok === false
-                            ? "text-status-critical"
-                            : undefined
+        <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-8 overflow-y-auto overscroll-contain px-5 py-5 lg:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-1">
+            <SectionLabel>Triggers</SectionLabel>
+            {triggers === null ? null : triggers.length === 0 ? (
+              <EmptyState compact icon={<Zap />} label="No triggers" />
+            ) : (
+              <List>
+                {triggers.map((trigger) => (
+                  <ListRow
+                    key={trigger.id}
+                    onClick={() => {
+                      setEditing(trigger);
+                      setDialog(true);
+                    }}
+                    leading={
+                      <StatusDot
+                        tone={
+                          trigger.disabledReason
+                            ? "critical"
+                            : trigger.enabled
+                              ? "good"
+                              : "muted"
                         }
-                      >
-                        {ago(trigger.lastFiredAt)}
-                      </span>
-                    ) : null
-                  }
-                  trailing={
-                    <Switch
-                      aria-label={`${trigger.name} on`}
-                      checked={trigger.enabled}
-                      onCheckedChange={(enabled) =>
-                        void toggle(trigger, enabled)
-                      }
-                    />
-                  }
-                />
-              ))}
-            </List>
-          )}
-          {events.length > 0 ? (
-            <div className="flex flex-col gap-1">
-              <SectionLabel>Events</SectionLabel>
+                        label={
+                          trigger.disabledReason
+                            ? "Turned off"
+                            : trigger.enabled
+                              ? "On"
+                              : "Off"
+                        }
+                      />
+                    }
+                    title={trigger.name}
+                    description={
+                      trigger.disabledReason ??
+                      `${EVENT_LABELS[trigger.event]}${trigger.filter.length ? ` · ${trigger.filter.length} if` : ""} · ${trigger.action.kind === "agent" ? "agent" : `${trigger.action.actions.length} actions`}`
+                    }
+                    meta={
+                      trigger.lastFiredAt ? (
+                        <span
+                          className={
+                            trigger.lastResult?.ok === false
+                              ? "text-status-critical"
+                              : undefined
+                          }
+                        >
+                          {ago(trigger.lastFiredAt)}
+                        </span>
+                      ) : null
+                    }
+                    trailing={
+                      <Switch
+                        aria-label={`${trigger.name} on`}
+                        checked={trigger.enabled}
+                        onCheckedChange={(enabled) =>
+                          void toggle(trigger, enabled)
+                        }
+                      />
+                    }
+                  />
+                ))}
+              </List>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <SectionLabel>Events</SectionLabel>
+            {events.length === 0 ? (
+              <span className="text-xs text-muted-foreground">—</span>
+            ) : (
               <List>
                 {events.map((event) => (
                   <ListRow
@@ -602,8 +594,32 @@ export function TriggersSheet({
                   />
                 ))}
               </List>
-            </div>
-          ) : null}
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 border-t px-5 py-3">
+          <span className="flex-1 text-xs tabular-nums text-muted-foreground">
+            {triggers
+              ? `${triggers.filter((t) => t.enabled).length}/${triggers.length} on`
+              : null}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setDialog(true);
+            }}
+          >
+            <Plus />
+            New
+          </Button>
         </div>
         <TriggerDialog
           open={dialog}
@@ -612,7 +628,7 @@ export function TriggersSheet({
           onSaved={() => void load()}
           onDeleted={() => void load()}
         />
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

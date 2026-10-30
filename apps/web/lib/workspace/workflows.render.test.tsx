@@ -300,7 +300,7 @@ describe("agent section", () => {
   });
 });
 
-describe("triggers sheet", () => {
+describe("triggers dialog", () => {
   test("lists triggers with their state and recent events; the switch patches", async () => {
     const trigger = (
       id: string,
@@ -363,10 +363,10 @@ describe("triggers sheet", () => {
         return null;
       },
       async () => {
-        const { TriggersSheet } = await import(
-          "@repo/admin/workspace/workflows/triggers-sheet"
+        const { TriggersDialog } = await import(
+          "@repo/admin/workspace/workflows/triggers-dialog"
         );
-        return <TriggersSheet open onOpenChange={() => {}} />;
+        return <TriggersDialog open onOpenChange={() => {}} />;
       },
     );
     const text = document.body.textContent ?? "";
