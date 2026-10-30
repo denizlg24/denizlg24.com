@@ -33,7 +33,7 @@ export function SourcesLink({ topic }: { topic: CitationTopicKey }) {
             key={id}
             onPress={() => void openBrowserAsync(citation.url)}
             accessibilityRole="link"
-            accessibilityLabel={`Source: ${citation.title}. ${citation.source}`}
+            accessibilityLabel={`Source: ${citation.title}. ${citation.source}. ${citation.supports}`}
             accessibilityHint="Opens the original reference in your browser"
             style={({ pressed }) => [
               styles.reference,

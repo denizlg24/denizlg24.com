@@ -29,17 +29,17 @@ export interface Donor extends Candidate {
 }
 
 /** Rows a logging screen would actually offer; the rest are not worth copying. */
-export const offeredPortions = (portions: readonly PortionRow[]) =>
-  portions.filter((portion, index) => {
+export const offeredPortions = (portions: readonly PortionRow[]) => {
+  const seen = new Set<string>();
+  return portions.filter((portion) => {
     const [serving] = householdServings([portion]);
-    return (
-      serving &&
-      !householdServings(portions.slice(0, index)).some(
-        (previous) =>
-          previous.label.toLowerCase() === serving.label.toLowerCase(),
-      )
-    );
+    if (!serving) return false;
+    const key = serving.label.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
+};
 
 /**
  * Same concept only counts when the energy density agrees: a concept can

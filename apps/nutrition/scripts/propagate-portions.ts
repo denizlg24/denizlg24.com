@@ -118,8 +118,6 @@ const main = async () => {
       const donor = pickDonor(gap, donorsByConcept);
       if (!donor) continue;
       const existing = offeredPortions(portionsByItem.get(gap.id) ?? []);
-      if (existing.length > 0 && donor.portions.length <= existing.length)
-        continue;
       const portions = offeredPortions([...existing, ...donor.portions]).slice(
         existing.length,
       );

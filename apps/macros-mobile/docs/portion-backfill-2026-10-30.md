@@ -12,11 +12,11 @@ Asian/nashi pears cannot supply portions for ordinary European pears.
 
 Verified after applying:
 
-- 111,192 total portion rows; 57,166 borrowed rows across 20,246 foods.
+- 112,955 total portion rows; 58,929 borrowed rows across 21,813 foods.
 - All 54,026 source-published and estimated rows remained identical, including
   weights, labels, order and provenance.
 - 3,600 foods gained usable portions where they previously had none.
-- 11,048 foods offer more usable measures than before.
+- 12,615 foods offer more usable measures than before.
 - Black plums offer a 66 g fruit and a 165 g sliced cup alongside the retained
   regulatory source row.
 - William Bartlett pears and Frida’s ordinary raw pears offer small (152 g),

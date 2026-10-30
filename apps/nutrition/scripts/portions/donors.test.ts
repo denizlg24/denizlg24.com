@@ -99,6 +99,29 @@ describe("pickDonor", () => {
 });
 
 describe("offeredPortions", () => {
+  it("deduplicates labels beyond the display limit", () => {
+    const portions = Array.from({ length: 9 }, (_, index) => ({
+      label: `1 measure ${index}`,
+      grams: index + 1,
+    }));
+    expect(
+      offeredPortions([...portions, { label: "1 MEASURE 8", grams: 90 }]),
+    ).toEqual(portions);
+  });
+
+  it("adds new labels from an equally sized donor while keeping existing weights", () => {
+    const existing = [
+      { label: "1 cup", grams: 150 },
+      { label: "1 piece", grams: 50 },
+    ];
+    const donor = [
+      { label: "1 cup", grams: 160 },
+      { label: "1 fruit", grams: 66 },
+    ];
+    expect(
+      offeredPortions([...existing, ...donor]).slice(existing.length),
+    ).toEqual([{ label: "1 fruit", grams: 66 }]);
+  });
   it("drops metric measures the logging screen never offers", () => {
     expect(
       offeredPortions([

@@ -56,7 +56,7 @@ export function SourcesScreen() {
                     <Pressable
                       onPress={() => void openBrowserAsync(citation.url)}
                       accessibilityRole="link"
-                      accessibilityLabel={`${citation.title}. ${citation.source}`}
+                      accessibilityLabel={`${citation.title}. ${citation.source}. ${citation.supports}`}
                       accessibilityHint="Opens the original reference in your browser"
                       style={({ pressed }) => [
                         styles.citation,
