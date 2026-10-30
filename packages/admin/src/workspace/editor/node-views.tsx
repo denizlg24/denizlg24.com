@@ -93,7 +93,7 @@ export function ToggleView({ node }: NodeViewProps) {
         contentEditable={false}
         aria-label={open ? "Collapse" : "Expand"}
         onClick={() => setOpen((o) => !o)}
-        className="absolute top-[0.3em] left-0 flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-surface"
+        className="absolute top-1 left-0 flex size-5 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-surface"
       >
         <ChevronRight
           className={cn("size-3.5 transition-transform", open && "rotate-90")}
@@ -129,9 +129,12 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
   return (
     <NodeViewWrapper
       data-id={node.attrs.id}
-      className={cn("flex gap-3 rounded-md px-4 py-3", CALLOUT_TONE[color])}
+      className={cn(
+        "group/callout flex gap-3 rounded-md px-4 py-3",
+        CALLOUT_TONE[color],
+      )}
     >
-      <div contentEditable={false} className="flex shrink-0 flex-col gap-1">
+      <div contentEditable={false} className="relative shrink-0">
         {editor.isEditable ? (
           <IconPicker
             value={emoji}
@@ -155,8 +158,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
                 type="button"
                 aria-label="Colour"
                 className={cn(
-                  "mx-auto size-2.5 rounded-full border",
-                  CALLOUT_TONE[color],
+                  "absolute top-full left-1/2 size-2.5 -translate-x-1/2 rounded-full bg-muted-foreground/30 opacity-0 transition-opacity outline-none group-hover/callout:opacity-100 data-[state=open]:opacity-100",
                 )}
               />
             </DropdownMenuTrigger>
@@ -168,7 +170,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
                 >
                   <span
                     className={cn(
-                      "size-3 rounded-full border",
+                      "size-3 rounded-full ring-1 ring-border ring-inset",
                       CALLOUT_TONE[c],
                     )}
                   />
@@ -447,7 +449,7 @@ function UploadButton({
 
 function EmptyMedia({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 border-b border-dashed py-2 text-muted-foreground">
+    <div className="flex items-center gap-2 rounded-sm bg-surface/50 px-2 py-1 text-muted-foreground">
       {children}
     </div>
   );
@@ -582,7 +584,7 @@ function BookmarkAtom({ block, editable, onChange }: AtomProps<"bookmark">) {
         href={block.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="group/bm flex items-stretch gap-4 border-b py-2 hover:bg-surface/70"
+        className="-mx-2 flex items-stretch gap-4 rounded-sm px-2 py-2 hover:bg-surface/70"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-sm font-medium text-accent-strong">
@@ -648,7 +650,12 @@ function EquationAtom({
   );
 }
 
-function TableAtom({ block, editable, onChange }: AtomProps<"table">) {
+function TableAtom({
+  block,
+  editable,
+  selected,
+  onChange,
+}: AtomProps<"table">) {
   const width = Math.max(1, ...block.rows.map((row) => row.length));
   const setCell = (r: number, c: number, text: RichText) =>
     onChange({
@@ -662,7 +669,7 @@ function TableAtom({ block, editable, onChange }: AtomProps<"table">) {
       ),
     });
   return (
-    <div className="flex flex-col gap-1 overflow-x-auto">
+    <div className="group/table flex flex-col gap-1 overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <tbody>
           {block.rows.map((row, r) => (
@@ -699,7 +706,12 @@ function TableAtom({ block, editable, onChange }: AtomProps<"table">) {
         </tbody>
       </table>
       {editable ? (
-        <div className="flex gap-1 text-muted-foreground">
+        <div
+          className={cn(
+            "gap-1 text-muted-foreground",
+            selected ? "flex" : "hidden group-focus-within/table:flex",
+          )}
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -918,7 +930,7 @@ function SyncedSource({
 }) {
   const { depth } = useContext(FlowPageContext);
   return (
-    <div className="border-l-2 border-status-info/40 pl-3">
+    <div className="border-l border-status-info/50 pl-3">
       <FlowEditor
         pageId={pageId}
         scope={blockId}
@@ -1082,13 +1094,7 @@ export function AtomBlockView({
     }
   }
   return (
-    <NodeViewWrapper
-      data-id={node.attrs.id}
-      className={cn(
-        "my-1 rounded-sm",
-        selected && editable && "outline-1 outline-offset-4 outline-border",
-      )}
-    >
+    <NodeViewWrapper data-id={node.attrs.id} className="my-1">
       {body}
     </NodeViewWrapper>
   );

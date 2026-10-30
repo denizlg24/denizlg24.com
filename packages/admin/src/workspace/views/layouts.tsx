@@ -472,7 +472,7 @@ function GalleryRecord({
 }) {
   const state = useRecord(row.ref);
   return state.status === "ready" ? (
-    <RecordCard record={state.record} />
+    <RecordCard record={state.record} ruled />
   ) : (
     fallback
   );

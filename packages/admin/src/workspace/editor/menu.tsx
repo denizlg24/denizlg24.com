@@ -13,6 +13,11 @@ import { create } from "zustand";
  * ⌘/ shortcut call before ProseMirror sees them.
  */
 
+const MENU_WIDTH = 256;
+const MENU_HEIGHT = 320;
+const MENU_GAP = 6;
+const EDGE = 8;
+
 export interface MenuItem {
   key: string;
   label: string;
@@ -105,7 +110,16 @@ export function EditorMenu() {
   }, [onPick, close]);
 
   if (!onPick || !rect || typeof document === "undefined") return null;
-  const below = rect.bottom + 320 < window.innerHeight;
+  const room = {
+    below: window.innerHeight - rect.bottom - MENU_GAP - EDGE,
+    above: rect.top - MENU_GAP - EDGE,
+  };
+  const below = room.below >= MENU_HEIGHT || room.below >= room.above;
+  const maxHeight = Math.min(MENU_HEIGHT, below ? room.below : room.above);
+  const left = Math.max(
+    EDGE,
+    Math.min(rect.left, window.innerWidth - MENU_WIDTH - EDGE),
+  );
   let group: string | undefined;
 
   return createPortal(
@@ -113,12 +127,14 @@ export function EditorMenu() {
       ref={list}
       role="listbox"
       style={{
-        left: Math.min(rect.left, window.innerWidth - 272),
+        left,
+        width: MENU_WIDTH,
+        maxHeight,
         ...(below
-          ? { top: rect.bottom + 6 }
-          : { bottom: window.innerHeight - rect.top + 6 }),
+          ? { top: rect.bottom + MENU_GAP }
+          : { bottom: window.innerHeight - rect.top + MENU_GAP }),
       }}
-      className="fixed z-50 max-h-80 w-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+      className="fixed z-50 overflow-y-auto overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
     >
       {items.length === 0 ? (
         <div className="px-2 py-1.5 text-xs text-muted-foreground">—</div>

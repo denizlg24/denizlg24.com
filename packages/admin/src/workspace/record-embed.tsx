@@ -56,8 +56,14 @@ export function MissingRecord({ kind }: { kind: EntityKind | null }) {
   );
 }
 
-/** Compact: icon, title, subtitle and a few key fields on one hairline row. */
-export function RecordCard({ record }: { record: RecordSummary }) {
+/** Compact: icon, title, subtitle and a few key fields on one row; `ruled` among other rows. */
+export function RecordCard({
+  record,
+  ruled = false,
+}: {
+  record: RecordSummary;
+  ruled?: boolean;
+}) {
   const nav = useWorkspaceNav();
   const href = recordHref(nav, record.ref);
   const body = (
@@ -94,8 +100,10 @@ export function RecordCard({ record }: { record: RecordSummary }) {
       ) : null}
     </>
   );
-  const className =
-    "group/record flex items-start gap-3 border-b py-2 hover:bg-surface/70";
+  const className = cn(
+    "group/record flex items-start gap-3 py-2 hover:bg-surface/70",
+    ruled ? "border-b" : "-mx-2 rounded-sm px-2",
+  );
   return href ? (
     <Link href={href} data-record={record.ref} className={className}>
       {body}
@@ -174,7 +182,7 @@ export function RecordView({
   }
   if (state.status === "loading") {
     return (
-      <div className="flex items-center gap-3 border-b py-2">
+      <div className="flex items-center gap-3 py-2">
         <Skeleton className="size-4" />
         <Skeleton className="h-4 w-48" />
       </div>
@@ -200,10 +208,17 @@ const MODES: { value: PickMode; label: string }[] = [
 /** Searches records of every kind; picking one embeds it in the chosen mode. */
 export function RecordPicker({
   onPick,
+  focus = false,
 }: {
   onPick: (record: RecordSummary, mode: PickMode) => void;
+  /** Takes focus when this turns true: the block was just inserted or picked. */
+  focus?: boolean;
 }) {
   const { client } = useAdmin();
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focus) input.current?.focus({ preventScroll: true });
+  }, [focus]);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<PickMode>("card");
   const [kind, setKind] = useState<EntityKind | "all">("all");
@@ -233,15 +248,11 @@ export function RecordPicker({
   };
 
   return (
-    <div
-      data-record-picker=""
-      className="flex flex-col gap-1 border-b border-dashed py-2"
-    >
+    <div data-record-picker="" className="flex flex-col gap-1 py-2">
       <div className="flex items-center gap-2">
         <Search className="size-4 text-muted-foreground" />
         <input
-          // biome-ignore lint/a11y/noAutofocus: the picker opens because the owner asked for it
-          autoFocus
+          ref={input}
           value={query}
           placeholder="Search"
           onChange={(event) => setQuery(event.currentTarget.value)}
@@ -360,6 +371,7 @@ export function RecordBlock({
     if (!editable) return block.ref ? <MissingRecord kind={null} /> : null;
     return (
       <RecordPicker
+        focus={selected}
         onPick={(record, mode) =>
           mode === "mention"
             ? onMention(record)

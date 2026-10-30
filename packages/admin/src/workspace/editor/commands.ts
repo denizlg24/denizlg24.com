@@ -5,8 +5,10 @@ import {
   replaceBlock,
 } from "@repo/utils/workspace-tree";
 import type { Editor, JSONContent } from "@tiptap/core";
+import { GapCursor } from "@tiptap/pm/gapcursor";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
+import { newId } from "../seed";
 import { blocksToDoc, docToBlocks, type TurnIntoTarget, turnInto } from "./doc";
 
 /** Meta on a transaction that brings in what the store holds; the editor does not diff it back. */
@@ -204,5 +206,213 @@ export function insertAfter(
       list.splice(location.index + 1, 0, ...blocks);
       return list;
     }) ?? tree
+  );
+}
+
+/** `blocks` placed right before block `id`, among its siblings. */
+export function insertBefore(
+  tree: Block[],
+  id: string,
+  blocks: Block[],
+): Block[] {
+  const location = findBlock(tree, id);
+  if (!location) return [...blocks, ...tree];
+  return (
+    editSiblings(tree, location.parentId, (siblings) => {
+      const list = [...siblings];
+      list.splice(location.index, 0, ...blocks);
+      return list;
+    }) ?? tree
+  );
+}
+
+/**
+ * Starts a new line beside block `id` (or reuses it when it is an empty
+ * paragraph) and types "/" into it, which opens the block menu there.
+ */
+export function startBlockMenu(
+  editor: Editor,
+  id: string,
+  place: "before" | "after",
+): void {
+  editor.view.focus();
+  const target = findNode(editor.state.doc, id);
+  if (
+    target?.node.type.name === "paragraph" &&
+    target.node.content.size === 0 &&
+    !isTextSlot(editor.state.doc, target.pos)
+  ) {
+    const at = target.pos + 1;
+    const tr = editor.state.tr.insertText("/", at);
+    editor.view.dispatch(
+      tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView(),
+    );
+    return;
+  }
+  const line: Block = { id: newId(), type: "paragraph", text: [] };
+  transformBlocks(
+    editor,
+    (blocks) =>
+      place === "before"
+        ? insertBefore(blocks, id, [line])
+        : insertAfter(blocks, id, [line]),
+    { id: line.id, offset: 0 },
+  );
+  editor.view.dispatch(editor.state.tr.insertText("/").scrollIntoView());
+}
+
+/** Puts the caret on an empty last line, adding one when the page ends in anything else. */
+export function focusTrailingLine(editor: Editor): void {
+  const { doc } = editor.state;
+  const last = doc.lastChild;
+  if (last?.type.name === "paragraph" && last.content.size === 0) {
+    editor.commands.focus("end");
+    return;
+  }
+  const line: Block = { id: newId(), type: "paragraph", text: [] };
+  transformBlocks(editor, (blocks) => [...blocks, line], {
+    id: line.id,
+    offset: 0,
+  });
+  editor.view.focus();
+}
+
+function isTextSlot(doc: PMNode, pos: number): boolean {
+  const $pos = doc.resolve(pos);
+  return TEXT_SLOT_PARENTS.has($pos.parent.type.name) && $pos.index() === 0;
+}
+
+/** Containers whose later children are typed into like ordinary lines. */
+const LINE_CONTAINERS = new Set(["toggle", "callout", "blockquote"]);
+
+/** Enter on an empty last line inside a toggle, callout or quote moves the line out after it. */
+export function exitContainer(editor: Editor): boolean {
+  const { selection } = editor.state;
+  if (!selection.empty) return false;
+  const { $from } = selection;
+  const line = $from.parent;
+  if ($from.depth < 2 || line.type.name !== "paragraph") return false;
+  if (line.content.size > 0) return false;
+  const container = $from.node(-1);
+  if (!LINE_CONTAINERS.has(container.type.name)) return false;
+  const index = $from.index(-1);
+  if (index === 0 || index !== container.childCount - 1) return false;
+  const linePos = $from.before();
+  const after = $from.after(-1);
+  const tr = editor.state.tr.delete(linePos, linePos + line.nodeSize);
+  const at = tr.mapping.map(after);
+  tr.insert(at, line.type.create(line.attrs));
+  tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView();
+  editor.view.dispatch(tr);
+  return true;
+}
+
+/** Backspace at the very start of a toggle, callout or quote turns it back into text. */
+export function unwrapAtStart(editor: Editor): boolean {
+  const { selection } = editor.state;
+  if (!selection.empty) return false;
+  const { $from } = selection;
+  if ($from.parentOffset !== 0 || $from.depth < 2) return false;
+  if ($from.parent.type.name !== "paragraph" || $from.index(-1) !== 0)
+    return false;
+  const container = $from.node(-1);
+  if (!LINE_CONTAINERS.has(container.type.name)) return false;
+  const id = container.attrs.id;
+  if (typeof id !== "string") return false;
+  turnBlockInto(editor, id, {
+    key: "paragraph",
+    label: "Text",
+    type: "paragraph",
+  });
+  return true;
+}
+
+/**
+ * Backspace in a column holding only an empty line removes the column; the
+ * last column left dissolves into its blocks.
+ */
+export function removeEmptyColumn(editor: Editor): boolean {
+  const { selection } = editor.state;
+  if (!selection.empty) return false;
+  const { $from } = selection;
+  if ($from.depth < 3 || $from.parent.content.size > 0) return false;
+  const column = $from.node(-1);
+  const columns = $from.node(-2);
+  if (column.type.name !== "column" || columns.type.name !== "columns")
+    return false;
+  if (column.childCount !== 1) return false;
+  const columnId = column.attrs.id;
+  const columnsId = columns.attrs.id;
+  if (typeof columnId !== "string" || typeof columnsId !== "string")
+    return false;
+  const after: { caret: Caret | null } = { caret: null };
+  transformBlocks(
+    editor,
+    (blocks) => {
+      const location = findBlock(blocks, columnsId);
+      if (location?.block.type !== "columns") return blocks;
+      const index = location.block.children.findIndex((c) => c.id === columnId);
+      const rest = location.block.children.filter((c) => c.id !== columnId);
+      const neighbour = rest[Math.max(0, index - 1)];
+      const landing =
+        index > 0 ? neighbour?.children.at(-1) : neighbour?.children[0];
+      if (landing)
+        after.caret = {
+          id: landing.id,
+          offset: index > 0 ? Number.MAX_SAFE_INTEGER : 0,
+        };
+      const replacement: Block[] =
+        rest.length === 1
+          ? (rest[0]?.children ?? [])
+          : [{ ...location.block, children: rest }];
+      return (
+        editSiblings(blocks, location.parentId, (siblings) => {
+          const list = [...siblings];
+          list.splice(location.index, 1, ...replacement);
+          return list;
+        }) ?? blocks
+      );
+    },
+    null,
+  );
+  if (after.caret) placeCaret(editor, after.caret);
+  return true;
+}
+
+function placeCaret(editor: Editor, caret: Caret): void {
+  const target = findNode(editor.state.doc, caret.id);
+  if (!target) return;
+  const begin = textStart(target.node, target.pos);
+  const { tr } = editor.state;
+  if (begin === null) {
+    tr.setSelection(NodeSelection.create(tr.doc, target.pos));
+  } else {
+    const size = tr.doc.resolve(begin).parent.content.size;
+    tr.setSelection(
+      TextSelection.create(tr.doc, begin + Math.min(caret.offset, size)),
+    );
+  }
+  editor.view.dispatch(tr.scrollIntoView());
+}
+
+/**
+ * An editor without focus holds no block selection. ProseMirror starts a
+ * document that opens with a widget with that widget selected, and a remote
+ * merge maps the selection wherever it lands; either way the page would open
+ * with a block tinted and its controls out. The selection moves to the first
+ * text position (or a gap cursor), which shows nothing until focus arrives.
+ */
+export function settleUnfocused(editor: Editor): void {
+  const { view } = editor;
+  if (view.hasFocus()) return;
+  const { selection, doc } = view.state;
+  if (!(selection instanceof NodeSelection)) return;
+  const start = doc.resolve(0);
+  const next = Selection.findFrom(start, 1, true) ?? new GapCursor(start);
+  view.dispatch(
+    view.state.tr
+      .setSelection(next)
+      .setMeta(REMOTE_META, true)
+      .setMeta("addToHistory", false),
   );
 }

@@ -35,7 +35,6 @@ function editorFor(blocks: Block[]): EditorType {
     extensions: extensions.flowExtensions({
       views: null,
       mentions: async () => [],
-      placeholder: "",
     }),
     content: doc.blocksToDoc(blocks),
   });
@@ -174,5 +173,162 @@ describe("flow editor", () => {
       type: "paragraph",
       text: runs("ALPHA, longer now"),
     });
+  });
+
+  /** A real keydown through ProseMirror; `keyboardShortcut` replays steps and remaps them twice. */
+  function press(editor: EditorType, key: string) {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true });
+    editor.view.someProp("handleKeyDown", (f) => f(editor.view, event));
+  }
+
+  function caretIn(editor: EditorType, id: string, at: "start" | "end") {
+    editor.state.doc.descendants((node, pos) => {
+      if (node.attrs.id !== id) return true;
+      editor.commands.setTextSelection(
+        at === "start" ? pos + 1 : pos + node.nodeSize - 1,
+      );
+      return false;
+    });
+  }
+
+  test("Enter on an empty last line of a toggle leaves the toggle", () => {
+    const editor = editorFor([
+      {
+        id: "t",
+        type: "toggle",
+        text: runs("Toggle"),
+        children: [{ id: "in", type: "paragraph", text: runs("inside") }],
+      },
+    ]);
+    caretIn(editor, "in", "end");
+    press(editor, "Enter");
+    press(editor, "Enter");
+    editor.commands.insertContent("out");
+    const after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after.map((b) => b.type)).toEqual(["toggle", "paragraph"]);
+    expect(after[1]?.type === "paragraph" && after[1].text).toEqual(
+      runs("out"),
+    );
+    const toggle = after[0];
+    expect(toggle?.type === "toggle" && toggle.children.length).toBe(1);
+  });
+
+  test("Backspace at the start of a callout turns it into text, children kept", () => {
+    const editor = editorFor([
+      { id: "p", type: "paragraph", text: runs("before") },
+      {
+        id: "c",
+        type: "callout",
+        text: runs("note"),
+        emoji: "💡",
+        color: "default",
+        children: [{ id: "k", type: "paragraph", text: runs("kid") }],
+      },
+    ]);
+    let start = 0;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.attrs.id === "c") start = pos + 2;
+    });
+    editor.commands.setTextSelection(start);
+    press(editor, "Backspace");
+    const after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after).toEqual([
+      { id: "p", type: "paragraph", text: runs("before") },
+      { id: "c", type: "paragraph", text: runs("note") },
+      { id: "k", type: "paragraph", text: runs("kid") },
+    ]);
+  });
+
+  test("Backspace in an emptied column removes it; the last one dissolves", () => {
+    const editor = editorFor([
+      {
+        id: "row",
+        type: "columns",
+        children: [
+          {
+            id: "c1",
+            type: "column",
+            width: 0.5,
+            children: [{ id: "l", type: "paragraph", text: runs("left") }],
+          },
+          {
+            id: "c2",
+            type: "column",
+            width: 0.5,
+            children: [{ id: "r", type: "paragraph", text: [] }],
+          },
+        ],
+      },
+    ]);
+    caretIn(editor, "r", "start");
+    press(editor, "Backspace");
+    const after = doc.docToBlocks(editor.getJSON());
+    const caret = commands.caretOf(editor);
+    editor.destroy();
+    expect(after).toEqual([{ id: "l", type: "paragraph", text: runs("left") }]);
+    expect(caret).toEqual({ id: "l", offset: 4 });
+  });
+
+  test("a selected widget goes with Backspace, and so does one reached from the line after it", () => {
+    const editor = editorFor([
+      { id: "w", type: "stats" },
+      { id: "p", type: "paragraph", text: [] },
+    ]);
+    caretIn(editor, "p", "start");
+    press(editor, "Backspace");
+    press(editor, "Backspace");
+    const after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after.some((b) => b.id === "w")).toBe(false);
+  });
+
+  test("the add button types a slash on a new line after the block, or before it", () => {
+    const editor = editorFor([
+      { id: "a", type: "paragraph", text: runs("alpha") },
+      { id: "b", type: "paragraph", text: runs("beta") },
+    ]);
+    commands.startBlockMenu(editor, "a", "after");
+    let after = doc.docToBlocks(editor.getJSON());
+    expect(after.map((b) => (b.type === "paragraph" ? b.text : null))).toEqual([
+      runs("alpha"),
+      runs("/"),
+      runs("beta"),
+    ]);
+    commands.startBlockMenu(editor, "a", "before");
+    after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after[0]?.type === "paragraph" && after[0].text).toEqual(runs("/"));
+    expect(after).toHaveLength(4);
+  });
+
+  test("the add button on an empty line reuses it", () => {
+    const editor = editorFor([{ id: "e", type: "paragraph", text: [] }]);
+    commands.startBlockMenu(editor, "e", "after");
+    const after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after).toEqual([{ id: "e", type: "paragraph", text: runs("/") }]);
+  });
+
+  test("an unfocused editor that opens on a widget holds no block selection", () => {
+    const editor = editorFor([
+      { id: "w", type: "stats" },
+      { id: "p", type: "paragraph", text: runs("text") },
+    ]);
+    expect(editor.state.selection.constructor.name).toBe("NodeSelection");
+    commands.settleUnfocused(editor);
+    const name = editor.state.selection.constructor.name;
+    editor.destroy();
+    expect(name).not.toBe("NodeSelection");
+  });
+
+  test("clicking below the last block adds an empty line only when there is none", () => {
+    const editor = editorFor([{ id: "w", type: "stats" }]);
+    commands.focusTrailingLine(editor);
+    commands.focusTrailingLine(editor);
+    const after = doc.docToBlocks(editor.getJSON());
+    editor.destroy();
+    expect(after.map((b) => b.type)).toEqual(["stats", "paragraph"]);
   });
 });

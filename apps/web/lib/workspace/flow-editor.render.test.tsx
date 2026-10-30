@@ -153,3 +153,60 @@ test("the workspace editor renders a page's blocks with their node views", async
     BLOCKS,
   );
 });
+
+test("a page that opens on a widget opens with nothing selected and no focus", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { AdminProvider } = await import("@repo/admin/provider");
+  const { createAdminClient } = await import("@repo/admin/client");
+  const { useWorkspaceStore } = await import("@repo/admin/workspace/store");
+  const { FlowEditor } = await import(
+    "@repo/admin/workspace/editor/flow-editor"
+  );
+  const { seedWorkspace } = await import("@repo/admin/workspace/seed");
+
+  const blocks: Block[] = [
+    { id: "w", type: "stats" },
+    { id: "r", type: "record", ref: "", mode: "card" },
+    { id: "p", type: "paragraph", text: runs("after") },
+  ];
+  useWorkspaceStore.setState({
+    ready: true,
+    workspace: {
+      ...seedWorkspace(),
+      pages: { p2: { ...page(false), id: "p2", blocks } },
+    },
+    loaded: { p2: 1 },
+  });
+  const client = createAdminClient({
+    baseUrl: "/api/admin",
+    fetchImpl: () => new Promise<Response>(() => {}),
+  });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <AdminProvider value={{ client, platform, routes: WEB_ADMIN_ROUTES }}>
+        <FlowEditor pageId="p2" editable />
+      </AdminProvider>,
+    );
+    await settle();
+  });
+
+  const pm = host.querySelector(".ProseMirror");
+  if (!(pm instanceof HTMLElement)) throw new Error("no editor");
+  // ProseMirror marks a NodeSelection's block with this class, focus or not.
+  expect(host.querySelector('[data-id="w"]')).not.toBeNull();
+  expect(host.querySelector(".ProseMirror-selectednode")).toBeNull();
+  expect(pm.contains(document.activeElement)).toBe(false);
+  expect(pm.classList.contains("ProseMirror-focused")).toBe(false);
+  // The empty record embed's search does not take focus on open either.
+  expect(document.activeElement?.tagName).not.toBe("INPUT");
+
+  await act(async () => {
+    root.unmount();
+    await settle();
+  });
+  host.remove();
+});

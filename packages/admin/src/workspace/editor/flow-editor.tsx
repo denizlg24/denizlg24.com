@@ -26,6 +26,7 @@ import {
   Copy,
   GripVertical,
   LayoutTemplate,
+  Plus,
   Repeat2,
   Trash2,
 } from "lucide-react";
@@ -40,11 +41,15 @@ import { TemplatePicker, useTemplatePicker } from "../template-picker";
 import {
   blockAt,
   blockAtSelection,
+  focusTrailingLine,
   REMOTE_META,
   replaceDocument,
+  settleUnfocused,
+  startBlockMenu,
   turnBlockInto,
 } from "./commands";
 import { blocksToDoc, canonicalBlocks, docToBlocks, TURN_INTO } from "./doc";
+import "./flow-editor.css";
 import {
   BLOCK_NODE_TYPES,
   type FlowViews,
@@ -80,28 +85,6 @@ import {
  */
 
 const COMMIT_MS = 300;
-
-const FLOW_CLASS = cn(
-  "flow-editor text-sm leading-7 text-accent-strong",
-  "[&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-24 [&_.ProseMirror]:pb-24",
-  "[&_.ProseMirror>*+*]:mt-1 [&_.ProseMirror_p]:min-h-7",
-  "[&_.ProseMirror_h1]:mt-6 [&_.ProseMirror_h1]:text-[1.6rem] [&_.ProseMirror_h1]:font-semibold [&_.ProseMirror_h1]:leading-tight",
-  "[&_.ProseMirror_h2]:mt-5 [&_.ProseMirror_h2]:text-xl [&_.ProseMirror_h2]:font-semibold [&_.ProseMirror_h2]:leading-snug",
-  "[&_.ProseMirror_h3]:mt-4 [&_.ProseMirror_h3]:text-base [&_.ProseMirror_h3]:font-semibold",
-  "[&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-6",
-  "[&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0",
-  "[&_li[data-checked]]:flex [&_li[data-checked]]:gap-2 [&_li[data-checked]>label]:mt-[0.35rem] [&_li[data-checked]>div]:min-w-0 [&_li[data-checked]>div]:flex-1",
-  "[&_li[data-checked=true]>div>p:first-child]:text-muted-foreground [&_li[data-checked=true]>div>p:first-child]:line-through",
-  "[&_blockquote]:border-l-2 [&_blockquote]:border-accent-strong/60 [&_blockquote]:pl-4",
-  "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-sm [&_pre]:bg-surface [&_pre]:px-3 [&_pre]:py-2 [&_pre]:font-mono [&_pre]:text-xs [&_pre]:leading-relaxed",
-  "[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-surface [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.85em]",
-  "[&_hr]:my-4 [&_hr]:border-border",
-  "[&_a]:underline [&_a]:decoration-muted-foreground/50 [&_a]:underline-offset-2",
-  "[&_.flow-columns]:flex [&_.flow-columns]:flex-col [&_.flow-columns]:gap-6 @3xl:[&_.flow-columns]:flex-row @3xl:[&_.flow-columns]:gap-10",
-  "[&_.flow-column]:min-w-0",
-  "[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-muted-foreground/50 [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
-  "[&_.ProseMirror-selectednode]:outline-none",
-);
 
 function scoped(blocks: readonly Block[], scope: string | undefined): Block[] {
   if (!scope) return [...blocks];
@@ -323,7 +306,6 @@ function LoadedEditor({
       flowExtensions({
         views: VIEWS,
         mentions,
-        placeholder: "Write…",
         ...(root && !scope ? { onTemplate } : {}),
       }),
     [mentions, onTemplate, root, scope],
@@ -342,6 +324,7 @@ function LoadedEditor({
         timer.current = setTimeout(commit, COMMIT_MS);
       },
       onBlur: () => commit(),
+      onCreate: ({ editor }) => settleUnfocused(editor),
     },
     [extensions],
   );
@@ -363,32 +346,94 @@ function LoadedEditor({
       useWorkspaceStore.getState().workspace.pages[pageId]?.blocks ?? [];
     const canonical = canonicalBlocks(scoped(latest, scope));
     if (deepEqual(canonical, agreed.current)) return;
-    replaceDocument(editor, blocksToDoc(canonical), { remote: true });
+    // The caret is put back only where someone is typing; elsewhere a merge
+    // must not leave a block selected.
+    const focused = editor.view.hasFocus();
+    replaceDocument(editor, blocksToDoc(canonical), {
+      remote: true,
+      ...(focused ? {} : { caret: null }),
+    });
+    settleUnfocused(editor);
     agreed.current = canonical;
   }, [editor, blocks, scope, pageId, commit]);
 
   return (
     <div className="group/flow @container relative">
-      {editor && editable ? (
+      {editor && editable && root ? (
         <BlockHandle
           editor={editor}
           pageId={scope ? null : pageId}
           beforeAction={commit}
         />
       ) : null}
-      <EditorContent editor={editor} className={FLOW_CLASS} />
+      <EditorContent
+        editor={editor}
+        className="flow-editor text-sm leading-7 text-accent-strong"
+      />
+      {editor && editable && root && !scope ? (
+        <div
+          aria-hidden
+          data-flow-trailing
+          onMouseDown={(event) => {
+            event.preventDefault();
+            focusTrailingLine(editor);
+          }}
+          className="h-24 cursor-text"
+        />
+      ) : null}
       {root ? <EditorMenu /> : null}
       {root ? <TemplatePicker use="insert" /> : null}
     </div>
   );
 }
 
-// --- drag handle and block menu -----------------------------------------------------
+// --- the gutter: add and drag handles ---------------------------------------------
 
 interface Target {
   pos: number;
   top: number;
   left: number;
+}
+
+const GUTTER = 48;
+const HANDLE_ROW = 24;
+
+/** Where a block's gutter sits: beside its first line, left of any list marker. */
+function targetOf(
+  view: Editor["view"],
+  pos: number,
+  container: HTMLElement,
+): Target | null {
+  const dom = view.nodeDOM(pos);
+  if (!(dom instanceof HTMLElement)) return null;
+  const node = view.state.doc.nodeAt(pos);
+  const listed =
+    node?.type.name === "listItem" || node?.type.name === "taskItem";
+  const rect = dom.getBoundingClientRect();
+  const left = (
+    listed && dom.parentElement ? dom.parentElement : dom
+  ).getBoundingClientRect().left;
+  const outer = container.getBoundingClientRect();
+  const line = Number.parseFloat(getComputedStyle(dom).lineHeight);
+  const offset = Number.isFinite(line)
+    ? Math.max(0, (line - HANDLE_ROW) / 2)
+    : 2;
+  return {
+    pos,
+    top: rect.top - outer.top + offset,
+    left: left - outer.left,
+  };
+}
+
+/** True while the document is one empty paragraph. */
+function isBlank(editor: Editor): boolean {
+  const { doc } = editor.state;
+  const first = doc.firstChild;
+  return (
+    doc.childCount === 1 &&
+    first?.type.name === "paragraph" &&
+    first.content.size === 0
+  );
 }
 
 function BlockHandle({
@@ -404,8 +449,25 @@ function BlockHandle({
 }) {
   const saveBlocksAsTemplate = useWorkspaceStore((s) => s.saveBlocksAsTemplate);
   const [target, setTarget] = useState<Target | null>(null);
+  const [blank, setBlank] = useState(false);
   const [menu, setMenu] = useState(false);
-  const handle = useRef<HTMLButtonElement>(null);
+  const gutter = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const view = editor.view;
+    const container = view.dom.parentElement?.parentElement;
+    if (!container) return;
+    const sync = () => {
+      const next = isBlank(editor);
+      setBlank(next);
+      if (next) setTarget(targetOf(view, 0, container));
+    };
+    sync();
+    editor.on("update", sync);
+    return () => {
+      editor.off("update", sync);
+    };
+  }, [editor]);
 
   useEffect(() => {
     const view = editor.view;
@@ -415,7 +477,7 @@ function BlockHandle({
       if (menu) return;
       if (
         event.target instanceof Node &&
-        handle.current?.contains(event.target)
+        gutter.current?.contains(event.target)
       )
         return;
       const box = view.dom.getBoundingClientRect();
@@ -433,15 +495,8 @@ function BlockHandle({
           ? { node: atom, pos: coords.inside }
           : blockAt(doc, coords.pos);
       if (!block) return;
-      const dom = view.nodeDOM(block.pos);
-      if (!(dom instanceof HTMLElement)) return;
-      const rect = dom.getBoundingClientRect();
-      const outer = container.getBoundingClientRect();
-      setTarget({
-        pos: block.pos,
-        top: rect.top - outer.top,
-        left: rect.left - outer.left,
-      });
+      const next = targetOf(view, block.pos, container);
+      if (next) setTarget(next);
     };
     container.addEventListener("mousemove", move);
     return () => container.removeEventListener("mousemove", move);
@@ -462,95 +517,153 @@ function BlockHandle({
       "blockquote",
       "codeBlock",
     ].includes(node.type.name);
+  const select = () => {
+    const current = editor.state.doc.nodeAt(target.pos);
+    if (!current) return;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        NodeSelection.create(editor.state.doc, target.pos),
+      ),
+    );
+  };
 
   return (
-    <DropdownMenu open={menu} onOpenChange={setMenu}>
-      <DropdownMenuTrigger asChild>
-        <button
-          ref={handle}
-          type="button"
-          draggable
-          aria-label="Block"
-          style={{ top: target.top + 4, left: target.left - 22 }}
-          onDragStart={(event) => {
-            const view = editor.view;
-            const current = view.state.doc.nodeAt(target.pos);
-            if (!current) return;
-            const selection = NodeSelection.create(view.state.doc, target.pos);
-            view.dispatch(view.state.tr.setSelection(selection));
-            view.dragging = { slice: selection.content(), move: true };
-            const dom = view.nodeDOM(target.pos);
-            if (dom instanceof HTMLElement)
-              event.dataTransfer.setDragImage(dom, 0, 0);
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", current.textContent);
-          }}
-          className="absolute z-10 flex h-5 w-4 cursor-grab items-center justify-center rounded-sm text-muted-foreground/60 opacity-0 transition-opacity hover:bg-surface hover:text-muted-foreground active:cursor-grabbing group-hover/flow:opacity-100 data-[state=open]:opacity-100"
-        >
-          <GripVertical className="size-3.5" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-44">
-        {turnable && typeof id === "string" ? (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Repeat2 />
-              Turn into
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {TURN_INTO.map((t) => (
-                <DropdownMenuItem
-                  key={t.key}
-                  onSelect={() => turnBlockInto(editor, id, t)}
-                >
-                  {t.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        ) : null}
-        <DropdownMenuItem
-          onSelect={() => {
-            const current = editor.state.doc.nodeAt(target.pos);
-            if (!current) return;
-            const at = target.pos + current.nodeSize;
-            editor.view.dispatch(editor.state.tr.insert(at, current));
+    <div
+      ref={gutter}
+      style={{
+        top: target.top,
+        left: target.left - GUTTER,
+        width: GUTTER,
+        height: HANDLE_ROW,
+      }}
+      className={cn(
+        "absolute z-10 flex items-center justify-end gap-px pr-1.5 text-muted-foreground/60 transition-opacity",
+        blank || menu
+          ? "opacity-100"
+          : "pointer-events-none opacity-0 group-hover/flow:pointer-events-auto group-hover/flow:opacity-100",
+      )}
+    >
+      <button
+        type="button"
+        aria-label="Add block"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (typeof id !== "string") return;
+          startBlockMenu(editor, id, event.altKey ? "before" : "after");
+        }}
+        className="flex size-5 items-center justify-center rounded-sm outline-none hover:bg-surface hover:text-muted-foreground"
+      >
+        <Plus className="size-4" />
+      </button>
+      {blank ? null : (
+        <DropdownMenu
+          open={menu}
+          onOpenChange={(open) => {
+            if (open) select();
+            setMenu(open);
           }}
         >
-          <Copy />
-          Duplicate
-        </DropdownMenuItem>
-        {pageId && typeof id === "string" ? (
-          <DropdownMenuItem
-            onSelect={() => {
-              const current = editor.state.doc.nodeAt(target.pos);
-              beforeAction();
-              const title = current?.textContent.trim().slice(0, 80) ?? "";
-              void saveBlocksAsTemplate(pageId, [id], title).then((saved) => {
-                if (saved) toast.success("Saved as template");
-              });
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              draggable
+              aria-label="Block"
+              onDragStart={(event) => {
+                const view = editor.view;
+                const current = view.state.doc.nodeAt(target.pos);
+                if (!current) return;
+                const selection = NodeSelection.create(
+                  view.state.doc,
+                  target.pos,
+                );
+                view.dispatch(view.state.tr.setSelection(selection));
+                view.dragging = { slice: selection.content(), move: true };
+                const dom = view.nodeDOM(target.pos);
+                if (dom instanceof HTMLElement)
+                  event.dataTransfer.setDragImage(dom, 0, 0);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", current.textContent);
+              }}
+              className="flex h-5 w-4 cursor-grab items-center justify-center rounded-sm outline-none hover:bg-surface hover:text-muted-foreground active:cursor-grabbing"
+            >
+              <GripVertical className="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="min-w-44"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              editor.view.focus();
             }}
           >
-            <LayoutTemplate />
-            Save as template
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          onSelect={() => {
-            const current = editor.state.doc.nodeAt(target.pos);
-            if (!current) return;
-            editor.view.dispatch(
-              editor.state.tr.delete(target.pos, target.pos + current.nodeSize),
-            );
-            setTarget(null);
-          }}
-        >
-          <Trash2 />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            {turnable && typeof id === "string" ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Repeat2 />
+                  Turn into
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {TURN_INTO.map((t) => (
+                    <DropdownMenuItem
+                      key={t.key}
+                      onSelect={() => turnBlockInto(editor, id, t)}
+                    >
+                      {t.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+            <DropdownMenuItem
+              onSelect={() => {
+                const current = editor.state.doc.nodeAt(target.pos);
+                if (!current) return;
+                const at = target.pos + current.nodeSize;
+                editor.view.dispatch(editor.state.tr.insert(at, current));
+              }}
+            >
+              <Copy />
+              Duplicate
+            </DropdownMenuItem>
+            {pageId && typeof id === "string" ? (
+              <DropdownMenuItem
+                onSelect={() => {
+                  const current = editor.state.doc.nodeAt(target.pos);
+                  beforeAction();
+                  const title = current?.textContent.trim().slice(0, 80) ?? "";
+                  void saveBlocksAsTemplate(pageId, [id], title).then(
+                    (saved) => {
+                      if (saved) toast.success("Saved as template");
+                    },
+                  );
+                }}
+              >
+                <LayoutTemplate />
+                Save as template
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                const current = editor.state.doc.nodeAt(target.pos);
+                if (!current) return;
+                editor.view.dispatch(
+                  editor.state.tr.delete(
+                    target.pos,
+                    target.pos + current.nodeSize,
+                  ),
+                );
+                setTarget(null);
+              }}
+            >
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
   );
 }

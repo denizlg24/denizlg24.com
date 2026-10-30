@@ -20,9 +20,12 @@ import { BLOCK_CATALOG, BLOCK_CATEGORIES } from "../block-catalog";
 import { createBlock, newId } from "../seed";
 import {
   blockAtSelection,
+  exitContainer,
   insertAfter,
+  removeEmptyColumn,
   transformBlocks,
   turnBlockInto,
+  unwrapAtStart,
 } from "./commands";
 import { TURN_INTO, type TurnIntoTarget } from "./doc";
 import { handleMenuKey, type MenuItem, menuOpen, useEditorMenu } from "./menu";
@@ -182,7 +185,9 @@ const AtomBlock = Node.create<{ views: FlowViews | null }>({
   group: "block",
   atom: true,
   selectable: true,
-  draggable: true,
+  // Moved by the gutter handle only: a natively draggable atom turned every
+  // drag inside a widget — selecting its text, say — into moving the block.
+  draggable: false,
   addOptions: () => ({ views: null }),
   addAttributes: () => ({
     blockType: jsonAttr("block-type", "divider"),
@@ -247,7 +252,8 @@ function turnChoice(target: TurnIntoTarget): SlashChoice {
       icon: meta.icon,
       group: meta.category,
     },
-    keywords: `${target.label} ${meta.keywords?.join(" ") ?? ""}`.toLowerCase(),
+    keywords:
+      `${target.label} ${meta.category} ${meta.keywords?.join(" ") ?? ""}`.toLowerCase(),
     run: (editor) => {
       const block = blockAtSelection(editor);
       const id = block?.node.attrs.id;
@@ -291,7 +297,8 @@ const SLASH_CHOICES: SlashChoice[] = [
         icon: meta.icon,
         group: meta.category,
       },
-      keywords: `${meta.label} ${meta.keywords?.join(" ") ?? ""}`.toLowerCase(),
+      keywords:
+        `${meta.label} ${meta.category} ${meta.keywords?.join(" ") ?? ""}`.toLowerCase(),
       run: (editor: Editor) => insertBlock(editor, type),
     };
   }),
@@ -338,7 +345,7 @@ function templateChoice(onTemplate: TemplateInsertHandler): SlashChoice {
       icon: LayoutTemplate,
       group: "Layout",
     },
-    keywords: "template insert snippet",
+    keywords: "template layout insert snippet",
     run: onTemplate,
   };
 }
@@ -502,10 +509,22 @@ const FlowKeys = Extension.create({
   },
 });
 
+/** Enter and Backspace at the edges of toggles, callouts, quotes and columns; ahead of the defaults. */
+const FlowBlockKeys = Extension.create({
+  name: "flowBlockKeys",
+  priority: 1000,
+  addKeyboardShortcuts() {
+    return {
+      Enter: ({ editor }) => !menuOpen() && exitContainer(editor),
+      Backspace: ({ editor }) =>
+        !menuOpen() && (unwrapAtStart(editor) || removeEmptyColumn(editor)),
+    };
+  },
+});
+
 export interface FlowExtensionOptions {
   views: FlowViews | null;
   mentions: (query: string) => Promise<MentionChoice[]>;
-  placeholder: string;
   onTemplate?: TemplateInsertHandler;
 }
 
@@ -516,6 +535,7 @@ export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
       blockquote: false,
       underline: false,
       trailingNode: false,
+      dropcursor: { color: false, width: 2, class: "flow-dropcursor" },
       link: {
         openOnClick: false,
         autolink: true,
@@ -538,10 +558,12 @@ export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
       generateID: () => newId(),
     }),
     Placeholder.configure({
-      placeholder: ({ editor }) => (editor.isEmpty ? options.placeholder : ""),
+      placeholder: ({ node }) => (node.type.name === "paragraph" ? "/" : ""),
+      includeChildren: true,
     }),
     SlashMenu.configure({ onTemplate: options.onTemplate ?? null }),
     MentionMenu.configure({ source: options.mentions }),
     FlowKeys,
+    FlowBlockKeys,
   ];
 }

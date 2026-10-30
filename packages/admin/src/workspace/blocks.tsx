@@ -509,8 +509,8 @@ function BoardBlock() {
 
 function AgentBlock() {
   return (
-    <div className="h-[34rem] overflow-hidden rounded-lg border">
-      <AgentPanel variant="docked" allowBackground />
+    <div className="h-[34rem] overflow-hidden">
+      <AgentPanel variant="docked" allowBackground autoFocus={false} />
     </div>
   );
 }
