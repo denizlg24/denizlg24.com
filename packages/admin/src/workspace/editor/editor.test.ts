@@ -58,7 +58,8 @@ describe("flow editor", () => {
       // Canonical is stable: a second pass changes nothing.
       expect(deepEqual(doc.canonicalBlocks(canonical), canonical)).toBe(true);
     }
-  });
+    // 300 real editor mounts: ~1 s locally, past bun's 5 s default on CI runners.
+  }, 30_000);
 
   test("typing in a nested paragraph diffs to one update of that block", () => {
     const blocks: Block[] = [
