@@ -129,6 +129,28 @@ export async function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
     }
   } catch {}
 
+  const page = pageMetadata(html, url);
+  const academic = extractAcademicMetadata(html, url);
+  const favicon = await fetchFavicon(url);
+
+  return {
+    url,
+    title: page.title ?? hostname,
+    description: page.description,
+    favicon,
+    image: page.image,
+    siteName: page.siteName ?? hostname,
+    ...academic,
+  };
+}
+
+/** Title, description, image and site name from a page's head; absent when it has none. */
+export function pageMetadata(
+  html: string,
+  url: string,
+): Pick<UrlMetadata, "description" | "image" | "siteName"> & {
+  title?: string;
+} {
   const ogTitle = matchMeta(html, "property", "og:title");
   const ogDesc = matchMeta(html, "property", "og:description");
   const ogImage = matchMeta(html, "property", "og:image");
@@ -137,26 +159,14 @@ export async function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
   const twDesc = matchMeta(html, "name", "twitter:description");
   const twImage = matchMeta(html, "name", "twitter:image");
   const metaDesc = matchMeta(html, "name", "description");
-  const academic = extractAcademicMetadata(html, url);
-
-  const title = ogTitle || twTitle || matchTitle(html) || hostname;
-  const description = ogDesc || twDesc || metaDesc;
-  const image = ogImage
-    ? resolveUrl(url, ogImage)
-    : twImage
-      ? resolveUrl(url, twImage)
-      : undefined;
-  const siteName = ogSite || hostname;
-
-  const favicon = await fetchFavicon(url);
-
   return {
-    url,
-    title,
-    description,
-    favicon,
-    image,
-    siteName,
-    ...academic,
+    title: ogTitle || twTitle || matchTitle(html),
+    description: ogDesc || twDesc || metaDesc,
+    image: ogImage
+      ? resolveUrl(url, ogImage)
+      : twImage
+        ? resolveUrl(url, twImage)
+        : undefined,
+    siteName: ogSite,
   };
 }
