@@ -17,7 +17,15 @@ const { upstream, calls } = recordingUpstream((call) =>
         { error: "conflict", code: "CONFLICT", conflicts: ["a"] },
         { status: 409 },
       )
-    : Response.json({ ok: true }),
+    : call.path.endsWith("/views/query")
+      ? Response.json({
+          source: "kanban-cards",
+          rows: [],
+          total: 0,
+          options: { column: ["Todo", "Done"] },
+          totals: [],
+        })
+      : Response.json({ ok: true }),
 );
 const client = createClient(upstream, register);
 
@@ -246,5 +254,94 @@ describe("web_workspace_blocks", () => {
     });
     await spoofed.call("web_workspace_blocks", { action: "get", id: "home" });
     expect(last().headers["x-agent-actor"]).toBeUndefined();
+  });
+});
+
+describe("web_workspace_records and web_workspace_views", () => {
+  test("records resolve and search through the records routes", async () => {
+    await expectCall(
+      "web_workspace_records",
+      { action: "resolve", refs: ["entity:note:n1", "entity:page:home"] },
+      "GET",
+      `/api/admin/workspace/records?refs=${encodeURIComponent("entity:note:n1,entity:page:home")}`,
+    );
+    await expectCall(
+      "web_workspace_records",
+      { action: "search", q: "raft", kind: ["paper"] },
+      "GET",
+      "/api/admin/workspace/records/search?q=raft&kind=paper",
+    );
+  });
+
+  test("sources answer locally with every field and operator", async () => {
+    const before = calls.length;
+    const result = await client.call("web_workspace_views", {
+      action: "sources",
+    });
+    expect(calls.length).toBe(before);
+    const sources = result.structuredContent?.sources;
+    expect(sources && typeof sources === "object" && "triage" in sources).toBe(
+      true,
+    );
+  });
+
+  test("query reads at most 50 rows and drops the select options", async () => {
+    const result = await client.call("web_workspace_views", {
+      action: "query",
+      view: { source: "kanban-cards", limit: 200 },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(last().path).toBe("/api/admin/workspace/views/query");
+    const body = JSON.parse(last().body ?? "null");
+    expect(body.limit).toBe(50);
+    expect(body.view.source).toBe("kanban-cards");
+    expect(result.structuredContent?.options).toBeUndefined();
+    expect(result.structuredContent?.total).toBe(0);
+
+    await client.call("web_workspace_views", {
+      action: "query",
+      pageId: "home",
+      blockId: "v1",
+    });
+    expect(JSON.parse(last().body ?? "null")).toEqual({
+      pageId: "home",
+      blockId: "v1",
+      limit: 25,
+    });
+  });
+
+  test("view actions are read-only and a view block is accepted by apply", async () => {
+    const tools = await client.listTools();
+    const views = tools.find((t) => t.name === "web_workspace_views");
+    expect(views?._meta?.["com.denizlg24/actions"]).toMatchObject({
+      sources: { readOnly: true },
+      query: { readOnly: true },
+    });
+    await expectCall(
+      "web_workspace_blocks",
+      {
+        action: "apply",
+        id: "home",
+        baseRev: 4,
+        ops: [
+          {
+            op: "insert",
+            block: {
+              id: "v1",
+              type: "view",
+              source: "finance-entries",
+              layout: "table",
+              filters: [{ field: "currency", op: "is", value: "EUR" }],
+            },
+          },
+          {
+            op: "insert",
+            block: { id: "r1", type: "record", ref: "entity:paper:p1" },
+          },
+        ],
+      },
+      "POST",
+      `${PAGES}/home/ops`,
+    );
   });
 });

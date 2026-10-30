@@ -1,6 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import {
+  ENTITY_KINDS,
+  entityKindSchema,
+  entityRefSchema,
   pageMetaPatchSchema,
+  RECORD_REFS_MAX,
+  VIEW_FILTER_OPS_BY_TYPE,
+  VIEW_SOURCES,
+  viewConfigSchema,
   WORKSPACE_OPS_MAX,
   workspaceMarkdownPutSchema,
   workspaceOpSchema,
@@ -10,9 +17,22 @@ import {
   workspaceRevertSchema,
 } from "@repo/schemas";
 import { z } from "zod";
-import { type Api, action, defineActions } from "../define";
+import {
+  type Api,
+  action,
+  defineActions,
+  isRecord,
+  mapResult,
+  ok,
+} from "../define";
 
 const id = workspacePageIdSchema;
+const blockId = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/)
+  .describe("Block id");
+/** Rows an agent reads per call; the app pages views by its own limit. */
+const VIEW_ROWS_MAX = 50;
 const PAGES = "/api/admin/workspace/pages";
 const page = (pageId: string, suffix = "") =>
   `${PAGES}/${encodeURIComponent(pageId)}${suffix}`;
@@ -71,8 +91,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
         run: ({ id }) => api.web.post(page(id, "/restore")),
       }),
       to_markdown: action({
-        description:
-          "The page as markdown with its rev: text blocks are plain markdown ending in a <!-- id=… --> marker, list children are indented, toggles are <details>, callouts and columns are :::callout / :::columns / :::column directives, other blocks are :::block{type id} directives with JSON bodies, mentions are [@Name](person:id) / [@](page:id) / [@2026-10-29](date:2026-10-29). Keep markers and directives intact when sending it back",
+        description: `The page as markdown with its rev: text blocks are plain markdown ending in a <!-- id=… --> marker, list children are indented, toggles are <details>, callouts and columns are :::callout / :::columns / :::column directives, other blocks are :::block{type id} directives with JSON bodies, mentions are [@Name](person:id) / [@](page:id) / [@2026-10-29](date:2026-10-29) / [@Title](note:id) (any record kind), record embeds and module views are :::block{type="record"} / :::block{type="view"} directives carrying their ref or query, never rows. Keep markers and directives intact when sending it back`,
         input: z.object({ id }),
         readOnly: true,
         run: ({ id }) => api.web.get(page(id, "/markdown")),
@@ -130,13 +149,95 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
       }),
       apply: action({
         description:
-          "insert {block, parentId?, after?} (parentId: a toggle, list item, callout, quote or column, absent for the page; after: a sibling id, null first, absent last; the block may carry its own children), update {id, set, type?} (merges fields; replace: true swaps them all; type turns the block into another, keeping its id and children; children never go in set), move {id, parentId?, after?}, delete {id} (takes its children), page {set: title/icon/fullWidth/locked}. Text is rich-text runs: {type:'text', text, bold?, italic?, strike?, code?, link?} or {type:'mention', kind: page|person|date, id, label?}. A columns block holds only column blocks {width, children}",
+          "insert {block, parentId?, after?} (parentId: a toggle, list item, callout, quote or column, absent for the page; after: a sibling id, null first, absent last; the block may carry its own children), update {id, set, type?} (merges fields; replace: true swaps them all; type turns the block into another, keeping its id and children; children never go in set), move {id, parentId?, after?}, delete {id} (takes its children), page {set: title/icon/fullWidth/locked}. Text is rich-text runs: {type:'text', text, bold?, italic?, strike?, code?, link?} or {type:'mention', kind: page|person|date or any record kind (note, kanban-card, …), id, label?}. A columns block holds only column blocks {width, children}. A record embed is {type:'record', ref:'entity:<kind>:<id>', mode:'card'|'full'} (find refs with web_workspace_records search); a module view is {type:'view', source, layout, filters, sort, group?, limit, fields?, dateField?, title?} (fields and operators per source from web_workspace_views sources)",
         input: z.object({
           id,
           baseRev: z.number().int().min(0),
           ops: z.array(workspaceOpSchema).min(1).max(WORKSPACE_OPS_MAX),
         }),
         run: ({ id, ...body }) => api.web.post(page(id, "/ops"), body),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_workspace_records",
+    title: "Web: workspace records",
+    description: `Records a page can embed or mention, addressed as entity:<kind>:<id> (kinds: ${ENTITY_KINDS.join(", ")}): a title, a subtitle and a few key fields each.`,
+    actions: {
+      resolve: action({
+        description:
+          "Summaries for refs; refs that point at nothing (deleted, trashed) come back in missing",
+        input: z.object({
+          refs: z.array(entityRefSchema).min(1).max(RECORD_REFS_MAX),
+        }),
+        readOnly: true,
+        run: ({ refs }) =>
+          api.web.get("/api/admin/workspace/records", { refs: refs.join(",") }),
+      }),
+      search: action({
+        description:
+          "Records whose title contains q, a few per kind; the most recently changed when q is empty",
+        input: z.object({
+          q: z.string().max(100),
+          kind: z.array(entityKindSchema).optional(),
+        }),
+        readOnly: true,
+        run: ({ q, kind }) =>
+          api.web.get("/api/admin/workspace/records/search", {
+            q,
+            ...(kind ? { kind } : {}),
+          }),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_workspace_views",
+    title: "Web: workspace views",
+    description:
+      "Module views: live queries over one module (kanban cards, calendar events, notes, finance entries, course assignments, people, triage, agent tasks, papers, voice notes) that pages hold as view blocks. Read what a view shows; edit its query through web_workspace_blocks.",
+    actions: {
+      sources: action({
+        description:
+          "Every source's fields (text, number, date, select, boolean, person, money), the operators each field type filters with, the row's entity kind, and which fields the database filters natively",
+        readOnly: true,
+        run: async () =>
+          ok({ sources: VIEW_SOURCES, operators: VIEW_FILTER_OPS_BY_TYPE }),
+      }),
+      query: action({
+        description: `Runs a view: either an inline view, or the view block blockId on page pageId. Answers one page of rows (at most ${VIEW_ROWS_MAX}; pass nextCursor back as cursor), the matching total, groups with counts, and money totals per field and currency — never summed across currencies. truncated means the source had more rows than one query reads`,
+        input: z.object({
+          view: viewConfigSchema.optional(),
+          pageId: id.optional(),
+          blockId: blockId.optional(),
+          limit: z.number().int().min(1).max(VIEW_ROWS_MAX).optional(),
+          cursor: z
+            .string()
+            .regex(/^\d{1,6}$/)
+            .optional(),
+          today: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .optional()
+            .describe(
+              "Local date relative date filters count from; UTC today when absent",
+            ),
+        }),
+        readOnly: true,
+        run: async ({ limit, ...body }) =>
+          mapResult(
+            await api.web.post("/api/admin/workspace/views/query", {
+              ...body,
+              limit: Math.min(limit ?? body.view?.limit ?? 25, VIEW_ROWS_MAX),
+            }),
+            // Select options are for the app's filter pickers, not for reading.
+            (value) => {
+              if (!isRecord(value)) return value;
+              const { options: _options, ...rest } = value;
+              return rest;
+            },
+          ),
       }),
     },
   });
