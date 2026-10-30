@@ -22,7 +22,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
     name: "web_workspace_pages",
     title: "Web: workspace pages",
     description:
-      "The workspace desktop and web share: a tree of pages, each a list of blocks. Every change bumps a page's rev and is logged with who made it. Locked pages refuse every change but the owner's.",
+      "The workspace desktop and web share: a tree of pages, each a document of nested blocks (text, lists, toggles, callouts, columns, embeds, live widgets). Every change bumps a page's rev and is logged with who made it. Locked pages refuse every change but the owner's.",
     actions: {
       list: action({
         description:
@@ -72,7 +72,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
       }),
       to_markdown: action({
         description:
-          "The page's blocks as markdown with its rev. Markers and :::block directives carry ids and every other block type; keep them intact when sending it back",
+          "The page as markdown with its rev: text blocks are plain markdown ending in a <!-- id=… --> marker, list children are indented, toggles are <details>, callouts and columns are :::callout / :::columns / :::column directives, other blocks are :::block{type id} directives with JSON bodies, mentions are [@Name](person:id) / [@](page:id) / [@2026-10-29](date:2026-10-29). Keep markers and directives intact when sending it back",
         input: z.object({ id }),
         readOnly: true,
         run: ({ id }) => api.web.get(page(id, "/markdown")),
@@ -120,7 +120,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
   defineActions(server, {
     name: "web_workspace_blocks",
     title: "Web: workspace blocks",
-    description: `Edits one page's blocks by id. A batch (up to ${WORKSPACE_OPS_MAX} ops) applies in order against baseRev, the rev you read: if blocks it targets changed since, the answer is a 409 carrying the current page — re-read and redo the batch on it.`,
+    description: `Edits one page's blocks by id, at any depth. A batch (up to ${WORKSPACE_OPS_MAX} ops) applies in order against baseRev, the rev you read: if a block it targets changed since, or one of its ancestors moved or was deleted, the answer is a 409 carrying the current page — re-read and redo the batch on it.`,
     actions: {
       get: action({
         description: "The page's blocks and rev, to address ops at",
@@ -130,7 +130,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
       }),
       apply: action({
         description:
-          "insert {block, after?} (after: block id, null first, absent last), update {id, set} (merges fields; replace: true swaps them all), move {id, after?}, delete {id}, page {set: title/icon/fullWidth/locked}. parentId must stay absent: blocks do not nest yet",
+          "insert {block, parentId?, after?} (parentId: a toggle, list item, callout, quote or column, absent for the page; after: a sibling id, null first, absent last; the block may carry its own children), update {id, set, type?} (merges fields; replace: true swaps them all; type turns the block into another, keeping its id and children; children never go in set), move {id, parentId?, after?}, delete {id} (takes its children), page {set: title/icon/fullWidth/locked}. Text is rich-text runs: {type:'text', text, bold?, italic?, strike?, code?, link?} or {type:'mention', kind: page|person|date, id, label?}. A columns block holds only column blocks {width, children}",
         input: z.object({
           id,
           baseRev: z.number().int().min(0),

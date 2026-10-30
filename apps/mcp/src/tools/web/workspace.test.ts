@@ -184,6 +184,44 @@ describe("web_workspace_blocks", () => {
     expect(conflict.structuredContent).toMatchObject({ status: 409 });
   });
 
+  test("nested inserts and moves carry parentId and whole subtrees", async () => {
+    const toggle = {
+      id: "t",
+      type: "toggle",
+      text: [{ type: "text", text: "More", bold: true }],
+      children: [
+        {
+          id: "p",
+          type: "paragraph",
+          text: [{ type: "mention", kind: "person", id: "ana", label: "Ana" }],
+        },
+      ],
+    };
+    await expectCall(
+      "web_workspace_blocks",
+      {
+        action: "apply",
+        id: "home",
+        baseRev: 3,
+        ops: [
+          { op: "insert", block: toggle, parentId: "col1", after: null },
+          { op: "move", id: "a", parentId: "t", after: "p" },
+          { op: "update", id: "b", set: {}, type: "heading" },
+        ],
+      },
+      "POST",
+      `${PAGES}/home/ops`,
+      {
+        baseRev: 3,
+        ops: [
+          { op: "insert", block: toggle, parentId: "col1", after: null },
+          { op: "move", id: "a", parentId: "t", after: "p" },
+          { op: "update", id: "b", set: {}, type: "heading" },
+        ],
+      },
+    );
+  });
+
   test("an invalid op is refused before anything reaches web", async () => {
     const before = calls.length;
     const result = await client.call("web_workspace_blocks", {
