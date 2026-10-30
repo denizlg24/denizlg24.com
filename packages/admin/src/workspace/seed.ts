@@ -1,6 +1,6 @@
 import {
   type Block,
-  type BlockSpan,
+  type BlockOf,
   type BlockType,
   HOME_PAGE_ID,
   moduleRef,
@@ -18,46 +18,68 @@ export function newId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
-const DEFAULT_SPAN: Record<BlockType, BlockSpan> = {
-  heading: 6,
-  text: 6,
-  divider: 6,
-  todo: 3,
-  links: 6,
-  subpages: 6,
-  greeting: 6,
-  stats: 6,
-  agenda: 3,
-  tasks: 3,
-  semester: 3,
-  alerts: 3,
-  budget: 2,
-  resources: 2,
-  llm: 2,
-  notes: 3,
-  contacts: 3,
-  now: 2,
-  board: 3,
-  agent: 6,
-  modules: 6,
-};
-
-/** A fresh block of `type` with its default size and empty content. */
-export function createBlock(type: BlockType, span?: BlockSpan): Block {
+/** A fresh, empty block of `type`. */
+export function createBlock(type: BlockType): Block {
   const id = newId();
-  const s = span ?? DEFAULT_SPAN[type];
   switch (type) {
+    case "paragraph":
+      return { id, type, text: [] };
     case "heading":
-      return { id, type, span: s, text: "Heading" };
-    case "text":
-      return { id, type, span: s, markdown: "" };
+      return { id, type, level: 2, text: [] };
+    case "bullet":
+    case "numbered":
+    case "quote":
+      return { id, type, text: [], children: [] };
     case "todo":
-      return { id, type, span: s, items: [] };
+      return { id, type, text: [], checked: false, children: [] };
+    case "toggle":
+      return { id, type, text: [], children: [] };
+    case "callout":
+      return {
+        id,
+        type,
+        text: [],
+        emoji: "💡",
+        color: "default",
+        children: [],
+      };
+    case "code":
+      return { id, type, code: "", language: "" };
+    case "image":
+      return { id, type, url: "", caption: [] };
+    case "file":
+      return { id, type, url: "", name: "" };
+    case "bookmark":
+      return { id, type, url: "" };
+    case "equation":
+      return { id, type, expression: "" };
+    case "table":
+      return {
+        id,
+        type,
+        headerRow: true,
+        rows: [
+          [[], []],
+          [[], []],
+        ],
+      };
+    case "synced":
+      return { id, type, pageId: "", blockId: "" };
+    case "columns":
+      return {
+        id,
+        type,
+        children: [createColumn(0.5), createColumn(0.5)],
+      };
+    case "column":
+      return createColumn(1);
     case "links":
-      return { id, type, span: s, refs: [] };
+      return { id, type, refs: [] };
     case "modules":
-      return { id, type, span: s, sections: [] };
+      return { id, type, sections: [] };
     case "divider":
+    case "toc":
+    case "breadcrumb":
     case "subpages":
     case "greeting":
     case "stats":
@@ -73,8 +95,27 @@ export function createBlock(type: BlockType, span?: BlockSpan): Block {
     case "now":
     case "board":
     case "agent":
-      return { id, type, span: s };
+      return { id, type };
   }
+}
+
+function createColumn(
+  width: number,
+  children: Block[] = [],
+): BlockOf<"column"> {
+  return { id: newId(), type: "column", width, children };
+}
+
+/** Blocks side by side, each as wide as its share of `shares`. */
+function row(...cells: [number, Block][]): Block {
+  const total = cells.reduce((sum, [share]) => sum + share, 0);
+  return {
+    id: newId(),
+    type: "columns",
+    children: cells.map(([share, block]) =>
+      createColumn(share / total, [block]),
+    ),
+  };
 }
 
 function page(
@@ -105,14 +146,18 @@ function links(ids: ModuleId[], title?: string): Block {
   return {
     id: newId(),
     type: "links",
-    span: 6,
     refs: ids.map(moduleRef),
     ...(title ? { title } : {}),
   };
 }
 
-function modulesBlock(sections: ModuleSectionId[], span: BlockSpan = 6): Block {
-  return { id: newId(), type: "modules", span, sections };
+function modulesBlock(sections: ModuleSectionId[], title?: string): Block {
+  return {
+    id: newId(),
+    type: "modules",
+    sections,
+    ...(title ? { title } : {}),
+  };
 }
 
 /**
@@ -133,18 +178,12 @@ export function seedWorkspace(): Workspace {
     [
       b("greeting"),
       b("stats"),
-      b("agenda", 3),
-      b("tasks", 3),
-      b("semester", 2),
-      b("alerts", 2),
-      b("budget", 2),
-      b("now", 2),
-      b("board", 2),
-      b("notes", 2),
-      b("contacts", 3),
-      b("resources", 3),
+      row([1, b("agenda")], [1, b("tasks")]),
+      row([1, b("semester")], [1, b("alerts")], [1, b("budget")]),
+      row([1, b("now")], [1, b("board")], [1, b("notes")]),
+      row([1, b("contacts")], [1, b("resources")]),
       b("agent"),
-      { ...modulesBlock([]), title: "Everything" },
+      modulesBlock([], "Everything"),
     ],
     now,
   );
@@ -156,10 +195,8 @@ export function seedWorkspace(): Workspace {
     HOME_PAGE_ID,
     0,
     [
-      b("semester", 3),
-      b("agenda", 3),
-      b("tasks", 3),
-      b("todo", 3),
+      row([1, b("semester")], [1, b("agenda")]),
+      row([1, b("tasks")], [1, b("todo")]),
       links(["courses", "timetable", "calendar", "papers", "latex", "notes"]),
     ],
     now,
@@ -172,8 +209,7 @@ export function seedWorkspace(): Workspace {
     HOME_PAGE_ID,
     1,
     [
-      b("budget", 2),
-      b("alerts", 4),
+      row([1, b("budget")], [2, b("alerts")]),
       links([
         "finance",
         "budget",
@@ -192,12 +228,12 @@ export function seedWorkspace(): Workspace {
     "🛰️",
     HOME_PAGE_ID,
     2,
-    [b("resources", 3), b("llm", 3), modulesBlock(["system"])],
+    [row([1, b("resources")], [1, b("llm")]), modulesBlock(["system"])],
     now,
   );
 
   return {
-    version: 1,
+    version: 2,
     pages: {
       [home.id]: home,
       [school.id]: school,

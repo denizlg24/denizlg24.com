@@ -2,13 +2,14 @@
 
 import {
   type Block,
-  type BlockSpan,
   HOME_PAGE_ID,
+  isContainer,
   type PageMetaPatch,
   pageRef,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   type SidebarPrefs,
+  WORKSPACE_OPS_MAX,
   type Workspace,
   type WorkspaceCache,
   type WorkspaceOp,
@@ -84,12 +85,11 @@ type WorkspaceState = {
   /** Re-parents `id` under `parentId` at `index` among its new siblings. */
   movePage: (id: string, parentId: string | null, index: number) => void;
 
-  addBlock: (pageId: string, block: Block, index?: number) => void;
-  updateBlock: (pageId: string, block: Block) => void;
-  removeBlock: (pageId: string, blockId: string) => void;
-  duplicateBlock: (pageId: string, blockId: string) => void;
-  moveBlock: (pageId: string, from: number, to: number) => void;
-  setBlockSpan: (pageId: string, blockId: string, span: BlockSpan) => void;
+  /**
+   * Applies block ops here at once and queues them for the server. The
+   * editor sends what it diffed; an op that no longer applies is dropped.
+   */
+  editBlocks: (pageId: string, ops: WorkspaceOp[]) => void;
 
   toggleFavorite: (ref: WorkspaceRef) => void;
   moveFavorite: (from: number, to: number) => void;
@@ -274,9 +274,28 @@ function track<T>(promise: Promise<T>): Promise<T> {
 
 // --- ops --------------------------------------------------------------------
 
+/**
+ * A whole-block update replaces the one queued right before it for the same
+ * block, so a burst of typing goes out as one update per block.
+ */
+function coalesce(list: WorkspaceOp[], op: WorkspaceOp) {
+  const last = list.at(-1);
+  if (
+    op.op === "update" &&
+    op.replace &&
+    last?.op === "update" &&
+    last.replace &&
+    last.id === op.id
+  ) {
+    list[list.length - 1] = { ...op, type: op.type ?? last.type };
+    return;
+  }
+  list.push(op);
+}
+
 function enqueue(pageId: string, ops: WorkspaceOp[]) {
   const list = queued.get(pageId) ?? [];
-  list.push(...ops);
+  for (const op of ops) coalesce(list, op);
   queued.set(pageId, list);
   if (!client()) return;
   const timer = opTimers.get(pageId);
@@ -306,9 +325,13 @@ function flushPage(pageId: string): Promise<void> {
   const running = inflight.get(pageId);
   if (running) return running;
   const api = client();
-  const batch = queued.get(pageId);
-  if (!api || !batch?.length) return Promise.resolve();
-  queued.delete(pageId);
+  const pending = queued.get(pageId);
+  if (!api || !pending?.length) return Promise.resolve();
+  // One request carries at most WORKSPACE_OPS_MAX; the rest follows it.
+  const batch = pending.slice(0, WORKSPACE_OPS_MAX);
+  const rest = pending.slice(WORKSPACE_OPS_MAX);
+  if (rest.length > 0) queued.set(pageId, rest);
+  else queued.delete(pageId);
   sending.set(pageId, batch);
   const run = (async () => {
     // A page still being created has nothing to apply ops to yet.
@@ -703,16 +726,25 @@ function siblingOrders(
     .map((p) => p.order);
 }
 
-/** Where a block lands for `index`: absent or past the end appends, 0 is first. */
-function anchorFor(blocks: Block[], index: number | undefined) {
-  if (index === undefined || index >= blocks.length) return undefined;
-  if (index <= 0) return null;
-  return blocks[index - 1]?.id ?? null;
-}
-
-function blockFields(block: Block): Record<string, unknown> {
-  const { id: _id, type: _type, ...rest } = block;
-  return rest;
+/** `blocks` with every id in the tree replaced by a fresh one. */
+function withFreshIds(blocks: readonly Block[]): Block[] {
+  return blocks.map((block) => {
+    if (block.type === "columns") {
+      return {
+        ...block,
+        id: newId(),
+        children: block.children.map((column) => ({
+          ...column,
+          id: newId(),
+          children: withFreshIds(column.children),
+        })),
+      };
+    }
+    if (isContainer(block)) {
+      return { ...block, id: newId(), children: withFreshIds(block.children) };
+    }
+    return { ...block, id: newId() };
+  });
 }
 
 /** Runs a page-level call against the server, re-reading the tree if it fails. */
@@ -867,8 +899,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const pages = get().workspace.pages;
     const siblings = childPages(pages, source.parentId);
     const index = siblings.findIndex((p) => p.id === id) + 1;
-    const copyOf = (blocks: Block[]) =>
-      blocks.map((block) => ({ ...block, id: newId() }));
+    const copyOf = withFreshIds;
     const copy: WorkspacePage = {
       ...source,
       id: copyId,
@@ -989,48 +1020,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     );
   },
 
-  addBlock: (pageId, block, index) => {
-    const blocks = get().workspace.pages[pageId]?.blocks ?? [];
-    editPage(pageId, [
-      { op: "insert", block, after: anchorFor(blocks, index) },
-    ]);
-  },
-
-  updateBlock: (pageId, block) =>
-    editPage(pageId, [
-      { op: "update", id: block.id, set: blockFields(block), replace: true },
-    ]),
-
-  removeBlock: (pageId, blockId) =>
-    editPage(pageId, [{ op: "delete", id: blockId }]),
-
-  duplicateBlock: (pageId, blockId) => {
-    const source = get().workspace.pages[pageId]?.blocks.find(
-      (b) => b.id === blockId,
-    );
-    if (!source) return;
-    editPage(pageId, [
-      { op: "insert", block: { ...source, id: newId() }, after: blockId },
-    ]);
-  },
-
-  moveBlock: (pageId, from, to) => {
-    const blocks = get().workspace.pages[pageId]?.blocks ?? [];
-    const block = blocks[from];
-    if (!block || from === to) return;
-    const next = arrayMove(blocks, from, to);
-    const at = next.findIndex((b) => b.id === block.id);
-    editPage(pageId, [
-      {
-        op: "move",
-        id: block.id,
-        after: at > 0 ? (next[at - 1]?.id ?? null) : null,
-      },
-    ]);
-  },
-
-  setBlockSpan: (pageId, blockId, span) =>
-    editPage(pageId, [{ op: "update", id: blockId, set: { span } }]),
+  editBlocks: (pageId, ops) => editPage(pageId, ops),
 
   toggleFavorite: (ref) =>
     setPrefs((ws) => ({

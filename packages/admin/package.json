@@ -19,6 +19,7 @@
     "./routes": "./src/routes.ts",
     "./workspace/modules": "./src/workspace/modules.ts",
     "./workspace/refs": "./src/workspace/refs.ts",
+    "./workspace/seed": "./src/workspace/seed.ts",
     "./workspace/store": "./src/workspace/store.ts"
   },
   "scripts": {
@@ -43,10 +44,19 @@
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
+    "@tiptap/core": "^3.32.1",
+    "@tiptap/extension-list": "^3.32.1",
+    "@tiptap/extension-unique-id": "^3.32.1",
+    "@tiptap/extensions": "^3.32.1",
+    "@tiptap/pm": "^3.32.1",
+    "@tiptap/react": "^3.32.1",
+    "@tiptap/starter-kit": "^3.32.1",
+    "@tiptap/suggestion": "^3.32.1",
     "ai": "^7.0.147",
     "date-fns": "^4.4.0",
     "harper.js": "^2.13.0",
     "html5-qrcode": "^2.3.8",
+    "katex": "^0.19.0",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.60.0",
     "pdfjs-dist": "6.3.289",
@@ -68,6 +78,7 @@
     "next": "16.2.11"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
     "@repo/typescript-config": "workspace:*",
     "@types/bun": "^1.4.3",
     "@types/geojson": "^7946.0.16",

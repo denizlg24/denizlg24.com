@@ -10,7 +10,7 @@ import {
   workspacePageCreateSchema,
   workspacePrefsInputSchema,
 } from "@repo/schemas";
-import { applyWorkspaceOps } from "@repo/utils/workspace-ops";
+import { applyWorkspaceOps, blockFields } from "@repo/utils/workspace-ops";
 import { createAdminClient } from "../client";
 import { seedWorkspace } from "./seed";
 import {
@@ -26,11 +26,10 @@ const json = (body: object, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-const text = (id: string, markdown = id): Block => ({
+const text = (id: string, value = id): Block => ({
   id,
-  span: 6,
-  type: "text",
-  markdown,
+  type: "paragraph",
+  text: [{ type: "text", text: value }],
 });
 
 function doc(id: string, blocks: Block[], rev = 1): WorkspacePageDoc {
@@ -152,6 +151,12 @@ function fakeServer(initial: WorkspacePageDoc[]) {
 }
 
 const state = () => useWorkspaceStore.getState();
+const addBlock = (pageId: string, block: Block) =>
+  state().editBlocks(pageId, [{ op: "insert", block }]);
+const updateBlock = (pageId: string, block: Block) =>
+  state().editBlocks(pageId, [
+    { op: "update", id: block.id, set: blockFields(block), replace: true },
+  ]);
 
 afterEach(() => {
   resetWorkspaceSync();
@@ -195,8 +200,8 @@ describe("workspace sync", () => {
     const server = fakeServer([doc(HOME_PAGE_ID, [text("a")])]);
     await state().hydrate({ client: server.client });
     await state().ensurePage(HOME_PAGE_ID);
-    state().addBlock(HOME_PAGE_ID, text("b"));
-    state().updateBlock(HOME_PAGE_ID, text("a", "A"));
+    addBlock(HOME_PAGE_ID, text("b"));
+    updateBlock(HOME_PAGE_ID, text("a", "A"));
     await flushWorkspace();
     const sent = server.requests.find((r) => r.path.endsWith("/ops"));
     expect(sent?.body).toMatchObject({ baseRev: 1 });
@@ -212,7 +217,7 @@ describe("workspace sync", () => {
     await state().hydrate({ client: server.client });
     await state().ensurePage(HOME_PAGE_ID);
     server.editElsewhere(HOME_PAGE_ID, [text("a", "agent"), text("b")], ["a"]);
-    state().updateBlock(HOME_PAGE_ID, text("b", "mine"));
+    updateBlock(HOME_PAGE_ID, text("b", "mine"));
     await flushWorkspace();
     expect(state().workspace.pages[HOME_PAGE_ID]?.blocks).toEqual([
       text("a", "agent"),
@@ -225,7 +230,7 @@ describe("workspace sync", () => {
     await state().hydrate({ client: server.client });
     await state().ensurePage(HOME_PAGE_ID);
     server.editElsewhere(HOME_PAGE_ID, [text("a", "agent")], ["a"]);
-    state().updateBlock(HOME_PAGE_ID, text("a", "mine"));
+    updateBlock(HOME_PAGE_ID, text("a", "mine"));
     await flushWorkspace();
     expect(state().workspace.pages[HOME_PAGE_ID]?.blocks).toEqual([
       text("a", "agent"),
@@ -249,7 +254,7 @@ describe("workspace sync", () => {
     const server = fakeServer([doc(HOME_PAGE_ID, [])]);
     await state().hydrate({ client: server.client });
     const id = state().createPage(null, "Plan");
-    state().addBlock(id, text("p"));
+    addBlock(id, text("p"));
     await flushWorkspace();
     expect(server.page(id)?.blocks).toEqual([text("p")]);
     expect(server.page(id)?.title).toBe("Plan");

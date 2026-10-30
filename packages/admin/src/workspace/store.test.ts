@@ -103,18 +103,57 @@ describe("workspace pages", () => {
 });
 
 describe("workspace blocks and sidebar", () => {
-  test("blocks reorder, resize and delete", () => {
+  test("block ops nest, move and delete at once", () => {
     const id = store().createPage(null, "Board");
-    store().addBlock(id, { id: "a", type: "divider", span: 6 });
-    store().addBlock(id, { id: "b", type: "stats", span: 6 });
-    store().moveBlock(id, 1, 0);
-    store().setBlockSpan(id, "a", 3);
-    expect(pages()[id]?.blocks.map((b) => [b.id, b.span])).toEqual([
-      ["b", 6],
-      ["a", 3],
+    store().editBlocks(id, [
+      { op: "insert", block: { id: "a", type: "divider" } },
+      {
+        op: "insert",
+        block: { id: "t", type: "toggle", text: [], children: [] },
+      },
+      { op: "move", id: "a", parentId: "t", after: null },
+      { op: "insert", block: { id: "b", type: "stats" }, after: null },
     ]);
-    store().removeBlock(id, "b");
-    expect(pages()[id]?.blocks.map((b) => b.id)).toEqual(["a"]);
+    expect(pages()[id]?.blocks).toEqual([
+      { id: "b", type: "stats" },
+      {
+        id: "t",
+        type: "toggle",
+        text: [],
+        children: [{ id: "a", type: "divider" }],
+      },
+    ]);
+    store().editBlocks(id, [{ op: "delete", id: "t" }]);
+    expect(pages()[id]?.blocks.map((b) => b.id)).toEqual(["b"]);
+  });
+
+  test("duplicating a page gives every nested block a fresh id", () => {
+    const id = store().createPage(null, "Nested");
+    store().editBlocks(id, [
+      {
+        op: "insert",
+        block: {
+          id: "row",
+          type: "columns",
+          children: [
+            {
+              id: "c1",
+              type: "column",
+              width: 1,
+              children: [{ id: "p", type: "paragraph", text: [] }],
+            },
+          ],
+        },
+      },
+    ]);
+    const copyId = store().duplicatePage(id) ?? "";
+    const copy = pages()[copyId];
+    const row = copy?.blocks[0];
+    expect(row?.type).toBe("columns");
+    expect(row?.id).not.toBe("row");
+    expect(
+      row?.type === "columns" && row.children[0]?.children[0]?.id,
+    ).not.toBe("p");
   });
 
   test("the sidebar width is clamped", () => {

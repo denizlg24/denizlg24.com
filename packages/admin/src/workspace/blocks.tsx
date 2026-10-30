@@ -1,11 +1,10 @@
 "use client";
 
 import {
-  type Block,
   type BlockOf,
   moduleRef,
   pageRef,
-  type TodoItem,
+  type WidgetType,
 } from "@repo/schemas";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
@@ -18,7 +17,6 @@ import {
 } from "@repo/ui/command";
 import { EmptyState } from "@repo/ui/empty-state";
 import { List, ListRow } from "@repo/ui/list";
-import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import { Meter } from "@repo/ui/meter";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Skeleton } from "@repo/ui/skeleton";
@@ -35,7 +33,6 @@ import { formatMinor } from "./format";
 import { MODULE_SECTIONS } from "./modules";
 import { PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
-import { newId } from "./seed";
 import { childPages, useWorkspaceStore } from "./store";
 import {
   useBudgetAlerts,
@@ -46,7 +43,10 @@ import {
 } from "./use-workspace-data";
 import { useWorkspaceNav } from "./use-workspace-nav";
 
-export type BlockProps<T extends Block["type"]> = {
+/** A block that renders live data rather than text: a TipTap atom in the editor. */
+export type WidgetBlock = BlockOf<WidgetType>;
+
+export type BlockProps<T extends WidgetType> = {
   block: BlockOf<T>;
   pageId: string;
   editing: boolean;
@@ -116,157 +116,7 @@ function dueLabel(days: number, overdue: boolean) {
   return `in ${days}d`;
 }
 
-/* ───────────── Basic ───────────── */
-
-function HeadingBlock({ block, onChange }: BlockProps<"heading">) {
-  return (
-    <input
-      defaultValue={block.text}
-      placeholder="Heading"
-      onBlur={(event) => {
-        if (event.currentTarget.value !== block.text) {
-          onChange({ ...block, text: event.currentTarget.value });
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-      className="w-full bg-transparent text-xl font-semibold tracking-tight text-accent-strong outline-none placeholder:text-muted-foreground/50"
-    />
-  );
-}
-
-function TextBlock({ block, onChange }: BlockProps<"text">) {
-  const [editing, setEditing] = useState(block.markdown === "");
-  if (editing) {
-    return (
-      <textarea
-        // biome-ignore lint/a11y/noAutofocus: entering edit mode is a click
-        autoFocus={block.markdown !== ""}
-        defaultValue={block.markdown}
-        placeholder="Write…"
-        onBlur={(event) => {
-          const markdown = event.currentTarget.value;
-          if (markdown !== block.markdown) onChange({ ...block, markdown });
-          if (markdown.trim()) setEditing(false);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") event.currentTarget.blur();
-        }}
-        className="field-sizing-content min-h-12 w-full resize-none bg-transparent text-sm leading-relaxed text-accent-strong outline-none placeholder:text-muted-foreground/50"
-      />
-    );
-  }
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={(event) => {
-        if (!(event.target instanceof Element && event.target.closest("a"))) {
-          setEditing(true);
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") setEditing(true);
-      }}
-      className="cursor-text text-sm"
-    >
-      <MarkdownRenderer content={block.markdown} allowRawHtml={false} />
-    </div>
-  );
-}
-
-function DividerBlock() {
-  return <div className="h-px w-full bg-border" />;
-}
-
-function TodoBlock({ block, onChange }: BlockProps<"todo">) {
-  const [draft, setDraft] = useState("");
-  const setItems = (items: TodoItem[]) => onChange({ ...block, items });
-  const add = () => {
-    const text = draft.trim();
-    if (!text) return;
-    setItems([...block.items, { id: newId(), text, done: false }]);
-    setDraft("");
-  };
-  const open = block.items.filter((i) => !i.done).length;
-
-  return (
-    <div className="flex flex-col">
-      {block.items.map((item) => (
-        <div
-          key={item.id}
-          className="group/todo flex min-h-8 items-center gap-2.5"
-        >
-          <Checkbox
-            checked={item.done}
-            onCheckedChange={(checked) =>
-              setItems(
-                block.items.map((i) =>
-                  i.id === item.id ? { ...i, done: checked === true } : i,
-                ),
-              )
-            }
-          />
-          <input
-            defaultValue={item.text}
-            onBlur={(event) => {
-              const text = event.currentTarget.value;
-              if (text !== item.text) {
-                setItems(
-                  block.items.map((i) =>
-                    i.id === item.id ? { ...i, text } : i,
-                  ),
-                );
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-              if (
-                event.key === "Backspace" &&
-                event.currentTarget.value === ""
-              ) {
-                setItems(block.items.filter((i) => i.id !== item.id));
-              }
-            }}
-            className={cn(
-              "min-w-0 flex-1 bg-transparent text-sm text-accent-strong outline-none",
-              item.done && "text-muted-foreground line-through",
-            )}
-          />
-          <button
-            type="button"
-            aria-label="Remove"
-            onClick={() =>
-              setItems(block.items.filter((i) => i.id !== item.id))
-            }
-            className="text-muted-foreground opacity-0 transition-opacity hover:text-accent-strong group-hover/todo:opacity-100"
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-      ))}
-      <div className="flex min-h-8 items-center gap-2.5">
-        <Plus className="size-4 text-muted-foreground/60" />
-        <input
-          value={draft}
-          placeholder="To-do"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") add();
-          }}
-          onBlur={add}
-          className="min-w-0 flex-1 bg-transparent text-sm text-accent-strong outline-none placeholder:text-muted-foreground/50"
-        />
-        {block.items.length > 0 ? (
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {open}/{block.items.length}
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
+/* ───────────── Widgets ───────────── */
 
 function RefPicker({
   exclude,
@@ -950,21 +800,13 @@ export function BlockBody({
   editing,
   onChange,
 }: {
-  block: Block;
+  block: WidgetBlock;
   pageId: string;
   editing: boolean;
-  onChange: (block: Block) => void;
+  onChange: (block: WidgetBlock) => void;
 }) {
   const shared = { pageId, editing };
   switch (block.type) {
-    case "heading":
-      return <HeadingBlock block={block} onChange={onChange} {...shared} />;
-    case "text":
-      return <TextBlock block={block} onChange={onChange} {...shared} />;
-    case "divider":
-      return <DividerBlock />;
-    case "todo":
-      return <TodoBlock block={block} onChange={onChange} {...shared} />;
     case "links":
       return <LinksBlock block={block} onChange={onChange} {...shared} />;
     case "subpages":
