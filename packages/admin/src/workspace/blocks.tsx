@@ -131,7 +131,7 @@ function RefPicker({
   const { sidebarModules } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const livePages = Object.values(pages).filter(
-    (p) => !p.deletedAt && !exclude.has(pageRef(p.id)),
+    (p) => !p.deletedAt && !p.template && !exclude.has(pageRef(p.id)),
   );
   return (
     <Popover open={open} onOpenChange={setOpen}>

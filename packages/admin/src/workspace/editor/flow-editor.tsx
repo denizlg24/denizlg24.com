@@ -17,20 +17,29 @@ import {
   deepEqual,
   diffBlockTrees,
 } from "@repo/utils/workspace-ops";
-import { findBlock } from "@repo/utils/workspace-tree";
+import { ancestorIds, findBlock } from "@repo/utils/workspace-tree";
 import type { Editor } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import { addDays, format } from "date-fns";
-import { Copy, GripVertical, Repeat2, Trash2 } from "lucide-react";
+import {
+  Copy,
+  GripVertical,
+  LayoutTemplate,
+  Repeat2,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { AdminClient } from "../../client";
 import { useAdmin } from "../../provider";
 import { RECORD_KINDS, searchRecords } from "../records";
 import { pageTitle } from "../refs";
 import { useWorkspaceStore } from "../store";
+import { TemplatePicker, useTemplatePicker } from "../template-picker";
 import {
   blockAt,
+  blockAtSelection,
   REMOTE_META,
   replaceDocument,
   turnBlockInto,
@@ -149,7 +158,12 @@ function useMentionSource(): (query: string) => Promise<MentionChoice[]> {
     async (query: string) => {
       const q = query.trim().toLowerCase();
       const pages = Object.values(useWorkspaceStore.getState().workspace.pages)
-        .filter((p) => !p.deletedAt && pageTitle(p).toLowerCase().includes(q))
+        .filter(
+          (p) =>
+            !p.deletedAt &&
+            !p.template &&
+            pageTitle(p).toLowerCase().includes(q),
+        )
         .slice(0, 6)
         .map((p) => ({ kind: "page" as const, id: p.id, label: pageTitle(p) }));
       const found = (await people(client))
@@ -275,9 +289,42 @@ function LoadedEditor({
     editBlocks(pageId, placeScoped(ops, current, scope));
   }, [editBlocks, pageId, scope]);
 
+  const insertTemplate = useWorkspaceStore((s) => s.insertTemplate);
+  const openTemplates = useTemplatePicker((s) => s.open);
+  const onTemplate = useCallback(
+    (editor: Editor) => {
+      const id = blockAtSelection(editor)?.node.attrs.id;
+      commit();
+      const blocks =
+        useWorkspaceStore.getState().workspace.pages[pageId]?.blocks ?? [];
+      const top =
+        typeof id === "string" && findBlock(blocks, id)
+          ? ([id, ...ancestorIds(blocks, id)].at(-1) ?? null)
+          : null;
+      openTemplates({
+        use: "insert",
+        onPick: async (templateId, inputs) => {
+          await insertTemplate(
+            pageId,
+            templateId,
+            top ? { after: top } : {},
+            inputs,
+          );
+        },
+      });
+    },
+    [commit, insertTemplate, openTemplates, pageId],
+  );
+
   const extensions = useMemo(
-    () => flowExtensions({ views: VIEWS, mentions, placeholder: "Write…" }),
-    [mentions],
+    () =>
+      flowExtensions({
+        views: VIEWS,
+        mentions,
+        placeholder: "Write…",
+        ...(root && !scope ? { onTemplate } : {}),
+      }),
+    [mentions, onTemplate, root, scope],
   );
 
   const editor = useEditor(
@@ -320,9 +367,16 @@ function LoadedEditor({
 
   return (
     <div className="group/flow @container relative">
-      {editor && editable ? <BlockHandle editor={editor} /> : null}
+      {editor && editable ? (
+        <BlockHandle
+          editor={editor}
+          pageId={scope ? null : pageId}
+          beforeAction={commit}
+        />
+      ) : null}
       <EditorContent editor={editor} className={FLOW_CLASS} />
       {root ? <EditorMenu /> : null}
+      {root ? <TemplatePicker use="insert" /> : null}
     </div>
   );
 }
@@ -335,7 +389,18 @@ interface Target {
   left: number;
 }
 
-function BlockHandle({ editor }: { editor: Editor }) {
+function BlockHandle({
+  editor,
+  pageId,
+  beforeAction,
+}: {
+  editor: Editor;
+  /** The page the blocks belong to; null in a synced block's editor. */
+  pageId: string | null;
+  /** Commits pending typing before an action that goes to the server. */
+  beforeAction: () => void;
+}) {
+  const saveBlocksAsTemplate = useWorkspaceStore((s) => s.saveBlocksAsTemplate);
   const [target, setTarget] = useState<Target | null>(null);
   const [menu, setMenu] = useState(false);
   const handle = useRef<HTMLButtonElement>(null);
@@ -453,6 +518,21 @@ function BlockHandle({ editor }: { editor: Editor }) {
           <Copy />
           Duplicate
         </DropdownMenuItem>
+        {pageId && typeof id === "string" ? (
+          <DropdownMenuItem
+            onSelect={() => {
+              const current = editor.state.doc.nodeAt(target.pos);
+              beforeAction();
+              const title = current?.textContent.trim().slice(0, 80) ?? "";
+              void saveBlocksAsTemplate(pageId, [id], title).then((saved) => {
+                if (saved) toast.success("Saved as template");
+              });
+            }}
+          >
+            <LayoutTemplate />
+            Save as template
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"

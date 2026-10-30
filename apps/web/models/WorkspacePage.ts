@@ -18,6 +18,8 @@ export interface IWorkspacePage {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** Absent unless the page is a template. */
+  template?: true;
   rev: number;
   changedAt: Date;
   purgedAt: Date | null;
@@ -40,6 +42,7 @@ const workspacePageSchema = new mongoose.Schema<IWorkspacePage>(
     createdAt: { type: String, required: true },
     updatedAt: { type: String, required: true },
     deletedAt: { type: String, default: null },
+    template: { type: Boolean },
     rev: { type: Number, required: true },
     changedAt: { type: Date, required: true },
     purgedAt: { type: Date, default: null },

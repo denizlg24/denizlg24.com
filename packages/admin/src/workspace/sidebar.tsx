@@ -22,6 +22,8 @@ import {
   ChevronsLeft,
   Eye,
   EyeOff,
+  FileText,
+  LayoutTemplate,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -51,7 +53,8 @@ import { MODULE_SECTIONS } from "./modules";
 import { PageMenuItems } from "./page-actions";
 import { PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
-import { childPages, useWorkspaceStore } from "./store";
+import { childPages, templatePages, useWorkspaceStore } from "./store";
+import { TemplatePicker, useTemplatePicker } from "./template-picker";
 import { useActiveLocation, useWorkspaceNav } from "./use-workspace-nav";
 
 export const OPEN_COMMAND_PALETTE = "command-palette:open";
@@ -498,7 +501,22 @@ export function WorkspaceSidebarContent({
     .map((ref) => resolveRef(ref, pages))
     .filter((r) => r !== null);
   const rootPages = childPages(pages, null);
+  const templates = templatePages(pages);
+  const instantiateTemplate = useWorkspaceStore((s) => s.instantiateTemplate);
+  const openTemplates = useTemplatePicker((s) => s.open);
+  const newFromTemplate = () =>
+    openTemplates({
+      use: "page",
+      onPick: async (templateId, inputs) => {
+        const id = await instantiateTemplate(templateId, null, inputs);
+        if (id) {
+          router.push(pageHref(id));
+          onNavigate?.();
+        }
+      },
+    });
   const pagesCollapsed = sidebar.collapsedSections.includes("pages");
+  const templatesCollapsed = sidebar.collapsedSections.includes("templates");
   const favoritesCollapsed = sidebar.collapsedSections.includes("favorites");
 
   return (
@@ -595,12 +613,25 @@ export function WorkspaceSidebarContent({
             collapsed={pagesCollapsed}
             onToggle={() => toggleSection("pages")}
             actions={
-              <RowIconButton
-                label="New page"
-                onClick={() => router.push(pageHref(createPage(null)))}
-              >
-                <Plus className="size-3.5" />
-              </RowIconButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <RowIconButton label="New page">
+                    <Plus className="size-3.5" />
+                  </RowIconButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-44">
+                  <DropdownMenuItem
+                    onSelect={() => router.push(pageHref(createPage(null)))}
+                  >
+                    <FileText />
+                    Page
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={newFromTemplate}>
+                    <LayoutTemplate />
+                    From template
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             }
           />
           {!pagesCollapsed
@@ -614,6 +645,26 @@ export function WorkspaceSidebarContent({
               ))
             : null}
         </div>
+
+        {templates.length > 0 ? (
+          <div className="flex flex-col gap-px">
+            <SectionHeader
+              label="Templates"
+              collapsed={templatesCollapsed}
+              onToggle={() => toggleSection("templates")}
+            />
+            {!templatesCollapsed
+              ? templates.map((page) => (
+                  <PageTreeRow
+                    key={page.id}
+                    page={page}
+                    depth={0}
+                    activePageId={activePageId}
+                  />
+                ))
+              : null}
+          </div>
+        ) : null}
 
         {MODULE_SECTIONS.map((section) => {
           const modules = sidebarModules.filter(
@@ -683,6 +734,7 @@ export function WorkspaceSidebarContent({
       <div className="flex shrink-0 flex-col gap-px border-t px-2 py-2">
         <HiddenModulesPopover />
         <TrashPopover />
+        <TemplatePicker use="page" />
         <SidebarRow
           href={routes.settings}
           active={pathname.startsWith(routes.settings)}

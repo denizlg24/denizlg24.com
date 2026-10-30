@@ -9,6 +9,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   type SidebarPrefs,
+  type TemplateInputs,
   WORKSPACE_OPS_MAX,
   type Workspace,
   type WorkspaceCache,
@@ -75,7 +76,7 @@ type WorkspaceState = {
     id: string,
     patch: Partial<
       Pick<WorkspacePage, "title" | "icon" | "fullWidth" | "locked">
-    >,
+    > & { template?: boolean },
   ) => void;
   duplicatePage: (id: string) => string | null;
   trashPage: (id: string) => void;
@@ -90,6 +91,26 @@ type WorkspaceState = {
    * editor sends what it diffed; an op that no longer applies is dropped.
    */
   editBlocks: (pageId: string, ops: WorkspaceOp[]) => void;
+
+  /** A new page from a template, made on the server; its id, or null when the call failed. */
+  instantiateTemplate: (
+    templateId: string,
+    parentId: string | null,
+    inputs: TemplateInputs,
+  ) => Promise<string | null>;
+  /** A template's blocks inserted into a page on the server, after pending edits are sent. */
+  insertTemplate: (
+    pageId: string,
+    templateId: string,
+    place: { parentId?: string; after?: string | null },
+    inputs: TemplateInputs,
+  ) => Promise<boolean>;
+  /** Copies blocks into a new template page; its id, or null when the call failed. */
+  saveBlocksAsTemplate: (
+    pageId: string,
+    blockIds: string[],
+    title: string,
+  ) => Promise<string | null>;
 
   toggleFavorite: (ref: WorkspaceRef) => void;
   moveFavorite: (from: number, to: number) => void;
@@ -690,13 +711,36 @@ export function descendantIds(
   return out;
 }
 
+/** A template whose parent is no template: it heads its own tree under Templates. */
+export function isTemplateRoot(
+  pages: Record<string, WorkspacePage>,
+  page: WorkspacePage,
+): boolean {
+  return (
+    page.template === true && !(page.parentId && pages[page.parentId]?.template)
+  );
+}
+
+/** Live pages under `parentId`, in order; a template root is never a child in the tree. */
 export function childPages(
   pages: Record<string, WorkspacePage>,
   parentId: string | null,
 ): WorkspacePage[] {
   return Object.values(pages)
-    .filter((p) => p.parentId === parentId && !p.deletedAt)
+    .filter(
+      (p) =>
+        p.parentId === parentId && !p.deletedAt && !isTemplateRoot(pages, p),
+    )
     .sort((a, b) => a.order - b.order);
+}
+
+/** Template roots, by title. */
+export function templatePages(
+  pages: Record<string, WorkspacePage>,
+): WorkspacePage[] {
+  return Object.values(pages)
+    .filter((p) => !p.deletedAt && isTemplateRoot(pages, p))
+    .sort((a, b) => a.title.localeCompare(b.title));
 }
 
 export function pageAncestors(
@@ -888,6 +932,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (patch.icon !== undefined) set.icon = patch.icon;
     if (patch.fullWidth !== undefined) set.fullWidth = patch.fullWidth;
     if (patch.locked !== undefined) set.locked = patch.locked;
+    if (patch.template !== undefined) set.template = patch.template;
     editPage(id, [{ op: "page", set }]);
   },
 
@@ -1021,6 +1066,65 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   editBlocks: (pageId, ops) => editPage(pageId, ops),
+
+  instantiateTemplate: async (templateId, parentId, inputs) => {
+    const api = client();
+    if (!api) return null;
+    try {
+      const body = await track(
+        api.post(
+          `${ROOT}/templates/${encodeURIComponent(templateId)}/instantiate`,
+          { parentId, inputs },
+        ),
+      );
+      const { page } = pageResponseSchema.parse(body);
+      adoptDoc(page);
+      if (
+        parentId &&
+        !get().workspace.sidebar.expandedPages.includes(parentId)
+      ) {
+        get().toggleExpanded(parentId);
+      }
+      return page.id;
+    } catch (error) {
+      logFailure("use template")(error);
+      return null;
+    }
+  },
+
+  insertTemplate: async (pageId, templateId, place, inputs) => {
+    const api = client();
+    if (!api) return false;
+    try {
+      await flushWorkspace();
+      const body = await api.post(
+        `${ROOT}/templates/${encodeURIComponent(templateId)}/insert`,
+        { pageId, ...place, inputs },
+      );
+      adoptDoc(pageResponseSchema.parse(body).page);
+      return true;
+    } catch (error) {
+      logFailure("insert template")(error);
+      return false;
+    }
+  },
+
+  saveBlocksAsTemplate: async (pageId, blockIds, title) => {
+    const api = client();
+    if (!api) return null;
+    try {
+      await flushWorkspace();
+      const body = await track(
+        api.post(`${ROOT}/templates`, { pageId, blockIds, title }),
+      );
+      const { page } = pageResponseSchema.parse(body);
+      adoptDoc(page);
+      return page.id;
+    } catch (error) {
+      logFailure("save template")(error);
+      return null;
+    }
+  },
 
   toggleFavorite: (ref) =>
     setPrefs((ws) => ({

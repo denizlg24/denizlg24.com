@@ -5,6 +5,9 @@ import {
   entityRefSchema,
   pageMetaPatchSchema,
   RECORD_REFS_MAX,
+  templateFromBlocksSchema,
+  templateInsertSchema,
+  templateInstantiateSchema,
   VIEW_FILTER_OPS_BY_TYPE,
   VIEW_SOURCES,
   viewConfigSchema,
@@ -34,6 +37,9 @@ const blockId = z
 /** Rows an agent reads per call; the app pages views by its own limit. */
 const VIEW_ROWS_MAX = 50;
 const PAGES = "/api/admin/workspace/pages";
+const TEMPLATES = "/api/admin/workspace/templates";
+const template = (templateId: string, suffix: string) =>
+  `${TEMPLATES}/${encodeURIComponent(templateId)}${suffix}`;
 const page = (pageId: string, suffix = "") =>
   `${PAGES}/${encodeURIComponent(pageId)}${suffix}`;
 
@@ -46,9 +52,23 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
     actions: {
       list: action({
         description:
-          "Every live and trashed page as a summary (fields, rev, blockCount; no blocks)",
+          "Every live and trashed page as a summary (fields, rev, blockCount; no blocks). Templates are left out unless templates is true; web_workspace_templates lists them with their inputs",
+        input: z.object({
+          templates: z.boolean().optional().describe("Include template pages"),
+        }),
         readOnly: true,
-        run: () => api.web.get(PAGES),
+        run: async ({ templates }) =>
+          mapResult(await api.web.get(PAGES), (value) => {
+            if (templates || !isRecord(value) || !Array.isArray(value.pages)) {
+              return value;
+            }
+            return {
+              ...value,
+              pages: value.pages.filter(
+                (summary) => !(isRecord(summary) && summary.template === true),
+              ),
+            };
+          }),
       }),
       get: action({
         description: "One page with its blocks and rev",
@@ -69,7 +89,8 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
         run: (body) => api.web.post(PAGES, body),
       }),
       update: action({
-        description: "Title, icon, full width or locked",
+        description:
+          "Title, icon, full width, locked, or template (true lists it under Templates instead of the page tree)",
         input: z.object({ id, ...pageMetaPatchSchema.shape }),
         idempotent: true,
         run: ({ id, ...body }) => api.web.patch(page(id), body),
@@ -156,6 +177,39 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
           ops: z.array(workspaceOpSchema).min(1).max(WORKSPACE_OPS_MAX),
         }),
         run: ({ id, ...body }) => api.web.post(page(id, "/ops"), body),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_workspace_templates",
+    title: "Web: workspace templates",
+    description:
+      "Template pages: copied with fresh block ids into a new page or into an existing one. Text may hold {{date}}, {{time}}, {{week}}, {{weekday}} (the owner's time zone, when used), {{page.title}} (the page the blocks land in) and {{input:Name}} prompts, filled from inputs (a missing input is empty). Button actions and agent prompts are copied verbatim. Mark a page a template with web_workspace_pages update template: true",
+    actions: {
+      list: action({
+        description: "Every template: id, title, icon, its input names",
+        readOnly: true,
+        run: () => api.web.get(TEMPLATES),
+      }),
+      instantiate: action({
+        description:
+          "A new page from template id under parentId (null for the top level); title overrides the template's own",
+        input: z.object({ id, ...templateInstantiateSchema.shape }),
+        run: ({ id, ...body }) =>
+          api.web.post(template(id, "/instantiate"), body),
+      }),
+      insert: action({
+        description:
+          "Template id's blocks inserted into page pageId, after block after (null first, absent last), under parentId when given",
+        input: z.object({ id, ...templateInsertSchema.shape }),
+        run: ({ id, ...body }) => api.web.post(template(id, "/insert"), body),
+      }),
+      save_blocks: action({
+        description:
+          "Copies blocks of page pageId (document order, with their children) into a new template titled title",
+        input: z.object(templateFromBlocksSchema.shape),
+        run: (body) => api.web.post(TEMPLATES, body),
       }),
     },
   });

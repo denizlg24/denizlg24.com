@@ -11,6 +11,8 @@ import {
 import {
   Copy,
   CornerUpRight,
+  FilePlus2,
+  LayoutTemplate,
   Link2,
   PencilLine,
   Star,
@@ -40,6 +42,8 @@ export function PageMenuItems({
   const duplicatePage = useWorkspaceStore((s) => s.duplicatePage);
   const trashPage = useWorkspaceStore((s) => s.trashPage);
   const movePage = useWorkspaceStore((s) => s.movePage);
+  const updatePage = useWorkspaceStore((s) => s.updatePage);
+  const instantiateTemplate = useWorkspaceStore((s) => s.instantiateTemplate);
 
   const page = pages[pageId];
   if (!page) return null;
@@ -72,6 +76,26 @@ export function PageMenuItems({
         <Copy />
         Duplicate
       </DropdownMenuItem>
+      {page.template ? (
+        <DropdownMenuItem
+          onSelect={() => {
+            void instantiateTemplate(pageId, null, {}).then((id) => {
+              if (id) router.push(pageHref(id));
+            });
+          }}
+        >
+          <FilePlus2 />
+          New page from template
+        </DropdownMenuItem>
+      ) : null}
+      {!isHome ? (
+        <DropdownMenuItem
+          onSelect={() => updatePage(pageId, { template: !page.template })}
+        >
+          <LayoutTemplate />
+          {page.template ? "Stop using as template" : "Use as template"}
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         onSelect={() => {
           void navigator.clipboard

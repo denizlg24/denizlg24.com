@@ -374,12 +374,18 @@ function applyOne(page: WorkspacePage, op: WorkspaceAppliedOp): Step {
       if (set.icon !== undefined) previous.icon = page.icon;
       if (set.fullWidth !== undefined) previous.fullWidth = page.fullWidth;
       if (set.locked !== undefined) previous.locked = page.locked;
+      if (set.template !== undefined)
+        previous.template = page.template === true;
       if (set.parentId !== undefined) previous.parentId = page.parentId;
       if (set.order !== undefined) previous.order = page.order;
       if (set.deletedAt !== undefined) previous.deletedAt = page.deletedAt;
+      const { template: _template, ...rest } = page;
+      const template =
+        set.template === undefined ? page.template === true : set.template;
       return {
         page: {
-          ...page,
+          ...rest,
+          ...(template ? { template: true } : {}),
           ...(set.title !== undefined ? { title: set.title } : {}),
           ...(set.icon !== undefined ? { icon: set.icon } : {}),
           ...(set.fullWidth !== undefined ? { fullWidth: set.fullWidth } : {}),

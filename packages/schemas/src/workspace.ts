@@ -407,6 +407,11 @@ export const pageSchema = z.object({
   updatedAt: z.string(),
   /** Set when the page is in the trash. */
   deletedAt: z.string().nullable(),
+  /**
+   * A template: listed only under Templates, copied by "new from template".
+   * Present only when true, so pages from before templates compare equal.
+   */
+  template: z.literal(true).optional(),
 });
 export type WorkspacePage = z.infer<typeof pageSchema>;
 
@@ -572,6 +577,7 @@ export const pageMetaPatchSchema = z
     icon: z.string().max(32).nullable(),
     fullWidth: z.boolean(),
     locked: z.boolean(),
+    template: z.boolean(),
   })
   .partial();
 export type PageMetaPatch = z.infer<typeof pageMetaPatchSchema>;
@@ -695,6 +701,7 @@ export const workspacePageCreateSchema = z.object({
   blocks: z.array(blockSchema).max(WORKSPACE_OPS_MAX).default([]),
   fullWidth: z.boolean().default(false),
   locked: z.boolean().default(false),
+  template: z.boolean().default(false),
 });
 export type WorkspacePageCreate = z.input<typeof workspacePageCreateSchema>;
 

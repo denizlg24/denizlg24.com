@@ -8,6 +8,12 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   type SidebarPrefs,
   sidebarPrefsSchema,
+  type TemplateFromBlocks,
+  type TemplateInsert,
+  type TemplateInstantiate,
+  templateFromBlocksSchema,
+  templateInsertSchema,
+  templateInstantiateSchema,
   type WorkspaceActor,
   type WorkspaceAppliedOp,
   type WorkspaceChanges,
@@ -22,6 +28,7 @@ import {
   type WorkspacePrefsInput,
   type WorkspaceRevisionKind,
   type WorkspaceRevisionSummary,
+  type WorkspaceTemplateSummary,
   workspacePageCreateSchema,
   workspaceRefSchema,
 } from "@repo/schemas";
@@ -46,6 +53,13 @@ import {
   orderAt,
   WorkspaceOpError,
 } from "@repo/utils/workspace-ops";
+import {
+  fillTemplate,
+  instantiateTemplateBlocks,
+  type TemplateClock,
+  templateInputNames,
+  withFreshBlockIds,
+} from "@repo/utils/workspace-templates";
 import {
   ancestorIds,
   childrenOf,
@@ -109,6 +123,7 @@ export function pageOf(stored: WorkspacePage): WorkspacePage {
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
     deletedAt: stored.deletedAt,
+    ...(stored.template ? { template: true } : {}),
   };
 }
 
@@ -259,6 +274,28 @@ export function rebaseConflicts(
     }
   }
   return [...conflicts];
+}
+
+/**
+ * Inserts placing `blocks` one after another: the first at `after` (absent
+ * appends, null is first) under `parentId`, each next one after the last.
+ */
+export function insertSequence(
+  blocks: readonly Block[],
+  parentId: string | null | undefined,
+  after: string | null | undefined,
+): WorkspaceAppliedOp[] {
+  let anchor = after;
+  return blocks.map((block) => {
+    const op: WorkspaceAppliedOp = {
+      op: "insert",
+      block,
+      ...(parentId ? { parentId } : {}),
+      ...(anchor !== undefined ? { after: anchor } : {}),
+    };
+    anchor = block.id;
+    return op;
+  });
 }
 
 const META_KEYS = [
@@ -471,6 +508,18 @@ export function createWorkspaceService(
     return migrate(page);
   }
 
+  async function loadTemplate(id: string): Promise<StoredPage> {
+    const page = await load(id);
+    if (!page.template || page.deletedAt) {
+      throw new WorkspaceError(
+        404,
+        "NOT_TEMPLATE",
+        `Page ${id} is no template`,
+      );
+    }
+    return page;
+  }
+
   function assertWritable(page: StoredPage, caller: WorkspaceCaller) {
     if (page.locked && caller.agent) {
       throw new WorkspaceError(
@@ -506,8 +555,10 @@ export function createWorkspaceService(
     snapshot = false,
   ): Promise<StoredPage | null> {
     const at = now();
+    // `template` is present only when true, so the result decides it.
+    const { template: _template, ...base } = stored;
     const next: StoredPage = {
-      ...stored,
+      ...base,
       ...result.page,
       id: stored.id,
       createdAt: stored.createdAt,
@@ -770,6 +821,7 @@ export function createWorkspaceService(
         createdAt: at.toISOString(),
         updatedAt: at.toISOString(),
         deletedAt: null,
+        ...(parsed.template ? { template: true } : {}),
       };
       const filled = applyStrict(empty, [{ op: "replace", blocks }]);
       const siblings = siblingOrders(pages, parsed.parentId, id);
@@ -971,6 +1023,128 @@ export function createWorkspaceService(
           }
           return commit(stored, result, caller, "ops");
         }),
+      );
+    },
+
+    /** Every live template, inputs listed, by title. */
+    async listTemplates(): Promise<WorkspaceTemplateSummary[]> {
+      const out: WorkspaceTemplateSummary[] = [];
+      for (const listed of await repo.listPages()) {
+        if (!listed.template || listed.deletedAt) continue;
+        const page = await migrate(listed);
+        out.push({
+          id: page.id,
+          title: page.title,
+          icon: page.icon,
+          inputs: templateInputNames(page.title, page.blocks),
+          blockCount: page.blocks.length,
+          updatedAt: page.updatedAt,
+        });
+      }
+      return out.sort((a, b) => a.title.localeCompare(b.title));
+    },
+
+    /**
+     * A new page from template `templateId`: its blocks with fresh ids and
+     * variables filled, its icon and width, created as one revision by
+     * `caller` like any other page.
+     */
+    async instantiateTemplate(
+      templateId: string,
+      input: TemplateInstantiate,
+      caller: WorkspaceCaller,
+      clock: TemplateClock,
+    ): Promise<WorkspacePageDoc> {
+      const parsed = templateInstantiateSchema.parse(input);
+      const template = await loadTemplate(templateId);
+      const base = {
+        ...clock,
+        inputs: parsed.inputs,
+        pageTitle: template.title,
+      };
+      const title = fillTemplate(parsed.title ?? template.title, base);
+      const blocks = instantiateTemplateBlocks(
+        template.blocks,
+        { ...base, pageTitle: title },
+        newId,
+      );
+      return service.createPage(
+        {
+          title,
+          icon: template.icon,
+          parentId: parsed.parentId,
+          ...(parsed.index !== undefined ? { index: parsed.index } : {}),
+          blocks,
+          fullWidth: template.fullWidth,
+        },
+        caller,
+      );
+    },
+
+    /** Template `templateId`'s blocks inserted into a page, as one revision by `caller`. */
+    async insertTemplate(
+      templateId: string,
+      input: TemplateInsert,
+      caller: WorkspaceCaller,
+      clock: TemplateClock,
+    ): Promise<WorkspacePageDoc> {
+      const parsed = templateInsertSchema.parse(input);
+      const template = await loadTemplate(templateId);
+      return docOf(
+        await retrying(async () => {
+          const stored = await load(parsed.pageId);
+          assertWritable(stored, caller);
+          const blocks = instantiateTemplateBlocks(
+            template.blocks,
+            { ...clock, inputs: parsed.inputs, pageTitle: stored.title },
+            newId,
+          );
+          if (blocks.length === 0) return stored;
+          return commit(
+            stored,
+            applyStrict(
+              pageOf(stored),
+              insertSequence(blocks, parsed.parentId, parsed.after),
+            ),
+            caller,
+            "ops",
+          );
+        }),
+      );
+    },
+
+    /** A new template page holding copies of blocks from a page, in document order. */
+    async templateFromBlocks(
+      input: TemplateFromBlocks,
+      caller: WorkspaceCaller,
+    ): Promise<WorkspacePageDoc> {
+      const parsed = templateFromBlocksSchema.parse(input);
+      const source = await load(parsed.pageId);
+      const wanted = new Set(parsed.blockIds);
+      const picked: Block[] = [];
+      const visit = (blocks: readonly Block[]) => {
+        for (const block of blocks) {
+          if (!wanted.has(block.id)) visit(childrenOf(block));
+          else if (block.type === "column") picked.push(...block.children);
+          else picked.push(block);
+        }
+      };
+      visit(source.blocks);
+      if (picked.length === 0) {
+        throw new WorkspaceError(
+          400,
+          "NO_BLOCKS",
+          "None of those blocks are on the page",
+        );
+      }
+      return service.createPage(
+        {
+          title: parsed.title,
+          parentId: null,
+          blocks: withFreshBlockIds(picked, newId),
+          template: true,
+        },
+        caller,
       );
     },
 
@@ -1182,6 +1356,8 @@ export function createWorkspaceService(
     async compatGet(): Promise<LegacyWorkspace> {
       const pages: LegacyPage[] = [];
       for (const listed of await repo.listPages()) {
+        // 3.0.0 has no idea what a template is and would list it as a page.
+        if (listed.template) continue;
         const page = await migrate(listed);
         const served = downgradePage(pageOf(page));
         if (!deepEqual(page.compatBase, served)) {

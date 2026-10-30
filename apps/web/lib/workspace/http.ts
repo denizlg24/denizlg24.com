@@ -1,9 +1,14 @@
 import { AGENT_ACTOR_HEADER } from "@repo/schemas";
+import {
+  type TemplateClock,
+  templateClock,
+} from "@repo/utils/workspace-templates";
 import { forbidden } from "next/navigation";
 import { type NextRequest, NextResponse } from "next/server";
 import type { z } from "zod";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
+import { getAppTimeZone } from "@/lib/timezone";
 import { callerFrom } from "./actor";
 import { workspaceService } from "./index";
 import {
@@ -63,4 +68,9 @@ export async function readBody<S extends z.ZodType>(
     });
   }
   return parsed.data;
+}
+
+/** The template clock now, in the owner's time zone. */
+export async function workspaceClock(): Promise<TemplateClock> {
+  return templateClock(new Date(), await getAppTimeZone());
 }

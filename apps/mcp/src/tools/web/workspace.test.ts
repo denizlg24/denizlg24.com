@@ -73,6 +73,7 @@ describe("web_workspace_pages", () => {
         blocks: [],
         fullWidth: false,
         locked: false,
+        template: false,
       },
     );
     await expectCall(
@@ -343,5 +344,64 @@ describe("web_workspace_records and web_workspace_views", () => {
       "POST",
       `${PAGES}/home/ops`,
     );
+  });
+});
+
+describe("web_workspace_templates", () => {
+  const TEMPLATES = "/api/admin/workspace/templates";
+
+  test("every action reaches its route", async () => {
+    await expectCall(
+      "web_workspace_templates",
+      { action: "list" },
+      "GET",
+      TEMPLATES,
+    );
+    await expectCall(
+      "web_workspace_templates",
+      {
+        action: "instantiate",
+        id: "daily",
+        parentId: "journal",
+        inputs: { Focus: "Ship" },
+      },
+      "POST",
+      `${TEMPLATES}/daily/instantiate`,
+      { parentId: "journal", inputs: { Focus: "Ship" } },
+    );
+    await expectCall(
+      "web_workspace_templates",
+      { action: "insert", id: "daily", pageId: "home", after: null },
+      "POST",
+      `${TEMPLATES}/daily/insert`,
+      { pageId: "home", after: null, inputs: {} },
+    );
+    await expectCall(
+      "web_workspace_templates",
+      { action: "save_blocks", pageId: "home", blockIds: ["a"], title: "T" },
+      "POST",
+      TEMPLATES,
+      { pageId: "home", blockIds: ["a"], title: "T" },
+    );
+  });
+
+  test("page lists leave templates out unless asked", async () => {
+    const pages = {
+      pages: [
+        { id: "a", title: "A" },
+        { id: "t", title: "T", template: true },
+      ],
+    };
+    const { upstream: listing } = recordingUpstream(() => Response.json(pages));
+    const listClient = createClient(listing, register);
+    const plain = await listClient.call("web_workspace_pages", {
+      action: "list",
+    });
+    expect(JSON.stringify(plain.structuredContent)).not.toContain('"t"');
+    const all = await listClient.call("web_workspace_pages", {
+      action: "list",
+      templates: true,
+    });
+    expect(JSON.stringify(all.structuredContent)).toContain('"t"');
   });
 });

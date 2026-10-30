@@ -15,6 +15,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { Suggestion } from "@tiptap/suggestion";
+import { LayoutTemplate } from "lucide-react";
 import { BLOCK_CATALOG, BLOCK_CATEGORIES } from "../block-catalog";
 import { createBlock, newId } from "../seed";
 import {
@@ -304,9 +305,33 @@ function menuRender<T>(toItems: (items: T[]) => MenuItem[]) {
   });
 }
 
-const SlashMenu = Extension.create({
+/** Opens the template picker to insert at the caret; absent where templates cannot be inserted. */
+export type TemplateInsertHandler = (editor: Editor) => void;
+
+function templateChoice(onTemplate: TemplateInsertHandler): SlashChoice {
+  return {
+    item: {
+      key: "template",
+      label: "Template",
+      icon: LayoutTemplate,
+      group: "Layout",
+    },
+    keywords: "template insert snippet",
+    run: onTemplate,
+  };
+}
+
+const SlashMenu = Extension.create<{
+  onTemplate: TemplateInsertHandler | null;
+}>({
   name: "slashMenu",
+  addOptions: () => ({ onTemplate: null }),
   addProseMirrorPlugins() {
+    const choices = this.options.onTemplate
+      ? [...SLASH_CHOICES, templateChoice(this.options.onTemplate)].sort(
+          (a, b) => categoryRank(a.item.group) - categoryRank(b.item.group),
+        )
+      : SLASH_CHOICES;
     return [
       Suggestion<SlashChoice, MenuItem>({
         editor: this.editor,
@@ -317,12 +342,10 @@ const SlashMenu = Extension.create({
           !state.doc.resolve(range.from).parent.type.spec.code,
         items: ({ query }) => {
           const q = query.toLowerCase();
-          return SLASH_CHOICES.filter(
-            (choice) => !q || choice.keywords.includes(q),
-          );
+          return choices.filter((choice) => !q || choice.keywords.includes(q));
         },
         command: ({ editor, range, props }) => {
-          const choice = SLASH_CHOICES.find((c) => c.item.key === props.key);
+          const choice = choices.find((c) => c.item.key === props.key);
           editor.chain().focus().deleteRange(range).run();
           choice?.run(editor);
         },
@@ -461,6 +484,7 @@ export interface FlowExtensionOptions {
   views: FlowViews | null;
   mentions: (query: string) => Promise<MentionChoice[]>;
   placeholder: string;
+  onTemplate?: TemplateInsertHandler;
 }
 
 export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
@@ -493,7 +517,7 @@ export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
     Placeholder.configure({
       placeholder: ({ editor }) => (editor.isEmpty ? options.placeholder : ""),
     }),
-    SlashMenu,
+    SlashMenu.configure({ onTemplate: options.onTemplate ?? null }),
     MentionMenu.configure({ source: options.mentions }),
     FlowKeys,
   ];

@@ -94,6 +94,8 @@ const RESOLVERS: Record<EntityKind, Find> = {
         : {};
     const pages = await WorkspacePageModel.find({
       ...filter,
+      // A template resolves where it is embedded, but is never a search hit.
+      ...(match.ids ? {} : { template: { $ne: true } }),
       deletedAt: null,
       purgedAt: null,
     })
