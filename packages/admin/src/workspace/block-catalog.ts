@@ -27,6 +27,7 @@ import {
   ListOrdered,
   ListTree,
   Minus,
+  MousePointerClick,
   Paperclip,
   PenTool,
   PiggyBank,
@@ -166,6 +167,12 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     icon: Repeat2,
     category: "Layout",
     keywords: ["mirror", "reference", "embed", "transclude"],
+  },
+  button: {
+    label: "Button",
+    icon: MousePointerClick,
+    category: "Layout",
+    keywords: ["action", "automation", "workflow", "run", "agent"],
   },
   view: {
     label: "View",

@@ -245,3 +245,37 @@ describe("embeds and views", () => {
     });
   });
 });
+
+describe("workflow blocks", () => {
+  test("a button is a directive carrying its actions; a hand-written one gets defaults", () => {
+    const button: Block = {
+      id: "b",
+      type: "button",
+      label: "Standup",
+      mode: "actions",
+      actions: [
+        {
+          kind: "create-page",
+          templateId: "daily",
+          parentId: "$this",
+          inputs: { Focus: "a }}{{ b" },
+        },
+        { kind: "set-todo", pageId: "$this", blockId: "t1", checked: true },
+      ],
+      agentPrompt: "",
+    };
+    const markdown = blocksToMarkdown([button]);
+    expect(markdown).toStartWith(':::block{type="button" id="b"}');
+    expect(markdownToBlocks(markdown, { newId })).toEqual([button]);
+    const [handWritten] = markdownToBlocks(
+      ':::block{type="button"}\n{"label":"Ask","mode":"agent","agentPrompt":"Summarise"}\n:::',
+      { newId },
+    );
+    expect(handWritten).toMatchObject({
+      type: "button",
+      mode: "agent",
+      actions: [],
+      agentPrompt: "Summarise",
+    });
+  });
+});

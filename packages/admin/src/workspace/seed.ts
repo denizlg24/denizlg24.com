@@ -79,6 +79,15 @@ export function createBlock(type: BlockType): Block {
       return { id, type, sections: [] };
     case "record":
       return { id, type, ref: "", mode: "card" };
+    case "button":
+      return {
+        id,
+        type,
+        label: "",
+        mode: "actions",
+        actions: [],
+        agentPrompt: "",
+      };
     case "view":
       return {
         id,

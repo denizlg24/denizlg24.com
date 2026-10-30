@@ -35,10 +35,15 @@ export interface TemplateClock {
 export interface TemplateContext extends TemplateClock {
   pageTitle: string;
   inputs: TemplateInputs;
+  /**
+   * The payload of the event a trigger fired on, as `{{event.<field>}}`;
+   * absent outside a trigger, where such a variable stays as written.
+   */
+  event?: Record<string, string>;
 }
 
 const VARIABLE =
-  /\{\{\s*(date|time|week|weekday|page\.title|input:([^{}]+?))\s*\}\}/g;
+  /\{\{\s*(date|time|week|weekday|page\.title|input:([^{}]+?)|event\.([A-Za-z]+))\s*\}\}/g;
 const INPUT = /\{\{\s*input:([^{}]+?)\s*\}\}/g;
 
 function part(
@@ -82,23 +87,29 @@ export function templateClock(now: Date, timeZone: string): TemplateClock {
 
 /** `text` with every known variable filled; an unknown `{{…}}` stays as written. */
 export function fillTemplate(text: string, context: TemplateContext): string {
-  return text.replace(VARIABLE, (whole, name: string, input?: string) => {
-    if (input !== undefined) return context.inputs[input.trim()] ?? "";
-    switch (name) {
-      case "date":
-        return context.date;
-      case "time":
-        return context.time;
-      case "week":
-        return context.week;
-      case "weekday":
-        return context.weekday;
-      case "page.title":
-        return context.pageTitle;
-      default:
-        return whole;
-    }
-  });
+  return text.replace(
+    VARIABLE,
+    (whole, name: string, input?: string, field?: string) => {
+      if (input !== undefined) return context.inputs[input.trim()] ?? "";
+      if (field !== undefined) {
+        return context.event ? (context.event[field] ?? "") : whole;
+      }
+      switch (name) {
+        case "date":
+          return context.date;
+        case "time":
+          return context.time;
+        case "week":
+          return context.week;
+        case "weekday":
+          return context.weekday;
+        case "page.title":
+          return context.pageTitle;
+        default:
+          return whole;
+      }
+    },
+  );
 }
 
 function fillRuns(runs: RichText, context: TemplateContext): RichText {

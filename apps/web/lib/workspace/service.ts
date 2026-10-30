@@ -1113,6 +1113,66 @@ export function createWorkspaceService(
       );
     },
 
+    /**
+     * `blocks` (ids new to the page) inserted at `place` on the current rev,
+     * as one revision. What buttons and triggers write with.
+     */
+    async insertBlocks(
+      pageId: string,
+      blocks: readonly Block[],
+      place: { parentId?: string | null; after?: string | null },
+      caller: WorkspaceCaller,
+    ): Promise<WorkspacePageDoc> {
+      return docOf(
+        await retrying(async () => {
+          const stored = await load(pageId);
+          assertWritable(stored, caller);
+          if (blocks.length === 0) return stored;
+          return commit(
+            stored,
+            applyStrict(
+              pageOf(stored),
+              insertSequence(blocks, place.parentId, place.after),
+            ),
+            caller,
+            "ops",
+          );
+        }),
+      );
+    },
+
+    /** Checks or unchecks one to-do on the current rev. */
+    async setTodo(
+      pageId: string,
+      blockId: string,
+      checked: boolean,
+      caller: WorkspaceCaller,
+    ): Promise<WorkspacePageDoc> {
+      return docOf(
+        await retrying(async () => {
+          const stored = await load(pageId);
+          assertWritable(stored, caller);
+          const found = findBlock(stored.blocks, blockId);
+          if (found?.block.type !== "todo") {
+            throw new WorkspaceError(
+              400,
+              "NOT_TODO",
+              `No to-do ${blockId} on page ${pageId}`,
+            );
+          }
+          if (found.block.checked === checked) return stored;
+          return commit(
+            stored,
+            applyStrict(pageOf(stored), [
+              { op: "update", id: blockId, set: { checked } },
+            ]),
+            caller,
+            "ops",
+          );
+        }),
+      );
+    },
+
     /** A new template page holding copies of blocks from a page, in document order. */
     async templateFromBlocks(
       input: TemplateFromBlocks,

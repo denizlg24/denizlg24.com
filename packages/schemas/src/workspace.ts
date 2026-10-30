@@ -6,6 +6,7 @@ import {
   recordEmbedModeSchema,
 } from "./workspace-entities";
 import { viewConfigSchema } from "./workspace-views";
+import { buttonModeSchema, workflowActionsSchema } from "./workspace-workflows";
 
 export const BLOCK_SPANS = [2, 3, 4, 6] as const;
 export const blockSpanSchema = z.union([
@@ -254,6 +255,18 @@ const viewSchema = z.object({
   type: z.literal("view"),
   ...viewConfigSchema.shape,
 });
+/**
+ * Runs its actions in order, or starts a background agent run with the page
+ * as context, when pressed. Leaf: what it last started is looked up, not stored.
+ */
+const buttonSchema = z.object({
+  ...id,
+  type: z.literal("button"),
+  label: z.string().max(120),
+  mode: buttonModeSchema.default("actions"),
+  actions: workflowActionsSchema.default([]),
+  agentPrompt: z.string().max(8_000).default(""),
+});
 /** A share of its row: the widths of a `columns` block's columns are normalised to sum to 1. */
 const columnSchema = z.object({
   id: z.string().min(1).max(64),
@@ -292,6 +305,7 @@ export const blockSchema = z.discriminatedUnion("type", [
   syncedSchema,
   recordSchema,
   viewSchema,
+  buttonSchema,
   columnsSchema,
   columnSchema,
   z.object({

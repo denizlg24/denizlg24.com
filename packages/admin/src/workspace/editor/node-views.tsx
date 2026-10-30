@@ -52,6 +52,7 @@ import { pageTitle } from "../refs";
 import { pageAncestors, useWorkspaceStore } from "../store";
 import { useWorkspaceNav } from "../use-workspace-nav";
 import { ViewBlock } from "../views/view-block";
+import { ButtonBlock } from "../workflows/button-block";
 import { FlowEditor } from "./flow-editor";
 
 /** The page an editor shows, for node views that read their surroundings. */
@@ -895,6 +896,7 @@ export function AtomBlockView({
   getPos,
 }: NodeViewProps) {
   const block = blockFromNode(node);
+  const { pageId } = useContext(FlowPageContext);
   const editable = editor.isEditable;
   const onChange = (next: Block) => updateAttributes({ data: fieldsOf(next) });
   let body: React.ReactNode = null;
@@ -1009,6 +1011,17 @@ export function AtomBlockView({
                   )
                   .run();
               }}
+            />
+          );
+          break;
+        case "button":
+          body = (
+            <ButtonBlock
+              block={block}
+              pageId={pageId}
+              editable={editable}
+              selected={selected}
+              onChange={onChange}
             />
           );
           break;

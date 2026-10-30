@@ -6,6 +6,7 @@ import type {
   LegacyBlock,
   LegacyBlockType,
   RichText,
+  WorkflowAction,
   WorkspacePage,
 } from "@repo/schemas";
 import {
@@ -151,6 +152,7 @@ const LEAF_TYPES: BlockType[] = [
   "synced",
   "record",
   "view",
+  "button",
   ...WIDGET_TYPES,
 ];
 const CONTAINER_CHOICES: BlockType[] = [
@@ -340,6 +342,15 @@ export function genBlock(
         ...(r.next() < 0.2 ? { dateField: "due" } : {}),
         ...title,
       };
+    case "button":
+      return {
+        id,
+        type,
+        label: genText(r, false),
+        mode: r.pick(["actions", "agent"] as const),
+        actions: Array.from({ length: r.int(4) }, () => genAction(r)),
+        agentPrompt: genText(r, true),
+      };
     case "links":
       return {
         id,
@@ -360,6 +371,50 @@ export function genBlock(
       return genColumn(r, depth, 1);
     default:
       return { id, type, ...title };
+  }
+}
+
+export function genAction(r: Rng): WorkflowAction {
+  const text = () => genText(r, r.next() < 0.3) || "x";
+  switch (r.int(7)) {
+    case 0:
+      return {
+        kind: "create-page",
+        templateId: "tpl",
+        parentId: r.pick([null, "$this", "home"]),
+        ...(r.next() < 0.5 ? { title: text() } : {}),
+        inputs: r.next() < 0.5 ? { Focus: text() } : {},
+      };
+    case 1:
+      return { kind: "append-blocks", pageId: "$this", markdown: text() };
+    case 2:
+      return { kind: "insert-template", templateId: "tpl", inputs: {} };
+    case 3:
+      return {
+        kind: "create-card",
+        boardId: "6650f0c2a1b2c3d4e5f60718",
+        columnId: "6650f0c2a1b2c3d4e5f60719",
+        title: text(),
+        ...(r.next() < 0.5 ? { description: text() } : {}),
+        ...(r.next() < 0.5 ? { dueDate: "{{date}}" } : {}),
+      };
+    case 4:
+      return {
+        kind: "create-event",
+        title: text(),
+        date: "{{date}}",
+        ...(r.next() < 0.5 ? { time: "09:30" } : {}),
+        durationMinutes: 30,
+      };
+    case 5:
+      return {
+        kind: "set-todo",
+        pageId: "$this",
+        blockId: "todo1",
+        checked: r.next() < 0.5,
+      };
+    default:
+      return { kind: "open", url: r.pick(["/dashboard", "https://x.y/?a=b"]) };
   }
 }
 

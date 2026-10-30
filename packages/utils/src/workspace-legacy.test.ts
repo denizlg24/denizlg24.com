@@ -123,6 +123,26 @@ describe("flow → v1 for desktop 3.0.0", () => {
     );
   });
 
+  test("a button becomes a v1 text block holding its directive", () => {
+    const button: Block = {
+      id: "btn",
+      type: "button",
+      label: "Log {{date}}",
+      mode: "actions",
+      actions: [
+        { kind: "append-blocks", pageId: "$this", markdown: "- {{time}}" },
+        { kind: "open", url: "/dashboard" },
+      ],
+      agentPrompt: "",
+    };
+    const [legacy] = downgradeBlocks([button]);
+    expect(legacy?.type).toBe("text");
+    expect(legacy?.type === "text" && legacy.markdown).toStartWith(
+      ':::block{type="button" id="btn"}',
+    );
+    expect(legacy ? legacyBlockToFlow(legacy, newId) : []).toEqual([button]);
+  });
+
   test("columns flatten into spans, ids kept", () => {
     const legacy = downgradeBlocks([
       {
