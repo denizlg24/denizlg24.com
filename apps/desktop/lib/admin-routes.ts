@@ -80,6 +80,9 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     read: (paperId) => withQuery(`${ROOT}/papers/read`, { id: paperId }),
   },
 
+  latexProject: (projectId) =>
+    withQuery(`${ROOT}/latex/project`, { id: projectId }),
+
   agentMemory: {
     root: `${ROOT}/agent-memory`,
     detail: (memoryId) =>

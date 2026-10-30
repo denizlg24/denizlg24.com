@@ -6,8 +6,10 @@ import {
   blockSchema,
   CALLOUT_COLORS,
   type CalloutColor,
+  entityRef,
   isTextBlock,
   isWidgetType,
+  mentionKindSchema,
   type RichText,
   workspaceUnfurlSchema,
 } from "@repo/schemas";
@@ -44,9 +46,12 @@ import { useAdmin } from "../../provider";
 import { BLOCK_CATALOG } from "../block-catalog";
 import { BlockBody, type WidgetBlock } from "../blocks";
 import { IconPicker, PageIcon } from "../page-icon";
+import { RecordBlock } from "../record-embed";
+import { recordHref, useRecord } from "../records";
 import { pageTitle } from "../refs";
 import { pageAncestors, useWorkspaceStore } from "../store";
 import { useWorkspaceNav } from "../use-workspace-nav";
+import { ViewBlock } from "../views/view-block";
 import { FlowEditor } from "./flow-editor";
 
 /** The page an editor shows, for node views that read their surroundings. */
@@ -180,20 +185,25 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
 // --- mention ------------------------------------------------------------------
 
 export function MentionView({ node }: NodeViewProps) {
-  const { pageHref } = useWorkspaceNav();
-  const kind = node.attrs.kind;
+  const nav = useWorkspaceNav();
+  const kind = mentionKindSchema.safeParse(node.attrs.kind);
   const id = typeof node.attrs.id === "string" ? node.attrs.id : "";
   const label = typeof node.attrs.label === "string" ? node.attrs.label : null;
   const page = useWorkspaceStore((s) =>
-    kind === "page" ? s.workspace.pages[id] : undefined,
+    kind.data === "page" ? s.workspace.pages[id] : undefined,
   );
+  const record =
+    kind.success && kind.data !== "page" && kind.data !== "date"
+      ? entityRef(kind.data, id)
+      : null;
+  const state = useRecord(record);
   const chip =
     "rounded px-0.5 text-accent-strong decoration-muted-foreground/50 underline underline-offset-2 hover:bg-surface";
   let content: React.ReactNode;
-  if (kind === "page") {
+  if (kind.data === "page") {
     content = page ? (
       <Link
-        href={pageHref(id)}
+        href={nav.pageHref(id)}
         className={cn(chip, "inline-flex items-baseline gap-1")}
       >
         <PageIcon icon={page.icon} className="size-3.5 self-center" />
@@ -202,12 +212,28 @@ export function MentionView({ node }: NodeViewProps) {
     ) : (
       <span className="text-muted-foreground line-through">{label ?? id}</span>
     );
-  } else if (kind === "date") {
+  } else if (kind.data === "date") {
     let text = id;
     try {
       text = format(parseISO(id), "MMM d, yyyy");
     } catch {}
     content = <span className="text-muted-foreground">@{text}</span>;
+  } else if (record && state.status === "missing") {
+    content = (
+      <span className="text-muted-foreground line-through">@{label ?? id}</span>
+    );
+  } else if (record) {
+    const href = recordHref(nav, record);
+    const text = `@${state.status === "ready" ? state.record.title : (label ?? id)}`;
+    content = href ? (
+      <Link href={href} data-mention={record} className={chip}>
+        {text}
+      </Link>
+    ) : (
+      <span data-mention={record} className="text-accent-strong">
+        {text}
+      </span>
+    );
   } else {
     content = <span className="text-accent-strong">@{label ?? id}</span>;
   }
@@ -866,6 +892,7 @@ export function AtomBlockView({
   updateAttributes,
   selected,
   editor,
+  getPos,
 }: NodeViewProps) {
   const block = blockFromNode(node);
   const editable = editor.isEditable;
@@ -942,6 +969,52 @@ export function AtomBlockView({
         case "synced":
           body = (
             <SyncedAtom
+              block={block}
+              editable={editable}
+              selected={selected}
+              onChange={onChange}
+            />
+          );
+          break;
+        case "record":
+          body = (
+            <RecordBlock
+              block={block}
+              editable={editable}
+              selected={selected}
+              onChange={onChange}
+              onMention={(record) => {
+                const pos = getPos();
+                if (typeof pos !== "number") return;
+                editor
+                  .chain()
+                  .focus()
+                  .insertContentAt(
+                    { from: pos, to: pos + node.nodeSize },
+                    {
+                      type: "paragraph",
+                      attrs: { id: block.id },
+                      content: [
+                        {
+                          type: "mention",
+                          attrs: {
+                            kind: record.kind,
+                            id: record.id,
+                            label: record.kind === "page" ? null : record.title,
+                          },
+                        },
+                        { type: "text", text: " " },
+                      ],
+                    },
+                  )
+                  .run();
+              }}
+            />
+          );
+          break;
+        case "view":
+          body = (
+            <ViewBlock
               block={block}
               editable={editable}
               selected={selected}

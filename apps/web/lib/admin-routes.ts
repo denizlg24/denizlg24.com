@@ -75,6 +75,8 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     read: (paperId) => `${withSegments(`${ROOT}/papers`, paperId)}/read`,
   },
 
+  latexProject: (projectId) => withSegments(`${ROOT}/latex`, projectId),
+
   agentMemory: {
     root: `${ROOT}/agent-memory`,
     detail: (memoryId) => withSegments(`${ROOT}/agent-memory`, memoryId),

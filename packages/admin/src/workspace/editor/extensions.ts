@@ -390,7 +390,9 @@ const MentionMenu = Extension.create<{
                 ? "Pages"
                 : c.kind === "person"
                   ? "People"
-                  : "Dates",
+                  : c.kind === "date"
+                    ? "Dates"
+                    : "Records",
           })),
         ),
       }),

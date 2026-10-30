@@ -118,6 +118,8 @@ export interface AdminRoutes {
   timeline: EditableCollectionRoutes;
   contacts: ContactRoutes;
   papers: PaperRoutes;
+  /** One LaTeX project's editor. */
+  latexProject: (projectId: string) => string;
   agentMemory: AgentMemoryRoutes;
   market: MarketRoutes;
   workspace: WorkspaceRoutes;

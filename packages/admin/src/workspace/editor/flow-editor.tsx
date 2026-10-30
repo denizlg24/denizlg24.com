@@ -1,6 +1,6 @@
 "use client";
 
-import { type Block, personGraphSchema } from "@repo/schemas";
+import { type Block, ENTITY_KINDS, personGraphSchema } from "@repo/schemas";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +26,7 @@ import { Copy, GripVertical, Repeat2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AdminClient } from "../../client";
 import { useAdmin } from "../../provider";
+import { RECORD_KINDS, searchRecords } from "../records";
 import { pageTitle } from "../refs";
 import { useWorkspaceStore } from "../store";
 import {
@@ -171,7 +172,22 @@ function useMentionSource(): (query: string) => Promise<MentionChoice[]> {
       const literal = /^\d{4}-\d{2}-\d{2}$/.test(q)
         ? [{ kind: "date" as const, id: q, label: q }]
         : [];
-      return [...pages, ...found, ...dates, ...literal];
+      const records: MentionChoice[] =
+        q.length >= 2
+          ? (
+              await searchRecords(
+                client,
+                q,
+                ENTITY_KINDS.filter((k) => k !== "page" && k !== "person"),
+              ).catch(() => [])
+            ).map((record) => ({
+              kind: record.kind,
+              id: record.id,
+              label: record.title,
+              hint: RECORD_KINDS[record.kind].label,
+            }))
+          : [];
+      return [...pages, ...found, ...dates, ...literal, ...records];
     },
     [client],
   );
