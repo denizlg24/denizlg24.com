@@ -1165,12 +1165,15 @@ and the modules; every page header's leading slot is
 `components/workspace/sidebar-trigger.tsx`, visible only while the sidebar is
 collapsed or in its mobile sheet.
 
-- **Pages are blocks.** `/dashboard` is the Home page and
-  `/dashboard/page?id=` any other; `components/workspace/page-view.tsx`
-  renders a page's blocks (`blocks.tsx`, catalogue in `block-catalog.ts`) on
-  a 6-column grid. Block types are the `blockSchema` union in
-  `@repo/schemas` `workspace` — a new type means a schema entry, a catalogue
-  entry, a `createBlock` case and a renderer.
+- **Pages are documents.** `/dashboard` is the Home page and
+  `/dashboard/page?id=` any other; `packages/admin/src/workspace/page-view.tsx`
+  renders a page as one TipTap editor (`editor/`), a flow of nested blocks
+  with `columns` for layout and the live widgets (`blocks.tsx`) as atoms in
+  it. Block types are the `blockSchema` union in `@repo/schemas`
+  `workspace` — a new type means a schema entry, a catalogue entry
+  (`block-catalog.ts`, which is also the "/" menu), a `createBlock` case, a
+  case in `editor/doc.ts` if it is not an atom, and a renderer (a widget in
+  `blocks.tsx`, anything else in `editor/node-views.tsx`).
 - **The workspace is stored per page on web** and shared with desktop
   through `packages/admin/src/workspace/store.ts`; see "Workspace" under the
   web API below. Desktop's `workspace.json` is a read cache for an instant
@@ -1193,6 +1196,7 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET /workspace/pages/{id}` → `{ page: WorkspacePageDoc }`; `PATCH` → title/icon/fullWidth/locked → `{ page }`; `DELETE` → purges a trashed page and its subtree → `{ purged }`
 - `POST /workspace/pages/{id}/move` → `{ parentId, index? }`; `/archive`, `/restore` → `{ pages: summaries changed }`
 - `POST /workspace/pages/{id}/ops` → `{ baseRev, ops: (insert|update|move|delete|page)[] }` → `{ page }`; 409 `CONFLICT` with `{ conflicts, page }`, 423 `LOCKED`
+- `POST /workspace/unfurl` → `{ url }` → `{ bookmark: { url, title?, description?, image?, siteName } }`; 422 `UNFURL_REFUSED` for a private or non-http target
 - `GET /workspace/pages/{id}/history?limit&before` → `{ revisions }`; `POST …/revert` → `{ rev }` or `{ actor, sinceRev? }`
 - `GET|PUT /workspace/pages/{id}/markdown` → `{ id, rev, title, locked, markdown }` / `{ baseRev, markdown }` → `{ page }`
 - `GET /workspace/changes?since=` → `{ cursor, pages: summaries, purged, prefsUpdatedAt }`
@@ -1207,12 +1211,34 @@ Things worth knowing before touching this:
   rev a full snapshot, so any past rev rebuilds from the nearest snapshot.
   Writes compare-and-set on `rev`. A purged page stays as a tombstone so the
   change feed can report it. The log is never pruned.
-- **Ops address blocks by id, never index.** `insert`/`move` take `after`
-  (absent appends, null is first) and a `parentId` that must stay absent
-  until document blocks nest. An older `baseRev` rebases when no revision
-  since touched a block the batch *targets* (anchors do not count; a deleted
-  anchor is a conflict); page-field ops never conflict. The arithmetic is
-  `@repo/utils/workspace-ops`, shared by the server and the client store.
+- **A page is a document flow of nested blocks.** Text blocks (paragraph,
+  heading 1–3, bullet / numbered / todo items, toggle — a toggle heading when
+  it has `level` —, callout, quote) hold inline rich text as runs: `text`
+  with `bold`/`italic`/`strike`/`code`/`link`, or a `mention` of a page,
+  person or date (`@repo/schemas` `richTextSchema`; marks are present only
+  when on, so equal text compares equal). List items, toggles, callouts,
+  quotes and columns have `children`; a `columns` block holds only `column`
+  blocks (`width`, a share of the row), and a column cannot hold columns
+  (`canContain` in `@repo/utils/workspace-tree`). Code, divider, image,
+  file, bookmark, equation, table, toc, breadcrumb, synced and every widget
+  are leaves. There are no spans: width comes from columns. `fullWidth`
+  stays a page field.
+- **Ops address blocks by id, never index, at any depth.** `insert`/`move`
+  take `parentId` (absent is the page) and `after` (a sibling; absent
+  appends, null is first); an insert may carry a whole subtree whose ids are
+  all new; `delete` removes the subtree; `update` merges fields, never
+  `children`, and its optional `type` turns a block into another keeping its
+  id (its children must fit the new type). The arithmetic is
+  `@repo/utils/workspace-ops`, shared by the server and the client store;
+  `diffBlockTrees` turns one tree into another as ops (type changes into a
+  container, placements parents-first, deletes, then field updates).
+- **Rebase rule.** An older `baseRev` rebases unless a revision since
+  touched a block the batch targets, or moved, deleted or replaced one of
+  its ancestors — where it sits now or, for an insert/move, under the
+  parent it is going to (`rebaseConflicts` in `lib/workspace/service.ts`).
+  An edit to an ancestor's text is not a conflict; anchors do not count, but
+  a vanished anchor or parent fails the apply and becomes one. Page-field ops
+  never conflict.
 - **The client store edits through ops and replays unsent ones on top of
   every server answer.** Pages load on open (`ensurePage`); the change feed is
   polled every 5 s while the window is focused and visible. Page order is a
@@ -1227,29 +1253,88 @@ Things worth knowing before touching this:
   server forwards (`apps/mcp/src/request-context.ts`). That header is
   attribution, not authorization — any service-token holder could claim one.
   Claude Code through MCP is indistinguishable from any other MCP client.
-- **Migration is lazy and idempotent.** The first request to any workspace
-  route splits the `DesktopWorkspace` singleton into pages (rev 1, snapshot)
-  and prefs; prefs are written last and mark completion; pages are
-  insert-only, so a crashed or racing run finishes the same way. The v1
-  document is never written again and stays as the backup.
-- **Desktop 3.0.0 keeps `GET|PUT /workspace`.** GET assembles the document,
-  records it per page as `compatBase` and stamps `savedAt` with the server's
-  now (so 3.0.0 always adopts it). PUT three-way merges each page against
-  that base: only 3.0.0's own edits since apply, block by block and field by
-  field, skipping anything someone else changed meanwhile — the stored copy
-  wins. A page missing from the PUT is purged only when trashed and unchanged
-  since 3.0.0 last held it. Prefs merge per field the same way. Cost: a 3.0.0
-  edit that collides is silently dropped, and 3.0.0 offline edits that never
-  reached the server are replaced at its next launch.
+  The server itself writes as `migration` when it turns a grid into a flow.
+- **Migration is lazy and idempotent, in two steps.** The first request to
+  any workspace route splits the `DesktopWorkspace` singleton into pages and
+  prefs; prefs are written last and mark completion; pages are insert-only,
+  so a crashed or racing run finishes the same way. Each page keeps its v1
+  grid in `legacyBlocks` (rev 1; the revision's `legacy` holds the v1 page)
+  until its first read, which turns it into a flow as rev 2 by actor
+  `migration` (`migrate` in the service, `upgradeLegacyBlocks` in
+  `@repo/utils/workspace-legacy`): consecutive grid blocks pack into rows of
+  6 by span, a row of more than one becomes a `columns` block whose widths
+  are the spans' shares, a v1 text block becomes the blocks its markdown
+  describes, a todo one todo item per entry, a heading a level-2 heading, a
+  title on text or todo a level-3 heading above it. Ids are derived from the
+  v1 ids, so a racing read lands on the identical page. Summaries count
+  `legacyBlocks` until then. Restoring to rev 1 converts the v1 grid afresh
+  with the current converter — that is how a converter fix reaches a page;
+  the v1 document itself stays as the backup. Any op written against rev 1
+  conflicts (the migration replaced every block).
+- **Desktop 3.0.0 keeps `GET|PUT /workspace`, served a downgraded grid.**
+  GET turns every flow into a valid v1 page (`downgradePage`): exactly one
+  v1 block per flow block, same id — columns flatten into their blocks, each
+  spanning its column's share; a plain level-2 heading stays a heading, a
+  plain childless todo a todo, widgets and dividers themselves; anything
+  else is a v1 `text` block holding the block's own markdown (directives and
+  markers included). It records that per page as `compatBase` and stamps
+  `savedAt` with the server's now (so 3.0.0 always adopts it). PUT
+  (`compatMergeOps`) diffs 3.0.0's page against that base and applies a
+  difference only where the stored flow, downgraded the same way, still
+  reads as the base: a changed block replaces its flow block in place (an
+  update when it converts back to one block of the same type, else delete
+  and re-insert at the same spot), a vanished one deletes its subtree, a new
+  one is converted and inserted at the top level after its predecessor.
+  Span and order changes are ignored — a grid cannot say where in a flow a
+  block belongs, so 3.0.0 never restructures one. A page whose merge cannot
+  apply keeps what it has, whole. A page missing from the PUT is purged only
+  when trashed and unchanged since 3.0.0 last held it. Prefs merge per field.
+  Cost: a 3.0.0 edit that collides is silently dropped, 3.0.0 offline edits
+  that never reached the server are replaced at its next launch, and 3.0.0
+  shows rich blocks as raw markdown.
 - **The in-app agent sees the open page.** The client sends
   `pageContext.workspacePageId`; `startAgentTurn` reads the page fresh and
   appends `<current_workspace_page>` (id, rev, locked, markdown) to the model
   messages only.
-- **Markdown is lossless for its own output** (`@repo/utils/workspace-markdown`).
-  Heading/text/todo are plain markdown after a `<!-- block … -->` marker
-  (text closes with `<!-- /block -->`); every other type is a
-  `:::block{…}` directive with JSON fields. Hand-written markdown gets fresh
-  ids. `from_markdown` diffs into ops, so unchanged blocks keep their ids.
+- **Markdown is lossless for its own output** (`@repo/utils/workspace-markdown`,
+  inline in `workspace-rich-text`). Text blocks are plain markdown ending in
+  a `<!-- id="…" -->` marker (a marker alone is an empty paragraph), list
+  children indented under their item, quote children after a bare `>` line,
+  toggles `<details>`/`<summary>`, callouts, columns and each column
+  `:::callout{…} text` / `:::columns{…}` / `:::column{…}` directives whose
+  body is their children, mentions `[@Name](person:id)`, `[@](page:id)`,
+  `[@2026-10-29](date:2026-10-29)`; every other type is a
+  `:::block{type id}` directive with JSON fields. Inline text is one line
+  (`<br>` for a break, edge whitespace as entities). Hand-written markdown
+  gets fresh ids; the migration and 3.0.0 read it leniently (an unclosed
+  directive is text). `from_markdown` diffs into ops, so unchanged blocks keep
+  their ids.
+- **The editor is TipTap, and only `packages/admin/src/workspace/editor/`
+  knows it.** `doc.ts` maps blocks ↔ ProseMirror JSON (list items wrapped in
+  list nodes; a container's first paragraph is its own text; anything with
+  no text to edit is one `atomBlock` with the block's fields in `data`;
+  every block node carries `attrs.id` from the unique-id extension). The
+  editor commits 300 ms after typing stops: the document read back as blocks
+  is diffed against the last tree it agreed on and the ops go to
+  `editBlocks`, which coalesces consecutive whole-block updates of one block
+  and sends at most `WORKSPACE_OPS_MAX` per request. A store change it did
+  not make is merged in by replacing only the top-level nodes that differ
+  and putting the caret back by block id; its own pending edits are
+  committed first, so a block being edited keeps the local copy and a real
+  collision comes back through the store's 409. Comparisons use the
+  editor's canonical form (`canonicalBlocks`) — a code run with other marks,
+  say, which ProseMirror cannot hold — so a shape only an agent writes never
+  reads as an edit. Turn-into (⌘/ and the "/" menu's text types) and
+  inserts rewrite through the block model (`transformBlocks`). A synced
+  block renders a second editor scoped to its source block; its ops go to
+  the source page. Locked pages are read-only.
+- **Bookmark unfurling is an SSRF boundary** (`lib/workspace/unfurl.ts`).
+  The socket's own DNS lookup refuses a name with any private, loopback,
+  link-local or CGNAT answer (`lib/private-address.ts`, a copy of
+  `apps/browser`'s list), so no rebinding window opens between check and
+  connect; a literal IP is checked directly; redirects are followed by hand
+  through the same guard (five at most); one 8 s deadline and 512 KB of HTML
+  at most; no credentials in URLs.
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
