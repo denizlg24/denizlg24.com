@@ -34,6 +34,7 @@ import { processAgentTaskJob } from "@/lib/agent-tasks/execution";
 import { scheduleDueAgentTaskRuns } from "@/lib/agent-tasks/scheduling";
 import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
+import { fireScheduledTriggers } from "@/lib/workflows/schedule";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 export const maxDuration = 300;
@@ -106,6 +107,9 @@ async function drainScheduledJobs(request: Request) {
   const workerId = `job-route:${randomUUID()}`;
   await sweepOrphanedLeases();
   await scheduleDueAgentTaskRuns();
+  await fireScheduledTriggers().catch((error) => {
+    console.error("[Triggers] Schedule tick failed", error);
+  });
   await scheduleNextReflectionJob();
   await scheduleNextInsightJob();
   await scheduleNextConsolidationJob();

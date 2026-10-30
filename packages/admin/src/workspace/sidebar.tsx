@@ -32,6 +32,7 @@ import {
   Star,
   StarOff,
   Trash2,
+  Zap,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -56,6 +57,7 @@ import { pageTitle } from "./refs";
 import { childPages, templatePages, useWorkspaceStore } from "./store";
 import { TemplatePicker, useTemplatePicker } from "./template-picker";
 import { useActiveLocation, useWorkspaceNav } from "./use-workspace-nav";
+import { TriggersSheet } from "./workflows/triggers-sheet";
 
 export const OPEN_COMMAND_PALETTE = "command-palette:open";
 
@@ -515,6 +517,7 @@ export function WorkspaceSidebarContent({
         }
       },
     });
+  const [triggersOpen, setTriggersOpen] = useState(false);
   const pagesCollapsed = sidebar.collapsedSections.includes("pages");
   const templatesCollapsed = sidebar.collapsedSections.includes("templates");
   const favoritesCollapsed = sidebar.collapsedSections.includes("favorites");
@@ -733,8 +736,17 @@ export function WorkspaceSidebarContent({
 
       <div className="flex shrink-0 flex-col gap-px border-t px-2 py-2">
         <HiddenModulesPopover />
+        <button
+          type="button"
+          className={ROW}
+          onClick={() => setTriggersOpen(true)}
+        >
+          <Zap className="size-4 text-muted-foreground" />
+          <span className="flex-1 text-left">Triggers</span>
+        </button>
         <TrashPopover />
         <TemplatePicker use="page" />
+        <TriggersSheet open={triggersOpen} onOpenChange={setTriggersOpen} />
         <SidebarRow
           href={routes.settings}
           active={pathname.startsWith(routes.settings)}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentTaskScheduleSchema } from "./agent-tasks";
 
 /*
  * Workflows over the workspace: templates, button actions, event triggers.
@@ -244,3 +245,343 @@ export const buttonRunResponseSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("agent"), run: buttonAgentRunSchema }),
 ]);
 export type ButtonRunResponse = z.infer<typeof buttonRunResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Domain events and triggers
+// ---------------------------------------------------------------------------
+
+export type EventFieldType = "string" | "number" | "boolean";
+
+/**
+ * Every domain event web emits and the fields of its payload. A trigger's
+ * filter names these fields, typed, and its actions read them as
+ * `{{event.<field>}}`.
+ */
+export const DOMAIN_EVENT_FIELDS = {
+  "kanban.card.created": {
+    cardId: "string",
+    boardId: "string",
+    boardTitle: "string",
+    columnId: "string",
+    columnTitle: "string",
+    title: "string",
+    done: "boolean",
+  },
+  "kanban.card.moved": {
+    cardId: "string",
+    boardId: "string",
+    boardTitle: "string",
+    title: "string",
+    fromColumnId: "string",
+    fromColumnTitle: "string",
+    toColumnId: "string",
+    toColumnTitle: "string",
+    done: "boolean",
+  },
+  "calendar.event.created": {
+    eventId: "string",
+    title: "string",
+    date: "string",
+    allDay: "boolean",
+  },
+  "email.triaged": {
+    triageId: "string",
+    emailId: "string",
+    subject: "string",
+    from: "string",
+    category: "string",
+    confidence: "number",
+    reviewRequired: "boolean",
+  },
+  "finance.payout.landed": {
+    ruleId: "string",
+    ruleName: "string",
+    ledgerId: "string",
+    amountMinor: "number",
+    currency: "string",
+    date: "string",
+    method: "string",
+  },
+  "voice-note.transcribed": {
+    voiceNoteId: "string",
+    title: "string",
+    durationMs: "number",
+    characters: "number",
+  },
+  "workspace.page.created": {
+    pageId: "string",
+    title: "string",
+    parentId: "string",
+    actor: "string",
+  },
+  "schedule.tick": {
+    triggerId: "string",
+    scheduledFor: "string",
+  },
+} as const satisfies Record<string, Record<string, EventFieldType>>;
+
+export type DomainEventType = keyof typeof DOMAIN_EVENT_FIELDS;
+export const DOMAIN_EVENT_TYPES = Object.keys(
+  DOMAIN_EVENT_FIELDS,
+) as DomainEventType[];
+export const domainEventTypeSchema = z.enum(
+  DOMAIN_EVENT_TYPES as [DomainEventType, ...DomainEventType[]],
+);
+
+type FieldValue<T extends EventFieldType> = T extends "number"
+  ? number
+  : T extends "boolean"
+    ? boolean
+    : string;
+export type DomainEventPayload<T extends DomainEventType> = {
+  [K in keyof (typeof DOMAIN_EVENT_FIELDS)[T]]: FieldValue<
+    (typeof DOMAIN_EVENT_FIELDS)[T][K] & EventFieldType
+  >;
+};
+export type DomainEvent = {
+  [T in DomainEventType]: { type: T; payload: DomainEventPayload<T> };
+}[DomainEventType];
+
+const fieldSchema = (type: EventFieldType) =>
+  type === "number"
+    ? z.number()
+    : type === "boolean"
+      ? z.boolean()
+      : z.string().max(2_000);
+
+function payloadSchema(type: DomainEventType) {
+  return z.object(
+    Object.fromEntries(
+      Object.entries(DOMAIN_EVENT_FIELDS[type]).map(([name, kind]) => [
+        name,
+        fieldSchema(kind),
+      ]),
+    ),
+  );
+}
+
+/** Validates an event's payload against its type's fields. */
+export function parseDomainEvent(value: {
+  type: string;
+  payload: unknown;
+}): DomainEvent | null {
+  const type = domainEventTypeSchema.safeParse(value.type);
+  if (!type.success) return null;
+  const payload = payloadSchema(type.data).safeParse(value.payload);
+  if (!payload.success) return null;
+  // The schema was built from this type's field table, so the payload has its shape.
+  const event = { type: type.data, payload: payload.data };
+  return isDomainEvent(event) ? event : null;
+}
+
+function isDomainEvent(event: {
+  type: DomainEventType;
+  payload: Record<string, unknown>;
+}): event is DomainEvent {
+  return Object.entries(DOMAIN_EVENT_FIELDS[event.type]).every(
+    ([name, kind]) => typeof event.payload[name] === kind,
+  );
+}
+
+export const TRIGGER_FILTER_OPS = [
+  "eq",
+  "neq",
+  "contains",
+  "not_contains",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+] as const;
+export const triggerFilterOpSchema = z.enum(TRIGGER_FILTER_OPS);
+export type TriggerFilterOp = z.infer<typeof triggerFilterOpSchema>;
+
+export const TRIGGER_OPS_BY_TYPE: Record<EventFieldType, TriggerFilterOp[]> = {
+  string: ["eq", "neq", "contains", "not_contains"],
+  number: ["eq", "neq", "gt", "gte", "lt", "lte"],
+  boolean: ["eq", "neq"],
+};
+
+export const triggerConditionSchema = z.object({
+  field: z.string().min(1).max(60),
+  op: triggerFilterOpSchema,
+  value: z.union([z.string().max(500), z.number(), z.boolean()]),
+});
+export type TriggerCondition = z.infer<typeof triggerConditionSchema>;
+
+export const TRIGGER_CONDITIONS_MAX = 10;
+/** Conditions ANDed; empty matches every event of the type. */
+export const triggerFilterSchema = z
+  .array(triggerConditionSchema)
+  .max(TRIGGER_CONDITIONS_MAX);
+export type TriggerFilter = z.infer<typeof triggerFilterSchema>;
+
+export const triggerActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("actions"),
+    actions: workflowActionsSchema.min(1),
+  }),
+  z.object({
+    kind: z.literal("agent"),
+    /** Run as an incognito background agent run with the event as context. */
+    prompt: z.string().trim().min(1).max(8_000),
+  }),
+]);
+export type TriggerAction = z.infer<typeof triggerActionSchema>;
+
+/** Consecutive failed firings after which a trigger turns itself off. */
+export const TRIGGER_FAILURES_TO_DISABLE = 5;
+/** How many actions deep one trigger may cause another to fire. */
+export const TRIGGER_DEPTH_MAX = 3;
+
+const triggerShape = {
+  name: z.string().trim().min(1).max(120),
+  enabled: z.boolean(),
+  event: domainEventTypeSchema,
+  filter: triggerFilterSchema,
+  /** Required for `schedule.tick`, refused for anything else. */
+  schedule: agentTaskScheduleSchema.nullable(),
+  action: triggerActionSchema,
+  /** Firings allowed per hourly window; past it an event is skipped, not queued. */
+  maxPerHour: z.number().int().min(1).max(60),
+};
+
+const triggerFieldsSchema = z.object({
+  ...triggerShape,
+  enabled: triggerShape.enabled.default(true),
+  filter: triggerShape.filter.default([]),
+  schedule: triggerShape.schedule.default(null),
+  maxPerHour: triggerShape.maxPerHour.default(10),
+});
+
+function checkTrigger(
+  value: {
+    event?: DomainEventType;
+    filter?: TriggerFilter;
+    schedule?: { cron: string; timeZone: string } | null;
+    action?: TriggerAction;
+  },
+  context: z.RefinementCtx,
+) {
+  if (value.event === undefined) return;
+  const fields: Record<string, EventFieldType> =
+    DOMAIN_EVENT_FIELDS[value.event];
+  for (const [index, condition] of (value.filter ?? []).entries()) {
+    const type = fields[condition.field];
+    if (!type) {
+      context.addIssue({
+        code: "custom",
+        path: ["filter", index, "field"],
+        message: `${value.event} has no field ${condition.field}`,
+      });
+      continue;
+    }
+    if (!TRIGGER_OPS_BY_TYPE[type].includes(condition.op)) {
+      context.addIssue({
+        code: "custom",
+        path: ["filter", index, "op"],
+        message: `${condition.op} does not apply to a ${type} field`,
+      });
+    }
+    if (typeof condition.value !== type) {
+      context.addIssue({
+        code: "custom",
+        path: ["filter", index, "value"],
+        message: `${condition.field} is a ${type}`,
+      });
+    }
+  }
+  if (value.schedule !== undefined) {
+    if (value.event === "schedule.tick" && !value.schedule) {
+      context.addIssue({
+        code: "custom",
+        path: ["schedule"],
+        message: "A schedule trigger needs a schedule",
+      });
+    }
+    if (value.event !== "schedule.tick" && value.schedule) {
+      context.addIssue({
+        code: "custom",
+        path: ["schedule"],
+        message: "Only a schedule trigger takes a schedule",
+      });
+    }
+  }
+  if (value.action?.kind === "actions") {
+    for (const [index, action] of value.action.actions.entries()) {
+      if (
+        action.kind === "insert-template" ||
+        ("pageId" in action && action.pageId === THIS_PAGE) ||
+        (action.kind === "create-page" && action.parentId === THIS_PAGE)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["action", "actions", index],
+          message: "A trigger has no page of its own",
+        });
+      }
+    }
+  }
+}
+
+export const triggerInputSchema = triggerFieldsSchema.superRefine(checkTrigger);
+export type TriggerInput = z.input<typeof triggerInputSchema>;
+
+/**
+ * A partial update, with no defaults: a field left out keeps its stored
+ * value. The whole trigger is re-checked once merged.
+ */
+export const triggerPatchSchema = z
+  .object(triggerShape)
+  .partial()
+  .superRefine(checkTrigger);
+export type TriggerPatch = z.input<typeof triggerPatchSchema>;
+
+export const triggerResultSchema = z.object({
+  at: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+  /** The agent run an agent trigger started. */
+  runId: z.string().optional(),
+  conversationId: z.string().optional(),
+});
+export type TriggerResult = z.infer<typeof triggerResultSchema>;
+
+export const workspaceTriggerSchema = triggerFieldsSchema.extend({
+  id: z.string(),
+  consecutiveFailures: z.number().int().min(0),
+  /** Why it turned itself off; cleared when re-enabled. */
+  disabledReason: z.string().nullable(),
+  lastFiredAt: z.string().nullable(),
+  lastResult: triggerResultSchema.nullable(),
+  nextRunAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type WorkspaceTrigger = z.infer<typeof workspaceTriggerSchema>;
+
+export const TRIGGER_FIRING_OUTCOMES = [
+  "fired",
+  "failed",
+  "skipped-own",
+  "skipped-depth",
+  "skipped-rate",
+] as const;
+export const triggerFiringSchema = z.object({
+  triggerId: z.string(),
+  outcome: z.enum(TRIGGER_FIRING_OUTCOMES),
+  error: z.string().optional(),
+});
+export type TriggerFiring = z.infer<typeof triggerFiringSchema>;
+
+/** A stored event as the trigger list shows it. */
+export const domainEventRecordSchema = z.object({
+  id: z.string(),
+  type: domainEventTypeSchema,
+  payload: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  at: z.string(),
+  depth: z.number().int().min(0),
+  triggerIds: z.array(z.string()),
+  firings: z.array(triggerFiringSchema),
+});
+export type DomainEventRecord = z.infer<typeof domainEventRecordSchema>;

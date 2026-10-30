@@ -1,13 +1,19 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import {
+  DOMAIN_EVENT_FIELDS,
   ENTITY_KINDS,
   entityKindSchema,
   entityRefSchema,
   pageMetaPatchSchema,
   RECORD_REFS_MAX,
+  TRIGGER_DEPTH_MAX,
+  TRIGGER_FAILURES_TO_DISABLE,
+  TRIGGER_OPS_BY_TYPE,
   templateFromBlocksSchema,
   templateInsertSchema,
   templateInstantiateSchema,
+  triggerInputSchema,
+  triggerPatchSchema,
   VIEW_FILTER_OPS_BY_TYPE,
   VIEW_SOURCES,
   viewConfigSchema,
@@ -38,6 +44,7 @@ const blockId = z
 const VIEW_ROWS_MAX = 50;
 const PAGES = "/api/admin/workspace/pages";
 const TEMPLATES = "/api/admin/workspace/templates";
+const TRIGGERS = "/api/admin/workspace/triggers";
 const template = (templateId: string, suffix: string) =>
   `${TEMPLATES}/${encodeURIComponent(templateId)}${suffix}`;
 const page = (pageId: string, suffix = "") =>
@@ -243,6 +250,58 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
         destructive: true,
         run: (body) =>
           api.web.post("/api/admin/workspace/sections/decision", body),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_workspace_triggers",
+    title: "Web: workspace triggers",
+    description: `Event triggers: when a domain event (a kanban card created or moved, a calendar event created, an email triaged, a payout landed, a voice note transcribed, a workspace page created, or a schedule tick) matches a trigger's filter, its action list runs (as trigger:<id>) or an incognito agent run starts with the event as context. Actions read event fields as {{event.<field>}}. A trigger never fires on what its own actions caused, nothing fires ${TRIGGER_DEPTH_MAX} firings deep, maxPerHour caps firings, and ${TRIGGER_FAILURES_TO_DISABLE} failures in a row turn it off. A schedule trigger (event schedule.tick with a cron) is how daily notes are made: a create-page action from a template.`,
+    actions: {
+      event_types: action({
+        description:
+          "Every event type, its payload fields and their types, and the filter operators per type",
+        readOnly: true,
+        run: async () =>
+          ok({ events: DOMAIN_EVENT_FIELDS, operators: TRIGGER_OPS_BY_TYPE }),
+      }),
+      list: action({
+        description:
+          "Every trigger: event, filter, action, enabled, failures, why it turned itself off, last result, next tick",
+        readOnly: true,
+        run: () => api.web.get(TRIGGERS),
+      }),
+      events: action({
+        description:
+          "Recent events, newest first, with what each trigger did with them (fired, failed, skipped-own, skipped-depth, skipped-rate); triggerId narrows to one trigger",
+        input: z.object({
+          triggerId: z.string().optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+        }),
+        readOnly: true,
+        run: (query) => api.web.get(`${TRIGGERS}/events`, query),
+      }),
+      create: action({
+        description:
+          "A trigger: name, event, filter [{field, op, value}] ANDed, action {kind:'actions', actions} or {kind:'agent', prompt}, schedule {cron, timeZone} only for schedule.tick, maxPerHour",
+        input: z.object({ trigger: triggerInputSchema }),
+        run: ({ trigger }) => api.web.post(TRIGGERS, trigger),
+      }),
+      update: action({
+        description:
+          "Changes fields of trigger id; enabled: true turns an auto-disabled trigger back on and clears its failures",
+        input: z.object({ id: z.string(), patch: triggerPatchSchema }),
+        idempotent: true,
+        run: ({ id, patch }) =>
+          api.web.patch(`${TRIGGERS}/${encodeURIComponent(id)}`, patch),
+      }),
+      delete: action({
+        description: "Deletes trigger id",
+        input: z.object({ id: z.string() }),
+        destructive: true,
+        run: ({ id }) =>
+          api.web.delete(`${TRIGGERS}/${encodeURIComponent(id)}`),
       }),
     },
   });

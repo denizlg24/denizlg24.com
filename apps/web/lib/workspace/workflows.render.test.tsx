@@ -299,3 +299,92 @@ describe("agent section", () => {
     await view.unmount();
   });
 });
+
+describe("triggers sheet", () => {
+  test("lists triggers with their state and recent events; the switch patches", async () => {
+    const trigger = (
+      id: string,
+      name: string,
+      extra: Record<string, unknown>,
+    ) => ({
+      id,
+      name,
+      enabled: true,
+      event: "kanban.card.moved",
+      filter: [{ field: "done", op: "eq", value: true }],
+      schedule: null,
+      action: {
+        kind: "actions",
+        actions: [
+          { kind: "append-blocks", pageId: "journal", markdown: "- x" },
+        ],
+      },
+      maxPerHour: 10,
+      consecutiveFailures: 0,
+      disabledReason: null,
+      lastFiredAt: "2026-10-30T07:00:00.000Z",
+      lastResult: { at: "2026-10-30T07:00:00.000Z", ok: true },
+      nextRunAt: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+      ...extra,
+    });
+    const view = await mount(
+      [],
+      (call) => {
+        if (call.path === "workspace/triggers" && call.method === "GET") {
+          return {
+            triggers: [
+              trigger("t1", "Done → journal", {}),
+              trigger("t2", "Broken", {
+                enabled: false,
+                consecutiveFailures: 5,
+                disabledReason: "5 failures in a row: 1. No such column",
+              }),
+            ],
+          };
+        }
+        if (call.path === "workspace/triggers/events") {
+          return {
+            events: [
+              {
+                id: "e1",
+                type: "kanban.card.moved",
+                payload: { title: "Ship" },
+                at: "2026-10-30T07:00:00.000Z",
+                depth: 0,
+                triggerIds: [],
+                firings: [{ triggerId: "t1", outcome: "fired" }],
+              },
+            ],
+          };
+        }
+        if (call.method === "PATCH") return { trigger: trigger("t1", "x", {}) };
+        return null;
+      },
+      async () => {
+        const { TriggersSheet } = await import(
+          "@repo/admin/workspace/workflows/triggers-sheet"
+        );
+        return <TriggersSheet open onOpenChange={() => {}} />;
+      },
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Done → journal");
+    expect(text).toContain("5 failures in a row");
+    expect(text).toContain("Card moved");
+    expect(text).toContain("Done → journal: fired");
+    const toggle = document.body.querySelector(
+      '[aria-label="Done → journal on"]',
+    );
+    if (!(toggle instanceof HTMLElement)) throw new Error("no switch");
+    await view.act(async () => {
+      toggle.click();
+      await new Promise((r) => setTimeout(r, 100));
+    });
+    const patch = view.calls.find((c) => c.method === "PATCH");
+    expect(patch?.path).toBe("workspace/triggers/t1");
+    expect(patch?.body).toEqual({ enabled: false });
+    await view.unmount();
+  });
+});

@@ -409,6 +409,67 @@ describe("web_workspace_templates", () => {
     );
   });
 
+  test("triggers: list, events, create, update, delete", async () => {
+    const TRIGGERS = "/api/admin/workspace/triggers";
+    await expectCall(
+      "web_workspace_triggers",
+      { action: "list" },
+      "GET",
+      TRIGGERS,
+    );
+    await expectCall(
+      "web_workspace_triggers",
+      { action: "events", triggerId: "t1", limit: 5 },
+      "GET",
+      `${TRIGGERS}/events?triggerId=t1&limit=5`,
+    );
+    const trigger = {
+      name: "Done → log",
+      event: "kanban.card.moved",
+      filter: [{ field: "done", op: "eq", value: true }],
+      action: {
+        kind: "actions",
+        actions: [
+          {
+            kind: "append-blocks",
+            pageId: "journal",
+            markdown: "- {{event.title}}",
+          },
+        ],
+      },
+    };
+    await expectCall(
+      "web_workspace_triggers",
+      { action: "create", trigger },
+      "POST",
+      TRIGGERS,
+    );
+    const bad = await client.call("web_workspace_triggers", {
+      action: "create",
+      trigger: { ...trigger, filter: [{ field: "nope", op: "eq", value: 1 }] },
+    });
+    expect(bad.isError).toBe(true);
+    await expectCall(
+      "web_workspace_triggers",
+      { action: "update", id: "t1", patch: { enabled: false } },
+      "PATCH",
+      `${TRIGGERS}/t1`,
+      { enabled: false },
+    );
+    await expectCall(
+      "web_workspace_triggers",
+      { action: "delete", id: "t1" },
+      "DELETE",
+      `${TRIGGERS}/t1`,
+    );
+    const types = await client.call("web_workspace_triggers", {
+      action: "event_types",
+    });
+    expect(JSON.stringify(types.structuredContent)).toContain(
+      "finance.payout.landed",
+    );
+  });
+
   test("page lists leave templates out unless asked", async () => {
     const pages = {
       pages: [

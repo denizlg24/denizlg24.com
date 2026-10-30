@@ -1,15 +1,46 @@
-import type { BackgroundAgentPageContext } from "@repo/schemas";
+import type { BackgroundAgentPageContext, Block } from "@repo/schemas";
+import { walkBlocks } from "@repo/utils/workspace-tree";
 import { connectDB } from "@/lib/mongodb";
+import { emitDomainEvent } from "@/lib/workflows/events";
 import { mongoWorkspaceRepo } from "./mongo-repo";
-import { scheduleSectionReconcile } from "./sections";
 import { createWorkspaceService } from "./service";
+
+function hasSection(blocks: readonly Block[]): boolean {
+  let found = false;
+  walkBlocks(blocks, (block) => {
+    if (block.type === "section") found = true;
+  });
+  return found;
+}
 
 /**
  * The process's one service: it caches that the migration already ran.
- * Every write that lands keeps agent sections' tasks in step with their blocks.
+ * Every write that lands keeps agent sections' tasks in step with their
+ * blocks, and a new page is a domain event.
  */
 export const workspaceService = createWorkspaceService(mongoWorkspaceRepo, {
-  onChange: (change) => scheduleSectionReconcile(change),
+  onChange: (change) => {
+    // Loaded on use: sections reach the agent task machinery, which reaches back here.
+    if (
+      hasSection(change.page.blocks) ||
+      (change.previous && hasSection(change.previous.blocks))
+    ) {
+      void import("./sections").then((sections) =>
+        sections.scheduleSectionReconcile(change),
+      );
+    }
+    if (change.kind === "create" && !change.page.template) {
+      void emitDomainEvent({
+        type: "workspace.page.created",
+        payload: {
+          pageId: change.page.id,
+          title: change.page.title,
+          parentId: change.page.parentId ?? "",
+          actor: change.caller.actor,
+        },
+      });
+    }
+  },
 });
 
 /**

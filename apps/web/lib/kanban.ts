@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { getAppTimeZone, inTz } from "@/lib/timezone";
+import { emitDomainEvent } from "@/lib/workflows/events";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import { Course } from "@/models/Course";
 import { type ILeanKanbanBoard, KanbanBoard } from "@/models/KanbanBoard";
@@ -14,6 +15,54 @@ import { Note } from "@/models/Note";
 import { Person } from "@/models/Person";
 
 export type CardEntityType = "calendar" | "note" | "person" | "course";
+
+async function columnFacts(boardId: unknown, columnIds: unknown[]) {
+  const ids = columnIds
+    .map(String)
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  const [board, columns] = await Promise.all([
+    KanbanBoard.findById(String(boardId)).select({ title: 1 }).lean(),
+    KanbanColumn.find({ _id: { $in: ids } })
+      .select({ title: 1, isDoneColumn: 1 })
+      .lean(),
+  ]);
+  const byId = new Map(columns.map((column) => [String(column._id), column]));
+  return {
+    boardTitle: board?.title ?? "",
+    column: (id: unknown) => {
+      const column = byId.get(String(id));
+      return {
+        title: column?.title ?? "",
+        done: column?.isDoneColumn === true,
+      };
+    },
+  };
+}
+
+/** A card changed column: tell the event bus, done column included. */
+async function emitCardMoved(
+  card: { _id: unknown; boardId: unknown; title: string },
+  fromColumnId: unknown,
+  toColumnId: unknown,
+) {
+  const facts = await columnFacts(card.boardId, [fromColumnId, toColumnId]);
+  const to = facts.column(toColumnId);
+  await emitDomainEvent({
+    type: "kanban.card.moved",
+    payload: {
+      cardId: String(card._id),
+      boardId: String(card.boardId),
+      boardTitle: facts.boardTitle,
+      title: card.title,
+      fromColumnId: String(fromColumnId),
+      fromColumnTitle: facts.column(fromColumnId).title,
+      toColumnId: String(toColumnId),
+      toColumnTitle: to.title,
+      done: to.done,
+    },
+  });
+}
 
 const CARD_ENTITY_FIELD_MAP = {
   calendar: "calendarEventIds",
@@ -277,6 +326,20 @@ export async function createCard(
     .lean();
   const order = lastCard ? lastCard.order + 1 : 0;
   const card = await KanbanCard.create({ boardId, columnId, order, ...data });
+  const facts = await columnFacts(boardId, [columnId]);
+  const column = facts.column(columnId);
+  await emitDomainEvent({
+    type: "kanban.card.created",
+    payload: {
+      cardId: card._id.toString(),
+      boardId: String(boardId),
+      boardTitle: facts.boardTitle,
+      columnId: String(columnId),
+      columnTitle: column.title,
+      title: card.title,
+      done: column.done,
+    },
+  });
   return serializeCard(card.toObject());
 }
 
@@ -300,11 +363,17 @@ export async function updateCard(
   }>,
 ) {
   await connectDB();
+  const before = data.columnId
+    ? await KanbanCard.findById(id).select({ columnId: 1 }).lean()
+    : null;
   const card = await KanbanCard.findByIdAndUpdate(id, data, {
     returnDocument: "after",
     runValidators: true,
   }).lean();
   if (!card) return null;
+  if (before && String(before.columnId) !== String(card.columnId)) {
+    await emitCardMoved(card, before.columnId, card.columnId);
+  }
   return serializeCard(card);
 }
 
@@ -391,6 +460,11 @@ export async function reorderCards(
   items: { _id: string; columnId: string; order: number }[],
 ) {
   await connectDB();
+  const before = await KanbanCard.find({
+    _id: { $in: items.map((item) => new mongoose.Types.ObjectId(item._id)) },
+  })
+    .select({ columnId: 1, boardId: 1, title: 1 })
+    .lean();
   const bulkOps = items.map((item) => ({
     updateOne: {
       filter: { _id: new mongoose.Types.ObjectId(item._id) },
@@ -403,6 +477,12 @@ export async function reorderCards(
     },
   }));
   await KanbanCard.bulkWrite(bulkOps);
+  for (const card of before) {
+    const item = items.find((candidate) => candidate._id === String(card._id));
+    if (item && item.columnId !== String(card.columnId)) {
+      await emitCardMoved(card, card.columnId, item.columnId);
+    }
+  }
   return true;
 }
 

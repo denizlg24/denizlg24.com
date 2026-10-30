@@ -581,13 +581,14 @@ const ACTOR_ID = "[A-Za-z0-9_.-]{1,96}";
  * Who made a change. `owner` is a signed-in session (web, desktop, an API
  * key); `mcp:<clientId>` a service client with no finer attribution;
  * `conversation:` and `task-run:` the in-app agent, forwarded by the MCP
- * server; `migration` the server turning a v1 grid page into a flow.
+ * server; `trigger:<id>` an event trigger's action list; `migration` the
+ * server turning a v1 grid page into a flow.
  */
 export const workspaceActorSchema = z
   .string()
   .regex(
     new RegExp(
-      `^(owner|migration|conversation:${ACTOR_ID}|task-run:${ACTOR_ID}|mcp:${ACTOR_ID})$`,
+      `^(owner|migration|conversation:${ACTOR_ID}|task-run:${ACTOR_ID}|trigger:${ACTOR_ID}|mcp:${ACTOR_ID})$`,
     ),
   );
 export type WorkspaceActor = z.infer<typeof workspaceActorSchema>;
