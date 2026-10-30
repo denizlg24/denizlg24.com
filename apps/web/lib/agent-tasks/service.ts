@@ -17,7 +17,11 @@ export async function loadAgentTaskOverview() {
   await connectDB();
   const [tasks, runs, activeTasks, scheduledTasks, learnedProcedureIds] =
     await Promise.all([
-      AgentTask.find({ status: { $ne: "archived" } })
+      // A section's task is edited through its block, never in the task list.
+      AgentTask.find({
+        status: { $ne: "archived" },
+        workspaceSection: { $exists: false },
+      })
         .sort({ status: 1, updatedAt: -1 })
         .limit(100),
       // The list never shows a transcript; a hundred of them would be the

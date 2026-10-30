@@ -57,6 +57,7 @@ import {
   CalloutView,
   FlowPageContext,
   MentionView,
+  SectionView,
   ToggleView,
 } from "./node-views";
 
@@ -212,6 +213,7 @@ const VIEWS: FlowViews = {
   callout: ReactNodeViewRenderer(CalloutView),
   atomBlock: ReactNodeViewRenderer(AtomBlockView),
   mention: ReactNodeViewRenderer(MentionView, { as: "span" }),
+  section: ReactNodeViewRenderer(SectionView),
 };
 
 export function FlowEditor({

@@ -1,10 +1,16 @@
 import type { BackgroundAgentPageContext } from "@repo/schemas";
 import { connectDB } from "@/lib/mongodb";
 import { mongoWorkspaceRepo } from "./mongo-repo";
+import { scheduleSectionReconcile } from "./sections";
 import { createWorkspaceService } from "./service";
 
-/** The process's one service: it caches that the migration already ran. */
-export const workspaceService = createWorkspaceService(mongoWorkspaceRepo);
+/**
+ * The process's one service: it caches that the migration already ran.
+ * Every write that lands keeps agent sections' tasks in step with their blocks.
+ */
+export const workspaceService = createWorkspaceService(mongoWorkspaceRepo, {
+  onChange: (change) => scheduleSectionReconcile(change),
+});
 
 /**
  * The workspace page a turn was sent from, read fresh so the agent edits

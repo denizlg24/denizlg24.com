@@ -163,6 +163,7 @@ const CONTAINER_CHOICES: BlockType[] = [
   "callout",
   "quote",
   "columns",
+  "section",
 ];
 
 function genChildren(r: Rng, parent: BlockType, depth: number): Block[] {
@@ -236,6 +237,20 @@ export function genBlock(
         text: genRichText(r),
         emoji: r.pick(["💡", "⚠️", "🧭"]),
         color: r.pick(CALLOUT_COLORS),
+        children,
+      };
+    case "section":
+      return {
+        id,
+        type,
+        title: genText(r, false),
+        prompt: genText(r, true),
+        schedule:
+          r.next() < 0.5
+            ? null
+            : { cron: "0 7 * * *", timeZone: "Europe/Copenhagen" },
+        sources: r.next() < 0.5 ? [] : ["entity:note:n1", "view:home:v1"],
+        pinned: r.next() < 0.3,
         children,
       };
     case "columns":

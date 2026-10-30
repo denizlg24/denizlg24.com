@@ -385,6 +385,30 @@ describe("web_workspace_templates", () => {
     );
   });
 
+  test("agent sections: state, run now, decide", async () => {
+    const SECTIONS = "/api/admin/workspace/sections";
+    await expectCall(
+      "web_workspace_sections",
+      { action: "get", pageId: "home", blockId: "s1" },
+      "GET",
+      `${SECTIONS}?pageId=home&blockId=s1`,
+    );
+    await expectCall(
+      "web_workspace_sections",
+      { action: "run", pageId: "home", blockId: "s1" },
+      "POST",
+      `${SECTIONS}/run`,
+      { pageId: "home", blockId: "s1" },
+    );
+    await expectCall(
+      "web_workspace_sections",
+      { action: "decide", pageId: "home", blockId: "s1", decision: "reject" },
+      "POST",
+      `${SECTIONS}/decision`,
+      { pageId: "home", blockId: "s1", decision: "reject" },
+    );
+  });
+
   test("page lists leave templates out unless asked", async () => {
     const pages = {
       pages: [

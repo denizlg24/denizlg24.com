@@ -278,4 +278,52 @@ describe("workflow blocks", () => {
       agentPrompt: "Summarise",
     });
   });
+
+  test("an agent section is a directive: config in its attributes, children in its body", () => {
+    const section: Block = {
+      id: "s",
+      type: "section",
+      title: "Today",
+      prompt: 'Summarise "today" } {{date}}\nin > three lines',
+      schedule: { cron: "0 7 * * *", timeZone: "Europe/Copenhagen" },
+      sources: ["view:home:v1", "entity:note:n1"],
+      pinned: true,
+      children: [
+        {
+          id: "c1",
+          type: "bullet",
+          text: [{ type: "text", text: "one" }],
+          children: [],
+        },
+        {
+          id: "c2",
+          type: "callout",
+          text: [],
+          emoji: "💡",
+          color: "default",
+          children: [],
+        },
+      ],
+    };
+    const markdown = blocksToMarkdown([section]);
+    expect(markdown.split("\n")[0]).toStartWith(
+      ':::section{id="s" title="Today" prompt=',
+    );
+    expect(markdownToBlocks(markdown, { newId })).toEqual([section]);
+    const [bare] = markdownToBlocks(":::section{}\n- x\n:::", { newId });
+    expect(bare).toMatchObject({
+      type: "section",
+      prompt: "",
+      schedule: null,
+      sources: [],
+      pinned: false,
+      children: [{ type: "bullet" }],
+    });
+  });
+
+  test("a section inside a section is refused", () => {
+    expect(() =>
+      markdownToBlocks(":::section{}\n:::section{}\n:::\n:::", { newId }),
+    ).toThrow();
+  });
 });

@@ -143,6 +143,32 @@ describe("flow → v1 for desktop 3.0.0", () => {
     expect(legacy ? legacyBlockToFlow(legacy, newId) : []).toEqual([button]);
   });
 
+  test("an agent section becomes one v1 text block holding its directive and children", () => {
+    const section: Block = {
+      id: "sec",
+      type: "section",
+      title: "Today",
+      prompt: "Summarise",
+      schedule: { cron: "0 7 * * *", timeZone: "UTC" },
+      sources: [],
+      pinned: false,
+      children: [
+        {
+          id: "c",
+          type: "paragraph",
+          text: [{ type: "text", text: "body" }],
+        },
+      ],
+    };
+    const legacy = downgradeBlocks([section]);
+    expect(legacy).toHaveLength(1);
+    const [only] = legacy;
+    expect(only?.type === "text" && only.markdown).toStartWith(
+      ':::section{id="sec"',
+    );
+    expect(only ? legacyBlockToFlow(only, newId) : []).toEqual([section]);
+  });
+
   test("columns flatten into spans, ids kept", () => {
     const legacy = downgradeBlocks([
       {

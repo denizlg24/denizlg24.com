@@ -220,3 +220,82 @@ describe("button block", () => {
     await view.unmount();
   });
 });
+
+describe("agent section", () => {
+  test("shows its title, last run, children and a proposal to accept", async () => {
+    const state = {
+      pageId: "p1",
+      blockId: "s1",
+      taskId: "t1",
+      nextRunAt: null,
+      lastRun: {
+        runId: "r1",
+        status: "completed",
+        at: "2026-10-30T07:00:00.000Z",
+        outcome: "proposed",
+      },
+      proposal: {
+        runId: "r1",
+        at: "2026-10-30T07:00:00.000Z",
+        blocks: [
+          {
+            id: "pp",
+            type: "paragraph",
+            text: [{ type: "text", text: "proposed text" }],
+          },
+        ],
+      },
+      edited: true,
+    };
+    const view = await mount(
+      [
+        page("p1", [
+          {
+            id: "s1",
+            type: "section",
+            title: "Today",
+            prompt: "Summarise",
+            schedule: null,
+            sources: [],
+            pinned: true,
+            children: [
+              {
+                id: "c1",
+                type: "paragraph",
+                text: [{ type: "text", text: "what the owner wrote" }],
+              },
+            ],
+          },
+        ]),
+      ],
+      (call) => {
+        if (call.path === "workspace/sections" && call.method === "GET") {
+          return { state };
+        }
+        if (call.path === "workspace/sections/decision") {
+          return { state: { ...state, proposal: null, edited: false } };
+        }
+        return null;
+      },
+    );
+    const { host, calls, act } = view;
+    expect(host.textContent).toContain("Today");
+    expect(host.textContent).toContain("proposed");
+    expect(host.textContent).toContain("what the owner wrote");
+    expect(host.querySelector('[aria-label="Pinned"]')).not.toBeNull();
+    await act(async () => {
+      buttonNamed(host, "Accept").click();
+      await new Promise((r) => setTimeout(r, 100));
+    });
+    const decision = calls.find(
+      (c) => c.path === "workspace/sections/decision",
+    );
+    expect(decision?.body).toEqual({
+      pageId: "p1",
+      blockId: "s1",
+      decision: "accept",
+    });
+    expect(host.textContent).not.toContain("Accept");
+    await view.unmount();
+  });
+});

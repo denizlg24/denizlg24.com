@@ -23,8 +23,9 @@ import {
  * say: `## Week <!-- id="a1" -->`. A line holding only a marker is an empty
  * paragraph. Inline text is `runsToMarkdown`'s, one line per block.
  *
- * Toggles are `<details>` with a `<summary>`; callouts, columns and each
- * column are fenced directives whose body is their children:
+ * Toggles are `<details>` with a `<summary>`; callouts, columns, each
+ * column and agent sections are fenced directives whose body is their
+ * children (a section's config rides in its attributes):
  *
  *   :::callout{id="c1" emoji="💡" color="gray"} Callout text
  *   - a child
@@ -245,6 +246,17 @@ function renderBlock(block: Block, ordinal: number): string {
         return genericDirective(block);
       }
       return `$$ ${marker(id)}\n${block.expression}\n$$`;
+    case "section": {
+      const head = directive("section", {
+        ...id,
+        ...(block.title ? { title: block.title } : {}),
+        ...(block.prompt ? { prompt: block.prompt } : {}),
+        ...(block.schedule ? { schedule: block.schedule } : {}),
+        ...(block.sources.length > 0 ? { sources: block.sources } : {}),
+        ...(block.pinned ? { pinned: true } : {}),
+      });
+      return `${head}${renderChildren(block.children)}\n${DIRECTIVE_CLOSE}`;
+    }
     case "columns": {
       const columns = block.children
         .map(
@@ -735,6 +747,21 @@ class Parser {
           );
         }
         return this.make({ id, type: "columns", children: columns }, lineNo);
+      }
+      case "section": {
+        const config = Object.fromEntries(
+          ["title", "prompt", "schedule", "sources", "pinned"].flatMap((key) =>
+            key in attrs ? [[key, attrs[key]]] : [],
+          ),
+        );
+        const children = this.parse(inner, offset);
+        if (children.some((child) => child.type === "section")) {
+          throw new WorkspaceMarkdownError(
+            lineNo,
+            "A :::section directive cannot hold another section",
+          );
+        }
+        return this.make({ ...config, id, type: "section", children }, lineNo);
       }
       case "column": {
         const width = typeof attrs.width === "number" ? attrs.width : 0.5;

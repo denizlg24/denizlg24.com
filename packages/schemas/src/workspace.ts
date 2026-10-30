@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentTaskScheduleSchema } from "./agent-tasks";
 import {
   ENTITY_KINDS,
   type EntityKind,
@@ -267,6 +268,37 @@ const buttonSchema = z.object({
   actions: workflowActionsSchema.default([]),
   agentPrompt: z.string().max(8_000).default(""),
 });
+/** What an agent section may read: a record (a page reads as its markdown) or a view block's rows. */
+export const sectionSourceSchema = z.union([
+  entityRefSchema,
+  z
+    .string()
+    .regex(/^view:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}$/)
+    .describe("view:<pageId>:<blockId>, a view block's rows"),
+]);
+export type SectionSource = z.infer<typeof sectionSourceSchema>;
+export const SECTION_SOURCES_MAX = 10;
+/** Blocks one run may write into a section, nested ones counted. */
+export const SECTION_BLOCKS_MAX = 60;
+
+/**
+ * Children an agent task writes. Each run replaces them through ops by the
+ * task run, unless the section is pinned or someone edited inside it since
+ * the last run: then the run leaves a proposal to accept or reject.
+ */
+const sectionSchema = z.object({
+  id: z.string().min(1).max(64),
+  type: z.literal("section"),
+  title: z.string().max(200).default(""),
+  prompt: z.string().max(8_000).default(""),
+  /** Null runs only on demand. */
+  schedule: agentTaskScheduleSchema.nullable().default(null),
+  sources: z.array(sectionSourceSchema).max(SECTION_SOURCES_MAX).default([]),
+  pinned: z.boolean().default(false),
+  get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
+    return z.array(blockSchema).default([]);
+  },
+});
 /** A share of its row: the widths of a `columns` block's columns are normalised to sum to 1. */
 const columnSchema = z.object({
   id: z.string().min(1).max(64),
@@ -306,6 +338,7 @@ export const blockSchema = z.discriminatedUnion("type", [
   recordSchema,
   viewSchema,
   buttonSchema,
+  sectionSchema,
   columnsSchema,
   columnSchema,
   z.object({
@@ -359,6 +392,7 @@ export const CONTAINER_TYPES = [
   "quote",
   "columns",
   "column",
+  "section",
 ] as const satisfies readonly ContainerBlock["type"][];
 
 export const TEXT_TYPES = [
@@ -806,3 +840,50 @@ export const HOME_PAGE_ID = "home";
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 420;
 export const SIDEBAR_DEFAULT_WIDTH = 248;
+
+// ---------------------------------------------------------------------------
+// Agent sections: what a section block's runs left behind.
+// ---------------------------------------------------------------------------
+
+export const SECTION_OUTCOMES = [
+  "written",
+  "proposed",
+  "unchanged",
+  "failed",
+] as const;
+export const sectionOutcomeSchema = z.enum(SECTION_OUTCOMES);
+export type SectionOutcome = z.infer<typeof sectionOutcomeSchema>;
+
+export const sectionRunSchema = z.object({
+  runId: z.string(),
+  status: z.enum(["queued", "running", "completed", "failed"]),
+  at: z.string(),
+  outcome: sectionOutcomeSchema.optional(),
+  error: z.string().optional(),
+});
+export type SectionRun = z.infer<typeof sectionRunSchema>;
+
+export const sectionProposalSchema = z.object({
+  runId: z.string(),
+  at: z.string(),
+  blocks: z.array(blockSchema),
+});
+export type SectionProposal = z.infer<typeof sectionProposalSchema>;
+
+export const sectionStateSchema = z.object({
+  pageId: z.string(),
+  blockId: z.string(),
+  /** The agent task that runs it; null until the section has a prompt. */
+  taskId: z.string().nullable(),
+  nextRunAt: z.string().nullable(),
+  lastRun: sectionRunSchema.nullable(),
+  proposal: sectionProposalSchema.nullable(),
+  /** Its children differ from what the last run wrote: the next run proposes. */
+  edited: z.boolean(),
+});
+export type SectionState = z.infer<typeof sectionStateSchema>;
+
+export const sectionDecisionSchema = z.object({
+  decision: z.enum(["accept", "reject"]),
+});
+export type SectionDecision = z.infer<typeof sectionDecisionSchema>;

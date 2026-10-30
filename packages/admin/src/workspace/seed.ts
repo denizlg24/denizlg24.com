@@ -79,6 +79,17 @@ export function createBlock(type: BlockType): Block {
       return { id, type, sections: [] };
     case "record":
       return { id, type, ref: "", mode: "card" };
+    case "section":
+      return {
+        id,
+        type,
+        title: "",
+        prompt: "",
+        schedule: null,
+        sources: [],
+        pinned: false,
+        children: [],
+      };
     case "button":
       return {
         id,

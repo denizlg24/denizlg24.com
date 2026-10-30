@@ -52,6 +52,8 @@ export function canContain(
   if (parent === null) return true;
   if (parent === "columns") return false;
   if (parent === "column" && child === "columns") return false;
+  // A section's children are rewritten by its runs; another inside would be too.
+  if (parent === "section" && child === "section") return false;
   return isContainerType(parent);
 }
 

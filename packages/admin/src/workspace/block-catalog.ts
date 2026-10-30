@@ -36,6 +36,7 @@ import {
   Repeat2,
   Rows3,
   Sigma,
+  Sparkles,
   SquareArrowOutUpRight,
   Sun,
   Table,
@@ -167,6 +168,12 @@ export const BLOCK_CATALOG: Record<BlockType, BlockMeta> = {
     icon: Repeat2,
     category: "Layout",
     keywords: ["mirror", "reference", "embed", "transclude"],
+  },
+  section: {
+    label: "Agent section",
+    icon: Sparkles,
+    category: "Layout",
+    keywords: ["agent", "ai", "generated", "summary", "schedule", "workflow"],
   },
   button: {
     label: "Button",

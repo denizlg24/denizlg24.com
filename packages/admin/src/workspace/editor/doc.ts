@@ -32,7 +32,8 @@ import { newId } from "../seed";
  * children after it. Code excludes every other mark in the editor, so a code
  * run keeps none here either. Anything with no text to edit (widgets, media,
  * tables, synced blocks…) is one `atomBlock` node with the block's fields in
- * `attrs.data`.
+ * `attrs.data`. An agent section is a `section` node: its config in
+ * `attrs.data`, its children as content.
  */
 
 const LIST_WRAPPER: Partial<Record<BlockType, string>> = {
@@ -210,6 +211,14 @@ function blockNode(block: Block): JSONContent {
         attrs: { id: block.id, width: block.width },
         content: atLeastOne(blocksToNodes(block.children)),
       };
+    case "section": {
+      const { id: _id, type: _type, children, ...config } = block;
+      return {
+        type: "section",
+        attrs: { id: block.id, data: config },
+        content: atLeastOne(blocksToNodes(children)),
+      };
+    }
     default:
       return {
         type: "atomBlock",
@@ -374,6 +383,16 @@ function nodeToBlocks(node: JSONContent): Block[] {
           }),
         },
       ];
+    case "section": {
+      const data = node.attrs?.data;
+      const parsed = blockSchema.safeParse({
+        ...(typeof data === "object" && data !== null ? data : {}),
+        id: idOf(node),
+        type: "section",
+        children: withoutFiller(nodesToBlocks(node.content ?? [])),
+      });
+      return parsed.success ? [parsed.data] : [];
+    }
     case "atomBlock": {
       const data = node.attrs?.data;
       const parsed = blockSchema.safeParse({

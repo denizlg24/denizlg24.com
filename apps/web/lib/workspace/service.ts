@@ -435,9 +435,20 @@ export function compatMergeOps(
   return ops;
 }
 
+/** A page write that landed, for whatever follows writes (agent sections, domain events). */
+export interface WorkspaceChange {
+  page: StoredPage;
+  /** The page before the write; null when it was just created. */
+  previous: StoredPage | null;
+  caller: WorkspaceCaller;
+  kind: WorkspaceRevisionKind;
+}
+
 export interface WorkspaceServiceOptions {
   now?: () => Date;
   newId?: () => string;
+  /** Called after each write lands; must not throw or block on slow work. */
+  onChange?: (change: WorkspaceChange) => void;
 }
 
 export type WorkspaceService = ReturnType<typeof createWorkspaceService>;
@@ -581,7 +592,16 @@ export function createWorkspaceService(
         snapshot || next.rev % SNAPSHOT_EVERY === 0 ? pageOf(next) : null,
       legacy: null,
     });
+    notify({ page: next, previous: stored, caller, kind });
     return next;
+  }
+
+  function notify(change: WorkspaceChange) {
+    try {
+      options.onChange?.(change);
+    } catch (error) {
+      console.error("Workspace change listener failed:", error);
+    }
   }
 
   /** Re-reads and retries until a compare-and-set lands. */
@@ -853,6 +873,7 @@ export function createWorkspaceService(
         snapshot: page,
         legacy: null,
       });
+      notify({ page: stored, previous: null, caller, kind: "create" });
       return docOf(stored);
     },
 
@@ -1134,6 +1155,59 @@ export function createWorkspaceService(
               pageOf(stored),
               insertSequence(blocks, place.parentId, place.after),
             ),
+            caller,
+            "ops",
+          );
+        }),
+      );
+    },
+
+    /**
+     * Replaces the children of container `parentId` with `blocks`, as one
+     * revision. With `expected`, refuses (409 `EDITED`) when the children
+     * are no longer exactly those — so a writer that decided on one version
+     * never overwrites another.
+     */
+    async replaceChildren(
+      pageId: string,
+      parentId: string,
+      blocks: readonly Block[],
+      caller: WorkspaceCaller,
+      expected?: readonly Block[],
+    ): Promise<WorkspacePageDoc> {
+      return docOf(
+        await retrying(async () => {
+          const stored = await load(pageId);
+          assertWritable(stored, caller);
+          const found = findBlock(stored.blocks, parentId);
+          if (!found) {
+            throw new WorkspaceError(
+              404,
+              "NO_BLOCK",
+              `No block ${parentId} on page ${pageId}`,
+            );
+          }
+          const children = childrenOf(found.block);
+          if (expected !== undefined && !deepEqual(children, expected)) {
+            throw new WorkspaceError(
+              409,
+              "EDITED",
+              `Block ${parentId} changed since it was read`,
+            );
+          }
+          const ops: WorkspaceAppliedOp[] = [
+            ...children.map(
+              (child): WorkspaceAppliedOp => ({
+                op: "delete",
+                id: child.id,
+              }),
+            ),
+            ...insertSequence(blocks, parentId, undefined),
+          ];
+          if (ops.length === 0) return stored;
+          return commit(
+            stored,
+            applyStrict(pageOf(stored), ops),
             caller,
             "ops",
           );

@@ -40,6 +40,7 @@ export const BLOCK_NODE_TYPES = [
   "horizontalRule",
   "columns",
   "column",
+  "section",
   "atomBlock",
 ];
 
@@ -66,6 +67,7 @@ export interface FlowViews {
   callout: NodeViewRenderer;
   atomBlock: NodeViewRenderer;
   mention: NodeViewRenderer;
+  section: NodeViewRenderer;
 }
 
 const Toggle = Node.create<{ views: FlowViews | null }>({
@@ -152,6 +154,26 @@ const Column = Node.create({
     }),
     0,
   ],
+});
+
+/** An agent section: config in `data`, children as content its runs rewrite. */
+const Section = Node.create<{ views: FlowViews | null }>({
+  name: "section",
+  group: "block",
+  content: "block+",
+  defining: true,
+  isolating: true,
+  addOptions: () => ({ views: null }),
+  addAttributes: () => ({ data: jsonAttr("data", {}) }),
+  parseHTML: () => [{ tag: 'div[data-type="section"]' }],
+  renderHTML: ({ HTMLAttributes }) => [
+    "div",
+    mergeAttributes(HTMLAttributes, { "data-type": "section" }),
+    0,
+  ],
+  addNodeView() {
+    return this.options.views?.section ?? null;
+  },
 });
 
 /** Any block with nothing to type into: widgets, media, tables, synced blocks… */
@@ -507,6 +529,7 @@ export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
     Callout.configure({ views: options.views }),
     Columns,
     Column,
+    Section.configure({ views: options.views }),
     AtomBlock.configure({ views: options.views }),
     Mention.configure({ views: options.views }),
     UniqueID.configure({

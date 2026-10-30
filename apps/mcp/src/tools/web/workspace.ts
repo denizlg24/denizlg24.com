@@ -170,7 +170,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
       }),
       apply: action({
         description:
-          "insert {block, parentId?, after?} (parentId: a toggle, list item, callout, quote or column, absent for the page; after: a sibling id, null first, absent last; the block may carry its own children), update {id, set, type?} (merges fields; replace: true swaps them all; type turns the block into another, keeping its id and children; children never go in set), move {id, parentId?, after?}, delete {id} (takes its children), page {set: title/icon/fullWidth/locked}. Text is rich-text runs: {type:'text', text, bold?, italic?, strike?, code?, link?} or {type:'mention', kind: page|person|date or any record kind (note, kanban-card, …), id, label?}. A columns block holds only column blocks {width, children}. A record embed is {type:'record', ref:'entity:<kind>:<id>', mode:'card'|'full'} (find refs with web_workspace_records search); a module view is {type:'view', source, layout, filters, sort, group?, limit, fields?, dateField?, title?} (fields and operators per source from web_workspace_views sources). A button is {type:'button', label, mode:'actions'|'agent', actions, agentPrompt}: actions are {kind:'create-page'|'append-blocks'|'insert-template'|'create-card'|'create-event'|'set-todo'|'open', …} run in order when pressed, pageId '$this' meaning the button's page; agentPrompt starts a background run with the page as context",
+          "insert {block, parentId?, after?} (parentId: a toggle, list item, callout, quote or column, absent for the page; after: a sibling id, null first, absent last; the block may carry its own children), update {id, set, type?} (merges fields; replace: true swaps them all; type turns the block into another, keeping its id and children; children never go in set), move {id, parentId?, after?}, delete {id} (takes its children), page {set: title/icon/fullWidth/locked}. Text is rich-text runs: {type:'text', text, bold?, italic?, strike?, code?, link?} or {type:'mention', kind: page|person|date or any record kind (note, kanban-card, …), id, label?}. A columns block holds only column blocks {width, children}. A record embed is {type:'record', ref:'entity:<kind>:<id>', mode:'card'|'full'} (find refs with web_workspace_records search); a module view is {type:'view', source, layout, filters, sort, group?, limit, fields?, dateField?, title?} (fields and operators per source from web_workspace_views sources). A button is {type:'button', label, mode:'actions'|'agent', actions, agentPrompt}: actions are {kind:'create-page'|'append-blocks'|'insert-template'|'create-card'|'create-event'|'set-todo'|'open', …} run in order when pressed, pageId '$this' meaning the button's page; agentPrompt starts a background run with the page as context. An agent section is {type:'section', title, prompt, schedule: {cron, timeZone}|null, sources: ['entity:<kind>:<id>'|'view:<pageId>:<blockId>'], pinned, children}: its runs rewrite its children, so edit its config, not its children (see web_workspace_sections)",
         input: z.object({
           id,
           baseRev: z.number().int().min(0),
@@ -210,6 +210,39 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
           "Copies blocks of page pageId (document order, with their children) into a new template titled title",
         input: z.object(templateFromBlocksSchema.shape),
         run: (body) => api.web.post(TEMPLATES, body),
+      }),
+    },
+  });
+
+  defineActions(server, {
+    name: "web_workspace_sections",
+    title: "Web: workspace agent sections",
+    description:
+      "Agent sections: blocks whose children an agent task rewrites from the section's prompt and sources, on its cron or on demand. A run writes the children unless the section is pinned, the page is locked, or someone edited inside it since the last write — then it leaves a proposal to accept or reject.",
+    actions: {
+      get: action({
+        description:
+          "Last run (status, outcome written|proposed|failed), next run, a pending proposal's blocks, and whether the children were edited since the last write",
+        input: z.object({ pageId: id, blockId }),
+        readOnly: true,
+        run: (query) => api.web.get("/api/admin/workspace/sections", query),
+      }),
+      run: action({
+        description: "Runs the section now instead of on its schedule",
+        input: z.object({ pageId: id, blockId }),
+        run: (body) => api.web.post("/api/admin/workspace/sections/run", body),
+      }),
+      decide: action({
+        description:
+          "accept writes the pending proposal into the section; reject drops it",
+        input: z.object({
+          pageId: id,
+          blockId,
+          decision: z.enum(["accept", "reject"]),
+        }),
+        destructive: true,
+        run: (body) =>
+          api.web.post("/api/admin/workspace/sections/decision", body),
       }),
     },
   });

@@ -53,6 +53,7 @@ import { pageAncestors, useWorkspaceStore } from "../store";
 import { useWorkspaceNav } from "../use-workspace-nav";
 import { ViewBlock } from "../views/view-block";
 import { ButtonBlock } from "../workflows/button-block";
+import { type SectionConfig, SectionHeader } from "../workflows/section-block";
 import { FlowEditor } from "./flow-editor";
 
 /** The page an editor shows, for node views that read their surroundings. */
@@ -179,6 +180,46 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
         ) : null}
       </div>
       <NodeViewContent className="min-w-0 flex-1" />
+    </NodeViewWrapper>
+  );
+}
+
+// --- agent section --------------------------------------------------------------
+
+const DEFAULT_SECTION: SectionConfig = {
+  title: "",
+  prompt: "",
+  schedule: null,
+  sources: [],
+  pinned: false,
+};
+
+function sectionConfig(data: unknown): SectionConfig {
+  const parsed = blockSchema.safeParse({
+    ...(typeof data === "object" && data !== null ? data : {}),
+    id: "x",
+    type: "section",
+    children: [],
+  });
+  if (!parsed.success || parsed.data.type !== "section") return DEFAULT_SECTION;
+  const { id: _id, type: _type, children: _children, ...config } = parsed.data;
+  return config;
+}
+
+export function SectionView({ node, updateAttributes, editor }: NodeViewProps) {
+  const { pageId } = useContext(FlowPageContext);
+  const config = sectionConfig(node.attrs.data);
+  const id = typeof node.attrs.id === "string" ? node.attrs.id : "";
+  return (
+    <NodeViewWrapper data-id={id} className="my-2 flex flex-col gap-1">
+      <SectionHeader
+        pageId={pageId}
+        blockId={id}
+        config={config}
+        editable={editor.isEditable}
+        onChange={(next) => updateAttributes({ data: next })}
+      />
+      <NodeViewContent className="min-w-0 border-l pl-4" />
     </NodeViewWrapper>
   );
 }
