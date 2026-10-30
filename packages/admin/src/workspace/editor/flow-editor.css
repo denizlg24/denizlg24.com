@@ -1,0 +1,159 @@
+/*
+ * The page editor's document styles. Scoped to the flow and stopped at every
+ * leaf node view's children (`[contenteditable="false"] > *`): widgets, embeds
+ * and views render their own markup, and a document rule for `a`, `ul` or `p`
+ * leaking into them underlined every widget link and bulleted every list. A
+ * synced block's editor is its own `.flow-editor`, so it is styled again.
+ */
+
+@scope (.flow-editor) to ([contenteditable="false"] > *) {
+  .ProseMirror {
+    outline: none;
+    min-height: 1.75rem;
+    caret-color: var(--accent-strong);
+  }
+  .ProseMirror > * + * {
+    margin-top: 0.25rem;
+  }
+  p {
+    min-height: 1.75rem;
+  }
+  h1 {
+    margin-top: 1.5rem;
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  h2 {
+    margin-top: 1.25rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.375;
+  }
+  h3 {
+    margin-top: 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .ProseMirror > :first-child {
+    margin-top: 0;
+  }
+  ul {
+    list-style: disc;
+    padding-left: 1.5rem;
+  }
+  ol {
+    list-style: decimal;
+    padding-left: 1.5rem;
+  }
+  ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0;
+  }
+  li[data-checked] {
+    display: flex;
+    gap: 0.5rem;
+  }
+  li[data-checked] > label {
+    margin-top: 0.35rem;
+    user-select: none;
+    accent-color: var(--accent-strong);
+  }
+  li[data-checked] > div {
+    min-width: 0;
+    flex: 1;
+  }
+  li[data-checked="true"] > div > p:first-child {
+    color: var(--muted-foreground);
+    text-decoration: line-through;
+  }
+  blockquote {
+    border-left: 2px solid
+      color-mix(in oklab, var(--accent-strong) 60%, transparent);
+    padding-left: 1rem;
+  }
+  pre {
+    margin: 0.5rem 0;
+    overflow-x: auto;
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--surface);
+    padding: 0.5rem 0.75rem;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    line-height: 1.625;
+  }
+  :not(pre) > code {
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--surface);
+    padding: 0 0.25rem;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85em;
+  }
+  hr {
+    margin: 1rem 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+  a {
+    text-decoration: underline;
+    text-decoration-color: color-mix(
+      in oklab,
+      var(--muted-foreground) 50%,
+      transparent
+    );
+    text-underline-offset: 2px;
+  }
+
+  .flow-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .flow-column {
+    min-width: 0;
+  }
+  @container (min-width: 48rem) {
+    .flow-columns {
+      flex-direction: row;
+      gap: 2.5rem;
+    }
+  }
+
+  /* The bare "/" on the empty line the caret is in, while there is a caret. */
+  .ProseMirror-focused p.is-empty::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+
+  /* A selected block is tinted, never outlined. */
+  .ProseMirror-selectednode {
+    outline: none;
+    border-radius: calc(var(--radius) - 4px);
+    background: color-mix(in oklab, var(--surface) 80%, transparent);
+  }
+  /* Atoms bleed into the gutter by the tint's padding, so selecting one moves nothing. */
+  .node-atomBlock {
+    margin-inline: -0.5rem;
+    padding-inline: 0.5rem;
+  }
+  hr.ProseMirror-selectednode {
+    background: none;
+    border-top-color: var(--muted-foreground);
+  }
+  .ProseMirror-selectednode ::selection {
+    background: transparent;
+  }
+
+  .ProseMirror-gapcursor::after {
+    border-top-color: var(--accent-strong);
+  }
+}
+
+/* Appended to the editor's positioned parent, outside the scope above. */
+.flow-dropcursor {
+  background: color-mix(in oklab, var(--accent-strong) 45%, transparent);
+  border-radius: 9999px;
+}

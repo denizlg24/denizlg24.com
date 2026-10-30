@@ -10,6 +10,7 @@ import { z } from "zod";
 import { generateJson, getSemanticModel } from "@/lib/llm-service";
 import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
+import { emitDomainEvent } from "@/lib/workflows/events";
 import {
   FinanceLedgerEntry,
   FinanceMatchReview,
@@ -395,6 +396,30 @@ async function linkLedgerRows(
         { $set: { merchantFingerprint: bank.merchantFingerprint } },
         { session },
       );
+    }
+    if (source.recurringRuleId) {
+      const rule = await FinanceRecurringRule.findById(source.recurringRuleId)
+        .select({ name: 1, payout: 1 })
+        .session(session ?? null)
+        .lean();
+      if (rule?.payout) {
+        // Keyed on the projection: a link undone and redone is one payout.
+        await emitDomainEvent(
+          {
+            type: "finance.payout.landed",
+            payload: {
+              ruleId: String(rule._id),
+              ruleName: rule.name,
+              ledgerId: bank._id.toString(),
+              amountMinor: bank.amountMinor,
+              currency: bank.currency,
+              date: bank.effectiveDate,
+              method,
+            },
+          },
+          { dedupeKey: `finance.payout.landed:${source._id.toString()}` },
+        );
+      }
     }
     source.set({
       linkedLedgerId: bank._id,

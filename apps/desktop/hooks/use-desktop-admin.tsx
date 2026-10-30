@@ -1,9 +1,9 @@
 "use client";
 
 import type { AdminContextValue } from "@repo/admin/provider";
+import { SidebarTrigger } from "@repo/admin/workspace/sidebar-trigger";
 import { Laptop, ScrollText } from "lucide-react";
 import { useMemo } from "react";
-import { SidebarTrigger } from "@/components/workspace/sidebar-trigger";
 import { useUserSettings } from "@/context/user-context";
 import { createDesktopAdminClient } from "@/lib/admin-client";
 import { DESKTOP_ADMIN_ROUTES } from "@/lib/admin-routes";

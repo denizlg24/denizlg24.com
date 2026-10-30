@@ -228,7 +228,10 @@ export function AgentSessionProvider({
         pageContext:
           current.memoryMode === "incognito"
             ? undefined
-            : captureAgentPageContext({ dashboardRoot: routes.dashboardRoot }),
+            : captureAgentPageContext({
+                dashboardRoot: routes.dashboardRoot,
+                workspacePageAt: routes.workspace.pageAt,
+              }),
       };
     },
   });
@@ -593,6 +596,7 @@ export function AgentSessionProvider({
                   ? undefined
                   : captureAgentPageContext({
                       dashboardRoot: routes.dashboardRoot,
+                      workspacePageAt: routes.workspace.pageAt,
                     }),
               attachments: ready.map((attachment) => ({
                 type: attachment.kind,

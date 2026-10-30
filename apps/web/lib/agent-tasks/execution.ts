@@ -14,6 +14,8 @@ import {
 } from "@/lib/agent-memory/derived-context";
 import {
   AGENT_MEMORY_JOB_LEASE_MS,
+  completeMemoryJob,
+  failMemoryJob,
   withMemoryJobHeartbeat,
 } from "@/lib/agent-memory/jobs";
 import { buildRetrievalQuery } from "@/lib/agent-memory/query-context";
@@ -23,7 +25,12 @@ import { consumeUIMessageStream } from "@/lib/background-agent/consume-stream";
 import { scheduleDashboardPush } from "@/lib/mobile-push";
 import { connectDB } from "@/lib/mongodb";
 import type { AgentRunSurface } from "@/lib/tools/types";
-import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
+import {
+  applySectionRun,
+  failSectionRun,
+  prepareSectionRun,
+} from "@/lib/workspace/sections";
+import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentTask, type IAgentTask } from "@/models/AgentTask";
 import { AgentTaskRun, type IAgentTaskRun } from "@/models/AgentTaskRun";
 
@@ -110,6 +117,15 @@ function taskRunSurface(
 ): AgentRunSurface {
   if (trigger === "manual") return "manual-task-run";
   return task.schedule ? "scheduled-task" : "one-off-task";
+}
+
+function sectionMessage(text: string): AgentUIMessage {
+  return {
+    id: randomUUID(),
+    role: "user",
+    parts: [{ type: "text", text }],
+    metadata: { createdAt: new Date().toISOString() },
+  };
 }
 
 function taskMessage(task: IAgentTask): AgentUIMessage {
@@ -200,7 +216,20 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
     return { failed: true, runId: run._id.toString(), error: run.error };
   }
 
-  const request = taskMessage(task);
+  // An agent section's run reads its sources and replies with the section's
+  // content; it gets no connector tools and writes nothing but that.
+  const section = task.workspaceSection
+    ? await prepareSectionRun(task, run._id.toString())
+    : null;
+  if (section && "error" in section) {
+    run.status = "failed";
+    run.error = section.error;
+    run.completedAt = now;
+    await run.save();
+    await failSectionRun(task, run._id.toString(), section.error);
+    return { failed: true, runId: run._id.toString(), error: run.error };
+  }
+  const request = section ? sectionMessage(section.message) : taskMessage(task);
   run.status = "running";
   run.startedAt = now;
   run.executionLeaseExpiresAt =
@@ -259,18 +288,19 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
 
   return withMemoryJobHeartbeat(heartbeat, async () => {
     try {
+      const memoryMode = section ? "incognito" : task.memoryMode;
       const query = buildRetrievalQuery({ latestMessage: task.prompt });
       // `incognito` reads nothing and writes nothing; `retrieval-off` still keeps
       // the derived user model, it just skips episodic recall.
       const [retrieval, learnedContext] = await Promise.all([
-        task.memoryMode === "enabled"
+        memoryMode === "enabled"
           ? retrieveMemoriesForChat({
               requestId: randomUUID(),
               query,
-              memoryMode: task.memoryMode,
+              memoryMode,
             }).catch(() => null)
           : null,
-        task.memoryMode === "incognito"
+        memoryMode === "incognito"
           ? null
           : buildDerivedUserContext({
               query,
@@ -285,7 +315,8 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
         surface: taskRunSurface(task, run.trigger),
         unattended: true,
         executionMode: "yolo",
-        memoryMode: task.memoryMode,
+        memoryMode,
+        ...(section ? { connectors: [] } : {}),
         messages: [request],
         toolToggles: { webSearch: false, webFetch: false, thinkLonger: false },
         pageTools: false,
@@ -334,13 +365,24 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       run.status = "completed";
       run.output =
         closingText(transcript) || "Task completed without a text response.";
+      if (section) {
+        const landed = await applySectionRun(
+          section,
+          run._id.toString(),
+          closingText(transcript),
+        );
+        run.output = `Section ${landed.outcome} (${landed.blocks} blocks).\n\n${run.output}`;
+      }
       run.messages = transcriptForStorage(transcript);
       run.toolCallCount = countToolCalls(transcript);
       run.tokenUsage = tokenUsage;
       run.completedAt = new Date();
       run.executionLeaseExpiresAt = undefined;
       await run.save();
-      announceRun(task.name, run._id.toString(), "task_finished", run.output);
+      // A section's result is on its page; a push per refresh would be noise.
+      if (!section) {
+        announceRun(task.name, run._id.toString(), "task_finished", run.output);
+      }
       return {
         runId: run._id.toString(),
         status: run.status,
@@ -360,9 +402,52 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       run.completedAt = new Date();
       run.executionLeaseExpiresAt = undefined;
       await run.save();
+      await failSectionRun(task, run._id.toString(), run.error);
       announceRun(task.name, run._id.toString(), "task_failed", run.error);
       // Do not throw: a full-run retry could duplicate already-completed writes.
       return { runId: run._id.toString(), failed: true, error: run.error };
     }
   });
+}
+
+/**
+ * Runs one queued task run now instead of on the next external cron tick —
+ * what "Run now" on an agent section uses. A run the cron already leased is
+ * left to it.
+ */
+export async function drainAgentTaskRun(runId: string) {
+  const workerId = `task-route:${randomUUID()}`;
+  const now = new Date();
+  await connectDB();
+  const job = await AgentMemoryJob.findOneAndUpdate(
+    {
+      idempotencyKey: `agent-task:${runId}`,
+      operation: "agent-task",
+      status: { $in: ["pending", "retry"] },
+      availableAt: { $lte: now },
+    },
+    {
+      $set: {
+        status: "leased",
+        leaseOwner: workerId,
+        leaseExpiresAt: new Date(now.getTime() + AGENT_MEMORY_JOB_LEASE_MS),
+      },
+      $inc: { attempts: 1 },
+    },
+    { returnDocument: "after" },
+  );
+  if (!job) return null;
+  try {
+    const result = await processAgentTaskJob(job);
+    await completeMemoryJob(job._id.toString(), workerId);
+    return result;
+  } catch (error) {
+    await failMemoryJob({
+      jobId: job._id.toString(),
+      workerId,
+      attempt: job.attempts,
+      error,
+    });
+    throw error;
+  }
 }

@@ -5,6 +5,7 @@ import { LlmTransportError } from "@/lib/llm-errors";
 import { transcribeAudio } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { downloadBytesFromStorage } from "@/lib/storage-api";
+import { emitDomainEvent } from "@/lib/workflows/events";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import {
   type ILeanVoiceNote,
@@ -497,6 +498,20 @@ export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
 
   const titled = await applyGeneratedTitle(transcribed);
   await observeVoiceNoteTranscript(titled);
+  await emitDomainEvent(
+    {
+      type: "voice-note.transcribed",
+      payload: {
+        voiceNoteId: String(titled._id),
+        title: titled.title,
+        durationMs: titled.durationMs ?? 0,
+        characters: titled.transcription.text?.length ?? 0,
+      },
+    },
+    {
+      dedupeKey: `voice-note.transcribed:${String(titled._id)}:${requestVersion}`,
+    },
+  );
   return {
     skipped: false,
     voiceNoteId,

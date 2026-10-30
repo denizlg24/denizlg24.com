@@ -11,6 +11,8 @@
  * rendering a dead link.
  */
 
+import type { ModuleId } from "./workspace/modules";
+
 /** A list surface with a create route and a per-record edit route. */
 export interface EditableCollectionRoutes {
   root: string;
@@ -83,9 +85,21 @@ export interface MarketRoutes {
   ticker: (symbol: string) => string;
 }
 
+export interface WorkspaceRoutes {
+  /** One workspace page. Home is `dashboardRoot` in both hosts. */
+  page: (pageId: string) => string;
+  /** The workspace page a location shows, or null for anything else. */
+  pageAt: (
+    pathname: string,
+    search: Pick<URLSearchParams, "get">,
+  ) => string | null;
+  /** Where each module lives in this host; one the host lacks is left out everywhere. */
+  modules: Partial<Record<ModuleId, string>>;
+}
+
 /** Where the host mounts shared multi-page features. */
 export interface AdminRoutes {
-  /** Root path accepted by agent navigation tools. */
+  /** Root path accepted by agent navigation tools, and the workspace's Home page. */
   dashboardRoot: string;
   /** Base path of the global settings pages, without a trailing slash. */
   settings: string;
@@ -104,8 +118,11 @@ export interface AdminRoutes {
   timeline: EditableCollectionRoutes;
   contacts: ContactRoutes;
   papers: PaperRoutes;
+  /** One LaTeX project's editor. */
+  latexProject: (projectId: string) => string;
   agentMemory: AgentMemoryRoutes;
   market: MarketRoutes;
+  workspace: WorkspaceRoutes;
 }
 
 /**

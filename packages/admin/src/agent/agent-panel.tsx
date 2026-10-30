@@ -353,11 +353,13 @@ function PanelSurface({
   summary,
   onClose,
   headerActions,
+  autoFocus,
 }: {
   variant: AgentPanelVariant;
   summary?: ReactNode;
   onClose?: () => void;
   headerActions?: ReactNode;
+  autoFocus: boolean;
 }) {
   const session = useAgentSession();
   const { chat } = session;
@@ -433,7 +435,7 @@ function PanelSurface({
         {empty && !session.loadingConversation ? (
           <EmptySuggestions variant={variant} />
         ) : null}
-        <AgentComposer autoFocus={!page} />
+        <AgentComposer autoFocus={autoFocus && !page} />
       </div>
     </div>
   );
@@ -461,9 +463,12 @@ export function AgentPanel({
   onClose,
   headerActions,
   onActiveRunChange,
+  autoFocus = true,
 }: {
   variant: AgentPanelVariant;
   allowBackground?: boolean;
+  /** False where the panel sits among other content, as a workspace block. */
+  autoFocus?: boolean;
   summary?: ReactNode;
   onClose?: () => void;
   headerActions?: ReactNode;
@@ -476,6 +481,7 @@ export function AgentPanel({
       summary={summary}
       onClose={onClose}
       headerActions={headerActions}
+      autoFocus={autoFocus}
     />
   );
   if (session) return surface;

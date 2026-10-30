@@ -8,6 +8,7 @@ import {
 } from "./auth";
 import type { McpConfig } from "./config";
 import { createHealthReporter } from "./health";
+import { withRequestContext } from "./request-context";
 import { mcpServerFactory, type ToolRegistrar } from "./server";
 import { UPLOAD_MAX_BYTES } from "./tools/define";
 import { createUpstream, ServiceTokens, type Upstream } from "./upstream";
@@ -78,7 +79,9 @@ export function createMcpApp(options: McpAppOptions) {
   app.all(endpoint, async (context) => {
     const outcome = await authenticate(context.req.raw);
     if (!outcome.ok) return outcome.response;
-    return handler.fetch(context.req.raw, { authInfo: outcome.authInfo });
+    return withRequestContext(context.req.raw, () =>
+      handler.fetch(context.req.raw, { authInfo: outcome.authInfo }),
+    );
   });
 
   return app;

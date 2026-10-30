@@ -6,6 +6,7 @@ import type {
   CreateAgentEvidenceEvent,
 } from "@repo/schemas";
 import mongoose from "mongoose";
+import { isWorkflowCaused } from "@/lib/workflows/causation";
 import {
   buildEvidenceInput,
   observeEvidence,
@@ -298,6 +299,8 @@ export async function observeDomainRecordSafely(
   value: unknown,
 ): Promise<void> {
   if (mongoose.connection.readyState !== 1) return;
+  // What a trigger wrote is not the owner's decision, so it is not evidence.
+  if (await isWorkflowCaused()) return;
   // Ahead of the write rather than inside formation, so an ineligible row leaves
   // no evidence row, no job and no candidate to clean up later.
   if (!domainRecordIsMemoryEligible(kind, value)) return;

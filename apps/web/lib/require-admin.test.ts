@@ -39,7 +39,11 @@ mock.module("next/headers", () => ({
         : undefined,
   }),
 }));
+// `bun test` keeps module mocks for every later file, so the rest of
+// next/navigation stays real.
+const navigation = await import("next/navigation");
 mock.module("next/navigation", () => ({
+  ...navigation,
   forbidden: forbiddenMock,
   redirect: redirectMock,
 }));

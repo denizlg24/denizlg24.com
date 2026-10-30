@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AgentMemoryMode,
   AgentUIMessage,
   AgentUIMessagePart,
   CreateBackgroundAgentRun,
@@ -67,6 +68,14 @@ function runUserMessage(run: IBackgroundAgentRun): AgentUIMessage {
 
 export async function enqueueBackgroundAgentRun(
   input: CreateBackgroundAgentRun,
+  options: {
+    /**
+     * For a new conversation. Workflow runs (buttons, triggers) pass
+     * `incognito`: what they say is not the owner's, so none of it becomes
+     * memory evidence.
+     */
+    memoryMode?: AgentMemoryMode;
+  } = {},
 ): Promise<IBackgroundAgentRun> {
   await connectDB();
   let conversationId = input.conversationId;
@@ -90,7 +99,7 @@ export async function enqueueBackgroundAgentRun(
           {
             title,
             llmModel: input.model,
-            memoryMode: "enabled",
+            memoryMode: options.memoryMode ?? "enabled",
           },
           { session },
         );

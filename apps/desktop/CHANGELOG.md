@@ -7,6 +7,48 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.1.0 — 2026-10-30
+
+### Added
+- **Pages are documents**: write in a flowing editor instead of a grid.
+  Paragraphs, headings, bulleted, numbered and to-do lists, toggles,
+  callouts, quotes, code, images, files, bookmarks, equations, tables, a
+  table of contents, breadcrumbs and synced blocks, nested where they make
+  sense, side by side in columns. The widgets from 3.0.0 are blocks in the
+  same flow.
+- "/" or the **+** beside any block opens every block type; ⌘/ turns a
+  block into another; drag handles move blocks into and out of columns;
+  `@` mentions pages, people, dates and records.
+- **Embeds**: any note, board, card, whiteboard, person, course, envelope,
+  paper, voice note, LaTeX project, event or page — as a mention, a card or
+  its full view.
+- **Views**: kanban cards, events, notes, finance entries, coursework,
+  people, triage, agent tasks, papers and voice notes, filtered, sorted and
+  grouped, as a table, list, board, calendar or gallery. Money totals stay
+  per currency.
+- **Templates** with variables and prompted inputs, from the sidebar's new
+  page menu or "/".
+- **Buttons** that run a list of actions or an agent prompt against the page.
+- **Agent sections**: a block an agent rewrites on a schedule or on demand.
+  If you edited it since the last run, the run proposes instead of
+  overwriting.
+- **Triggers**: when a card moves, an event is created, mail is triaged, a
+  payout lands, a voice note is transcribed or a page is created, run
+  actions or an agent prompt. Daily notes are a scheduled trigger.
+- Page history: every change is recorded with who made it, and a page can be
+  reverted to any revision or have one agent's changes undone.
+
+### Changed
+- The workspace is stored per page on the server. Edits sync as they are
+  made and show up in other open windows within seconds, including the web
+  dashboard and agent edits. The local copy is only a cache for launch.
+- Existing pages convert from the grid on first open; side-by-side blocks
+  become columns.
+- Agents can read and edit pages, as markdown or block by block.
+
+### Fixed
+- Opening a page no longer leaves a block selected.
+
 ## 3.0.0 — 2026-10-29
 
 ### Added

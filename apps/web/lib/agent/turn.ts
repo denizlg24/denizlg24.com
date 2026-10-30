@@ -25,6 +25,7 @@ import {
 import { sandboxEnabled } from "@/lib/sandbox-config";
 import { getAppTimeZone } from "@/lib/timezone";
 import type { AgentRunSurface, AgentRunTaskContext } from "@/lib/tools/types";
+import { openWorkspacePage } from "@/lib/workspace";
 import { createApprovalPolicy, isReadOnlyCall } from "./approval";
 import { buildBuiltinTools } from "./builtin-tools";
 import { buildAgentInstructions } from "./instructions";
@@ -121,10 +122,16 @@ export async function startAgentTurn(
   let connectors: ConnectorToolset | null = null;
   try {
     const session = input.conversationId ?? input.task?.runId;
+    const actor = input.task
+      ? `task-run:${input.task.runId}`
+      : input.conversationId
+        ? `conversation:${input.conversationId}`
+        : undefined;
     connectors = await openConnectorToolset({
       only: input.connectors,
       model: input.model,
       ...(session ? { session } : {}),
+      ...(actor ? { actor } : {}),
     });
     const tools: ToolSet = {
       ...connectors.tools,
@@ -167,7 +174,11 @@ export async function startAgentTurn(
     });
     const modelMessages = withMemoryImages(
       withContextBlocks(
-        withPageContext(withBoundedToolImages(converted), input.pageContext),
+        withPageContext(
+          withBoundedToolImages(converted),
+          input.pageContext,
+          await openWorkspacePage(input.pageContext),
+        ),
         input.extraContext ?? [],
       ),
       input.memory.images,

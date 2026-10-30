@@ -344,6 +344,8 @@ export async function openConnectorToolset(options: {
   model: string;
   /** The conversation or run these turns belong to; servers key cross-turn state on it. */
   session?: string;
+  /** `conversation:<id>` or `task-run:<id>`, for attribution by the primary connector. */
+  actor?: string;
   /** Test seam; production stores returned images in the image bucket. */
   storeImage?: ConnectorImageStore;
 }): Promise<ConnectorToolset> {
@@ -377,6 +379,7 @@ export async function openConnectorToolset(options: {
     if (!client) {
       client = openConnectorClient(connector, {
         ...(options.session ? { session: options.session } : {}),
+        ...(options.actor ? { actor: options.actor } : {}),
       }).then((opened) => {
         primeToolHeaderBindings(opened, definitions);
         return opened;

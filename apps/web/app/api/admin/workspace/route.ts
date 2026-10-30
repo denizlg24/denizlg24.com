@@ -1,59 +1,40 @@
-import { workspaceSchema } from "@repo/schemas";
+import { legacyWorkspaceSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongodb";
-import { requireAdmin } from "@/lib/require-admin";
-import { DesktopWorkspace } from "@/models/DesktopWorkspace";
+import { readBody, withWorkspace } from "@/lib/workspace/http";
 
-const SINGLETON = "singleton";
+/*
+ * The v1 whole-document API, kept for desktop 3.0.0 on top of per-page
+ * storage. Nothing newer calls it.
+ *
+ * GET assembles the document from pages and prefs, each flow downgraded to
+ * a v1 grid (one v1 block per flow block, same id), records it as the base
+ * 3.0.0 now holds, and stamps `savedAt` with the server's now so 3.0.0 adopts
+ * it instead of pushing its own copy.
+ *
+ * PUT merges each page three ways — that base, the stored flow downgraded the
+ * same way, the incoming page — and writes only 3.0.0's own content edits,
+ * deletions and additions since the base, skipping any block or field
+ * someone else changed meanwhile; spans and order are ignored, so it never
+ * restructures a flow. The incoming page then becomes the new base. A stale
+ * PUT therefore never undoes an agent's or the web's edit; on a collision the
+ * stored copy wins and 3.0.0's edit to that block is dropped. A page missing
+ * from the PUT is purged only when it is trashed and unchanged since 3.0.0
+ * last held it. Unknown keys, such as the web port's `baseSavedAt`, are
+ * stripped.
+ */
 
 export async function GET(request: NextRequest) {
-  const authError = await requireAdmin(request);
-  if (authError) return authError;
-
-  try {
-    await connectDB();
-    const doc = await DesktopWorkspace.findById(SINGLETON).lean().exec();
-    const parsed = workspaceSchema.safeParse(doc?.data);
-    return NextResponse.json({
-      workspace: parsed.success ? parsed.data : null,
-    });
-  } catch (error) {
-    console.error("Failed to load workspace:", error);
-    return NextResponse.json(
-      { error: "Failed to load workspace" },
-      { status: 500 },
-    );
-  }
+  return withWorkspace(request, async (service) =>
+    NextResponse.json({ workspace: await service.compatGet() }),
+  );
 }
 
 export async function PUT(request: NextRequest) {
-  const authError = await requireAdmin(request);
-  if (authError) return authError;
-
-  const parsed = workspaceSchema.safeParse(
-    await request.json().catch(() => null),
-  );
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid workspace", issues: parsed.error.issues.slice(0, 5) },
-      { status: 400 },
-    );
-  }
-
-  try {
-    await connectDB();
-    const savedAt = parsed.data.savedAt ?? new Date().toISOString();
-    await DesktopWorkspace.updateOne(
-      { _id: SINGLETON },
-      { $set: { data: { ...parsed.data, savedAt } } },
-      { upsert: true },
-    ).exec();
-    return NextResponse.json({ savedAt });
-  } catch (error) {
-    console.error("Failed to save workspace:", error);
-    return NextResponse.json(
-      { error: "Failed to save workspace" },
-      { status: 500 },
-    );
-  }
+  return withWorkspace(request, async (service) => {
+    const workspace = await readBody(request, legacyWorkspaceSchema);
+    await service.compatPut(workspace);
+    return NextResponse.json({
+      savedAt: workspace.savedAt ?? new Date().toISOString(),
+    });
+  });
 }

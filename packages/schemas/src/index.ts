@@ -43,3 +43,6 @@ export * from "./voice-notes";
 export * from "./whiteboard";
 export * from "./work-hours";
 export * from "./workspace";
+export * from "./workspace-entities";
+export * from "./workspace-views";
+export * from "./workspace-workflows";

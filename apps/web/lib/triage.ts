@@ -34,6 +34,7 @@ import {
   proposeTriageActions,
 } from "@/lib/triage-actions";
 import { adjudicateTriage } from "@/lib/triage-adjudicator";
+import { emitDomainEvent } from "@/lib/workflows/events";
 import { EmailModel } from "@/models/Email";
 import {
   EmailTriageModel,
@@ -2347,6 +2348,21 @@ export async function runTriage(
         triagedAt: new Date(),
       });
       stats.fullTriaged++;
+      await emitDomainEvent(
+        {
+          type: "email.triaged",
+          payload: {
+            triageId: doc._id.toString(),
+            emailId: String(email._id),
+            subject: email.subject,
+            from: email.from[0]?.address ?? "",
+            category: fullResult.category,
+            confidence: fullResult.confidence,
+            reviewRequired,
+          },
+        },
+        { dedupeKey: `email.triaged:${doc._id.toString()}` },
+      );
       if (reviewRequired) {
         stats.manualReview++;
       }

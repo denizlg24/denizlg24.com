@@ -124,7 +124,11 @@ async function parseRpc(response: Response): Promise<JsonRpcResponse> {
  * `register` narrows the catalogue to one domain's tools; without it the
  * client sees everything `registerTools` registers.
  */
-export function createClient(upstream: Upstream, register?: ToolRegistrar) {
+export function createClient(
+  upstream: Upstream,
+  register?: ToolRegistrar,
+  options: { headers?: Record<string, string> } = {},
+) {
   const app = createMcpApp({ config: testConfig, upstream, keys, register });
   let nextId = 1;
   const tokenPromise = sign({ sub: "u1", azp: "claude", superuser: true });
@@ -138,6 +142,7 @@ export function createClient(upstream: Upstream, register?: ToolRegistrar) {
         accept: "application/json, text/event-stream",
         "mcp-protocol-version": "2025-06-18",
         authorization: `Bearer ${token}`,
+        ...options.headers,
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),
     });

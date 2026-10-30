@@ -34,6 +34,11 @@ export interface IAgentTask extends Document {
   status: "active" | "paused" | "archived";
   nextRunAt?: Date;
   lastRunAt?: Date;
+  /**
+   * Set when the task runs an agent section: its output replaces that
+   * block's children. Kept in step with the block by `reconcileSections`.
+   */
+  workspaceSection?: { pageId: string; blockId: string };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -95,12 +100,26 @@ const AgentTaskSchema = new Schema<IAgentTask>(
     },
     nextRunAt: { type: Date },
     lastRunAt: { type: Date },
+    workspaceSection: {
+      type: new Schema(
+        {
+          pageId: { type: String, required: true },
+          blockId: { type: String, required: true },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
   },
   { collection: "agent_tasks", timestamps: true },
 );
 
 AgentTaskSchema.index({ status: 1, nextRunAt: 1 });
 AgentTaskSchema.index({ updatedAt: -1 });
+AgentTaskSchema.index(
+  { "workspaceSection.pageId": 1, "workspaceSection.blockId": 1 },
+  { sparse: true },
+);
 
 export const AgentTask =
   existingModel<IAgentTask>("AgentTask") ||
