@@ -328,12 +328,16 @@ describe.skipIf(!enabled)("records and views on a real mongod", () => {
     await EmailModel.collection.insertMany([
       {
         _id: id("email1"),
+        accountId: id("eur"),
+        messageId: "<m1@shop>",
         subject: "Your invoice",
         from: [{ name: "Shop", address: "shop@example.com" }],
         date: at("2026-10-28T10:00:00.000Z"),
       },
       {
         _id: id("email2"),
+        accountId: id("eur"),
+        messageId: "<m2@uni>",
         subject: "Lab moved",
         from: [{ address: "prof@uni.example" }],
         date: at("2026-10-29T10:00:00.000Z"),

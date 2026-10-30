@@ -1201,6 +1201,8 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET|PUT /workspace/pages/{id}/markdown` → `{ id, rev, title, locked, markdown }` / `{ baseRev, markdown }` → `{ page }`
 - `GET /workspace/changes?since=` → `{ cursor, pages: summaries, purged, prefsUpdatedAt }`
 - `GET|PUT /workspace/prefs` → favorites, recents, sidebar (last write wins)
+- `GET /workspace/records?refs=` → `{ records: RecordSummary[], missing }` (at most 50 `entity:<kind>:<id>` refs); `GET /workspace/records/search?q=&kind=` → `{ records }`
+- `POST /workspace/views/query` → `{ view } | { pageId, blockId }` + `cursor?`, `limit?`, `today?` → `ViewQueryResult` (rows, total, groups, per-currency totals, select options); 400 `INVALID_VIEW` names a field or operator the source lacks
 - `GET|PUT /workspace` → the v1 whole document, for desktop 3.0.0 only
 
 Things worth knowing before touching this:
@@ -1215,7 +1217,7 @@ Things worth knowing before touching this:
   heading 1–3, bullet / numbered / todo items, toggle — a toggle heading when
   it has `level` —, callout, quote) hold inline rich text as runs: `text`
   with `bold`/`italic`/`strike`/`code`/`link`, or a `mention` of a page,
-  person or date (`@repo/schemas` `richTextSchema`; marks are present only
+  person, date or any other record kind (`@repo/schemas` `richTextSchema`; marks are present only
   when on, so equal text compares equal). List items, toggles, callouts,
   quotes and columns have `children`; a `columns` block holds only `column`
   blocks (`width`, a share of the row), and a column cannot hold columns
@@ -1328,6 +1330,30 @@ Things worth knowing before touching this:
   inserts rewrite through the block model (`transformBlocks`). A synced
   block renders a second editor scoped to its source block; its ops go to
   the source page. Locked pages are read-only.
+- **Records are `entity:<kind>:<id>`** (`@repo/schemas` `workspace-entities`:
+  page, note, kanban board and card, whiteboard, person, course, envelope,
+  paper, voice note, LaTeX project, calendar event). A `record` block embeds
+  one as `card` or `full`; mentions take every kind. Each kind is an entry in
+  `lib/workspace/records.ts` (summary and title search, server) and in
+  `packages/admin/src/workspace/records.tsx` (label, icon, route, and the
+  module's own `Full` component where one stands alone: a nested page, a
+  note, a course's coursework, an envelope; other kinds show every field).
+  Summaries are fetched in batches of 50 and cached for a minute. A missing,
+  deleted or trashed record is a glyph and a dash, never an error.
+- **A `view` block is a query, not data.** Its config (source, layout,
+  filters ANDed, sort, group, limit, fields, dateField) lives in the block;
+  markdown and 3.0.0 see only that. Each source's descriptor
+  (`VIEW_SOURCES` in `workspace-views`) names its typed fields, the
+  operators per type, how a row becomes an entity ref, and which fields the
+  database filters (`fetch.native`). The route's loader per source
+  (`lib/workspace/views.ts`) reads at most `VIEW_SCAN_CAP` (2 000) rows,
+  newest first, after pushing those filters into Mongo — date windows widened
+  a day each side so pushdown never drops a row the engine would keep — and
+  `@repo/utils/workspace-views` does the rest: filter, sort (empties last),
+  group (a multi-value row counts in each group), per-currency money totals
+  (never across currencies), offset pages. Past the cap the answer says
+  `truncated`. Relative date filters count from the caller's `today`; the
+  calendar layout adds its month window as two extra filters.
 - **Bookmark unfurling is an SSRF boundary** (`lib/workspace/unfurl.ts`).
   The socket's own DNS lookup refuses a name with any private, loopback,
   link-local or CGNAT answer (`lib/private-address.ts`, a copy of
