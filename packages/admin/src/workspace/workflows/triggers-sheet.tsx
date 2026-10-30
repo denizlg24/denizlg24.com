@@ -364,7 +364,6 @@ function TriggerDialog({
           <SectionLabel>If</SectionLabel>
           {filter.map((condition, index) => (
             <ConditionRow
-              // biome-ignore lint/suspicious/noArrayIndexKey: conditions have no id
               key={index}
               index={index}
               event={event}

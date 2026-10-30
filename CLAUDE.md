@@ -1204,6 +1204,11 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET /workspace/records?refs=` → `{ records: RecordSummary[], missing }` (at most 50 `entity:<kind>:<id>` refs); `GET /workspace/records/search?q=&kind=` → `{ records }`
 - `POST /workspace/views/query` → `{ view } | { pageId, blockId }` + `cursor?`, `limit?`, `today?` → `ViewQueryResult` (rows, total, groups, per-currency totals, select options); 400 `INVALID_VIEW` names a field or operator the source lacks
 - `GET|PUT /workspace` → the v1 whole document, for desktop 3.0.0 only
+- `GET /workspace/templates` → `{ templates: WorkspaceTemplateSummary[] }` (inputs listed); `POST` → `{ pageId, blockIds, title }` → a new template from those blocks
+- `POST /workspace/templates/{id}/instantiate` → `{ parentId, title?, inputs, index? }` → `{ page }` 201; `POST …/insert` → `{ pageId, parentId?, after?, inputs }` → `{ page }`; 404 `NOT_TEMPLATE`
+- `POST /workspace/buttons/run` → `{ pageId, blockId }` → `{ mode: "actions", results }` or `{ mode: "agent", run }`; `GET` with the same query → `{ run }` (the last agent run it started)
+- `GET /workspace/sections?pageId&blockId` → `{ state: SectionState }`; `POST …/run` → 202 `{ state }`; `POST …/decision` → `{ pageId, blockId, decision: "accept" | "reject" }` → `{ state }`
+- `GET|POST /workspace/triggers`, `PATCH|DELETE /workspace/triggers/{id}`; `GET /workspace/triggers/events?triggerId&limit` → `{ events }` with each trigger's firing outcome
 
 Things worth knowing before touching this:
 
@@ -1248,7 +1253,8 @@ Things worth knowing before touching this:
   siblings.
 - **Locked pages refuse every write from anything but the owner** (423),
   including unlocking. The owner's own session is not restricted server-side.
-- **Actors: `owner`, `mcp:<clientId>`, `conversation:<id>`, `task-run:<id>`.**
+- **Actors: `owner`, `mcp:<clientId>`, `conversation:<id>`, `task-run:<id>`,
+  `trigger:<id>`** (an event trigger's action list, written in-process).
   `lib/workspace/actor.ts` decides: any human credential (cookie, desktop
   token, API key) is `owner`; a machine token is `mcp:<clientId>` unless it
   carries `x-agent-actor`, which web's primary connector sends and the MCP
@@ -1361,6 +1367,81 @@ Things worth knowing before touching this:
   connect; a literal IP is checked directly; redirects are followed by hand
   through the same guard (five at most); one 8 s deadline and 512 KB of HTML
   at most; no credentials in URLs.
+
+### Workspace workflows (templates, buttons, agent sections, triggers)
+
+Plan 032 phase 4. Things worth knowing before touching this:
+
+- **The cron is external, as everywhere else.** Agent sections are AgentTasks
+  and schedule triggers ride `scheduleDueAgentTaskRuns`'s route
+  (`/api/jobs/agent-memory` calls `fireScheduledTriggers`); nothing in this
+  repo calls that route. If the scheduler stops, no section refreshes on its
+  cron and no daily note is made. "Run now" on a section and a button's
+  agent prompt drain their own job in `after()` and do not wait for it.
+- **A template is a page with `template: true`** (present only when true).
+  It leaves the page tree (`childPages` skips template roots), mention and
+  link pickers, record search and 3.0.0's grid. Instantiation is
+  server-side (`@repo/utils/workspace-templates`): fresh ids at every depth,
+  `{{date}}`/`{{time}}`/`{{week}}`/`{{weekday}}` in the owner's time zone,
+  `{{page.title}}` the page the blocks land in, `{{input:Name}}` from the
+  caller (missing → empty), filled per text run (a variable split across
+  differently marked runs stays literal), in mention labels, table cells,
+  captions and widget titles. Button actions, agent prompts and code are
+  copied verbatim on purpose: a button's `{{date}}` means the day it is pressed.
+- **Actions run through the services that own them, never HTTP back into
+  web** (`lib/workspace/actions.ts`). Each is atomic on its own and reported
+  per action; a failure does not stop the next and nothing rolls back.
+  `$this` is the button's page; a trigger has none, and the trigger schema
+  refuses `$this` and `insert-template`. `open` only does anything for a
+  person's click.
+- **A locked page's button still runs** — locking guards layout, not
+  actions — but the actions write as whoever pressed, so a trigger's or an
+  agent's write to a locked page is still a 423.
+- **Workflow agent runs are incognito.** A button's agent prompt and a
+  trigger's are background runs whose conversations form no evidence and
+  cannot write memory; a section task runs incognito with **no connector
+  tools at all** — it reads only its configured sources (records, pages as
+  markdown, view rows, bounded) and its reply is the section. On top of that,
+  `observeDomainRecordSafely` returns early whenever a trigger caused the
+  work (`isWorkflowCaused`), so a trigger-created calendar event is not
+  evidence the way the owner's own is.
+- **The clobber rule: a section run never overwrites an edit.** `baseline`
+  (in `workspace_sections`) is the children as the last write left them. A
+  run writes only when the section is not pinned, the page is not locked and
+  the children still equal the baseline (a section never written counts as
+  edited unless it is blank); otherwise it stores a proposal, and the
+  owner's Accept writes it as the owner. The write itself is
+  `replaceChildren` with the expected children, so an edit landing between
+  the run reading and writing is a 409 that becomes a proposal too. A reply
+  is capped at `SECTION_BLOCKS_MAX` (60) blocks with fresh ids, and sections,
+  buttons and synced blocks in it are dropped.
+- **A section's task follows its block.** `reconcileSections` runs after any
+  write to a page that has (or had) a section — dynamic import from the
+  service's `onChange`, skipped for pages without one, because loading it on
+  every write slowed the hot path enough to break the CAS race test. Tasks
+  are keyed by `workspaceSection {pageId, blockId}`, hidden from the agent
+  task list, paused while the page is trashed or the prompt empty, archived
+  when the block goes. Edit a section through its block, never its task.
+- **The loop rules.** Every event carries the trigger chain that caused it:
+  in-process from `AsyncLocalStorage` (`withCausation` around a trigger's
+  actions), across MCP from `x-agent-actor` looked up in
+  `workflow_causations` (written when a trigger starts an agent run). A
+  trigger never fires on an event whose chain contains it; nothing fires on
+  an event `TRIGGER_DEPTH_MAX` (3) deep; `maxPerHour` is a fixed hourly
+  window per trigger (claimed atomically; excess events are skipped, not
+  queued); `TRIGGER_FAILURES_TO_DISABLE` (5) failed firings in a row turn it
+  off with a `task_failed` push, and re-enabling resets the count. An agent
+  trigger "succeeds" when its run is queued — the run's own failure does not
+  count towards disabling. The actor header is attribution anyone with a
+  service token could claim; it only ever suppresses.
+- **Emit from services, and never let emitting fail the caller.**
+  `emitDomainEvent` swallows its own errors; `dedupeKey` (unique, sparse)
+  makes re-emits from retried jobs no-ops. events.ts loads the action
+  services lazily: they emit events themselves, and a static import made a
+  cycle that broke unrelated tests' module mocks.
+- **Desktop 3.0.0 sees a button or a section as a v1 text block holding its
+  directive** (`:::block{type="button"}` / `:::section{…}` with the children
+  in its body), like every other rich block.
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
