@@ -146,7 +146,7 @@ export function SettingsScreen() {
         <Section title="Health information" footer={HEALTH_DISCLAIMER}>
           <Row
             icon="book-open"
-            title="Sources"
+            title="Health references & sources"
             subtitle="Where targets, expenditure and nutrient references come from"
             chevron
             separator={false}

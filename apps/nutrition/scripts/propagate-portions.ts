@@ -1,23 +1,26 @@
+import Redis from "ioredis";
 import { Pool } from "pg";
+import { SearchCache } from "../src/modules/search/cache";
 
 import {
   type Candidate,
   type Donor,
   offeredPortions,
+  type PortionRow,
   pickDonor,
   portionDonorRank,
 } from "./portions/donors";
 
 /**
  * Copies household measures ("1 head, large") onto composition-table foods
- * that publish none, from an item of the same concept that does.
+ * with missing or incomplete measures, from the same food concept.
  *
  *   bun run portions:propagate -- --dry-run
  *   bun run portions:propagate
  *
  * Rewrites every `concept` row each run, so it is safe to repeat after an
- * import or `concepts:link`. Items holding `source` or `llm` rows are left
- * alone. Copied rows carry `donor_item_id`.
+ * import or `concepts:link`. Source and estimated rows are preserved;
+ * sparse source measures can be supplemented. Copied rows carry `donor_item_id`.
  */
 
 const dryRun = Bun.argv.includes("--dry-run");
@@ -39,6 +42,7 @@ const generic = [
 
 interface ItemRow {
   id: string;
+  name: string;
   source: string;
   conceptName: string | null;
   clusterKey: string | null;
@@ -53,7 +57,7 @@ const main = async () => {
 
   try {
     const { rows } = await pool.query<ItemRow>(
-      `select i.id, i.source, i.concept_name as "conceptName",
+      `select i.id, i.name, i.source, i.concept_name as "conceptName",
               i.cluster_key as "clusterKey",
               i.calories_per_serving::float as calories,
               (select array_agg(distinct p.origin) from item_portions p
@@ -61,27 +65,24 @@ const main = async () => {
          from items i
         where i.source = any($1::text[]) and i.concept_name is not null
           and not i.quarantined and i.removed_at is null
-          and i.merged_into is null`,
+          and i.merged_into is null
+        order by i.id`,
       [generic],
     );
 
-    const donorIds = rows
-      .filter(
-        (row) =>
-          row.source in portionDonorRank && row.origins?.includes("source"),
-      )
-      .map((row) => row.id);
     const { rows: portionRows } = await pool.query<{
       itemId: string;
+      origin: string;
       label: string;
       grams: number;
     }>(
-      `select item_id as "itemId", label, grams::float as grams
+      `select item_id as "itemId", origin, label, grams::float as grams
          from item_portions
-        where origin = 'source' and item_id = any($1::uuid[])
-        order by item_id, sort_order`,
-      [donorIds],
+        where origin in ('source', 'llm') and item_id = any($1::uuid[])
+        order by item_id, sort_order, label`,
+      [rows.map((row) => row.id)],
     );
+    const sourcePortionsByItem = new Map<string, PortionRow[]>();
     const portionsByItem = new Map<
       string,
       { label: string; grams: number }[]
@@ -90,11 +91,17 @@ const main = async () => {
       const list = portionsByItem.get(row.itemId) ?? [];
       list.push({ label: row.label, grams: row.grams });
       portionsByItem.set(row.itemId, list);
+      if (row.origin === "source") {
+        const source = sourcePortionsByItem.get(row.itemId) ?? [];
+        source.push({ label: row.label, grams: row.grams });
+        sourcePortionsByItem.set(row.itemId, source);
+      }
     }
 
     const donorsByConcept = new Map<string, Donor[]>();
     for (const row of rows) {
-      const portions = offeredPortions(portionsByItem.get(row.id) ?? []);
+      if (!(row.source in portionDonorRank)) continue;
+      const portions = offeredPortions(sourcePortionsByItem.get(row.id) ?? []);
       if (!row.conceptName || portions.length === 0) continue;
       const list = donorsByConcept.get(row.conceptName) ?? [];
       list.push({ ...row, portions });
@@ -103,12 +110,19 @@ const main = async () => {
 
     const gaps: Candidate[] = rows.filter(
       (row) =>
-        !row.origins?.includes("source") && !row.origins?.includes("llm"),
+        !row.origins?.includes("llm") &&
+        offeredPortions(portionsByItem.get(row.id) ?? []).length < 3,
     );
     const assignments: { gap: Candidate; donor: Donor }[] = [];
     for (const gap of gaps) {
       const donor = pickDonor(gap, donorsByConcept);
-      if (donor) assignments.push({ gap, donor });
+      if (!donor) continue;
+      const existing = offeredPortions(portionsByItem.get(gap.id) ?? []);
+      const portions = offeredPortions([...existing, ...donor.portions]).slice(
+        existing.length,
+      );
+      if (portions.length > 0)
+        assignments.push({ gap, donor: { ...donor, portions } });
     }
 
     const bySource = new Map<string, number>();
@@ -147,7 +161,7 @@ const main = async () => {
           donorId: donor.id,
           label: portion.label,
           grams: portion.grams,
-          sortOrder,
+          sortOrder: sortOrder + (portionsByItem.get(gap.id)?.length ?? 0),
         })),
       );
       for (let offset = 0; offset < values.length; offset += 5_000) {
@@ -169,6 +183,25 @@ const main = async () => {
       }
       await client.query("commit");
       console.log(`wrote ${values.length} portion rows`);
+      const redisUrl = Bun.env.REDIS_URL;
+      if (redisUrl) {
+        const prefix = Bun.env.REDIS_KEY_PREFIX;
+        const redis = new Redis(redisUrl, {
+          keyPrefix: prefix ? `${prefix}:` : undefined,
+          maxRetriesPerRequest: 1,
+        });
+        // Invalidation reports failure below; handle connection error events too.
+        redis.on("error", () => undefined);
+        try {
+          console.log(
+            (await new SearchCache(redis).invalidate())
+              ? "Search cache invalidated"
+              : "Search cache invalidation failed; cached results expire on their own",
+          );
+        } finally {
+          redis.disconnect();
+        }
+      }
     } catch (error) {
       await client.query("rollback");
       throw error;

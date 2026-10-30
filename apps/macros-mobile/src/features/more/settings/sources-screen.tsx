@@ -38,8 +38,10 @@ export function SourcesScreen() {
       </Stack.Toolbar>
       <Screen>
         <VStack>
-          <Text variant="footnote" tone="secondary">
-            {HEALTH_DISCLAIMER}
+          <Text variant="subheadline">{HEALTH_DISCLAIMER}</Text>
+          <Text variant="subheadline" tone="secondary">
+            Each reference below explains which information it supports. Tap a
+            reference to read the original publication or guidance.
           </Text>
           {topics.map((entry) => (
             <Section key={entry.key} title={entry.title}>
@@ -54,16 +56,23 @@ export function SourcesScreen() {
                     <Pressable
                       onPress={() => void openBrowserAsync(citation.url)}
                       accessibilityRole="link"
-                      accessibilityHint="Opens the source"
+                      accessibilityLabel={`${citation.title}. ${citation.source}. ${citation.supports}`}
+                      accessibilityHint="Opens the original reference in your browser"
                       style={({ pressed }) => [
                         styles.citation,
                         pressed && { backgroundColor: colors.fill },
                       ]}
                     >
                       <View style={styles.citationText}>
-                        <Text variant="subheadline">{citation.title}</Text>
+                        <Text variant="subheadline" style={styles.sourceLink}>
+                          {citation.title}
+                        </Text>
                         <Text variant="footnote" tone="secondary">
                           {citation.source}
+                        </Text>
+                        <Text variant="footnote">{citation.supports}</Text>
+                        <Text variant="footnote" style={styles.sourceLink}>
+                          {citation.url}
                         </Text>
                       </View>
                       <Icon
@@ -85,6 +94,10 @@ export function SourcesScreen() {
 }
 
 const styles = StyleSheet.create({
+  sourceLink: {
+    color: colors.link,
+    textDecorationLine: "underline",
+  },
   summary: {
     marginBottom: spacing.md,
   },

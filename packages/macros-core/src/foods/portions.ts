@@ -18,7 +18,7 @@ const LEADING_QUANTITY_RE =
 const METRIC_RE =
   /^(?:mg|g|gr|grams?|kg|ml|cl|dl|l|oz|ounces?|lbs?|pounds?|fl\.?\s*oz)\b/i;
 const NOISE_RE =
-  /^(?:cubic inch|surface inch|quantity not specified|racc|guideline)\b|\byields?\b/i;
+  /^(?:cubic inch|surface inch|quantity not specified|racc|nlea serving|guideline)\b|\byields?\b/i;
 const ABBREVIATIONS: Record<string, string> = {
   pcs: "piece",
   pc: "piece",
@@ -38,9 +38,12 @@ function parseLeading(label: string): { count: number; rest: string } {
 }
 
 function tidy(rest: string): string {
-  const withoutDimensions = rest
+  // An unqualified fruit/piece needs its dimensions to distinguish sizes.
+  const keepDimensions = /^(?:fruit|piece|pcs?|stk)\s*\(/i.test(rest);
+  const withoutDimensions = (
+    keepDimensions ? rest : rest.replace(/\s*\([^)]*\d[^)]*(?:\)|$)/g, "")
+  )
     // "(15cm to 17.5cm long)", "(about 7" dia)": a size, not a name.
-    .replace(/\s*\([^)]*\d[^)]*(?:\)|$)/g, "")
     .replace(/\s*\(\s*\)/g, "")
     .replace(/\s+/g, " ")
     .replace(/[\s,;]+$/, "")

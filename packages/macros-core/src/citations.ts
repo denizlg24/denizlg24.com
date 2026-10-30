@@ -11,6 +11,8 @@ export interface Citation {
   /** Authors or issuing body, then venue and year. */
   source: string;
   url: string;
+  /** The specific information supported by this reference. */
+  supports: string;
 }
 
 export type CitationId =
@@ -50,6 +52,8 @@ export interface CitationTopic {
 export const CITATIONS: Record<CitationId, Citation> = {
   "mifflin-1990": {
     id: "mifflin-1990",
+    supports:
+      "Resting energy expenditure estimated from weight, height, age and sex.",
     title:
       "A new predictive equation for resting energy expenditure in healthy individuals",
     source:
@@ -58,24 +62,32 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "fao-energy-2004": {
     id: "fao-energy-2004",
+    supports:
+      "Physical activity and its relationship to total daily energy requirements. The app’s activity multipliers are starting assumptions.",
     title: "Human energy requirements",
     source: "FAO/WHO/UNU Expert Consultation, 2004",
     url: "https://www.fao.org/4/y5686e/y5686e00.htm",
   },
   "hall-2008": {
     id: "hall-2008",
+    supports:
+      "Energy content of weight change and the limits of a fixed calorie-per-kilogram approximation.",
     title: "What is the required energy deficit per unit weight loss?",
     source: "Hall KD. International Journal of Obesity, 2008",
     url: "https://pubmed.ncbi.nlm.nih.gov/17848938/",
   },
   "hall-2011": {
     id: "hall-2011",
+    supports:
+      "How energy intake and expenditure relate to changes in body weight over time. Macros uses its own estimator, not this paper’s model.",
     title: "Quantification of the effect of energy imbalance on bodyweight",
     source: "Hall KD, Sacks G, et al. The Lancet, 2011",
     url: "https://pubmed.ncbi.nlm.nih.gov/21872751/",
   },
   "nhlbi-obesity-1998": {
     id: "nhlbi-obesity-1998",
+    supports:
+      "Clinical guidance on gradual weight loss in adults. The app’s calorie floors, deficit cap and weekly adjustment cap are product rules, not individually prescribed clinical limits.",
     title:
       "Clinical Guidelines on the Identification, Evaluation, and Treatment of Overweight and Obesity in Adults",
     source: "National Heart, Lung, and Blood Institute (NIH), 1998",
@@ -83,6 +95,8 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "issn-protein-2017": {
     id: "issn-protein-2017",
+    supports:
+      "Protein intake for healthy adults who exercise; requirements vary with training and energy intake.",
     title:
       "International Society of Sports Nutrition Position Stand: protein and exercise",
     source:
@@ -91,6 +105,8 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "morton-2018": {
     id: "morton-2018",
+    supports:
+      "Protein supplementation during resistance training; the analysis informs the app’s 1.6–2.2 g/kg profile range.",
     title:
       "A systematic review, meta-analysis and meta-regression of the effect of protein supplementation on resistance training-induced gains in muscle mass and strength",
     source:
@@ -99,6 +115,8 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "iom-macronutrients-2005": {
     id: "iom-macronutrients-2005",
+    supports:
+      "Adult protein reference intake, macronutrient energy factors and fiber intake references. Macro profiles and the 0.6 g/kg fat floor are app choices.",
     title:
       "Dietary Reference Intakes for Energy, Carbohydrate, Fiber, Fat, Fatty Acids, Cholesterol, Protein, and Amino Acids",
     source: "Institute of Medicine, National Academies Press, 2005",
@@ -106,12 +124,15 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "nih-ods-dri": {
     id: "nih-ods-dri",
+    supports:
+      "Age- and sex-specific vitamin and mineral reference intakes (RDA, AI and upper limits).",
     title: "Nutrient Recommendations: Dietary Reference Intakes (DRI)",
     source: "Office of Dietary Supplements, National Institutes of Health",
     url: "https://ods.od.nih.gov/HealthInformation/nutrientrecommendations.aspx",
   },
   "who-protein-2007": {
     id: "who-protein-2007",
+    supports: "Essential amino acid requirements per kilogram of body weight.",
     title: "Protein and amino acid requirements in human nutrition",
     source:
       "WHO/FAO/UNU Expert Consultation, WHO Technical Report Series 935, 2007",
@@ -119,6 +140,8 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "iom-water-2005": {
     id: "iom-water-2005",
+    supports:
+      "Total water intake references, including water from both food and drinks.",
     title:
       "Dietary Reference Intakes for Water, Potassium, Sodium, Chloride, and Sulfate",
     source: "Institute of Medicine, National Academies Press, 2005",
@@ -126,18 +149,22 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "nasem-sodium-2019": {
     id: "nasem-sodium-2019",
+    supports: "The adult sodium reference of 2,300 mg/day.",
     title: "Dietary Reference Intakes for Sodium and Potassium",
     source: "National Academies of Sciences, Engineering, and Medicine, 2019",
     url: "https://nap.nationalacademies.org/catalog/25353",
   },
   "who-sugars-2015": {
     id: "who-sugars-2015",
+    supports:
+      "Free sugars below 10% of energy. Macros tracks added sugars, which do not include all free sugars.",
     title: "Guideline: sugars intake for adults and children",
     source: "World Health Organization, 2015",
     url: "https://www.who.int/publications/i/item/9789241549028",
   },
   "who-fats-2023": {
     id: "who-fats-2023",
+    supports: "Saturated fat below 10% and trans fat below 1% of energy.",
     title:
       "Saturated fatty acid and trans-fatty acid intake for adults and children",
     source: "World Health Organization, 2023",
@@ -145,13 +172,17 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "dga-2020": {
     id: "dga-2020",
+    supports:
+      "Added sugars and saturated fat below 10% of energy for the populations specified in the 2020–2025 guidelines.",
     title: "Dietary Guidelines for Americans, 2020–2025",
     source:
       "U.S. Department of Agriculture and Department of Health and Human Services",
-    url: "https://www.dietaryguidelines.gov/",
+    url: "https://www.dietaryguidelines.gov/sites/default/files/2020-12/Dietary_Guidelines_for_Americans_2020-2025.pdf",
   },
   "dga-2010": {
     id: "dga-2010",
+    supports:
+      "The historical 300 mg/day cholesterol limit used as an app tracking reference; this is not a current universal intake recommendation.",
     title: "Dietary Guidelines for Americans, 2010",
     source:
       "U.S. Department of Agriculture and Department of Health and Human Services",
@@ -159,6 +190,8 @@ export const CITATIONS: Record<CitationId, Citation> = {
   },
   "fda-caffeine": {
     id: "fda-caffeine",
+    supports:
+      "400 mg/day as an amount not generally associated with negative effects for most adults; individual sensitivity and circumstances vary.",
     title: "Spilling the Beans: How Much Caffeine is Too Much?",
     source: "U.S. Food and Drug Administration",
     url: "https://www.fda.gov/consumers/consumer-updates/spilling-beans-how-much-caffeine-too-much",
@@ -177,7 +210,7 @@ export const CITATION_TOPICS: CitationTopic[] = [
     key: "pace",
     title: "Weight change and pace",
     summary:
-      "A pace of weight change is turned into a daily calorie difference at about 7,700 kcal per kilogram of body weight. Targets never go below 1,200 kcal, 80% of your resting energy, or a 25% deficit, and change by at most 150 kcal a week. Losing about 0.5–1 kg a week is the pace clinical guidelines describe as safe for most adults.",
+      "A pace of weight change is turned into a daily calorie difference at about 7,700 kcal per kilogram of body weight. Targets never go below 1,200 kcal, 80% of your resting energy, or a 25% deficit, and change by at most 150 kcal a week. Clinical guidelines discuss gradual weight loss of about 0.5–1 kg a week in adults with overweight or obesity. The calorie floors and adjustment caps above are Macros product rules, not a guarantee that a target is safe for you.",
     citations: ["hall-2008", "hall-2011", "nhlbi-obesity-1998"],
   },
   {
