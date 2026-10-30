@@ -7,6 +7,16 @@ grouped under `### Added`, `### Changed`, `### Fixed`; inside a release only
 bullets, paragraphs, **bold**, `code` and [links](https://macros.denizlg24.com)
 are understood.
 
+## 0.1.3 — 2026-10-30
+
+### Changed
+- Health estimates show named, tappable references beside the figures. The full reference list explains what each publication supports and distinguishes research from app-specific calculation rules.
+- Settings now labels the reference list **Health references & sources**.
+
+### Fixed
+- More common foods offer household portions, including plums and small, medium and large pears.
+- Distinct fruit sizes no longer collapse into one option, and ordinary pears no longer borrow Asian-pear portions.
+
 ## 0.1.2 — 2026-10-27
 
 ### Added

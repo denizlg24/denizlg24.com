@@ -14,6 +14,6 @@ export type MacrosCacheVersions = z.infer<typeof macrosCacheVersionsSchema>;
  * These are opaque revisions: a hash, date or incrementing string all work.
  */
 export const MACROS_CACHE_VERSIONS = {
-  foods: "foods-v1",
+  foods: "foods-portions-2026-10-30",
   foodIcons: "original-food-icons-v2",
 } as const satisfies MacrosCacheVersions;

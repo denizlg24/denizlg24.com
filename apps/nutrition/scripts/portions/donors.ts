@@ -16,6 +16,7 @@ export interface PortionRow {
 
 export interface Candidate {
   id: string;
+  name: string;
   source: string;
   conceptName: string | null;
   clusterKey: string | null;
@@ -29,7 +30,16 @@ export interface Donor extends Candidate {
 
 /** Rows a logging screen would actually offer; the rest are not worth copying. */
 export const offeredPortions = (portions: readonly PortionRow[]) =>
-  portions.filter((portion) => householdServings([portion]).length > 0);
+  portions.filter((portion, index) => {
+    const [serving] = householdServings([portion]);
+    return (
+      serving &&
+      !householdServings(portions.slice(0, index)).some(
+        (previous) =>
+          previous.label.toLowerCase() === serving.label.toLowerCase(),
+      )
+    );
+  });
 
 /**
  * Same concept only counts when the energy density agrees: a concept can
@@ -44,8 +54,8 @@ export const densityAgrees = (a: number | null, b: number | null) => {
 // A donor offering several sizes beats a better table offering one odd
 // measure ("1 skin" for a raw potato).
 const score = (gap: Candidate, donor: Donor) => [
+  -Math.min(donor.portions.length, 4),
   gap.clusterKey !== null && donor.clusterKey === gap.clusterKey ? 0 : 1,
-  -Math.min(donor.portions.length, 3),
   portionDonorRank[donor.source] ?? 99,
   Math.abs((donor.calories ?? 0) - (gap.calories ?? 0)),
 ];
@@ -60,8 +70,8 @@ const compare = (left: number[], right: number[]) => {
 
 /**
  * The donor a gap borrows household measures from: a cluster sibling (same
- * concept, macros agree) first, else a same-concept item of similar energy
- * density, ranked by how many measures it offers, its table, and closeness.
+ * concept, macros agree) or a same-concept item of similar energy density.
+ * Prefer useful measure coverage, then cluster, source table and closeness.
  */
 export const pickDonor = (
   gap: Candidate,
@@ -71,6 +81,13 @@ export const pickDonor = (
   let best: { donor: Donor; score: number[] } | null = null;
   for (const donor of donorsByConcept.get(gap.conceptName) ?? []) {
     if (donor.id === gap.id || donor.portions.length === 0) continue;
+    // Asian/nashi pears have different sizes from European pears despite
+    // sharing the same broad concept and similar energy density.
+    if (
+      gap.conceptName === "pear, raw" &&
+      /asian|nashi/i.test(gap.name) !== /asian|nashi/i.test(donor.name)
+    )
+      continue;
     const sameCluster =
       gap.clusterKey !== null && donor.clusterKey === gap.clusterKey;
     if (!sameCluster && !densityAgrees(gap.calories, donor.calories)) continue;

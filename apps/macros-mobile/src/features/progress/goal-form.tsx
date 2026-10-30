@@ -15,6 +15,7 @@ import {
   useUpdateActiveGoal,
 } from "@/api/goals";
 import { useWeightOverview } from "@/api/weight";
+import { SourcesLink } from "@/components/sources-link";
 import { errorMessage } from "@/lib/api";
 import {
   formatDecimal,
@@ -357,6 +358,7 @@ function GoalForm({
               ))}
             </View>
           ) : null}
+          <SourcesLink topic="pace" />
         </VStack>
       </ScrollScreen>
     </>

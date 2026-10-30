@@ -3,6 +3,7 @@ import { type Donor, offeredPortions, pickDonor } from "./donors";
 
 const donor = (overrides: Partial<Donor>): Donor => ({
   id: "donor",
+  name: "Cabbage, raw",
   source: "usda_sr_legacy",
   conceptName: "cabbage, raw",
   clusterKey: null,
@@ -22,6 +23,7 @@ const byConcept = (donors: Donor[]) => {
 
 const gap = {
   id: "gap",
+  name: "Cabbage, raw",
   source: "ciqual",
   conceptName: "cabbage, raw",
   clusterKey: null,
@@ -49,6 +51,44 @@ describe("pickDonor", () => {
     expect(pickDonor({ ...gap, calories: 300 }, byConcept([pickled]))).toBe(
       null,
     );
+  });
+
+  it("does not borrow Asian pear sizes for European pears", () => {
+    const asian = donor({
+      name: "Pear, Asian, raw",
+      conceptName: "pear, raw",
+      calories: 42,
+    });
+    const european = donor({
+      id: "e",
+      name: "Pears, raw",
+      conceptName: "pear, raw",
+      calories: 57,
+    });
+    const pear = {
+      ...gap,
+      name: "Pear, William Bartlett, unpeeled, raw",
+      conceptName: "pear, raw",
+      calories: 45,
+    };
+    expect(pickDonor(pear, byConcept([asian, european]))?.id).toBe("e");
+    expect(pickDonor(pear, byConcept([asian]))).toBeNull();
+  });
+
+  it("prefers useful sizes over a sibling with only one measure", () => {
+    const sparse = donor({ id: "s", clusterKey: "c:1" });
+    const complete = donor({
+      id: "f",
+      portions: [
+        { label: "1 small", grams: 500 },
+        { label: "1 medium", grams: 900 },
+        { label: "1 large", grams: 1200 },
+      ],
+    });
+    expect(
+      pickDonor({ ...gap, clusterKey: "c:1" }, byConcept([sparse, complete]))
+        ?.id,
+    ).toBe("f");
   });
 
   it("needs a concept", () => {
