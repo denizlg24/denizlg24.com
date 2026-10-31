@@ -1058,7 +1058,7 @@
         "@tiptap/suggestion": "^3.33.0",
         "ai": "^7.0.163",
         "date-fns": "^4.4.0",
-        "harper.js": "^2.13.0",
+        "harper.js": "^3.0.0",
         "html5-qrcode": "^2.3.8",
         "katex": "^0.19.0",
         "lightweight-charts": "^5.2.1",
@@ -3629,7 +3629,7 @@
 
     "happy-dom": ["happy-dom@21.0.4", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw=="],
 
-    "harper.js": ["harper.js@2.13.0", "", { "dependencies": { "fflate": "^0.8.2" } }, "sha512-kUj+WLx8NSEVxQMoRqoBHGAPECAkATS9eCyYfQHWp1rEcOxtDkSKgjV+N0VHPd5xYKIF6cufJ7+evwaHfRF3WA=="],
+    "harper.js": ["harper.js@3.0.0", "", { "dependencies": { "fflate": "^0.8.2" } }, "sha512-Dyj1Q/mk8zr8vzGOZ6RJpUOj2BYbYPHMOmO4pIzKgOza9M/VHHfwwnFohIxpchPxeCoH3K/UlEI2Jkt7d6OeiA=="],
 
     "has-flag": ["has-flag@4.0.0", "", {}, "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="],
 
