@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",
-    "lucide-react": "^1.60.0"
+    "lucide-react": "^1.62.0"
   },
   "peerDependencies": {
     "react": "19.2.4",
