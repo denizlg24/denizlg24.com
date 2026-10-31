@@ -28,7 +28,7 @@
     "@uiw/react-codemirror": "^4.25.12",
     "codemirror": "^6.0.2",
     "codemirror-lang-latex": "^0.6.1",
-    "lucide-react": "^1.60.0"
+    "lucide-react": "^1.62.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",

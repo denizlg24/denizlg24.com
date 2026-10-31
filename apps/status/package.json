@@ -11,14 +11,14 @@
     "db:setup": "bun --env-file=../../.env.status scripts/setup-db.ts"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^4.0.120",
+    "@ai-sdk/gateway": "^4.0.128",
     "@repo/cloud-auth-client": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",
-    "ai": "^7.0.147",
-    "lucide-react": "^1.60.0",
+    "ai": "^7.0.155",
+    "lucide-react": "^1.62.0",
     "mongodb": "^7.6.0",
-    "next": "16.4.2",
+    "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
