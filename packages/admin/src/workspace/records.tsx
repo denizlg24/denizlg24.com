@@ -23,7 +23,12 @@ import {
   SquareKanban,
   UserRound,
 } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useState } from "react";
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 import type { AdminClient } from "../client";
 import { useAdmin } from "../provider";
 import { CourseFull, EnvelopeFull, NoteFull, PageFull } from "./record-full";
@@ -135,6 +140,13 @@ const inflight = new Set<string>();
 const listeners = new Set<() => void>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 function notify() {
   for (const listener of listeners) listener();
 }
@@ -155,7 +167,6 @@ async function flush(client: AdminClient) {
       const at = Date.now();
       for (const record of records) cache.set(record.ref, { record, at });
       for (const ref of missing) cache.set(ref, { record: null, at });
-    } catch {
       // Left uncached: the next mount asks again.
     } finally {
       for (const ref of chunk) inflight.delete(ref);
@@ -186,18 +197,15 @@ export type RecordState =
 
 export function useRecord(ref: string | null): RecordState {
   const { client } = useAdmin();
-  const [, setTick] = useState(0);
+  // The entry is the store snapshot, read through the hook: React Compiler
+  // memoizes a plain `cache.get(ref)` on `ref` alone, so a card that rendered
+  // before its summary arrived kept showing the skeleton forever.
+  const read = useCallback(() => (ref ? cache.get(ref) : undefined), [ref]);
+  const entry = useSyncExternalStore(subscribe, read, read);
   useEffect(() => {
-    if (!ref) return;
-    const listener = () => setTick((t) => t + 1);
-    listeners.add(listener);
-    request(client, ref);
-    return () => {
-      listeners.delete(listener);
-    };
+    if (ref) request(client, ref);
   }, [client, ref]);
   if (!ref || !parseEntityRef(ref)) return { status: "missing" };
-  const entry = cache.get(ref);
   if (!entry) return { status: "loading" };
   return entry.record
     ? { status: "ready", record: entry.record }
