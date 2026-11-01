@@ -330,6 +330,14 @@ export function PageStyleMenuItems({ page }: { page: WorkspacePage }) {
       >
         Hide title
       </DropdownMenuCheckboxItem>
+      <DropdownMenuCheckboxItem
+        checked={style.hideHeader === true}
+        onCheckedChange={(checked) =>
+          setStyle({ hideHeader: checked === true || undefined })
+        }
+      >
+        Hide header
+      </DropdownMenuCheckboxItem>
       <DropdownMenuSeparator />
     </>
   );

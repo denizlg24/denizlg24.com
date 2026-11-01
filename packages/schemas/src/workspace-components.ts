@@ -2,6 +2,10 @@ import { z } from "zod";
 import { iconColorSchema, iconValueSchema } from "./workspace-appearance";
 import { entityRefSchema, RECORD_REFS_MAX } from "./workspace-entities";
 import { viewConfigSchema } from "./workspace-views";
+import {
+  type WorkflowAction,
+  workflowActionsSchema,
+} from "./workspace-workflows";
 
 /**
  * Custom UI elements: components the owner or an agent builds, kept in a
@@ -29,6 +33,102 @@ const bindingName = z
   .regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/)
   .describe("Name the data is reachable under, e.g. tasks → {{tasks.rows}}");
 
+// ---------------------------------------------------------------------------
+// Direct collection reads: an allowlist of owner-facing Mongo collections,
+// read through typed filters only, secrets stripped server-side.
+// ---------------------------------------------------------------------------
+
+export const DATA_COLLECTIONS = [
+  "agent-tasks",
+  "blog-posts",
+  "calendar-events",
+  "contacts",
+  "course-assignments",
+  "courses",
+  "emails",
+  "finance-accounts",
+  "finance-entries",
+  "finance-envelopes",
+  "finance-rules",
+  "journal",
+  "kanban-boards",
+  "kanban-cards",
+  "kanban-columns",
+  "note-groups",
+  "notes",
+  "papers",
+  "people",
+  "person-groups",
+  "portfolios",
+  "projects",
+  "resources",
+  "spreadsheets",
+  "timeline",
+  "timetable",
+  "voice-notes",
+  "watchlists",
+  "whiteboards",
+  "work-jobs",
+] as const;
+export const dataCollectionSchema = z.enum(DATA_COLLECTIONS);
+export type DataCollection = z.infer<typeof dataCollectionSchema>;
+
+/** A document path: dotted, no `$`, so it can never name an operator. */
+export const dataFieldSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+){0,4}$/, "A field path");
+
+const dataScalar = z.union([
+  z.string().max(500),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const DATA_FILTER_OPS = [
+  "eq",
+  "ne",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "in",
+  "nin",
+  "exists",
+  "contains",
+] as const;
+
+export const dataFilterSchema = z.object({
+  field: dataFieldSchema,
+  op: z.enum(DATA_FILTER_OPS),
+  /** A string `date:2026-11-01` compares as a Date; `in`/`nin` take an array. */
+  value: z.union([dataScalar, z.array(dataScalar).max(50)]).optional(),
+});
+export type DataFilter = z.infer<typeof dataFilterSchema>;
+
+export const DATA_ROWS_MAX = 200;
+
+export const dataQuerySchema = z.object({
+  collection: dataCollectionSchema,
+  filter: z.array(dataFilterSchema).max(10).default([]),
+  sort: z
+    .object({ field: dataFieldSchema, dir: z.enum(["asc", "desc"]) })
+    .optional(),
+  limit: z.number().int().min(1).max(DATA_ROWS_MAX).default(50),
+  /** Only these fields (plus `id`); absent returns every non-secret field. */
+  fields: z.array(dataFieldSchema).max(30).optional(),
+});
+export type DataQuery = z.infer<typeof dataQuerySchema>;
+export type DataQueryInput = z.input<typeof dataQuerySchema>;
+
+export const dataQueryResultSchema = z.object({
+  collection: dataCollectionSchema,
+  rows: z.array(z.record(z.string(), z.unknown())),
+  /** Documents matching the filter, across every page. */
+  total: z.number().int(),
+});
+export type DataQueryResult = z.infer<typeof dataQueryResultSchema>;
+
 export const componentBindingSchema = z.discriminatedUnion("kind", [
   z.object({
     name: bindingName,
@@ -41,6 +141,12 @@ export const componentBindingSchema = z.discriminatedUnion("kind", [
     kind: z.literal("records"),
     /** Record summaries: `[{ title, subtitle, fields, ref }]`. */
     refs: z.array(entityRefSchema).max(RECORD_REFS_MAX),
+  }),
+  z.object({
+    name: bindingName,
+    kind: z.literal("collection"),
+    /** Raw documents of one allowlisted collection: `{ rows, total }`. */
+    query: dataQuerySchema,
   }),
   z.object({
     name: bindingName,
@@ -144,6 +250,10 @@ export type UiNode = {
   };
   /** Background / emphasis for card and stack. */
   surface?: "none" | "surface" | "muted" | "accent" | "outline";
+  /** A button's workflow actions, run on the server when pressed. */
+  actions?: WorkflowAction[];
+  /** Values sent with a press, filled from the scope: `{{event.<name>}}` in the actions. */
+  actionVars?: Record<string, string>;
   children?: UiNode[];
 };
 
@@ -178,6 +288,8 @@ export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     surface: z
       .enum(["none", "surface", "muted", "accent", "outline"])
       .optional(),
+    actions: workflowActionsSchema.optional(),
+    actionVars: z.record(z.string().max(40), template).optional(),
     children: z.array(uiNodeSchema).max(200).optional(),
   }),
 );
@@ -293,3 +405,15 @@ export const componentPropValuesSchema = z.record(
   z.union([z.string().max(2000), z.number(), z.boolean()]),
 );
 export type ComponentPropValues = z.infer<typeof componentPropValuesSchema>;
+
+/** A press of a button node in a placed component. */
+export const componentActionRequestSchema = z.object({
+  pageId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  blockId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  nodeId: z.string().min(1).max(64),
+  /** The node's `actionVars`, already filled from the client's scope. */
+  vars: z.record(z.string().max(40), z.string().max(2000)).default({}),
+});
+export type ComponentActionRequest = z.input<
+  typeof componentActionRequestSchema
+>;

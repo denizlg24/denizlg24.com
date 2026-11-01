@@ -37,6 +37,7 @@ function themeOf(doc: IWorkspaceTheme): Theme | null {
     effect: doc.effect,
     ornament: doc.ornament ?? {},
     background: doc.background,
+    fontImport: doc.fontImport ?? null,
     css: doc.css,
     builtin: false,
     createdBy: doc.createdBy,
@@ -132,6 +133,11 @@ export async function deleteTheme(id: string): Promise<void> {
   await writeAppearance({
     themeId: appearance.themeId === id ? DEFAULT_THEME_ID : appearance.themeId,
     schedule: appearance.schedule.filter((entry) => entry.themeId !== id),
+    moduleThemes: Object.fromEntries(
+      Object.entries(appearance.moduleThemes).filter(
+        ([, themeId]) => themeId !== id,
+      ),
+    ),
   });
 }
 
@@ -148,6 +154,7 @@ export async function getAppearance(): Promise<Appearance> {
     modules: doc.modules,
     sectionOrder: doc.sectionOrder,
     moduleOrder: doc.moduleOrder,
+    moduleThemes: doc.moduleThemes ?? {},
     updatedAt: doc.updatedAt.toISOString(),
   });
   return parsed.success ? parsed.data : DEFAULT_APPEARANCE;
@@ -173,6 +180,9 @@ export async function patchAppearance(
   const named = new Set<string>();
   if (patch.themeId) named.add(patch.themeId);
   for (const entry of patch.schedule ?? []) named.add(entry.themeId);
+  for (const themeId of Object.values(patch.moduleThemes ?? {})) {
+    named.add(themeId);
+  }
   for (const id of named) await assertThemeExists(id);
   const current = await getAppearance();
   return writeAppearance({ ...stripUpdatedAt(current), ...patch });

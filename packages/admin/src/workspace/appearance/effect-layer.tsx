@@ -15,7 +15,7 @@ type Particle = {
   color: string;
 };
 
-type Kind = Exclude<ThemeEffectKind, "none">;
+type Kind = Exclude<ThemeEffectKind, "none" | "aurora">;
 
 const PALETTES: Record<Kind, string[]> = {
   snow: ["#ffffff", "#f1f6ff", "#e6eefb"],
@@ -270,13 +270,74 @@ function outside(kind: Kind, p: Particle, width: number, height: number) {
   return p.y > height + 20 || p.x < -40 || p.x > width + 40;
 }
 
-/** A pointer-transparent canvas over the app drawing the theme's ambient effect. */
-export function EffectLayer({ effect }: { effect: ThemeEffect }) {
+const AURORA_KEYFRAMES = `
+@keyframes theme-aurora-a { 0%,100% { transform: translate(-10%, -10%) scale(1); } 50% { transform: translate(15%, 10%) scale(1.25); } }
+@keyframes theme-aurora-b { 0%,100% { transform: translate(10%, 5%) scale(1.1); } 50% { transform: translate(-15%, -10%) scale(0.9); } }
+@keyframes theme-aurora-c { 0%,100% { transform: translate(0, 10%) scale(0.9); } 50% { transform: translate(10%, -15%) scale(1.2); } }
+@media (prefers-reduced-motion: reduce) { .theme-aurora > div { animation: none !important; } }
+`;
+
+/** Three slow, blurred blobs in the theme's colours, blended over the app. */
+function Aurora({ effect, dark }: { effect: ThemeEffect; dark: boolean }) {
+  const colors = effect.color
+    ? [effect.color, effect.color, effect.color]
+    : ["var(--accent)", "var(--chart-2)", "var(--chart-4)"];
+  const blob = (color: string, animation: string, at: string) => ({
+    position: "absolute" as const,
+    width: "60vmax",
+    height: "60vmax",
+    left: at.split(" ")[0],
+    top: at.split(" ")[1],
+    borderRadius: "50%",
+    background: `radial-gradient(circle, ${color} 0%, transparent 65%)`,
+    filter: "blur(40px)",
+    animation: `${animation} ${28 + effect.density * -10}s ease-in-out infinite`,
+  });
+  return (
+    <div
+      aria-hidden
+      className="theme-aurora pointer-events-none fixed inset-0 z-40 overflow-hidden"
+      style={{
+        opacity: 0.12 + effect.density * 0.25,
+        mixBlendMode: dark ? "screen" : "multiply",
+      }}
+    >
+      <style>{AURORA_KEYFRAMES}</style>
+      <div
+        style={blob(
+          colors[0] ?? "var(--accent)",
+          "theme-aurora-a",
+          "-10% -20%",
+        )}
+      />
+      <div
+        style={blob(colors[1] ?? "var(--accent)", "theme-aurora-b", "50% 30%")}
+      />
+      <div
+        style={blob(colors[2] ?? "var(--accent)", "theme-aurora-c", "10% 60%")}
+      />
+    </div>
+  );
+}
+
+/** The theme's ambient effect: particles on a canvas, or the aurora layer. */
+export function EffectLayer({
+  effect,
+  dark = false,
+}: {
+  effect: ThemeEffect;
+  dark?: boolean;
+}) {
+  if (effect.kind === "aurora") return <Aurora effect={effect} dark={dark} />;
+  return <ParticleLayer effect={effect} />;
+}
+
+function ParticleLayer({ effect }: { effect: ThemeEffect }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { kind, density, color } = effect;
 
   useEffect(() => {
-    if (kind === "none") return;
+    if (kind === "none" || kind === "aurora") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -330,7 +391,7 @@ export function EffectLayer({ effect }: { effect: ThemeEffect }) {
     };
   }, [kind, density, color]);
 
-  if (kind === "none") return null;
+  if (kind === "none" || kind === "aurora") return null;
   return (
     <canvas
       ref={canvasRef}

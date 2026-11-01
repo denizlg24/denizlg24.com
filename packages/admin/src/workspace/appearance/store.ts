@@ -32,10 +32,13 @@ interface AppearanceState {
   loaded: boolean;
   /** A theme the open page wears instead of the app's. */
   pageThemeId: string | null;
+  /** The module open now, whose own theme applies when it has one. */
+  moduleId: string | null;
   /** An unsaved theme the editor is showing. */
   preview: Theme | null;
   load: (client: AdminClient) => Promise<void>;
   setPageTheme: (id: string | null) => void;
+  setModule: (id: string | null) => void;
   setPreview: (theme: Theme | null) => void;
   patch: (patch: AppearancePatch) => Promise<void>;
   createTheme: (input: ThemeInput) => Promise<Theme | null>;
@@ -93,6 +96,7 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => {
     themes: cached?.themes ?? BUILTIN_THEMES,
     loaded: false,
     pageThemeId: null,
+    moduleId: null,
     preview: null,
 
     load: async (client) => {
@@ -100,6 +104,7 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => {
       await reload().catch(fail("load appearance"));
     },
     setPageTheme: (pageThemeId) => set({ pageThemeId }),
+    setModule: (moduleId) => set({ moduleId }),
     setPreview: (preview) => set({ preview }),
 
     patch: async (patch) => {
@@ -200,15 +205,22 @@ export function findTheme(themes: Theme[], id: string): Theme {
   );
 }
 
-/** What is on right now: an editor preview, the page's own theme, else the schedule's or the default. */
+/**
+ * What is on right now: an editor preview, the page's own theme, the open
+ * module's theme, else the schedule's or the default.
+ */
 export function useActiveTheme(): Theme {
   const preview = useAppearanceStore((s) => s.preview);
   const pageThemeId = useAppearanceStore((s) => s.pageThemeId);
+  const moduleId = useAppearanceStore((s) => s.moduleId);
   const themes = useAppearanceStore((s) => s.themes);
   const appearance = useAppearanceStore((s) => s.appearance);
   if (preview) return preview;
+  const moduleThemeId = moduleId
+    ? appearance.moduleThemes[moduleId]
+    : undefined;
   return findTheme(
     themes,
-    pageThemeId ?? activeThemeId(appearance, localDay()),
+    pageThemeId ?? moduleThemeId ?? activeThemeId(appearance, localDay()),
   );
 }

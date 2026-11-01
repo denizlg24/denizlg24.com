@@ -1,8 +1,11 @@
 import {
   type Block,
   type BlockOf,
+  type BlockTint,
   type BlockType,
   blockSchema,
+  blockTintSchema,
+  columnAlignSchema,
   type HeadingLevel,
   type InlineRun,
   isContainer,
@@ -123,12 +126,35 @@ export function inlineToRuns(
   return normalizeRuns(runs);
 }
 
-function paragraph(text: RichText, id: string | null = null): JSONContent {
+function paragraph(
+  text: RichText,
+  id: string | null = null,
+  tints: Tints = {},
+): JSONContent {
   const content = runsToInline(text);
   return {
     type: "paragraph",
-    attrs: { id },
+    attrs: { id, ...tintNodeAttrs(tints) },
     ...(content.length > 0 ? { content } : {}),
+  };
+}
+
+type Tints = { color?: BlockTint; background?: BlockTint };
+
+function tintNodeAttrs(tints: Tints): Record<string, string> {
+  return {
+    ...(tints.color ? { color: tints.color } : {}),
+    ...(tints.background ? { background: tints.background } : {}),
+  };
+}
+
+/** Tints a node carries, present only when set. */
+function tintsOf(node: JSONContent): Tints {
+  const color = blockTintSchema.safeParse(node.attrs?.color);
+  const background = blockTintSchema.safeParse(node.attrs?.background);
+  return {
+    ...(color.success ? { color: color.data } : {}),
+    ...(background.success ? { background: background.data } : {}),
   };
 }
 
@@ -145,12 +171,12 @@ function fieldsOf(block: Block): Record<string, unknown> {
 function blockNode(block: Block): JSONContent {
   switch (block.type) {
     case "paragraph":
-      return paragraph(block.text, block.id);
+      return paragraph(block.text, block.id, block);
     case "heading": {
       const content = runsToInline(block.text);
       return {
         type: "heading",
-        attrs: { id: block.id, level: block.level },
+        attrs: { id: block.id, level: block.level, ...tintNodeAttrs(block) },
         ...(content.length > 0 ? { content } : {}),
       };
     }
@@ -198,7 +224,7 @@ function blockNode(block: Block): JSONContent {
     case "columns":
       return {
         type: "columns",
-        attrs: { id: block.id },
+        attrs: { id: block.id, ...(block.align ? { align: block.align } : {}) },
         content: block.children.map((column) => ({
           type: "column",
           attrs: { id: column.id, width: column.width },
@@ -281,7 +307,12 @@ function nodeToBlocks(node: JSONContent): Block[] {
   switch (node.type) {
     case "paragraph":
       return [
-        { id: idOf(node), type: "paragraph", text: inlineToRuns(node.content) },
+        {
+          id: idOf(node),
+          type: "paragraph",
+          text: inlineToRuns(node.content),
+          ...tintsOf(node),
+        },
       ];
     case "heading":
       return [
@@ -290,6 +321,7 @@ function nodeToBlocks(node: JSONContent): Block[] {
           type: "heading",
           level: headingLevel(node.attrs?.level),
           text: inlineToRuns(node.content),
+          ...tintsOf(node),
         },
       ];
     case "bulletList":
@@ -358,11 +390,13 @@ function nodeToBlocks(node: JSONContent): Block[] {
     }
     case "horizontalRule":
       return [{ id: idOf(node), type: "divider" }];
-    case "columns":
+    case "columns": {
+      const align = columnAlignSchema.safeParse(node.attrs?.align);
       return [
         {
           id: idOf(node),
           type: "columns",
+          ...(align.success ? { align: align.data } : {}),
           children: (node.content ?? []).flatMap((column) => {
             const width = column.attrs?.width;
             return column.type === "column"
@@ -383,6 +417,7 @@ function nodeToBlocks(node: JSONContent): Block[] {
           }),
         },
       ];
+    }
     case "section": {
       const data = node.attrs?.data;
       const parsed = blockSchema.safeParse({

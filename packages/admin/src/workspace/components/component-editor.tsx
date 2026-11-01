@@ -11,7 +11,9 @@ import {
   UI_TONES,
   type UiNode,
   type UiNodeType,
+  type WorkflowAction,
   type WorkspaceComponent,
+  workflowActionsSchema,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
@@ -412,6 +414,33 @@ function Inspector({
           placeholder="tasks.rows"
         />
       ) : null}
+      {node.type === "button" ? (
+        <div className="col-span-2 flex flex-col gap-3">
+          <Field label="Actions">
+            <JsonField
+              id={`actions-${node.id}`}
+              schema={workflowActionsSchema}
+              value={node.actions ?? []}
+              onChange={(actions) =>
+                set("actions", actions.length ? actions : undefined)
+              }
+              rows={8}
+              templates={ACTION_TEMPLATES}
+            />
+          </Field>
+          <Field label="Action variables">
+            <JsonField
+              id={`vars-${node.id}`}
+              schema={actionVarsSchema}
+              value={node.actionVars ?? {}}
+              onChange={(vars) =>
+                set("actionVars", Object.keys(vars).length ? vars : undefined)
+              }
+              rows={3}
+            />
+          </Field>
+        </div>
+      ) : null}
       <TextField
         label="Show when"
         value={node.when}
@@ -643,6 +672,43 @@ function JsonField<T>({
   );
 }
 
+const actionVarsSchema = z.record(z.string().max(40), z.string().max(4000));
+
+const ACTION_TEMPLATES: { label: string; value: WorkflowAction[] }[] = [
+  {
+    label: "card",
+    value: [
+      {
+        kind: "create-card",
+        boardId: "000000000000000000000000",
+        columnId: "000000000000000000000000",
+        title: "{{event.title}}",
+      },
+    ],
+  },
+  {
+    label: "todo",
+    value: [
+      {
+        kind: "set-todo",
+        pageId: "$this",
+        blockId: "todo-block-id",
+        checked: true,
+      },
+    ],
+  },
+  {
+    label: "append",
+    value: [
+      {
+        kind: "append-blocks",
+        pageId: "$this",
+        markdown: "- {{date}} {{event.note}}",
+      },
+    ],
+  },
+];
+
 const BINDING_TEMPLATES: { label: string; value: ComponentBinding[] }[] = [
   {
     label: "view",
@@ -656,6 +722,21 @@ const BINDING_TEMPLATES: { label: string; value: ComponentBinding[] }[] = [
           filters: [],
           sort: [],
           limit: 10,
+        },
+      },
+    ],
+  },
+  {
+    label: "collection",
+    value: [
+      {
+        name: "rows",
+        kind: "collection",
+        query: {
+          collection: "notes",
+          filter: [],
+          limit: 20,
+          fields: ["title", "updatedAt"],
         },
       },
     ],

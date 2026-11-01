@@ -1135,6 +1135,13 @@ catalogue with every tool → route mapping is
 
 ### Key Patterns
 
+**React Compiler is on (desktop and web), so render-time reads of mutable
+module state are memoized on their inputs.** `cache.get(ref)` in a hook body
+is cached on `ref` and never re-read when the cache fills; that left record
+cards and widgets on skeletons for good. Read external caches through
+`useSyncExternalStore` with the data itself as the snapshot (see
+`useRecord`, `useSource`), or keep the state in a zustand store.
+
 **API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL comes from `NEXT_PUBLIC_DESKTOP_API_BASE_URL`, not a hardcoded host. The client is stateless: every request bears the OAuth session's access token from `lib/auth/session.ts` (`getAccessToken()`), refreshed on demand. Gate on `useAuthStore` (`status === "signed-in"`), never on a stored credential.
 ```ts
 const api = useMemo(() => new denizApi(), []);
@@ -1496,6 +1503,29 @@ Schemas: `@repo/schemas` `workspace-appearance`, `workspace-themes`
   image host. Bindings (`view`, `records`, `json`) load through the normal
   view and record routes into the scope `{{path | pipe}}` reads
   (`@repo/utils/ui-spec`).
+- **Theming depth:** `appearance.moduleThemes` gives a module its own theme
+  while open (precedence: editor preview > page `style.themeId` > module >
+  schedule > default; `ThemeRoot` tracks the module from the pathname). A
+  theme's `fontImport` names a fonts.googleapis.com / fonts.bunny.net
+  stylesheet and the families it adds; nothing else may be linked. `aurora`
+  is a CSS layer, not the particle canvas.
+- **Text tints and column alignment** are optional block fields
+  (`color` / `background` on paragraphs and headings, `align` on columns),
+  carried by the markdown marker / directive attrs and by node attributes in
+  the editor; a tinted heading is no longer "plain" for desktop 3.0.0, so it
+  downgrades to a markdown text block rather than losing its tint.
+- **Component power:** a `collection` binding reads one allowlisted
+  collection through `POST /workspace/data/query` (`lib/workspace/data.ts`):
+  typed filter ops only (a field path cannot start with `$`), the driver
+  collection so nothing is cast (id-looking strings match string or
+  ObjectId), credential-looking keys stripped at any depth, 200 rows max.
+  A spec `button` node with `actions` runs them through
+  `POST /workspace/components/actions`: the server takes the actions from the
+  stored component, never the request, hosts them on the placing block, and
+  passes only the node's declared `actionVars` as `{{event.*}}`.
+  `components.ts` loads the action services lazily, like `events.ts`: a static
+  import made every importer load the workspace singleton for real and broke
+  other suites' module mocks.
 - **`embed` blocks resolve providers on render** (`@repo/utils/workspace-embeds`):
   YouTube (nocookie), Vimeo, Spotify, SoundCloud, Figma, Loom, CodePen,
   Google Docs/Maps, OpenStreetMap, direct media files; anything else is a

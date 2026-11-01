@@ -1,7 +1,10 @@
 import {
   type Block,
   type BlockInput,
+  type BlockTint,
   blockSchema,
+  blockTintSchema,
+  columnAlignSchema,
   type RichText,
 } from "@repo/schemas";
 import {
@@ -130,6 +133,30 @@ function stringAttr(attrs: Attrs, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** A text block's tint attributes, written only when set. */
+function tintAttrs(block: {
+  color?: BlockTint;
+  background?: BlockTint;
+}): Attrs {
+  return {
+    ...(block.color ? { color: block.color } : {}),
+    ...(block.background ? { background: block.background } : {}),
+  };
+}
+
+/** Tints a marker names; anything that is not a tint is dropped, not refused. */
+function tintOf(attrs: Attrs | null): {
+  color?: BlockTint;
+  background?: BlockTint;
+} {
+  const color = blockTintSchema.safeParse(attrs?.color);
+  const background = blockTintSchema.safeParse(attrs?.background);
+  return {
+    ...(color.success ? { color: color.data } : {}),
+    ...(background.success ? { background: background.data } : {}),
+  };
+}
+
 function marker(attrs: Attrs): string {
   return `<!-- ${formatAttrs(attrs)} -->`;
 }
@@ -190,9 +217,12 @@ function renderBlock(block: Block, ordinal: number): string {
   const id = { id: block.id };
   switch (block.type) {
     case "paragraph":
-      return textLine("", block.text, id);
+      return textLine("", block.text, { ...id, ...tintAttrs(block) });
     case "heading":
-      return textLine(`${"#".repeat(block.level)} `, block.text, id);
+      return textLine(`${"#".repeat(block.level)} `, block.text, {
+        ...id,
+        ...tintAttrs(block),
+      });
     case "bullet":
       return `${textLine("- ", block.text, id)}${indent(renderChildren(block.children), "  ")}`;
     case "todo":
@@ -264,7 +294,8 @@ function renderBlock(block: Block, ordinal: number): string {
             `${directive("column", { id: column.id, width: column.width })}${renderChildren(column.children)}\n${DIRECTIVE_CLOSE}`,
         )
         .join("\n\n");
-      return `${directive("columns", id)}${columns ? `\n${columns}` : ""}\n${DIRECTIVE_CLOSE}`;
+      const columnsAttrs = block.align ? { ...id, align: block.align } : id;
+      return `${directive("columns", columnsAttrs)}${columns ? `\n${columns}` : ""}\n${DIRECTIVE_CLOSE}`;
     }
     default:
       return genericDirective(block);
@@ -580,7 +611,10 @@ class Parser {
 
       if (body === "" && attrs) {
         blocks.push(
-          this.make({ id: id(), type: "paragraph", text: [] }, lineNo),
+          this.make(
+            { id: id(), type: "paragraph", text: [], ...tintOf(attrs) },
+            lineNo,
+          ),
         );
         i++;
         continue;
@@ -596,6 +630,7 @@ class Parser {
               type: "heading",
               level,
               text: markdownToRuns(heading[2] ?? ""),
+              ...tintOf(attrs),
             },
             lineNo,
           ),
@@ -706,6 +741,7 @@ class Parser {
             id: id(),
             type: "paragraph",
             text: markdownToRuns(trimBlankEdges(paragraph).join("\n")),
+            ...tintOf(attrs),
           },
           lineNo,
         ),
@@ -746,7 +782,16 @@ class Parser {
             "A :::columns directive holds only :::column directives",
           );
         }
-        return this.make({ id, type: "columns", children: columns }, lineNo);
+        const align = columnAlignSchema.safeParse(attrs.align);
+        return this.make(
+          {
+            id,
+            type: "columns",
+            ...(align.success ? { align: align.data } : {}),
+            children: columns,
+          },
+          lineNo,
+        );
       }
       case "section": {
         const config = Object.fromEntries(

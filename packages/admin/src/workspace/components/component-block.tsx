@@ -16,6 +16,8 @@ import { useComponent, useComponentList } from "./library";
 
 type ComponentBlockProps = {
   block: BlockOf<"component">;
+  /** The page holding the block; its buttons run their actions there. */
+  pageId?: string;
   editable: boolean;
   selected: boolean;
   onChange: (block: BlockOf<"component">) => void;
@@ -151,6 +153,7 @@ function PropsPopover({
 /** Places a library component on the page, with this block's prop values. */
 export function ComponentBlock({
   block,
+  pageId,
   editable,
   selected,
   onChange,
@@ -214,6 +217,7 @@ export function ComponentBlock({
           component={component}
           props={block.props}
           height={block.height}
+          host={pageId ? { pageId, blockId: block.id } : undefined}
         />
       ) : null}
       {editable && component ? (

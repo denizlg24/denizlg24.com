@@ -9,6 +9,7 @@ import {
 } from "@repo/schemas";
 import type { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
+import { Note } from "@/models/Note";
 import { WorkspacePageModel } from "@/models/WorkspacePage";
 import {
   addScheduleEntry,
@@ -24,8 +25,10 @@ import {
   deleteComponent,
   getComponent,
   listComponents,
+  pressComponentAction,
   updateComponent,
 } from "./components";
+import { queryData } from "./data";
 import { mongoWorkspaceRepo } from "./mongo-repo";
 import { createWorkspaceService, OWNER, WorkspaceError } from "./service";
 
@@ -156,6 +159,10 @@ describe.skipIf(!enabled)("appearance on a real mongod", () => {
       throw new Error(`Refusing a non-local mongod: ${uri}`);
     }
     await mongoose.connect(uri);
+    const cache = global.mongooseCache ?? { conn: null, promise: null };
+    cache.conn = mongoose;
+    cache.promise = Promise.resolve(mongoose);
+    global.mongooseCache = cache;
   });
 
   afterAll(async () => {
@@ -257,5 +264,130 @@ describe.skipIf(!enabled)("appearance on a real mongod", () => {
 
     const reverted = await service.revertToRev(page.id, themed.rev, OWNER);
     expect(reverted.style?.themeId).toBe("builtin:christmas");
+  });
+
+  test("collection reads: allowlisted, typed filters, credentials stripped", async () => {
+    const lecture = new mongoose.Types.ObjectId();
+    const other = new mongoose.Types.ObjectId();
+    await Note.collection.insertMany([
+      {
+        _id: lecture,
+        title: "BLE lecture",
+        tags: ["ble"],
+        apiToken: "leak-me",
+        meta: { sessionSecret: "leak-me-too", words: 120 },
+        createdAt: new Date("2026-10-01"),
+      },
+      {
+        _id: other,
+        title: "Chisel notes",
+        tags: ["chisel"],
+        createdAt: new Date("2026-10-20"),
+      },
+    ]);
+
+    const all = await queryData({
+      collection: "notes",
+      filter: [],
+      sort: { field: "createdAt", dir: "asc" },
+      limit: 10,
+    });
+    expect(all.total).toBe(2);
+    expect(all.rows[0]?.id).toBe(lecture.toHexString());
+    expect(JSON.stringify(all.rows)).not.toContain("leak-me");
+    expect(all.rows[0]?.meta).toEqual({ words: 120 });
+
+    const recent = await queryData({
+      collection: "notes",
+      filter: [{ field: "createdAt", op: "gt", value: "date:2026-10-10" }],
+      limit: 10,
+      fields: ["title"],
+    });
+    expect(recent.rows).toEqual([
+      { id: other.toHexString(), title: "Chisel notes" },
+    ]);
+
+    const byId = await queryData({
+      collection: "notes",
+      filter: [{ field: "id", op: "eq", value: lecture.toHexString() }],
+      limit: 10,
+    });
+    expect(byId.rows.map((r) => r.title)).toEqual(["BLE lecture"]);
+
+    const contains = await queryData({
+      collection: "notes",
+      filter: [{ field: "title", op: "contains", value: "chis.*" }],
+      limit: 10,
+    });
+    expect(contains.total).toBe(0);
+
+    await rejects(
+      queryData({
+        collection: "notes",
+        filter: [{ field: "apiToken", op: "exists", value: true }],
+        limit: 10,
+      }),
+      400,
+    );
+  });
+
+  test("a component button runs its stored actions on the placing page", async () => {
+    const service = createWorkspaceService(mongoWorkspaceRepo);
+    await service.ensureMigrated();
+    const component = await createComponent(
+      {
+        name: "Log",
+        kind: "spec",
+        spec: {
+          id: "root",
+          type: "stack",
+          children: [
+            {
+              id: "go",
+              type: "button",
+              text: "Log it",
+              actions: [
+                {
+                  kind: "append-blocks",
+                  pageId: "$this",
+                  markdown: "Logged {{event.what}}",
+                },
+              ],
+              actionVars: { what: "{{props.what}}" },
+            },
+          ],
+        },
+      },
+      "owner",
+    );
+    const page = await service.createPage(
+      {
+        title: "Log page",
+        blocks: [
+          { id: "k", type: "component", componentId: component.id, props: {} },
+        ],
+      },
+      OWNER,
+    );
+    const results = await pressComponentAction(
+      {
+        pageId: page.id,
+        blockId: "k",
+        nodeId: "go",
+        vars: { what: "the BLE lab", injected: "ignored" },
+      },
+      OWNER,
+    );
+    expect(results.every((r) => r.ok)).toBe(true);
+    const after = await service.toMarkdown(page.id);
+    expect(after.markdown).toContain("Logged the BLE lab");
+
+    await rejects(
+      pressComponentAction(
+        { pageId: page.id, blockId: "k", nodeId: "root", vars: {} },
+        OWNER,
+      ),
+      404,
+    );
   });
 });

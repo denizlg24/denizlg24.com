@@ -4,6 +4,7 @@ import type {
   ThemeColors,
   ThemeEffect,
   ThemeFont,
+  ThemeFontImport,
   ThemeOrnament,
   ThemeScheduleEntry,
   UiDensity,
@@ -20,6 +21,7 @@ export interface IWorkspaceAppearance {
   modules: Record<string, ModuleCustomization>;
   sectionOrder: string[];
   moduleOrder: string[];
+  moduleThemes: Record<string, string>;
   updatedAt: Date;
 }
 
@@ -33,6 +35,7 @@ const workspaceAppearanceSchema = new mongoose.Schema<IWorkspaceAppearance>(
     modules: { type: mongoose.Schema.Types.Mixed, default: {} },
     sectionOrder: { type: [String], default: [] },
     moduleOrder: { type: [String], default: [] },
+    moduleThemes: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   {
     timestamps: { createdAt: false, updatedAt: true },
@@ -60,6 +63,7 @@ export interface IWorkspaceTheme {
   effect: ThemeEffect;
   ornament: ThemeOrnament;
   background: ThemeBackground | null;
+  fontImport: ThemeFontImport | null;
   css: string;
   createdBy: string;
   createdAt: Date;
@@ -77,6 +81,7 @@ const workspaceThemeSchema = new mongoose.Schema<IWorkspaceTheme>(
     effect: { type: mongoose.Schema.Types.Mixed, required: true },
     ornament: { type: mongoose.Schema.Types.Mixed, default: {} },
     background: { type: mongoose.Schema.Types.Mixed, default: null },
+    fontImport: { type: mongoose.Schema.Types.Mixed, default: null },
     css: { type: String, default: "" },
     createdBy: { type: String, required: true },
   },

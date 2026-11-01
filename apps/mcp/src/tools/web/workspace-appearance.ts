@@ -3,6 +3,9 @@ import {
   appearancePatchSchema,
   componentInputSchema,
   componentPatchSchema,
+  DATA_COLLECTIONS,
+  DATA_FILTER_OPS,
+  dataQuerySchema,
   PAGE_COVER_GRADIENTS,
   THEME_EFFECTS,
   THEME_FONTS,
@@ -28,7 +31,7 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
   defineActions(server, {
     name: "web_workspace_themes",
     title: "Web: workspace themes",
-    description: `How desktop and web look. A theme sets colours (CSS colours: hex or rgb()/hsl()/oklch(); background, foreground, surface, muted, mutedForeground, accent, accentStrong and border are required, the rest derive), scheme light|dark, corner radius in rem, fonts (body/heading: ${THEME_FONTS.join(", ")}), an ambient effect (${THEME_EFFECTS.join(", ")}) with density 0–1, ornaments (icon values shown beside page titles and in the sidebar), an optional https background image, and optional extra CSS (no url() or @import). Built-in themes (id builtin:<slug>) are read-only: copy one with create. Appearance holds the theme that is on, a schedule of themes for date ranges (the latest-starting entry covering today wins), text scale, density, and per-module sidebar labels, icons and order. Clients pick changes up within a minute.`,
+    description: `How desktop and web look. A theme sets colours (CSS colours: hex or rgb()/hsl()/oklch(); background, foreground, surface, muted, mutedForeground, accent, accentStrong and border are required, the rest derive), scheme light|dark, corner radius in rem, fonts (body/heading: ${THEME_FONTS.join(", ")}), an ambient effect (${THEME_EFFECTS.join(", ")}) with density 0–1, ornaments (icon values shown beside page titles and in the sidebar), an optional https background image, optional webfonts (fontImport: a fonts.googleapis.com or fonts.bunny.net stylesheet URL plus the body/heading family names it provides), and optional extra CSS (no url() or @import). Effects include aurora, a slow animated colour wash. Built-in themes (id builtin:<slug>) are read-only: copy one with create. Appearance holds the theme that is on, a schedule of themes for date ranges (the latest-starting entry covering today wins), text scale, density, per-module sidebar labels, icons and order, and moduleThemes {<moduleId>: themeId} — a theme a module wears while open (a page's own theme still wins). Clients pick changes up within a minute.`,
     actions: {
       appearance: action({
         description:
@@ -89,7 +92,7 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
       }),
       set_appearance: action({
         description:
-          "Replaces the named appearance fields: themeId, schedule (whole list), textScale 0.8–1.3, density compact|default|comfortable, modules {<moduleId>: {label?, icon?}}, sectionOrder, moduleOrder. Read appearance first and send back what you keep",
+          "Replaces the named appearance fields: themeId, schedule (whole list), textScale 0.8–1.3, density compact|default|comfortable, modules {<moduleId>: {label?, icon?}}, sectionOrder, moduleOrder, moduleThemes {<moduleId>: themeId}. Read appearance first and send back what you keep",
         input: appearancePatchSchema,
         run: (body) => api.web.patch(APPEARANCE, body),
       }),
@@ -99,8 +102,15 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
   defineActions(server, {
     name: "web_workspace_components",
     title: "Web: workspace components",
-    description: `Custom UI elements in a library, placed on pages with a block {type:'component', componentId, props?, height?} (web_workspace_blocks apply). kind 'spec' is a JSON tree rendered with the app's own primitives and theme — prefer it: nodes are {id, type, …} with type one of ${UI_NODE_TYPES.join(", ")}; stack/row/grid/card/list hold children; text, value, caption, href and max interpolate {{path}} against the data scope; repeat: '<path to array>' renders the children once per element as {{item.…}} / {{index}}; when: '<path>' (or '!path') shows a node conditionally; chart {kind: bar|line|area|pie, x, y[]} plots the array at value; countdown counts down to the date in value; icon values are icon:<lucide-name>[:color]; an image's href must be a literal https URL. kind 'html' is HTML/CSS/JS run in a sandboxed iframe with no network at all (no fetch, images only as data: URIs) and no same-origin: theme colours are CSS variables (--background, --foreground, --accent, --accent-strong, --surface, --muted, --border, --radius) and data is window.component.data, refreshed with a 'component:data' message; call component.resize(px) to fit. bindings feed the data scope by name: {kind:'view', name, view: <view query as in web_workspace_views>} gives {rows, total, totals, groups}; {kind:'records', name, refs} gives record summaries; {kind:'json', name, value} constant data. props declare values each placing block sets, read as {{props.<name>}}. Page covers for web_workspace_pages update style: an https image, color:<css colour> or gradient:<${PAGE_COVER_GRADIENTS.join("|")}>.`,
+    description: `Custom UI elements in a library, placed on pages with a block {type:'component', componentId, props?, height?} (web_workspace_blocks apply). kind 'spec' is a JSON tree rendered with the app's own primitives and theme — prefer it: nodes are {id, type, …} with type one of ${UI_NODE_TYPES.join(", ")}; stack/row/grid/card/list hold children; text, value, caption, href and max interpolate {{path}} against the data scope; repeat: '<path to array>' renders the children once per element as {{item.…}} / {{index}}; when: '<path>' (or '!path') shows a node conditionally; chart {kind: bar|line|area|pie, x, y[]} plots the array at value; countdown counts down to the date in value; icon values are icon:<lucide-name>[:color]; an image's href must be a literal https URL. kind 'html' is HTML/CSS/JS run in a sandboxed iframe with no network at all (no fetch, images only as data: URIs) and no same-origin: theme colours are CSS variables (--background, --foreground, --accent, --accent-strong, --surface, --muted, --border, --radius) and data is window.component.data, refreshed with a 'component:data' message; call component.resize(px) to fit. bindings feed the data scope by name: {kind:'view', name, view: <view query as in web_workspace_views>} gives {rows, total, totals, groups}; {kind:'records', name, refs} gives record summaries; {kind:'collection', name, query: {collection, filter: [{field, op, value}], sort?, limit, fields?}} gives raw documents {rows, total} of one allowlisted collection (${DATA_COLLECTIONS.join(", ")}; ops ${DATA_FILTER_OPS.join(", ")}; a value 'date:YYYY-MM-DD' compares as a date; credential-like fields never come back) — try it first with query_data; {kind:'json', name, value} constant data. A button node may carry actions (the same workflow actions as a button block: create-card, create-event, set-todo, append-blocks, create-page, insert-template, open) run on the server when pressed, with actionVars {name: '{{item.id}}'} filled from the scope and readable in the actions as {{event.name}} — e.g. a "done" button per row of a list. props declare values each placing block sets, read as {{props.<name>}}. Page covers for web_workspace_pages update style: an https image, color:<css colour> or gradient:<${PAGE_COVER_GRADIENTS.join("|")}>.`,
     actions: {
+      query_data: action({
+        description:
+          "Runs a collection query exactly as a component's collection binding would, to see the documents and field names before binding them",
+        input: dataQuerySchema,
+        readOnly: true,
+        run: (body) => api.web.post("/api/admin/workspace/data/query", body),
+      }),
       list: action({
         description: "Every component: id, name, kind, who made it",
         readOnly: true,

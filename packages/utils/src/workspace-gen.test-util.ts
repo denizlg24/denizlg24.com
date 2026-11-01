@@ -1,6 +1,7 @@
 import type {
   Block,
   BlockOf,
+  BlockTint,
   BlockType,
   InlineRun,
   LegacyBlock,
@@ -10,7 +11,9 @@ import type {
   WorkspacePage,
 } from "@repo/schemas";
 import {
+  BLOCK_TINTS,
   CALLOUT_COLORS,
+  COLUMN_ALIGNS,
   ENTITY_KINDS,
   MENTION_KINDS,
   VIEW_FILTER_OPS,
@@ -202,13 +205,14 @@ export function genBlock(
   const title = r.next() < 0.3 ? { title: genText(r, r.next() < 0.3) } : {};
   switch (type) {
     case "paragraph":
-      return { id, type, text: genRichText(r) };
+      return { id, type, text: genRichText(r), ...genTint(r) };
     case "heading":
       return {
         id,
         type,
         level: r.pick([1, 2, 3] as const),
         text: genRichText(r),
+        ...genTint(r),
       };
     case "bullet":
     case "numbered":
@@ -257,6 +261,7 @@ export function genBlock(
       return {
         id,
         type,
+        ...(r.next() < 0.3 ? { align: r.pick(COLUMN_ALIGNS) } : {}),
         children: children.filter(
           (c): c is BlockOf<"column"> => c.type === "column",
         ),
@@ -403,6 +408,13 @@ export function genBlock(
     default:
       return { id, type, ...title };
   }
+}
+
+function genTint(r: Rng): { color?: BlockTint; background?: BlockTint } {
+  return {
+    ...(r.next() < 0.2 ? { color: r.pick(BLOCK_TINTS) } : {}),
+    ...(r.next() < 0.2 ? { background: r.pick(BLOCK_TINTS) } : {}),
+  };
 }
 
 export function genAction(r: Rng): WorkflowAction {

@@ -1,10 +1,17 @@
 "use client";
 
-import { type Block, ENTITY_KINDS, personGraphSchema } from "@repo/schemas";
+import {
+  BLOCK_TINTS,
+  type Block,
+  COLUMN_ALIGNS,
+  ENTITY_KINDS,
+  personGraphSchema,
+} from "@repo/schemas";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -23,9 +30,11 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import { addDays, format } from "date-fns";
 import {
+  AlignVerticalJustifyCenter,
   Copy,
   GripVertical,
   LayoutTemplate,
+  Palette,
   Plus,
   Repeat2,
   Trash2,
@@ -517,6 +526,18 @@ function BlockHandle({
       "blockquote",
       "codeBlock",
     ].includes(node.type.name);
+  const tintable =
+    node && (node.type.name === "paragraph" || node.type.name === "heading");
+  const setAttr = (name: string, value: string | null) => {
+    const current = editor.state.doc.nodeAt(target.pos);
+    if (!current) return;
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(target.pos, undefined, {
+        ...current.attrs,
+        [name]: value,
+      }),
+    );
+  };
   const select = () => {
     const current = editor.state.doc.nodeAt(target.pos);
     if (!current) return;
@@ -610,6 +631,78 @@ function BlockHandle({
                       onSelect={() => turnBlockInto(editor, id, t)}
                     >
                       {t.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+            {tintable ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Palette />
+                  Color
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-96 overflow-y-auto">
+                  <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                    Text
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={() => setAttr("color", null)}>
+                    Default
+                  </DropdownMenuItem>
+                  {BLOCK_TINTS.map((tint) => (
+                    <DropdownMenuItem
+                      key={`color-${tint}`}
+                      onSelect={() => setAttr("color", tint)}
+                    >
+                      <span data-tint={tint} className="font-medium">
+                        A
+                      </span>
+                      {tint}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                    Background
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onSelect={() => setAttr("background", null)}
+                  >
+                    None
+                  </DropdownMenuItem>
+                  {BLOCK_TINTS.map((tint) => (
+                    <DropdownMenuItem
+                      key={`background-${tint}`}
+                      onSelect={() => setAttr("background", tint)}
+                    >
+                      <span
+                        data-tint-bg={tint}
+                        className="inline-block size-3.5 rounded-sm"
+                      />
+                      {tint}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+            {node?.type.name === "columns" ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <AlignVerticalJustifyCenter />
+                  Align
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {COLUMN_ALIGNS.map((align) => (
+                    <DropdownMenuItem
+                      key={align}
+                      onSelect={() =>
+                        setAttr("align", align === "start" ? null : align)
+                      }
+                    >
+                      {align === "start"
+                        ? "top"
+                        : align === "center"
+                          ? "middle"
+                          : "bottom"}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>

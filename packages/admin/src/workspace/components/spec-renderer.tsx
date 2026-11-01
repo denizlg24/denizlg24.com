@@ -18,7 +18,14 @@ import {
   type SpecScope,
 } from "@repo/utils/ui-spec";
 import { format } from "date-fns";
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import {
+  type CSSProperties,
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import {
   Area,
   AreaChart,
@@ -31,6 +38,7 @@ import {
   PieChart,
   XAxis,
 } from "recharts";
+import { toast } from "sonner";
 import { useAdmin } from "../../provider";
 import { AppIcon } from "../page-icon";
 
@@ -230,6 +238,55 @@ function SpecChart({ node, scope }: { node: UiNode; scope: SpecScope }) {
         </AreaChart>
       )}
     </ChartContainer>
+  );
+}
+
+/** Runs a button node's stored actions; absent where the component is not placed (the editor preview). */
+export type SpecActionHandler = (
+  node: UiNode,
+  vars: Record<string, string>,
+) => Promise<void>;
+export const SpecActionContext = createContext<SpecActionHandler | null>(null);
+
+function ActionButton({
+  node,
+  scope,
+  className,
+  children,
+}: {
+  node: UiNode;
+  scope: SpecScope;
+  className?: string;
+  children: ReactNode;
+}) {
+  const run = useContext(SpecActionContext);
+  const [pending, setPending] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      className={cn(className, pending && "opacity-60")}
+      onClick={async () => {
+        if (!run) {
+          toast.message("Place the component on a page to run its actions");
+          return;
+        }
+        const vars = Object.fromEntries(
+          Object.entries(node.actionVars ?? {}).map(([name, template]) => [
+            name,
+            interpolate(template, scope),
+          ]),
+        );
+        setPending(true);
+        try {
+          await run(node, vars);
+        } finally {
+          setPending(false);
+        }
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -520,24 +577,32 @@ function SpecNode({
         </SpecLink>
       );
       break;
-    case "button":
-      body = (
-        <SpecLink
-          href={text(node, scope, "href")}
-          className={cn(
-            "inline-flex w-fit items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90",
-            node.tone && node.tone !== "default"
-              ? cn(TONE_FILL[node.tone], "text-background")
-              : "bg-primary text-primary-foreground",
-          )}
-        >
+    case "button": {
+      const className = cn(
+        "inline-flex w-fit items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90",
+        node.tone && node.tone !== "default"
+          ? cn(TONE_FILL[node.tone], "text-background")
+          : "bg-primary text-primary-foreground",
+      );
+      const label = (
+        <>
           {node.icon ? (
             <AppIcon value={node.icon} className="size-3.5" />
           ) : null}
           {text(node, scope)}
+        </>
+      );
+      body = node.actions?.length ? (
+        <ActionButton node={node} scope={scope} className={className}>
+          {label}
+        </ActionButton>
+      ) : (
+        <SpecLink href={text(node, scope, "href")} className={className}>
+          {label}
         </SpecLink>
       );
       break;
+    }
     case "chart":
       body = <SpecChart node={node} scope={scope} />;
       break;

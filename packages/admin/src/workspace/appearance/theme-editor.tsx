@@ -111,6 +111,7 @@ function draftOf(theme: Theme | null, base: Theme): Draft {
     effect: { ...source.effect },
     ornament: { ...source.ornament },
     background: source.background,
+    fontImport: source.fontImport,
     css: source.css,
   };
 }
@@ -332,6 +333,50 @@ export function ThemeEditor({
               onValueChange={([radius]) => setDraft({ ...draft, radius })}
             />
           </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_10rem_10rem]">
+          <div className="flex flex-col gap-1.5">
+            <span className={LABEL}>Webfont stylesheet</span>
+            <Input
+              aria-label="Webfont stylesheet URL"
+              placeholder="https://fonts.googleapis.com/css2?family=…"
+              value={draft.fontImport?.url ?? ""}
+              onChange={(event) => {
+                const url = event.target.value.trim();
+                setDraft({
+                  ...draft,
+                  fontImport: url ? { ...draft.fontImport, url } : null,
+                });
+              }}
+              className="h-8 text-xs"
+            />
+          </div>
+          {(["body", "heading"] as const).map((slot) => (
+            <div key={slot} className="flex flex-col gap-1.5">
+              <span className={LABEL}>
+                {slot === "body" ? "Body family" : "Heading family"}
+              </span>
+              <Input
+                aria-label={`${slot} font family`}
+                disabled={!draft.fontImport}
+                placeholder="Fraunces"
+                value={draft.fontImport?.[slot] ?? ""}
+                onChange={(event) => {
+                  if (!draft.fontImport) return;
+                  const family = event.target.value;
+                  const { [slot]: _old, ...rest } = draft.fontImport;
+                  setDraft({
+                    ...draft,
+                    fontImport: family.trim()
+                      ? { ...rest, [slot]: family }
+                      : rest,
+                  });
+                }}
+                className="h-8 text-xs"
+              />
+            </div>
+          ))}
         </section>
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">

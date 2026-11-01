@@ -1,13 +1,16 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect } from "react";
 import { useAdmin } from "../../provider";
+import { useWorkspaceNav } from "../use-workspace-nav";
 import { EffectLayer } from "./effect-layer";
 import { useActiveTheme, useAppearanceStore } from "./store";
 import { THEMED_VARIABLES, themeStylesheet, themeVariables } from "./theme-css";
 
 const POLL_MS = 60_000;
 const STYLE_ID = "workspace-theme";
+const FONT_LINK_ID = "workspace-theme-font";
 
 /**
  * Puts the active theme on `<html>`: its variables, `.dark` for dark schemes,
@@ -21,6 +24,14 @@ export function ThemeRoot() {
   const textScale = useAppearanceStore((s) => s.appearance.textScale);
   const density = useAppearanceStore((s) => s.appearance.density);
   const theme = useActiveTheme();
+  const setModule = useAppearanceStore((s) => s.setModule);
+  const pathname = usePathname();
+  const { moduleForPath } = useWorkspaceNav();
+  const moduleId = pathname ? (moduleForPath(pathname)?.id ?? null) : null;
+
+  useEffect(() => {
+    setModule(moduleId);
+  }, [moduleId, setModule]);
 
   useEffect(() => {
     void load(client);
@@ -51,6 +62,23 @@ export function ThemeRoot() {
       document.head.appendChild(style);
     }
     style.textContent = themeStylesheet(theme, { textScale, density });
+
+    const fontUrl = theme.fontImport?.url ?? null;
+    const existing = document.getElementById(FONT_LINK_ID);
+    if (!fontUrl) {
+      existing?.remove();
+    } else {
+      const link =
+        existing instanceof HTMLLinkElement
+          ? existing
+          : document.head.appendChild(
+              Object.assign(document.createElement("link"), {
+                id: FONT_LINK_ID,
+                rel: "stylesheet",
+              }),
+            );
+      if (link.href !== fontUrl) link.href = fontUrl;
+    }
   }, [theme, textScale, density]);
 
   useEffect(
@@ -61,9 +89,10 @@ export function ThemeRoot() {
       root.style.removeProperty("color-scheme");
       delete root.dataset.theme;
       document.getElementById(STYLE_ID)?.remove();
+      document.getElementById(FONT_LINK_ID)?.remove();
     },
     [],
   );
 
-  return <EffectLayer effect={theme.effect} />;
+  return <EffectLayer effect={theme.effect} dark={theme.scheme === "dark"} />;
 }

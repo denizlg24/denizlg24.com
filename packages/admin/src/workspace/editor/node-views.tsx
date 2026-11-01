@@ -1096,6 +1096,7 @@ export function AtomBlockView({
           body = (
             <ComponentBlock
               block={block}
+              pageId={pageId}
               editable={editable}
               selected={selected}
               onChange={onChange}

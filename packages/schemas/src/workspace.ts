@@ -139,6 +139,25 @@ export const CALLOUT_COLORS = [
 export const calloutColorSchema = z.enum(CALLOUT_COLORS);
 export type CalloutColor = z.infer<typeof calloutColorSchema>;
 
+/** A text block's text or background tint; absent is the theme's own. */
+export const BLOCK_TINTS = [
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+] as const;
+export const blockTintSchema = z.enum(BLOCK_TINTS);
+export type BlockTint = z.infer<typeof blockTintSchema>;
+
+export const COLUMN_ALIGNS = ["start", "center", "end"] as const;
+export const columnAlignSchema = z.enum(COLUMN_ALIGNS);
+export type ColumnAlign = z.infer<typeof columnAlignSchema>;
+
 export const headingLevelSchema = z.union([
   z.literal(1),
   z.literal(2),
@@ -151,12 +170,19 @@ const id = { id: z.string().min(1).max(64) };
 const widget = { ...id, title: z.string().optional() };
 const text = { ...id, text: richTextSchema };
 
+/** Present only when set, so untinted blocks compare equal to older ones. */
+const tint = {
+  color: blockTintSchema.optional(),
+  background: blockTintSchema.optional(),
+};
 const paragraphSchema = z.object({
   ...text,
+  ...tint,
   type: z.literal("paragraph"),
 });
 const headingSchema = z.object({
   ...text,
+  ...tint,
   type: z.literal("heading"),
   level: headingLevelSchema,
 });
@@ -361,6 +387,8 @@ const columnSchema = z.object({
 const columnsSchema = z.object({
   id: z.string().min(1).max(64),
   type: z.literal("columns"),
+  /** Vertical alignment of the columns' content; absent is the top. */
+  align: columnAlignSchema.optional(),
   get children(): z.ZodDefault<z.ZodArray<typeof columnSchema>> {
     return z.array(columnSchema).default([]);
   },

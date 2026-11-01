@@ -341,6 +341,7 @@ function move<T>(items: T[], index: number, delta: -1 | 1): T[] {
 function SidebarGroup() {
   const { routes } = useAdmin();
   const appearance = useAppearanceStore((s) => s.appearance);
+  const themes = useAppearanceStore((s) => s.themes);
   const patch = useAppearanceStore((s) => s.patch);
   const base = workspaceNav(routes);
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -394,6 +395,7 @@ function SidebarGroup() {
 
   const customized =
     Object.keys(appearance.modules).length > 0 ||
+    Object.keys(appearance.moduleThemes).length > 0 ||
     appearance.moduleOrder.length > 0 ||
     appearance.sectionOrder.length > 0;
 
@@ -406,7 +408,12 @@ function SidebarGroup() {
             variant="ghost"
             size="xs"
             onClick={() =>
-              void patch({ modules: {}, moduleOrder: [], sectionOrder: [] })
+              void patch({
+                modules: {},
+                moduleOrder: [],
+                sectionOrder: [],
+                moduleThemes: {},
+              })
             }
           >
             <RotateCcw /> Reset
@@ -501,6 +508,34 @@ function SidebarGroup() {
                       }}
                       className="h-7 min-w-0 flex-1 rounded-sm bg-transparent px-1 text-sm outline-none placeholder:text-foreground focus:bg-surface"
                     />
+                    <Select
+                      value={appearance.moduleThemes[module.id] ?? "app"}
+                      onValueChange={(themeId) => {
+                        const { [module.id]: _old, ...rest } =
+                          appearance.moduleThemes;
+                        void patch({
+                          moduleThemes:
+                            themeId === "app"
+                              ? rest
+                              : { ...rest, [module.id]: themeId },
+                        });
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={`${module.label} theme`}
+                        className="h-7 w-32 text-[11px]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="app">app theme</SelectItem>
+                        {themes.map((theme) => (
+                          <SelectItem key={theme.id} value={theme.id}>
+                            {theme.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <div className="flex opacity-0 group-hover:opacity-100">
                       <Button
                         variant="ghost"

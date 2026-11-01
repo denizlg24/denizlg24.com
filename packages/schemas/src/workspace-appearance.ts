@@ -208,6 +208,7 @@ export const THEME_EFFECTS = [
   "fireflies",
   "bubbles",
   "sparkles",
+  "aurora",
 ] as const;
 export const themeEffectKindSchema = z.enum(THEME_EFFECTS);
 export type ThemeEffectKind = z.infer<typeof themeEffectKindSchema>;
@@ -247,6 +248,27 @@ export const themeCssSchema = z
     message: "No url(), @import, expression() or script in theme CSS",
   });
 
+const FONT_FAMILY = /^[A-Za-z0-9][A-Za-z0-9 -]{0,60}$/;
+
+/**
+ * A webfont stylesheet from a font CDN, and the families it provides for body
+ * and headings. Only these hosts: a stylesheet can fetch, and these serve
+ * nothing but fonts.
+ */
+export const themeFontImportSchema = z.object({
+  url: z
+    .url({ protocol: /^https$/ })
+    .max(1000)
+    .refine(
+      (url) =>
+        /^https:\/\/(fonts\.googleapis\.com|fonts\.bunny\.net)\//.test(url),
+      "A fonts.googleapis.com or fonts.bunny.net stylesheet",
+    ),
+  body: z.string().regex(FONT_FAMILY, "A font family name").optional(),
+  heading: z.string().regex(FONT_FAMILY, "A font family name").optional(),
+});
+export type ThemeFontImport = z.infer<typeof themeFontImportSchema>;
+
 export const themeBackgroundSchema = z.object({
   /** https image laid behind the app. */
   url: z.url({ protocol: /^https$/ }).max(2048),
@@ -273,6 +295,8 @@ const themeFields = {
   effect: themeEffectSchema.default({ kind: "none", density: 0.4 }),
   ornament: themeOrnamentSchema.default({}),
   background: themeBackgroundSchema.nullable().default(null),
+  /** Webfonts that override `fonts` where they name a family. */
+  fontImport: themeFontImportSchema.nullable().default(null),
   css: themeCssSchema.default(""),
 };
 
@@ -292,6 +316,7 @@ export const themePatchSchema = z
     effect: themeEffectSchema.partial(),
     ornament: themeOrnamentSchema,
     background: themeBackgroundSchema.nullable(),
+    fontImport: themeFontImportSchema.nullable(),
     css: themeCssSchema,
   })
   .partial();
@@ -357,6 +382,8 @@ export const appearanceInputSchema = z.object({
   sectionOrder: z.array(z.string().max(40)).max(20),
   /** Module ids in order within their section; unnamed ones follow. */
   moduleOrder: z.array(z.string().max(60)).max(100),
+  /** A theme a module wears while open, over the schedule; a page's own theme still wins. */
+  moduleThemes: z.record(z.string().max(60), z.string().min(1).max(64)),
 });
 
 export const appearanceSchema = appearanceInputSchema.extend({
@@ -377,6 +404,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   modules: {},
   sectionOrder: [],
   moduleOrder: [],
+  moduleThemes: {},
   updatedAt: null,
 };
 
@@ -461,6 +489,8 @@ export const pageStyleSchema = z.object({
   themeId: z.string().min(1).max(64).optional(),
   /** Hides the title block, for dashboards built from widgets. */
   hideTitle: z.boolean().optional(),
+  /** Hides the header bar (breadcrumbs and page menu) until hovered. */
+  hideHeader: z.boolean().optional(),
 });
 export type PageStyle = z.infer<typeof pageStyleSchema>;
 

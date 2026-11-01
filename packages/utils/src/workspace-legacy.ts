@@ -221,7 +221,13 @@ function nearestSpan(share: number): BlockSpan {
 function downgradeOne(block: Block, span: BlockSpan): LegacyBlock {
   if (isWidgetType(block.type)) return downgradeWidget(block, span);
   if (block.type === "divider") return { id: block.id, span, type: "divider" };
-  if (block.type === "heading" && block.level === 2 && isPlain(block.text)) {
+  if (
+    block.type === "heading" &&
+    block.level === 2 &&
+    !block.color &&
+    !block.background &&
+    isPlain(block.text)
+  ) {
     const text = plain(block.text);
     if (!text.includes("\n")) {
       return { id: block.id, span, type: "heading", text };

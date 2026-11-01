@@ -15,6 +15,13 @@ const SPACING: Record<UiDensity, string> = {
   comfortable: "0.28rem",
 };
 
+/** A webfont family the theme imports, in front of the stack it falls back to. */
+function fontStack(theme: Theme, slot: "body" | "heading"): string {
+  const family = theme.fontImport?.[slot];
+  const stack = FONT_STACKS[theme.fonts[slot]];
+  return family ? `${JSON.stringify(family)}, ${stack}` : stack;
+}
+
 /** CSS custom properties a theme sets on `<html>`; tokens it leaves out derive from the core ones. */
 export function themeVariables(theme: Theme): Record<string, string> {
   const c: ThemeColors = theme.colors;
@@ -107,7 +114,7 @@ export function themeStylesheet(
     `html { font-size: ${(16 * options.textScale).toFixed(2)}px; --spacing: ${SPACING[options.density]}; }`,
     // On body, not html: the stacks name next/font variables that only body defines,
     // and a custom property resolves var() where it is declared.
-    `body { --theme-font-body: ${FONT_STACKS[theme.fonts.body]}; --theme-font-heading: ${FONT_STACKS[theme.fonts.heading]}; }`,
+    `body { --theme-font-body: ${fontStack(theme, "body")}; --theme-font-heading: ${fontStack(theme, "heading")}; }`,
     "body, .font-inter { font-family: var(--theme-font-body); }",
     "h1, h2, h3, .theme-heading { font-family: var(--theme-font-heading); }",
   ];

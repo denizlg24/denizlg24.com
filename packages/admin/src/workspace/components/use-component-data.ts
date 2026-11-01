@@ -4,13 +4,14 @@ import {
   type ComponentBinding,
   type ComponentProp,
   type ComponentPropValues,
+  dataQueryResultSchema,
   RECORD_REFS_MAX,
   recordsResponseSchema,
   viewQueryResultSchema,
 } from "@repo/schemas";
 import type { SpecScope } from "@repo/utils/ui-spec";
 import { format } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AdminClient } from "../../client";
 import { useAdmin } from "../../provider";
 
@@ -22,6 +23,10 @@ async function loadBinding(
   today: string,
 ): Promise<unknown> {
   switch (binding.kind) {
+    case "collection":
+      return dataQueryResultSchema.parse(
+        await client.post("workspace/data/query", binding.query),
+      );
     case "json":
       return binding.value;
     case "records": {
@@ -59,6 +64,8 @@ export type ComponentData = {
   scope: SpecScope;
   loading: boolean;
   errors: Record<string, string>;
+  /** Loads every binding again, after an action changed what they read. */
+  reload: () => void;
 };
 
 /** Every binding loaded into one scope, plus `props` and `today`; refreshed every few minutes. */
@@ -129,5 +136,7 @@ export function useComponentData(
     };
   }, [loaded.values, propDefs, propValues]);
 
-  return { scope, loading: loaded.loading, errors: loaded.errors };
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+
+  return { scope, loading: loaded.loading, errors: loaded.errors, reload };
 }

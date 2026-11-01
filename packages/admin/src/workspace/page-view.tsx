@@ -180,57 +180,64 @@ export function WorkspacePageView({ pageId }: { pageId: string }) {
 
   return (
     <Page>
-      <PageHeader
-        leading={sidebarTrigger}
-        crumbs={ancestors.map((a) => ({
-          label: (
-            <span className="flex items-center gap-1.5">
-              <PageIcon icon={a.icon} className="text-muted-foreground" />
-              {pageTitle(a)}
-            </span>
-          ),
-          onClick: () => router.push(pageHref(a.id)),
-        }))}
-        icon={<PageIcon icon={page.icon} />}
-        title={pageTitle(page)}
+      <div
+        className={cn(
+          page.style?.hideHeader &&
+            "opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100",
+        )}
       >
-        {page.locked ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            onClick={() => updatePage(page.id, { locked: false })}
-          >
-            <Lock />
-            Locked
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <PageHeader
+          leading={sidebarTrigger}
+          crumbs={ancestors.map((a) => ({
+            label: (
+              <span className="flex items-center gap-1.5">
+                <PageIcon icon={a.icon} className="text-muted-foreground" />
+                {pageTitle(a)}
+              </span>
+            ),
+            onClick: () => router.push(pageHref(a.id)),
+          }))}
+          icon={<PageIcon icon={page.icon} />}
+          title={pageTitle(page)}
+        >
+          {page.locked ? (
             <Button
               variant="ghost"
-              size="icon-sm"
-              aria-label="Page options"
+              size="sm"
               className="text-muted-foreground"
+              onClick={() => updatePage(page.id, { locked: false })}
             >
-              <MoreHorizontal />
+              <Lock />
+              Locked
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-52">
-            <PageStyleMenuItems page={page} />
-            <DropdownMenuCheckboxItem
-              checked={page.locked}
-              onCheckedChange={(value) =>
-                updatePage(page.id, { locked: value === true })
-              }
-            >
-              Lock page
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <PageMenuItems pageId={page.id} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </PageHeader>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Page options"
+                className="text-muted-foreground"
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              <PageStyleMenuItems page={page} />
+              <DropdownMenuCheckboxItem
+                checked={page.locked}
+                onCheckedChange={(value) =>
+                  updatePage(page.id, { locked: value === true })
+                }
+              >
+                Lock page
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <PageMenuItems pageId={page.id} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </PageHeader>
+      </div>
 
       <div
         data-slot="page-body"
