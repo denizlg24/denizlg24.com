@@ -11,17 +11,36 @@ import {
 } from "@repo/schemas";
 import type { LucideIcon } from "lucide-react";
 import {
+  BookOpen,
+  Bot,
+  BriefcaseBusiness,
   CalendarClock,
+  CalendarDays,
+  ChartLine,
+  ClipboardList,
+  Eye,
   FileCode2,
   FileText,
+  FolderGit2,
+  Folders,
   GraduationCap,
   KanbanSquare,
+  Landmark,
+  Mail,
+  MessageSquare,
   Mic,
+  Milestone,
+  Newspaper,
   NotebookPen,
   PenTool,
   PiggyBank,
+  Receipt,
+  Repeat,
+  Server,
+  Sheet,
   SquareKanban,
   UserRound,
+  Users,
 } from "lucide-react";
 import { type ComponentType, useCallback, useEffect, useState } from "react";
 import type { AdminClient } from "../client";
@@ -115,6 +134,101 @@ export const RECORD_KINDS: Record<EntityKind, RecordKindDef> = {
     label: "Event",
     icon: CalendarClock,
     href: (nav) => nav.moduleHref("calendar"),
+  },
+  "blog-post": {
+    label: "Blog post",
+    icon: Newspaper,
+    href: (nav, id) => nav.routes.blog.edit(id),
+  },
+  project: {
+    label: "Project",
+    icon: FolderGit2,
+    href: (nav, id) => nav.routes.projects.edit(id),
+  },
+  "timeline-item": {
+    label: "Timeline",
+    icon: Milestone,
+    href: (nav, id) => nav.routes.timeline.edit(id),
+  },
+  contact: {
+    label: "Contact",
+    icon: MessageSquare,
+    href: (nav, id) => nav.routes.contacts.detail(id),
+  },
+  email: {
+    label: "Email",
+    icon: Mail,
+    href: (nav) => nav.moduleHref("inbox"),
+  },
+  "finance-account": {
+    label: "Account",
+    icon: Landmark,
+    href: (nav, id) => nav.routes.finance.account(id),
+  },
+  "finance-entry": {
+    label: "Transaction",
+    icon: Receipt,
+    href: (nav, id) => nav.routes.finance.entry(id),
+  },
+  "finance-rule": {
+    label: "Recurring",
+    icon: Repeat,
+    href: (nav, id) => nav.routes.finance.rule(id),
+  },
+  "journal-entry": {
+    label: "Journal",
+    icon: BookOpen,
+    href: (nav) => nav.moduleHref("journal"),
+  },
+  spreadsheet: {
+    label: "Spreadsheet",
+    icon: Sheet,
+    href: (nav) => nav.moduleHref("spreadsheets"),
+  },
+  resource: {
+    label: "Resource",
+    icon: Server,
+    href: (nav) => nav.moduleHref("resources"),
+  },
+  "person-group": {
+    label: "People group",
+    icon: Users,
+    href: (nav) => nav.moduleHref("people"),
+  },
+  "note-group": {
+    label: "Note group",
+    icon: Folders,
+    href: (nav) => nav.moduleHref("notes"),
+  },
+  "agent-task": {
+    label: "Agent task",
+    icon: Bot,
+    href: (nav) => nav.moduleHref("agent-tasks"),
+  },
+  "course-assignment": {
+    label: "Coursework",
+    icon: ClipboardList,
+    href: (nav) => nav.moduleHref("courses"),
+  },
+  "work-job": {
+    label: "Job",
+    icon: BriefcaseBusiness,
+    href: (nav) => nav.routes.hours,
+  },
+  "timetable-entry": {
+    label: "Class slot",
+    icon: CalendarDays,
+    href: (nav) => nav.moduleHref("timetable"),
+  },
+  portfolio: {
+    label: "Portfolio",
+    icon: ChartLine,
+    href: (nav, id) => nav.routes.market.portfolio(id),
+  },
+  watchlist: {
+    label: "Watchlist",
+    icon: Eye,
+    href: (nav) => nav.routes.markets,
   },
 };
 

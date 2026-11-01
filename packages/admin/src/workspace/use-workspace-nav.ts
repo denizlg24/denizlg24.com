@@ -3,10 +3,17 @@
 import { HOME_PAGE_ID } from "@repo/schemas";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useAdmin } from "../provider";
-import { type WorkspaceNav, workspaceNav } from "./refs";
+import { type CustomizedNav, customizeNav } from "./appearance/customize-nav";
+import { useAppearanceStore } from "./appearance/store";
+import { workspaceNav } from "./refs";
 
-export function useWorkspaceNav(): WorkspaceNav {
-  return workspaceNav(useAdmin().routes);
+/** The host's modules and pages, dressed with the owner's module labels, icons and order. */
+export function useWorkspaceNav(): CustomizedNav {
+  const base = workspaceNav(useAdmin().routes);
+  const modules = useAppearanceStore((s) => s.appearance.modules);
+  const moduleOrder = useAppearanceStore((s) => s.appearance.moduleOrder);
+  const sectionOrder = useAppearanceStore((s) => s.appearance.sectionOrder);
+  return customizeNav(base, { modules, moduleOrder, sectionOrder });
 }
 
 /** Where the app is: a workspace page id, or a module path. */

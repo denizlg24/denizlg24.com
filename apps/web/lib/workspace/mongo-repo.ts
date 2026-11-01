@@ -38,8 +38,12 @@ function isDuplicateKey(error: unknown): boolean {
  * `legacyBlocks` existed) reads as one awaiting migration.
  */
 function toStoredPage(doc: IWorkspacePage): StoredPage {
-  const { _id, template, ...fields } = doc;
-  const rest = template ? { ...fields, template } : fields;
+  const { _id, template, style, ...fields } = doc;
+  const rest = {
+    ...fields,
+    ...(template ? { template } : {}),
+    ...(style ? { style } : {}),
+  };
   const legacy = rest.legacyBlocks ?? null;
   if (!legacy && rest.blocks.some((block) => "span" in block)) {
     const parsed = z.array(legacyBlockSchema).safeParse(rest.blocks);
@@ -109,12 +113,20 @@ export const mongoWorkspaceRepo: WorkspaceRepo = {
   },
 
   async replacePage(expectedRev, page) {
-    const { _id, compatBase: _base, template, ...fields } = toDoc(page);
+    const { _id, compatBase: _base, template, style, ...fields } = toDoc(page);
+    const unset: Record<string, 1> = {};
+    if (!template) unset.template = 1;
+    if (!style) unset.style = 1;
     const result = await WorkspacePageModel.updateOne(
       { _id, rev: expectedRev },
-      template
-        ? { $set: { ...fields, template } }
-        : { $set: fields, $unset: { template: 1 } },
+      {
+        $set: {
+          ...fields,
+          ...(template ? { template } : {}),
+          ...(style ? { style } : {}),
+        },
+        ...(Object.keys(unset).length ? { $unset: unset } : {}),
+      },
     ).exec();
     return result.matchedCount > 0;
   },

@@ -49,10 +49,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { useActiveTheme } from "./appearance/store";
 import { useMobileSidebar } from "./mobile-sidebar";
-import { MODULE_SECTIONS } from "./modules";
 import { PageMenuItems } from "./page-actions";
-import { PageIcon, RefIcon } from "./page-icon";
+import { AppIcon, PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
 import { childPages, templatePages, useWorkspaceStore } from "./store";
 import { TemplatePicker, useTemplatePicker } from "./template-picker";
@@ -487,8 +487,14 @@ export function WorkspaceSidebarContent({
   onNavigate?: () => void;
 }) {
   const router = useRouter();
-  const { pageHref, resolveRef, moduleForPath, sidebarModules, routes } =
-    useWorkspaceNav();
+  const {
+    pageHref,
+    resolveRef,
+    moduleForPath,
+    sidebarModules,
+    sections,
+    routes,
+  } = useWorkspaceNav();
   const { pathname, pageId: activePageId } = useActiveLocation();
   const workspace = useWorkspaceStore((s) => s.workspace);
   const toggleSidebar = useWorkspaceStore((s) => s.toggleSidebar);
@@ -518,6 +524,7 @@ export function WorkspaceSidebarContent({
       },
     });
   const [triggersOpen, setTriggersOpen] = useState(false);
+  const sidebarOrnament = useActiveTheme().ornament.sidebar;
   const pagesCollapsed = sidebar.collapsedSections.includes("pages");
   const templatesCollapsed = sidebar.collapsedSections.includes("templates");
   const favoritesCollapsed = sidebar.collapsedSections.includes("favorites");
@@ -542,6 +549,9 @@ export function WorkspaceSidebarContent({
         <span className="flex-1 truncate text-[13px] font-semibold text-accent-strong">
           denizlg24
         </span>
+        {sidebarOrnament ? (
+          <AppIcon value={sidebarOrnament} className="size-4" />
+        ) : null}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -669,7 +679,7 @@ export function WorkspaceSidebarContent({
           </div>
         ) : null}
 
-        {MODULE_SECTIONS.map((section) => {
+        {sections.map((section) => {
           const modules = sidebarModules.filter(
             (m) =>
               m.section === section.id && !sidebar.hiddenModules.includes(m.id),

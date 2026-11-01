@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { agentTaskScheduleSchema } from "./agent-tasks";
 import {
+  ICON_VALUE_MAX,
+  iconValueSchema,
+  pageStyleSchema,
+} from "./workspace-appearance";
+import { componentPropValuesSchema } from "./workspace-components";
+import {
   ENTITY_KINDS,
   type EntityKind,
   entityRefSchema,
@@ -67,6 +73,25 @@ export const MENTION_KINDS = [
   "voice-note",
   "latex-project",
   "calendar-event",
+  "blog-post",
+  "project",
+  "timeline-item",
+  "contact",
+  "email",
+  "finance-account",
+  "finance-entry",
+  "finance-rule",
+  "journal-entry",
+  "spreadsheet",
+  "resource",
+  "person-group",
+  "note-group",
+  "agent-task",
+  "course-assignment",
+  "work-job",
+  "timetable-entry",
+  "portfolio",
+  "watchlist",
 ] as const satisfies readonly (EntityKind | "date")[];
 export const mentionKindSchema = z.enum(MENTION_KINDS);
 export type MentionKind = z.infer<typeof mentionKindSchema>;
@@ -176,7 +201,8 @@ const calloutSchema = z.object({
   id: z.string().min(1).max(64),
   text: richTextSchema,
   type: z.literal("callout"),
-  emoji: z.string().max(32).default("💡"),
+  /** An emoji or `icon:<name>[:color]`; the field name predates icons. */
+  emoji: z.string().max(ICON_VALUE_MAX).default("💡"),
   color: calloutColorSchema.default("default"),
   get children(): z.ZodDefault<z.ZodArray<typeof blockSchema>> {
     return z.array(blockSchema).default([]);
@@ -249,6 +275,30 @@ const recordSchema = z.object({
   type: z.literal("record"),
   ref: z.union([entityRefSchema, z.literal("")]),
   mode: recordEmbedModeSchema.default("card"),
+});
+/**
+ * Any embeddable URL: video, music, maps, design files, documents, or a
+ * plain page in a sandboxed frame. Known providers are rewritten to their
+ * embed URLs when rendered; the stored URL stays the one pasted.
+ */
+const embedSchema = z.object({
+  ...id,
+  type: z.literal("embed"),
+  /** Empty until a URL is pasted. */
+  url: z.string().max(4096),
+  /** Frame height in px; absent uses the provider's aspect ratio. */
+  height: z.number().int().min(80).max(2000).optional(),
+  caption: richTextSchema.default([]),
+});
+/** A custom UI element from the component library; see `workspace-components`. */
+const componentBlockSchema = z.object({
+  ...id,
+  type: z.literal("component"),
+  /** Empty until a component is picked. */
+  componentId: z.string().max(64),
+  props: componentPropValuesSchema.default({}),
+  /** Overrides an html component's own height. */
+  height: z.number().int().min(40).max(2000).optional(),
 });
 /** A live query over one module; see `workspace-views`. */
 const viewSchema = z.object({
@@ -336,6 +386,8 @@ export const blockSchema = z.discriminatedUnion("type", [
   breadcrumbSchema,
   syncedSchema,
   recordSchema,
+  embedSchema,
+  componentBlockSchema,
   viewSchema,
   buttonSchema,
   sectionSchema,
@@ -442,8 +494,8 @@ export function isWidgetType(type: BlockType): type is WidgetType {
 export const pageSchema = z.object({
   id: z.string(),
   title: z.string(),
-  /** An emoji; null shows the default page glyph. */
-  icon: z.string().nullable(),
+  /** An emoji or `icon:<name>[:color]`; null shows the default page glyph. */
+  icon: z.string().max(ICON_VALUE_MAX).nullable(),
   parentId: z.string().nullable(),
   /** Sort key among siblings. */
   order: z.number(),
@@ -460,6 +512,8 @@ export const pageSchema = z.object({
    * Present only when true, so pages from before templates compare equal.
    */
   template: z.literal(true).optional(),
+  /** Cover, font, width, theme override; present only when something is set. */
+  style: pageStyleSchema.optional(),
 });
 export type WorkspacePage = z.infer<typeof pageSchema>;
 
@@ -623,10 +677,12 @@ const blockAnchorSchema = z
 export const pageMetaPatchSchema = z
   .object({
     title: z.string().max(500),
-    icon: z.string().max(32).nullable(),
+    icon: iconValueSchema.nullable(),
     fullWidth: z.boolean(),
     locked: z.boolean(),
     template: z.boolean(),
+    /** Replaces the whole style; null clears it. */
+    style: pageStyleSchema.nullable(),
   })
   .partial();
 export type PageMetaPatch = z.infer<typeof pageMetaPatchSchema>;
@@ -743,7 +799,7 @@ export const workspacePageCreateSchema = z.object({
   /** Clients mint ids so a page can be linked before the server answers. */
   id: workspacePageIdSchema.optional(),
   title: z.string().max(500).default(""),
-  icon: z.string().max(32).nullable().default(null),
+  icon: iconValueSchema.nullable().default(null),
   parentId: workspacePageIdSchema.nullable().default(null),
   /** Position among its siblings; absent appends. */
   index: z.number().int().min(0).optional(),
@@ -751,6 +807,7 @@ export const workspacePageCreateSchema = z.object({
   fullWidth: z.boolean().default(false),
   locked: z.boolean().default(false),
   template: z.boolean().default(false),
+  style: pageStyleSchema.optional(),
 });
 export type WorkspacePageCreate = z.input<typeof workspacePageCreateSchema>;
 

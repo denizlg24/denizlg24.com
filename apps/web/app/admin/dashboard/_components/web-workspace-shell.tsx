@@ -1,6 +1,7 @@
 "use client";
 
 import { type AdminContextValue, AdminProvider } from "@repo/admin/provider";
+import { ThemeRoot } from "@repo/admin/workspace/appearance/theme-root";
 import { CommandPalette } from "@repo/admin/workspace/command-palette";
 import {
   WorkspaceMobileSidebar,
@@ -40,6 +41,7 @@ export function WebWorkspaceShell({ children }: { children: ReactNode }) {
         </Suspense>
         {children}
         <CommandPalette />
+        <ThemeRoot />
       </div>
     </AdminProvider>
   );

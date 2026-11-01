@@ -382,6 +382,22 @@ export function genBlock(
         sections: Array.from({ length: r.int(3) }, () => genText(r, false)),
         ...title,
       };
+    case "embed":
+      return {
+        id,
+        type,
+        url: r.pick(["", "https://www.youtube.com/watch?v=abc", "https://x.y"]),
+        ...(r.next() < 0.5 ? { height: 80 + r.int(600) } : {}),
+        caption: r.next() < 0.5 ? genRichText(r) : [],
+      };
+    case "component":
+      return {
+        id,
+        type,
+        componentId: r.pick(["", "6650f0c2"]),
+        props: r.next() < 0.5 ? { label: genText(r, false), n: 3 } : {},
+        ...(r.next() < 0.3 ? { height: 40 + r.int(400) } : {}),
+      };
     case "column":
       return genColumn(r, depth, 1);
     default:

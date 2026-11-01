@@ -68,6 +68,8 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/llm-usage",
   "/dashboard/settings",
   "/dashboard/settings/general",
+  "/dashboard/settings/appearance",
+  "/dashboard/settings/components",
   "/dashboard/settings/models",
   "/dashboard/settings/triage",
   "/dashboard/settings/agent-memory",

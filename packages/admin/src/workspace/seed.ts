@@ -39,7 +39,7 @@ export function createBlock(type: BlockType): Block {
         id,
         type,
         text: [],
-        emoji: "💡",
+        emoji: "icon:lightbulb:yellow",
         color: "default",
         children: [],
       };
@@ -51,6 +51,10 @@ export function createBlock(type: BlockType): Block {
       return { id, type, url: "", name: "" };
     case "bookmark":
       return { id, type, url: "" };
+    case "embed":
+      return { id, type, url: "", caption: [] };
+    case "component":
+      return { id, type, componentId: "", props: {} };
     case "equation":
       return { id, type, expression: "" };
     case "table":

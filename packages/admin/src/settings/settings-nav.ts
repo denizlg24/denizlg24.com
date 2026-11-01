@@ -1,10 +1,12 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Blocks,
   Brain,
   BrainCircuit,
   CircleDollarSign,
   Cpu,
   KeyRound,
+  Palette,
   Plug,
   SlidersHorizontal,
 } from "lucide-react";
@@ -23,6 +25,8 @@ export interface SettingsSection {
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { slug: "general", label: "General", icon: SlidersHorizontal },
+  { slug: "appearance", label: "Appearance", icon: Palette },
+  { slug: "components", label: "Components", icon: Blocks },
   { slug: "models", label: "Models", icon: Cpu },
   { slug: "triage", label: "Triage", icon: Brain },
   { slug: "agent-memory", label: "Agent memory", icon: BrainCircuit },

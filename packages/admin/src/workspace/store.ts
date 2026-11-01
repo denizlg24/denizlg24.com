@@ -5,6 +5,7 @@ import {
   HOME_PAGE_ID,
   isContainer,
   type PageMetaPatch,
+  type PageStyle,
   pageRef,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -76,7 +77,7 @@ type WorkspaceState = {
     id: string,
     patch: Partial<
       Pick<WorkspacePage, "title" | "icon" | "fullWidth" | "locked">
-    > & { template?: boolean },
+    > & { template?: boolean; style?: PageStyle | null },
   ) => void;
   duplicatePage: (id: string) => string | null;
   trashPage: (id: string) => void;
@@ -933,6 +934,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (patch.fullWidth !== undefined) set.fullWidth = patch.fullWidth;
     if (patch.locked !== undefined) set.locked = patch.locked;
     if (patch.template !== undefined) set.template = patch.template;
+    if (patch.style !== undefined) set.style = patch.style;
     editPage(id, [{ op: "page", set }]);
   },
 
@@ -973,6 +975,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           index,
           blocks,
           fullWidth: copy.fullWidth,
+          ...(copy.style ? { style: copy.style } : {}),
         }),
       );
       confirmed.delete(copyId);

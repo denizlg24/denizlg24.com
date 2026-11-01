@@ -9,11 +9,11 @@ import {
   CommandPrimitive,
   CommandShortcut,
 } from "@repo/ui/command";
-import { FilePlus, PanelLeft, SearchIcon } from "lucide-react";
+import { FilePlus, Palette, PanelLeft, SearchIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
-import { MODULE_SECTIONS } from "./modules";
+import { useAppearanceStore } from "./appearance/store";
 import { PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
 import { OPEN_COMMAND_PALETTE } from "./sidebar";
@@ -135,11 +135,14 @@ export function CommandPalette() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 120);
   const router = useRouter();
-  const { modules, pageHref, resolveRef } = useWorkspaceNav();
+  const { modules, sections, pageHref, resolveRef } = useWorkspaceNav();
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const recents = useWorkspaceStore((s) => s.workspace.recents);
   const createPage = useWorkspaceStore((s) => s.createPage);
   const toggleSidebar = useWorkspaceStore((s) => s.toggleSidebar);
+  const themes = useAppearanceStore((s) => s.themes);
+  const appearanceThemeId = useAppearanceStore((s) => s.appearance.themeId);
+  const patchAppearance = useAppearanceStore((s) => s.patch);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -245,7 +248,7 @@ export function CommandPalette() {
                   );
                 })}
               </CommandGroup>
-              {MODULE_SECTIONS.map((section) => (
+              {sections.map((section) => (
                 <CommandGroup key={section.id} heading={section.label}>
                   {modules
                     .filter((m) => m.section === section.id)
@@ -287,6 +290,27 @@ export function CommandPalette() {
                   <CommandShortcut>⌘\</CommandShortcut>
                 </CommandItem>
               </CommandGroup>
+              {searching ? (
+                <CommandGroup heading="Theme">
+                  {themes.map((theme) => (
+                    <CommandItem
+                      key={theme.id}
+                      value={`theme ${theme.id}`}
+                      keywords={["theme", theme.name, theme.scheme]}
+                      onSelect={() => {
+                        void patchAppearance({ themeId: theme.id });
+                        setOpen(false);
+                      }}
+                    >
+                      <Palette className="text-muted-foreground" />
+                      {theme.name}
+                      {theme.id === appearanceThemeId ? (
+                        <CommandShortcut>default</CommandShortcut>
+                      ) : null}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
             </CommandList>
           </Command>
         </DialogPrimitive.Content>

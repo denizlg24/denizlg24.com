@@ -45,7 +45,9 @@ import { z } from "zod";
 import { useAdmin } from "../../provider";
 import { BLOCK_CATALOG } from "../block-catalog";
 import { BlockBody, type WidgetBlock } from "../blocks";
-import { IconPicker, PageIcon } from "../page-icon";
+import { ComponentBlock } from "../components/component-block";
+import { EmbedBlock } from "../embeds/embed-block";
+import { AppIcon, IconPicker, PageIcon } from "../page-icon";
 import { RecordBlock } from "../record-embed";
 import { recordHref, useRecord } from "../records";
 import { pageTitle } from "../refs";
@@ -143,13 +145,15 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
             <button
               type="button"
               aria-label="Icon"
-              className="text-lg leading-7"
+              className="flex h-7 items-center text-lg"
             >
-              {emoji}
+              <AppIcon value={emoji} className="size-[18px] text-lg" />
             </button>
           </IconPicker>
         ) : (
-          <span className="text-lg leading-7">{emoji}</span>
+          <span className="flex h-7 items-center text-lg">
+            <AppIcon value={emoji} className="size-[18px] text-lg" />
+          </span>
         )}
         {editor.isEditable ? (
           <DropdownMenu>
@@ -1072,6 +1076,26 @@ export function AtomBlockView({
             <ButtonBlock
               block={block}
               pageId={pageId}
+              editable={editable}
+              selected={selected}
+              onChange={onChange}
+            />
+          );
+          break;
+        case "embed":
+          body = (
+            <EmbedBlock
+              block={block}
+              editable={editable}
+              selected={selected}
+              onChange={onChange}
+            />
+          );
+          break;
+        case "component":
+          body = (
+            <ComponentBlock
+              block={block}
               editable={editable}
               selected={selected}
               onChange={onChange}

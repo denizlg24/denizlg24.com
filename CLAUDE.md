@@ -1443,6 +1443,64 @@ Plan 032 phase 4. Things worth knowing before touching this:
   directive** (`:::block{type="button"}` / `:::section{…}` with the children
   in its body), like every other rich block.
 
+### Appearance, icons and components
+
+`GET|PATCH /workspace/appearance` (+ `POST …/schedule`, `DELETE …/schedule/{id}`),
+`GET|POST /workspace/themes`, `GET|PATCH|DELETE /workspace/themes/{id}`,
+`GET|POST /workspace/components`, `GET|PATCH|DELETE /workspace/components/{id}`.
+Schemas: `@repo/schemas` `workspace-appearance`, `workspace-themes`
+(built-ins), `workspace-components`. MCP: `web_workspace_themes`,
+`web_workspace_components`. UI: Settings → Appearance / Components.
+
+- **A theme is CSS variables plus a little more**, applied to `<html>` by
+  `ThemeRoot` (`packages/admin/src/workspace/appearance/`), mounted in both
+  shells. Eight core colour tokens are required; the rest derive in
+  `themeVariables`. Dark schemes also add `.dark`. Built-ins (`builtin:*`)
+  live in code and are read-only; `builtin:sage` is the stylesheet's own
+  palette. Clients poll appearance every minute and on focus, so a theme an
+  agent schedules lands without a reload.
+- **The schedule decides, not the default.** `activeThemeId` picks the
+  latest-starting entry covering the viewer's local day, else `themeId`. A
+  page's `style.themeId` overrides both while it is open; the theme editor's
+  live preview overrides everything. Deleting a theme drops its schedule
+  entries and resets the default if it was on.
+- **Theme CSS may not fetch.** `themeCssSchema` refuses `url(`, `@import`
+  and script; agents write these, and a selector-dependent fetch is how CSS
+  leaks what a page shows. A background image goes through `background`, one
+  fixed https URL.
+- **Appearance is its own singleton, not prefs.** An older client's
+  whole-prefs PUT would otherwise clobber it. The first write fills every
+  field it does not name with the default — an upsert that `$set` only
+  `schedule` used to store a document with no `themeId`, which read back as
+  the defaults.
+- **Icons are `icon:<lucide-name>[:color]` or `ri:<set>:<Name>[:color]`**
+  (react-icons: brands, Font Awesome, Material, Phosphor, Tabler, …; each
+  set is its own chunk, imported on first use by `react-icons.ts`), and
+  emoji still render.
+  `AppIcon` / `IconPicker` in `page-icon.tsx` take either; the field limit
+  rose from 32 to `ICON_VALUE_MAX` (64). Module labels, icons and order come
+  from appearance through `useWorkspaceNav()` (`customizeNav`), so anything
+  listing modules or sections must read `sections` from the nav, not
+  `MODULE_SECTIONS`.
+- **A page's `style`** (cover, width, font, small text, page theme, hidden
+  title) is present only when something is set (`normalizePageStyle`), like
+  `template`; `replacePage` unsets it, and revert-to-rev restores it.
+  `fullWidth` stays in step with `width: "full"` for desktop 3.0.0.
+- **Components are custom UI elements in a library**, placed by a
+  `component` block (`componentId`, prop values). `spec` is a JSON tree of
+  native primitives (`spec-renderer.tsx`; the visual editor writes it);
+  `html` runs in a `sandbox="allow-scripts"` iframe under a CSP with **no
+  network at all** — the script is handed the owner's data, so fetch, remote
+  images and forms are refused. For the same reason a spec image's `href`
+  must be a literal URL: a placeholder there would carry bound data to the
+  image host. Bindings (`view`, `records`, `json`) load through the normal
+  view and record routes into the scope `{{path | pipe}}` reads
+  (`@repo/utils/ui-spec`).
+- **`embed` blocks resolve providers on render** (`@repo/utils/workspace-embeds`):
+  YouTube (nocookie), Vimeo, Spotify, SoundCloud, Figma, Loom, CodePen,
+  Google Docs/Maps, OpenStreetMap, direct media files; anything else is a
+  frame without `allow-same-origin`. The stored URL stays the one pasted.
+
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
 - `GET /contacts/{ticketId}` → `IContact`

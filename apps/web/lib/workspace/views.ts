@@ -12,12 +12,20 @@ import {
 import { addDays, runViewQuery } from "@repo/utils/workspace-views";
 import mongoose, { type Types } from "mongoose";
 import { AgentTask } from "@/models/AgentTask";
+import { Blog } from "@/models/Blog";
 import { CalendarEvent } from "@/models/CalendarEvent";
+import { Contact } from "@/models/Contact";
 import { Course } from "@/models/Course";
 import { CourseAssignment } from "@/models/CourseAssignment";
 import { EmailModel } from "@/models/Email";
+import { EmailAccountModel } from "@/models/EmailAccount";
 import { EmailTriageModel } from "@/models/EmailTriage";
-import { FinanceAccount, FinanceLedgerEntry } from "@/models/Finance";
+import {
+  FinanceAccount,
+  FinanceLedgerEntry,
+  FinanceRecurringRule,
+} from "@/models/Finance";
+import { JournalLog } from "@/models/Journal";
 import { KanbanBoard } from "@/models/KanbanBoard";
 import { KanbanCard } from "@/models/KanbanCard";
 import { KanbanColumn } from "@/models/KanbanColumn";
@@ -25,7 +33,13 @@ import { Note } from "@/models/Note";
 import { Paper } from "@/models/Paper";
 import { Person } from "@/models/Person";
 import { PersonGroup } from "@/models/PersonGroup";
+import { Project } from "@/models/Project";
+import { Resource } from "@/models/Resource";
+import { Spreadsheet } from "@/models/Spreadsheet";
+import TimelineItem from "@/models/TimelineItem";
+import { TimetableEntry } from "@/models/TimetableEntry";
 import { VoiceNote } from "@/models/VoiceNote";
+import { WorkJob, WorkSession } from "@/models/WorkHours";
 
 /*
  * The dispatcher behind `POST /workspace/views/query`: one loader per source
@@ -449,7 +463,7 @@ const LOADERS: Record<ViewSourceId, Loader> = {
       truncated,
       rows: docs.map((entry) => ({
         id: String(entry._id),
-        ref: null,
+        ref: entityRef("finance-entry", String(entry._id)),
         values: {
           description: clip(entry.descriptor),
           amount: { amountMinor: entry.amountMinor, currency: entry.currency },
@@ -694,7 +708,7 @@ const LOADERS: Record<ViewSourceId, Loader> = {
       truncated,
       rows: docs.map((task) => ({
         id: String(task._id),
-        ref: null,
+        ref: entityRef("agent-task", String(task._id)),
         values: {
           name: task.name,
           status: task.status ?? "active",
@@ -823,6 +837,612 @@ const LOADERS: Record<ViewSourceId, Loader> = {
           source: note.source ?? null,
           tags: note.tags ?? [],
           transcript: note.transcription?.status ?? null,
+        },
+      })),
+    };
+  },
+
+  "blog-posts": async (filters, today) => {
+    const { docs, truncated } = capped(
+      await Blog.find(
+        where(
+          {},
+          { createdAt: dateRange(dayWindow(filters, "created", today)) },
+        ),
+      )
+        .select({
+          title: 1,
+          slug: 1,
+          excerpt: 1,
+          tags: 1,
+          isActive: 1,
+          timeToRead: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+        .sort({ createdAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            title: string;
+            slug: string;
+            excerpt?: string;
+            tags?: string[];
+            isActive?: boolean;
+            timeToRead?: number;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((post) => ({
+        id: String(post._id),
+        ref: entityRef("blog-post", String(post._id)),
+        values: {
+          title: post.title,
+          slug: post.slug,
+          excerpt: clip(post.excerpt),
+          tags: post.tags ?? [],
+          published: post.isActive === true,
+          minutes: post.timeToRead ?? null,
+          created: iso(post.createdAt),
+          updated: iso(post.updatedAt),
+        },
+      })),
+    };
+  },
+
+  projects: async () => {
+    const { docs, truncated } = capped(
+      await Project.find({})
+        .select({
+          title: 1,
+          subtitle: 1,
+          tags: 1,
+          isActive: 1,
+          isFeatured: 1,
+          sourceRepository: 1,
+          order: 1,
+          updatedAt: 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            title: string;
+            subtitle?: string;
+            tags?: string[];
+            isActive?: boolean;
+            isFeatured?: boolean;
+            sourceRepository?: { owner: string; repo: string };
+            order?: number;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((project) => ({
+        id: String(project._id),
+        ref: entityRef("project", String(project._id)),
+        values: {
+          title: project.title,
+          subtitle: clip(project.subtitle),
+          tags: project.tags ?? [],
+          active: project.isActive === true,
+          featured: project.isFeatured === true,
+          repository: project.sourceRepository
+            ? `${project.sourceRepository.owner}/${project.sourceRepository.repo}`
+            : null,
+          order: project.order ?? null,
+          updated: iso(project.updatedAt),
+        },
+      })),
+    };
+  },
+
+  timeline: async () => {
+    const { docs, truncated } = capped(
+      await TimelineItem.find({})
+        .select({
+          title: 1,
+          subtitle: 1,
+          category: 1,
+          dateFrom: 1,
+          dateTo: 1,
+          topics: 1,
+          isActive: 1,
+          order: 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            title: string;
+            subtitle?: string;
+            category?: string;
+            dateFrom: string;
+            dateTo?: string;
+            topics?: string[];
+            isActive?: boolean;
+            order?: number;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((item) => ({
+        id: String(item._id),
+        ref: entityRef("timeline-item", String(item._id)),
+        values: {
+          title: item.title,
+          subtitle: clip(item.subtitle),
+          category: item.category ?? null,
+          from: item.dateFrom,
+          to: item.dateTo || null,
+          topics: item.topics ?? [],
+          active: item.isActive === true,
+          order: item.order ?? null,
+        },
+      })),
+    };
+  },
+
+  contacts: async (filters, today) => {
+    const statuses = requiredValues(filters, "status");
+    const { docs, truncated } = capped(
+      await Contact.find(
+        where(
+          {},
+          {
+            createdAt: dateRange(dayWindow(filters, "received", today)),
+            status: statuses ? { $in: statuses } : null,
+          },
+        ),
+      )
+        .select({
+          ticketId: 1,
+          name: 1,
+          email: 1,
+          message: 1,
+          status: 1,
+          emailSent: 1,
+          createdAt: 1,
+        })
+        .sort({ createdAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            ticketId: string;
+            name: string;
+            email: string;
+            message?: string;
+            status?: string;
+            emailSent?: boolean;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((contact) => ({
+        id: contact.ticketId,
+        ref: entityRef("contact", contact.ticketId),
+        values: {
+          name: contact.name,
+          email: contact.email,
+          message: clip(contact.message),
+          status: contact.status ?? null,
+          replied: contact.emailSent === true,
+          received: iso(contact.createdAt),
+        },
+      })),
+    };
+  },
+
+  emails: async (filters, today) => {
+    const accountNames = requiredValues(filters, "account");
+    const accounts = await EmailAccountModel.find({})
+      .select({ displayName: 1, user: 1 })
+      .lean<(Lean & { displayName?: string; user: string })[]>();
+    const accountName = new Map(
+      accounts.map((a) => [String(a._id), a.displayName || a.user]),
+    );
+    const accountIds = accountNames
+      ? accounts
+          .filter((a) =>
+            accountNames.includes((a.displayName || a.user).toLowerCase()),
+          )
+          .map((a) => a._id)
+      : null;
+    const { docs, truncated } = capped(
+      await EmailModel.find(
+        where(
+          {},
+          {
+            date: dateRange(dayWindow(filters, "received", today)),
+            accountId: accountIds ? { $in: accountIds } : null,
+          },
+        ),
+      )
+        .select({ accountId: 1, subject: 1, from: 1, date: 1, seen: 1 })
+        .sort({ date: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            accountId: Types.ObjectId;
+            subject?: string;
+            from?: { name?: string; address: string }[];
+            date: Date;
+            seen?: boolean;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((email) => {
+        const sender = email.from?.[0];
+        return {
+          id: String(email._id),
+          ref: entityRef("email", String(email._id)),
+          values: {
+            subject: clip(email.subject) ?? "",
+            from: sender ? sender.name || sender.address : null,
+            account: accountName.get(String(email.accountId)) ?? null,
+            received: iso(email.date),
+            seen: email.seen === true,
+          },
+        };
+      }),
+    };
+  },
+
+  "finance-accounts": async () => {
+    const { docs, truncated } = capped(
+      await FinanceAccount.find({})
+        .select({
+          displayName: 1,
+          institutionName: 1,
+          currency: 1,
+          provider: 1,
+          connectionStatus: 1,
+          lastSyncedAt: 1,
+          accessValidUntil: 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            displayName: string;
+            institutionName: string;
+            currency: string;
+            provider: string;
+            connectionStatus: string;
+            lastSyncedAt?: Date;
+            accessValidUntil?: Date;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((account) => ({
+        id: String(account._id),
+        ref: entityRef("finance-account", String(account._id)),
+        values: {
+          name: account.displayName,
+          institution: account.institutionName,
+          currency: account.currency,
+          provider: account.provider,
+          connection: account.connectionStatus,
+          lastSynced: iso(account.lastSyncedAt),
+          accessUntil: iso(account.accessValidUntil),
+        },
+      })),
+    };
+  },
+
+  "finance-rules": async (filters) => {
+    const statuses = requiredValues(filters, "status");
+    const directions = requiredValues(filters, "direction");
+    const currencies = requiredValues(filters, "currency");
+    const { docs, truncated } = capped(
+      await FinanceRecurringRule.find(
+        where(
+          {},
+          {
+            status: statuses ? { $in: statuses } : null,
+            direction: directions ? { $in: directions } : null,
+            currency: currencies
+              ? { $in: currencies.map((c) => c.toUpperCase()) }
+              : null,
+          },
+        ),
+      )
+        .select({
+          accountId: 1,
+          name: 1,
+          direction: 1,
+          amountKind: 1,
+          amountMinor: 1,
+          currency: 1,
+          anchorDate: 1,
+          status: 1,
+          endDate: 1,
+          payout: 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            accountId: Types.ObjectId;
+            name: string;
+            direction: string;
+            amountKind: string;
+            amountMinor: number;
+            currency: string;
+            anchorDate: string;
+            status: string;
+            endDate?: string;
+            payout?: unknown;
+          })[]
+        >(),
+    );
+    const accounts = await FinanceAccount.find({
+      _id: { $in: [...new Set(docs.map((d) => String(d.accountId)))] },
+    })
+      .select({ displayName: 1 })
+      .lean<(Lean & { displayName: string })[]>();
+    const account = new Map(
+      accounts.map((a) => [String(a._id), a.displayName]),
+    );
+    return {
+      truncated,
+      rows: docs.map((rule) => ({
+        id: String(rule._id),
+        ref: entityRef("finance-rule", String(rule._id)),
+        values: {
+          name: rule.name,
+          direction: rule.direction,
+          amount: { amountMinor: rule.amountMinor, currency: rule.currency },
+          currency: rule.currency,
+          amountKind: rule.amountKind,
+          status: rule.status,
+          account: account.get(String(rule.accountId)) ?? null,
+          payout: rule.payout !== undefined && rule.payout !== null,
+          anchor: rule.anchorDate,
+          ends: rule.endDate ?? null,
+        },
+      })),
+    };
+  },
+
+  journal: async (filters, today) => {
+    const { docs, truncated } = capped(
+      await JournalLog.find(
+        where({}, { date: dateRange(dayWindow(filters, "date", today)) }),
+      )
+        .select({ date: 1, content: 1, events: 1, notes: 1 })
+        .sort({ date: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            date: Date;
+            content?: string;
+            events?: unknown[];
+            notes?: unknown[];
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((log) => {
+        const content = log.content?.trim() ?? "";
+        return {
+          id: String(log._id),
+          ref: entityRef("journal-entry", String(log._id)),
+          values: {
+            date: log.date.toISOString().slice(0, 10),
+            content: clip(content),
+            words: content ? content.split(/\s+/).length : 0,
+            events: log.events?.length ?? 0,
+            notes: log.notes?.length ?? 0,
+          },
+        };
+      }),
+    };
+  },
+
+  spreadsheets: async (filters) => {
+    const tags = requiredValues(filters, "tags");
+    const { docs, truncated } = capped(
+      await Spreadsheet.find(
+        where({}, { tags: tags ? { $in: exactly(tags) } : null }),
+      )
+        .select({
+          title: 1,
+          description: 1,
+          tags: 1,
+          sheetCount: 1,
+          rowCount: 1,
+          lastOpenedAt: 1,
+          updatedAt: 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            title: string;
+            description?: string;
+            tags?: string[];
+            sheetCount?: number;
+            rowCount?: number;
+            lastOpenedAt?: Date;
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((sheet) => ({
+        id: String(sheet._id),
+        ref: entityRef("spreadsheet", String(sheet._id)),
+        values: {
+          title: sheet.title,
+          description: clip(sheet.description),
+          tags: sheet.tags ?? [],
+          sheets: sheet.sheetCount ?? null,
+          rows: sheet.rowCount ?? null,
+          opened: iso(sheet.lastOpenedAt),
+          updated: iso(sheet.updatedAt),
+        },
+      })),
+    };
+  },
+
+  resources: async () => {
+    const { docs, truncated } = capped(
+      await Resource.find({})
+        .select({
+          name: 1,
+          type: 1,
+          url: 1,
+          isActive: 1,
+          isPublic: 1,
+          "agentService.lastStatus": 1,
+          "agentService.lastCheckedAt": 1,
+        })
+        .sort({ updatedAt: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            name: string;
+            type: string;
+            url?: string;
+            isActive?: boolean;
+            isPublic?: boolean;
+            agentService?: {
+              lastStatus?: string | null;
+              lastCheckedAt?: Date | null;
+            };
+          })[]
+        >(),
+    );
+    return {
+      truncated,
+      rows: docs.map((resource) => ({
+        id: String(resource._id),
+        ref: entityRef("resource", String(resource._id)),
+        values: {
+          name: resource.name,
+          type: resource.type,
+          url: resource.url ?? null,
+          active: resource.isActive === true,
+          public: resource.isPublic === true,
+          health: resource.agentService?.lastStatus ?? null,
+          checked: iso(resource.agentService?.lastCheckedAt),
+        },
+      })),
+    };
+  },
+
+  "work-sessions": async (filters, today) => {
+    const jobNames = requiredValues(filters, "job");
+    const jobs = await WorkJob.find({})
+      .select({ name: 1 })
+      .lean<(Lean & { name: string })[]>();
+    const jobName = new Map(jobs.map((j) => [String(j._id), j.name]));
+    const jobIds = jobNames
+      ? jobs
+          .filter((j) => jobNames.includes(j.name.toLowerCase()))
+          .map((j) => j._id)
+      : null;
+    const { docs, truncated } = capped(
+      await WorkSession.find(
+        where(
+          {},
+          {
+            day: dayStringRange(dayWindow(filters, "day", today)),
+            jobId: jobIds ? { $in: jobIds } : null,
+          },
+        ),
+      )
+        .select({ jobId: 1, start: 1, end: 1, breaks: 1, note: 1, day: 1 })
+        .sort({ day: -1, start: -1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            jobId: Types.ObjectId;
+            start: Date;
+            end?: Date;
+            breaks?: { start: Date; end?: Date }[];
+            note?: string;
+            day: string;
+          })[]
+        >(),
+    );
+    const now = Date.now();
+    return {
+      truncated,
+      rows: docs.map((session) => {
+        const end = session.end?.getTime() ?? now;
+        const breakMs = (session.breaks ?? []).reduce(
+          (sum, b) =>
+            sum + Math.max(0, (b.end?.getTime() ?? end) - b.start.getTime()),
+          0,
+        );
+        const workedMs = Math.max(0, end - session.start.getTime() - breakMs);
+        return {
+          id: String(session._id),
+          ref: entityRef("work-job", String(session.jobId)),
+          values: {
+            day: session.day,
+            job: jobName.get(String(session.jobId)) ?? null,
+            start: iso(session.start),
+            end: iso(session.end),
+            hours: Math.round(workedMs / 36_000) / 100,
+            breakMinutes: Math.round(breakMs / 60_000),
+            open: session.end === undefined,
+            note: clip(session.note),
+          },
+        };
+      }),
+    };
+  },
+
+  timetable: async () => {
+    const { docs, truncated } = capped(
+      await TimetableEntry.find({})
+        .select({
+          title: 1,
+          dayOfWeek: 1,
+          startTime: 1,
+          endTime: 1,
+          place: 1,
+          isActive: 1,
+        })
+        .sort({ dayOfWeek: 1, startTime: 1 })
+        .limit(VIEW_SCAN_CAP + 1)
+        .lean<
+          (Lean & {
+            title: string;
+            dayOfWeek: number;
+            startTime: string;
+            endTime: string;
+            place?: string;
+            isActive?: boolean;
+          })[]
+        >(),
+    );
+    const weekdays = VIEW_SOURCES.timetable.fields.weekday?.options ?? [];
+    return {
+      truncated,
+      rows: docs.map((entry) => ({
+        id: String(entry._id),
+        ref: entityRef("timetable-entry", String(entry._id)),
+        values: {
+          title: entry.title,
+          weekday: weekdays[entry.dayOfWeek] ?? null,
+          start: entry.startTime,
+          end: entry.endTime,
+          place: entry.place ?? null,
+          active: entry.isActive !== false,
         },
       })),
     };

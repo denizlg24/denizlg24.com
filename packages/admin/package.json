@@ -20,7 +20,9 @@
     "./workspace/modules": "./src/workspace/modules.ts",
     "./workspace/refs": "./src/workspace/refs.ts",
     "./workspace/seed": "./src/workspace/seed.ts",
-    "./workspace/store": "./src/workspace/store.ts"
+    "./workspace/store": "./src/workspace/store.ts",
+    "./workspace/appearance/store": "./src/workspace/appearance/store.ts",
+    "./workspace/components/library": "./src/workspace/components/library.ts"
   },
   "scripts": {
     "test": "bun test",

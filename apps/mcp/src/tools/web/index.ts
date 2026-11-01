@@ -28,6 +28,7 @@ import { registerWebSpreadsheets } from "./spreadsheets";
 import { registerWebTriage } from "./triage";
 import { registerWebVoiceNotes } from "./voice-notes";
 import { registerWebWorkspace } from "./workspace";
+import { registerWebWorkspaceAppearance } from "./workspace-appearance";
 
 export function registerWeb(server: McpServer, api: Api) {
   registerWebMisc(server, api);
@@ -58,4 +59,5 @@ export function registerWeb(server: McpServer, api: Api) {
   registerWebSemantic(server, api);
   registerWebAuthenticator(server, api);
   registerWebWorkspace(server, api);
+  registerWebWorkspaceAppearance(server, api);
 }
