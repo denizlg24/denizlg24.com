@@ -72,3 +72,4 @@ a35651b3cc1ed4103f9d699bf2777926b11ed2e7:infra/compose/.env.pi.example:generic-a
 061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1951
 061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:1959
 061063cb20160066bdc96c3a5dc9f18bff7c5e66:apps/nutrition/config/food-icons/originals.json:generic-api-key:3639
+a428ea9ed4a46d57efcaca7206da5411e714eb5d:packages/admin/src/workspace/appearance/store.ts:generic-api-key:23

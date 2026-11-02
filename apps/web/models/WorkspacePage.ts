@@ -1,4 +1,4 @@
-import type { Block, LegacyBlock, LegacyPage } from "@repo/schemas";
+import type { Block, LegacyBlock, LegacyPage, PageStyle } from "@repo/schemas";
 import mongoose from "mongoose";
 
 /**
@@ -20,6 +20,8 @@ export interface IWorkspacePage {
   deletedAt: string | null;
   /** Absent unless the page is a template. */
   template?: true;
+  /** Absent unless something is set. */
+  style?: PageStyle;
   rev: number;
   changedAt: Date;
   purgedAt: Date | null;
@@ -43,6 +45,7 @@ const workspacePageSchema = new mongoose.Schema<IWorkspacePage>(
     updatedAt: { type: String, required: true },
     deletedAt: { type: String, default: null },
     template: { type: Boolean },
+    style: { type: mongoose.Schema.Types.Mixed },
     rev: { type: Number, required: true },
     changedAt: { type: Date, required: true },
     purgedAt: { type: Date, default: null },

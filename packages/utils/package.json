@@ -14,6 +14,8 @@
     "./workspace-tree": "./src/workspace-tree.ts",
     "./workspace-legacy": "./src/workspace-legacy.ts",
     "./workspace-views": "./src/workspace-views.ts",
+    "./workspace-embeds": "./src/workspace-embeds.ts",
+    "./ui-spec": "./src/ui-spec.ts",
     "./workspace-templates": "./src/workspace-templates.ts",
     "./workspace-triggers": "./src/workspace-triggers.ts",
     "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts"

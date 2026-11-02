@@ -131,6 +131,14 @@ const Columns = Node.create({
   content: "column+",
   defining: true,
   isolating: true,
+  addAttributes: () => ({
+    align: {
+      default: null,
+      parseHTML: (element: HTMLElement) => element.getAttribute("data-align"),
+      renderHTML: (attrs: { align?: string | null }) =>
+        attrs.align ? { "data-align": attrs.align } : {},
+    },
+  }),
   parseHTML: () => [{ tag: 'div[data-type="columns"]' }],
   renderHTML: ({ HTMLAttributes }) => [
     "div",
@@ -139,6 +147,32 @@ const Columns = Node.create({
       class: "flow-columns",
     }),
     0,
+  ],
+});
+
+function tintAttr(name: "color" | "background") {
+  const data = name === "color" ? "data-tint" : "data-tint-bg";
+  return {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute(data),
+    renderHTML: (attrs: Record<string, unknown>) => {
+      const value = attrs[name];
+      return typeof value === "string" ? { [data]: value } : {};
+    },
+  };
+}
+
+/** Text and background tints on top-level paragraphs and headings. */
+const BlockTints = Extension.create({
+  name: "blockTints",
+  addGlobalAttributes: () => [
+    {
+      types: ["paragraph", "heading"],
+      attributes: {
+        color: tintAttr("color"),
+        background: tintAttr("background"),
+      },
+    },
   ],
 });
 
@@ -549,6 +583,7 @@ export function flowExtensions(options: FlowExtensionOptions): AnyExtension[] {
     Callout.configure({ views: options.views }),
     Columns,
     Column,
+    BlockTints,
     Section.configure({ views: options.views }),
     AtomBlock.configure({ views: options.views }),
     Mention.configure({ views: options.views }),

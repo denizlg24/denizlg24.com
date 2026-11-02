@@ -97,7 +97,7 @@ export function registerWebWorkspace(server: McpServer, api: Api) {
       }),
       update: action({
         description:
-          "Title, icon, full width, locked, or template (true lists it under Templates instead of the page tree)",
+          "Title, icon (icon:<lucide-name>[:color] or an emoji), full width, locked, template (true lists it under Templates instead of the page tree), or style (replaces the whole style; null clears): cover (https image, color:<css colour> or gradient:<name>), coverPosition 0–100, font, smallText, width narrow|default|wide|full, themeId (a theme only this page wears), hideTitle",
         input: z.object({ id, ...pageMetaPatchSchema.shape }),
         idempotent: true,
         run: ({ id, ...body }) => api.web.patch(page(id), body),

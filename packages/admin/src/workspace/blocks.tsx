@@ -30,7 +30,6 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useMemo, useState } from "react";
 import { AgentPanel } from "../agent/agent-panel";
 import { formatMinor } from "./format";
-import { MODULE_SECTIONS } from "./modules";
 import { PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
 import { childPages, useWorkspaceStore } from "./store";
@@ -295,10 +294,10 @@ function SubpagesBlock({ pageId }: BlockProps<"subpages">) {
 }
 
 function ModulesBlock({ block }: BlockProps<"modules">) {
-  const { sidebarModules } = useWorkspaceNav();
+  const { sidebarModules, sections: ordered } = useWorkspaceNav();
   const sections = block.sections.length
-    ? MODULE_SECTIONS.filter((s) => block.sections.includes(s.id))
-    : MODULE_SECTIONS;
+    ? ordered.filter((s) => block.sections.includes(s.id))
+    : ordered;
   return (
     <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
       {sections.map((section) => (

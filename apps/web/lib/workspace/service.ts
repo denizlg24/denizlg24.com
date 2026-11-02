@@ -5,6 +5,7 @@ import {
   type LegacyPage,
   type LegacyWorkspace,
   legacyPageSchema,
+  normalizePageStyle,
   SIDEBAR_DEFAULT_WIDTH,
   type SidebarPrefs,
   sidebarPrefsSchema,
@@ -124,6 +125,7 @@ export function pageOf(stored: WorkspacePage): WorkspacePage {
     updatedAt: stored.updatedAt,
     deletedAt: stored.deletedAt,
     ...(stored.template ? { template: true } : {}),
+    ...(stored.style ? { style: stored.style } : {}),
   };
 }
 
@@ -566,8 +568,8 @@ export function createWorkspaceService(
     snapshot = false,
   ): Promise<StoredPage | null> {
     const at = now();
-    // `template` is present only when true, so the result decides it.
-    const { template: _template, ...base } = stored;
+    // `template` and `style` are present only when set, so the result decides them.
+    const { template: _template, style: _style, ...base } = stored;
     const next: StoredPage = {
       ...base,
       ...result.page,
@@ -829,6 +831,7 @@ export function createWorkspaceService(
           ? parseMarkdown(input.markdown)
           : parsed.blocks;
       const at = now();
+      const style = normalizePageStyle(parsed.style);
       const empty: WorkspacePage = {
         id,
         title: parsed.title,
@@ -842,6 +845,7 @@ export function createWorkspaceService(
         updatedAt: at.toISOString(),
         deletedAt: null,
         ...(parsed.template ? { template: true } : {}),
+        ...(style ? { style } : {}),
       };
       const filled = applyStrict(empty, [{ op: "replace", blocks }]);
       const siblings = siblingOrders(pages, parsed.parentId, id);
@@ -1309,13 +1313,15 @@ export function createWorkspaceService(
           }
           const then = await reconstruct(id, rev);
           const current = pageOf(stored);
+          const { style: _style, ...unstyled } = current;
           const ops = diffWorkspacePages(current, {
-            ...current,
+            ...unstyled,
             blocks: then.blocks,
             title: then.title,
             icon: then.icon,
             fullWidth: then.fullWidth,
             locked: then.locked,
+            ...(then.style ? { style: then.style } : {}),
           });
           if (ops.length === 0) return stored;
           return commit(

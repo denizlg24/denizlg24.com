@@ -118,6 +118,14 @@
       gap: 2.5rem;
     }
   }
+  @container (min-width: 48rem) {
+    .flow-columns[data-align="center"] {
+      align-items: center;
+    }
+    .flow-columns[data-align="end"] {
+      align-items: flex-end;
+    }
+  }
 
   /* The bare "/" on the empty line the caret is in, while there is a caret. */
   .ProseMirror-focused p.is-empty::before {
@@ -156,4 +164,64 @@
 .flow-dropcursor {
   background: color-mix(in oklab, var(--accent-strong) 45%, transparent);
   border-radius: 9999px;
+}
+
+/* Block tints, global so the block menu's swatches use them too. */
+[data-tint="gray"] {
+  color: #787774;
+}
+[data-tint="brown"] {
+  color: #9f6b53;
+}
+[data-tint="orange"] {
+  color: #d9730d;
+}
+[data-tint="yellow"] {
+  color: #cb912f;
+}
+[data-tint="green"] {
+  color: #448361;
+}
+[data-tint="blue"] {
+  color: #337ea9;
+}
+[data-tint="purple"] {
+  color: #9065b0;
+}
+[data-tint="pink"] {
+  color: #c14c8a;
+}
+[data-tint="red"] {
+  color: #d44c47;
+}
+[data-tint-bg="gray"] {
+  background: color-mix(in oklab, #787774 16%, transparent);
+}
+[data-tint-bg="brown"] {
+  background: color-mix(in oklab, #9f6b53 16%, transparent);
+}
+[data-tint-bg="orange"] {
+  background: color-mix(in oklab, #d9730d 16%, transparent);
+}
+[data-tint-bg="yellow"] {
+  background: color-mix(in oklab, #cb912f 16%, transparent);
+}
+[data-tint-bg="green"] {
+  background: color-mix(in oklab, #448361 16%, transparent);
+}
+[data-tint-bg="blue"] {
+  background: color-mix(in oklab, #337ea9 16%, transparent);
+}
+[data-tint-bg="purple"] {
+  background: color-mix(in oklab, #9065b0 16%, transparent);
+}
+[data-tint-bg="pink"] {
+  background: color-mix(in oklab, #c14c8a 16%, transparent);
+}
+[data-tint-bg="red"] {
+  background: color-mix(in oklab, #d44c47 16%, transparent);
+}
+.flow-editor [data-tint-bg] {
+  border-radius: calc(var(--radius) - 4px);
+  padding: 0.125rem 0.375rem;
 }

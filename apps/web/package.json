@@ -17,11 +17,11 @@
     "finance:dedupe-ledger": "bun --env-file=../../.env scripts/dedupe-finance-ledger.ts",
     "courses:migrate-assessed": "bun --env-file=../../.env scripts/migrate-course-assessed.ts",
     "dev": "bun --env-file=../../.env next dev",
-    "build": "next build",
+    "build": "NODE_OPTIONS=--max-old-space-size=6144 next build",
     "start": "next start",
-    "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && tsc --noEmit",
+    "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && NODE_OPTIONS=--max-old-space-size=6144 tsc --noEmit",
     "test": "bun test",
-    "test:mongo": "WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workspace.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/views.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workflows.mongo.test.ts"
+    "test:mongo": "WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workspace.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/views.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workflows.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/appearance.mongo.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.84",

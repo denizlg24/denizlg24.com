@@ -310,6 +310,12 @@ hint, not a platform ceiling.
   (oven-sh/bun#36866: next-swc's threads release a napi threadsafe function after
   the page-data worker that created it is gone). It can crash *after* the build
   finishes — a full route table and `exit 139` is this, not a broken app.
+- **Web's type graph outgrew node's default 4 GB heap.** A cold `tsc` over
+  `apps/web` builds about a million types (the mongoose models dominate) and
+  peaks right at 4 GB, so CI's typecheck and its node-run `next build` died
+  with `heap out of memory`. Both web scripts set
+  `--max-old-space-size=6144`; the ubuntu runners have 16 GB. Local runs
+  looked fine only because `incremental` reuses the build info.
 - **`bunx` is not covered by the Bun version pin unless it is placed too.**
   `injectBunVersion` copies `bun` into `/usr/local/forge-bin`; `bunx` in
   `oven/bun` is an absolute symlink to a path the nixpacks image lacks, so it
@@ -1135,6 +1141,13 @@ catalogue with every tool → route mapping is
 
 ### Key Patterns
 
+**React Compiler is on (desktop and web), so render-time reads of mutable
+module state are memoized on their inputs.** `cache.get(ref)` in a hook body
+is cached on `ref` and never re-read when the cache fills; that left record
+cards and widgets on skeletons for good. Read external caches through
+`useSyncExternalStore` with the data itself as the snapshot (see
+`useRecord`, `useSource`), or keep the state in a zustand store.
+
 **API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL comes from `NEXT_PUBLIC_DESKTOP_API_BASE_URL`, not a hardcoded host. The client is stateless: every request bears the OAuth session's access token from `lib/auth/session.ts` (`getAccessToken()`), refreshed on demand. Gate on `useAuthStore` (`status === "signed-in"`), never on a stored credential.
 ```ts
 const api = useMemo(() => new denizApi(), []);
@@ -1442,6 +1455,87 @@ Plan 032 phase 4. Things worth knowing before touching this:
 - **Desktop 3.0.0 sees a button or a section as a v1 text block holding its
   directive** (`:::block{type="button"}` / `:::section{…}` with the children
   in its body), like every other rich block.
+
+### Appearance, icons and components
+
+`GET|PATCH /workspace/appearance` (+ `POST …/schedule`, `DELETE …/schedule/{id}`),
+`GET|POST /workspace/themes`, `GET|PATCH|DELETE /workspace/themes/{id}`,
+`GET|POST /workspace/components`, `GET|PATCH|DELETE /workspace/components/{id}`.
+Schemas: `@repo/schemas` `workspace-appearance`, `workspace-themes`
+(built-ins), `workspace-components`. MCP: `web_workspace_themes`,
+`web_workspace_components`. UI: Settings → Appearance / Components.
+
+- **A theme is CSS variables plus a little more**, applied to `<html>` by
+  `ThemeRoot` (`packages/admin/src/workspace/appearance/`), mounted in both
+  shells. Eight core colour tokens are required; the rest derive in
+  `themeVariables`. Dark schemes also add `.dark`. Built-ins (`builtin:*`)
+  live in code and are read-only; `builtin:sage` is the stylesheet's own
+  palette. Clients poll appearance every minute and on focus, so a theme an
+  agent schedules lands without a reload.
+- **The schedule decides, not the default.** `activeThemeId` picks the
+  latest-starting entry covering the viewer's local day, else `themeId`. A
+  page's `style.themeId` overrides both while it is open; the theme editor's
+  live preview overrides everything. Deleting a theme drops its schedule
+  entries and resets the default if it was on.
+- **Theme CSS may not fetch.** `themeCssSchema` refuses `url(`, `@import`
+  and script; agents write these, and a selector-dependent fetch is how CSS
+  leaks what a page shows. A background image goes through `background`, one
+  fixed https URL.
+- **Appearance is its own singleton, not prefs.** An older client's
+  whole-prefs PUT would otherwise clobber it. The first write fills every
+  field it does not name with the default — an upsert that `$set` only
+  `schedule` used to store a document with no `themeId`, which read back as
+  the defaults.
+- **Icons are `icon:<lucide-name>[:color]` or `ri:<set>:<Name>[:color]`**
+  (react-icons: brands, Font Awesome, Material, Phosphor, Tabler, …; each
+  set is its own chunk, imported on first use by `react-icons.ts`), and
+  emoji still render.
+  `AppIcon` / `IconPicker` in `page-icon.tsx` take either; the field limit
+  rose from 32 to `ICON_VALUE_MAX` (64). Module labels, icons and order come
+  from appearance through `useWorkspaceNav()` (`customizeNav`), so anything
+  listing modules or sections must read `sections` from the nav, not
+  `MODULE_SECTIONS`.
+- **A page's `style`** (cover, width, font, small text, page theme, hidden
+  title) is present only when something is set (`normalizePageStyle`), like
+  `template`; `replacePage` unsets it, and revert-to-rev restores it.
+  `fullWidth` stays in step with `width: "full"` for desktop 3.0.0.
+- **Components are custom UI elements in a library**, placed by a
+  `component` block (`componentId`, prop values). `spec` is a JSON tree of
+  native primitives (`spec-renderer.tsx`; the visual editor writes it);
+  `html` runs in a `sandbox="allow-scripts"` iframe under a CSP with **no
+  network at all** — the script is handed the owner's data, so fetch, remote
+  images and forms are refused. For the same reason a spec image's `href`
+  must be a literal URL: a placeholder there would carry bound data to the
+  image host. Bindings (`view`, `records`, `json`) load through the normal
+  view and record routes into the scope `{{path | pipe}}` reads
+  (`@repo/utils/ui-spec`).
+- **Theming depth:** `appearance.moduleThemes` gives a module its own theme
+  while open (precedence: editor preview > page `style.themeId` > module >
+  schedule > default; `ThemeRoot` tracks the module from the pathname). A
+  theme's `fontImport` names a fonts.googleapis.com / fonts.bunny.net
+  stylesheet and the families it adds; nothing else may be linked. `aurora`
+  is a CSS layer, not the particle canvas.
+- **Text tints and column alignment** are optional block fields
+  (`color` / `background` on paragraphs and headings, `align` on columns),
+  carried by the markdown marker / directive attrs and by node attributes in
+  the editor; a tinted heading is no longer "plain" for desktop 3.0.0, so it
+  downgrades to a markdown text block rather than losing its tint.
+- **Component power:** a `collection` binding reads one allowlisted
+  collection through `POST /workspace/data/query` (`lib/workspace/data.ts`):
+  typed filter ops only (a field path cannot start with `$`), the driver
+  collection so nothing is cast (id-looking strings match string or
+  ObjectId), credential-looking keys stripped at any depth, 200 rows max.
+  A spec `button` node with `actions` runs them through
+  `POST /workspace/components/actions`: the server takes the actions from the
+  stored component, never the request, hosts them on the placing block, and
+  passes only the node's declared `actionVars` as `{{event.*}}`.
+  `components.ts` loads the action services lazily, like `events.ts`: a static
+  import made every importer load the workspace singleton for real and broke
+  other suites' module mocks.
+- **`embed` blocks resolve providers on render** (`@repo/utils/workspace-embeds`):
+  YouTube (nocookie), Vimeo, Spotify, SoundCloud, Figma, Loom, CodePen,
+  Google Docs/Maps, OpenStreetMap, direct media files; anything else is a
+  frame without `allow-same-origin`. The stored URL stays the one pasted.
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`

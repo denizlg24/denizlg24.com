@@ -49,16 +49,27 @@ const SOURCE_MODULE: Record<ViewSourceId, ModuleId> = {
   "agent-tasks": "agent-tasks",
   papers: "papers",
   "voice-notes": "voice-notes",
+  "blog-posts": "blog",
+  projects: "projects",
+  timeline: "timeline",
+  contacts: "contacts",
+  emails: "inbox",
+  "finance-accounts": "finance",
+  "finance-rules": "finance",
+  journal: "journal",
+  spreadsheets: "spreadsheets",
+  resources: "resources",
+  "work-sessions": "hours",
+  timetable: "timetable",
 };
 
-/** Where a row opens: its entity's route, else the module (a finance row its entry). */
+/** Where a row opens: its entity's route, else the module. */
 function rowHrefFor(
   nav: WorkspaceNav,
   source: ViewSourceId,
 ): (row: ViewRow) => string | undefined {
   return (row) => {
     if (row.ref) return recordHref(nav, row.ref);
-    if (source === "finance-entries") return nav.routes.finance.entry(row.id);
     return nav.moduleHref(SOURCE_MODULE[source]);
   };
 }

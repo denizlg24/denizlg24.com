@@ -9,7 +9,9 @@ import mongoose, { type Types } from "mongoose";
 import { NextRequest } from "next/server";
 import type { AdminSession } from "@/lib/require-admin";
 import { AgentTask } from "@/models/AgentTask";
+import { Blog } from "@/models/Blog";
 import { CalendarEvent } from "@/models/CalendarEvent";
+import { Contact } from "@/models/Contact";
 import { Course } from "@/models/Course";
 import { CourseAssignment } from "@/models/CourseAssignment";
 import { EmailModel } from "@/models/Email";
@@ -18,7 +20,9 @@ import {
   FinanceAccount,
   FinanceEnvelope,
   FinanceLedgerEntry,
+  FinanceRecurringRule,
 } from "@/models/Finance";
+import { JournalLog } from "@/models/Journal";
 import { KanbanBoard } from "@/models/KanbanBoard";
 import { KanbanCard } from "@/models/KanbanCard";
 import { KanbanColumn } from "@/models/KanbanColumn";
@@ -27,8 +31,11 @@ import { Note } from "@/models/Note";
 import { Paper } from "@/models/Paper";
 import { Person } from "@/models/Person";
 import { PersonGroup } from "@/models/PersonGroup";
+import { Resource } from "@/models/Resource";
+import { TimetableEntry } from "@/models/TimetableEntry";
 import { VoiceNote } from "@/models/VoiceNote";
 import { Whiteboard } from "@/models/Whiteboard";
+import { WorkJob, WorkSession } from "@/models/WorkHours";
 import { WorkspacePageModel } from "@/models/WorkspacePage";
 import { resolveRecords, searchRecords } from "./records";
 import { dayWindow, queryView } from "./views";
@@ -523,6 +530,7 @@ describe.skipIf(!enabled)("records and views on a real mongod", () => {
       const found = await searchRecords("groc");
       expect(found.map((r) => [r.kind, r.title])).toEqual([
         ["envelope", "Groceries"],
+        ["finance-entry", "Groceries"],
       ]);
       const limited = await searchRecords("", ["page"]);
       expect(limited.map((r) => r.id)).toEqual(["p1"]);
@@ -699,6 +707,191 @@ describe.skipIf(!enabled)("records and views on a real mongod", () => {
       });
       expect(bad.status).toBe(400);
       expect(await bad.json()).toMatchObject({ code: "INVALID_VIEW" });
+    });
+  });
+
+  describe("module records", () => {
+    test("resolve as records and read as view rows, secrets and bodies never selected", async () => {
+      const blog = oid();
+      const rule = oid();
+      const resource = oid();
+      const job = oid();
+      const journal = oid();
+      const slot = oid();
+      await Blog.collection.insertOne({
+        _id: blog,
+        title: "On Raft",
+        slug: "on-raft",
+        excerpt: "Leader election, plainly.",
+        content: "Long body",
+        tags: ["ds"],
+        isActive: true,
+        timeToRead: 7,
+        createdAt: at("2026-10-20"),
+      });
+      await Contact.collection.insertOne({
+        ticketId: "CT-20261028-AB12",
+        name: "Recruiter",
+        email: "r@example.com",
+        message: "Hello there",
+        status: "pending",
+        emailSent: false,
+        createdAt: at("2026-10-28"),
+      });
+      await FinanceRecurringRule.collection.insertOne({
+        _id: rule,
+        accountId: ids.eur,
+        name: "Rent",
+        direction: "expense",
+        amountKind: "fixed",
+        amountMinor: 90_000,
+        currency: "EUR",
+        anchorDate: "2026-01-01",
+        status: "active",
+      });
+      await Resource.collection.insertOne({
+        _id: resource,
+        name: "pi-cloud",
+        type: "pi",
+        url: "https://api.example",
+        isActive: true,
+        isPublic: false,
+        agentService: {
+          hmacSecret: { ciphertext: "secret", iv: "iv", authTag: "tag" },
+          lastStatus: "healthy",
+          lastCheckedAt: at("2026-10-30T08:00:00.000Z"),
+        },
+      });
+      await WorkJob.collection.insertOne({
+        _id: job,
+        name: "Café",
+        hourlyRateMinor: 15_000,
+        currency: "DKK",
+        timezone: "Europe/Copenhagen",
+        status: "active",
+      });
+      await WorkSession.collection.insertMany([
+        {
+          jobId: job,
+          day: "2026-10-29",
+          start: at("2026-10-29T08:00:00.000Z"),
+          end: at("2026-10-29T12:30:00.000Z"),
+          breaks: [
+            {
+              start: at("2026-10-29T10:00:00.000Z"),
+              end: at("2026-10-29T10:30:00.000Z"),
+            },
+          ],
+        },
+        {
+          jobId: job,
+          day: "2026-09-01",
+          start: at("2026-09-01T08:00:00.000Z"),
+          end: at("2026-09-01T09:00:00.000Z"),
+          breaks: [],
+        },
+      ]);
+      await JournalLog.collection.insertOne({
+        _id: journal,
+        date: at("2026-10-29T00:00:00.000Z"),
+        content: "Shipped the views.  Tired.",
+        events: [],
+        notes: [ids.note],
+      });
+      await TimetableEntry.collection.insertOne({
+        _id: slot,
+        title: "Distributed Systems",
+        dayOfWeek: 2,
+        startTime: "10:00",
+        endTime: "12:00",
+        place: "B.201",
+        isActive: true,
+      });
+
+      const refs = [
+        `entity:blog-post:${blog}`,
+        "entity:contact:CT-20261028-AB12",
+        `entity:email:${ids.email2}`,
+        `entity:finance-account:${ids.eur}`,
+        `entity:finance-rule:${rule}`,
+        `entity:resource:${resource}`,
+        `entity:work-job:${job}`,
+        `entity:journal-entry:${journal}`,
+        `entity:timetable-entry:${slot}`,
+        `entity:person-group:${ids.friends}`,
+      ];
+      const { records, missing } = await resolveRecords(refs);
+      expect(missing).toEqual([]);
+      const byKind = new Map(records.map((r) => [r.kind, r]));
+      expect(byKind.get("blog-post")).toMatchObject({
+        title: "On Raft",
+        subtitle: "Leader election, plainly.",
+      });
+      expect(byKind.get("contact")?.title).toBe("Recruiter");
+      expect(byKind.get("email")).toMatchObject({
+        title: "Lab moved",
+        subtitle: "prof@uni.example",
+      });
+      expect(byKind.get("finance-account")?.title).toBe("Main");
+      expect(byKind.get("finance-rule")?.fields).toContainEqual({
+        label: "Amount",
+        value: "€900.00",
+      });
+      expect(
+        byKind.get("work-job")?.fields.find((f) => f.label === "Rate")?.value,
+      ).toMatch(/^DKK\s150\.00 \/ h$/);
+      expect(byKind.get("journal-entry")).toMatchObject({
+        title: "2026-10-29",
+        subtitle: "Shipped the views. Tired.",
+      });
+      expect(byKind.get("timetable-entry")?.subtitle).toBe(
+        "Wednesday 10:00–12:00",
+      );
+      expect(byKind.get("person-group")?.fields).toEqual([
+        { label: "People", value: "1" },
+      ]);
+      expect(JSON.stringify(records)).not.toContain("secret");
+
+      const shifts = await run({
+        source: "work-sessions",
+        filters: [{ field: "day", op: "past_days", value: 7 }],
+      });
+      expect(shifts.rows.map((r) => [r.values.job, r.values.hours])).toEqual([
+        ["Café", 4],
+      ]);
+      expect(shifts.rows[0]?.ref).toBe(`entity:work-job:${job}`);
+
+      const contacts = await run({
+        source: "contacts",
+        filters: [{ field: "status", op: "is", value: "pending" }],
+      });
+      expect(contacts.rows.map((r) => r.id)).toEqual(["CT-20261028-AB12"]);
+
+      const emails = await run({
+        source: "emails",
+        filters: [{ field: "received", op: "on", value: "2026-10-29" }],
+      });
+      expect(titles(emails, "subject")).toEqual(["Lab moved"]);
+
+      const entries = await run({ source: "finance-entries", limit: 1 });
+      expect(entries.rows[0]?.ref).toMatch(/^entity:finance-entry:/);
+
+      for (const source of [
+        "blog-posts",
+        "projects",
+        "timeline",
+        "finance-accounts",
+        "finance-rules",
+        "journal",
+        "spreadsheets",
+        "resources",
+        "timetable",
+      ] as const) {
+        const result = await run({ source });
+        expect(JSON.stringify(result)).not.toContain("secret");
+      }
+      const resources = await run({ source: "resources" });
+      expect(resources.rows[0]?.values.health).toBe("healthy");
     });
   });
 });

@@ -1,6 +1,7 @@
 import type {
   Block,
   BlockOf,
+  BlockTint,
   BlockType,
   InlineRun,
   LegacyBlock,
@@ -10,7 +11,9 @@ import type {
   WorkspacePage,
 } from "@repo/schemas";
 import {
+  BLOCK_TINTS,
   CALLOUT_COLORS,
+  COLUMN_ALIGNS,
   ENTITY_KINDS,
   MENTION_KINDS,
   VIEW_FILTER_OPS,
@@ -202,13 +205,14 @@ export function genBlock(
   const title = r.next() < 0.3 ? { title: genText(r, r.next() < 0.3) } : {};
   switch (type) {
     case "paragraph":
-      return { id, type, text: genRichText(r) };
+      return { id, type, text: genRichText(r), ...genTint(r) };
     case "heading":
       return {
         id,
         type,
         level: r.pick([1, 2, 3] as const),
         text: genRichText(r),
+        ...genTint(r),
       };
     case "bullet":
     case "numbered":
@@ -257,6 +261,7 @@ export function genBlock(
       return {
         id,
         type,
+        ...(r.next() < 0.3 ? { align: r.pick(COLUMN_ALIGNS) } : {}),
         children: children.filter(
           (c): c is BlockOf<"column"> => c.type === "column",
         ),
@@ -382,11 +387,34 @@ export function genBlock(
         sections: Array.from({ length: r.int(3) }, () => genText(r, false)),
         ...title,
       };
+    case "embed":
+      return {
+        id,
+        type,
+        url: r.pick(["", "https://www.youtube.com/watch?v=abc", "https://x.y"]),
+        ...(r.next() < 0.5 ? { height: 80 + r.int(600) } : {}),
+        caption: r.next() < 0.5 ? genRichText(r) : [],
+      };
+    case "component":
+      return {
+        id,
+        type,
+        componentId: r.pick(["", "6650f0c2"]),
+        props: r.next() < 0.5 ? { label: genText(r, false), n: 3 } : {},
+        ...(r.next() < 0.3 ? { height: 40 + r.int(400) } : {}),
+      };
     case "column":
       return genColumn(r, depth, 1);
     default:
       return { id, type, ...title };
   }
+}
+
+function genTint(r: Rng): { color?: BlockTint; background?: BlockTint } {
+  return {
+    ...(r.next() < 0.2 ? { color: r.pick(BLOCK_TINTS) } : {}),
+    ...(r.next() < 0.2 ? { background: r.pick(BLOCK_TINTS) } : {}),
+  };
 }
 
 export function genAction(r: Rng): WorkflowAction {

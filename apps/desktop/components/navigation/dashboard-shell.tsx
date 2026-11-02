@@ -1,6 +1,7 @@
 "use client";
 
 import { AdminProvider } from "@repo/admin/provider";
+import { ThemeRoot } from "@repo/admin/workspace/appearance/theme-root";
 import { CommandPalette } from "@repo/admin/workspace/command-palette";
 import {
   WorkspaceMobileSidebar,
@@ -55,6 +56,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <DesktopAgentDock>{children}</DesktopAgentDock>
         </div>
         <CommandPalette />
+        <ThemeRoot />
       </div>
     </AdminProvider>
   );
