@@ -7,7 +7,7 @@ import {
   semesterOverviewSchema,
   upcomingKanbanResultSchema,
 } from "@repo/schemas";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { z } from "zod";
 import type { AdminClient } from "../client";
 import { useAdmin } from "../provider";
@@ -15,10 +15,12 @@ import { useAdmin } from "../provider";
 /** Data is reused across blocks and pages for this long before a refetch. */
 const FRESH_MS = 60_000;
 
+type SourceState<T> = { data: T | null; error: string | null };
+
 type Source<T> = {
   load: (client: AdminClient) => Promise<T>;
-  data: T | null;
-  error: string | null;
+  /** Replaced, never mutated, so it can be the store snapshot. */
+  state: SourceState<T>;
   at: number;
   inflight: Promise<void> | null;
   listeners: Set<() => void>;
@@ -27,8 +29,7 @@ type Source<T> = {
 function source<T>(load: (client: AdminClient) => Promise<T>): Source<T> {
   return {
     load,
-    data: null,
-    error: null,
+    state: { data: null, error: null },
     at: 0,
     inflight: null,
     listeners: new Set(),
@@ -41,18 +42,17 @@ function refresh<T>(
   force = false,
 ): Promise<void> {
   if (src.inflight) return src.inflight;
-  if (!force && src.data !== null && Date.now() - src.at < FRESH_MS) {
+  if (!force && src.state.data !== null && Date.now() - src.at < FRESH_MS) {
     return Promise.resolve();
   }
   src.inflight = src
     .load(client)
     .then((data) => {
-      src.data = data;
-      src.error = null;
+      src.state = { data, error: null };
       src.at = Date.now();
     })
     .catch((error: Error) => {
-      src.error = error.message;
+      src.state = { data: src.state.data, error: error.message };
     })
     .finally(() => {
       src.inflight = null;
@@ -67,26 +67,33 @@ function refresh<T>(
  */
 function useSource<T>(src: Source<T>) {
   const { client } = useAdmin();
-  const [, setTick] = useState(0);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      src.listeners.add(listener);
+      return () => {
+        src.listeners.delete(listener);
+      };
+    },
+    [src],
+  );
+  const snapshot = useCallback(() => src.state, [src]);
+  // The state comes out of the hook: React Compiler memoizes plain reads of
+  // `src` on `src` alone, which left widgets on their skeleton for good.
+  const { data, error } = useSyncExternalStore(subscribe, snapshot, snapshot);
 
   useEffect(() => {
-    const listener = () => setTick((t) => t + 1);
-    src.listeners.add(listener);
     void refresh(src, client);
     const onFocus = () => void refresh(src, client);
     window.addEventListener("focus", onFocus);
-    return () => {
-      src.listeners.delete(listener);
-      window.removeEventListener("focus", onFocus);
-    };
+    return () => window.removeEventListener("focus", onFocus);
   }, [src, client]);
 
   const reload = useCallback(() => refresh(src, client, true), [src, client]);
 
   return {
-    data: src.data,
-    error: src.data === null ? src.error : null,
-    loading: src.data === null && src.error === null,
+    data,
+    error: data === null ? error : null,
+    loading: data === null && error === null,
     reload,
   };
 }
