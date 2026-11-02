@@ -112,7 +112,9 @@ describe("food icon assets", () => {
       expect(bounds.maxX, icon.key).toBeLessThan(127);
       expect(bounds.maxY, icon.key).toBeLessThan(127);
     }
-  });
+    // Decodes every icon in turn: half a second here, past bun's 5 s default
+    // on a CI runner busy with every other suite.
+  }, 60_000);
 
   test("every original is distinct, replaces legacy bytes, and matches its public copy", async () => {
     const manifest = await readJson<IconManifest>(
