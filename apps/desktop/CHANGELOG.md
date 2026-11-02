@@ -7,6 +7,45 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.2.0 — 2026-11-02
+
+### Added
+- **Themes**: built-in themes (Sage, Sage night, Paper, Graphite, Midnight,
+  Fjord, Rose, Terminal, Christmas, Autumn, Spring) and your own, made in
+  Settings → Appearance with a live preview: colours, light or dark, corner
+  radius, body and heading fonts, webfonts from Google Fonts or Bunny Fonts,
+  a background image, extra CSS, ornaments beside page titles and in the
+  sidebar, and ambient effects (snow, leaves, petals, hearts, stars,
+  confetti, rain, fireflies, bubbles, sparkles, aurora).
+- **Theme schedule**: put a theme on for a date range and it switches back by
+  itself. A page or a module can wear its own theme. ⌘P switches themes.
+- **Agents make themes and UI**: the agent can create, edit and schedule
+  themes ("make it Christmas until January") and build components.
+- **Icons instead of emojis**: pages, callouts, components and sidebar
+  modules take a searchable icon in any colour, from Lucide or the
+  react-icons libraries (brand logos, Font Awesome, Material, Phosphor,
+  Tabler and more). Existing emojis keep working.
+- **Page styling**: covers (gradients, a colour or an image you can
+  reposition), width, font, small text, hidden title or header.
+- **Block colours**: text and background tints on paragraphs and headings;
+  vertical alignment for columns.
+- **Sidebar**: rename, re-icon and reorder modules and sections; text size
+  and density.
+- **Embeds**: YouTube, Vimeo, Spotify, SoundCloud, Figma, Loom, CodePen,
+  Google Docs and Maps, OpenStreetMap, video and audio files, or any page.
+- **Components**: custom UI elements built visually, as JSON or as HTML, fed
+  by views, records or any of 30 collections, with buttons that run actions
+  (add a card, tick a to-do, append to the page). Settings → Components holds
+  the library.
+- **More records**: blog posts, projects, contacts, emails, finance accounts,
+  entries and rules, journal, spreadsheets, resources, groups, agent tasks,
+  coursework, jobs, timetable, portfolios and watchlists can be embedded,
+  mentioned and shown in views.
+
+### Fixed
+- Record cards and widgets (course notes, the deadline radar) no longer stay
+  on their loading skeleton.
+
 ## 3.1.0 — 2026-10-30
 
 ### Added
