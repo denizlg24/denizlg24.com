@@ -310,6 +310,12 @@ hint, not a platform ceiling.
   (oven-sh/bun#36866: next-swc's threads release a napi threadsafe function after
   the page-data worker that created it is gone). It can crash *after* the build
   finishes — a full route table and `exit 139` is this, not a broken app.
+- **Web's type graph outgrew node's default 4 GB heap.** A cold `tsc` over
+  `apps/web` builds about a million types (the mongoose models dominate) and
+  peaks right at 4 GB, so CI's typecheck and its node-run `next build` died
+  with `heap out of memory`. Both web scripts set
+  `--max-old-space-size=6144`; the ubuntu runners have 16 GB. Local runs
+  looked fine only because `incremental` reuses the build info.
 - **`bunx` is not covered by the Bun version pin unless it is placed too.**
   `injectBunVersion` copies `bun` into `/usr/local/forge-bin`; `bunx` in
   `oven/bun` is an absolute symlink to a path the nixpacks image lacks, so it
