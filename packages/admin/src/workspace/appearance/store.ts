@@ -20,7 +20,7 @@ import { create } from "zustand";
 import type { AdminClient } from "../../client";
 
 const ROOT = "workspace";
-const CACHE_KEY = "denizlg24.appearance.v1";
+const STORAGE_SLOT = "denizlg24.appearance.v1";
 const cacheSchema = z.object({
   appearance: appearanceSchema,
   themes: z.array(themeSchema),
@@ -52,7 +52,7 @@ let api: AdminClient | null = null;
 
 function readCache(): z.infer<typeof cacheSchema> | null {
   try {
-    const raw = globalThis.localStorage?.getItem(CACHE_KEY);
+    const raw = globalThis.localStorage?.getItem(STORAGE_SLOT);
     if (!raw) return null;
     const parsed = cacheSchema.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -63,7 +63,7 @@ function readCache(): z.infer<typeof cacheSchema> | null {
 
 function writeCache(value: z.infer<typeof cacheSchema>) {
   try {
-    globalThis.localStorage?.setItem(CACHE_KEY, JSON.stringify(value));
+    globalThis.localStorage?.setItem(STORAGE_SLOT, JSON.stringify(value));
   } catch {
     // A full or blocked store only costs an instant first paint.
   }
