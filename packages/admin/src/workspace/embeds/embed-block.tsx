@@ -7,6 +7,7 @@ import { resolveEmbed } from "@repo/utils/workspace-embeds";
 import { ExternalLink, Link2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useAdmin } from "../../provider";
+import { UploadButton } from "../upload";
 
 type EmbedBlockProps = {
   block: BlockOf<"embed">;
@@ -57,6 +58,13 @@ export function EmbedBlock({
     return (
       <div className="flex items-center gap-2 rounded-sm bg-surface/50 px-2 py-1.5 text-muted-foreground">
         <Link2 className="size-4 shrink-0" />
+        <UploadButton
+          accept="image/*,video/*,audio/*"
+          onUploaded={(url) => {
+            setEditing(false);
+            onChange({ ...block, url });
+          }}
+        />
         <UrlInput
           initial={block.url}
           onSubmit={(url) => {

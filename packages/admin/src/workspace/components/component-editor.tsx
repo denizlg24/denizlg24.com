@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { useAdmin } from "../../provider";
 import { AppIcon, IconPicker } from "../page-icon";
+import { UploadButton } from "../upload";
 import { ComponentView } from "./component-view";
 import { useComponentLibrary } from "./library";
 import {
@@ -279,6 +280,16 @@ function Inspector({
           value={node.caption}
           onChange={(v) => set("caption", v)}
         />
+      ) : null}
+      {node.type === "image" ? (
+        <div className="col-span-2">
+          <UploadButton
+            accept="image/*"
+            variant="outline"
+            label="Upload image"
+            onUploaded={(url) => set("href", url)}
+          />
+        </div>
       ) : null}
       {has("href") ? (
         <div className="col-span-2">

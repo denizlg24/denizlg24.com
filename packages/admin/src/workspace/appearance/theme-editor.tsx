@@ -27,6 +27,7 @@ import { Textarea } from "@repo/ui/textarea";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppIcon, IconPicker } from "../page-icon";
+import { UploadButton } from "../upload";
 import { useAppearanceStore } from "./store";
 
 type Draft = ThemeInput & { colors: ThemeColors };
@@ -458,26 +459,44 @@ export function ThemeEditor({
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem_8rem]">
           <div className="flex flex-col gap-1.5">
             <span className={LABEL}>Background image</span>
-            <Input
-              aria-label="Background image URL"
-              placeholder="https://"
-              value={draft.background?.url ?? ""}
-              onChange={(event) => {
-                const url = event.target.value.trim();
-                setDraft({
-                  ...draft,
-                  background: url
-                    ? {
-                        opacity: 0.15,
-                        size: "cover",
-                        ...draft.background,
-                        url,
-                      }
-                    : null,
-                });
-              }}
-              className="h-8 text-xs"
-            />
+            <div className="flex gap-2">
+              <UploadButton
+                accept="image/*"
+                variant="outline"
+                className="h-8 shrink-0"
+                onUploaded={(url) =>
+                  setDraft({
+                    ...draft,
+                    background: {
+                      opacity: 0.15,
+                      size: "cover",
+                      ...draft.background,
+                      url,
+                    },
+                  })
+                }
+              />
+              <Input
+                aria-label="Background image URL"
+                placeholder="https://"
+                value={draft.background?.url ?? ""}
+                onChange={(event) => {
+                  const url = event.target.value.trim();
+                  setDraft({
+                    ...draft,
+                    background: url
+                      ? {
+                          opacity: 0.15,
+                          size: "cover",
+                          ...draft.background,
+                          url,
+                        }
+                      : null,
+                  });
+                }}
+                className="h-8 text-xs"
+              />
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className={LABEL}>Opacity</span>

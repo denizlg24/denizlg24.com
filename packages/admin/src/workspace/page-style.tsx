@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAppearanceStore } from "./appearance/store";
 import { FONT_STACKS } from "./appearance/theme-css";
 import { useWorkspaceStore } from "./store";
+import { UploadButton } from "./upload";
 
 export const COVER_GRADIENTS: Record<
   (typeof PAGE_COVER_GRADIENTS)[number],
@@ -121,6 +122,16 @@ export function CoverPicker({
             />
           ))}
         </div>
+        <UploadButton
+          accept="image/*"
+          variant="outline"
+          className="w-full"
+          label="Upload image"
+          onUploaded={(url) => {
+            setStyle({ cover: url, coverPosition: 50 });
+            setOpen(false);
+          }}
+        />
         <div className="flex items-center gap-2">
           <input
             type="color"

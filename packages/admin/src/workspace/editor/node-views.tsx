@@ -37,10 +37,9 @@ import {
   Minus,
   Paperclip,
   Plus,
-  Upload,
 } from "lucide-react";
 import Link from "next/link";
-import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { z } from "zod";
 import { useAdmin } from "../../provider";
 import { BLOCK_CATALOG } from "../block-catalog";
@@ -52,6 +51,7 @@ import { RecordBlock } from "../record-embed";
 import { recordHref, useRecord } from "../records";
 import { pageTitle } from "../refs";
 import { pageAncestors, useWorkspaceStore } from "../store";
+import { UploadButton } from "../upload";
 import { useWorkspaceNav } from "../use-workspace-nav";
 import { ViewBlock } from "../views/view-block";
 import { ButtonBlock } from "../workflows/button-block";
@@ -380,17 +380,6 @@ function WidgetFrame({
   );
 }
 
-const uploadSchema = z.object({ url: z.string() });
-
-function useUpload() {
-  const { client } = useAdmin();
-  return async (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return uploadSchema.parse(await client.upload("upload", form)).url;
-  };
-}
-
 function UrlField({
   placeholder,
   onSubmit,
@@ -411,46 +400,6 @@ function UrlField({
   );
 }
 
-function UploadButton({
-  accept,
-  onFile,
-}: {
-  accept?: string;
-  onFile: (file: File) => Promise<void>;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={busy}
-        onClick={() => input.current?.click()}
-      >
-        <Upload />
-        {busy ? "Uploading" : "Upload"}
-      </Button>
-      <input
-        ref={input}
-        type="file"
-        accept={accept}
-        hidden
-        onChange={async (event) => {
-          const file = event.currentTarget.files?.[0];
-          if (!file) return;
-          setBusy(true);
-          try {
-            await onFile(file);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-    </>
-  );
-}
-
 function EmptyMedia({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 rounded-sm bg-surface/50 px-2 py-1 text-muted-foreground">
@@ -460,16 +409,13 @@ function EmptyMedia({ children }: { children: React.ReactNode }) {
 }
 
 function ImageAtom({ block, editable, onChange }: AtomProps<"image">) {
-  const upload = useUpload();
   if (!block.url) {
     if (!editable) return null;
     return (
       <EmptyMedia>
         <UploadButton
           accept="image/*"
-          onFile={async (file) =>
-            onChange({ ...block, url: await upload(file) })
-          }
+          onUploaded={(url) => onChange({ ...block, url })}
         />
         <UrlField
           placeholder="Image URL"
@@ -512,19 +458,13 @@ function formatBytes(size: number): string {
 }
 
 function FileAtom({ block, editable, onChange }: AtomProps<"file">) {
-  const upload = useUpload();
   if (!block.url) {
     if (!editable) return null;
     return (
       <EmptyMedia>
         <UploadButton
-          onFile={async (file) =>
-            onChange({
-              ...block,
-              url: await upload(file),
-              name: file.name,
-              size: file.size,
-            })
+          onUploaded={(url, file) =>
+            onChange({ ...block, url, name: file.name, size: file.size })
           }
         />
       </EmptyMedia>
