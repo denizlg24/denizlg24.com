@@ -7,6 +7,22 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.3.0 — 2026-11-03
+
+### Added
+- **Sprints**: plan scheduled coding-agent runs against a repository. A
+  sprint is a branch and a pull request; its slots (implement, review,
+  fix-review, release, custom) sit on a day-by-hour timeline, chain through
+  dependencies, and run Claude Code headless on Forge at their time. Drag a
+  slot to move it, click empty time to add one, and set model, effort,
+  permission mode, credential and timeout per sprint or per slot.
+- **Coding runs**: each run's transcript, result, review findings by
+  severity, cost (`~$` when it is a subscription estimate), branch, PR and CI,
+  live while it runs, with cancel and retry.
+- **Release offers**: a release slot that passes CI offers its pull request
+  for merging; Merge on the sprint merges exactly the commit CI saw.
+- **Calendar**: sprint slots show on the month grid, linking to their sprint.
+
 ## 3.2.0 — 2026-11-02
 
 ### Added
