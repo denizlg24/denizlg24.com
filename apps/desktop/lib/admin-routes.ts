@@ -89,6 +89,12 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
       withQuery(`${ROOT}/agent-memory/detail`, { id: memoryId }),
   },
 
+  sprints: {
+    root: `${ROOT}/sprints`,
+    sprint: (sprintId) => withQuery(`${ROOT}/sprints`, { id: sprintId }),
+    run: (runId) => withQuery(`${ROOT}/sprints`, { run: runId }),
+  },
+
   market: {
     root: `${ROOT}/markets`,
     portfolios: `${ROOT}/markets/portfolios`,

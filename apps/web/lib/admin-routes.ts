@@ -82,6 +82,12 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     detail: (memoryId) => withSegments(`${ROOT}/agent-memory`, memoryId),
   },
 
+  sprints: {
+    root: `${ROOT}/sprints`,
+    sprint: (sprintId) => withSegments(`${ROOT}/sprints`, sprintId),
+    run: (runId) => withSegments(`${ROOT}/sprints/runs`, runId),
+  },
+
   market: {
     root: `${ROOT}/markets`,
     portfolios: `${ROOT}/markets/portfolios`,
