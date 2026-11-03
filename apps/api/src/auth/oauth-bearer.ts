@@ -107,6 +107,7 @@ export function createOAuthBearerResolver(options: OAuthBearerOptions) {
         : verified.clientId;
     return {
       sessionId: `oauth:${tokenId}`,
+      ...(verified.machine ? { machineClientId: verified.clientId } : {}),
       user: { ...toSafeUser(legacyUser), status: "active", totpEnabled: true },
     };
   };

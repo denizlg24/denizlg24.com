@@ -8,6 +8,8 @@ import type { SafeUserRecord } from "../services/types";
 export interface AuthVariables {
   user: SafeUserRecord;
   sessionId: string | undefined;
+  /** The OAuth client behind a machine token; undefined for people and API keys. */
+  machineClientId: string | undefined;
   project: Project | undefined;
   scopes: ApiKeyScope[] | undefined;
 }
@@ -15,6 +17,7 @@ export interface AuthVariables {
 export interface SessionAuthResult {
   user: SafeUserRecord;
   sessionId: string;
+  machineClientId?: string;
 }
 
 export interface ApiKeyAuthResult {
@@ -58,6 +61,7 @@ export function auth(resolvers: AuthResolvers) {
 
           context.set("user", session.user);
           context.set("sessionId", session.sessionId);
+          context.set("machineClientId", session.machineClientId);
           context.set("project", undefined);
           context.set("scopes", undefined);
           return next();
@@ -79,6 +83,7 @@ export function auth(resolvers: AuthResolvers) {
 
         context.set("user", result.user);
         context.set("sessionId", undefined);
+        context.set("machineClientId", undefined);
         context.set("project", result.project);
         context.set("scopes", result.scopes);
         return next();
