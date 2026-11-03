@@ -101,6 +101,73 @@ install_dr_host_config() {
     --profile forge --ssh-user denizlg24 --execute --defer-timers
 }
 
+# Installs a staged file over its destination and reports whether it changed.
+# A missing staged file is an older release, and counts as unchanged.
+install_staged() {
+  local name="$1" destination="$2" mode="$3" changed=1
+  [ -f "$STAGING_DIR/$name" ] || return 1
+  if cmp -s "$STAGING_DIR/$name" "$destination"; then changed=0; fi
+  install -D -m "$mode" -o root -g root "$STAGING_DIR/$name" "$destination"
+  rm -f "$STAGING_DIR/$name"
+  [ "$changed" = "1" ]
+}
+
+# The sprint agent runner: a separate service sharing this script's staging
+# directory and sudoers rule. It runs as sandbox-runner against that user's
+# rootless daemon, and a restart leaves every run's container running, so
+# unlike the agent it needs no idle queue. The unit is restarted only once the
+# owner has enabled it; the first install, the env file and `enable` are by
+# hand.
+install_agent_runner() {
+  local staged="$STAGING_DIR/agent-runner"
+  local target=/usr/local/bin/agent-runner
+  local previous=/var/lib/forge-agent/agent-runner.prev
+  [ -f "$staged" ] && [ -s "$staged" ] \
+    || { echo "nothing staged at $staged" >&2; exit 1; }
+  chmod 0755 "$staged"
+  "$staged" --version >/dev/null \
+    || { echo "staged agent-runner does not run on this host" >&2; exit 1; }
+
+  install_staged agent-runner.service \
+    /etc/systemd/system/agent-runner.service 0644 || true
+  install_staged agent-runner-slice.conf \
+    /etc/systemd/system/user-1001.slice.d/agent-runner.conf 0644 || true
+  if getent passwd sandbox-runner >/dev/null; then
+    install -d -m 0711 -o sandbox-runner -g sandbox-runner /mnt/storage/agent-runs
+  fi
+
+  [ -f "$target" ] && cp -f "$target" "$previous"
+  install -m 0755 -o root -g root "$staged" "${target}.new"
+  mv -f "${target}.new" "$target"
+  rm -f "$staged"
+  systemctl daemon-reload
+
+  if ! systemctl is-enabled --quiet agent-runner.service; then
+    echo "agent-runner installed; not enabled, so not started"
+    return 0
+  fi
+  systemctl restart agent-runner.service
+  for _ in $(seq 1 30); do
+    if systemctl is-active --quiet agent-runner; then
+      echo "agent-runner restarted"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "agent-runner did not become active; rolling back" >&2
+  if [ -f "$previous" ]; then
+    install -m 0755 -o root -g root "$previous" "${target}.new"
+    mv -f "${target}.new" "$target"
+    systemctl restart agent-runner || true
+  fi
+  exit 1
+}
+
+if [ "${1:-}" = "--install-agent-runner" ]; then
+  [ "$#" -eq 1 ] || { echo "unexpected arguments" >&2; exit 2; }
+  install_agent_runner
+  exit 0
+fi
 if [ "${1:-}" = "--install-dr-runtime" ]; then
   [ "$#" -eq 1 ] || { echo "unexpected arguments" >&2; exit 2; }
   install_dr_runtime
@@ -115,17 +182,6 @@ fi
 
 [ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
 [ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }
-
-# Installs a staged file over its destination and reports whether it changed.
-# A missing staged file is an older release, and counts as unchanged.
-install_staged() {
-  local name="$1" destination="$2" mode="$3" changed=1
-  [ -f "$STAGING_DIR/$name" ] || return 1
-  if cmp -s "$STAGING_DIR/$name" "$destination"; then changed=0; fi
-  install -D -m "$mode" -o root -g root "$STAGING_DIR/$name" "$destination"
-  rm -f "$STAGING_DIR/$name"
-  [ "$changed" = "1" ]
-}
 
 buildkit_changed=0
 if [ -f "$STAGING_DIR/forge-buildkit.service" ] \

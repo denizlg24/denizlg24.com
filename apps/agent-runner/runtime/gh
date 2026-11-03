@@ -1,0 +1,9 @@
+#!/bin/sh
+# gh with the current run token. The token is re-read on every call because
+# the runner re-mints it every 45 minutes during a long run.
+token_file="${SPRINT_GITHUB_TOKEN_FILE:-/run/creds/github-token}"
+if [ -r "$token_file" ]; then
+  GH_TOKEN="$(cat "$token_file")"
+  export GH_TOKEN
+fi
+exec /usr/bin/gh "$@"

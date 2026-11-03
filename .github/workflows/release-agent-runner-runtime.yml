@@ -1,0 +1,32 @@
+name: Release agent runner runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/agent-runner/runtime/**"
+      - "apps/agent-runner/runtime.Dockerfile"
+      - ".github/workflows/build-image.yml"
+      - ".github/workflows/release-agent-runner-runtime.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: release-agent-runner-runtime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The runner pins this image by digest (AGENT_RUNNER_RUNTIME_IMAGE), so a
+# release here changes nothing until that pin moves.
+jobs:
+  build:
+    name: Build and verify agent runner runtime
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image: ghcr.io/denizlg24/agent-runner-runtime
+      dockerfile: apps/agent-runner/runtime.Dockerfile
+      verify_command: claude --version && bun --version && gh --version && git --version && test -x /usr/local/bin/git-credential-sprint
