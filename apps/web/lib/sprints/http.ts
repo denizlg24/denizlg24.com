@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import type { z } from "zod";
-import { requireAdmin } from "@/lib/require-admin";
+import { getAdminSession, requireAdmin } from "@/lib/require-admin";
+import { isAgentRunner } from "./runner-gate";
 import { SprintError } from "./service";
 
 export function sprintErrorResponse(error: unknown): NextResponse {
@@ -19,6 +20,24 @@ export async function withSprints(
   handle: () => Promise<Response>,
 ): Promise<Response> {
   await requireAdmin(request);
+  try {
+    return await handle();
+  } catch (error) {
+    return sprintErrorResponse(error);
+  }
+}
+
+export async function withRunner(
+  request: NextRequest,
+  handle: () => Promise<Response>,
+): Promise<Response> {
+  const session = await getAdminSession(request);
+  if (!isAgentRunner(session, process.env.AGENT_RUNNER_CLIENT_ID)) {
+    return NextResponse.json(
+      { error: "Forbidden", code: "NOT_RUNNER" },
+      { status: 403 },
+    );
+  }
   try {
     return await handle();
   } catch (error) {
