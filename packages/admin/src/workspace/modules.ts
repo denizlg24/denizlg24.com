@@ -28,6 +28,7 @@ import {
   PenTool,
   PiggyBank,
   Radio,
+  Route,
   Settings,
   Table,
   Timer,
@@ -328,6 +329,13 @@ const MODULE_SPECS = [
     icon: Brain,
     section: "system",
     keywords: ["cron", "scheduled"],
+  },
+  {
+    id: "sprints",
+    label: "Sprints",
+    icon: Route,
+    section: "system",
+    keywords: ["coding agent", "claude code", "runs", "release"],
   },
   {
     id: "llm-usage",

@@ -132,6 +132,7 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
       authenticator: `${ROOT}/authenticator`,
       "agent-memory": `${ROOT}/agent-memory`,
       "agent-tasks": `${ROOT}/agent-tasks`,
+      sprints: `${ROOT}/sprints`,
       "llm-usage": `${ROOT}/llm-usage`,
       settings: `${ROOT}/settings`,
     },
