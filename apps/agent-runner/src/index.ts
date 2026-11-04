@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   let egressReady = false;
   const checkEgress = async () => {
     try {
-      await applyEgressRules(docker, config);
+      await applyEgressRules(docker, runCommand, config);
       if (!egressReady) log.info("egress rules verified");
       egressReady = true;
     } catch (error) {

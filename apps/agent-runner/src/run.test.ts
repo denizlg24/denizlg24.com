@@ -172,6 +172,11 @@ async function execute(scenario: Scenario) {
       state: async () => "exited",
     },
     workspaces: {
+      resolvConfMount: {
+        source: join(root, "resolv.conf"),
+        target: "/etc/resolv.conf",
+        readOnly: true,
+      },
       createCredsDir: async (runId) => {
         const dir = join(root, "creds", runId);
         await mkdir(dir, { recursive: true });

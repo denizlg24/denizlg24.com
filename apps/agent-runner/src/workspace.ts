@@ -22,6 +22,7 @@ import type { RunnerConfig } from "./config";
 import type { ContainerSpec, Docker, Mount } from "./docker";
 import type { CommandRunner } from "./exec";
 import type { Logger } from "./log";
+import { resolvConf } from "./network";
 
 /** The image's non-root user. Every file a run writes is owned by it. */
 export const CONTAINER_USER = "1000:1000";
@@ -264,6 +265,7 @@ export class Workspaces {
       | "network"
       | "git"
       | "minFreeDiskBytes"
+      | "dns"
     >,
     private readonly docker: Pick<Docker, "runOnce">,
     private readonly exec: CommandRunner,
@@ -296,6 +298,23 @@ export class Workspaces {
     await this.#shared(join(root, "cache", "bun"));
     await mkdir(join(root, "state"), { recursive: true, mode: 0o700 });
     await mkdir(join(root, "creds"), { recursive: true, mode: 0o711 });
+    await writeFile(this.resolvConfPath, resolvConf(this.config.dns), {
+      mode: 0o644,
+    });
+    await chmod(this.resolvConfPath, 0o644);
+  }
+
+  /** Mounted over /etc/resolv.conf in every container on the run network. */
+  get resolvConfPath(): string {
+    return join(this.config.root, "resolv.conf");
+  }
+
+  get resolvConfMount(): Mount {
+    return {
+      source: this.resolvConfPath,
+      target: "/etc/resolv.conf",
+      readOnly: true,
+    };
   }
 
   /** A per-run directory only someone holding its random name can reach. */
@@ -330,6 +349,7 @@ export class Workspaces {
       { source: paths.mirror, target: paths.mirror },
       { source: paths.worktree, target: paths.worktree },
       { source: credsDir, target: CONTAINER_CREDS, readOnly: true },
+      this.resolvConfMount,
     ];
     return {
       image: this.config.image,

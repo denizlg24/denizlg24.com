@@ -87,7 +87,11 @@ export interface RunDeps {
   >;
   workspaces: Pick<
     Workspaces,
-    "createCredsDir" | "prepare" | "writeContext" | "finalize"
+    | "createCredsDir"
+    | "prepare"
+    | "writeContext"
+    | "finalize"
+    | "resolvConfMount"
   >;
   runTokens: Pick<RunTokenSource, "mint">;
   github: GitHubFactory;
@@ -381,7 +385,7 @@ export class RunSupervisor {
     entrypoint: string,
     args: string[],
   ): ContainerSpec {
-    const { config } = this.deps;
+    const { config, workspaces } = this.deps;
     return {
       name: containerName(run.runId),
       image: config.image,
@@ -401,6 +405,7 @@ export class RunSupervisor {
         { source: paths.out, target: CONTAINER_OUT },
         { source: credsDir, target: CONTAINER_CREDS, readOnly: true },
         { source: join(config.root, "cache", "bun"), target: "/cache/bun" },
+        workspaces.resolvConfMount,
       ],
       workdir: paths.worktree,
       envFile: paths.envFile,

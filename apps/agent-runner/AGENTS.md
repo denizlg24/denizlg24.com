@@ -48,17 +48,32 @@ sprint branch, manages the PR, and reports back. Design:
   `CLAUDE_CODE_VERSION` and `CLAUDE_CODE_VERSION` in
   `src/harness/claude-code.ts` move together: the stream-json shapes and CLI
   flags are what this parses.
-- **The egress boundary is unproven (Phase 0 G2).** At boot and every 5 min a
-  one-shot `--network host --cap-add NET_ADMIN` helper (runc, never runsc —
-  gVisor keeps its own netfilter) applies drop rules in the rootlesskit netns:
+- **The egress rules are applied by `nsenter`, never by a container.**
+  Measured on Forge 2026-11-04: the daemon runs rootlesskit with
+  `--detach-netns`, so a `--network host` helper lands in the *real* host
+  netns, where uid 1001 is nobody — iptables answers "you must be root". The
+  runner owns rootlesskit, so at boot and every 5 min it runs
+  `nsenter --user --preserve-credentials --target=<child_pid>
+  --net=/proc/<child_pid>/root<state-dir>/netns` with the host's iptables:
   chain `AGENT-RUNS-EGRESS` jumped from `DOCKER-USER` for the `agent-runs0`
-  bridge, plus an `INPUT` drop so a run cannot reach the daemon's netns
-  itself. It reads them back and the runner admits nothing while they are
-  missing. Unverified: that the rootless netns has a `DOCKER-USER` chain the
-  bridge's traffic passes, that the image's `iptables` (nft backend) matches
-  the daemon's, and that embedded DNS still answers under runsc. The
+  bridge, plus an `INPUT` drop so a run cannot reach the daemon's netns. It
+  reads them back and admits nothing while they are missing. Without them a
+  run reaches Forge's tailnet SSH, the daemon's TCP listener and
+  `forge-apps` containers (measured). The nsenter path itself is **not yet
+  proven on Forge** (it needs the `sandbox-runner` account); if it fails, the
   egress-proxy fallback (the `apps/browser` proxy on an `--internal` network)
-  is **not built**; build it if G2 fails.
+  is the next step and is not built.
+- **runsc cannot resolve names on a user-defined network.** gVisor's netstack
+  never passes the DNAT that makes Docker's embedded resolver (127.0.0.11)
+  work, and `--dns` only changes that resolver's upstream. Every container on
+  `agent-runs` mounts `<root>/resolv.conf` (written at boot from
+  `AGENT_RUNNER_DNS`, public resolvers) over `/etc/resolv.conf`. Measured:
+  without it github.com does not resolve under runsc; with it, it does under
+  both runtimes.
+- **gVisor costs ~1.1–1.25× here** (G1, 2026-11-04, 8 GB / 4 CPU limits): cold
+  `bun install` of this monorepo 111 s runc → 118 s runsc, `turbo typecheck
+  --filter=web` 98 s → 122 s. Hardlink installs and the 6 GB-heap typecheck
+  work under runsc.
 - **Ownership: the container is uid 1000, the runner is uid 1001.** Under the
   rootless daemon container uid 1000 is a subuid on the host, so the runner
   cannot write what a run wrote, nor the reverse. Everything that touches a

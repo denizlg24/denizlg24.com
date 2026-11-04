@@ -1098,12 +1098,16 @@ admin UI is `packages/admin/src/sprints/`, the MCP tool `web_sprints`.
   milliseconds so it keeps rising across a runner restart. An auth failure
   arrives as `is_error: true` with `subtype: "success"`; `--bare` skips OAuth
   and must never be passed.
-- **Phase 0 is not done.** gVisor's cost (G1; `AGENT_RUNNER_CONTAINER_RUNTIME`
-  falls back to `runc` on the same rootless daemon), the egress drop rules
-  (G2; the egress-proxy fallback is not built), the subscription token from a
-  Team seat and the Gateway credential (G3), and the App's permissions
-  (G4 — contents, pull requests, checks, **commit statuses**, actions) must
-  be proven on Forge before the first real sprint.
+- **Phase 0, as measured on Forge 2026-11-04.** G1 passed: runsc costs
+  1.06× on a cold `bun install` and 1.24× on web's typecheck, so it stays the
+  default. G2 found that a `--network host` helper cannot touch the rootless
+  daemon's rules (`--detach-netns` puts it in the real host netns), so the
+  runner applies them through `nsenter` into rootlesskit's namespaces; that
+  path still needs proving as `sandbox-runner` (the egress-proxy fallback is
+  not built). runsc cannot use Docker's embedded DNS on a user network, so
+  runs mount a `resolv.conf` with public resolvers. Still open: the Team-seat
+  token and Gateway credential (G3), and the App's permissions (G4 — contents,
+  pull requests, checks, **commit statuses**, actions).
 - **Pushes carry no URL.** The dashboard app only routes `dashboard://`
   links and has no sprint screen. Kinds `sprint_run_started` (off by
   default), `_finished`, `_failed` (also skips) and `sprint_release_ready`.

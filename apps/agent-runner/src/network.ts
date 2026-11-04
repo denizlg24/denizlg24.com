@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import type { RunnerConfig } from "./config";
 import type { Docker } from "./docker";
+import type { CommandRunner } from "./exec";
 
 const EGRESS_CHAIN = "AGENT-RUNS-EGRESS";
 
@@ -98,8 +100,10 @@ export function verifyEgressRules(
 
 export class EgressError extends Error {}
 
+type NetworkDocker = Pick<Docker, "networkExists" | "createNetwork">;
+
 export async function ensureNetwork(
-  docker: Docker,
+  docker: NetworkDocker,
   config: Pick<RunnerConfig, "network" | "bridge">,
 ): Promise<void> {
   if (await docker.networkExists(config.network)) return;
@@ -107,32 +111,64 @@ export async function ensureNetwork(
 }
 
 /**
- * Applies and reads back the drop rules through a one-shot helper. It runs
- * under runc on purpose: gVisor keeps its own netfilter in its netstack, so a
- * runsc helper would edit nothing that the bridge's traffic ever passes.
- * Root here is root of the daemon's user namespace only.
+ * The command that applies and reads back the drop rules.
+ *
+ * Not a container: the daemon runs rootlesskit with `--detach-netns`, so a
+ * `--network host` container lands in the real host netns, where uid 1001
+ * holds no privilege (measured on Forge: iptables answers "you must be
+ * root"). The bridges live in rootlesskit's detached netns instead. The runner
+ * is the user that owns rootlesskit, so it can enter rootlesskit's user
+ * namespace — where it is root — and that netns, and run the host's own
+ * iptables there. Root here is root of that user namespace only.
  */
+export function egressCommand(
+  stateDir: string,
+  childPid: number,
+  bridge: string,
+  cidrs: readonly string[],
+): string[] {
+  return [
+    "nsenter",
+    "--user",
+    "--preserve-credentials",
+    `--target=${childPid}`,
+    `--net=/proc/${childPid}/root${stateDir}/netns`,
+    "--",
+    "sh",
+    "-c",
+    EGRESS_SCRIPT,
+    "sh",
+    bridge,
+    ...cidrs,
+  ];
+}
+
+export function parseChildPid(text: string): number {
+  const pid = Number.parseInt(text.trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 1) {
+    throw new EgressError(`rootlesskit child_pid is not a pid: ${text.trim()}`);
+  }
+  return pid;
+}
+
 export async function applyEgressRules(
-  docker: Docker,
+  docker: NetworkDocker,
+  exec: CommandRunner,
   config: Pick<
     RunnerConfig,
-    "network" | "bridge" | "image" | "blockedAddresses"
+    "network" | "bridge" | "blockedAddresses" | "rootlesskitStateDir"
   >,
+  readText: (path: string) => Promise<string> = (path) =>
+    readFile(path, "utf8"),
 ): Promise<void> {
   await ensureNetwork(docker, config);
   const cidrs = blockedCidrs(config.blockedAddresses);
-  const result = await docker.runOnce(
-    {
-      image: config.image,
-      runtime: "runc",
-      network: "host",
-      user: "0:0",
-      capAdd: ["NET_ADMIN", "NET_RAW"],
-      readOnly: true,
-      entrypoint: "sh",
-      command: ["-c", EGRESS_SCRIPT, "sh", config.bridge, ...cidrs],
-    },
-    { timeoutMs: 120_000 },
+  const childPid = parseChildPid(
+    await readText(`${config.rootlesskitStateDir}/child_pid`),
+  );
+  const result = await exec(
+    egressCommand(config.rootlesskitStateDir, childPid, config.bridge, cidrs),
+    { timeoutMs: 60_000 },
   );
   if (result.exitCode !== 0) {
     throw new EgressError(
@@ -145,4 +181,9 @@ export async function applyEgressRules(
       `egress rules did not read back: ${problems.join("; ")}`,
     );
   }
+}
+
+/** Every run's /etc/resolv.conf; see `AGENT_RUNNER_DNS`. */
+export function resolvConf(servers: readonly string[]): string {
+  return `${servers.map((server) => `nameserver ${server}`).join("\n")}\noptions timeout:2 attempts:2\n`;
 }

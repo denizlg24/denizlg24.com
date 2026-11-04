@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { BLOCKED_V4, blockedCidrs, verifyEgressRules } from "./network";
+import type { Docker } from "./docker";
+import type { CommandRunner } from "./exec";
+import {
+  applyEgressRules,
+  BLOCKED_V4,
+  blockedCidrs,
+  EgressError,
+  egressCommand,
+  parseChildPid,
+  resolvConf,
+  verifyEgressRules,
+} from "./network";
 
 const BRIDGE = "agent-runs0";
 
@@ -74,6 +85,72 @@ describe("verifyEgressRules", () => {
   test("an empty read-back fails every check", () => {
     expect(verifyEgressRules("", BRIDGE, cidrs).length).toBe(
       BLOCKED_V4.length + 2,
+    );
+  });
+});
+
+describe("applying the rules", () => {
+  const STATE = "/run/user/1001/dockerd-rootless";
+  const config = {
+    network: "agent-runs",
+    bridge: BRIDGE,
+    blockedAddresses: [],
+    rootlesskitStateDir: STATE,
+  };
+  const docker: Pick<Docker, "networkExists" | "createNetwork"> = {
+    networkExists: async () => true,
+    createNetwork: async () => {},
+  };
+
+  test("enters rootlesskit's user namespace and its detached netns", () => {
+    const argv = egressCommand(STATE, 1133, BRIDGE, ["10.0.0.0/8"]);
+    expect(argv.slice(0, 5)).toEqual([
+      "nsenter",
+      "--user",
+      "--preserve-credentials",
+      "--target=1133",
+      `--net=/proc/1133/root${STATE}/netns`,
+    ]);
+    expect(argv.slice(-2)).toEqual([BRIDGE, "10.0.0.0/8"]);
+  });
+
+  test("a child_pid that is not a pid is refused", () => {
+    expect(() => parseChildPid("")).toThrow(EgressError);
+    expect(() => parseChildPid("1")).toThrow(EgressError);
+    expect(parseChildPid("1133\n")).toBe(1133);
+  });
+
+  test("a complete read-back passes; a failed nsenter does not", async () => {
+    const cidrs = blockedCidrs([]);
+    const calls: string[][] = [];
+    const ok: CommandRunner = async (argv) => {
+      calls.push(argv);
+      return {
+        exitCode: 0,
+        stdout: readBack(cidrs, [JUMP], [INPUT_DROP]),
+        stderr: "",
+        timedOut: false,
+      };
+    };
+    await applyEgressRules(docker, ok, config, async () => "1133");
+    expect(calls[0]?.[0]).toBe("nsenter");
+
+    const denied: CommandRunner = async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "iptables: Permission denied (you must be root)",
+      timedOut: false,
+    });
+    await expect(
+      applyEgressRules(docker, denied, config, async () => "1133"),
+    ).rejects.toThrow("you must be root");
+  });
+});
+
+describe("resolvConf", () => {
+  test("names each server and nothing from the daemon", () => {
+    expect(resolvConf(["1.1.1.1", "9.9.9.9"])).toBe(
+      "nameserver 1.1.1.1\nnameserver 9.9.9.9\noptions timeout:2 attempts:2\n",
     );
   });
 });

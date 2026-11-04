@@ -51,6 +51,27 @@ const envSchema = z.object({
     .default("agent-runs0"),
   /** The host's own public addresses, beyond the private ranges always refused. */
   AGENT_RUNNER_BLOCKED_ADDRESSES: z.string().default(""),
+  /** rootlesskit's `--state-dir`; holds `child_pid` and the detached `netns`. */
+  AGENT_RUNNER_ROOTLESSKIT_STATE_DIR: z
+    .string()
+    .startsWith("/")
+    .default("/run/user/1001/dockerd-rootless"),
+  /**
+   * Resolvers written into every run's /etc/resolv.conf. gVisor's netstack
+   * cannot reach Docker's embedded resolver (127.0.0.11) on a user-defined
+   * network, so runs resolve through public servers, which the egress rules
+   * leave reachable.
+   */
+  AGENT_RUNNER_DNS: z
+    .string()
+    .default("1.1.1.1,9.9.9.9")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.ipv4()).min(1)),
   AGENT_RUNNER_GIT_NAME: z.string().trim().min(1),
   AGENT_RUNNER_GIT_EMAIL: z.email(),
   AGENT_RUNNER_MIN_MEM_AVAILABLE_GB: z.coerce.number().positive().default(10),
@@ -80,6 +101,8 @@ export interface RunnerConfig {
   network: string;
   bridge: string;
   blockedAddresses: string[];
+  rootlesskitStateDir: string;
+  dns: string[];
   git: { name: string; email: string };
   minMemAvailableBytes: number;
   minFreeDiskBytes: number;
@@ -141,6 +164,11 @@ export function configFromEnv(
     network: value.AGENT_RUNNER_NETWORK,
     bridge: value.AGENT_RUNNER_BRIDGE,
     blockedAddresses: blocked,
+    rootlesskitStateDir: value.AGENT_RUNNER_ROOTLESSKIT_STATE_DIR.replace(
+      /\/$/,
+      "",
+    ),
+    dns: value.AGENT_RUNNER_DNS,
     git: {
       name: value.AGENT_RUNNER_GIT_NAME,
       email: value.AGENT_RUNNER_GIT_EMAIL,
