@@ -87,6 +87,11 @@ export class ClaudeStreamMapper {
   private finalResult: ClaudeStreamResult | null = null;
   private initInfo: ClaudeStreamInit | null = null;
   private malformedLines = 0;
+  private retryState: {
+    status: number;
+    error: string;
+    attempt: number;
+  } | null = null;
 
   constructor(private readonly options: ClaudeStreamMapperOptions) {}
 
@@ -175,6 +180,7 @@ export class ClaudeStreamMapper {
     switch (event.type) {
       case "system":
         if (event.subtype === "init") this.applyInit(event);
+        else if (event.subtype === "api_retry") this.applyRetry(event);
         return;
       case "assistant":
         this.applyAssistant(event);
@@ -200,6 +206,38 @@ export class ClaudeStreamMapper {
       default:
         return;
     }
+  }
+
+  /**
+   * Claude Code retries a failing API call up to `max_retries` times with
+   * backoff and writes nothing else meanwhile; a rejected credential (401 from
+   * the Gateway) spends minutes there before any result. One notice, rewritten
+   * per attempt, so the transcript says why it is quiet.
+   */
+  private applyRetry(event: JsonRecord): void {
+    const status = asNumber(event.error_status);
+    const error = asString(event.error) || "error";
+    const attempt = asNumber(event.attempt);
+    const max = asNumber(event.max_retries);
+    this.retryState = { status, error, attempt };
+    this.upsert({
+      id: "api-retry",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-notice",
+          data: {
+            level: "warning",
+            text: `API call failing (${status || "no status"} ${error}); retry ${attempt}${max ? ` of ${max}` : ""}`,
+          },
+        },
+      ],
+    });
+  }
+
+  /** The last retry Claude Code reported, if it is retrying at all. */
+  retrying(): { status: number; error: string; attempt: number } | null {
+    return this.retryState;
   }
 
   private applyInit(event: JsonRecord): void {

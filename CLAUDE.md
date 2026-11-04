@@ -1105,9 +1105,14 @@ admin UI is `packages/admin/src/sprints/`, the MCP tool `web_sprints`.
   runner applies them through `nsenter` into rootlesskit's namespaces; that
   path still needs proving as `sandbox-runner` (the egress-proxy fallback is
   not built). runsc cannot use Docker's embedded DNS on a user network, so
-  runs mount a `resolv.conf` with public resolvers. Still open: the Team-seat
-  token and Gateway credential (G3), and the App's permissions (G4 — contents,
-  pull requests, checks, **commit statuses**, actions).
+  runs mount a `resolv.conf` with public resolvers. The `gateway` credential
+  works (G3: `ANTHROPIC_BASE_URL=https://ai-gateway.vercel.sh` +
+  `ANTHROPIC_AUTH_TOKEN`, aliases like `haiku` resolve, tool use and
+  stream-json intact); a rejected key is not a quick failure but up to ten
+  `system/api_retry` 401s with backoff, which the transcript shows as one
+  warning. Still open: the Team-seat token (G3) and the App's permissions
+  (G4 — contents, pull requests, checks, **commit statuses**, actions). The
+  `main` ruleset requires status checks but not a pull request.
 - **Pushes carry no URL.** The dashboard app only routes `dashboard://`
   links and has no sprint screen. Kinds `sprint_run_started` (off by
   default), `_finished`, `_failed` (also skips) and `sprint_release_ready`.

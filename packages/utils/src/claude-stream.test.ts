@@ -78,6 +78,27 @@ describe("ClaudeStreamMapper on a real stream", () => {
 });
 
 describe("ClaudeStreamMapper edge cases", () => {
+  test("a rejected Gateway credential retries loudly, as one notice", () => {
+    const mapper = new ClaudeStreamMapper({ maxToolOutputChars: 100 });
+    mapper.push(fixture("claude-gateway-auth-retry.jsonl"));
+    mapper.end();
+    expect(mapper.retrying()).toMatchObject({
+      status: 401,
+      error: "authentication_failed",
+      attempt: 9,
+    });
+    const notices = mapper
+      .all()
+      .filter((message) => message.id === "api-retry");
+    expect(notices).toHaveLength(1);
+    const part = notices[0]?.parts[0];
+    if (part?.type === "data-notice") {
+      expect(part.data.text).toContain("401 authentication_failed");
+      expect(part.data.text).toContain("retry 9 of 10");
+    }
+    expect(mapper.result()).toBeNull();
+  });
+
   test("an error result with subtype success is still an error", () => {
     const mapper = new ClaudeStreamMapper({ maxToolOutputChars: 100 });
     mapper.push(fixture("claude-auth-error.jsonl"));
