@@ -1111,8 +1111,11 @@ admin UI is `packages/admin/src/sprints/`, the MCP tool `web_sprints`.
   stream-json intact); a rejected key is not a quick failure but up to ten
   `system/api_retry` 401s with backoff, which the transcript shows as one
   warning. Still open: the Team-seat token (G3) and the App's permissions
-  (G4 — contents, pull requests, checks, **commit statuses**, actions). The
-  `main` ruleset requires status checks but not a pull request.
+  (G4 — contents, pull requests, checks, **commit statuses**, actions).
+  `main` here has required a pull request since 2026-11-04 (ruleset `master`;
+  its status-check rule names no checks, so it never blocked a push on its
+  own) — every repository a sprint targets needs the same, or a run token
+  can push to its default branch.
 - **Pushes carry no URL.** The dashboard app only routes `dashboard://`
   links and has no sprint screen. Kinds `sprint_run_started` (off by
   default), `_finished`, `_failed` (also skips) and `sprint_release_ready`.
