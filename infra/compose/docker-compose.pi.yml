@@ -320,6 +320,8 @@ services:
       # proxy has no upstream at all: apps/api falls back to undefined under
       # NODE_ENV=production and both database tool tabs break.
       ADMINER_URL: ${ADMINER_URL:-http://adminer:8080}
+      # OAuth client ids allowed to mint sprint run tokens (comma-separated).
+      AGENT_RUNNER_CLIENT_IDS: ${AGENT_RUNNER_CLIENT_IDS:-}
       BACKUP_DIR: /backups
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       ACTIVITY_LOG_RETENTION_DAYS: ${ACTIVITY_LOG_RETENTION_DAYS:-30}
