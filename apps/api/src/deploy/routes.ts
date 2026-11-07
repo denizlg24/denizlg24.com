@@ -171,6 +171,7 @@ import {
   recordedRecoveryBuilder,
 } from "./ops";
 import { DeployAgentProxy, DeployAgentUnavailableError } from "./proxy";
+import { type RunTokenRouteOptions, runTokenRoutes } from "./run-token";
 
 export interface DeployRouteOptions {
   db: Database;
@@ -212,6 +213,8 @@ export interface DeployRouteOptions {
   meili: SearchKeyClient;
   /** Ops notifications, for a deployment that failed. Absent in tests. */
   notifications?: Pick<NotificationDispatcher, "dispatch">;
+  /** Sprint run tokens; absent means only people may mint them. */
+  runTokens?: Pick<RunTokenRouteOptions, "allowedClientIds" | "audit">;
 }
 
 /**
@@ -5337,6 +5340,18 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   app.route("/hooks", hooks);
+
+  // Ahead of `owner` for the same reason as /agent and /hooks: owner's guard
+  // admits every superuser machine token, and this route admits only some.
+  app.route(
+    "/github/run-token",
+    runTokenRoutes({
+      listInstallations: () => db.select().from(deployGithubInstallations),
+      github: options.github,
+      allowedClientIds: options.runTokens?.allowedClientIds ?? new Set(),
+      audit: options.runTokens?.audit,
+    }),
+  );
 
   // Mounted last, and it has to stay last. `owner` guards itself with a `*`
   // middleware, and mounting it at "/" spreads that over every path under

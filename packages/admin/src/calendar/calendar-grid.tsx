@@ -1,7 +1,9 @@
 "use client";
 
-import type { ICalendarEvent } from "@repo/schemas";
+import type { ICalendarEvent, SprintCalendarSlot } from "@repo/schemas";
 import { cn } from "@repo/ui/utils";
+import { Route } from "lucide-react";
+import Link from "next/link";
 import { useMemo } from "react";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -68,11 +70,59 @@ export function eventChipClass(event: ICalendarEvent) {
   );
 }
 
+const SLOT_CHIP_CLASS =
+  "relative z-10 hidden min-w-0 overflow-hidden rounded-sm border border-dashed border-border px-1 py-0.5 text-left text-[10px] leading-tight text-ellipsis whitespace-nowrap text-accent-strong transition-colors hover:bg-muted md:flex md:items-center md:gap-1";
+
+function SprintSlotChip({
+  slot,
+  href,
+}: {
+  slot: SprintCalendarSlot;
+  href: string | undefined;
+}) {
+  const body = (
+    <>
+      <Route className="size-2.5 shrink-0 text-muted-foreground" />
+      <span className="tabular-nums text-muted-foreground">
+        {formatEventTime(slot.at)}
+      </span>
+      <span className="min-w-0 truncate">{slot.title}</span>
+    </>
+  );
+  const className = cn(
+    SLOT_CHIP_CLASS,
+    (slot.status === "skipped" || slot.status === "cancelled") &&
+      "text-muted-foreground line-through",
+    slot.status === "failed" && "border-status-critical/60",
+  );
+  const label = `${slot.sprintTitle} · ${slot.title} · ${slot.status}`;
+  if (!href) {
+    return (
+      <span className={className} title={label}>
+        {body}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      title={label}
+      className={className}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {body}
+    </Link>
+  );
+}
+
 interface CalendarGridProps {
   year: number;
   /** 0-based. */
   month: number;
   events?: ICalendarEvent[];
+  /** Sprint slots, drawn read-only after the day's events. */
+  sprintSlots?: SprintCalendarSlot[];
+  sprintHref?: (sprintId: string) => string;
   onEventClick?: (event: ICalendarEvent) => void;
   onDayClick?: (date: Date) => void;
 }
@@ -81,6 +131,8 @@ export function CalendarGrid({
   year,
   month,
   events = [],
+  sprintSlots = [],
+  sprintHref,
   onEventClick,
   onDayClick,
 }: CalendarGridProps) {
@@ -99,6 +151,20 @@ export function CalendarGrid({
     for (const list of grouped.values()) list.sort(compareEvents);
     return grouped;
   }, [events]);
+
+  const slotsByDate = useMemo(() => {
+    const grouped = new Map<string, SprintCalendarSlot[]>();
+    for (const slot of sprintSlots) {
+      const key = toCalendarDateKey(new Date(slot.at));
+      const list = grouped.get(key) ?? [];
+      list.push(slot);
+      grouped.set(key, list);
+    }
+    for (const list of grouped.values()) {
+      list.sort((left, right) => left.at.localeCompare(right.at));
+    }
+    return grouped;
+  }, [sprintSlots]);
 
   const cells = Array.from({ length: rows * 7 }, (_, i) => {
     const dayNum = i - startDow + 1;
@@ -128,6 +194,17 @@ export function CalendarGrid({
           const isToday = cell.date !== null && isSameDay(cell.date, today);
           const dateKey = cell.date ? toCalendarDateKey(cell.date) : null;
           const dayEvents = dateKey ? (eventsByDate.get(dateKey) ?? []) : [];
+          const daySlots = dateKey ? (slotsByDate.get(dateKey) ?? []) : [];
+          const shownEvents = dayEvents.slice(0, MAX_CHIPS);
+          const shownSlots = daySlots.slice(
+            0,
+            Math.max(0, MAX_CHIPS - shownEvents.length),
+          );
+          const hidden =
+            dayEvents.length +
+            daySlots.length -
+            shownEvents.length -
+            shownSlots.length;
           const lastRow = index >= (rows - 1) * 7;
 
           return (
@@ -160,10 +237,10 @@ export function CalendarGrid({
                     {cell.day}
                   </span>
 
-                  {dayEvents.length > 0 && (
+                  {dayEvents.length + daySlots.length > 0 && (
                     <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden">
                       <span className="mx-auto size-1.5 rounded-full bg-accent-strong md:hidden" />
-                      {dayEvents.slice(0, MAX_CHIPS).map((event) => (
+                      {shownEvents.map((event) => (
                         <button
                           type="button"
                           key={event._id}
@@ -184,9 +261,16 @@ export function CalendarGrid({
                           {event.title}
                         </button>
                       ))}
-                      {dayEvents.length > MAX_CHIPS && (
+                      {shownSlots.map((slot) => (
+                        <SprintSlotChip
+                          key={slot.id}
+                          slot={slot}
+                          href={sprintHref?.(slot.sprintId)}
+                        />
+                      ))}
+                      {hidden > 0 && (
                         <span className="hidden px-1 text-[10px] tabular-nums text-muted-foreground md:inline">
-                          +{dayEvents.length - MAX_CHIPS}
+                          +{hidden}
                         </span>
                       )}
                     </div>

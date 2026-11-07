@@ -1,0 +1,37 @@
+[Unit]
+Description=Sprint agent runner
+# The rootless sandbox daemon is a user unit of sandbox-runner (lingering), so
+# its socket appears once that user's manager is up.
+After=network-online.target user@1001.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/storage/agent-runs
+ConditionPathIsMountPoint=/mnt/storage
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=sandbox-runner
+Group=sandbox-runner
+# The daemon's unix socket, never its unauthenticated TCP listener.
+Environment=DOCKER_HOST=unix:///run/user/1001/docker.sock
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=DOCKER_CONFIG=/var/lib/agent-runner/docker
+EnvironmentFile=/etc/agent-runner/env
+ExecStart=/usr/local/bin/agent-runner
+
+# A restart never touches a run: containers belong to the daemon, and the next
+# start re-attaches to every one web still holds as running.
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30
+
+StateDirectory=agent-runner
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadWritePaths=/mnt/storage/agent-runs
+
+[Install]
+WantedBy=multi-user.target

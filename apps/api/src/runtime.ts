@@ -855,6 +855,15 @@ export async function createRuntimeApp() {
             s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
             provisioners,
             meili,
+            runTokens: {
+              allowedClientIds: new Set(
+                (process.env.AGENT_RUNNER_CLIENT_IDS ?? "")
+                  .split(",")
+                  .map((id) => id.trim())
+                  .filter(Boolean),
+              ),
+              audit: (entry) => activityRecorder.record(entry),
+            },
           })
         : undefined;
 

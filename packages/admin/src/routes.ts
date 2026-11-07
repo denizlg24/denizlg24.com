@@ -85,6 +85,12 @@ export interface MarketRoutes {
   ticker: (symbol: string) => string;
 }
 
+export interface SprintRoutes {
+  root: string;
+  sprint: (sprintId: string) => string;
+  run: (runId: string) => string;
+}
+
 export interface WorkspaceRoutes {
   /** One workspace page. Home is `dashboardRoot` in both hosts. */
   page: (pageId: string) => string;
@@ -121,6 +127,7 @@ export interface AdminRoutes {
   /** One LaTeX project's editor. */
   latexProject: (projectId: string) => string;
   agentMemory: AgentMemoryRoutes;
+  sprints: SprintRoutes;
   market: MarketRoutes;
   workspace: WorkspaceRoutes;
 }

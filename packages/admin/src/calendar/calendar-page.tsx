@@ -3,6 +3,7 @@
 import type {
   ICalendarEvent,
   ICalendarGoogleIntegrationStatus,
+  SprintCalendarSlot,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
@@ -616,7 +617,7 @@ export function CalendarSkeleton() {
 }
 
 export function CalendarPage() {
-  const { client, slots } = useAdmin();
+  const { client, routes, slots } = useAdmin();
   const initialRange = useMemo(() => getCalendarMonthRange(), []);
   const initialCachedEvents = useMemo(
     () => getCachedCalendarEvents(initialRange.start, initialRange.end),
@@ -650,6 +651,7 @@ export function CalendarPage() {
 
   const [startDate, setStartDate] = useState(() => initialRange.start);
   const [endDate, setEndDate] = useState(() => initialRange.end);
+  const [sprintSlots, setSprintSlots] = useState<SprintCalendarSlot[]>([]);
 
   const [viewEvent, setViewEvent] = useState<ICalendarEvent | null>(null);
   const [editing, setEditing] = useState(false);
@@ -1119,6 +1121,22 @@ export function CalendarPage() {
   }, [fetchEvents, startDate, endDate]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    client
+      .get<{ slots: SprintCalendarSlot[] }>(
+        `sprints/slots?from=${encodeURIComponent(
+          startDate.toISOString(),
+        )}&to=${encodeURIComponent(endDate.toISOString())}`,
+        { signal: controller.signal },
+      )
+      .then((result) => setSprintSlots(result.slots))
+      .catch(() => {
+        if (!controller.signal.aborted) setSprintSlots([]);
+      });
+    return () => controller.abort();
+  }, [client, startDate, endDate]);
+
+  useEffect(() => {
     return () => {
       activeFetchController.current?.abort();
       for (const controller of prefetchControllers.current) {
@@ -1242,6 +1260,8 @@ export function CalendarPage() {
         year={startDate.getFullYear()}
         month={startDate.getMonth()}
         events={events}
+        sprintSlots={sprintSlots}
+        sprintHref={routes.sprints.sprint}
         onEventClick={openViewEvent}
         onDayClick={openDayView}
       />

@@ -1,0 +1,23 @@
+{
+  "name": "agent-runner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile dist/agent-runner",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "e2e": "bun scripts/sprint-e2e.ts"
+  },
+  "dependencies": {
+    "@repo/schemas": "workspace:*",
+    "@repo/utils": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/bun": "^1.4.3",
+    "typescript": "^5.9.3"
+  }
+}

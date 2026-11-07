@@ -302,6 +302,45 @@ export class GithubAppClient {
     return minted.token;
   }
 
+  /**
+   * A token narrowed to the named repositories and permissions, for something
+   * that runs outside this process. Never cached: the shared installation token
+   * above holds every permission the App has, and handing that out is the thing
+   * this exists to avoid.
+   */
+  async createInstallationToken(input: {
+    installationId: number;
+    repositories: readonly string[];
+    permissions: Readonly<Record<string, "read" | "write">>;
+  }): Promise<{
+    token: string;
+    expiresAt: string;
+    permissions: Record<string, string>;
+  }> {
+    const jwt = createAppJwt({
+      appId: this.#config.appId,
+      privateKey: this.#config.privateKey,
+      now: this.#now,
+    });
+    const minted = await this.#json<{
+      token: string;
+      expires_at: string;
+      permissions?: Record<string, string>;
+    }>(`/app/installations/${input.installationId}/access_tokens`, {
+      method: "POST",
+      token: jwt,
+      body: JSON.stringify({
+        repositories: input.repositories,
+        permissions: input.permissions,
+      }),
+    });
+    return {
+      token: minted.token,
+      expiresAt: minted.expires_at,
+      permissions: minted.permissions ?? { ...input.permissions },
+    };
+  }
+
   /** Forces the next call to mint a fresh one, after a 401 from a cached token. */
   async forgetInstallationToken(installationId: number): Promise<void> {
     await this.#cache

@@ -18,7 +18,9 @@
     "./ui-spec": "./src/ui-spec.ts",
     "./workspace-templates": "./src/workspace-templates.ts",
     "./workspace-triggers": "./src/workspace-triggers.ts",
-    "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts"
+    "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts",
+    "./sprints": "./src/sprints.ts",
+    "./claude-stream": "./src/claude-stream.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

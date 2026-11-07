@@ -21,7 +21,7 @@
     "start": "next start",
     "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && NODE_OPTIONS=--max-old-space-size=6144 tsc --noEmit",
     "test": "bun test",
-    "test:mongo": "WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workspace.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/views.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workflows.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/appearance.mongo.test.ts"
+    "test:mongo": "WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workspace.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/views.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/workflows.mongo.test.ts && WORKSPACE_MONGO_TESTS=1 bun test ./lib/workspace/appearance.mongo.test.ts && SPRINT_MONGO_TESTS=1 bun test ./lib/sprints"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.84",

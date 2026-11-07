@@ -64,6 +64,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   headless Chromium (Forge, `browser.denizlg24.com/mcp`). Playwright's MCP
   tools, embedded; bearer-gated; no workspace dependencies on purpose. See
   [The agent's browser](#the-agents-browser-appsbrowser).
+- `apps/agent-runner/` — compiled Bun host daemon on Forge (systemd, user
+  `sandbox-runner`, not a deployment) that runs sprint slots: Claude Code
+  headless in a gVisor container per run on the rootless sandbox daemon. See
+  [Sprint agent](#sprint-agent-appsagent-runner).
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Forge). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
@@ -1052,6 +1056,82 @@ Chrome is a glibc build and `playwright install --with-deps` only knows apt.
   one it recognises. The Dockerfile's runtime stage installs only those two
   packages (the rest is bundled) and `playwright install chromium` fetches
   the revision that build names.
+
+## Sprint agent (apps/agent-runner)
+
+Scheduled coding-agent runs. Design: `docs/internal/plans/033-sprint-agent.md`;
+the runner's own bites are in `apps/agent-runner/AGENTS.md`. A sprint is one
+branch and one PR on a repository; its slots (`implement`, `review`,
+`fix-review`, `release`, `custom`) chain through `dependsOn` and each slot
+builds on the branch the previous one left. Web (`lib/sprints/`, Mongo
+`Sprint` / `SprintSlot` / `CodingRun`) is the only source of truth; the
+admin UI is `packages/admin/src/sprints/`, the MCP tool `web_sprints`.
+
+- **The runner pulls; web never calls it.** Every 15 s it claims due slots
+  (`/api/admin/sprints/runner/claim`), heartbeats each run every 30 s (the
+  heartbeat answer is the cancel path) and posts transcript batches and the
+  completion. A run is dead when its 3-minute lease lapses — the claim and
+  the `/api/jobs/agent-memory` tick both sweep — never because it is old.
+  Slot evaluation is pure (`@repo/utils/sprints` `evaluateSlot`).
+- **Only one machine client may drive runs.** The runner routes accept a
+  token only when its client is `AGENT_RUNNER_CLIENT_ID` (web); the owner's
+  own session is refused there too. On the API,
+  `POST /api/deploy/github/run-token` admits the owner and the clients in
+  `AGENT_RUNNER_CLIENT_IDS`, and mints a 1-hour installation token scoped to
+  one repository and the slot kind's permissions — a review token cannot
+  write contents. `machineClientId` on the API's auth context is what tells a
+  machine token's client apart; owner's guard admits every superuser machine
+  token, which is why the route is mounted ahead of it.
+- **A release only fires on an approved chain and ends as an offer.** Every
+  transitive upstream succeeded, the latest review approved (or a succeeded
+  fix-review followed it), and the sprint has a PR; no review at all is not
+  approved. After CI is green on the head SHA the sprint carries
+  `release.state: ready`; Merge (owner only — no MCP action) merges by that
+  SHA, so a commit landing after CI is never merged on its strength.
+- **The result contract is `$SPRINT_OUT/result.json`, validated by the
+  runner.** A missing or invalid file fails the run as `no-result` even on
+  exit 0. The runner, not the agent, commits leftovers, pushes, opens the
+  draft PR and posts the review.
+- **The transcript is Claude Code's stream-json mapped to AgentUIMessages**
+  (`@repo/utils/claude-stream`), one step message per API `message.id`,
+  upserted by id and bounded at `CODING_RUN_MAX_PARTS`. `seq` is wall-clock
+  milliseconds so it keeps rising across a runner restart. An auth failure
+  arrives as `is_error: true` with `subtype: "success"`; `--bare` skips OAuth
+  and must never be passed.
+- **Phase 0, as measured on Forge 2026-11-04.** G1 passed: runsc costs
+  1.06× on a cold `bun install` and 1.24× on web's typecheck, so it stays the
+  default. G2 found that a `--network host` helper cannot touch the rootless
+  daemon's rules (`--detach-netns` puts it in the real host netns), and a
+  host-side `nsenter --user` gets no capabilities under Ubuntu's
+  `apparmor_restrict_unprivileged_userns`; the runner applies them from a
+  privileged runc helper container (`--pid host`, `nsenter --net` into the
+  detached netns), proven on 2026-11-07. runsc cannot use Docker's embedded DNS on a user network, so
+  runs mount a `resolv.conf` with public resolvers. The `gateway` credential
+  works (G3: `ANTHROPIC_BASE_URL=https://ai-gateway.vercel.sh` +
+  `ANTHROPIC_AUTH_TOKEN`, aliases like `haiku` resolve, tool use and
+  stream-json intact); a rejected key is not a quick failure but up to ten
+  `system/api_retry` 401s with backoff, which the transcript shows as one
+  warning. Still open: the Team-seat token (G3) and the App's permissions
+  (G4 — contents, pull requests, checks, **commit statuses**, actions).
+  `main` here has required a pull request since 2026-11-04 (ruleset `master`;
+  its status-check rule names no checks, so it never blocked a push on its
+  own) — every repository a sprint targets needs the same, or a run token
+  can push to its default branch.
+- **Pushes carry no URL.** The dashboard app only routes `dashboard://`
+  links and has no sprint screen. Kinds `sprint_run_started` (off by
+  default), `_finished`, `_failed` (also skips) and `sprint_release_ready`.
+- **The first runner install is by hand**, like every new staged unit:
+  `release-agent-runner.yml` runs the *installed* `forge-agent-install`, and
+  its `--install-agent-runner` mode exists only after a deploy-agent release
+  shipped it. The runtime image (`release-agent-runner-runtime.yml`) is pinned
+  by digest in `/etc/agent-runner/env`; bumping Claude Code is an image
+  release.
+- **Rollout:** G4 grants and a `main` ruleset on target repos → Phase 0 →
+  merge (the API release carries the run-token route) → a `service` client
+  `agent-runner` with the web and api resources, `AGENT_RUNNER_CLIENT_ID` on
+  web and `AGENT_RUNNER_CLIENT_IDS` on the API → `claude setup-token` and the
+  Gateway key → first install, `/etc/agent-runner/env`,
+  `systemctl enable --now agent-runner` → the e2e.
 
 ## apps/mcp tools
 

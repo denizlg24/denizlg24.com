@@ -1,0 +1,7 @@
+[credential "https://github.com"]
+	helper =
+	helper = /usr/local/bin/git-credential-sprint
+[gc]
+	auto = 0
+[init]
+	defaultBranch = main
