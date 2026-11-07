@@ -279,7 +279,8 @@ export class Workspaces {
    * bits and never reads an ACL, so under runsc an ACL grant is no grant at
    * all. The runner keeps its own access through an ACL entry, which the host
    * kernel does honour. Setting the ACL needs ownership, so it comes first;
-   * the chown needs CAP_CHOWN, so a runc helper does it as namespace root.
+   * the chown needs CAP_CHOWN, so a runc helper does it as namespace root
+   * (every container starts with `--cap-drop ALL`, so it is added back).
    */
   async #shared(path: string): Promise<void> {
     await mkdir(path, { recursive: true, mode: 0o755 });
@@ -301,6 +302,7 @@ export class Workspaces {
         runtime: "runc",
         network: "none",
         user: "0:0",
+        capAdd: ["CHOWN"],
         readOnly: true,
         mounts: [{ source: path, target: path }],
         entrypoint: "chown",
