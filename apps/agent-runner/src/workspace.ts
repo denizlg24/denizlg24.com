@@ -200,6 +200,12 @@ const finalizeOutputSchema = z.object({
   push: z.enum(["ok", "rejected", "skipped"]),
 });
 
+/**
+ * An earlier run's worktree (kept for a day) still has the sprint branch
+ * checked out, and git refuses to reset a branch another worktree holds, even
+ * with --force. Each holder is detached at its own commit first: its files stay
+ * as the run left them, and update-ref runs no hooks.
+ */
 const PREPARE_SCRIPT = `set -eu
 if [ ! -f "$MIRROR/HEAD" ]; then
   git init --bare --quiet "$MIRROR"
@@ -213,6 +219,13 @@ if git -C "$MIRROR" rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" >/d
 else
   start="refs/remotes/origin/$BASE"; created=true
 fi
+git -C "$MIRROR" worktree prune
+git -C "$MIRROR" worktree list --porcelain | while IFS= read -r line; do
+  case "$line" in
+    "worktree "*) held=\${line#worktree } ;;
+    "branch refs/heads/$BRANCH") git -C "$held" update-ref --no-deref HEAD "$(git -C "$held" rev-parse HEAD)" ;;
+  esac
+done
 git -C "$MIRROR" worktree add --quiet --force -B "$BRANCH" "$WORKTREE" "$start"
 head=$(git -C "$WORKTREE" rev-parse HEAD)
 base_tip=$(git -C "$MIRROR" rev-parse "refs/remotes/origin/$BASE")
