@@ -48,21 +48,24 @@ sprint branch, manages the PR, and reports back. Design:
   `CLAUDE_CODE_VERSION` and `CLAUDE_CODE_VERSION` in
   `src/harness/claude-code.ts` move together: the stream-json shapes and CLI
   flags are what this parses.
-- **The egress rules are applied by `nsenter`, never by a container.**
-  Measured on Forge 2026-11-04: the daemon runs rootlesskit with
-  `--detach-netns`, so a `--network host` helper lands in the *real* host
-  netns, where uid 1001 is nobody — iptables answers "you must be root". The
-  runner owns rootlesskit, so at boot and every 5 min it runs
-  `nsenter --user --preserve-credentials --target=<child_pid>
-  --net=/proc/<child_pid>/root<state-dir>/netns` with the host's iptables:
+- **The egress rules are applied by a privileged runc helper, never from the
+  host.** The bridges live in rootlesskit's detached netns. Two simpler routes
+  fail on Forge: a `--network host` container lands in the *real* host netns
+  (`--detach-netns`), and a host-side `nsenter --user` into rootlesskit's user
+  namespace gets no capabilities, because Ubuntu sets
+  `kernel.apparmor_restrict_unprivileged_userns=1` — iptables answers "you
+  must be root" for both. A container the daemon starts inherits rootlesskit's
+  AppArmor profile and is root of its user namespace (only), so at boot and
+  every 5 min the runner runs the runtime image as `docker run --rm --runtime
+  runc --privileged --pid host --network none --entrypoint nsenter …
+  --net=/proc/<child_pid>/root<state-dir>/netns` with the image's iptables:
   chain `AGENT-RUNS-EGRESS` jumped from `DOCKER-USER` for the `agent-runs0`
   bridge, plus an `INPUT` drop so a run cannot reach the daemon's netns. It
   reads them back and admits nothing while they are missing. Without them a
   run reaches Forge's tailnet SSH, the daemon's TCP listener and
-  `forge-apps` containers (measured). The nsenter path itself is **not yet
-  proven on Forge** (it needs the `sandbox-runner` account); if it fails, the
-  egress-proxy fallback (the `apps/browser` proxy on an `--internal` network)
-  is the next step and is not built.
+  `forge-apps` containers; with them all three time out under runc and runsc
+  while Anthropic and GitHub stay open (measured 2026-11-07). The runtime
+  image must keep `iptables` and util-linux's `nsenter` for this.
 - **runsc cannot resolve names on a user-defined network.** gVisor's netstack
   never passes the DNAT that makes Docker's embedded resolver (127.0.0.11)
   work, and `--dns` only changes that resolver's upstream. Every container on

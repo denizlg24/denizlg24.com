@@ -111,27 +111,43 @@ export async function ensureNetwork(
 }
 
 /**
- * The command that applies and reads back the drop rules.
+ * The command that applies and reads back the drop rules: a privileged runc
+ * helper on the rootless daemon that `nsenter`s rootlesskit's detached netns,
+ * where the bridges live.
  *
- * Not a container: the daemon runs rootlesskit with `--detach-netns`, so a
- * `--network host` container lands in the real host netns, where uid 1001
- * holds no privilege (measured on Forge: iptables answers "you must be
- * root"). The bridges live in rootlesskit's detached netns instead. The runner
- * is the user that owns rootlesskit, so it can enter rootlesskit's user
- * namespace — where it is root — and that netns, and run the host's own
- * iptables there. Root here is root of that user namespace only.
+ * Two routes that look simpler fail on Forge (measured 2026-11-07). A
+ * `--network host` container lands in the real host netns, because rootlesskit
+ * runs with `--detach-netns`, and holds no privilege there. A host-side
+ * `nsenter --user` into rootlesskit's user namespace is denied every
+ * capability by Ubuntu's `apparmor_restrict_unprivileged_userns`, so iptables
+ * answers "you must be root". A container the daemon starts inherits the
+ * rootlesskit profile and is root of that user namespace — and only of it —
+ * so `--privileged --pid=host` reaches the netns through
+ * `/proc/<child_pid>/root` and nothing on the host.
  */
 export function egressCommand(
+  image: string,
   stateDir: string,
   childPid: number,
   bridge: string,
   cidrs: readonly string[],
 ): string[] {
   return [
-    "nsenter",
+    "docker",
+    "run",
+    "--rm",
+    "--runtime",
+    "runc",
+    "--network",
+    "none",
+    "--pid",
+    "host",
+    "--privileged",
     "--user",
-    "--preserve-credentials",
-    `--target=${childPid}`,
+    "0:0",
+    "--entrypoint",
+    "nsenter",
+    image,
     `--net=/proc/${childPid}/root${stateDir}/netns`,
     "--",
     "sh",
@@ -156,7 +172,7 @@ export async function applyEgressRules(
   exec: CommandRunner,
   config: Pick<
     RunnerConfig,
-    "network" | "bridge" | "blockedAddresses" | "rootlesskitStateDir"
+    "network" | "bridge" | "blockedAddresses" | "rootlesskitStateDir" | "image"
   >,
   readText: (path: string) => Promise<string> = (path) =>
     readFile(path, "utf8"),
@@ -167,8 +183,14 @@ export async function applyEgressRules(
     await readText(`${config.rootlesskitStateDir}/child_pid`),
   );
   const result = await exec(
-    egressCommand(config.rootlesskitStateDir, childPid, config.bridge, cidrs),
-    { timeoutMs: 60_000 },
+    egressCommand(
+      config.image,
+      config.rootlesskitStateDir,
+      childPid,
+      config.bridge,
+      cidrs,
+    ),
+    { timeoutMs: 120_000 },
   );
   if (result.exitCode !== 0) {
     throw new EgressError(

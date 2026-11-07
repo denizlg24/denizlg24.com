@@ -1101,10 +1101,11 @@ admin UI is `packages/admin/src/sprints/`, the MCP tool `web_sprints`.
 - **Phase 0, as measured on Forge 2026-11-04.** G1 passed: runsc costs
   1.06× on a cold `bun install` and 1.24× on web's typecheck, so it stays the
   default. G2 found that a `--network host` helper cannot touch the rootless
-  daemon's rules (`--detach-netns` puts it in the real host netns), so the
-  runner applies them through `nsenter` into rootlesskit's namespaces; that
-  path still needs proving as `sandbox-runner` (the egress-proxy fallback is
-  not built). runsc cannot use Docker's embedded DNS on a user network, so
+  daemon's rules (`--detach-netns` puts it in the real host netns), and a
+  host-side `nsenter --user` gets no capabilities under Ubuntu's
+  `apparmor_restrict_unprivileged_userns`; the runner applies them from a
+  privileged runc helper container (`--pid host`, `nsenter --net` into the
+  detached netns), proven on 2026-11-07. runsc cannot use Docker's embedded DNS on a user network, so
   runs mount a `resolv.conf` with public resolvers. The `gateway` credential
   works (G3: `ANTHROPIC_BASE_URL=https://ai-gateway.vercel.sh` +
   `ANTHROPIC_AUTH_TOKEN`, aliases like `haiku` resolve, tool use and

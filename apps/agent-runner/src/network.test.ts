@@ -91,26 +91,30 @@ describe("verifyEgressRules", () => {
 
 describe("applying the rules", () => {
   const STATE = "/run/user/1001/dockerd-rootless";
+  const IMAGE = `ghcr.io/denizlg24/agent-runner-runtime@sha256:${"a".repeat(64)}`;
   const config = {
     network: "agent-runs",
     bridge: BRIDGE,
     blockedAddresses: [],
     rootlesskitStateDir: STATE,
+    image: IMAGE,
   };
   const docker: Pick<Docker, "networkExists" | "createNetwork"> = {
     networkExists: async () => true,
     createNetwork: async () => {},
   };
 
-  test("enters rootlesskit's user namespace and its detached netns", () => {
-    const argv = egressCommand(STATE, 1133, BRIDGE, ["10.0.0.0/8"]);
-    expect(argv.slice(0, 5)).toEqual([
-      "nsenter",
-      "--user",
-      "--preserve-credentials",
-      "--target=1133",
-      `--net=/proc/1133/root${STATE}/netns`,
-    ]);
+  test("a privileged runc helper enters rootlesskit's detached netns", () => {
+    const argv = egressCommand(IMAGE, STATE, 1133, BRIDGE, ["10.0.0.0/8"]);
+    expect(argv.slice(0, 2)).toEqual(["docker", "run"]);
+    const image = argv.indexOf(IMAGE);
+    const flags = argv.slice(2, image).join(" ");
+    expect(flags).toContain("--runtime runc");
+    expect(flags).toContain("--pid host");
+    expect(flags).toContain("--privileged");
+    expect(flags).toContain("--network none");
+    expect(flags).toContain("--entrypoint nsenter");
+    expect(argv[image + 1]).toBe(`--net=/proc/1133/root${STATE}/netns`);
     expect(argv.slice(-2)).toEqual([BRIDGE, "10.0.0.0/8"]);
   });
 
@@ -120,7 +124,7 @@ describe("applying the rules", () => {
     expect(parseChildPid("1133\n")).toBe(1133);
   });
 
-  test("a complete read-back passes; a failed nsenter does not", async () => {
+  test("a complete read-back passes; a failed helper does not", async () => {
     const cidrs = blockedCidrs([]);
     const calls: string[][] = [];
     const ok: CommandRunner = async (argv) => {
@@ -133,7 +137,7 @@ describe("applying the rules", () => {
       };
     };
     await applyEgressRules(docker, ok, config, async () => "1133");
-    expect(calls[0]?.[0]).toBe("nsenter");
+    expect(calls[0]?.slice(0, 2)).toEqual(["docker", "run"]);
 
     const denied: CommandRunner = async () => ({
       exitCode: 1,
