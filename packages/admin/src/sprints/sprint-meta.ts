@@ -54,6 +54,26 @@ export const SLOT_KIND_ACCENT: Record<SprintSlotKind, string> = {
   custom: "border-l-border",
 };
 
+export const SLOT_KIND_DOT: Record<SprintSlotKind, string> = {
+  implement: "bg-status-info",
+  review: "bg-status-warning",
+  "fix-review": "bg-status-serious",
+  release: "bg-status-good",
+  custom: "bg-muted-foreground/50",
+};
+
+/** Text colour of a slot's status where a badge would be too loud. */
+export const SLOT_STATUS_TONE: Record<SprintSlotStatus, string> = {
+  scheduled: "text-muted-foreground",
+  waiting: "text-status-warning",
+  queued: "text-status-info",
+  running: "text-status-warning",
+  succeeded: "text-status-good",
+  failed: "text-status-critical",
+  skipped: "text-muted-foreground/60",
+  cancelled: "text-muted-foreground/60",
+};
+
 export const FAILURE_LABEL: Record<CodingRunFailureCode, string> = {
   timeout: "Timeout",
   "runner-lost": "Runner lost",

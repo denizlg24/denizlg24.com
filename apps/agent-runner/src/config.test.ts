@@ -57,6 +57,18 @@ describe("configFromEnv", () => {
     expect(() => configFromEnv(rest)).toThrow(ConfigError);
   });
 
+  test("an empty line in the env file reads as unset", () => {
+    const config = configFromEnv({
+      ...base,
+      AI_GATEWAY_API_KEY: "",
+      AGENT_RUNNER_MAX_CONCURRENT: " ",
+    });
+    expect(config.maxConcurrent).toBe(2);
+    expect(() =>
+      configFromEnv({ ...base, CLAUDE_CODE_OAUTH_TOKEN: "" }),
+    ).toThrow(ConfigError);
+  });
+
   test("parses extra blocked addresses", () => {
     expect(
       configFromEnv({

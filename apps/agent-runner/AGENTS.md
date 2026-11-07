@@ -81,8 +81,11 @@ sprint branch, manages the PR, and reports back. Design:
   rootless daemon container uid 1000 is a subuid on the host, so the runner
   cannot write what a run wrote, nor the reverse. Everything that touches a
   worktree or mirror runs in a container (git helpers as uid 1000; removal as
-  namespace root under runc), and the directories a run writes into carry an
-  ACL for that subuid (`setfacl`, computed from `/etc/subuid`). A run escaping
+  namespace root under runc). The directories a run writes into are owned by
+  that subuid (computed from `/etc/subuid`, chowned by a runc helper) and
+  carry an ACL entry for the runner: gVisor checks mode bits and ignores
+  ACLs, so an ACL grant alone works under runc and is "Permission denied"
+  under runsc (the first e2e, 2026-11-07). A run escaping
   its sandbox lands as a subuid, not as `sandbox-runner` who can read the env
   file.
 - **Worktrees and mirrors are mounted at their host paths**, not at `/work`:

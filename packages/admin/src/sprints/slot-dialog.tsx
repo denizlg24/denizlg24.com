@@ -8,31 +8,22 @@ import type {
   SprintSlotKind,
   UpdateSprintSlot,
 } from "@repo/schemas";
-import {
-  DEFAULT_UPSTREAM_WAIT_MINUTES,
-  SPRINT_SLOT_KINDS,
-} from "@repo/schemas";
+import { DEFAULT_UPSTREAM_WAIT_MINUTES } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Checkbox } from "@repo/ui/checkbox";
 import { ConfirmButton } from "@repo/ui/confirm-button";
-import { DateTimePicker } from "@repo/ui/date-time-picker";
-import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
-import { Input } from "@repo/ui/input";
-import { OptionSelect } from "@repo/ui/option-select";
-import { SectionLabel } from "@repo/ui/section";
-import { Textarea } from "@repo/ui/textarea";
+import { FormDialog } from "@repo/ui/form-dialog";
 import { ExternalLink, Play, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { isRunConfigComplete, RunConfigFields } from "./run-config-fields";
+import { Composer, isRunConfigComplete, RunConfigPills } from "./run-composer";
+import { KindPill, UpstreamPill, WaitPill, WhenPill } from "./slot-pills";
 import {
   apiErrorCode,
   canRetrySlot,
   errorMessage,
-  formatAbsolute,
   fromLocalInput,
   isEditableSlotStatus,
   isLiveSlotStatus,
@@ -41,10 +32,13 @@ import {
   toLocalInput,
 } from "./sprint-meta";
 
-const KIND_OPTIONS = SPRINT_SLOT_KINDS.map((kind) => ({
-  value: kind,
-  label: SLOT_KIND_LABEL[kind],
-}));
+const TASK_PLACEHOLDER: Record<SprintSlotKind, string> = {
+  implement: "What to build",
+  review: "What to check",
+  "fix-review": "Anything beyond the review's findings",
+  release: "How this repository releases",
+  custom: "Task",
+};
 
 interface Draft {
   kind: SprintSlotKind;
@@ -243,6 +237,8 @@ export function SlotDialog({
     </>
   ) : null;
 
+  const frozen = locked || live;
+
   return (
     <FormDialog
       open={open}
@@ -265,108 +261,63 @@ export function SlotDialog({
         )
       }
       submitLabel={slot ? "Save" : "Add"}
-      submitDisabled={!valid || locked || live}
+      submitDisabled={!valid || frozen}
       pending={pending}
       onSubmit={submit}
       footerStart={footerStart}
     >
-      <FormGrid>
-        <FormField label="Kind">
-          <OptionSelect<SprintSlotKind>
-            size="default"
-            className="w-full"
-            aria-label="Kind"
-            disabled={locked || live}
-            value={draft.kind}
-            options={KIND_OPTIONS}
-            onValueChange={(kind) => kind && set({ kind })}
-          />
-        </FormField>
-        <FormField label="Time">
-          <DateTimePicker
-            value={draft.at}
-            disabled={locked || live}
-            onValueChange={(value) => value && set({ at: value })}
-          />
-        </FormField>
-        <FormField label="Title" className="sm:col-span-2">
-          <Input
-            value={draft.title}
-            placeholder={SLOT_KIND_LABEL[draft.kind]}
-            disabled={locked || live}
-            onChange={(event) => set({ title: event.target.value })}
-          />
-        </FormField>
-        <FormField label="Task" className="sm:col-span-2">
-          <Textarea
-            value={draft.task}
-            rows={8}
-            disabled={locked || live}
-            className="min-h-40 resize-y font-mono text-xs md:text-xs"
-            onChange={(event) => set({ task: event.target.value })}
-          />
-        </FormField>
-        <FormField label="Upstream wait (min)">
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            value={draft.waitMinutes}
-            disabled={locked || live}
-            className="tabular-nums"
-            onChange={(event) => set({ waitMinutes: event.target.value })}
-          />
-        </FormField>
-      </FormGrid>
-
-      <div className="flex flex-col gap-2">
-        <SectionLabel count={dependsOn.length}>Depends on</SectionLabel>
-        {others.length === 0 ? (
-          <span className="text-xs text-muted-foreground">—</span>
-        ) : (
-          <div className="flex flex-col">
-            {others.map((other) => {
-              const id = `upstream-${other.id}`;
-              return (
-                <label
-                  key={other.id}
-                  htmlFor={id}
-                  className="-mx-2 flex min-h-8 cursor-pointer items-center gap-3 rounded-md px-2 text-sm hover:bg-surface/70"
-                >
-                  <Checkbox
-                    id={id}
-                    checked={dependsOn.includes(other.id)}
-                    disabled={locked || live}
-                    onCheckedChange={(checked) =>
-                      toggleUpstream(other.id, checked === true)
-                    }
-                  />
-                  <span className="w-36 shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatAbsolute(other.at)}
-                  </span>
-                  <span className="w-20 shrink-0 text-xs text-muted-foreground">
-                    {SLOT_KIND_LABEL[other.kind]}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-accent-strong">
-                    {other.title}
-                  </span>
-                  <Badge variant={SLOT_STATUS_BADGE[other.status]}>
-                    {other.status}
-                  </Badge>
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       <div className="flex flex-col gap-3">
-        <SectionLabel>Run</SectionLabel>
-        <RunConfigFields
-          value={draft.config}
-          inherited={sprint.defaults}
-          disabled={locked || live}
-          onChange={(patch) => set({ config: { ...draft.config, ...patch } })}
+        <input
+          aria-label="Title"
+          value={draft.title}
+          placeholder={SLOT_KIND_LABEL[draft.kind]}
+          disabled={frozen}
+          className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-muted-foreground/50"
+          onChange={(event) => set({ title: event.target.value })}
+        />
+        <div className="flex flex-wrap items-center gap-1">
+          <KindPill
+            value={draft.kind}
+            disabled={frozen}
+            onChange={(kind) => set({ kind })}
+          />
+          <WhenPill
+            value={at ?? initialAt}
+            disabled={frozen}
+            onChange={(next) => set({ at: toLocalInput(next) })}
+          />
+          <UpstreamPill
+            candidates={others}
+            value={dependsOn}
+            disabled={frozen}
+            onToggle={toggleUpstream}
+          />
+          {dependsOn.length > 0 ? (
+            <WaitPill
+              value={Number.isInteger(wait) ? wait : 0}
+              disabled={frozen}
+              onChange={(minutes) => set({ waitMinutes: String(minutes) })}
+            />
+          ) : null}
+        </div>
+        <Composer
+          label="Task"
+          value={draft.task}
+          placeholder={TASK_PLACEHOLDER[draft.kind]}
+          disabled={frozen}
+          rows={10}
+          onChange={(task) => set({ task })}
+          pills={
+            <RunConfigPills
+              value={draft.config}
+              inherited={sprint.defaults}
+              disabled={frozen}
+              instructions
+              onChange={(patch) =>
+                set({ config: { ...draft.config, ...patch } })
+              }
+            />
+          }
         />
       </div>
     </FormDialog>

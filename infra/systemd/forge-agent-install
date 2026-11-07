@@ -134,6 +134,7 @@ install_agent_runner() {
     /etc/systemd/system/user-1001.slice.d/agent-runner.conf 0644 || true
   if getent passwd sandbox-runner >/dev/null; then
     install -d -m 0711 -o sandbox-runner -g sandbox-runner /mnt/storage/agent-runs
+    install -d -m 0750 -o root -g sandbox-runner /etc/agent-runner
   fi
 
   [ -f "$target" ] && cp -f "$target" "$previous"

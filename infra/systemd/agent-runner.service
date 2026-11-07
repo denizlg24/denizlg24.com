@@ -28,7 +28,9 @@ TimeoutStopSec=30
 StateDirectory=agent-runner
 StateDirectoryMode=0700
 ProtectSystem=strict
-ProtectHome=yes
+# Not `yes`: that hides /run/user too, and with it the daemon's socket and
+# rootlesskit's child_pid.
+ProtectHome=read-only
 PrivateTmp=yes
 NoNewPrivileges=yes
 ReadWritePaths=/mnt/storage/agent-runs

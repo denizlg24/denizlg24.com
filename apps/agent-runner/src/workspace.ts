@@ -274,19 +274,42 @@ export class Workspaces {
   ) {}
 
   /**
-   * Directories the runner owns and the container's user may write into. The
-   * ACL names that user's host uid rather than opening the directory to all.
+   * Directories the container's user writes into. They are handed to that
+   * user (its host subuid) rather than opened by ACL alone: gVisor checks mode
+   * bits and never reads an ACL, so under runsc an ACL grant is no grant at
+   * all. The runner keeps its own access through an ACL entry, which the host
+   * kernel does honour. Setting the ACL needs ownership, so it comes first;
+   * the chown needs CAP_CHOWN, so a runc helper does it as namespace root.
    */
   async #shared(path: string): Promise<void> {
     await mkdir(path, { recursive: true, mode: 0o755 });
-    const result = await this.exec([
+    if ((await stat(path)).uid === this.hostUid) return;
+    const self = process.getuid?.();
+    if (self === undefined) throw new WorkspaceError("no process uid");
+    const acl = await this.exec([
       "setfacl",
       "-m",
-      `u:${this.hostUid}:rwx`,
+      `u:${this.hostUid}:rwx,u:${self}:rwx`,
       path,
     ]);
-    if (result.exitCode !== 0) {
-      throw new WorkspaceError(`setfacl on ${path}: ${result.stderr.trim()}`);
+    if (acl.exitCode !== 0) {
+      throw new WorkspaceError(`setfacl on ${path}: ${acl.stderr.trim()}`);
+    }
+    const owned = await this.docker.runOnce(
+      {
+        image: this.config.image,
+        runtime: "runc",
+        network: "none",
+        user: "0:0",
+        readOnly: true,
+        mounts: [{ source: path, target: path }],
+        entrypoint: "chown",
+        command: [CONTAINER_USER, path],
+      },
+      { timeoutMs: 2 * 60_000 },
+    );
+    if (owned.exitCode !== 0) {
+      throw new WorkspaceError(`chown of ${path}: ${owned.stderr.trim()}`);
     }
   }
 

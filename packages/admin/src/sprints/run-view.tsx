@@ -43,6 +43,7 @@ import {
 import { formatCost, formatTokenCount } from "../agent/agent-parts";
 import { AdminApiError } from "../client";
 import { useAdmin } from "../provider";
+import { RunConfigSummary } from "./run-composer";
 import {
   canRetrySlot,
   errorMessage,
@@ -308,12 +309,6 @@ function RunFacts({ run, now }: { run: CodingRun; now: number }) {
   return (
     <Properties>
       <Property label="Kind">{SLOT_KIND_LABEL[run.kind]}</Property>
-      <Property label="Model">
-        <span className="font-mono text-xs">{run.config.model}</span>
-        <span className="ml-2 text-xs text-muted-foreground">
-          {run.config.effort} · {run.config.credential}
-        </span>
-      </Property>
       <Property label="Started">
         <span className="tabular-nums">
           {run.startedAt ? formatAbsolute(run.startedAt) : "—"}
@@ -674,23 +669,31 @@ export function RunView({ runId }: { runId: string }) {
             ) : null}
 
             <FindingDetails result={run.result} />
-
-            {run.config.instructions.trim() || slot?.task.trim() ? (
-              <Section title="Task">
-                {slot?.task.trim() ? (
-                  <MarkdownRenderer content={slot.task} className="text-xs" />
-                ) : null}
-                {run.config.instructions.trim() ? (
-                  <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-                    {run.config.instructions}
-                  </p>
-                ) : null}
-              </Section>
-            ) : null}
           </div>
         </ScrollArea>
 
         <div className="flex min-h-0 min-w-0 flex-col">
+          <div className="border-b px-4 py-4">
+            <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-3xl border border-border bg-background px-4 pt-3.5 pb-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
+              <div className="max-h-48 overflow-y-auto">
+                {slot?.task.trim() ? (
+                  <MarkdownRenderer content={slot.task} className="text-sm" />
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    {SLOT_KIND_LABEL[run.kind]}
+                  </span>
+                )}
+                {run.config.instructions.trim() ? (
+                  <p className="mt-2 whitespace-pre-wrap border-t pt-2 font-mono text-xs text-muted-foreground">
+                    {run.config.instructions}
+                  </p>
+                ) : null}
+              </div>
+              <div className="-mx-1.5 flex flex-wrap items-center gap-1">
+                <RunConfigSummary config={run.config} />
+              </div>
+            </div>
+          </div>
           {run.status === "queued" && run.messages.length === 0 ? (
             <div className="flex-1 px-4 py-5">
               <Marker role="status" className="text-xs">
