@@ -34,7 +34,7 @@
     "search:sync": "bun --env-file=../../.env.nutrition scripts/sync-meilisearch.ts"
   },
   "dependencies": {
-    "@elysia/openapi": "^1.4.15",
+    "@elysia/openapi": "^1.4.17",
     "@repo/macros-core": "workspace:*",
     "@sinclair/typebox": "^0.34.49",
     "drizzle-orm": "^0.45.4",
