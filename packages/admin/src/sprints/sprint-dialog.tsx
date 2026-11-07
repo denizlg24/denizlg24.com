@@ -11,14 +11,18 @@ import {
   gitBranchSchema,
   sprintRepoSchema,
 } from "@repo/schemas";
-import { FormDialog, FormField, FormGrid } from "@repo/ui/form-dialog";
-import { Input } from "@repo/ui/input";
-import { SectionLabel } from "@repo/ui/section";
-import { Textarea } from "@repo/ui/textarea";
-import { useEffect, useId, useState } from "react";
+import { FormDialog } from "@repo/ui/form-dialog";
+import { cn } from "@repo/ui/utils";
+import {
+  FolderGit2,
+  GitBranch,
+  GitPullRequestArrow,
+  Globe,
+} from "lucide-react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { isRunConfigComplete, RunConfigFields } from "./run-config-fields";
+import { Composer, isRunConfigComplete, RunConfigPills } from "./run-composer";
 import { errorMessage } from "./sprint-meta";
 
 let repoCache: string[] | null = null;
@@ -155,85 +159,128 @@ export function SprintDialog({
       pending={pending}
       onSubmit={submit}
     >
-      <FormGrid>
-        <FormField label="Title" className="sm:col-span-2">
-          <Input
-            autoFocus
-            value={draft.title}
-            onChange={(event) => set({ title: event.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Repository"
-          error={draft.repo && !repoValid ? "owner/name" : undefined}
-        >
-          <Input
-            list={repoListId}
+      <div className="flex flex-col gap-3">
+        <input
+          aria-label="Title"
+          value={draft.title}
+          placeholder="Sprint title"
+          className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-muted-foreground/50"
+          onChange={(event) => set({ title: event.target.value })}
+        />
+        <div className="flex flex-wrap items-center gap-1">
+          <FieldPill
+            label="Repository"
+            icon={<FolderGit2 />}
             value={draft.repo}
             placeholder="owner/name"
-            spellCheck={false}
-            className="font-mono text-xs md:text-xs"
-            onChange={(event) => set({ repo: event.target.value })}
+            invalid={draft.repo !== "" && !repoValid}
+            list={repoListId}
+            mono
+            onChange={(repo) => set({ repo })}
           />
           <datalist id={repoListId}>
             {repos.map((repo) => (
               <option key={repo} value={repo} />
             ))}
           </datalist>
-        </FormField>
-        <FormField label="Time zone">
-          <Input
-            value={draft.timeZone}
-            spellCheck={false}
-            onChange={(event) => set({ timeZone: event.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Base branch"
-          error={!baseValid ? "Invalid branch" : undefined}
-        >
-          <Input
+          <FieldPill
+            label="Base branch"
+            icon={<GitBranch />}
             value={draft.baseBranch}
-            spellCheck={false}
-            className="font-mono text-xs md:text-xs"
-            onChange={(event) => set({ baseBranch: event.target.value })}
+            placeholder="main"
+            invalid={!baseValid}
+            mono
+            onChange={(baseBranch) => set({ baseBranch })}
           />
-        </FormField>
-        <FormField
-          label="Branch"
-          error={!branchValid ? "Invalid branch" : undefined}
-        >
-          <Input
+          <FieldPill
+            label="Branch"
+            icon={<GitPullRequestArrow />}
             value={draft.branch}
-            placeholder={sprint ? undefined : "sprint/…"}
+            placeholder={sprint ? "" : "sprint/…"}
+            invalid={!branchValid}
             disabled={sprint?.branchLocked}
-            spellCheck={false}
-            className="font-mono text-xs md:text-xs"
-            onChange={(event) => set({ branch: event.target.value })}
+            mono
+            onChange={(branch) => set({ branch })}
           />
-        </FormField>
-        <FormField label="Goal" className="sm:col-span-2">
-          <Textarea
-            value={draft.goal}
-            rows={6}
-            className="min-h-32 resize-y font-mono text-xs md:text-xs"
-            onChange={(event) => set({ goal: event.target.value })}
-          />
-        </FormField>
-      </FormGrid>
-      {sprint ? null : (
-        <div className="flex flex-col gap-3">
-          <SectionLabel>Defaults</SectionLabel>
-          <RunConfigFields
-            value={draft.defaults}
-            inherited={DEFAULT_RUN_CONFIG}
-            inheritedFrom="Default"
-            onChange={(patch) =>
-              set({ defaults: { ...draft.defaults, ...patch } })
-            }
+          <FieldPill
+            label="Time zone"
+            icon={<Globe />}
+            value={draft.timeZone}
+            placeholder="UTC"
+            invalid={!draft.timeZone.trim()}
+            onChange={(timeZone) => set({ timeZone })}
           />
         </div>
-      )}
+        <Composer
+          label="Goal"
+          value={draft.goal}
+          placeholder="What this sprint is for"
+          rows={8}
+          onChange={(goal) => set({ goal })}
+          pills={
+            sprint ? undefined : (
+              <RunConfigPills
+                value={draft.defaults}
+                inherited={DEFAULT_RUN_CONFIG}
+                inheritedFrom="Default"
+                instructions
+                onChange={(patch) =>
+                  set({ defaults: { ...draft.defaults, ...patch } })
+                }
+              />
+            )
+          }
+        />
+      </div>
     </FormDialog>
+  );
+}
+
+/** A text field shaped like the composer's pills. */
+function FieldPill({
+  label,
+  icon,
+  value,
+  placeholder,
+  invalid = false,
+  disabled = false,
+  mono = false,
+  list,
+  onChange,
+}: {
+  label: string;
+  icon: ReactNode;
+  value: string;
+  placeholder?: string;
+  invalid?: boolean;
+  disabled?: boolean;
+  mono?: boolean;
+  list?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label
+      title={label}
+      className={cn(
+        "flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors focus-within:border-foreground/30 focus-within:text-foreground hover:bg-surface [&_svg]:size-3.5 [&_svg]:shrink-0",
+        invalid && "border-destructive/60 text-destructive",
+        disabled && "opacity-60",
+      )}
+    >
+      {icon}
+      <input
+        aria-label={label}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        list={list}
+        spellCheck={false}
+        className={cn(
+          "field-sizing-content max-w-56 min-w-12 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/60",
+          mono && "font-mono",
+        )}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   );
 }

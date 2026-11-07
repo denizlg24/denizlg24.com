@@ -25,8 +25,11 @@ import { RowActions } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
   Ban,
+  FolderGit2,
+  GitBranch,
   GitMerge,
   GitPullRequest,
+  Globe,
   Pencil,
   Play,
   Plus,
@@ -38,7 +41,12 @@ import { toast } from "sonner";
 import { formatCost } from "../agent/agent-parts";
 import { AdminApiError } from "../client";
 import { useAdmin } from "../provider";
-import { isRunConfigComplete, RunConfigFields } from "./run-config-fields";
+import {
+  Composer,
+  isRunConfigComplete,
+  RunConfigPills,
+  StaticPill,
+} from "./run-composer";
 import { SlotDialog } from "./slot-dialog";
 import { SprintDialog } from "./sprint-dialog";
 import {
@@ -171,38 +179,48 @@ function DefaultsSection({
   };
 
   return (
-    <Section
-      title="Defaults"
-      actions={
-        dirty ? (
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={saving}
-              onClick={() => setDraft(sprint.defaults)}
-            >
-              Reset
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={saving || !isRunConfigComplete(draft)}
-              onClick={() => void save()}
-            >
-              {saving ? <Spinner /> : null}
-              Save
-            </Button>
-          </>
-        ) : null
-      }
-    >
-      <RunConfigFields
-        layout="properties"
-        value={draft}
+    <Section title="Defaults">
+      <Composer
+        label="Instructions"
+        value={draft.instructions}
+        placeholder="Instructions appended to every run's prompt"
+        rows={3}
         disabled={disabled}
-        onChange={(patch: RunConfigOverride) =>
-          setDraft((current) => ({ ...current, ...patch }))
+        onChange={(instructions) =>
+          setDraft((current) => ({ ...current, instructions }))
+        }
+        pills={
+          <RunConfigPills
+            value={draft}
+            disabled={disabled}
+            onChange={(patch: RunConfigOverride) =>
+              setDraft((current) => ({ ...current, ...patch }))
+            }
+          />
+        }
+        footerEnd={
+          dirty ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+                disabled={saving}
+                onClick={() => setDraft(sprint.defaults)}
+              >
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-full"
+                disabled={saving || !isRunConfigComplete(draft)}
+                onClick={() => void save()}
+              >
+                {saving ? <Spinner /> : null}
+                Save
+              </Button>
+            </>
+          ) : null
         }
       />
     </Section>
@@ -416,38 +434,49 @@ export function SprintPage({ sprintId }: { sprintId: string }) {
         <PageTitle
           title={sprint.title}
           meta={
-            <>
+            <div className="flex flex-wrap items-center gap-1">
               <Badge
                 variant={SPRINT_STATUS_BADGE[sprint.status]}
-                className="capitalize"
+                className="mr-1 capitalize"
               >
                 {sprint.status}
               </Badge>
-              <a
-                href={githubUrl(sprint.repo, `/tree/${sprint.branch}`)}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono hover:text-accent-strong hover:underline"
+              <StaticPill
+                icon={<FolderGit2 />}
+                href={githubUrl(sprint.repo)}
+                className="font-mono"
               >
-                {sprint.repo}@{sprint.branch}
-              </a>
-              <span className="font-mono">← {sprint.baseBranch}</span>
+                {sprint.repo}
+              </StaticPill>
+              <StaticPill
+                icon={<GitBranch />}
+                href={githubUrl(sprint.repo, `/tree/${sprint.branch}`)}
+                title={`${sprint.branch} ← ${sprint.baseBranch}`}
+                className="font-mono"
+              >
+                {sprint.branch}
+                <span className="text-muted-foreground/60">
+                  {" "}
+                  ← {sprint.baseBranch}
+                </span>
+              </StaticPill>
               {sprint.prUrl ? (
-                <a
+                <StaticPill
+                  icon={<GitPullRequest />}
                   href={sprint.prUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="tabular-nums hover:text-accent-strong hover:underline"
+                  className="tabular-nums"
                 >
                   #{sprint.prNumber}
                   {sprint.prState ? ` · ${sprint.prState}` : ""}
-                </a>
+                </StaticPill>
               ) : null}
               {sprint.release ? (
-                <span>release {sprint.release.state}</span>
+                <StaticPill icon={<GitMerge />}>
+                  release {sprint.release.state}
+                </StaticPill>
               ) : null}
-              <span>{sprint.timeZone}</span>
-            </>
+              <StaticPill icon={<Globe />}>{sprint.timeZone}</StaticPill>
+            </div>
           }
         />
 
