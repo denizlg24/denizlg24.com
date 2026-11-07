@@ -118,7 +118,10 @@ export class ConfigError extends Error {}
 export function configFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): RunnerConfig {
-  const parsed = envSchema.safeParse(env);
+  const set = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value?.trim()),
+  );
+  const parsed = envSchema.safeParse(set);
   if (!parsed.success) {
     const detail = parsed.error.issues
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
