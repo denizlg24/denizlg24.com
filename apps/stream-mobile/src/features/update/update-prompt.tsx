@@ -5,7 +5,7 @@ import * as IntentLauncher from "expo-intent-launcher";
 import * as SecureStore from "expo-secure-store";
 import { Download } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Platform, StyleSheet, View } from "react-native";
+import { AppState, Modal, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CHECK_EVERY_MS,
@@ -152,7 +152,7 @@ export function UpdatePrompt() {
   };
 
   const tv = Platform.isTV;
-  return (
+  const prompt = (
     <View
       pointerEvents="box-none"
       style={[
@@ -204,6 +204,20 @@ export function UpdatePrompt() {
         )}
       </View>
     </View>
+  );
+  // On a TV the screen behind keeps mounting focusable rows; a dialog window
+  // takes the remote's focus and keeps it, and Back means Later.
+  return tv ? (
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={phase.kind === "downloading" ? () => {} : later}
+    >
+      {prompt}
+    </Modal>
+  ) : (
+    prompt
   );
 }
 
