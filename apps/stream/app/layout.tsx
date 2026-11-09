@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Atkinson_Hyperlegible_Next, Big_Shoulders } from "next/font/google";
 
+import { MyListProvider } from "@/components/my-list";
 import { SpatialNav } from "@/components/spatial-nav";
+import { VersionWatch } from "@/components/version-watch";
+import {
+  currentViewer,
+  savedTitleIds,
+  wantsLargeText,
+} from "@/lib/current-viewer";
 import { isTv } from "@/lib/viewer";
 import "./globals.css";
 
@@ -53,19 +60,28 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({
   children,
+  modal,
 }: {
   children: React.ReactNode;
+  modal: React.ReactNode;
 }) {
-  const tv = await isTv();
+  const [tv, viewer] = await Promise.all([isTv(), currentViewer()]);
+  const saved = viewer ? await savedTitleIds(viewer) : [];
+  const large = viewer ? wantsLargeText(viewer.audience) : false;
   return (
     <html
       lang="en"
       data-tv={tv ? "" : undefined}
+      data-large={large ? "" : undefined}
       className={`${display.variable} ${text.variable} h-full bg-ink text-paper antialiased`}
     >
       <body className="min-h-full">
         <SpatialNav tv={tv} />
-        {children}
+        <MyListProvider initial={saved}>
+          <div id="page">{children}</div>
+          {modal}
+        </MyListProvider>
+        <VersionWatch />
       </body>
     </html>
   );

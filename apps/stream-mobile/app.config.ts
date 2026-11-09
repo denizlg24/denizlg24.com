@@ -40,6 +40,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: "./assets/android-icon-foreground.png",
       backgroundColor: "#0c0b0a",
     },
+    // The in-app updater hands a downloaded APK to the system installer.
+    permissions: ["android.permission.REQUEST_INSTALL_PACKAGES"],
     blockedPermissions: [
       "android.permission.RECORD_AUDIO",
       "android.permission.SYSTEM_ALERT_WINDOW",

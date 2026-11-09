@@ -94,8 +94,11 @@ export function SpatialNav({ tv }: { tv: boolean }) {
       if (!next) return;
       event.preventDefault();
       next.focus({ preventScroll: true });
-      next.scrollIntoView({
-        block: "nearest",
+      // Rows page themselves horizontally; on a TV the focused row sits
+      // mid-screen so its heading and the next row stay in sight.
+      const row = next.closest(".row-scroller")?.parentElement;
+      (row ?? next).scrollIntoView({
+        block: tv && !next.closest("header") ? "center" : "nearest",
         inline: "nearest",
         behavior: "smooth",
       });
@@ -108,9 +111,9 @@ export function SpatialNav({ tv }: { tv: boolean }) {
     if (!tv) return;
     if (document.activeElement && document.activeElement !== document.body)
       return;
-    const first = document.querySelector<HTMLElement>(
-      "[data-nav-autofocus],[data-nav]",
-    );
+    const first =
+      document.querySelector<HTMLElement>("[data-nav-autofocus]") ??
+      document.querySelector<HTMLElement>("[data-nav]");
     first?.focus({ preventScroll: true });
   }, [tv]);
 

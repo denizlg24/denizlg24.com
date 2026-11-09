@@ -66,6 +66,13 @@ export const titleSummarySchema = z.object({
   posterPath: z.string().nullable(),
   backdropPath: z.string().nullable(),
   originalLanguage: z.string().nullable().optional(),
+  /** Transparent title-treatment image (TMDB logo), when TMDB has one. */
+  logoPath: z.string().nullable().optional(),
+  certification: z.string().nullable().optional(),
+  /** First release or air date, `YYYY-MM-DD`. */
+  releaseDate: z.string().nullable().optional(),
+  /** Only where a list shows it (New & Popular, the billboard). */
+  overview: z.string().nullable().optional(),
 });
 export type TitleSummary = z.infer<typeof titleSummarySchema>;
 
@@ -85,6 +92,9 @@ export const titleDetailSchema = titleSummarySchema.extend({
   /** YouTube key of the official trailer. */
   trailerKey: z.string().nullable(),
   cast: z.array(castMemberSchema),
+  /** Directors of a film, creators of a series. */
+  directors: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
   seasons: z.array(z.number().int()),
   episodeCount: z.number().int(),
   available: z.boolean(),
@@ -126,6 +136,8 @@ const csv = <T extends z.ZodType>(item: T) =>
 export const titleQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
   actor: z.string().trim().min(1).max(200).optional(),
+  /** A TMDB keyword, exactly as `TitleDetail.keywords` spells it. */
+  keyword: z.string().trim().min(1).max(80).optional(),
   type: titleTypeSchema.optional(),
   genres: csv(genreSchema).optional(),
   yearFrom: z.coerce.number().int().min(1870).max(2100).optional(),
@@ -162,8 +174,8 @@ export const profileColorSchema = z.enum(PROFILE_COLORS);
 export type ProfileColor = z.infer<typeof profileColorSchema>;
 
 /**
- * `studio` is Sofa / Tonight / Tune / Map; `classic` is large type and a few
- * plain rows, for whoever would rather not learn a new interface.
+ * Every client shows the same browse layout. `classic` keeps its name on the
+ * wire for older apps and now means "larger text"; `studio` is the default.
  */
 export const profileLayoutSchema = z.enum(["studio", "classic"]);
 export type ProfileLayout = z.infer<typeof profileLayoutSchema>;
@@ -234,6 +246,15 @@ export type ProgressInput = z.infer<typeof progressInputSchema>;
 export const continueWatchingItemSchema = z.object({
   title: titleSummarySchema,
   progress: progressSchema,
+  /** The episode in progress, for a series. */
+  episode: z
+    .object({
+      season: z.number().int().nullable(),
+      episode: z.number().int().nullable(),
+      title: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type ContinueWatchingItem = z.infer<typeof continueWatchingItemSchema>;
 
@@ -603,4 +624,107 @@ export function formatRuntime(minutes: number | null): string {
   const m = minutes % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Browse: `GET /api/v1/browse?profiles=a,b&tab=home|series|films|new`.
+ * A billboard over rows, ordered for whoever is on the sofa.
+ */
+export const browseTabSchema = z.enum(["home", "series", "films", "new"]);
+export type BrowseTab = z.infer<typeof browseTabSchema>;
+
+export const browseRowSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("continue"),
+    id: z.string(),
+    label: z.string(),
+    items: z.array(continueWatchingItemSchema),
+  }),
+  /** Ranked: clients draw the rank numeral beside each poster. */
+  z.object({
+    kind: z.literal("top10"),
+    id: z.string(),
+    label: z.string(),
+    items: z.array(titleSummarySchema).max(10),
+  }),
+  z.object({
+    kind: z.literal("titles"),
+    id: z.string(),
+    label: z.string(),
+    items: z.array(titleSummarySchema),
+    /** Wide backdrop tiles instead of posters (Netflix's "large row"). */
+    wide: z.boolean().optional(),
+    /** `titleQuerySchema` params that open the whole row as a grid. */
+    more: z.record(z.string(), z.string()).nullable().optional(),
+  }),
+]);
+export type BrowseRow = z.infer<typeof browseRowSchema>;
+
+export const billboardSchema = z.object({
+  title: titleDetailSchema,
+  /** One line on why it leads, e.g. "Because you watched Dune". */
+  reason: z.string().nullable(),
+  progress: progressSchema.nullable(),
+  inWatchlist: z.boolean(),
+});
+export type Billboard = z.infer<typeof billboardSchema>;
+
+export const browseSchema = z.object({
+  tab: browseTabSchema,
+  billboard: billboardSchema.nullable(),
+  rows: z.array(browseRowSchema),
+});
+export type Browse = z.infer<typeof browseSchema>;
+
+/**
+ * Search: `GET /api/v1/search?q=&profiles=a,b&type=`. Typo-tolerant across
+ * titles, original titles, cast, directors and keywords; empty `q` answers the
+ * popular searches (`titles` only).
+ */
+export const searchPersonSchema = z.object({
+  name: z.string(),
+  profilePath: z.string().nullable(),
+  /** Titles in the catalogue that credit them. */
+  count: z.number().int(),
+});
+export type SearchPerson = z.infer<typeof searchPersonSchema>;
+
+export const searchResultSchema = z.object({
+  query: z.string(),
+  titles: z.array(titleSummarySchema),
+  people: z.array(searchPersonSchema),
+  genres: z.array(genreSchema),
+  /** Themes worth a tap ("time travel", "heist") matching the query. */
+  keywords: z.array(z.string()),
+});
+export type SearchResult = z.infer<typeof searchResultSchema>;
+
+/** `GET /api/v1/titles/:id/similar?profiles=a,b` → `{ titles }`, "More like this". */
+export const similarTitlesSchema = z.object({
+  titles: z.array(titleSummarySchema),
+});
+export type SimilarTitles = z.infer<typeof similarTitlesSchema>;
+
+/** `GET /api/public/app/android`: the newest signed APK on GitHub. */
+export const appReleaseSchema = z.object({
+  version: z.string(),
+  url: z.url(),
+  notes: z.string(),
+  publishedAt: z.iso.datetime(),
+  sizeBytes: z.number().int().nullable(),
+});
+export type AppRelease = z.infer<typeof appReleaseSchema>;
+
+/** `GET /api/public/version`: the web build, so open tabs know to reload. */
+export const webVersionSchema = z.object({ version: z.string() });
+
+/** Numeric dotted-version comparison; non-numeric parts compare as 0. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const pb = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return Math.sign(diff);
+  }
+  return 0;
 }

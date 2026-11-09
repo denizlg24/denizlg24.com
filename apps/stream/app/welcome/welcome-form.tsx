@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 
 import { setUp } from "@/app/actions";
+import { Wordmark } from "@/components/brand";
 import { ColorChoice } from "@/components/color-choice";
 import { ProfileDisc } from "@/components/profile-disc";
-import { Wordmark } from "@/components/top-bar";
 
 export function WelcomeForm() {
   const router = useRouter();

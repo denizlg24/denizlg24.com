@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -55,6 +56,27 @@ export const titles = pgTable(
     certification: text("certification"),
     originalLanguage: text("original_language"),
     cast: jsonb("cast").$type<StoredCastMember[]>().notNull().default([]),
+    logoPath: text("logo_path"),
+    releaseDate: date("release_date"),
+    keywords: text("keywords").array().notNull().default(sql`'{}'::text[]`),
+    /** Directors of a film, creators of a series. */
+    directors: text("directors").array().notNull().default(sql`'{}'::text[]`),
+    /** Billed cast and directors, the names search and taste key on. */
+    people: text("people").array().notNull().default(sql`'{}'::text[]`),
+    /** TMDB's own recommendations for this title, as TMDB ids of the same kind. */
+    related: integer("related").array().notNull().default(sql`'{}'::int[]`),
+    tmdbPopularity: real("tmdb_popularity").notNull().default(0),
+    /** Bumped by `ENRICH_VERSION` so new TMDB fields backfill every row. */
+    enrichVersion: smallint("enrich_version").notNull().default(0),
+    searchTitle: text("search_title").generatedAlwaysAs(
+      sql`stream_fold(title || ' ' || coalesce(original_title, ''))`,
+    ),
+    searchPeople: text("search_people").generatedAlwaysAs(
+      sql`stream_fold_list(people)`,
+    ),
+    searchKeywords: text("search_keywords").generatedAlwaysAs(
+      sql`stream_fold_list(keywords)`,
+    ),
     enrichedAt: timestamp("enriched_at", { withTimezone: true }),
     ingestedAt: timestamp("ingested_at", { withTimezone: true })
       .notNull()
@@ -70,6 +92,27 @@ export const titles = pgTable(
     index("titles_title_trgm_idx").using(
       "gin",
       sql`lower(${table.title}) gin_trgm_ops`,
+    ),
+    index("titles_search_title_idx").using(
+      "gin",
+      sql`${table.searchTitle} gin_trgm_ops`,
+    ),
+    index("titles_search_people_idx").using(
+      "gin",
+      sql`${table.searchPeople} gin_trgm_ops`,
+    ),
+    index("titles_search_keywords_idx").using(
+      "gin",
+      sql`${table.searchKeywords} gin_trgm_ops`,
+    ),
+    index("titles_keywords_idx").using("gin", table.keywords),
+    index("titles_people_idx").using("gin", table.people),
+    index("titles_tmdb_idx").on(table.tmdbId),
+    index("titles_release_idx").on(table.releaseDate.desc()),
+    index("titles_tmdb_popularity_idx").on(table.tmdbPopularity.desc()),
+    index("titles_enrich_version_idx").on(
+      table.enrichVersion,
+      table.popularity.desc(),
     ),
     index("titles_unenriched_idx")
       .on(table.votes.desc())
@@ -195,6 +238,21 @@ export const recommendations = pgTable(
   (table) => [primaryKey({ columns: [table.audience, table.titleId] })],
 );
 
+/** TMDB's daily trending list, mapped onto the catalogue; rank 1 is the top. */
+export const trending = pgTable(
+  "trending",
+  {
+    titleId: text("title_id")
+      .primaryKey()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("trending_rank_idx").on(table.rank)],
+);
+
 export const ingestRuns = pgTable("ingest_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   kind: text("kind").notNull(),
@@ -215,6 +273,7 @@ export const schema = {
   watchlist,
   progress,
   recommendations,
+  trending,
   ingestRuns,
 };
 

@@ -41,8 +41,8 @@ describe("resolveAudience", () => {
     expect(resolveAudience(all, ["gone"])).toEqual([]);
   });
 
-  test("a classic lead watches alone", () => {
-    expect(resolveAudience(all, ["Nan", "Deniz"])).toEqual([nan]);
+  test("larger text never stops anyone watching together", () => {
+    expect(resolveAudience(all, ["Nan", "Deniz"])).toEqual([nan, deniz]);
   });
 });
 
@@ -57,15 +57,15 @@ describe("toggleSofa", () => {
     expect(toggleSofa(["Deniz", "Mum"], deniz, all).selection).toEqual(["Mum"]);
   });
 
-  test("a classic profile is single-select and starts at once", () => {
+  test("a larger-text profile joins like anyone else", () => {
     expect(toggleSofa(["Deniz", "Mum"], nan, all)).toEqual({
-      selection: ["Nan"],
-      start: true,
+      selection: ["Deniz", "Mum", "Nan"],
+      start: false,
     });
   });
 
-  test("a studio tap replaces a classic choice", () => {
-    expect(toggleSofa(["Nan"], mum, all).selection).toEqual(["Mum"]);
+  test("ids of deleted profiles drop out", () => {
+    expect(toggleSofa(["gone"], mum, all).selection).toEqual(["Mum"]);
   });
 });
 

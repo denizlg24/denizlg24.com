@@ -21,8 +21,9 @@ export interface ButtonProps
   loading?: boolean;
   /** Full width of the parent. */
   block?: boolean;
-  /** `classic` is the big-type layout's button: taller, 20 pt label. */
-  size?: "regular" | "large" | "classic";
+  size?: "regular" | "large";
+  /** Square-ish corners instead of the primary pill, as on the phone's title pages. */
+  rounded?: boolean;
   /** Solid glyphs, e.g. the play triangle. */
   filledIcon?: boolean;
   /** On a TV, takes the remote's focus when it mounts. */
@@ -35,7 +36,6 @@ const REPEAT_MS = 600;
 const labelVariant: Record<NonNullable<ButtonProps["size"]>, TypeVariant> = {
   regular: "callout",
   large: "headline",
-  classic: "classicLabel",
 };
 
 export function Button({
@@ -45,6 +45,7 @@ export function Button({
   loading,
   block,
   size = "regular",
+  rounded,
   disabled,
   onPress,
   filledIcon,
@@ -101,8 +102,7 @@ export function Button({
       style={({ pressed }) => [
         styles.base,
         size === "large" ? styles.large : null,
-        size === "classic" ? styles.classic : null,
-        variant === "primary" ? styles.pill : null,
+        variant === "primary" && !rounded ? styles.pill : null,
         block ? styles.block : null,
         {
           backgroundColor: background,
@@ -113,17 +113,17 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={foreground} />
       ) : (
-        <View style={styles.row}>
+        <View style={[styles.row, block ? styles.shrink : null]}>
           {Icon ? (
             <Icon
               color={foreground}
-              size={size === "classic" ? 24 : size === "large" ? 20 : 17}
+              size={size === "large" ? 20 : 17}
               fill={filledIcon ? foreground : "none"}
             />
           ) : null}
           <Text
             variant={labelVariant[size]}
-            style={{ color: foreground }}
+            style={[styles.label, { color: foreground }]}
             numberOfLines={1}
           >
             {label}
@@ -143,8 +143,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   large: { minHeight: 52, paddingHorizontal: spacing.xl },
-  classic: { minHeight: 64, paddingHorizontal: spacing.xxl },
   block: { alignSelf: "stretch" },
   pill: { borderRadius: radius.pill },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  shrink: { maxWidth: "100%" },
+  label: { flexShrink: 1 },
 });

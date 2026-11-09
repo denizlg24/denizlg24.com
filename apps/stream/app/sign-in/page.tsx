@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { Wordmark } from "@/components/top-bar";
+import { Wordmark } from "@/components/brand";
 import { auth } from "@/lib/auth";
 import { authAppUrl, streamBaseUrl } from "@/lib/config";
 

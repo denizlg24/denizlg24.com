@@ -19,6 +19,7 @@ export default async function SofaPage({ searchParams }: PageProps<"/sofa">) {
       profiles={profiles}
       initial={sitting.map((profile) => profile.id)}
       next={next}
+      together={params.together === "1"}
     />
   );
 }

@@ -9,7 +9,6 @@ import { router } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -107,6 +106,7 @@ export function EditorScreen({ id }: { id: string | null }) {
       <View style={styles.nameRow}>
         <Avatar name={name || "?"} color={color} size={56} />
         <TextInput
+          keyboardAppearance="dark"
           value={name}
           onChangeText={setName}
           placeholder="Name"
@@ -126,21 +126,18 @@ export function EditorScreen({ id }: { id: string | null }) {
       </Text>
       <ColorPicker value={color} onChange={setColor} />
 
-      <Text variant="label" color="muted">
-        Layout
-      </Text>
-      <View style={styles.layouts} accessibilityRole="radiogroup">
-        <LayoutOption
-          title="Full layout"
-          detail="Tonight's picks, dials for browsing and the map. Several people can watch together."
-          selected={layout === "studio"}
-          onPress={() => setLayout("studio")}
-        />
-        <LayoutOption
-          title="Simple layout with bigger text"
-          detail="Large writing and big buttons: Home, Search and My list. Nothing new to learn."
-          selected={layout === "classic"}
-          onPress={() => setLayout("classic")}
+      <View style={styles.switchRow}>
+        <View style={styles.grow}>
+          <Text variant="headline">Larger text</Text>
+          <Text variant="footnote" color="muted">
+            Bigger writing everywhere in the app, for easier reading.
+          </Text>
+        </View>
+        <Switch
+          value={layout === "classic"}
+          onValueChange={(on) => setLayout(on ? "classic" : "studio")}
+          trackColor={{ true: colors.amber, false: colors.raised }}
+          accessibilityLabel="Larger text"
         />
       </View>
 
@@ -228,59 +225,7 @@ export function EditorScreen({ id }: { id: string | null }) {
   );
 }
 
-function LayoutOption({
-  title,
-  detail,
-  selected,
-  onPress,
-}: {
-  title: string;
-  detail: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      accessibilityLabel={`${title}. ${detail}`}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.option,
-        {
-          backgroundColor: selected ? colors.lifted : "transparent",
-          opacity: pressed ? 0.7 : 1,
-        },
-      ]}
-    >
-      <View style={[styles.radio, selected ? styles.radioOn : null]} />
-      <View style={styles.grow}>
-        <Text variant="headline">{title}</Text>
-        <Text variant="footnote" color="muted">
-          {detail}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  layouts: { gap: spacing.xs },
-  option: {
-    flexDirection: "row",
-    gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radius.md,
-  },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.muted,
-    marginTop: 1,
-  },
-  radioOn: { borderColor: colors.amber, borderWidth: 6 },
   content: { padding: gutter, gap: spacing.lg },
   nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   input: {

@@ -29,11 +29,15 @@ import {
 } from "@/db/schema";
 import { type AudienceRules, audienceRules } from "@/lib/audience-rules";
 import { audienceFilter, serializeSummary } from "@/lib/catalog";
+import { candidatePool as engineCandidates, loadAudience } from "@/lib/engine";
+import { diversify, signalOf } from "@/lib/engine/taste";
 import {
   languagePreferences,
   preferenceScore,
 } from "@/lib/recommendation-ranking";
 import { postToWeb } from "@/lib/web";
+
+export { signalOf };
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const POOL = 120;
@@ -55,7 +59,18 @@ export function audienceKey(profiles: readonly ProfileRow[]): string {
     .join(",");
 }
 
-export function candidate(row: TitleRow): RecommendationCandidate {
+export function candidate(
+  row: Pick<
+    TitleRow,
+    | "id"
+    | "title"
+    | "startYear"
+    | "type"
+    | "genres"
+    | "rating"
+    | "originalLanguage"
+  >,
+): RecommendationCandidate {
   return {
     id: row.id,
     title: row.title,
@@ -81,18 +96,6 @@ export function genreAffinity(
     }
   }
   return weights;
-}
-
-export function signalOf(row: {
-  completed: boolean;
-  positionS: number;
-  durationS: number;
-  updatedAt: Date;
-}): Signal {
-  if (row.completed) return "finished";
-  const stale = Date.now() - row.updatedAt.getTime() > 14 * 86_400_000;
-  const barely = row.durationS > 0 && row.positionS / row.durationS < 0.15;
-  return stale && barely ? "abandoned" : "watching";
 }
 
 export async function profileHistory(
@@ -173,7 +176,7 @@ export async function askWeb(
 }
 
 function fallbackReason(
-  row: TitleRow,
+  row: Pick<TitleRow, "genres" | "rating">,
   affinity: Map<string, number>,
   group: boolean,
 ): string {
@@ -212,11 +215,19 @@ async function generate(profiles: ProfileRow[]): Promise<void> {
       })),
     ),
   );
-  const pool = (await candidatePool(rules, affinity, seen, languages)).sort(
-    (a, b) =>
-      preferenceScore(candidate(b), personal) -
-        preferenceScore(candidate(a), personal) || b.popularity - a.popularity,
+  const model = await loadAudience(profiles);
+  const engine = diversify(await engineCandidates(model, null), POOL).map(
+    (item) => item.title,
   );
+  const pool =
+    engine.length > 0
+      ? engine
+      : (await candidatePool(rules, affinity, seen, languages)).sort(
+          (a, b) =>
+            preferenceScore(candidate(b), personal) -
+              preferenceScore(candidate(a), personal) ||
+            b.popularity - a.popularity,
+        );
   if (pool.length === 0) return;
   const picks = await askWeb({
     audience: profiles.map((profile) => ({

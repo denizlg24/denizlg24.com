@@ -15,6 +15,13 @@
       "when": 1792824527115,
       "tag": "0001_profile_indian_cinema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794235407705,
+      "tag": "0002_netflix_catalogue",
+      "breakpoints": true
     }
   ]
 }

@@ -10,23 +10,18 @@ import { colors, radius, spacing, type TypeVariant } from "./theme";
  */
 export function MetaRow({
   facts,
-  large,
   hide = [],
   style,
 }: {
   facts: TitleFacts;
-  /** Classic's 20 pt. */
-  large?: boolean;
   hide?: (keyof TitleFacts)[];
   style?: ViewStyle;
 }) {
-  const variant: TypeVariant = large ? "classicBody" : "subheadline";
+  const variant: TypeVariant = "subheadline";
   const shown = (key: keyof TitleFacts) => !hide.includes(key) && facts[key];
   return (
-    <View style={[styles.row, large ? styles.large : null, style]}>
-      {shown("rating") ? (
-        <Rating value={facts.rating ?? ""} large={large} />
-      ) : null}
+    <View style={[styles.row, style]}>
+      {shown("rating") ? <Rating value={facts.rating ?? ""} /> : null}
       {shown("kind") ? <Text variant={variant}>{facts.kind}</Text> : null}
       {shown("years") ? (
         <Text variant={variant} color="muted">
@@ -40,7 +35,7 @@ export function MetaRow({
       ) : null}
       {shown("certification") ? (
         <View style={styles.badge}>
-          <Text variant={large ? "classicLabel" : "caption"} color="muted">
+          <Text variant="caption" color="muted">
             {facts.certification}
           </Text>
         </View>
@@ -49,21 +44,18 @@ export function MetaRow({
   );
 }
 
-export function Rating({ value, large }: { value: string; large?: boolean }) {
+export function Rating({ value }: { value: string }) {
   return (
     // The label sits on the text: an `accessible` View is a stop for a TV
     // remote's focus on Android, and this one has nothing to press.
     <View style={styles.rating}>
       <Star
-        size={large ? 20 : 14}
+        size={14}
         color={colors.amber}
         fill={colors.amber}
         strokeWidth={1.5}
       />
-      <Text
-        variant={large ? "classicLabel" : "callout"}
-        accessibilityLabel={`Rated ${value} out of 10`}
-      >
+      <Text variant="callout" accessibilityLabel={`Rated ${value} out of 10`}>
         {value}
       </Text>
     </View>
@@ -78,7 +70,6 @@ const styles = StyleSheet.create({
     columnGap: spacing.md,
     rowGap: spacing.xs,
   },
-  large: { columnGap: spacing.lg },
   rating: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   badge: {
     borderWidth: 1,

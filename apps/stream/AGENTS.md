@@ -45,7 +45,44 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
   has it on. The language comes from TMDB, so unenriched titles pass. A cache
   that holds filtered titles is keyed by `rulesKey`, and changing a profile
   field that affects picks invalidates its recommendations in `updateProfile`.
-- **Recommendations go through web's `llm-service`**
+- **Browse is a billboard over rows, built by `lib/engine`, not a model.**
+  `GET /api/v1/browse?profiles=&tab=home|series|films|new` (`buildBrowse`,
+  `lib/browse.ts`). `lib/engine/taste.ts` is pure and tested: a title is a
+  bag of weighted features (genres, TMDB keywords, billed cast, directors,
+  language, decade, kind); a profile's taste is that bag summed over its
+  progress and list rows, signal-weighted and halved every 120 days;
+  a candidate scores on overlap (a group's mean pulled toward its least
+  pleased member), a Bayesian quality prior, reach, freshness, and a boost
+  when TMDB recommends it for something the sofa liked. Rows are diversified
+  with MMR and a title appears in two rows at most. A page is cached in
+  memory per audience and tab until anyone on the sofa watches or saves
+  something (`stateStamp`) or 15 minutes pass. `GET /titles/:id/similar`
+  ranks TMDB's recommendations and feature overlap the same way.
+- **Search is trigram over folded columns.** `stream_fold` (SQL) and
+  `lib/fold.ts` (its JS twin, tested for parity) lower-case, strip accents
+  and punctuation; `search_title`, `search_people` and `search_keywords` are
+  stored generated columns with trigram indexes (`array_to_string` is only
+  STABLE, hence `stream_fold_list`). `GET /api/v1/search` lowers
+  `pg_trgm.word_similarity_threshold` for its own transaction so typos
+  match; `/titles?q=` uses the same match and relevance at the default
+  threshold. People, genres and themes in the answer come from the matched
+  rows and an alias table, never a second index.
+- **`ENRICH_VERSION` re-enriches the whole catalogue.** Raising it makes the
+  enrich job revisit every row below it, unenriched first, then by
+  popularity; a stored `tmdb_id` skips `/find`. Version 2 added logos,
+  release dates, keywords, directors, `people`, TMDB's recommendations
+  (`related`, TMDB ids of the same kind) and TMDB popularity — until it has
+  run over a title, that title has no themes, logo or "More like this" of
+  its own. The enrich job also refreshes `trending` (TMDB's day lists, every
+  6 h) and imports trending titles IMDb's vote floor has not let in yet,
+  by their IMDb id, so this week's releases exist.
+- **Installed Android apps update from GitHub.** `GET /api/public/app/android`
+  answers the newest `stream-android-v*` release with an APK (cached 15
+  min; `GITHUB_TOKEN` optional); the app downloads it and hands it to the
+  system installer.
+- **The LLM now only explains and answers Ask.** Old clients' `/tonight` and
+  `/home` still use `recommendationsFor`, whose pool is the engine's top
+  120. **Recommendations go through web's `llm-service`**
   (`POST /api/admin/stream/recommendations`, `client_credentials` with
   `STREAM_WEB_OAUTH_CLIENT_ID/SECRET`). The candidate pool is built here, and
   a pick outside it is dropped. Language interest comes from positive viewing/saves (English at cold start);
@@ -103,7 +140,7 @@ empty states. Owner-only detail lives on `/profiles` behind `role = owner`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 

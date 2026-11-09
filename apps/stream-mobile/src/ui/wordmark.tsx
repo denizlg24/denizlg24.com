@@ -21,7 +21,7 @@ export function Wordmark({ size = 26 }: { size?: number }) {
         style={{
           fontFamily: fonts.display,
           fontSize: size,
-          lineHeight: Math.round(size * 0.92),
+          lineHeight: Math.round(size * 1.1),
         }}
       >
         STREAM

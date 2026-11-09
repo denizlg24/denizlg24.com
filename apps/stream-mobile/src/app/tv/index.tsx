@@ -1,3 +1,5 @@
-import { TvHomeScreen } from "@/features/tv/home-screen";
+import { TvBrowseScreen } from "@/features/tv/browse-screen";
 
-export default TvHomeScreen;
+export default function Browse() {
+  return <TvBrowseScreen tab="home" />;
+}

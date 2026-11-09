@@ -14,16 +14,16 @@ import { addProfile, editProfile, removeProfile } from "@/app/actions";
 import { ColorChoice } from "@/components/color-choice";
 import { ProfileDisc } from "@/components/profile-disc";
 
-const LAYOUTS: { value: ProfileLayout; title: string; body: string }[] = [
+const TEXT_SIZES: { value: ProfileLayout; title: string; body: string }[] = [
   {
     value: "studio",
-    title: "Studio",
-    body: "Tonight's picks, the dials and the map.",
+    title: "Standard text",
+    body: "The usual size.",
   },
   {
     value: "classic",
-    title: "Simple",
-    body: "Bigger text and a few plain rows. Easy on a TV.",
+    title: "Larger text",
+    body: "Everything a little bigger and easier to read. Applies whenever this profile is watching.",
   },
 ];
 
@@ -113,11 +113,9 @@ export function ProfileEditor({
         <ColorChoice value={color} onChange={setColor} />
       </fieldset>
       <fieldset className="space-y-3">
-        <legend className="mb-3 text-sm text-muted">
-          How Stream looks for this profile
-        </legend>
+        <legend className="mb-3 text-sm text-muted">Text size</legend>
         <div className="grid gap-3 sm:grid-cols-2">
-          {LAYOUTS.map((option) => (
+          {TEXT_SIZES.map((option) => (
             <button
               key={option.value}
               type="button"

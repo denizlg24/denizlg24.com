@@ -5,7 +5,7 @@ import {
   titleQuerySchema,
 } from "@repo/schemas/stream";
 
-/** What Tune's dials and classic Search edit; serialised into a `TitleQuery`. */
+/** What the TV's Tune dials edit; serialised into a `TitleQuery`. */
 export interface TitleFilters {
   q: string;
   type: TitleType | null;
