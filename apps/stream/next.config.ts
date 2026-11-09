@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
+// Open tabs compare this with `/api/public/version` and reload after a deploy.
+const buildVersion =
+  process.env.SOURCE_COMMIT ||
+  process.env.GIT_COMMIT_SHA ||
+  process.env.GITHUB_SHA ||
+  String(Date.now());
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: { NEXT_PUBLIC_STREAM_BUILD: buildVersion },
   poweredByHeader: false,
   transpilePackages: ["@repo/stream-player"],
   images: {

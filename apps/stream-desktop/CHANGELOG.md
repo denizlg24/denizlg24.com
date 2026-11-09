@@ -4,6 +4,15 @@ What changed in each Stream desktop release, newest first. The GitHub release
 for a version opens with its entry. Each release is a
 `## <version> — <YYYY-MM-DD>` heading.
 
+## 0.1.2 — 2026-11-09
+
+### Changed
+- Stream now looks for updates every few hours while it stays open, not only
+  when it starts. Choosing "Later" waits until the next version.
+- The app inside the window has been redesigned: a new home with a featured
+  title and rows picked for whoever is watching, faster search that copes
+  with typos, and "More like this" on every title.
+
 ## 0.1.1 — 2026-10-24
 
 ### Fixed

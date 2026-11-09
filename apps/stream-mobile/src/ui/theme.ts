@@ -41,7 +41,7 @@ export const profileColorNames: Record<ProfileColor, string> = {
   rose: "Rose",
 };
 
-/** Map tints: each genre's dots take the hue of its nearest anchor. */
+/** Each genre's own hue, for the category tiles. */
 export const genreTints: Record<Genre, string> = {
   Action: "#e8743b",
   Adventure: "#d9a04a",
@@ -110,13 +110,13 @@ const text = (
 });
 
 export const typeScale = {
-  /** The Tonight lead and the title page. */
+  /** The largest display size: a title page without a logo. */
   marquee: display(60),
   hero: display(44),
   /** Section headings. */
   display: display(34, fonts.displayBold),
   title: display(26, fonts.displayBold),
-  /** Small display: titles set on stills, dial readings. */
+  /** Small display: titles set on stills. */
   heading: display(21, fonts.displayBold),
   headline: text(17, 22, fonts.bold),
   /** A reason, an overview: 19 pt, comfortably spaced. */
@@ -126,13 +126,8 @@ export const typeScale = {
   subheadline: text(14, 19),
   footnote: text(13, 18),
   caption: text(12, 16),
-  /** Sentence-case bold labels: dial names, filters. */
+  /** Sentence-case bold labels: filters, small buttons. */
   label: text(14, 18, fonts.bold),
-  /** Classic: about 20 pt body, for whoever wants it big. */
-  classicTitle: display(40),
-  classicHeading: text(24, 30, fonts.bold),
-  classicBody: text(20, 28),
-  classicLabel: text(20, 24, fonts.bold),
 } satisfies Record<string, TextStyle>;
 
 export type TypeVariant = keyof typeof typeScale;
@@ -151,6 +146,9 @@ export const spacing = {
 export const gutter = spacing.xl;
 export const hairline = StyleSheet.hairlineWidth;
 export const radius = { poster: 4, sm: 6, md: 10, lg: 14, pill: 999 } as const;
+
+/** "Larger text" (a profile's `classic` layout on the wire) scales every `Text` by this. */
+export const LARGER_TEXT_SCALE = 1.2;
 
 /** Poster artwork is 2:3, backdrops 16:9. */
 export const POSTER_RATIO = 2 / 3;

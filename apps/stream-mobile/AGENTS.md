@@ -49,38 +49,50 @@ SecureStore so a cold start offline still finds the session). PKCE through
   whose `^build` builds it once. Rebuilding it inside `typecheck` raced every
   other package reading `dist/` in the same turbo run.
 - `GET /me`: 403 `not_a_member` → "not on the list" screen with Sign out;
-  409 `needs_setup` → Welcome (name + colour, `POST /me`), then the sofa;
+  409 `needs_setup` → Welcome (name + colour, `POST /me`), then "Who's watching?";
   anything else that fails (503 `auth_unavailable`, offline) → retry
   screen, never a sign-out. `lib/member-status.ts` decides. Any other 401
   signs out (the SDK already refreshed before expiry).
 
-## The sofa and the two layouts
+## The phone: one navigator, Netflix's layout
 
-`lib/audience.ts` (pure, tested): the sofa's choice is stored in
-SecureStore; stale ids drop out; an account with one profile never sees
-the sofa; the first seated profile leads — its `layout` picks the
-navigator and profile-scoped routes (progress, list, `?profile=`) use it.
-A classic profile is single-select and starts at once. `?profiles=` routes
-(`/tonight`, `/grid/highlights`) take the whole audience.
+`lib/audience.ts` (pure, tested): who is watching is stored in SecureStore;
+stale ids drop out; an account with one profile never sees "Who's
+watching?"; the first seated profile leads and profile-scoped routes
+(progress, list, `?profile=`) use it. `?profiles=` routes (`/browse`,
+`/search`, `/titles/:id/similar`) take the whole audience. A profile's
+`layout` no longer picks a navigator: `classic` on the wire means "Larger
+text", and the phone wraps its stack in `TextScaleContext`
+(`LARGER_TEXT_SCALE`), which every `Text` reads. It never limits who can
+watch together.
 
-`app/_layout.tsx` gates with `Stack.Protected`: `(studio)` (native tabs
-Tonight · Tune · Map · Shelf · Ask), `(classic)` (expo-router/ui tabs as four
-big labelled buttons along the top, ~20 pt type; its Ask is `/ideas`
-because both groups share one URL space), shared `title/[id]`,
-`watch/[id]`, `account`; `sofa` is reachable always. `/` redirects by
-layout.
+`app/_layout.tsx` (`PhoneNavigator`) gates with `Stack.Protected`: `(tabs)`
+(native tabs Home · New & Popular · My Stream), `title/[id]`, `watch/[id]`,
+`actor/[name]`, `browse` (any `GET /titles` query as a three-up grid:
+a row's `more`, a genre, a keyword), `list`, `search`, `ask`, `categories`
+(transparent genre picker) and `account`; `who` and `profile-edit` are
+reachable always. `/` redirects to `/home`.
 
-- **Tune** — `features/tune/dials.ts` (pure, tested) maps stop indices to
-  `TitleFilters` (`runtimeMax`, a ±0.35 `moodMin/moodMax` window, decade
-  `yearFrom/yearTo`, `ratingMin`, `type`). `TunerBand`/`RangeBand` run the
-  needle on the UI thread with a haptic tick per stop and commit on lift.
-  The grid is an `Animated.FlatList` with `itemLayoutAnimation`.
-- **Map** — endless fixed-size poster grid (`features/grid`). A pan runs
-  on the UI thread, renders only the visible cells plus a margin, and snaps
-  to the nearest cell with light momentum. Tap once to focus and again to
-  open the title. `grid/meta`, `grid`, and `grid/highlights` take the whole
-  audience; aligned 24×16 blocks wrap on the torus and cache by audience,
-  filter and block coordinates. No zoom or scatter-map routes remain.
+- **Who's watching?** (`features/profiles/who-screen.tsx`): tap a profile to
+  start; "Watch together" turns the tiles into toggles with a Start button;
+  Edit opens the profile editor.
+- **Home** (`features/browse`): a top bar that darkens with the scroll,
+  Series / Films chips switching `/browse`'s `tab`, Categories, the
+  billboard card, then rows by kind (`rows.tsx`: posters, `wide` stills,
+  `top10` with outlined numerals, `continue` with progress, episode and
+  Info). Every row is a horizontal `FlatList` with `getItemLayout`; tile
+  sizes come from `metrics.ts`, scaled to the screen width.
+- **New & Popular**: `tab=new` rows as sections of wide cards, a date column
+  (`lib/release.ts`) or the Top 10 numeral beside each.
+- **Search**: debounced (`lib/use-debounced.ts`); empty shows popular
+  searches; results are a poster grid with people, genre and keyword chips
+  that open `/browse`. "Not sure what to watch?" opens Ask.
+- **My Stream**: the audience, Continue watching, My List, Recently finished
+  (`grid/highlights` watched ids, detailed through `useTitleDetails`), and
+  settings rows.
+- **Title**: backdrop (tap plays the trailer on YouTube), logo or name,
+  facts, Play/Resume, overview and credits that expand, My List, then tabs
+  Episodes (season picker modal) · More like this · Trailers.
 
 ## Player
 
@@ -106,11 +118,31 @@ clip it and use `/subtitles` instead.
 ## Google TV
 
 The same APK. `Platform.isTV` switches the root layout to its own stack
-(`app/tv/*` over `features/tv`): sign-in by code, "Who's watching?", Home
-(rails under a backdrop that follows focus), Tonight (the sofa's programme,
-as on the web's front page), Ask, Tune (each dial a row of stops), Search,
-My list, the title page (trailer through the YouTube app, cast), actor pages
-and the player. Landscape throughout; overscan margins are `TV_SAFE`.
+(`app/tv/*` over `features/tv`), laid out like Netflix on a TV: sign-in by
+code, "Who's watching?" (OK starts; Watch together turns the tiles into
+toggles), Home / Series / Films / New & Popular (`browse-screen.tsx` over
+`useBrowse`), Search (on-screen keyboard, `useSearch`), My List, the title
+page (Episodes, More like this, cast), `collection` (a genre or keyword
+grid), actor pages, Ask (from Search) and the player. Landscape throughout;
+overscan margins are `TV_SAFE`, sizes in `features/tv/layout.ts`.
+
+- **Browsing screens sit in `TvShell`**: a left rail collapsed to icons.
+  Left from the first column lands on an invisible full-height catcher that
+  opens the rail onto the current section; Right from the rail lands on a
+  second catcher (`nextFocusRight`) that sends focus back through the
+  screen's `FocusMemory` (`focus-memory.ts`: every `Focusable` with a
+  `focusKey` notes itself; `restore` turns one item's `preferred` true, so
+  only that item re-renders). Back opens the rail; Back in the rail goes
+  Home, and on Home leaves the app.
+- **Rows scroll only where we say.** Vertical and horizontal lists run with
+  `scrollEnabled={false}` and `scrollsChildToFocus={false}`, so Android's
+  focus search moves focus and nothing scrolls natively; the focused row
+  snaps under the billboard and the focused tile to the content's left edge
+  with animated `scrollTo`. Each row remembers its column and redirects an
+  arriving focus to it. The last tile traps Right (`next={{ right: "self" }}`,
+  Android's `nextFocus*` with the view's own id) so focus never jumps rows.
+  The billboard's buttons are focusable only while the first row (or they)
+  have focus; hidden, they would win Up from every row.
 
 - **Moving focus must re-render nothing.** `Focusable` animates its ring and
   lift with shared values (a function child is the only thing that re-renders
@@ -164,6 +196,20 @@ and the player. Landscape throughout; overscan margins are `TV_SAFE`.
 - **`plugins/with-android-tv.js`** adds `LEANBACK_LAUNCHER`, the
   `@drawable/tv_banner` (`assets/tv-banner.png`, drawn by `bun run icons`)
   and leanback/touchscreen as optional features, so phones still install it.
+
+## Updates
+
+The APK is installed by hand, so the app updates itself on Android (phone
+and Google TV alike): `features/update/update-prompt.tsx` asks
+`GET /api/public/app/android` on launch and on returning to the
+foreground, at most every 6 h, compares with `expoConfig.version`
+(`lib/app-update.ts`, tested), and offers the newest signed release.
+"Update now" downloads the APK into the cache (`expo-file-system/legacy`,
+for progress) and hands its content URI to the system installer through
+`expo-intent-launcher`; `REQUEST_INSTALL_PACKAGES` is in `app.config.ts`.
+Android itself asks the person to allow installs from Stream the first time.
+"Later" holds for a day per version. iOS shows nothing. 0.3.0 is the first
+version with the updater: anything older has to be installed by hand once.
 
 ## Android
 

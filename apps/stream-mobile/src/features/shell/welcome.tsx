@@ -35,6 +35,7 @@ export function Welcome() {
       <View style={styles.preview}>
         <Avatar name={name || "?"} color={color} size={64} />
         <TextInput
+          keyboardAppearance="dark"
           value={name}
           onChangeText={setName}
           placeholder="Your name"

@@ -37,8 +37,8 @@ export function AccountScreen() {
     >
       <Text variant="display">Profiles</Text>
       <Text variant="body" color="muted">
-        Everyone at home can have their own profile, with their own list, picks
-        and layout.
+        Everyone at home can have their own profile, with their own list and
+        suggestions.
       </Text>
       <View style={styles.list}>
         {profiles.map((profile) => (
@@ -62,13 +62,11 @@ export function AccountScreen() {
               <Text variant="headline">{profile.name}</Text>
               <Text variant="footnote" color="muted">
                 {[
-                  profile.layout === "classic"
-                    ? "Simple layout, bigger text"
-                    : "Full layout",
                   profile.kids ? "Kids" : null,
+                  profile.layout === "classic" ? "Larger text" : null,
                 ]
                   .filter(Boolean)
-                  .join(", ")}
+                  .join(", ") || "Standard profile"}
               </Text>
             </View>
             <Text variant="callout" color="amber">
@@ -91,7 +89,7 @@ export function AccountScreen() {
         block
         onPress={() => {
           router.back();
-          router.push("/sofa");
+          router.push("/who");
         }}
       />
       <View style={styles.rule} />

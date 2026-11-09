@@ -39,6 +39,7 @@ import {
   watchlist,
 } from "@/db/schema";
 import { type AudienceRules, INDIAN_LANGUAGES } from "@/lib/audience-rules";
+import { searchMatch, searchRelevance } from "@/lib/search-sql";
 
 /** Certifications a kids profile may see, across the US and UK systems TMDB reports. */
 const KIDS_CERTIFICATIONS = [
@@ -79,7 +80,55 @@ export function audienceFilter({ kids, hideIndianCinema }: AudienceRules): SQL {
   ) as SQL;
 }
 
-export function serializeSummary(row: TitleRow): TitleSummary {
+/** What lists and the engine read: everything but overview, cast and search text. */
+export const listColumns = {
+  id: titles.id,
+  type: titles.type,
+  title: titles.title,
+  startYear: titles.startYear,
+  endYear: titles.endYear,
+  runtimeMinutes: titles.runtimeMinutes,
+  genres: titles.genres,
+  rating: titles.rating,
+  votes: titles.votes,
+  popularity: titles.popularity,
+  originalLanguage: titles.originalLanguage,
+  posterPath: titles.posterPath,
+  backdropPath: titles.backdropPath,
+  logoPath: titles.logoPath,
+  certification: titles.certification,
+  releaseDate: titles.releaseDate,
+  keywords: titles.keywords,
+  people: titles.people,
+  directors: titles.directors,
+  related: titles.related,
+  tmdbId: titles.tmdbId,
+  tmdbPopularity: titles.tmdbPopularity,
+  trailerKey: titles.trailerKey,
+  overview: titles.overview,
+};
+export type ListRow = { [K in keyof typeof listColumns]: TitleRow[K] };
+
+export function serializeSummary(
+  row: Pick<
+    TitleRow,
+    | "id"
+    | "type"
+    | "title"
+    | "startYear"
+    | "endYear"
+    | "runtimeMinutes"
+    | "genres"
+    | "rating"
+    | "votes"
+    | "originalLanguage"
+    | "posterPath"
+    | "backdropPath"
+    | "logoPath"
+    | "certification"
+    | "releaseDate"
+  >,
+): TitleSummary {
   return {
     id: row.id,
     type: row.type,
@@ -93,7 +142,15 @@ export function serializeSummary(row: TitleRow): TitleSummary {
     originalLanguage: row.originalLanguage,
     posterPath: row.posterPath,
     backdropPath: row.backdropPath,
+    logoPath: row.logoPath,
+    certification: row.certification,
+    releaseDate: row.releaseDate,
   };
+}
+
+/** A summary that carries its overview, for lists that print it. */
+export function serializeWithOverview(row: ListRow): TitleSummary {
+  return { ...serializeSummary(row), overview: row.overview };
 }
 
 export function serializeProgress(row: ProgressRow): Progress {
@@ -124,14 +181,15 @@ const TYPE_OF = {
 
 export function titleFilters(query: TitleQuery, rules: AudienceRules): SQL {
   const filters: SQL[] = [audienceFilter(rules)];
-  if (query.q) {
-    filters.push(
-      sql`lower(${titles.title}) like ${`%${query.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`}`,
-    );
-  }
+  if (query.q) filters.push(searchMatch(query.q));
+  if (query.keyword)
+    filters.push(arrayContains(titles.keywords, [query.keyword.toLowerCase()]));
   if (query.actor)
     filters.push(
-      sql`exists (select 1 from jsonb_array_elements(${titles.cast}) person where person->>'name' = ${query.actor})`,
+      or(
+        arrayContains(titles.people, [query.actor]),
+        sql`exists (select 1 from jsonb_array_elements(${titles.cast}) person where person->>'name' = ${query.actor})`,
+      ) as SQL,
     );
   if (query.type) filters.push(eq(titles.type, TYPE_OF[query.type]));
   if (query.genres && query.genres.length > 0) {
@@ -156,12 +214,16 @@ export async function queryTitles(
   rules: AudienceRules,
 ): Promise<TitlePage> {
   const where = titleFilters(query, rules);
+  const order =
+    query.q && query.sort === "popular"
+      ? [desc(searchRelevance(query.q)), ...SORTS.popular]
+      : SORTS[query.sort];
   const [rows, [{ total }]] = await Promise.all([
     db
       .select()
       .from(titles)
       .where(where)
-      .orderBy(...SORTS[query.sort])
+      .orderBy(...order)
       .limit(query.limit)
       .offset(query.cursor),
     db.select({ total: sql<number>`count(*)::int` }).from(titles).where(where),
@@ -204,6 +266,8 @@ export async function titleDetail(row: TitleRow): Promise<TitleDetail> {
     originalLanguage: row.originalLanguage,
     trailerKey: row.trailerKey,
     cast: row.cast,
+    directors: row.directors,
+    keywords: row.keywords,
     seasons: seasons.flatMap(({ season }) => (season === null ? [] : [season])),
     episodeCount,
     // `selectPlayback` gives every film an embed, and a series one once it
@@ -363,9 +427,10 @@ export async function continueWatching(
   limit = 20,
 ): Promise<ContinueWatchingItem[]> {
   const rows = await db
-    .select({ title: titles, progress })
+    .select({ title: titles, progress, episode: episodes })
     .from(progress)
     .innerJoin(titles, eq(titles.id, progress.titleId))
+    .leftJoin(episodes, eq(episodes.id, progress.episodeId))
     .where(
       and(
         eq(progress.profileId, profileId),
@@ -381,6 +446,13 @@ export async function continueWatching(
   return rows.map((row) => ({
     title: serializeSummary(row.title),
     progress: serializeProgress(row.progress),
+    episode: row.episode
+      ? {
+          season: row.episode.season,
+          episode: row.episode.episode,
+          title: row.episode.title,
+        }
+      : null,
   }));
 }
 

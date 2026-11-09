@@ -1,23 +1,15 @@
-import {
-  formatRuntime,
-  type TitleDetail,
-  tmdbImage,
-} from "@repo/schemas/stream";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
+import type { TitleDetail } from "@repo/schemas/stream";
 import { router } from "expo-router";
 import {
-  Bookmark,
-  BookmarkCheck,
+  Check,
   ChevronLeft,
   Clapperboard,
-  Film,
+  CloudOff,
   Play,
+  Plus,
 } from "lucide-react-native";
 import { useState } from "react";
 import {
-  ActivityIndicator,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,55 +18,51 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  useCurrentEpisode,
-  useEpisodes,
-  useTitle,
-  useToggleWatchlist,
-} from "@/api/stream";
-import { playTitle } from "@/features/studio/open";
+import { useCurrentEpisode, useTitle, useToggleWatchlist } from "@/api/stream";
+import { EDGE } from "@/features/browse/metrics";
+import { TitleLogo } from "@/features/browse/rows";
 import { useAudience } from "@/lib/audience-store";
-import { listNames, titleFacts } from "@/lib/format";
-import { formatRemaining, resumePosition } from "@/lib/time";
+import { listNames } from "@/lib/format";
+import { formatRemaining, progressFraction, resumePosition } from "@/lib/time";
 import {
-  BACKDROP_RATIO,
   Backdrop,
   Button,
-  Chip,
   colors,
   EmptyState,
-  gutter,
   IconButton,
-  MetaRow,
-  Rating,
+  ProgressLine,
+  Skeleton,
+  StackedAction,
   spacing,
   Text,
 } from "@/ui";
+import { Episodes } from "./episodes";
+import { FactsRow } from "./facts-row";
+import { MoreLikeThis } from "./more-like-this";
+import { openTitle, openTrailer, playTitle } from "./open";
+
+type Tab = "episodes" | "similar" | "trailers";
 
 /**
- * A title's page: backdrop, the name set large, a typeset billing block,
- * Play / Resume, Save, the trailer, and seasons with their episodes. The
- * classic layout gets the same page in bigger type with labelled buttons.
+ * A title's page, as on Netflix's phone app: the picture (the trailer when
+ * there is one), logo, facts, Play, My List, the overview and credits, then
+ * Episodes, More like this and Trailers.
  */
 export function TitleScreen({ id }: { id: string }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { lead, layout } = useAudience();
-  const classic = layout === "classic";
+  const { lead } = useAudience();
   const query = useTitle(id, lead.id);
   const toggle = useToggleWatchlist(lead.id);
   const detail = query.data?.title;
-  const currentEpisode = useCurrentEpisode(
+  const current = useCurrentEpisode(
     id,
-    query.data?.progress?.episodeId ?? null,
+    detail && detail.type !== "movie"
+      ? (query.data?.progress?.episodeId ?? null)
+      : null,
   );
-  const [season, setSeason] = useState<number | null>(null);
-  const activeSeason =
-    season ?? currentEpisode.data?.season ?? detail?.seasons[0] ?? null;
-  const episodes = useEpisodes(
-    id,
-    detail && detail.type !== "movie" ? activeSeason : null,
-  );
+  const [tab, setTab] = useState<Tab | null>(null);
+  const pictureHeight = Math.round((width * 9) / 16);
 
   const back = (
     <View style={[styles.back, { top: insets.top + spacing.xs }]}>
@@ -89,377 +77,421 @@ export function TitleScreen({ id }: { id: string }) {
 
   if (!detail || !query.data) {
     return (
-      <View style={styles.center}>
-        {back}
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
         {query.isError ? (
-          <EmptyState
-            icon={Film}
-            title="This page didn't load"
-            message="We couldn't reach Stream. Check your connection and try again."
-            large={classic}
-            action={
-              <Button label="Try again" onPress={() => void query.refetch()} />
-            }
-          />
+          <View style={styles.center}>
+            <EmptyState
+              icon={CloudOff}
+              title="This page didn't load"
+              message="We couldn't reach Stream. Check your connection and try again."
+              action={
+                <Button
+                  label="Try again"
+                  onPress={() => void query.refetch()}
+                />
+              }
+            />
+          </View>
         ) : (
-          <ActivityIndicator color={colors.muted} />
+          <TitleSkeleton width={width} pictureHeight={pictureHeight} />
         )}
+        {back}
       </View>
     );
   }
 
   const { inWatchlist, progress } = query.data;
+  const series = detail.type !== "movie";
+  const tabs: Tab[] = [
+    ...(series && detail.seasons.length > 0 ? (["episodes"] as const) : []),
+    "similar",
+    ...(detail.trailerKey ? (["trailers"] as const) : []),
+  ];
+  const activeTab = tab && tabs.includes(tab) ? tab : (tabs[0] ?? "similar");
   const resume = resumePosition(progress);
-  const size = classic ? "classic" : "large";
+  const episode = current.data;
+  const playLabel =
+    resume !== null
+      ? episode && episode.season !== null && episode.episode !== null
+        ? `Resume S${episode.season} E${episode.episode}`
+        : "Resume"
+      : progress &&
+          series &&
+          episode &&
+          episode.season !== null &&
+          episode.episode !== null
+        ? `Play S${episode.season} E${episode.episode}`
+        : "Play";
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
-        <Backdrop
-          title={detail}
-          style={{ width, height: width / BACKDROP_RATIO + insets.top }}
-        >
-          <LinearGradient
-            colors={["rgba(12,11,10,0.55)", "rgba(12,11,10,0)", colors.ink]}
-            locations={[0, 0.35, 1]}
-            style={StyleSheet.absoluteFill}
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom + spacing.xxxl,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Picture detail={detail} width={width} height={pictureHeight} />
+        <Animated.View entering={FadeIn.duration(300)} style={styles.body}>
+          <TitleLogo
+            title={detail}
+            maxWidth={width * 0.72}
+            height={Math.round(width * 0.17)}
+            variant="hero"
           />
-        </Backdrop>
-        <Animated.View entering={FadeIn.duration(400)} style={styles.body}>
-          <Text variant={classic ? "classicTitle" : "marquee"}>
-            {detail.title}
-          </Text>
-          <MetaRow facts={titleFacts(detail)} large={classic} />
-          {detail.tagline ? (
-            <Text variant={classic ? "classicBody" : "lede"} color="muted">
-              {detail.tagline}
-            </Text>
-          ) : null}
+          <FactsRow detail={detail} />
 
-          <View style={styles.actions}>
+          <View style={styles.play}>
             <Button
-              label={
-                resume !== null && progress
-                  ? `Resume, ${formatRemaining(progress.positionS, progress.durationS)}`
-                  : progress && detail.type !== "movie"
-                    ? "Continue series"
-                    : progress && !progress.completed
-                      ? "Continue watching"
-                      : "Play"
-              }
+              label={playLabel}
               icon={Play}
               filledIcon
-              size={size}
+              size="large"
+              rounded
               block
-              onPress={() => playTitle(id)}
+              disabled={!detail.available}
+              onPress={() => playTitle(id, progress?.episodeId)}
             />
-            <View style={styles.row}>
-              <Button
-                label={
-                  inWatchlist
-                    ? classic
-                      ? "On my list"
-                      : "Saved"
-                    : classic
-                      ? "Add to my list"
-                      : "Save"
-                }
-                icon={inWatchlist ? BookmarkCheck : Bookmark}
-                variant="secondary"
-                size={size}
-                onPress={() =>
-                  toggle.mutate({ title: detail, add: !inWatchlist })
-                }
-              />
-              {detail.trailerKey ? (
-                <Button
-                  label={classic ? "Watch the trailer" : "Trailer"}
-                  icon={Clapperboard}
-                  variant="secondary"
-                  size={size}
-                  onPress={() =>
-                    void Linking.openURL(
-                      `https://www.youtube.com/watch?v=${detail.trailerKey}`,
-                    )
-                  }
+            {resume !== null && progress ? (
+              <View style={styles.resume}>
+                <ProgressLine
+                  value={progressFraction(
+                    progress.positionS,
+                    progress.durationS,
+                  )}
+                  style={styles.grow}
                 />
-              ) : null}
-            </View>
+                <Text variant="caption" color="muted" numberOfLines={1}>
+                  {formatRemaining(progress.positionS, progress.durationS)}
+                </Text>
+              </View>
+            ) : null}
             {!detail.available ? (
-              <Text
-                variant={classic ? "classicBody" : "footnote"}
-                color="muted"
-              >
-                Not available to play yet. You can still save it for later.
+              <Text variant="footnote" color="muted">
+                This isn't ready to play yet. Add it to My List and come back
+                later.
               </Text>
             ) : null}
           </View>
 
-          <Billing detail={detail} classic={classic} />
+          <Overview text={detail.overview ?? detail.tagline} />
+          <Credits detail={detail} />
 
-          {detail.overview ? (
-            <Text
-              variant={classic ? "classicBody" : "body"}
-              style={styles.overview}
-            >
-              {detail.overview}
-            </Text>
-          ) : null}
-
-          {detail.cast.length > 0 ? (
-            <View style={{ gap: 16 }}>
-              <Text variant={classic ? "classicHeading" : "display"}>Cast</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 12 }}
-              >
-                {detail.cast.map((person) => (
-                  <Pressable
-                    key={`${person.name}:${person.character}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Films and series with ${person.name}`}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/actor/[name]",
-                        params: { name: person.name },
-                      })
-                    }
-                    style={{
-                      width: 144,
-                      minHeight: 64,
-                      padding: 12,
-                      backgroundColor: colors.raised,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <Text variant="headline">{person.name}</Text>
-                    <Text variant="caption" color="muted">
-                      {person.character}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
-          {detail.seasons.length > 0 ? (
-            <View style={styles.seasons}>
-              <Text variant={classic ? "classicHeading" : "display"}>
-                Episodes
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.tabs}
-              >
-                {detail.seasons.map((number) => (
-                  <Chip
-                    key={number}
-                    label={`Season ${number}`}
-                    large={classic}
-                    selected={number === activeSeason}
-                    onPress={() => setSeason(number)}
-                  />
-                ))}
-              </ScrollView>
-              {episodes.isPending && activeSeason !== null ? (
-                <ActivityIndicator color={colors.muted} />
-              ) : null}
-              {episodes.isError ? (
-                <View>
-                  <Text color="muted">The episode list didn't load.</Text>
-                  <Button
-                    label="Try again"
-                    variant="ghost"
-                    onPress={() => void episodes.refetch()}
-                  />
-                </View>
-              ) : null}
-              {episodes.data?.length === 0 ? (
-                <Text color="muted">
-                  There aren't any episodes listed for this season yet. Try
-                  another season.
-                </Text>
-              ) : null}
-              {episodes.data?.map((episode) => (
-                <Pressable
-                  key={episode.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Play episode ${episode.episode ?? ""}, ${episode.title ?? ""}`}
-                  onPress={() => playTitle(id, episode.id)}
-                  style={({ pressed }) => [
-                    styles.episode,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  {episode.stillPath ? (
-                    <Image
-                      source={{ uri: tmdbImage(episode.stillPath, "w500")! }}
-                      style={styles.episodeStill}
-                      contentFit="cover"
-                      accessibilityLabel=""
-                    />
-                  ) : (
-                    <View style={styles.episodeStill}>
-                      <Play color={colors.muted} size={24} />
-                    </View>
-                  )}
-                  <View style={styles.grow}>
-                    <Text
-                      variant={classic ? "classicLabel" : "headline"}
-                      numberOfLines={2}
-                    >
-                      {episode.episode}.{" "}
-                      {episode.title ?? `Episode ${episode.episode ?? ""}`}
-                    </Text>
-                    {episode.overview ? (
-                      <Text
-                        variant={classic ? "classicBody" : "footnote"}
-                        color="muted"
-                        numberOfLines={2}
-                      >
-                        {episode.overview}
-                      </Text>
-                    ) : null}
-                    {progress?.episodeId === episode.id ? (
-                      <Text variant="caption" color="amber">
-                        {progress.completed ? "Watched" : "You're here"}
-                      </Text>
-                    ) : null}
-                    <View style={styles.episodeMeta}>
-                      {episode.rating !== null ? (
-                        <Rating
-                          value={episode.rating.toFixed(1)}
-                          large={classic}
-                        />
-                      ) : null}
-                      {episode.runtimeMinutes ? (
-                        <Text
-                          variant={classic ? "classicBody" : "footnote"}
-                          color="muted"
-                        >
-                          {formatRuntime(episode.runtimeMinutes)}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                  <Play color={colors.muted} size={18} />
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+          <View style={styles.actions}>
+            <StackedAction
+              icon={inWatchlist ? Check : Plus}
+              label="My List"
+              active={inWatchlist}
+              onPress={() =>
+                toggle.mutate({ title: detail, add: !inWatchlist })
+              }
+            />
+            {detail.trailerKey ? (
+              <StackedAction
+                icon={Clapperboard}
+                label="Trailer"
+                onPress={() =>
+                  detail.trailerKey && openTrailer(detail.trailerKey)
+                }
+              />
+            ) : null}
+          </View>
         </Animated.View>
+
+        <TabStrip tabs={tabs} active={activeTab} onChange={setTab} />
+        <View style={styles.tabBody}>
+          {activeTab === "episodes" ? (
+            <Episodes
+              detail={detail}
+              progress={progress}
+              initialSeason={episode?.season ?? null}
+            />
+          ) : activeTab === "trailers" && detail.trailerKey ? (
+            <Trailer detail={detail} width={width - EDGE * 2} />
+          ) : (
+            <MoreLikeThis id={id} onOpen={openTitle} />
+          )}
+        </View>
       </ScrollView>
       {back}
     </View>
   );
 }
 
-/** Credits set like a poster's billing block: genres, the cast, the IMDb standing. */
-function Billing({
+/** The backdrop; with a trailer, tapping it plays the trailer. */
+function Picture({
   detail,
-  classic,
+  width,
+  height,
 }: {
   detail: TitleDetail;
-  classic: boolean;
+  width: number;
+  height: number;
 }) {
-  const cast = detail.cast.slice(0, 8).map((member) => member.name);
-  const body = classic ? "classicBody" : "body";
+  const key = detail.trailerKey;
+  const picture = <Backdrop title={detail} style={{ width, height }} />;
+  if (!key) return picture;
   return (
-    <View style={styles.billing}>
-      <View style={styles.rule} />
-      {detail.genres.length > 0 ? (
-        <View style={styles.genres}>
-          {detail.genres.map((genre) => (
-            <Text key={genre} variant={classic ? "classicLabel" : "callout"}>
-              {genre}
-            </Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Play the trailer for ${detail.title}`}
+      onPress={() => openTrailer(key)}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+    >
+      {picture}
+      <View style={styles.trailerBadge} pointerEvents="none">
+        <Play color={colors.paper} fill={colors.paper} size={14} />
+        <Text variant="caption" numberOfLines={1}>
+          Trailer
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function Overview({ text }: { text: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={open ? "Show less" : "Show the whole description"}
+      onPress={() => setOpen((value) => !value)}
+    >
+      <Text variant="subheadline" numberOfLines={open ? undefined : 3}>
+        {text}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** "Starring" and "Director" lines; tapping Starring lists the cast, each opening their films. */
+function Credits({ detail }: { detail: TitleDetail }) {
+  const [open, setOpen] = useState(false);
+  const cast = detail.cast.map((member) => member.name);
+  const directors = detail.directors ?? [];
+  return (
+    <View style={styles.credits}>
+      {cast.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={open ? "Hide the cast" : "Show the whole cast"}
+          onPress={() => setOpen((value) => !value)}
+        >
+          <Text
+            variant="footnote"
+            color="muted"
+            numberOfLines={open ? undefined : 1}
+          >
+            Starring: {listNames(cast.slice(0, open ? cast.length : 4))}
+          </Text>
+        </Pressable>
+      ) : null}
+      {open ? (
+        <View style={styles.cast}>
+          {detail.cast.map((member) => (
+            <Pressable
+              key={`${member.name}:${member.character ?? ""}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Films and series with ${member.name}`}
+              onPress={() =>
+                router.push({
+                  pathname: "/actor/[name]",
+                  params: { name: member.name },
+                })
+              }
+              style={({ pressed }) => [
+                styles.castRow,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Text variant="callout" numberOfLines={1} style={styles.grow}>
+                {member.name}
+              </Text>
+              {member.character ? (
+                <Text
+                  variant="footnote"
+                  color="muted"
+                  numberOfLines={1}
+                  style={styles.character}
+                >
+                  {member.character}
+                </Text>
+              ) : null}
+            </Pressable>
           ))}
         </View>
       ) : null}
-      {cast.length > 0 ? (
-        <Text
-          variant={classic ? "classicHeading" : "title"}
-          style={styles.centerText}
-        >
-          {listNames(cast)}
+      {directors.length > 0 ? (
+        <Text variant="footnote" color="muted" numberOfLines={1}>
+          {detail.type === "movie"
+            ? directors.length > 1
+              ? "Directors"
+              : "Director"
+            : directors.length > 1
+              ? "Creators"
+              : "Creator"}
+          : {listNames(directors)}
         </Text>
       ) : null}
-      {detail.episodeCount > 0 ? (
-        <Text variant={body} color="muted" style={styles.centerText}>
-          {detail.episodeCount} episodes
-        </Text>
-      ) : null}
-      {detail.rating !== null ? (
-        <View style={styles.standing}>
-          <Rating value={detail.rating.toFixed(1)} large={classic} />
-          <Text variant={body} color="muted">
-            on IMDb, from {detail.votes.toLocaleString("en-GB")} votes
-          </Text>
+    </View>
+  );
+}
+
+const TAB_LABELS: Record<Tab, string> = {
+  episodes: "Episodes",
+  similar: "More like this",
+  trailers: "Trailers",
+};
+
+/** Netflix's tabs: an amber bar over the chosen one. */
+function TabStrip({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: Tab[];
+  active: Tab;
+  onChange: (tab: Tab) => void;
+}) {
+  return (
+    <View style={styles.tabs} accessibilityRole="tablist">
+      {tabs.map((tab) => {
+        const on = tab === active;
+        return (
+          <Pressable
+            key={tab}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={TAB_LABELS[tab]}
+            onPress={() => onChange(tab)}
+            style={styles.tab}
+          >
+            <View style={[styles.tabBar, on ? styles.tabBarOn : null]} />
+            <Text
+              variant="callout"
+              color={on ? "paper" : "muted"}
+              numberOfLines={1}
+            >
+              {TAB_LABELS[tab]}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function Trailer({ detail, width }: { detail: TitleDetail; width: number }) {
+  const key = detail.trailerKey;
+  if (!key) return null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Play the trailer for ${detail.title}`}
+      onPress={() => openTrailer(key)}
+      style={({ pressed }) => [styles.trailer, { opacity: pressed ? 0.8 : 1 }]}
+    >
+      <Backdrop
+        title={detail}
+        style={{ width, height: (width * 9) / 16, borderRadius: 6 }}
+      >
+        <View style={styles.trailerPlay}>
+          <View style={styles.trailerDisc}>
+            <Play color={colors.paper} fill={colors.paper} size={22} />
+          </View>
         </View>
-      ) : null}
-      <View style={styles.rule} />
+      </Backdrop>
+      <Text variant="callout" numberOfLines={1}>
+        Official trailer
+      </Text>
+    </Pressable>
+  );
+}
+
+function TitleSkeleton({
+  width,
+  pictureHeight,
+}: {
+  width: number;
+  pictureHeight: number;
+}) {
+  return (
+    <View style={styles.skeleton}>
+      <Skeleton style={{ width, height: pictureHeight, borderRadius: 0 }} />
+      <View style={styles.body}>
+        <Skeleton style={{ width: width * 0.6, height: 40 }} />
+        <Skeleton style={{ width: width * 0.5, height: 16 }} />
+        <Skeleton
+          style={{ width: width - EDGE * 2, height: 52, borderRadius: 6 }}
+        />
+        <Skeleton style={{ width: width - EDGE * 2, height: 60 }} />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.ink },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.ink,
-  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   back: { position: "absolute", left: spacing.sm },
-  body: {
-    paddingHorizontal: gutter,
-    gap: spacing.xl,
-    marginTop: -spacing.xxxl,
-  },
-  actions: { gap: spacing.sm },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  billing: { gap: spacing.sm, alignItems: "center" },
-  rule: {
-    alignSelf: "stretch",
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.hairline,
-    marginVertical: spacing.sm,
-  },
-  centerText: { textAlign: "center" },
-  genres: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    columnGap: spacing.lg,
-    rowGap: spacing.xs,
-  },
-  standing: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
-  episodeMeta: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  overview: { color: colors.paper },
-  seasons: { gap: spacing.md },
-  tabs: { gap: spacing.sm },
-  episode: {
+  body: { paddingHorizontal: EDGE, paddingTop: spacing.lg, gap: spacing.md },
+  play: { gap: spacing.sm },
+  resume: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  grow: { flex: 1, minWidth: 0 },
+  credits: { gap: spacing.xs },
+  cast: { gap: 0 },
+  castRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    paddingVertical: spacing.md,
+    minHeight: 40,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.hairline,
   },
-  episodeStill: {
-    width: 96,
-    aspectRatio: 16 / 9,
-    borderRadius: 8,
-    backgroundColor: colors.raised,
+  character: { flexShrink: 1, maxWidth: "50%", textAlign: "right" },
+  actions: { flexDirection: "row", gap: spacing.md, marginLeft: -spacing.sm },
+  trailerBadge: {
+    position: "absolute",
+    left: spacing.md,
+    bottom: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    backgroundColor: "rgba(12,11,10,0.6)",
+  },
+  tabs: {
+    flexDirection: "row",
+    gap: spacing.xl,
+    marginTop: spacing.xl,
+    paddingHorizontal: EDGE,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.hairline,
+  },
+  tab: { paddingBottom: spacing.md, gap: spacing.md, flexShrink: 1 },
+  tabBar: { height: 4, backgroundColor: "transparent" },
+  tabBarOn: { backgroundColor: colors.amber },
+  tabBody: { paddingHorizontal: EDGE, paddingTop: spacing.sm },
+  trailer: { gap: spacing.sm },
+  trailerPlay: {
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },
-  grow: { flex: 1, gap: spacing.xxs },
+  trailerDisc: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: colors.paper,
+    backgroundColor: "rgba(12,11,10,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingLeft: 3,
+  },
+  skeleton: { gap: 0 },
 });

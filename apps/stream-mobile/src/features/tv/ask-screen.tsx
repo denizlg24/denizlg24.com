@@ -2,7 +2,7 @@ import {
   ASSISTANT_PROMPT_MAX,
   assistantPromptSchema,
 } from "@repo/schemas/stream";
-import { CloudOff, SearchX, Sparkles } from "lucide-react-native";
+import { Sparkles } from "lucide-react-native";
 import { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,24 +15,22 @@ import {
 import { useAssistant } from "@/api/stream";
 import { IDEAS, KIDS_IDEAS } from "@/features/assistant/ask-screen";
 import { useAudience } from "@/lib/audience-store";
-import { Button, colors, EmptyState, fonts, radius, spacing, Text } from "@/ui";
-import {
-  type RailItem,
-  TvBackdrop,
-  TvNavBar,
-  TvRail,
-  TvSpotlight,
-} from "./chrome";
-import { useFieldEscape } from "./field-escape";
+import { colors, fonts, spacing } from "@/ui";
+import { TitleLogo } from "./artwork";
+import { TvBackdrop } from "./backdrop";
 import { FOCUS_ROOM, Focusable } from "./focusable";
-import { TV_SAFE } from "./layout";
+import { CONTENT_X, TV_SAFE } from "./layout";
+import { TvMeta } from "./meta";
 import { openTvTitle } from "./open";
+import { type RowEvents, TvRow, type TvRowModel, type TvTile } from "./row";
 import { type Spotlight, useSpot, useSpotlight } from "./spotlight";
+import { TvButton } from "./tv-button";
+import { TvText } from "./tv-text";
 
 /**
- * Say what you feel like watching. OK on the field opens the TV's keyboard,
- * whose microphone key lets anyone just say it; the ideas below are one
- * press each. Picks come back as a row, each with its reason above it.
+ * Say what you feel like watching, from Search. OK on the field opens the
+ * TV's keyboard, whose microphone key lets anyone just say it; the ideas
+ * are one press each. Picks come back as a row, each with its reason.
  */
 export function TvAskScreen() {
   const { audience, key } = useAudience();
@@ -40,20 +38,33 @@ export function TvAskScreen() {
   const [draft, setDraft] = useState("");
   const [asked, setAsked] = useState("");
   const [focused, setFocused] = useState(false);
-  const escape = useFieldEscape(input, focused, true);
   const answer = useAssistant(key, asked);
-  const spotlight = useSpotlight<RailItem>();
+  const spotlight = useSpotlight<TvTile>();
   const kids = audience.some((profile) => profile.kids);
-  const items = useMemo<RailItem[]>(
-    () =>
-      (answer.data?.picks ?? []).map(({ title, reason }) => ({
+  const model = useMemo<TvRowModel | null>(() => {
+    const picks = answer.data?.picks ?? [];
+    if (picks.length === 0) return null;
+    return {
+      id: "picks",
+      label: answer.data?.personal
+        ? "Picked for you"
+        : "The closest matches in the catalogue",
+      kind: "poster",
+      tiles: picks.map(({ title, reason }) => ({
         key: title.id,
         title,
         reason,
-        onPress: () => openTvTitle(title.id),
       })),
-    [answer.data],
-  );
+    };
+  }, [answer.data]);
+  const [events] = useState<RowEvents>(() => ({
+    onTileFocus: (_row, row, column) => {
+      const tile = row.tiles[column];
+      if (tile) spotlight.set(tile);
+      return true;
+    },
+    onTilePress: (tile) => openTvTitle(tile.title.id),
+  }));
 
   const ask = (text: string) => {
     const parsed = assistantPromptSchema.safeParse(text);
@@ -66,17 +77,14 @@ export function TvAskScreen() {
   return (
     <View style={styles.screen}>
       <AskBackdrop spotlight={spotlight} />
-      <TvNavBar current="ask" preferred={escape.navPreferred} />
       <ScrollView
         style={styles.fill}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.head}>
-          {/* With an answer on screen the question has done its job, and
-              the picks need its height to fit without scrolling. */}
           {asked ? null : (
-            <Text variant="hero">What do you feel like watching?</Text>
+            <TvText variant="marquee">What do you feel like watching?</TvText>
           )}
           <View style={styles.row}>
             <View style={[styles.field, focused ? styles.fieldFocused : null]}>
@@ -92,10 +100,7 @@ export function TvAskScreen() {
                   if (!text.trim()) setAsked("");
                 }}
                 onSubmitEditing={() => ask(draft)}
-                onFocus={() => {
-                  setFocused(true);
-                  escape.onFieldFocus();
-                }}
+                onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 maxLength={ASSISTANT_PROMPT_MAX}
                 placeholder="A cosy mystery, something like Paddington"
@@ -105,10 +110,9 @@ export function TvAskScreen() {
                 style={styles.input}
               />
             </View>
-            <Button
+            <TvButton
               label="Ask"
               icon={Sparkles}
-              size="large"
               disabled={!draft.trim()}
               loading={answer.isFetching && draft === asked}
               onPress={() => ask(draft)}
@@ -118,58 +122,59 @@ export function TvAskScreen() {
 
         {!asked ? (
           <View style={styles.ideas}>
-            {(kids ? KIDS_IDEAS : IDEAS).map((idea) => (
+            {(kids ? KIDS_IDEAS : IDEAS).map((idea, index) => (
               <Focusable
                 key={idea}
                 accessibilityRole="button"
                 accessibilityLabel={idea}
+                preferred={index === 0}
                 onPress={() => ask(idea)}
-                style={styles.idea}
-                radius={radius.pill}
-                grow={1.03}
+                ringless
+                grow={1.04}
               >
-                <Text variant="callout">{idea}</Text>
+                {(on) => (
+                  <View style={[styles.idea, on ? styles.ideaFocused : null]}>
+                    <TvText variant="bodyStrong" color={on ? "ink" : "paper"}>
+                      {idea}
+                    </TvText>
+                  </View>
+                )}
               </Focusable>
             ))}
           </View>
         ) : answer.isPending ? (
           <View style={styles.thinking}>
             <ActivityIndicator color={colors.amber} size="large" />
-            <Text variant="body" color="muted">
+            <TvText variant="body" color="muted">
               Looking through the catalogue. This can take up to twenty seconds.
-            </Text>
+            </TvText>
           </View>
         ) : answer.isError ? (
-          <EmptyState
-            icon={CloudOff}
-            title="We couldn't get any ideas"
-            message="Stream didn't answer in time. Check that the TV is connected to the internet, then ask again."
-            action={
-              <Button
+          <View style={styles.message}>
+            <TvText variant="heading">We couldn't get any ideas</TvText>
+            <TvText variant="lede" color="muted">
+              Stream didn't answer in time. Check that the TV is connected to
+              the internet, then ask again.
+            </TvText>
+            <View style={styles.row}>
+              <TvButton
                 label="Ask again"
-                size="large"
+                preferred
                 onPress={() => void answer.refetch()}
               />
-            }
-          />
-        ) : items.length === 0 ? (
-          <EmptyState
-            icon={SearchX}
-            title="Nothing fits that yet"
-            message="Try asking another way, or with fewer details."
-          />
+            </View>
+          </View>
+        ) : !model ? (
+          <View style={styles.message}>
+            <TvText variant="heading">Nothing fits that yet</TvText>
+            <TvText variant="lede" color="muted">
+              Try asking another way, or with fewer details.
+            </TvText>
+          </View>
         ) : (
           <>
             <AskSpotlight spotlight={spotlight} />
-            <TvRail
-              label={
-                answer.data?.personal
-                  ? "Picked for you"
-                  : "The closest matches in the catalogue"
-              }
-              items={items}
-              onFocusItem={spotlight.set}
-            />
+            <TvRow model={model} index={0} events={events} preferFirst />
           </>
         )}
       </ScrollView>
@@ -177,15 +182,25 @@ export function TvAskScreen() {
   );
 }
 
-function AskBackdrop({ spotlight }: { spotlight: Spotlight<RailItem> }) {
+function AskBackdrop({ spotlight }: { spotlight: Spotlight<TvTile> }) {
   return <TvBackdrop title={useSpot(spotlight)?.title ?? null} />;
 }
 
-function AskSpotlight({ spotlight }: { spotlight: Spotlight<RailItem> }) {
+function AskSpotlight({ spotlight }: { spotlight: Spotlight<TvTile> }) {
   const spot = useSpot(spotlight);
   return (
     <View style={styles.spot}>
-      <TvSpotlight title={spot?.title ?? null} reason={spot?.reason} />
+      {spot ? (
+        <>
+          <TitleLogo title={spot.title} width={300} height={60} lines={1} />
+          <TvMeta title={spot.title} />
+          {spot.reason ? (
+            <TvText variant="body" color="muted" numberOfLines={2}>
+              {spot.reason}
+            </TvText>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 }
@@ -193,16 +208,21 @@ function AskSpotlight({ spotlight }: { spotlight: Spotlight<RailItem> }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.ink },
   fill: { flex: 1 },
-  content: { gap: spacing.xl, paddingBottom: TV_SAFE.y + spacing.xl },
-  head: { paddingHorizontal: TV_SAFE.x, gap: spacing.md, maxWidth: 760 },
+  content: {
+    gap: spacing.lg,
+    paddingTop: TV_SAFE.y + spacing.md,
+    paddingBottom: TV_SAFE.y + spacing.xl,
+  },
+  head: { paddingLeft: CONTENT_X, paddingRight: TV_SAFE.x, gap: spacing.md },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   field: {
     flex: 1,
+    maxWidth: 560,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
+    borderRadius: 8,
     borderWidth: 2,
     borderColor: colors.hairline,
     backgroundColor: colors.raised,
@@ -210,30 +230,44 @@ const styles = StyleSheet.create({
   fieldFocused: { borderColor: colors.amber },
   input: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 48,
     color: colors.paper,
     fontFamily: fonts.regular,
-    fontSize: 19,
+    fontSize: 17,
   },
   ideas: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.md,
-    paddingHorizontal: TV_SAFE.x,
+    paddingLeft: CONTENT_X,
+    paddingRight: TV_SAFE.x,
     paddingVertical: FOCUS_ROOM,
-    maxWidth: 860,
   },
   idea: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.fill,
+    height: 38,
+    justifyContent: "center",
+    borderRadius: 19,
+    backgroundColor: "rgba(239,233,223,0.1)",
   },
+  ideaFocused: { backgroundColor: colors.paper },
   thinking: {
-    paddingHorizontal: TV_SAFE.x,
+    paddingLeft: CONTENT_X,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.lg,
   },
-  spot: { minHeight: 96 },
+  message: {
+    paddingLeft: CONTENT_X,
+    paddingRight: TV_SAFE.x,
+    gap: spacing.md,
+    maxWidth: 680,
+  },
+  spot: {
+    minHeight: 130,
+    paddingLeft: CONTENT_X,
+    paddingRight: TV_SAFE.x,
+    gap: spacing.sm,
+    maxWidth: 620,
+  },
 });

@@ -1,11 +1,12 @@
 import type { Profile } from "@repo/schemas/stream";
 
 /**
- * Who is on the sofa. Pure, so the rules are tested: the stored ids are kept
- * only while those profiles exist, an account with one profile never sees
- * the sofa, and a classic profile always watches alone (its sofa is
- * single-select). The first profile leads: its layout is the app's, and the
- * per-profile routes (progress, the list, the title page) use it.
+ * Who is watching. Pure, so the rules are tested: the stored ids are kept
+ * only while those profiles exist, in the order they were picked, and an
+ * account with one profile never sees "Who's watching?". The first profile
+ * leads: the per-profile routes (progress, the list, the title page) use it.
+ * A profile's `layout` is only a text size now, so it never limits who can
+ * watch together.
  */
 export function resolveAudience(
   profiles: Profile[],
@@ -13,34 +14,27 @@ export function resolveAudience(
 ): Profile[] {
   const only = profiles.length === 1 ? profiles[0] : undefined;
   if (only) return [only];
-  const chosen = (stored ?? [])
+  return (stored ?? [])
     .map((id) => profiles.find((profile) => profile.id === id))
     .filter((profile): profile is Profile => profile !== undefined);
-  const lead = chosen[0];
-  if (!lead) return [];
-  return lead.layout === "classic" ? [lead] : chosen;
 }
 
 export interface SofaChange {
   selection: string[];
-  /** A classic profile was tapped: it sits down alone, straight away. */
+  /** True when the tap should start watching straight away. */
   start: boolean;
 }
 
-/** Tapping a disc on the sofa. */
+/** Tapping a profile while picking several people to watch together. */
 export function toggleSofa(
   selection: string[],
   profile: Profile,
   profiles: Profile[],
 ): SofaChange {
-  if (profile.layout === "classic")
-    return { selection: [profile.id], start: true };
-  const studio = selection.filter(
-    (id) => profiles.find((p) => p.id === id)?.layout !== "classic",
-  );
-  return studio.includes(profile.id)
-    ? { selection: studio.filter((id) => id !== profile.id), start: false }
-    : { selection: [...studio, profile.id], start: false };
+  const known = selection.filter((id) => profiles.some((p) => p.id === id));
+  return known.includes(profile.id)
+    ? { selection: known.filter((id) => id !== profile.id), start: false }
+    : { selection: [...known, profile.id], start: false };
 }
 
 /** "Deniz", "Deniz & Mum", "Deniz, Mum & Ana". */

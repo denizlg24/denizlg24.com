@@ -7,12 +7,20 @@ export interface AvatarProps {
   name: string;
   color: ProfileColor;
   size?: number;
-  /** An amber ring: this person is on the sofa. */
+  /** An amber ring: this person is watching. */
   selected?: boolean;
+  /** A rounded square, as on "Who's watching?" and the top bars. */
+  square?: boolean;
 }
 
 /** A profile's colour disc with its initial, the same wherever it appears. */
-export function Avatar({ name, color, size = 72, selected }: AvatarProps) {
+export function Avatar({
+  name,
+  color,
+  size = 72,
+  selected,
+  square,
+}: AvatarProps) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   const ring = selected ? Math.max(2, size * 0.04) : 0;
   return (
@@ -24,7 +32,7 @@ export function Avatar({ name, color, size = 72, selected }: AvatarProps) {
         {
           width: size,
           height: size,
-          borderRadius: size / 2,
+          borderRadius: square ? Math.max(4, size * 0.12) : size / 2,
           backgroundColor: profileColors[color],
           borderWidth: ring,
           borderColor: colors.amber,

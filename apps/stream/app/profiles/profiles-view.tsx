@@ -46,9 +46,7 @@ export function ProfilesView({
                   <span className="block text-xl">{profile.name}</span>
                   <span className="block text-sm text-muted">
                     {[
-                      profile.layout === "classic"
-                        ? "Simple layout"
-                        : "Studio layout",
+                      profile.layout === "classic" ? "Larger text" : null,
                       profile.kids ? "Kids" : null,
                       profile.favoriteGenres.length > 0
                         ? profile.favoriteGenres.join(", ")

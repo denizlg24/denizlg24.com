@@ -10,12 +10,13 @@ export const PROFILE_TONES: Record<ProfileColor, string> = {
 };
 
 const SIZES = {
-  xs: "size-7 text-xs",
-  sm: "size-9 text-sm",
-  md: "size-14 text-xl",
-  lg: "size-28 text-5xl md:size-36 md:text-6xl",
+  xs: "size-7 rounded-[4px] text-sm",
+  sm: "size-8 rounded-[4px] text-base",
+  md: "size-14 rounded-md text-2xl",
+  lg: "size-[clamp(5.5rem,11vw,10rem)] rounded-md text-[clamp(2.5rem,5vw,4.5rem)]",
 } as const;
 
+/** A profile's avatar: its initial on its colour, square like a tile. */
 export function ProfileDisc({
   name,
   color,
@@ -30,7 +31,7 @@ export function ProfileDisc({
   return (
     <span
       aria-hidden
-      className={`inline-grid shrink-0 place-items-center rounded-full font-display text-ink ${PROFILE_TONES[color]} ${SIZES[size]} ${className}`}
+      className={`inline-grid shrink-0 place-items-center font-display text-ink ${PROFILE_TONES[color]} ${SIZES[size]} ${className}`}
     >
       {name.trim().charAt(0).toUpperCase()}
     </span>

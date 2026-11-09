@@ -46,7 +46,7 @@ export default async function ProfilesPage({
         data-nav
         className="inline-flex items-center gap-2 text-muted hover:text-paper"
       >
-        <ArrowLeft className="size-4" /> Back to the sofa
+        <ArrowLeft className="size-4" /> Back to Who's watching
       </Link>
       <section className="space-y-6">
         <div className="space-y-2">

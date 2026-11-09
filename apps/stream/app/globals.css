@@ -67,6 +67,16 @@
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+#page {
+  overflow-x: clip;
+}
+
+:root {
+  --gutter: max(1rem, 4vw);
+  --gap: 0.5rem;
 }
 
 ::selection {
@@ -79,8 +89,16 @@ body {
   border-radius: 6px;
 }
 
+html[data-large] {
+  font-size: 118.75%;
+}
+
 html[data-tv] {
   font-size: 125%;
+}
+
+html[data-tv][data-large] {
+  font-size: 143.75%;
 }
 
 html[data-tv] :focus-visible {
@@ -140,4 +158,142 @@ html[data-tv] :focus-visible {
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 0.25s;
+}
+
+/* Rows: a scroller that is its own size container, so tiles divide the
+   visible width into whole pages and the next page peeks into the gutter. */
+.row-scroller {
+  container-type: inline-size;
+  display: flex;
+  gap: var(--gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  padding-inline: var(--gutter);
+  scroll-padding-inline: var(--gutter);
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.row-scroller::-webkit-scrollbar {
+  display: none;
+}
+.row-scroller > * {
+  scroll-snap-align: start;
+}
+
+.tile-poster {
+  --n: 3;
+}
+.tile {
+  flex: none;
+  width: calc(
+    (100cqw - 2 * var(--gutter) - (var(--n) - 1) * var(--gap)) /
+    var(--n)
+  );
+}
+.tile-wide {
+  --n: 2;
+}
+@container (min-width: 500px) {
+  .tile-poster {
+    --n: 4;
+  }
+}
+@container (min-width: 800px) {
+  .tile-poster {
+    --n: 5;
+  }
+  .tile-wide {
+    --n: 3;
+  }
+}
+@container (min-width: 1100px) {
+  .tile-poster {
+    --n: 6;
+  }
+  .tile-wide {
+    --n: 4;
+  }
+}
+@container (min-width: 1400px) {
+  .tile-poster {
+    --n: 7;
+  }
+  .tile-wide {
+    --n: 5;
+  }
+}
+@container (min-width: 1800px) {
+  .tile-poster {
+    --n: 8;
+  }
+  .tile-wide {
+    --n: 6;
+  }
+}
+
+.title-grid {
+  container-type: inline-size;
+}
+.title-grid > ul {
+  display: grid;
+  gap: 2rem var(--gap);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@container (min-width: 560px) {
+  .title-grid > ul {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@container (min-width: 820px) {
+  .title-grid > ul {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+@container (min-width: 1100px) {
+  .title-grid > ul {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@container (min-width: 1400px) {
+  .title-grid > ul {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+@container (min-width: 1750px) {
+  .title-grid > ul {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+/* Only where a mouse can hover: touch screens swipe rows instead. */
+@media (hover: none) {
+  .hover-only {
+    display: none;
+  }
+}
+html[data-tv] .hover-only {
+  display: none;
+}
+
+/* A muted YouTube trailer cropped to cover its box, like object-fit. */
+.cover-frame {
+  container-type: size;
+}
+.cover-frame > iframe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100cqw, 177.78cqh);
+  height: max(100cqh, 56.25cqw);
+  transform: translate(-50%, -50%) scale(1.2);
+  border: 0;
+  pointer-events: none;
+}
+
+.rank-numeral {
+  fill: var(--color-ink);
+  paint-order: stroke;
+  stroke: rgb(239 233 223 / 0.55);
+  stroke-linejoin: round;
 }

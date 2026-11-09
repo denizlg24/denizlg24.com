@@ -35,8 +35,12 @@ export function WatchView({
     },
     [titleId, episodeId],
   );
+  // Back returns to wherever Play was pressed (a row, or the details modal
+  // over it). A pushed `/title` would be intercepted into a modal over the
+  // player, so a fresh tab loads the full title page instead.
   const onBack = useCallback(() => {
-    router.push(`/title/${titleId}`);
+    if (window.history.length > 1) router.back();
+    else window.location.assign(`/title/${titleId}`);
   }, [router, titleId]);
   const onNext = useCallback(
     (episode: Episode) =>
@@ -55,9 +59,7 @@ export function WatchView({
         subtitle={subtitle}
         backdropUrl={backdropUrl}
         unavailableMessage="This one isn't available to play yet."
-        onBack={
-          playback.trailer ? () => router.push(`/title/${titleId}`) : onBack
-        }
+        onBack={onBack}
         onPlayTitle={() => router.replace(`/watch/${titleId}`)}
         onNext={onNext}
         onProgress={playback.trailer ? undefined : onProgress}

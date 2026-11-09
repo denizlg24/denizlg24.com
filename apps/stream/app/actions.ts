@@ -5,7 +5,9 @@ import {
   profileInputSchema,
   profileUpdateSchema,
   progressInputSchema,
+  type TitlePage,
   titleIdSchema,
+  titleQuerySchema,
   viewingInputSchema,
 } from "@repo/schemas/stream";
 import { revalidatePath } from "next/cache";
@@ -13,9 +15,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { audienceRules } from "@/lib/audience-rules";
 import { auth } from "@/lib/auth";
 import {
   findTitle,
+  queryTitles,
   saveProgress,
   saveViewing,
   setWatchlist,
@@ -63,16 +67,13 @@ export async function setUp(input: unknown): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function sitDown(
-  profileIds: string[],
-  next: string,
-): Promise<void> {
+async function seat(profileIds: string[]): Promise<boolean> {
   const row = await member();
   const owned = await Promise.all(
     profileIds.slice(0, 5).map((id) => ownedProfile(row.subject, id)),
   );
   const ids = owned.flatMap((profile) => (profile ? [profile.id] : []));
-  if (ids.length === 0) redirect("/sofa");
+  if (ids.length === 0) return false;
   (await cookies()).set(SOFA_COOKIE, ids.join(","), {
     httpOnly: true,
     sameSite: "lax",
@@ -80,7 +81,35 @@ export async function sitDown(
     path: "/",
     maxAge: YEAR,
   });
+  return true;
+}
+
+export async function sitDown(
+  profileIds: string[],
+  next: string,
+): Promise<void> {
+  if (!(await seat(profileIds))) redirect("/sofa");
   redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/");
+}
+
+/**
+ * Sets the sofa without navigating: the caller reloads the page, so the
+ * root layout (larger text, My List) renders for the new audience.
+ */
+export async function chooseAudience(
+  profileIds: string[],
+): Promise<ActionResult> {
+  return (await seat(profileIds))
+    ? { ok: true }
+    : { ok: false, error: "Please choose someone who's watching." };
+}
+
+/** The next page of a title grid, filtered for whoever is on the sofa. */
+export async function moreTitles(input: unknown): Promise<TitlePage> {
+  const viewer = await requireViewer("/");
+  const query = titleQuerySchema.safeParse(input);
+  if (!query.success) return { titles: [], total: 0, nextCursor: null };
+  return queryTitles(query.data, audienceRules(viewer.audience));
 }
 
 export async function setTvMode(on: boolean | null): Promise<void> {

@@ -1,21 +1,23 @@
 import {
   assistantResultSchema,
+  type BrowseTab,
+  browseSchema,
   episodeSchema,
-  gridMetaSchema,
-  gridWindowSchema,
   homeSchema,
   type MemberSetup,
-  mapHighlightsSchema,
   meSchema,
   type ProfileInput,
   playbackSchema,
   profileSchema,
   type progressInputSchema,
   progressSchema,
+  searchResultSchema,
+  similarTitlesSchema,
   subtitlesSchema,
   type TitleSummary,
   titleDetailSchema,
   titlePageSchema,
+  titleQuerySchema,
   titleSummarySchema,
   tonightSchema,
   type viewingInputSchema,
@@ -24,10 +26,10 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
-  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { z } from "zod";
 import { api, apiVoid } from "@/lib/api";
 import { type TitleFilters, titleQueryParams } from "@/lib/title-query";
@@ -45,6 +47,7 @@ const titleResponseSchema = z.object({
 export type TitleResponse = z.infer<typeof titleResponseSchema>;
 
 const episodesResponseSchema = z.object({ episodes: z.array(episodeSchema) });
+/** `{ titles }`: the list and `/finished` answer alike. */
 const watchlistResponseSchema = z.object({
   titles: z.array(titleSummarySchema),
 });
@@ -59,7 +62,11 @@ export const keys = {
   playback: (id: string, profileId: string, episode: string | null) =>
     ["playback", id, profileId, episode] as const,
   tonight: (audience: string) => ["tonight", audience] as const,
-  highlights: (audience: string) => ["grid", "highlights", audience] as const,
+  browse: (audience: string, tab: BrowseTab) =>
+    ["browse", audience, tab] as const,
+  search: (audience: string, q: string, type: string | null) =>
+    ["search", audience, q, type] as const,
+  similar: (id: string, audience: string) => ["similar", id, audience] as const,
   assistant: (audience: string, prompt: string) =>
     ["assistant", audience, prompt] as const,
 };
@@ -206,7 +213,7 @@ export function useToggleWatchlist(profileId: string) {
         client.invalidateQueries({ queryKey: keys.watchlist(profileId) }),
         client.invalidateQueries({ queryKey: ["title"] }),
         client.invalidateQueries({ queryKey: keys.home(profileId) }),
-        client.invalidateQueries({ queryKey: ["grid", "highlights"] }),
+        client.invalidateQueries({ queryKey: ["browse"] }),
       ]),
   });
 }
@@ -321,7 +328,8 @@ export function invalidateAfterWatching(
   void client.invalidateQueries({ queryKey: keys.home(profileId) });
   void client.invalidateQueries({ queryKey: ["title"] });
   void client.invalidateQueries({ queryKey: ["tonight"] });
-  void client.invalidateQueries({ queryKey: ["grid", "highlights"] });
+  void client.invalidateQueries({ queryKey: ["browse"] });
+  void client.invalidateQueries({ queryKey: ["finished", profileId] });
 }
 
 /** Studio's daily edition for whoever is on the sofa (`a,b`). */
@@ -350,49 +358,6 @@ export function useAssistant(audience: string, prompt: string) {
   });
 }
 
-export function useGridMeta(audience: string, type: string | null) {
-  return useQuery({
-    queryKey: ["grid", "meta", audience, type],
-    queryFn: ({ signal }) =>
-      api("grid/meta", gridMetaSchema, {
-        query: { profiles: audience, type },
-        signal,
-      }),
-    staleTime: 30 * 60_000,
-  });
-}
-
-export function useGridBlocks(
-  audience: string,
-  type: string | null,
-  blocks: { x0: number; y0: number; x1: number; y1: number }[],
-) {
-  return useQueries({
-    queries: blocks.map((block) => ({
-      queryKey: ["grid", "block", audience, type, block],
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        api("grid", gridWindowSchema, {
-          query: { profiles: audience, type, ...block },
-          signal,
-        }),
-      staleTime: 30 * 60_000,
-      gcTime: 10 * 60_000,
-    })),
-  });
-}
-
-export function useHighlights(audience: string) {
-  return useQuery({
-    queryKey: keys.highlights(audience),
-    queryFn: ({ signal }) =>
-      api("grid/highlights", mapHighlightsSchema, {
-        query: { profiles: audience },
-        signal,
-      }),
-    select: (data) => data.highlights,
-  });
-}
-
 export function useActorTitles(name: string, profileId: string) {
   return useInfiniteQuery({
     queryKey: ["actor", name, profileId],
@@ -409,5 +374,103 @@ export function useActorTitles(name: string, profileId: string) {
         signal,
       }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+}
+
+/** Billboard and rows for whoever is on the sofa (`a,b`). */
+export function useBrowse(audience: string, tab: BrowseTab) {
+  return useQuery({
+    queryKey: keys.browse(audience, tab),
+    enabled: audience.length > 0,
+    queryFn: ({ signal }) =>
+      api("browse", browseSchema, {
+        query: { profiles: audience, tab },
+        signal,
+      }),
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Instant search; an empty query answers the popular searches. */
+export function useSearch(
+  audience: string,
+  q: string,
+  type: "movie" | "series" | null = null,
+) {
+  return useQuery({
+    queryKey: keys.search(audience, q, type),
+    enabled: audience.length > 0,
+    queryFn: ({ signal }) =>
+      api("search", searchResultSchema, {
+        query: { profiles: audience, q, ...(type ? { type } : {}) },
+        signal,
+      }),
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** "More like this" on a title page. */
+export function useSimilar(id: string, audience: string) {
+  return useQuery({
+    queryKey: keys.similar(id, audience),
+    enabled: audience.length > 0,
+    queryFn: ({ signal }) =>
+      api(`titles/${id}/similar`, similarTitlesSchema, {
+        query: { profiles: audience },
+        signal,
+      }),
+    staleTime: 30 * 60_000,
+  });
+}
+
+const TITLE_QUERY_KEYS = new Set(Object.keys(titleQuerySchema.shape));
+
+/**
+ * Any `GET /titles` grid: a row's `more`, a genre, a keyword, an actor.
+ * Keys the server would not read are dropped so they never split the cache.
+ */
+export function useTitleGrid(
+  params: Record<string, string>,
+  profileId: string,
+) {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (TITLE_QUERY_KEYS.has(key) && key !== "cursor" && value) {
+      query[key] = value;
+    }
+  }
+  return useInfiniteQuery({
+    queryKey: ["titles", "grid", query, profileId],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      api("titles", titlePageSchema, {
+        query: { ...query, profile: profileId, cursor: pageParam },
+        signal,
+      }),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+}
+
+/** Whether a title is on the lead's list, read from the one list query every screen shares. */
+export function useInList(profileId: string): (id: string) => boolean | null {
+  const list = useWatchlist(profileId);
+  const ids = useMemo(
+    () => (list.data ? new Set(list.data.map((title) => title.id)) : null),
+    [list.data],
+  );
+  return (id: string) => (ids ? ids.has(id) : null);
+}
+
+/** What the lead finished lately, newest first. */
+export function useFinished(profileId: string) {
+  return useQuery({
+    queryKey: ["finished", profileId],
+    queryFn: ({ signal }) =>
+      api(`profiles/${profileId}/finished`, watchlistResponseSchema, {
+        signal,
+      }),
+    select: (data) => data.titles,
   });
 }

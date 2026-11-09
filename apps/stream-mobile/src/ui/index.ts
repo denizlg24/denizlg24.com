@@ -6,6 +6,7 @@ export * from "./empty-state";
 export * from "./icon-button";
 export * from "./meta-row";
 export * from "./skeleton";
+export * from "./stacked-action";
 export * from "./text";
 export * from "./theme";
 export * from "./wordmark";

@@ -1,21 +1,37 @@
+use std::time::Duration;
+
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
+/// The window is often left open for days, so a check at launch alone would
+/// never see a release. "Later" holds until the next version appears.
+const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
 pub fn spawn(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = run(app).await {
-            eprintln!("update check failed: {error}");
+    std::thread::spawn(move || {
+        let mut declined: Option<String> = None;
+        loop {
+            if let Err(error) = tauri::async_runtime::block_on(run(&app, &mut declined)) {
+                eprintln!("update check failed: {error}");
+            }
+            std::thread::sleep(CHECK_EVERY);
         }
     });
 }
 
-async fn run(app: AppHandle) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn run(
+    app: &AppHandle,
+    declined: &mut Option<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let Some(update) = app.updater()?.check().await? else {
         return Ok(());
     };
+    if declined.as_deref() == Some(update.version.as_str()) {
+        return Ok(());
+    }
 
-    let dialog = app
+    let accepted = app
         .dialog()
         .message(format!(
             "Stream {} is ready to install. Stream will restart when it's done.",
@@ -26,9 +42,10 @@ async fn run(app: AppHandle) -> Result<(), Box<dyn std::error::Error + Send + Sy
         .buttons(MessageDialogButtons::OkCancelCustom(
             "Install".into(),
             "Later".into(),
-        ));
-    let accepted = tauri::async_runtime::spawn_blocking(move || dialog.blocking_show()).await?;
+        ))
+        .blocking_show();
     if !accepted {
+        *declined = Some(update.version.clone());
         return Ok(());
     }
 
