@@ -48,8 +48,15 @@ async function fetchLatest(): Promise<AppRelease | null> {
   return parsed.success ? parsed.data : null;
 }
 
+/** One update attempt; Back cancels it, and a cancelled one never opens the installer. */
+interface Attempt {
+  cancelled: boolean;
+  download: FileSystem.DownloadResumable | null;
+}
+
 async function installApk(
   release: AppRelease,
+  attempt: Attempt,
   onProgress: (fraction: number) => void,
 ): Promise<void> {
   const target = `${FileSystem.cacheDirectory}Stream-${release.version}.apk`;
@@ -70,12 +77,18 @@ async function installApk(
         if (total > 0) onProgress(Math.min(1, totalBytesWritten / total));
       },
     );
+    attempt.download = download;
     const result = await download.downloadAsync();
+    if (attempt.cancelled) {
+      await FileSystem.deleteAsync(target, { idempotent: true });
+      return;
+    }
     if (result?.status !== 200) {
       await FileSystem.deleteAsync(target, { idempotent: true });
       throw new Error(`download failed: ${result?.status ?? "no result"}`);
     }
   }
+  if (attempt.cancelled) return;
   const contentUri = await FileSystem.getContentUriAsync(target);
   await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
     data: contentUri,
@@ -92,6 +105,7 @@ async function installApk(
 export function UpdatePrompt() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const lastCheck = useRef(0);
+  const attempt = useRef<Attempt | null>(null);
   const insets = useSafeAreaInsets();
   const installed = Constants.expoConfig?.version ?? "0.0.0";
 
@@ -143,12 +157,29 @@ export function UpdatePrompt() {
   };
 
   const update = () => {
+    const current: Attempt = { cancelled: false, download: null };
+    attempt.current = current;
     setPhase({ kind: "downloading", release, progress: 0 });
-    installApk(release, (progress) =>
-      setPhase({ kind: "downloading", release, progress }),
-    )
-      .then(() => setPhase({ kind: "offer", release }))
-      .catch(() => setPhase({ kind: "failed", release }));
+    installApk(release, current, (progress) => {
+      if (!current.cancelled) {
+        setPhase({ kind: "downloading", release, progress });
+      }
+    })
+      .then(() => {
+        if (!current.cancelled) setPhase({ kind: "offer", release });
+      })
+      .catch(() => {
+        if (!current.cancelled) setPhase({ kind: "failed", release });
+      });
+  };
+
+  const cancel = () => {
+    const current = attempt.current;
+    if (current) {
+      current.cancelled = true;
+      void current.download?.cancelAsync().catch(() => {});
+    }
+    setPhase({ kind: "offer", release });
   };
 
   const tv = Platform.isTV;
@@ -206,13 +237,13 @@ export function UpdatePrompt() {
     </View>
   );
   // On a TV the screen behind keeps mounting focusable rows; a dialog window
-  // takes the remote's focus and keeps it, and Back means Later.
+  // takes the remote's focus and keeps it. Back means Later, or stops a download.
   return tv ? (
     <Modal
       transparent
       visible
       animationType="fade"
-      onRequestClose={phase.kind === "downloading" ? () => {} : later}
+      onRequestClose={phase.kind === "downloading" ? cancel : later}
     >
       {prompt}
     </Modal>
