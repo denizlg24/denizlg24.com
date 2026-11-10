@@ -80,15 +80,29 @@ describe("parseRunContainers", () => {
 });
 
 describe("Docker.wait", () => {
-  test("never puts a deadline on docker wait, so a long run is not lost at two minutes", async () => {
+  test("takes the caller's deadline instead of the two-minute CLI timeout", async () => {
     const calls: { argv: string[]; options?: ExecOptions }[] = [];
     const docker = new Docker(async (argv, options) => {
       calls.push({ argv, options });
       return { exitCode: 0, stdout: "0\n", stderr: "", timedOut: false };
     });
-    expect(await docker.wait("agent-run-1")).toBe(0);
+    expect(await docker.wait("agent-run-1", { timeoutMs: 90 * 60_000 })).toBe(
+      0,
+    );
     expect(calls[0]?.argv).toEqual(["docker", "wait", "agent-run-1"]);
-    expect(calls[0]?.options?.timeoutMs).toBeUndefined();
+    expect(calls[0]?.options?.timeoutMs).toBe(90 * 60_000);
+  });
+
+  test("a wait that outlives its deadline throws rather than returning a code", async () => {
+    const docker = new Docker(async () => ({
+      exitCode: 137,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+    }));
+    await expect(docker.wait("agent-run-1", { timeoutMs: 1 })).rejects.toThrow(
+      "outlived the run's deadline",
+    );
   });
 
   test("throws when docker wait itself fails", async () => {

@@ -202,11 +202,21 @@ export class Docker {
   }
 
   /**
-   * Blocks until the container exits; its exit code. Unbounded on purpose:
-   * the run's own deadline stops the container, which is what ends this.
+   * Blocks until the container exits; its exit code. The caller bounds it by
+   * the run's deadline, not a fixed CLI timeout: runs last far longer than
+   * any command here.
    */
-  async wait(name: string): Promise<number> {
-    const result = await this.#run(["wait", name]);
+  async wait(
+    name: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<number> {
+    const result = await this.#run(["wait", name], options);
+    if (result.timedOut) {
+      throw new DockerError(
+        "docker wait outlived the run's deadline; the container did not stop",
+        result,
+      );
+    }
     if (result.exitCode !== 0) {
       throw new DockerError(
         `docker wait: ${result.stderr.trim() || `exit ${result.exitCode}`}`,

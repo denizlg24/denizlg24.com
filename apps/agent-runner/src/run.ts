@@ -50,6 +50,8 @@ import {
 
 const FLUSH_INTERVAL_MS = 2_000;
 const STOP_GRACE_SECONDS = 20;
+/** Past the deadline: the stop, the kill, and a slow daemon answering. */
+const WAIT_GRACE_MS = 5 * 60_000;
 
 export type GitHubFactory = (
   token: () => string,
@@ -116,6 +118,8 @@ export interface ExitSignals {
   abandoned: boolean;
   cancelled: boolean;
   timedOut: boolean;
+  /** Why supervision ended without the container's exit, if it did. */
+  supervisionError: string | null;
   exitCode: number;
   outcome: HarnessOutcome | null;
   stderrTail: string;
@@ -142,6 +146,22 @@ export function classifyExit(signals: ExitSignals): ExitClass {
       failure: {
         code: "timeout",
         message: `The run passed its ${signals.timeoutMinutes}-minute limit and was stopped`,
+      },
+    };
+  }
+  // Ahead of the stream: a result already read says nothing about the
+  // container the runner could no longer follow, and finishing on it would
+  // push and report a run nobody saw end.
+  if (signals.supervisionError) {
+    return {
+      kind: "failed",
+      failure: {
+        code: "runner-lost",
+        message:
+          `The runner lost the container: ${signals.supervisionError}`.slice(
+            0,
+            8_000,
+          ),
       },
     };
   }
@@ -432,8 +452,11 @@ export class RunSupervisor {
     let stopping: Promise<void> | null = null;
     const stopContainer = () => {
       stopping ??= (async () => {
-        await deps.docker.stop(name, STOP_GRACE_SECONDS);
-        if ((await deps.docker.state(name)) === "running") {
+        await deps.docker.stop(name, STOP_GRACE_SECONDS).catch(() => {});
+        // Kill unless the container is confirmed down: an unreadable state
+        // after a failed stop must not leave the wait below running forever.
+        const status = await deps.docker.state(name);
+        if (status !== "exited" && status !== "dead") {
           await deps.docker.kill(name);
         }
       })().catch((error: unknown) =>
@@ -483,6 +506,7 @@ export class RunSupervisor {
 
     let exitCode = -1;
     let stderrTail = "";
+    let supervisionError: string | null = null;
     try {
       const logs = deps.docker.logs(name);
       await writeFile(paths.stream, "");
@@ -492,7 +516,11 @@ export class RunSupervisor {
           await appendFile(paths.stream, chunk).catch(() => {});
         }
       })();
-      exitCode = await deps.docker.wait(name);
+      // Bounded by the run's own deadline, never by when this supervisor
+      // started: a re-attach after a runner restart gets the same end.
+      exitCode = await deps.docker.wait(name, {
+        timeoutMs: Math.max(0, state.deadline - this.#now()) + WAIT_GRACE_MS,
+      });
       await Promise.race([consume, this.#sleep(10_000)]);
       logs.kill();
       stderrTail = await Promise.race([
@@ -504,7 +532,7 @@ export class RunSupervisor {
         runId: run.runId,
         error: String(error),
       });
-      stderrTail = `runner lost the container: ${String(error)}`;
+      supervisionError = String(error);
     } finally {
       clearTimeout(deadlineTimer);
       stream.end();
@@ -512,6 +540,7 @@ export class RunSupervisor {
 
     const exit = classifyExit({
       ...control,
+      supervisionError,
       exitCode,
       outcome: stream.outcome(),
       stderrTail,
