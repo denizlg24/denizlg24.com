@@ -1,5 +1,11 @@
 import { lookup } from "node:dns/promises";
-import { connect, createServer, type Server, type Socket } from "node:net";
+import {
+  connect,
+  createServer,
+  isIP,
+  type Server,
+  type Socket,
+} from "node:net";
 import { isPrivateAddress } from "./private-address";
 
 export interface EgressProxyOptions {
@@ -54,9 +60,17 @@ export async function resolveEgress(
   host: string,
   allowPrivate: boolean,
 ): Promise<string> {
-  const lowered = host.toLowerCase();
+  // URL.hostname keeps an IPv6 literal's brackets; handed to the resolver as
+  // a name it goes out to DNS and hangs until the resolver gives up.
+  const lowered = host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
   if (lowered === "localhost" || lowered.endsWith(".localhost")) {
     if (!allowPrivate) throw new EgressRefused(host, "loopback");
+  }
+  if (isIP(lowered)) {
+    if (!allowPrivate && isPrivateAddress(lowered)) {
+      throw new EgressRefused(host, `private ${lowered}`);
+    }
+    return lowered;
   }
   const answers = await lookup(lowered, { all: true }).catch(() => []);
   if (answers.length === 0) throw new EgressRefused(host, "unresolved");

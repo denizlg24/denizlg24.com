@@ -121,5 +121,15 @@ describe("resolveEgress", () => {
   test("passes a public literal through untouched", async () => {
     expect(await resolveEgress("1.1.1.1", false)).toBe("1.1.1.1");
     expect(await resolveEgress("127.0.0.1", true)).toBe("127.0.0.1");
+    expect(await resolveEgress("[2606:4700:4700::1111]", false)).toBe(
+      "2606:4700:4700::1111",
+    );
   });
+
+  test("checks a bracketed IPv6 literal without asking DNS", async () => {
+    await expect(resolveEgress("[::1]", false)).rejects.toThrow("private ::1");
+    await expect(resolveEgress("[fd00::1]", false)).rejects.toThrow(
+      "private fd00::1",
+    );
+  }, 1_000);
 });
