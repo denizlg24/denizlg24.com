@@ -8,7 +8,7 @@ import { registerWebCv } from "./cv";
 import { registerWebLatex } from "./latex";
 
 // Scaled down: the default upstream deadline stands in for the old 30 s one,
-// the compile deadline for the 150 s one.
+// the compile deadline for the 12 min one.
 const DEFAULT_DEADLINE_MS = 50;
 const COMPILE_DEADLINE_MS = 400;
 

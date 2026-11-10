@@ -2,12 +2,13 @@ import { type LatexCompileEvent, latexCompileEventSchema } from "@repo/schemas";
 import { type Api, fail, fromResponse, ok, type ToolResult } from "../define";
 
 /**
- * Web kills Tectonic at 90 s (`COMPILE_TIMEOUT_MS` in
- * apps/web/lib/latex-compiler.ts); the PDF upload and the database writes come
- * after that. A cold Tectonic cache spends most of that budget downloading the
- * bundle, so the default 30 s upstream deadline failed valid compiles.
+ * Outlasts web's own Tectonic limit (`COMPILE_TIMEOUT_MS` in
+ * apps/web/lib/latex-compiler.ts, 10 min) plus the PDF upload and database
+ * writes after it, so the compiler's verdict always arrives before this one.
+ * A cold Tectonic cache downloads the whole bundle on the first compile after
+ * a deploy, which is what the default 30 s upstream deadline kept cutting off.
  */
-export const COMPILE_DEADLINE_MS = 150_000;
+export const COMPILE_DEADLINE_MS = 12 * 60_000;
 
 const LOG_TAIL_CHARS = 4_000;
 

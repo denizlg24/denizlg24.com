@@ -16,7 +16,7 @@ import {
   parseLatexDiagnostics,
 } from "@/lib/latex-compile-log";
 
-const COMPILE_TIMEOUT_MS = 90_000;
+const COMPILE_TIMEOUT_MS = 10 * 60_000;
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_ENGINE_LOG_CHARS = 64 * 1024;
 const compileLocks = new Set<string>();

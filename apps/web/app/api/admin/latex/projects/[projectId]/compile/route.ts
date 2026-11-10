@@ -17,7 +17,7 @@ import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 900;
 
 function toErrorEvent(error: unknown): LatexCompileErrorEvent {
   const base = { type: "error" as const, log: "", diagnostics: [] };
