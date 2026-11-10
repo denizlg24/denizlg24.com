@@ -56,7 +56,33 @@ function sseResponse(steps: Step[], signal: AbortSignal | null | undefined) {
   });
 }
 
-function compileClient(steps: Step[]) {
+/** A body written as exactly these byte chunks, then closed. */
+function chunkedResponse(chunks: Uint8Array[]) {
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const chunk of chunks) {
+        await sleep(5);
+        controller.enqueue(chunk);
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+/** Cuts bytes at each offset, wherever that lands. */
+function cutAt(bytes: Uint8Array, offsets: number[]): Uint8Array[] {
+  const edges = [0, ...offsets, bytes.length];
+  return edges.slice(1).map((end, index) => bytes.slice(edges[index], end));
+}
+
+function compileClient(
+  steps: Step[],
+  respond: (signal: AbortSignal | null | undefined) => Response = (signal) =>
+    sseResponse(steps, signal),
+) {
   const paths: string[] = [];
   const fetchImpl = async (
     input: string | URL | Request,
@@ -67,7 +93,7 @@ function compileClient(steps: Step[]) {
       return Response.json({ access_token: "t", expires_in: 300 });
     }
     paths.push(url.pathname);
-    return sseResponse(steps, init?.signal);
+    return respond(init?.signal);
   };
   const fakeFetch = Object.assign(fetchImpl, {
     preconnect: () => {},
@@ -224,5 +250,47 @@ describe("compile over the event stream", () => {
       unknown
     >;
     expect(project.project).toBeUndefined();
+  });
+  test("a done frame split mid-line and inside a character, with CRLF, still compiles", async () => {
+    const done: LatexCompileEvent = {
+      type: "done",
+      log: "Writing main.pdf ✓ — Günes",
+      payload: { cv: null, draft, project: latexProject },
+    };
+    const frame = new TextEncoder().encode(
+      `: keepalive\r\n\r\ndata: ${JSON.stringify({ type: "log", text: "bundle\n" })}\r\n\r\ndata: ${JSON.stringify(done)}\r\n\r\n`,
+    );
+    const check = new TextEncoder().encode("✓");
+    const at = frame.indexOf(check[0] ?? 0);
+    expect(at).toBeGreaterThan(0);
+    const { client } = compileClient([], () =>
+      chunkedResponse(cutAt(frame, [7, 40, at + 1, at + 2, frame.length - 3])),
+    );
+    const result = await client.call("web_cv", {
+      action: "compile",
+      project: latexProject,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      outcome: "compiled",
+      draft,
+      logTail: "Writing main.pdf ✓ — Günes",
+    });
+  });
+
+  test("a stream that closes without done or error says so", async () => {
+    const frame = new TextEncoder().encode(
+      `data: ${JSON.stringify({ type: "log", text: "halfway\n" })}\n\n`,
+    );
+    const { client } = compileClient([], () => chunkedResponse([frame]));
+    const result = await client.call("web_cv", {
+      action: "compile",
+      project: latexProject,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: null,
+      error: { outcome: "stream_ended", pdfUpdated: false },
+    });
   });
 });

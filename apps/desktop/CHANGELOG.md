@@ -10,9 +10,10 @@ paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 ## 3.3.1 — 2026-11-10
 
 ### Fixed
-- **Sprints**: a coding run no longer fails as "exited -1 without a result"
-  once it passes two minutes; the runner was giving up on the container it
-  was waiting for.
+- **Sprints**: runs longer than two minutes no longer fail as "exited -1
+  without a result" once the agent runner carrying the fix is released; the
+  runner was giving up on the container it was waiting for. The desktop
+  release alone does not change this.
 - **Agent memory**: the chat agent's `save_memory` saves again. Every call
   had been refused as "Actor agent is invalid for manual evidence".
 
