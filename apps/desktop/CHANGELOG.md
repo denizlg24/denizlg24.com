@@ -7,6 +7,19 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.3.1 — 2026-11-10
+
+### Fixed
+- **Sprints**: a coding run no longer fails as "exited -1 without a result"
+  once it passes two minutes; the runner was giving up on the container it
+  was waiting for.
+- **Agent memory**: the chat agent's `save_memory` saves again. Every call
+  had been refused as "Actor agent is invalid for manual evidence".
+
+### Changed
+- The LaTeX editor's grammar checker moves to Harper 3, along with the
+  month's minor dependency updates.
+
 ## 3.3.0 — 2026-11-07
 
 ### Added
