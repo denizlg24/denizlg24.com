@@ -118,7 +118,10 @@ describe.skipIf(!TMUX_AVAILABLE)("terminal service with real tmux", () => {
   let tickets: TerminalTicketService;
 
   beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), "cloud-terminal-test-"));
+    // tmux's socket path must fit in sun_path (104 bytes on macOS), which a
+    // macOS $TMPDIR under /var/folders plus tmux's own suffix overruns.
+    const base = process.platform === "darwin" ? "/tmp" : tmpdir();
+    directory = await mkdtemp(join(base, "ct-"));
     manager = new TmuxSessionManager({
       cwd: directory,
       env: {
