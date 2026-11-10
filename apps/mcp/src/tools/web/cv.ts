@@ -1,11 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { latexProjectSchema } from "@repo/schemas";
 import { z } from "zod";
-import { type Api, action, defineActions } from "../define";
+import { type Api, action, defineActions, isRecord } from "../define";
+import { COMPILE_DEADLINE_MS, compileThroughStream } from "./compile-stream";
 
 const project = z.object({ project: latexProjectSchema });
 
-export function registerWebCv(server: McpServer, api: Api) {
+export function registerWebCv(
+  server: McpServer,
+  api: Api,
+  { compileDeadlineMs = COMPILE_DEADLINE_MS } = {},
+) {
   defineActions(server, {
     name: "web_cv",
     title: "Web: CV",
@@ -23,9 +28,21 @@ export function registerWebCv(server: McpServer, api: Api) {
         run: ({ project }) => api.web.put("/api/admin/cv", project),
       }),
       compile: action({
-        description: "Compiles the project, uploads the PDF and revalidates /",
+        description:
+          "Saves the source, compiles it and uploads the draft PDF; waits for the outcome",
         input: project,
-        run: ({ project }) => api.web.post("/api/admin/cv/compile", project),
+        run: ({ project }) =>
+          compileThroughStream(api, {
+            path: "/api/admin/cv/compile",
+            body: project,
+            deadlineMs: compileDeadlineMs,
+            summarize: (payload) =>
+              isRecord(payload)
+                ? { cv: payload.cv ?? null, draft: payload.draft ?? null }
+                : {},
+            afterDeadline:
+              "Call get and compare draft.updatedAt before compiling again.",
+          }),
       }),
       publish: action({
         description: "Revalidates the public page",

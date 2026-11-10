@@ -98,6 +98,7 @@ export function createUpstream(
   config: McpConfig,
   tokens: ServiceTokens = new ServiceTokens(config),
   fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = UPSTREAM_TIMEOUT_MS,
 ): Upstream {
   const call =
     (target: McpConfig["cloud"]) =>
@@ -108,7 +109,7 @@ export function createUpstream(
       return fetchImpl(new URL(path, `${target.url}/`), {
         ...init,
         headers,
-        signal: init.signal ?? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       });
     };
   return {
