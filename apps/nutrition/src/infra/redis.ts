@@ -7,6 +7,9 @@ export const redis = new Redis(env.redisUrl, {
   enableReadyCheck: true,
   lazyConnect: true,
   maxRetriesPerRequest: 1,
+  // ioredis 6 defaults to RESP3; RESP2 keeps the reply shapes the cache and
+  // rate limiter were written against.
+  protocol: 2,
 });
 
 export const connectRedis = async () => {
