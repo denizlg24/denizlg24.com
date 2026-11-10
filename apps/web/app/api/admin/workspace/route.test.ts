@@ -49,6 +49,14 @@ mock.module("@/lib/mongodb", () => ({ connectDB: mock(async () => {}) }));
 mock.module("@/lib/workspace/mongo-repo", () => ({
   mongoWorkspaceRepo: memory.repo,
 }));
+// The singleton captures its repo when index.ts first loads. An earlier test
+// file in the same process may have loaded it against the real Mongo repo, so
+// the service itself is replaced, not just the repo it was built from.
+const { createWorkspaceService } = await import("@/lib/workspace/service");
+mock.module("@/lib/workspace/index", () => ({
+  workspaceService: createWorkspaceService(memory.repo),
+  openWorkspacePage: mock(async () => null),
+}));
 
 const { GET, PUT } = await import("./route");
 const ops = await import("./pages/[id]/ops/route");

@@ -8,7 +8,7 @@
 FROM debian:trixie-slim
 
 # The monorepo's pinned Bun (root package.json `packageManager`).
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.4
 ARG NODE_MAJOR=24
 # Exact, never a range: stream-json shapes and CLI flags are what the runner
 # parses, and harness/claude-code.ts names the same version.

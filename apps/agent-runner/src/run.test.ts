@@ -132,6 +132,7 @@ interface Scenario {
   result?: unknown;
   finalize?: FinalizeOutcome;
   heartbeat?: RunnerHeartbeatResponse;
+  wait?: (name: string, options?: { timeoutMs?: number }) => Promise<number>;
 }
 
 async function execute(scenario: Scenario) {
@@ -162,7 +163,7 @@ async function execute(scenario: Scenario) {
         expect(env).toContain("CLAUDE_CODE_OAUTH_TOKEN=");
         return "container-id";
       },
-      wait: async () => 0,
+      wait: scenario.wait ?? (async () => 0),
       logs: () => streamOf(stdout),
       stop: async () => {},
       kill: async () => {},
@@ -341,6 +342,36 @@ describe("RunSupervisor", () => {
     expect(outcome.github).toEqual([]);
   });
 
+  test("a lost container fails as runner-lost although the stream ended cleanly", async () => {
+    const outcome = await execute({
+      result: IMPLEMENT_RESULT,
+      wait: async () => {
+        throw new Error("docker wait: Cannot connect to the Docker daemon");
+      },
+    });
+    expect(outcome.completes[0]).toMatchObject({
+      status: "failed",
+      failure: { code: "runner-lost" },
+    });
+    expect(outcome.completes[0]?.failure?.message).toContain(
+      "Cannot connect to the Docker daemon",
+    );
+    expect(outcome.finalizeCalls).toEqual([]);
+    expect(outcome.github).toEqual([]);
+  });
+
+  test("the wait is bounded by the run's deadline plus a grace", async () => {
+    let bound: number | undefined;
+    await execute({
+      result: IMPLEMENT_RESULT,
+      wait: async (_name, options) => {
+        bound = options?.timeoutMs;
+        return 0;
+      },
+    });
+    expect(bound).toBeGreaterThan(5 * 60_000);
+  });
+
   test("an auth failure is harness-error although its subtype is success", async () => {
     const outcome = await execute({
       fixture: "claude-auth-error.jsonl",
@@ -435,6 +466,7 @@ describe("classifyExit", () => {
     },
     stderrTail: "",
     timeoutMinutes: 90,
+    supervisionError: null,
   };
 
   test("a timeout wins over whatever the stream said", () => {
@@ -468,6 +500,25 @@ describe("classifyExit", () => {
     expect(
       classifyExit({ ...base, abandoned: true, cancelled: true }).kind,
     ).toBe("abandon");
+  });
+
+  test("losing the container fails the run even after a clean result", () => {
+    expect(
+      classifyExit({ ...base, supervisionError: "docker wait: daemon gone" }),
+    ).toMatchObject({
+      kind: "failed",
+      failure: {
+        code: "runner-lost",
+        message: "The runner lost the container: docker wait: daemon gone",
+      },
+    });
+    expect(
+      classifyExit({
+        ...base,
+        timedOut: true,
+        supervisionError: "docker wait outlived the run's deadline",
+      }),
+    ).toMatchObject({ kind: "failed", failure: { code: "timeout" } });
   });
 
   test("a clean result is an exit for the runner to finish", () => {

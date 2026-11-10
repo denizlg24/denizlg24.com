@@ -161,21 +161,7 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<()> {
 
     let file = std::fs::File::open(archive)?;
     let mut zip = ZipArchive::new(file)?;
-
-    for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)?;
-        let out = dest.join(entry.name());
-
-        if entry.is_dir() {
-            std::fs::create_dir_all(&out)?;
-        } else {
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut outfile = std::fs::File::create(&out)?;
-            std::io::copy(&mut entry, &mut outfile)?;
-        }
-    }
+    zip.extract(dest)?;
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseRunContainers, RUN_LABEL, runArgs } from "./docker";
+import { Docker, parseRunContainers, RUN_LABEL, runArgs } from "./docker";
+import type { ExecOptions } from "./exec";
 
 describe("runArgs", () => {
   test("drops every capability and forbids privilege gain on every container", () => {
@@ -75,5 +76,44 @@ describe("parseRunContainers", () => {
     expect(parseRunContainers(output)).toEqual([
       { id: "abc", name: "agent-run-r1", runId: "r1", state: "running" },
     ]);
+  });
+});
+
+describe("Docker.wait", () => {
+  test("takes the caller's deadline instead of the two-minute CLI timeout", async () => {
+    const calls: { argv: string[]; options?: ExecOptions }[] = [];
+    const docker = new Docker(async (argv, options) => {
+      calls.push({ argv, options });
+      return { exitCode: 0, stdout: "0\n", stderr: "", timedOut: false };
+    });
+    expect(await docker.wait("agent-run-1", { timeoutMs: 90 * 60_000 })).toBe(
+      0,
+    );
+    expect(calls[0]?.argv).toEqual(["docker", "wait", "agent-run-1"]);
+    expect(calls[0]?.options?.timeoutMs).toBe(90 * 60_000);
+  });
+
+  test("a wait that outlives its deadline throws rather than returning a code", async () => {
+    const docker = new Docker(async () => ({
+      exitCode: 137,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+    }));
+    await expect(docker.wait("agent-run-1", { timeoutMs: 1 })).rejects.toThrow(
+      "outlived the run's deadline",
+    );
+  });
+
+  test("throws when docker wait itself fails", async () => {
+    const docker = new Docker(async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Error: No such container: agent-run-1",
+      timedOut: false,
+    }));
+    await expect(docker.wait("agent-run-1")).rejects.toThrow(
+      "No such container",
+    );
   });
 });

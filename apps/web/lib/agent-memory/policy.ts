@@ -63,7 +63,11 @@ export function mostSensitive(values: AgentSensitivity[]): AgentSensitivity {
 
 const SOURCE_POLICY: Record<
   AgentSourceType,
-  { actors: AgentActor[]; maximumTrust: AgentTrust }
+  {
+    actors: AgentActor[];
+    maximumTrust: AgentTrust;
+    actorMaximumTrust?: Partial<Record<AgentActor, AgentTrust>>;
+  }
 > = {
   conversation: { actors: ["user", "agent"], maximumTrust: "high" },
   "tool-result": {
@@ -83,7 +87,13 @@ const SOURCE_POLICY: Record<
   journal: { actors: ["user", "system"], maximumTrust: "high" },
   finance: { actors: ["system"], maximumTrust: "derived" },
   file: { actors: ["user", "external"], maximumTrust: "untrusted" },
-  manual: { actors: ["user", "system"], maximumTrust: "highest" },
+  // The agent's save_memory writes here too, but it relays what it was told:
+  // only the owner's own hand reaches the top of the scale.
+  manual: {
+    actors: ["user", "agent", "system"],
+    maximumTrust: "highest",
+    actorMaximumTrust: { agent: "high" },
+  },
   // Contents of a file the sender chose to attach; the sender vouches for
   // sending it, never for what is inside it.
   attachment: { actors: ["user", "agent"], maximumTrust: "low" },
@@ -121,6 +131,14 @@ export function assertEvidencePolicy(input: EvidencePolicyInput): void {
   if (TRUST_SCORE[input.trust] > TRUST_SCORE[sourcePolicy.maximumTrust]) {
     throw new AgentMemoryPolicyError(
       `${input.sourceType} evidence cannot claim ${input.trust} trust`,
+      "trust-escalation",
+    );
+  }
+
+  const actorMaximum = sourcePolicy.actorMaximumTrust?.[input.actor];
+  if (actorMaximum && TRUST_SCORE[input.trust] > TRUST_SCORE[actorMaximum]) {
+    throw new AgentMemoryPolicyError(
+      `${input.actor} ${input.sourceType} evidence cannot claim ${input.trust} trust`,
       "trust-escalation",
     );
   }

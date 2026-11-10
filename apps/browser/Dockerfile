@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.0-debian AS dependencies
+FROM oven/bun:1.4.4-debian AS dependencies
 WORKDIR /workspace
 
 COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
@@ -10,7 +10,7 @@ RUN bun run --cwd apps/browser build
 
 # Debian, not alpine: Google Chrome is a glibc build and Playwright's
 # `install --with-deps` only knows apt. amd64 only — Chrome ships no linux/arm64.
-FROM oven/bun:1.4.0-debian AS runtime
+FROM oven/bun:1.4.4-debian AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

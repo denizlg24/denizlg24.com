@@ -22,10 +22,20 @@ import {
   decodeUpload,
   defineActions,
   fromResponse,
+  isRecord,
   p,
 } from "../define";
+import { COMPILE_DEADLINE_MS, compileThroughStream } from "./compile-stream";
 
 const projectId = z.string().min(1).describe("LaTeX project id");
+
+/** The record without its source: the caller just sent it. */
+function summarizeCompiledProject(payload: unknown): Record<string, unknown> {
+  const record = isRecord(payload) ? payload.project : undefined;
+  if (!isRecord(record)) return {};
+  const { project: _source, ...rest } = record;
+  return { project: rest };
+}
 const byId = z.object({ projectId });
 
 const archiveFields = {
@@ -33,7 +43,11 @@ const archiveFields = {
   base64: z.string().describe("ZIP bytes, ≤ 8 MB"),
 };
 
-export function registerWebLatex(server: McpServer, api: Api) {
+export function registerWebLatex(
+  server: McpServer,
+  api: Api,
+  { compileDeadlineMs = COMPILE_DEADLINE_MS } = {},
+) {
   defineActions(server, {
     name: "web_latex_projects",
     title: "Web: LaTeX projects",
@@ -106,13 +120,21 @@ export function registerWebLatex(server: McpServer, api: Api) {
           api.web.post(p`/api/admin/latex/projects/${projectId}/duplicate`),
       }),
       compile: action({
-        description: "Compiles the given file tree at baseRevision",
+        description:
+          "Saves the given file tree at baseRevision and compiles it; waits for the outcome",
         input: z.object({
           projectId,
           ...compileLatexProjectRequestSchema.shape,
         }),
         run: ({ projectId, ...body }) =>
-          api.web.post(p`/api/admin/latex/projects/${projectId}/compile`, body),
+          compileThroughStream(api, {
+            path: p`/api/admin/latex/projects/${projectId}/compile`,
+            body,
+            deadlineMs: compileDeadlineMs,
+            summarize: summarizeCompiledProject,
+            afterDeadline:
+              "Call get and read compileStatus and compiledPdf before compiling again.",
+          }),
       }),
       data_points: action({
         description: "Searches the owner's data for figures to cite",

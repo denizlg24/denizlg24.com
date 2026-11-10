@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { savedMemoryTrust } from "./manual-save";
 import {
   AgentMemoryPolicyError,
   assertCandidateSafety,
@@ -81,6 +82,34 @@ describe("agent memory security policy", () => {
     expect(() =>
       assertEvidencePolicy({ ...dictated, sourceType: "attachment" }),
     ).toThrow("attachment evidence cannot claim high trust");
+  });
+
+  test("accepts the evidence save_memory writes, capped below the owner's own hand", () => {
+    const saved = {
+      sourceType: "manual" as const,
+      sourceRef: { entityType: "other", entityId: "agent-save:abc" },
+      actor: "agent" as const,
+      sensitivity: "personal" as const,
+      snapshot: "Deniz moved to Copenhagen in 2026.",
+      provenance: { savedByAgent: true, conversationId: "c1", reason: "told" },
+    };
+    for (const explicitness of ["explicit", "inferred"] as const) {
+      expect(() =>
+        assertEvidencePolicy({
+          ...saved,
+          trust: savedMemoryTrust(explicitness),
+        }),
+      ).not.toThrow();
+    }
+    expect(() => assertEvidencePolicy({ ...saved, trust: "highest" })).toThrow(
+      "agent manual evidence cannot claim highest trust",
+    );
+    expect(() =>
+      assertEvidencePolicy({ ...saved, actor: "user", trust: "highest" }),
+    ).not.toThrow();
+    expect(() =>
+      assertEvidencePolicy({ ...saved, actor: "external", trust: "untrusted" }),
+    ).toThrow("Actor external is invalid for manual evidence");
   });
 
   test("keeps computed finance evidence system-owned and derived", () => {

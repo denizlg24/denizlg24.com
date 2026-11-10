@@ -2,6 +2,7 @@ import type {
   AgentEntityRef,
   AgentMemoryMode,
   AgentMemoryType,
+  AgentTrust,
 } from "@repo/schemas";
 import { Types } from "mongoose";
 import { embedMultimodal } from "@/lib/llm-service";
@@ -79,6 +80,16 @@ export interface SaveAgentMemoryInput {
    */
   memoryMode: AgentMemoryMode | undefined;
   conversationId?: string;
+}
+
+/**
+ * The agent relays what it was told, so even an explicit statement stops one
+ * step short of the owner's own hand — manual evidence caps the agent at high.
+ */
+export function savedMemoryTrust(
+  explicitness: SaveAgentMemoryInput["explicitness"],
+): AgentTrust {
+  return explicitness === "explicit" ? "high" : "medium";
 }
 
 function normalizeStatement(statement: string): string {
@@ -178,6 +189,7 @@ export async function saveAgentMemory(
   await connectDB();
 
   const observedAt = new Date();
+  const savedTrust = savedMemoryTrust(input.explicitness);
   // Everything that makes this a distinct observation, not just the words. Two
   // saves of the same sentence with different validity windows are two facts
   // about the world, and keying on the statement alone would silently fold the
@@ -203,7 +215,7 @@ export async function saveAgentMemory(
       snapshot: statement,
       occurredAt: observedAt,
       actor: "agent",
-      trust: input.explicitness === "explicit" ? "highest" : "high",
+      trust: savedTrust,
       sensitivity: "personal",
       provenance: {
         savedByAgent: true,
@@ -321,7 +333,7 @@ export async function saveAgentMemory(
         explicitness: input.explicitness,
         confidence: input.confidence,
         importance: input.importance,
-        trust: input.explicitness === "explicit" ? "highest" : "high",
+        trust: savedTrust,
         sensitivity: "personal",
         temporal: {
           precision: input.validFrom ? "day" : "unknown",

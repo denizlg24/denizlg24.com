@@ -3,7 +3,7 @@
 # graphite2, and bun installs the platform packages of sharp and resvg for the
 # libc it runs on, so an alpine install stage would hand a Debian runtime the
 # musl builds.
-FROM oven/bun:1.4.0-slim AS dependencies
+FROM oven/bun:1.4.4-slim AS dependencies
 WORKDIR /workspace
 
 COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
