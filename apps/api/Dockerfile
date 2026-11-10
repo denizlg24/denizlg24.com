@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1.3.3-alpine AS manifests
+FROM oven/bun:1.4.4-alpine AS manifests
 WORKDIR /src
 COPY . .
 # Bun 1.3.3 needs the complete workspace manifest set for a frozen install.
@@ -9,7 +9,7 @@ COPY . .
 # is content-addressed, so the install layer is reused until a manifest changes.
 RUN bun -e 'const { mkdirSync, copyFileSync } = require("node:fs"); const { dirname } = require("node:path"); for (const pattern of require("./package.json").workspaces) for (const manifest of new Bun.Glob(`${pattern}/package.json`).scanSync(".")) { mkdirSync(`/manifests/${dirname(manifest)}`, { recursive: true }); copyFileSync(manifest, `/manifests/${manifest}`); }'
 
-FROM oven/bun:1.3.3-alpine AS dependencies
+FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
 
 COPY package.json bun.lock ./
@@ -25,7 +25,7 @@ COPY packages/markets packages/markets
 COPY packages/schemas packages/schemas
 RUN bun run --cwd apps/api build
 
-FROM oven/bun:1.3.3-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 # Thumbnails are subprocesses, never a native module: `vipsthumbnail` for

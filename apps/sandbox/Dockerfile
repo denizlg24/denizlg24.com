@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1.4.0-alpine AS dependencies
+FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
 
 COPY package.json bun.lock ./
@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile --ignore-scripts
 FROM dependencies AS build
 RUN bun run --cwd apps/sandbox build
 
-FROM oven/bun:1.4.0-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 RUN apk add --no-cache docker-cli

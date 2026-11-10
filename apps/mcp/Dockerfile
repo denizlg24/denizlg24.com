@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.0-alpine AS dependencies
+FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
 
 COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
@@ -9,7 +9,7 @@ COPY apps apps
 COPY packages packages
 RUN bun run --cwd apps/mcp build
 
-FROM oven/bun:1.4.0-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
