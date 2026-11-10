@@ -504,6 +504,7 @@ export class RunSupervisor {
         runId: run.runId,
         error: String(error),
       });
+      stderrTail = `runner lost the container: ${String(error)}`;
     } finally {
       clearTimeout(deadlineTimer);
       stream.end();

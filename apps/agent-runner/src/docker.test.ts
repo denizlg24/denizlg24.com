@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseRunContainers, RUN_LABEL, runArgs } from "./docker";
+import { Docker, parseRunContainers, RUN_LABEL, runArgs } from "./docker";
+import type { ExecOptions } from "./exec";
 
 describe("runArgs", () => {
   test("drops every capability and forbids privilege gain on every container", () => {
@@ -75,5 +76,30 @@ describe("parseRunContainers", () => {
     expect(parseRunContainers(output)).toEqual([
       { id: "abc", name: "agent-run-r1", runId: "r1", state: "running" },
     ]);
+  });
+});
+
+describe("Docker.wait", () => {
+  test("never puts a deadline on docker wait, so a long run is not lost at two minutes", async () => {
+    const calls: { argv: string[]; options?: ExecOptions }[] = [];
+    const docker = new Docker(async (argv, options) => {
+      calls.push({ argv, options });
+      return { exitCode: 0, stdout: "0\n", stderr: "", timedOut: false };
+    });
+    expect(await docker.wait("agent-run-1")).toBe(0);
+    expect(calls[0]?.argv).toEqual(["docker", "wait", "agent-run-1"]);
+    expect(calls[0]?.options?.timeoutMs).toBeUndefined();
+  });
+
+  test("throws when docker wait itself fails", async () => {
+    const docker = new Docker(async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Error: No such container: agent-run-1",
+      timedOut: false,
+    }));
+    await expect(docker.wait("agent-run-1")).rejects.toThrow(
+      "No such container",
+    );
   });
 });

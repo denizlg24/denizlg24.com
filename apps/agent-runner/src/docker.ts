@@ -201,10 +201,19 @@ export class Docker {
     await this.#run(["rm", "--force", name], { timeoutMs: 60_000 });
   }
 
-  /** Blocks until the container exits; its exit code. */
+  /**
+   * Blocks until the container exits; its exit code. Unbounded on purpose:
+   * the run's own deadline stops the container, which is what ends this.
+   */
   async wait(name: string): Promise<number> {
-    const output = await this.#ok(["wait", name], "docker wait");
-    const code = Number(output.split("\n").at(-1));
+    const result = await this.#run(["wait", name]);
+    if (result.exitCode !== 0) {
+      throw new DockerError(
+        `docker wait: ${result.stderr.trim() || `exit ${result.exitCode}`}`,
+        result,
+      );
+    }
+    const code = Number(result.stdout.trim().split("\n").at(-1));
     return Number.isFinite(code) ? code : -1;
   }
 
