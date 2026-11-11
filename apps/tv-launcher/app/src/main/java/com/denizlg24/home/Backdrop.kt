@@ -82,7 +82,7 @@ class Backdrop(private val view: ImageView) {
             .joinToString("") { "%02x".format(it) }
 
     private companion object {
-        const val SHOWN_ALPHA = 0.34f
+        const val SHOWN_ALPHA = 0.26f
         const val SETTLE_MS = 220L
         const val MAX_BYTES = 6L * 1024 * 1024
         const val KEPT = 24
