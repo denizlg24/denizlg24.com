@@ -19,7 +19,7 @@ muted, amber; Big Shoulders for display, Atkinson Hyperlegible Next for the
 rest, copied into `assets/fonts`. Stream's typography rules hold here: no
 eyebrow labels, no tracked uppercase, no glyph standing in for an icon. No
 banners, tiles or boxes: an app is its name, focus is paper over an amber
-rule, progress is a hairline.
+rule, progress is a hairline. The only image is the wallpaper.
 
 ## The screen
 
@@ -48,7 +48,7 @@ two sources:
 
 - **Published.** An app broadcasts
   `com.denizlg24.home.action.PUBLISH_WATCHING` with an `items` JSON array
-  (`{ title, subtitle?, uri?, image?, positionMs, durationMs, updatedAt }`)
+  (`{ title, subtitle?, uri?, positionMs, durationMs, updatedAt }`)
   and `BroadcastOptions.setShareIdentityEnabled(true)`. The list is filed
   under `getSentFromPackage()` (Android 14 only) and an item's `uri` is only
   ever opened with `setPackage` of that sender. Stream does this from its
@@ -60,11 +60,17 @@ two sources:
   title each app played and how far; choosing one opens the app, not the
   episode. A published list replaces the observed entry for the same app.
 
-Artwork (`Backdrop`) sits faint behind the page: the focused item's, else
-the most recently watched item that has any. A published item names an
-https URL (disk-cached); an observed one gets whatever bitmap its session
-carries, saved as one file per app under `files/art`. With neither, the
-page is plain ink — there is no wallpaper.
+## Wallpaper
+
+One fixed picture behind the home view (`Wallpaper`), under a scrim that is
+light at the clock and near ink under the rows. It is
+`assets/wallpaper.jpg`, 1280 px wide, unless
+`am start -n com.denizlg24.home/.HomeActivity --es wallpaper https://…`
+has saved another to `files/wallpaper.jpg`. Watched items carry no artwork:
+the owner asked for a set image rather than the last thing watched.
+
+The bundled picture is "Tallinn Christmas Market at night in snow" by
+jonathan exon, CC BY-SA 3.0, from Wikimedia Commons, scaled down.
 
 ## Installing on the TV
 

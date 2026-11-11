@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Browse, TitleSummary } from "@repo/schemas/stream";
 import { launcherItems } from "./launcher";
 
-function title(id: string, name: string, backdropPath: string | null) {
+function title(id: string, name: string) {
   return {
     id,
     type: "series",
@@ -14,7 +14,7 @@ function title(id: string, name: string, backdropPath: string | null) {
     rating: null,
     votes: 0,
     posterPath: null,
-    backdropPath,
+    backdropPath: null,
   } satisfies TitleSummary;
 }
 
@@ -28,7 +28,7 @@ const home: Browse = {
       label: "Continue watching",
       items: [
         {
-          title: title("tt1", "The Bear", "/bear.jpg"),
+          title: title("tt1", "The Bear"),
           progress: {
             titleId: "tt1",
             episodeId: "tt9",
@@ -40,7 +40,7 @@ const home: Browse = {
           episode: { season: 2, episode: 3, title: "Sundae" },
         },
         {
-          title: title("tt2", "Heat", null),
+          title: title("tt2", "Heat"),
           progress: {
             titleId: "tt2",
             episodeId: null,
@@ -61,19 +61,17 @@ describe("launcherItems", () => {
       title: "The Bear",
       subtitle: "S2 E3",
       uri: "stream://tv/watch/tt1?episode=tt9",
-      image: "https://image.tmdb.org/t/p/w1280/bear.jpg",
       positionMs: 600400,
       durationMs: 1800000,
       updatedAt: Date.parse("2026-11-10T20:00:00.000Z"),
     });
   });
 
-  test("a film has no episode and may have no artwork", () => {
+  test("a film has no episode", () => {
     expect(launcherItems(home)?.[1]).toMatchObject({
       title: "Heat",
       subtitle: null,
       uri: "stream://tv/watch/tt2",
-      image: null,
     });
   });
 

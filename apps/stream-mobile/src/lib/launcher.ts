@@ -1,4 +1,4 @@
-import { type Browse, tmdbImage } from "@repo/schemas/stream";
+import type { Browse } from "@repo/schemas/stream";
 
 /** One entry of the TV home screen's "Continue watching" (`apps/tv-launcher`). */
 export interface LauncherItem {
@@ -6,7 +6,6 @@ export interface LauncherItem {
   subtitle: string | null;
   /** Opened inside Stream when the entry is chosen. */
   uri: string;
-  image: string | null;
   positionMs: number;
   durationMs: number;
   updatedAt: number;
@@ -24,7 +23,6 @@ export function launcherItems(browse: Browse): LauncherItem[] | null {
           title: title.title,
           subtitle: episodeMark(episode?.season, episode?.episode),
           uri: watchUri(title.id, progress.episodeId),
-          image: tmdbImage(title.backdropPath, "w1280"),
           positionMs: Math.round(progress.positionS * 1000),
           durationMs: Math.round(progress.durationS * 1000),
           updatedAt: Date.parse(progress.updatedAt),

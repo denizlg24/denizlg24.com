@@ -49,7 +49,7 @@ class HomeActivity : Activity() {
     private lateinit var type: Type
     private lateinit var homeRow: HomeRow
     private lateinit var watching: Watching
-    private lateinit var backdrop: Backdrop
+    private lateinit var wallpaper: Wallpaper
 
     private lateinit var home: LinearLayout
     private lateinit var pages: FrameLayout
@@ -136,9 +136,11 @@ class HomeActivity : Activity() {
 
     /**
      * `am start -n com.denizlg24.home/.HomeActivity --es home a,b,c` sets the
-     * home row from adb, for setting a TV up without the remote.
+     * home row from adb, for setting a TV up without the remote;
+     * `--es wallpaper https://…` replaces the picture behind it.
      */
     private fun provision(intent: Intent): Boolean {
+        intent.getStringExtra("wallpaper")?.let(wallpaper::replace)
         val packages = intent.getStringExtra("home") ?: return false
         homeRow.set(packages.split(',').map { it.trim() }.filter { it.isNotEmpty() })
         return true
@@ -163,14 +165,14 @@ class HomeActivity : Activity() {
             View(this).apply {
                 background = GradientDrawable(
                     GradientDrawable.Orientation.BOTTOM_TOP,
-                    intArrayOf(Ink.INK, Ink.INK and 0x00FFFFFF),
+                    intArrayOf(SCRIM_BOTTOM, SCRIM_TOP),
                 )
             },
             MATCH_PARENT,
             MATCH_PARENT,
         )
-        backdrop = Backdrop(image)
-        root.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused -> renderBackdrop(focused) }
+        wallpaper = Wallpaper(image)
+        wallpaper.show()
 
         home = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -301,22 +303,14 @@ class HomeActivity : Activity() {
         for (item in items) {
             watchRow.addView(
                 WatchRow(this, type, item, labelOf(item.source)).apply {
-                    tag = item
                     setOnClickListener { open(item) }
                 },
                 LinearLayout.LayoutParams(dp(236), WRAP_CONTENT).apply { marginEnd = dp(40) },
             )
         }
-        renderBackdrop(currentFocus)
         if (focused < 0 || stack.isNotEmpty()) return
         val next = watchRow.getChildAt(minOf(focused, watchRow.childCount - 1))
         (next ?: appsRow.getChildAt(0) ?: systemRow.getChildAt(0))?.requestFocus()
-    }
-
-    /** The focused item's artwork, else the most recently watched thing that has any. */
-    private fun renderBackdrop(focused: View?) {
-        val item = focused?.tag as? WatchItem
-        backdrop.show(item?.image ?: watching.items().firstNotNullOfOrNull { it.image })
     }
 
     private fun labelOf(pkg: String): String =
@@ -474,6 +468,13 @@ class HomeActivity : Activity() {
         val below = stack.lastOrNull()?.view ?: home
         below.visibility = View.VISIBLE
         if (page.opener?.isAttachedToWindow == true) page.opener.requestFocus() else below.requestFocus()
+    }
+
+    private companion object {
+        // The picture stays a picture at the top, where only the clock sits,
+        // and goes nearly to ink under the rows that have to be read.
+        const val SCRIM_TOP = 0x400C0B0A
+        const val SCRIM_BOTTOM = 0xD00C0B0A.toInt()
     }
 
     private fun closePages() {

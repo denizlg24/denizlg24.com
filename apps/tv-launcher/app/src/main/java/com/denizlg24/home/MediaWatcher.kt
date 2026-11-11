@@ -1,7 +1,6 @@
 package com.denizlg24.home
 
 import android.content.ComponentName
-import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -11,8 +10,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
-import java.io.File
-import java.util.concurrent.Executors
 
 /**
  * Other apps' "last watched". Their Watch Next rows are readable only by a
@@ -22,7 +19,6 @@ import java.util.concurrent.Executors
  */
 class MediaWatcher : NotificationListenerService() {
     private val main = Handler(Looper.getMainLooper())
-    private val io = Executors.newSingleThreadExecutor()
     private val followed = HashMap<MediaSession.Token, Followed>()
     private val sessionsChanged =
         MediaSessionManager.OnActiveSessionsChangedListener { follow(it.orEmpty()) }
@@ -88,7 +84,6 @@ class MediaWatcher : NotificationListenerService() {
                 title = title,
                 subtitle = subtitle?.takeIf { it != title },
                 uri = null,
-                image = artwork(controller.packageName, title, metadata),
                 positionMs = position(state),
                 durationMs = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION).coerceAtLeast(0),
                 updatedAt = System.currentTimeMillis(),
@@ -98,28 +93,6 @@ class MediaWatcher : NotificationListenerService() {
             main.removeCallbacks(tick)
             main.postDelayed(tick, TICK_MS)
         }
-    }
-
-    /**
-     * Whatever picture the session carries, kept as one file per app so the
-     * home screen can show it after the app is gone. Written off the main
-     * thread; until it lands the backdrop simply finds nothing to draw.
-     */
-    private fun artwork(source: String, title: String, metadata: MediaMetadata): String? {
-        val bitmap = ART_KEYS.firstNotNullOfOrNull { metadata.getBitmap(it) } ?: return null
-        val dir = File(filesDir, "art")
-        val file = File(dir, "$source-${title.hashCode().toUInt().toString(16)}.jpg")
-        if (!file.exists()) {
-            io.execute {
-                dir.mkdirs()
-                dir.listFiles { other -> other.name.startsWith("$source-") }?.forEach { it.delete() }
-                runCatching {
-                    file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-                }
-                main.post { Watching.get(this).onChange?.invoke() }
-            }
-        }
-        return file.path
     }
 
     private fun position(state: PlaybackState): Long {
@@ -137,10 +110,5 @@ class MediaWatcher : NotificationListenerService() {
     private companion object {
         const val TICK_MS = 30_000L
         val IGNORED = setOf("com.android.bluetooth")
-        val ART_KEYS = listOf(
-            MediaMetadata.METADATA_KEY_ART,
-            MediaMetadata.METADATA_KEY_ALBUM_ART,
-            MediaMetadata.METADATA_KEY_DISPLAY_ICON,
-        )
     }
 }

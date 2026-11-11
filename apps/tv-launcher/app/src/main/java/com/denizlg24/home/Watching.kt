@@ -13,7 +13,6 @@ class WatchItem(
     val subtitle: String?,
     /** Opens the item inside its app; null opens the app itself. */
     val uri: String?,
-    val image: String?,
     val positionMs: Long,
     val durationMs: Long,
     val updatedAt: Long,
@@ -42,8 +41,7 @@ class Watching private constructor(context: Context) {
         }
         stored?.optJSONObject(OBSERVED)?.let { sources ->
             for (source in sources.keys()) {
-                parseItem(source, sources.getJSONObject(source), ownFiles = true)
-                    ?.let { observed[source] = it }
+                parseItem(source, sources.getJSONObject(source))?.let { observed[source] = it }
             }
         }
     }
@@ -61,9 +59,7 @@ class Watching private constructor(context: Context) {
     fun observe(item: WatchItem) {
         val before = observed[item.source]
         observed[item.source] = item
-        val same = before != null && before.title == item.title && before.subtitle == item.subtitle &&
-            before.image == item.image
-        if (same) save() else changed()
+        if (before?.title != item.title || before.subtitle != item.subtitle) changed() else save()
     }
 
     fun forget(installed: (String) -> Boolean) {
@@ -105,8 +101,7 @@ class Watching private constructor(context: Context) {
             (0 until minOf(array.length(), PUBLISHED_MAX))
                 .mapNotNull { index -> array.optJSONObject(index)?.let { parseItem(source, it) } }
 
-        /** A publisher may only name https artwork; our own saved art is a path. */
-        private fun parseItem(source: String, json: JSONObject, ownFiles: Boolean = false): WatchItem? {
+        private fun parseItem(source: String, json: JSONObject): WatchItem? {
             val title = json.optString("title").trim()
             if (title.isEmpty()) return null
             return WatchItem(
@@ -114,9 +109,6 @@ class Watching private constructor(context: Context) {
                 title = title,
                 subtitle = text(json, "subtitle"),
                 uri = text(json, "uri"),
-                image = text(json, "image")?.takeIf {
-                    it.startsWith("https://") || (ownFiles && it.startsWith("/"))
-                },
                 positionMs = json.optLong("positionMs").coerceAtLeast(0),
                 durationMs = json.optLong("durationMs").coerceAtLeast(0),
                 updatedAt = json.optLong("updatedAt"),
@@ -130,7 +122,6 @@ class Watching private constructor(context: Context) {
             .put("title", item.title)
             .put("subtitle", item.subtitle ?: JSONObject.NULL)
             .put("uri", item.uri ?: JSONObject.NULL)
-            .put("image", item.image ?: JSONObject.NULL)
             .put("positionMs", item.positionMs)
             .put("durationMs", item.durationMs)
             .put("updatedAt", item.updatedAt)
@@ -139,7 +130,7 @@ class Watching private constructor(context: Context) {
 
 /**
  * `com.denizlg24.home.action.PUBLISH_WATCHING` with an `items` JSON array of
- * `{ title, subtitle?, uri?, image?, positionMs, durationMs, updatedAt }`.
+ * `{ title, subtitle?, uri?, positionMs, durationMs, updatedAt }`.
  * The sender must share its identity (`BroadcastOptions`, Android 14): the
  * list is filed under that package and its links only ever open that package.
  */
