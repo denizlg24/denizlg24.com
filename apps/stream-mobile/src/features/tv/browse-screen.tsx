@@ -22,9 +22,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useBrowse } from "@/api/stream";
 import { useAudience } from "@/lib/audience-store";
+import { launcherItems } from "@/lib/launcher";
 import { createStore, type Store, useStore } from "@/lib/store";
 import { formatRemaining } from "@/lib/time";
 import { colors, spacing } from "@/ui";
+import { publishWatching } from "../../../modules/stream-tv";
 import { TitleLogo } from "./artwork";
 import { TvBackdrop } from "./backdrop";
 import { type FocusMemory, useFocusMemory } from "./focus-memory";
@@ -143,6 +145,10 @@ function BrowseContent({
   const [controller] = useState(() =>
     createController(vertical, spotlight, memory),
   );
+  useEffect(() => {
+    const items = browse.data ? launcherItems(browse.data) : null;
+    if (items) publishWatching(items);
+  }, [browse.data]);
   controller.setRows(rows);
   controller.setBillboard(billboard);
   back.current = controller.back;

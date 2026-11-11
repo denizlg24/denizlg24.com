@@ -123,6 +123,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   use. XcodeGen project, never committed; `release-tally.yml` signs and
   notarizes on a `bun run bump:tally`, as `tally-v*`, never "latest". See its
   `AGENTS.md`.
+- `apps/tv-launcher/` — Home, the living-room Google TV's launcher
+  (`com.denizlg24.home`): dependency-free Kotlin views in Stream's look, app
+  names instead of tiles, Continue watching from Stream's broadcast and other
+  apps' media sessions. Sideloaded over adb through Tailscale with
+  `scripts/tv.sh`; not a workspace, no release workflow. See its `AGENTS.md`.
 - `packages/native-ui/` — the UI primitives Hours, Voice, Location and the
   dashboard share (Macros keeps its own Android-aware copy).
 - `packages/native-auth/` — deniz auth sign-in (code + PKCE through
