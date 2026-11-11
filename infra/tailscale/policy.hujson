@@ -114,6 +114,14 @@
             "ip":  ["tcp:45114"],
         },
         {
+            // adb to the TV. Wireless debugging listens on a port it picks
+            // anew every time it is toggled or the TV reboots, and pairing
+            // uses a second random one, so no fixed port survives.
+            "src": ["macbook"],
+            "dst": ["living-room-tv"],
+            "ip":  ["tcp:*"],
+        },
+        {
             "src": ["denizlg24@github"],
             "dst": ["living-room-tv"],
             "ip":  ["udp:*"],

@@ -1,5 +1,8 @@
 package expo.modules.streamtv
 
+import android.app.BroadcastOptions
+import android.content.Intent
+import android.os.Build
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -33,9 +36,24 @@ class StreamTvModule : Module() {
       }
       true
     }.runOnQueue(Queues.MAIN)
+
+    // The home screen files the list under the sender it can verify, which
+    // only Android 14 lets a broadcast carry.
+    Function("publishWatching") { items: String ->
+      val context = appContext.reactContext
+      if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        return@Function false
+      }
+      val intent = Intent(HOME_PUBLISH).setPackage(HOME_PACKAGE).putExtra("items", items)
+      val options = BroadcastOptions.makeBasic().setShareIdentityEnabled(true)
+      context.sendBroadcast(intent, null, options.toBundle())
+      true
+    }
   }
 
   private companion object {
     const val TAP_MS = 60L
+    const val HOME_PACKAGE = "com.denizlg24.home"
+    const val HOME_PUBLISH = "com.denizlg24.home.action.PUBLISH_WATCHING"
   }
 }

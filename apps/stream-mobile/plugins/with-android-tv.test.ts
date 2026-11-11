@@ -50,6 +50,9 @@ describe("with-android-tv", () => {
         },
       },
     ]);
+    expect(root.queries).toEqual([
+      { package: [{ $: { "android:name": "com.denizlg24.home" } }] },
+    ]);
     const application = root.application?.[0];
     expect(application?.$["android:banner"]).toBe("@drawable/tv_banner");
     const categories = application?.activity?.[0]?.[
@@ -64,6 +67,7 @@ describe("with-android-tv", () => {
   test("running twice adds nothing twice", () => {
     const manifest = addTelevision(addTelevision(template()));
     expect(manifest.manifest["uses-feature"]).toHaveLength(2);
+    expect(manifest.manifest.queries).toHaveLength(1);
     expect(
       manifest.manifest.application?.[0]?.activity?.[0]?.["intent-filter"]?.[0]
         ?.category,

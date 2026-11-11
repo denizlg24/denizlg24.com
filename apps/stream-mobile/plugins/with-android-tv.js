@@ -11,6 +11,7 @@ const {
 
 const BANNER = "tv_banner";
 const LEANBACK_LAUNCHER = "android.intent.category.LEANBACK_LAUNCHER";
+const HOME_PACKAGE = "com.denizlg24.home";
 
 /**
  * Lists the app on Google TV's home screen and lets the Play Store and the
@@ -33,6 +34,15 @@ function addTelevision(manifest) {
     }
   }
   root["uses-feature"] = features;
+
+  // The TV home screen Stream publishes Continue watching to; a package the
+  // manifest does not name cannot be sent a broadcast.
+  const queries = root.queries ?? [];
+  const packages = queries.flatMap((query) => query.package ?? []);
+  if (!packages.some((entry) => entry.$["android:name"] === HOME_PACKAGE)) {
+    queries.push({ package: [{ $: { "android:name": HOME_PACKAGE } }] });
+  }
+  root.queries = queries;
 
   const application =
     AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);

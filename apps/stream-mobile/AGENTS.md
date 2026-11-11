@@ -193,6 +193,12 @@ overscan margins are `TV_SAFE`, sizes in `features/tv/layout.ts`.
 - **The WebView is `EmbedSurface`, memoised with stable callbacks.** The
   player's clock ticks twice a second; the provider's page must not
   re-render with it.
+- **Home's Continue watching reaches the TV's home screen.** Each Home
+  answer is handed to `apps/tv-launcher` (`lib/launcher.ts`, tested;
+  `modules/stream-tv` `publishWatching`): an identity-sharing broadcast to
+  `com.denizlg24.home`, Android 14 only, a no-op wherever that launcher is
+  not installed. Its links are `stream://tv/watch/<id>?episode=`. Needs a
+  native rebuild, and the manifest's `<queries>` entry from `with-android-tv`.
 - **`plugins/with-android-tv.js`** adds `LEANBACK_LAUNCHER`, the
   `@drawable/tv_banner` (`assets/tv-banner.png`, drawn by `bun run icons`)
   and leanback/touchscreen as optional features, so phones still install it.
