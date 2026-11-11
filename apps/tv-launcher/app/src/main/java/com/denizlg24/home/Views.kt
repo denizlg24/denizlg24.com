@@ -21,7 +21,11 @@ fun text(context: Context, face: Typeface, sp: Float, color: Int): TextView =
         fontFeatureSettings = "tnum"
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
+        overWallpaper()
     }
+
+/** A soft dark edge, so type holds over the bright parts of the wallpaper. */
+fun TextView.overWallpaper() = setShadowLayer(10f, 0f, 1f, 0xE6000000.toInt())
 
 /** A word the remote can rest on: paper over an amber rule when focused. */
 class Label(
@@ -42,6 +46,7 @@ class Label(
         isFocusable = true
         isClickable = true
         isLongClickable = true
+        overWallpaper()
         setPadding(0, context.dp(4), 0, context.dp(9))
     }
 
