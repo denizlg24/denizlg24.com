@@ -14,6 +14,8 @@ node_modules
 
 # Testing
 coverage
+# Route segments named coverage are source, not test output.
+!apps/*/app/**/coverage/
 .pytest_cache/
 .ruff_cache/
 __pycache__/
