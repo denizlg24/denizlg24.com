@@ -7,6 +7,30 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.4.0 — 2026-11-12
+
+### Added
+- **Study**: notebooks for a course or free-standing, built from notes,
+  voice-note transcripts and uploaded PDFs. A course notebook follows the
+  course's notes as they change; sources can be added, removed or excluded.
+- **Study chat**: an agent that answers from a notebook's sources only, with
+  `[n]` citations back to the passage (title, heading path, page), and makes
+  decks, flashcards, multiple-choice and short-answer questions and quizzes
+  after approval.
+- **Flashcards**: spaced-repetition review (Space to reveal, 1–4 to rate),
+  with the next interval shown on each button.
+- **Quizzes**: timed or untimed runs with a question bank, per-question
+  results, explanations and source links; short answers are graded with
+  partial credit.
+- **Notes graph — Space**: beside the existing Structure graph, a map that
+  places notes, documents and voice notes by how similar their content is,
+  with nearest neighbours on hover. Inside a notebook it highlights what the
+  last answer cited.
+
+### Changed
+- Cards and questions are marked stale when the passage they came from
+  changes.
+
 ## 3.3.1 — 2026-11-10
 
 ### Fixed
