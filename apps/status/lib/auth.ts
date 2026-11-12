@@ -1,13 +1,18 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
+import { type AccessToken, createDenizAuth } from "@denizlg24/auth/next";
 import {
   bearerToken,
   createAccessTokenVerifier,
   isSuperuserToken,
   looksLikeJwt,
 } from "@repo/cloud-auth-client/resource";
-import { DEV_OAUTH_RESOURCES, OAUTH_RESOURCES } from "@repo/schemas/cloud";
-import { cookies, headers } from "next/headers";
+import {
+  DEV_OAUTH_RESOURCES,
+  OAUTH_RESOURCES,
+  OAUTH_SUPERUSER_CLAIM,
+} from "@repo/schemas/cloud";
+import { headers } from "next/headers";
 import { cache } from "react";
 import { z } from "zod";
 
@@ -21,32 +26,58 @@ export class AccessError extends Error {
 }
 export const apiOrigin = () =>
   process.env.STATUS_CLOUD_API_URL ?? "https://api.denizlg24.com";
+
+const isDev = process.env.NODE_ENV !== "production";
+
+export function publicUrl(): string {
+  return (
+    process.env.STATUS_PUBLIC_URL ??
+    (isDev ? "http://localhost:3007" : "https://status.denizlg24.com")
+  );
+}
+
+function isOwnerToken(token: AccessToken): boolean {
+  return !token.machine && token.claims[OAUTH_SUPERUSER_CLAIM] === true;
+}
+
+/**
+ * The admin session is a deniz auth sign-in whose token is for the cloud API:
+ * Forge's edge strips the cloud cookie, so the same token both gates the admin
+ * pages and is forwarded to the API by `cloudRequest`.
+ */
+export const auth = createDenizAuth(() => ({
+  issuer: process.env.STATUS_AUTH_ISSUER || undefined,
+  clientId: process.env.DENIZ_AUTH_CLIENT_ID ?? "",
+  clientSecret: process.env.DENIZ_AUTH_CLIENT_SECRET ?? "",
+  secret: process.env.DENIZ_AUTH_SECRET ?? "",
+  baseUrl: publicUrl(),
+  resource:
+    process.env.STATUS_ADMIN_RESOURCE ??
+    (isDev ? DEV_OAUTH_RESOURCES.api : OAUTH_RESOURCES.api),
+  cookieName: publicUrl().startsWith("https:")
+    ? "__Host-deniz-auth"
+    : "deniz-auth",
+  afterSignOutPath: "/admin",
+  errorPath: "/admin",
+  authorize: isOwnerToken,
+}));
+
 export function authLoginHref() {
-  const url = new URL(
-    "/login",
-    process.env.STATUS_AUTH_APP_URL ?? "https://auth.denizlg24.com",
-  );
-  url.searchParams.set(
-    "returnTo",
-    `${process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com"}/admin`,
-  );
-  return url.toString();
+  return auth.loginUrl("/admin");
 }
-export async function sessionCookie() {
-  const jar = await cookies();
-  return jar
-    .getAll()
-    .filter(({ name }) => /^(?:__Secure-)?deniz-cloud\./.test(name))
-    .map(({ name, value }) => `${name}=${value}`)
-    .join("; ");
+
+async function ownerAccessToken(): Promise<string | null> {
+  const session = await auth.getSession();
+  return session && isOwnerToken(session.token) ? session.accessToken : null;
 }
+
 export const adminSession = cache(async () => {
-  const cookie = await sessionCookie();
-  if (!cookie) return null;
+  const token = await ownerAccessToken();
+  if (!token) return null;
   let response: Response;
   try {
     response = await fetch(new URL("/api/me", apiOrigin()), {
-      headers: { cookie },
+      headers: { authorization: `Bearer ${token}` },
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(8000),
@@ -77,10 +108,7 @@ export const adminSession = cache(async () => {
 export async function requireAdmin() {
   const user = await adminSession();
   if (!user)
-    throw new AccessError(
-      403,
-      "An active Cloud or Forge administrator session is required.",
-    );
+    throw new AccessError(403, "An administrator session is required.");
   return user;
 }
 export type Actor = { id: string; username: string };
@@ -137,10 +165,7 @@ export async function requireActor(request: Request): Promise<Actor> {
 }
 export async function requireSameOrigin() {
   const origin = (await headers()).get("origin");
-  const allowed = new Set([
-    process.env.STATUS_PUBLIC_URL ?? "https://status.denizlg24.com",
-  ]);
-  if (process.env.VERCEL_URL) allowed.add(`https://${process.env.VERCEL_URL}`);
+  const allowed = new Set([publicUrl()]);
   if (process.env.NODE_ENV !== "production")
     allowed.add("http://localhost:3007");
   if (!origin || !allowed.has(origin))
@@ -157,10 +182,13 @@ export function validBearer(header: string | null, token: string | undefined) {
 }
 export async function cloudRequest(path: string, init: RequestInit = {}) {
   await requireAdmin();
+  const token = await ownerAccessToken();
+  if (!token)
+    throw new AccessError(403, "An administrator session is required.");
   const response = await fetch(new URL(path, apiOrigin()), {
     ...init,
     headers: {
-      cookie: await sessionCookie(),
+      authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     cache: "no-store",

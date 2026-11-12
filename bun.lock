@@ -691,6 +691,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/gateway": "^4.0.136",
+        "@denizlg24/auth": "workspace:*",
         "@repo/cloud-auth-client": "workspace:*",
         "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",
@@ -795,7 +796,7 @@
     },
     "apps/stream-mobile": {
       "name": "stream-mobile",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@denizlg24/auth": "workspace:*",
         "@expo-google-fonts/atkinson-hyperlegible-next": "^0.4.1",
