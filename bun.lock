@@ -1001,6 +1001,7 @@
         "remark-html": "^16.0.1",
         "remark-math": "^6.0.0",
         "resend": "^6.37.0",
+        "server-only": "^0.0.1",
         "sonner": "^2.0.8",
         "swr": "^2.5.0",
         "tailwind-merge": "^3.7.0",
