@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.136",
+    "@denizlg24/auth": "workspace:*",
     "@repo/cloud-auth-client": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",

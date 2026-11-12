@@ -81,10 +81,9 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   releases when its package version changes on `main`. Directory and workspace
   name are both extension-specific so a second extension can sit beside it.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
-- `apps/status/` — Next.js public status page (status.denizlg24.com). The one
-  app still on **Vercel** (project `denizlg24-status`, scope `oceaninformatix`;
-  env in `.env.status`, not `.env.example`). Its own Mongo on Atlas. See
-  [Status page](#status-page).
+- `apps/status/` — Next.js public status page (status.denizlg24.com) on
+  Forge (project `status`; env in `.env.status`, not `.env.example`). Its own
+  Mongo on Atlas. Moved off Vercel on 2026-11-12. See [Status page](#status-page).
 - `apps/macros-mobile/` — Expo (SDK 57) iOS app for Macros, its only client
   (also shipped as a sideloaded Android APK);
   `apps/macros` is now the API, the marketing site, the auth-email
@@ -285,8 +284,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 Deploys: push to `main` → CI builds `ghcr.io/denizlg24/deniz-cloud-api` (arm64) →
 `docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml --profile tools up -d`
 from `/opt/deniz-cloud/infra/compose` on the Pi. Every Next.js app is built and
-run by Forge from its own Dockerfile except `apps/status`, which stays on
-Vercel. Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
+run by Forge from its own Dockerfile. Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
 
 Nothing that runs here sits behind a PaaS request limit — there is no 4.5 MB or
 100 MB body cap on an upload route, and no platform-imposed function timeout.
@@ -608,15 +606,16 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
 | `apps/desktop` | `https://denizlg24.com` | `native` public client: authorization code + PKCE, system browser, loopback redirect, no consent step |
 | `apps/mcp` → API, web and status | `https://api.denizlg24.com`, `https://denizlg24.com`, `https://status.denizlg24.com` | `client_credentials` as a service client |
 | `apps/status` → web | `https://denizlg24.com` | `client_credentials` as a service client, to start the incident triage run |
-| MCP server → `apps/status` | `https://status.denizlg24.com` | bearer on `/api/admin/*`; the admin UI keeps using the cloud cookie |
+| MCP server → `apps/status` | `https://status.denizlg24.com` | bearer on `/api/admin/*` |
+| `apps/status` admin | `https://api.denizlg24.com` | confidential client, authorization code (`DENIZ_AUTH_CLIENT_ID/SECRET`); the token gates `/admin` and is forwarded to the API |
 
 - **Forge's edge strips every `deniz-cloud.*` cookie before a request reaches a
   deployment** (`apps/deploy-agent/src/caddy.ts`), on purpose — no deployed
   app may hold the cloud credential. So no Forge-hosted app can check the
   cloud session server-side. cloud/forge/storage/auth only use it from the
   browser against the API; web and mcp get server-verifiable identity from
-  access tokens. status reads the cookie server-side only because it runs on
-  Vercel.
+  access tokens. status signs its admin in through deniz auth like
+  macros-admin, with a token for the API that `cloudRequest` forwards.
 - **Every first-party token is a superuser token, enforced at issuance and
   every refresh.** `customAccessTokenClaims` in `apps/api/src/auth/better-auth.ts`
   throws for anyone but an active, TOTP-enrolled, unbanned, `cloud`-realm
@@ -930,7 +929,13 @@ with docker compose on the Pi). Details in `apps/nutrition/README.md`.
 
 ## Status page
 
-`apps/status` collects once a minute (`/api/collect`, Vercel cron): its own
+- **It runs on Forge, so a Forge outage takes the page down with it.**
+  Better Stack is the outside watchdog for that case. The collector is
+  triggered from the Pi (picron), and `/healthz` answers 503 while the latest
+  snapshot is older than three minutes, so the container healthcheck probes
+  `/robots.txt` instead — a first deploy has no snapshot yet.
+
+`apps/status` collects once a minute (`/api/collect`, picron job `Status - Collect` on the Pi, bearer `STATUS_CRON_SECRET`): its own
 probes of every app, the API's `/healthz/status`, Better Stack monitors and
 heartbeats. Design and rollout: `docs/internal/plans/022-status-incident-rules-and-agent.md`;
 operator side: `docs/internal/runbooks/status-incident-agent.md`.
