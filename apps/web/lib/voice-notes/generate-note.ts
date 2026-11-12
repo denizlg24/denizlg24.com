@@ -1,5 +1,7 @@
+import { knowledgeSourceKey } from "@repo/schemas";
 import mongoose from "mongoose";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { enqueueKnowledgeReindex } from "@/lib/knowledge/reindex";
 import { generateText, getUnattendedModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { type ILeanNote, Note } from "@/models/Note";
@@ -80,5 +82,6 @@ export async function generateNoteFromVoice(options: {
   const lean = await Note.findById(note._id).lean<ILeanNote>().exec();
   if (!lean) throw new Error("Generated note was not persisted");
   await observeDomainRecordSafely("note", lean);
+  await enqueueKnowledgeReindex([knowledgeSourceKey("note", String(lean._id))]);
   return { note: lean, voiceNote, usage: generated.usage };
 }

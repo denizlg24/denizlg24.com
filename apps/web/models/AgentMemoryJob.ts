@@ -15,7 +15,9 @@ export interface IAgentMemoryJob extends Document {
     | "resource-suggestion"
     | "agent-task"
     | "chat-run"
-    | "voice-transcription";
+    | "voice-transcription"
+    | "knowledge-reindex"
+    | "knowledge-projection";
   evidenceIds: string[];
   memoryIds: mongoose.Types.ObjectId[];
   status:
@@ -54,6 +56,8 @@ const AgentMemoryJobSchema = new Schema<IAgentMemoryJob>(
         "agent-task",
         "chat-run",
         "voice-transcription",
+        "knowledge-reindex",
+        "knowledge-projection",
       ],
       required: true,
     },

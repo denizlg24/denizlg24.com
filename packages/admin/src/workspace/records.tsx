@@ -26,6 +26,8 @@ import {
   GraduationCap,
   KanbanSquare,
   Landmark,
+  Layers,
+  ListChecks,
   Mail,
   MessageSquare,
   Mic,
@@ -234,6 +236,26 @@ export const RECORD_KINDS: Record<EntityKind, RecordKindDef> = {
     label: "Watchlist",
     icon: Eye,
     href: (nav) => nav.routes.markets,
+  },
+  notebook: {
+    label: "Notebook",
+    icon: NotebookPen,
+    href: (nav, id) => nav.routes.study.notebook(id),
+  },
+  deck: {
+    label: "Deck",
+    icon: Layers,
+    href: (nav) => nav.routes.study.index,
+  },
+  quiz: {
+    label: "Quiz",
+    icon: ListChecks,
+    href: (nav) => nav.routes.study.index,
+  },
+  "study-document": {
+    label: "Document",
+    icon: FileText,
+    href: (nav) => nav.routes.study.index,
   },
 };
 

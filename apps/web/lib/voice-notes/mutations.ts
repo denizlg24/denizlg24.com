@@ -1,6 +1,10 @@
-import type { VoiceNoteUpdateInput } from "@repo/schemas";
+import { knowledgeSourceKey, type VoiceNoteUpdateInput } from "@repo/schemas";
 import mongoose from "mongoose";
 import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
+import {
+  deleteKnowledgeSource,
+  enqueueKnowledgeReindex,
+} from "@/lib/knowledge/reindex";
 import { connectDB } from "@/lib/mongodb";
 import { deleteFileFromStorage } from "@/lib/storage-api";
 import { AgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -68,6 +72,15 @@ export async function updateVoiceNote(
   )
     .lean<ILeanVoiceNote>()
     .exec();
+  if (
+    updated &&
+    input.title !== undefined &&
+    updated.transcription.status === "transcribed"
+  ) {
+    await enqueueKnowledgeReindex([
+      knowledgeSourceKey("voice-note", voiceNoteId),
+    ]);
+  }
   if (!updated || input.context !== "auto") return updated;
   return applyDerivedContext(updated);
 }
@@ -116,5 +129,6 @@ export async function deleteVoiceNote(voiceNoteId: string) {
     console.error("Failed to delete voice note audio", error);
   }
   await VoiceNote.deleteOne({ _id: voiceNote._id }).exec();
+  await deleteKnowledgeSource(knowledgeSourceKey("voice-note", voiceNoteId));
   return true;
 }

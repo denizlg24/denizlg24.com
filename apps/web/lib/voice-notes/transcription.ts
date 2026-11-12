@@ -1,6 +1,8 @@
 import "server-only";
 
+import { knowledgeSourceKey } from "@repo/schemas";
 import mongoose from "mongoose";
+import { enqueueKnowledgeReindex } from "@/lib/knowledge/reindex";
 import { LlmTransportError } from "@/lib/llm-errors";
 import { transcribeAudio } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
@@ -218,6 +220,9 @@ export async function repairTranscribedVoiceNotes() {
       candidate.transcription.status = "transcribed";
       const titled = await applyGeneratedTitle(candidate);
       await observeVoiceNoteTranscript(titled);
+      await enqueueKnowledgeReindex([
+        knowledgeSourceKey("voice-note", String(titled._id)),
+      ]);
       repaired += 1;
     } catch (error) {
       failures.push({
@@ -498,6 +503,9 @@ export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
 
   const titled = await applyGeneratedTitle(transcribed);
   await observeVoiceNoteTranscript(titled);
+  await enqueueKnowledgeReindex([
+    knowledgeSourceKey("voice-note", String(titled._id)),
+  ]);
   await emitDomainEvent(
     {
       type: "voice-note.transcribed",

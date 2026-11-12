@@ -13,6 +13,7 @@ import { CalendarEvent } from "@/models/CalendarEvent";
 import { Contact } from "@/models/Contact";
 import { Course } from "@/models/Course";
 import { CourseAssignment } from "@/models/CourseAssignment";
+import { Deck } from "@/models/Deck";
 import { EmailModel } from "@/models/Email";
 import { EmailAccountModel } from "@/models/EmailAccount";
 import {
@@ -21,6 +22,7 @@ import {
   FinanceLedgerEntry,
   FinanceRecurringRule,
 } from "@/models/Finance";
+import { Flashcard } from "@/models/Flashcard";
 import { JournalLog } from "@/models/Journal";
 import { KanbanBoard } from "@/models/KanbanBoard";
 import { KanbanCard } from "@/models/KanbanCard";
@@ -28,13 +30,16 @@ import { KanbanColumn } from "@/models/KanbanColumn";
 import { LatexProject } from "@/models/LatexProject";
 import { MarketPortfolio, MarketWatchlist } from "@/models/Market";
 import { Note } from "@/models/Note";
+import { Notebook } from "@/models/Notebook";
 import { NoteGroup } from "@/models/NoteGroup";
 import { Paper } from "@/models/Paper";
 import { Person } from "@/models/Person";
 import { PersonGroup } from "@/models/PersonGroup";
 import { Project } from "@/models/Project";
+import { Quiz } from "@/models/Quiz";
 import { Resource } from "@/models/Resource";
 import { Spreadsheet } from "@/models/Spreadsheet";
+import { StudyDocument } from "@/models/StudyDocument";
 import TimelineItem from "@/models/TimelineItem";
 import { TimetableEntry } from "@/models/TimetableEntry";
 import { VoiceNote } from "@/models/VoiceNote";
@@ -1350,6 +1355,153 @@ const RESOLVERS: Record<EntityKind, Find> = {
         updatedAt: list.updatedAt?.toISOString(),
       });
     });
+  },
+
+  notebook: async (match, limit) => {
+    const notebooks = await Notebook.find({
+      ...filterFor(match, "title"),
+      ...(match.ids ? {} : { archivedAt: { $exists: false } }),
+    })
+      .select({ title: 1, icon: 1, courseId: 1, sources: 1, updatedAt: 1 })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean<
+        (Lean & {
+          title: string;
+          icon?: string;
+          courseId?: Types.ObjectId;
+          sources?: unknown[];
+        })[]
+      >();
+    const courses = await Course.find({
+      _id: { $in: notebooks.flatMap((n) => (n.courseId ? [n.courseId] : [])) },
+    })
+      .select({ name: 1 })
+      .lean<{ _id: Types.ObjectId; name: string }[]>();
+    const courseName = new Map(courses.map((c) => [String(c._id), c.name]));
+    return notebooks.map((notebook) =>
+      summary("notebook", String(notebook._id), {
+        title: notebook.title,
+        icon: notebook.icon,
+        subtitle: notebook.courseId
+          ? courseName.get(String(notebook.courseId))
+          : undefined,
+        fields: fields([
+          ["Sources", notebook.sources?.length],
+          ["Updated", day(notebook.updatedAt)],
+        ]),
+        updatedAt: notebook.updatedAt?.toISOString(),
+      }),
+    );
+  },
+
+  deck: async (match, limit) => {
+    const decks = await Deck.find(filterFor(match, "title"))
+      .select({ title: 1, description: 1, notebookId: 1, updatedAt: 1 })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean<
+        (Lean & {
+          title: string;
+          description?: string;
+          notebookId: Types.ObjectId;
+        })[]
+      >();
+    const notebooks = await Notebook.find({
+      _id: { $in: decks.map((d) => d.notebookId) },
+    })
+      .select({ title: 1 })
+      .lean<{ _id: Types.ObjectId; title: string }[]>();
+    const notebookTitle = new Map(
+      notebooks.map((n) => [String(n._id), n.title]),
+    );
+    const cardCounts = await Flashcard.aggregate<{
+      _id: Types.ObjectId;
+      n: number;
+    }>([
+      { $match: { deckId: { $in: decks.map((d) => d._id) } } },
+      { $group: { _id: "$deckId", n: { $sum: 1 } } },
+    ]);
+    const cards = new Map(cardCounts.map((c) => [String(c._id), c.n]));
+    return decks.map((deck) =>
+      summary("deck", String(deck._id), {
+        title: deck.title,
+        subtitle: notebookTitle.get(String(deck.notebookId)),
+        fields: fields([
+          ["Cards", cards.get(String(deck._id)) ?? 0],
+          ["Updated", day(deck.updatedAt)],
+        ]),
+        updatedAt: deck.updatedAt?.toISOString(),
+      }),
+    );
+  },
+
+  quiz: async (match, limit) => {
+    const quizzes = await Quiz.find(filterFor(match, "title"))
+      .select({
+        title: 1,
+        notebookId: 1,
+        questionIds: 1,
+        attemptCount: 1,
+        bestScore: 1,
+        updatedAt: 1,
+      })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean<
+        (Lean & {
+          title: string;
+          notebookId: Types.ObjectId;
+          questionIds?: unknown[];
+          attemptCount?: number;
+          bestScore?: number;
+        })[]
+      >();
+    const notebooks = await Notebook.find({
+      _id: { $in: quizzes.map((q) => q.notebookId) },
+    })
+      .select({ title: 1 })
+      .lean<{ _id: Types.ObjectId; title: string }[]>();
+    const notebookTitle = new Map(
+      notebooks.map((n) => [String(n._id), n.title]),
+    );
+    return quizzes.map((quiz) =>
+      summary("quiz", String(quiz._id), {
+        title: quiz.title,
+        subtitle: notebookTitle.get(String(quiz.notebookId)),
+        fields: fields([
+          ["Questions", quiz.questionIds?.length],
+          ["Attempts", quiz.attemptCount],
+          [
+            "Best",
+            quiz.bestScore === undefined
+              ? undefined
+              : `${Math.round(quiz.bestScore * 100)}%`,
+          ],
+        ]),
+        updatedAt: quiz.updatedAt?.toISOString(),
+      }),
+    );
+  },
+
+  "study-document": async (match, limit) => {
+    const documents = await StudyDocument.find(filterFor(match, "title"))
+      .select({ title: 1, pageCount: 1, extraction: 1, updatedAt: 1 })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean<
+        (Lean & { title: string; pageCount?: number; extraction?: string })[]
+      >();
+    return documents.map((document) =>
+      summary("study-document", String(document._id), {
+        title: document.title,
+        fields: fields([
+          ["Pages", document.pageCount],
+          ["Extraction", document.extraction],
+        ]),
+        updatedAt: document.updatedAt?.toISOString(),
+      }),
+    );
   },
 };
 

@@ -52,6 +52,8 @@ export interface IConversation extends mongoose.Document {
   llmModel: string;
   memoryMode: AgentMemoryMode;
   format?: ConversationFormat;
+  /** Set on a study notebook's chat threads. */
+  notebookId?: mongoose.Types.ObjectId;
   messages: unknown[];
   /** Rolling topic summary maintained by the query-summary model; used only
    *  as memory-retrieval query context, never shown to the chat model. */
@@ -77,6 +79,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
     title: { type: String, required: true },
     llmModel: { type: String, required: true },
     format: { type: String, enum: ["ui"] },
+    notebookId: { type: mongoose.Schema.Types.ObjectId, index: true },
     messages: { type: [mongoose.Schema.Types.Mixed], default: [] },
     memoryMode: {
       type: String,

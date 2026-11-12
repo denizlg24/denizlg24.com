@@ -30,6 +30,8 @@ export function operationIsEnabled(
   if (operation === "agent-task") return true;
   if (operation === "chat-run") return true;
   if (operation === "voice-transcription") return true;
+  if (operation === "knowledge-reindex") return true;
+  if (operation === "knowledge-projection") return true;
   return gates.evidenceLedger;
 }
 

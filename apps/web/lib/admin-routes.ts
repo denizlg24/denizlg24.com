@@ -88,6 +88,19 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     run: (runId) => withSegments(`${ROOT}/sprints/runs`, runId),
   },
 
+  study: {
+    index: `${ROOT}/study`,
+    notebook: (notebookId) => withSegments(`${ROOT}/study`, notebookId),
+    deck: (notebookId, deckId) =>
+      withSegments(`${ROOT}/study`, notebookId, "decks", deckId),
+    quiz: (notebookId, quizId) =>
+      withSegments(`${ROOT}/study`, notebookId, "quizzes", quizId),
+    review: (notebookId, deckId) =>
+      withQuery(`${withSegments(`${ROOT}/study`, notebookId)}/review`, {
+        deck: deckId,
+      }),
+  },
+
   market: {
     root: `${ROOT}/markets`,
     portfolios: `${ROOT}/markets/portfolios`,
@@ -113,6 +126,7 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
       hours: `${ROOT}/hours`,
       notes: `${ROOT}/notes`,
       papers: `${ROOT}/papers`,
+      study: `${ROOT}/study`,
       latex: `${ROOT}/latex`,
       explored: `${ROOT}/explored`,
       finance: `${ROOT}/finance`,

@@ -21,6 +21,7 @@ import {
   Kanban,
   KeyRound,
   Landmark,
+  Layers,
   MessageCircle,
   Mic,
   NotebookPen,
@@ -171,6 +172,13 @@ const MODULE_SPECS = [
     icon: BookOpen,
     section: "knowledge",
     keywords: ["papers", "books"],
+  },
+  {
+    id: "study",
+    label: "Study",
+    icon: Layers,
+    section: "knowledge",
+    keywords: ["notebooks", "flashcards", "quizzes", "review", "exam"],
   },
   {
     id: "whiteboard",

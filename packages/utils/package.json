@@ -20,14 +20,20 @@
     "./workspace-triggers": "./src/workspace-triggers.ts",
     "./workspace-gen.test-util": "./src/workspace-gen.test-util.ts",
     "./sprints": "./src/sprints.ts",
-    "./claude-stream": "./src/claude-stream.ts"
+    "./claude-stream": "./src/claude-stream.ts",
+    "./knowledge-chunk": "./src/knowledge-chunk.ts",
+    "./study": "./src/study.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "@repo/schemas": "workspace:*"
+    "@repo/schemas": "workspace:*",
+    "remark": "^15.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "ts-fsrs": "^6.0.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

@@ -97,14 +97,16 @@ export async function getAllConversations(options: ConversationListOptions) {
   await connectDB();
 
   const cursor = parseConversationCursor(options.cursor);
+  const mainThreads = { notebookId: { $exists: false } };
   const query = cursor
     ? {
+        ...mainThreads,
         $or: [
           { updatedAt: { $lt: cursor.updatedAt } },
           { updatedAt: cursor.updatedAt, _id: { $lt: cursor._id } },
         ],
       }
-    : {};
+    : mainThreads;
   const effectiveOffset = cursor ? 0 : (options.offset ?? 0);
   const rowsLimit = options.limit + 1;
   const [conversations, totalRows] = await Promise.all([
@@ -114,7 +116,7 @@ export async function getAllConversations(options: ConversationListOptions) {
       .skip(effectiveOffset)
       .limit(rowsLimit)
       .lean<ConversationListRow[]>(),
-    Conversation.countDocuments(),
+    Conversation.countDocuments(mainThreads),
   ]);
   const pageRows = conversations.slice(0, options.limit);
   const lastPageRow = pageRows.at(-1);

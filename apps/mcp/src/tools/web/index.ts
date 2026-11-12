@@ -26,6 +26,7 @@ import { registerWebResources } from "./resources";
 import { registerWebSemantic } from "./semantic";
 import { registerWebSpreadsheets } from "./spreadsheets";
 import { registerWebSprints } from "./sprints";
+import { registerWebStudy } from "./study";
 import { registerWebTriage } from "./triage";
 import { registerWebVoiceNotes } from "./voice-notes";
 import { registerWebWorkspace } from "./workspace";
@@ -48,6 +49,7 @@ export function registerWeb(server: McpServer, api: Api) {
   registerWebConversations(server, api);
   registerWebAgentTasks(server, api);
   registerWebSprints(server, api);
+  registerWebStudy(server, api);
   registerWebAgentMemory(server, api);
   registerWebBackgroundAgent(server, api);
   registerWebVoiceNotes(server, api);

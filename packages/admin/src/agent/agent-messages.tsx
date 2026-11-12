@@ -97,6 +97,14 @@ export interface AgentMessageHandlers {
   onRegenerate?: (messageId: string) => void;
   /** Replaces the default row for a tool part; return undefined to keep it. */
   renderTool?: (part: AgentToolPart) => ReactNode | undefined;
+  /** Replaces the default markdown for an assistant text block; return undefined to keep it. */
+  renderText?: (
+    text: string,
+    streaming: boolean,
+    message: AgentUIMessage,
+  ) => ReactNode | undefined;
+  /** Drawn under an assistant message's blocks, above its footer. */
+  renderAfter?: (message: AgentUIMessage) => ReactNode;
 }
 
 function FileAttachment({ part }: { part: FileUIPart }) {
@@ -269,19 +277,27 @@ function AgentWebRow({ part }: { part: AgentToolPart }) {
 
 function AgentBlockView({
   block,
+  message,
   isStreaming,
   handlers,
 }: {
   block: AgentBlock;
+  message: AgentUIMessage;
   isStreaming: boolean;
   handlers: AgentMessageHandlers;
 }) {
   switch (block.kind) {
     case "text":
       return (
-        <MessageResponse isAnimating={isStreaming && block.streaming}>
-          {block.text}
-        </MessageResponse>
+        handlers.renderText?.(
+          block.text,
+          isStreaming && block.streaming,
+          message,
+        ) ?? (
+          <MessageResponse isAnimating={isStreaming && block.streaming}>
+            {block.text}
+          </MessageResponse>
+        )
       );
     case "reasoning":
       // Open on arrival and left to the reader afterwards. `Reasoning` opens
@@ -463,11 +479,13 @@ function AssistantMessage({
             <AgentBlockView
               key={block.key}
               block={block}
+              message={message}
               isStreaming={isStreaming}
               handlers={handlers}
             />
           ))
         )}
+        {handlers.renderAfter?.(message)}
         {showFooter ? (
           <MessageFooter
             className={cn(

@@ -34,6 +34,7 @@ import { processAgentTaskJob } from "@/lib/agent-tasks/execution";
 import { scheduleDueAgentTaskRuns } from "@/lib/agent-tasks/scheduling";
 import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
+import { processKnowledgeJob } from "@/lib/knowledge/jobs";
 import { sweepLapsedRuns } from "@/lib/sprints/runner";
 import { fireScheduledTriggers } from "@/lib/workflows/schedule";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -52,6 +53,8 @@ const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "resource-suggestion",
   "agent-task",
   "chat-run",
+  "knowledge-reindex",
+  "knowledge-projection",
 ];
 
 export function preferredOperationsForSlot(
@@ -97,6 +100,12 @@ async function processJob(job: IAgentMemoryJob) {
   }
   if (job.operation === "agent-task") return processAgentTaskJob(job);
   if (job.operation === "chat-run") return processBackgroundAgentJob(job);
+  if (
+    job.operation === "knowledge-reindex" ||
+    job.operation === "knowledge-projection"
+  ) {
+    return processKnowledgeJob(job);
+  }
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
