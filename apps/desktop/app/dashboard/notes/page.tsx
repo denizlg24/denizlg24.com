@@ -1,5 +1,6 @@
 "use client";
 
+import { NotesGraphView } from "@repo/admin/knowledge-graph/notes-graph-view";
 import { Button } from "@repo/ui/button";
 import { ConfirmDialog } from "@repo/ui/confirm-button";
 import { EmptyState } from "@repo/ui/empty-state";
@@ -36,7 +37,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
-import { useEntityGraphData } from "@/components/graph/entity-graph";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
@@ -54,7 +54,6 @@ import { NewGroupDialog } from "./_components/new-group-dialog";
 import { NoteDetail } from "./_components/note-detail";
 import { NoteFolderView } from "./_components/note-folder-view";
 import { relativeDate } from "./_components/note-format";
-import { getNoteGroupIds, NoteGraph } from "./_components/note-graph";
 import { SemanticPanel } from "./_components/semantic-panel";
 
 type View = "list" | "folders" | "graph";
@@ -624,14 +623,6 @@ export default function NotesPage() {
     [filteredNotes, sort],
   );
 
-  const { visibleGroups: graphGroups, visibleEdges: graphEdges } =
-    useEntityGraphData({
-      items: sortedNotes,
-      groups,
-      edges,
-      getItemGroupIds: getNoteGroupIds,
-    });
-
   const selectedNote = useMemo(
     () => notes.find((note) => note._id === selectedId) ?? null,
     [notes, selectedId],
@@ -923,10 +914,11 @@ export default function NotesPage() {
       ) : (
         <PageBody bleed>
           {view === "graph" ? (
-            <NoteGraph
+            <NotesGraphView
               notes={sortedNotes}
-              groups={graphGroups}
-              edges={graphEdges}
+              allNotes={notes}
+              groups={groups}
+              edges={edges}
               onSelectNote={selectNote}
               onSelectGroup={selectGroup}
               onCreateNoteHere={goNewNote}

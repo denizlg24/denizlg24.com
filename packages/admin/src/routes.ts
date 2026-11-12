@@ -91,6 +91,15 @@ export interface SprintRoutes {
   run: (runId: string) => string;
 }
 
+export interface StudyRoutes {
+  index: string;
+  notebook: (notebookId: string) => string;
+  deck: (notebookId: string, deckId: string) => string;
+  quiz: (notebookId: string, quizId: string) => string;
+  /** The review queue for a notebook, narrowed to one deck when given. */
+  review: (notebookId: string, deckId?: string) => string;
+}
+
 export interface WorkspaceRoutes {
   /** One workspace page. Home is `dashboardRoot` in both hosts. */
   page: (pageId: string) => string;
@@ -128,6 +137,7 @@ export interface AdminRoutes {
   latexProject: (projectId: string) => string;
   agentMemory: AgentMemoryRoutes;
   sprints: SprintRoutes;
+  study: StudyRoutes;
   market: MarketRoutes;
   workspace: WorkspaceRoutes;
 }

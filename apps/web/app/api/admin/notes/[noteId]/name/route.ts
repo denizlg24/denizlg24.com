@@ -1,4 +1,6 @@
+import { knowledgeSourceKey } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { enqueueKnowledgeReindex } from "@/lib/knowledge/reindex";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { Note } from "@/models/Notes";
@@ -25,6 +27,7 @@ export const PUT = async (
     if (!note) {
       return NextResponse.json({ error: "Note not found" }, { status: 404 });
     }
+    await enqueueKnowledgeReindex([knowledgeSourceKey("note", noteId)]);
     return NextResponse.json(
       { message: "Note updated successfully", note },
       { status: 200 },

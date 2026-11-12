@@ -35,6 +35,7 @@ export * from "./resource";
 export * from "./settings";
 export * from "./spreadsheet";
 export * from "./sprints";
+export * from "./study";
 export * from "./timetable";
 export * from "./tokens";
 export * from "./tool-labels";

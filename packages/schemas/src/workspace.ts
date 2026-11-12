@@ -92,6 +92,10 @@ export const MENTION_KINDS = [
   "timetable-entry",
   "portfolio",
   "watchlist",
+  "notebook",
+  "deck",
+  "quiz",
+  "study-document",
 ] as const satisfies readonly (EntityKind | "date")[];
 export const mentionKindSchema = z.enum(MENTION_KINDS);
 export type MentionKind = z.infer<typeof mentionKindSchema>;

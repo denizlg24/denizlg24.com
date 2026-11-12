@@ -1,9 +1,10 @@
-import type { CreatePaperInput } from "@repo/schemas";
+import { type CreatePaperInput, knowledgeSourceKey } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { resolveIncomingCategorization } from "@/lib/apply-note-categorization";
 import { fetchUrlMetadata, type UrlMetadata } from "@/lib/fetch-url-metadata";
+import { enqueueKnowledgeReindex } from "@/lib/knowledge/reindex";
 import { connectDB } from "@/lib/mongodb";
 import {
   pruneGroupIds,
@@ -370,6 +371,9 @@ export async function POST(request: NextRequest) {
       throw new Error("Created note could not be reloaded");
     }
     await observeDomainRecordSafely("note", createdNote);
+    await enqueueKnowledgeReindex([
+      knowledgeSourceKey("note", String(note._id)),
+    ]);
 
     return NextResponse.json(
       {

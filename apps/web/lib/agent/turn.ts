@@ -70,6 +70,8 @@ export interface AgentTurnInput {
   memory: TurnMemory;
   /** Surface-specific tools, e.g. the LaTeX project's. */
   extraTools?: ToolSet;
+  /** Names in `extraTools` that write; they ask for approval in an interactive turn. */
+  extraWrites?: ReadonlySet<string>;
   extraInstructions?: string;
   /** Model-only text appended to the request, e.g. the editor's cursor window. */
   extraContext?: readonly string[];
@@ -184,11 +186,15 @@ export async function startAgentTurn(
       input.memory.images,
     );
 
+    const allWrites = new Set([
+      ...builtins.writes,
+      ...(input.extraWrites ?? []),
+    ]);
     const approval = createApprovalPolicy({
       executionMode: input.executionMode,
       memoryMode: input.memoryMode,
       connectorBindings: connectors.bindings,
-      builtinWrites: builtins.writes,
+      builtinWrites: allWrites,
     });
 
     let resolveEnd: (end: AgentTurnEnd) => void = () => {};
@@ -269,7 +275,7 @@ export async function startAgentTurn(
             isWriteCall: (toolName, callInput) => {
               const binding = opened.bindings.get(toolName);
               if (binding) return !isReadOnlyCall(binding, callInput);
-              return builtins.writes.has(toolName);
+              return allWrites.has(toolName);
             },
           });
         } finally {

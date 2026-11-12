@@ -30,12 +30,14 @@ import {
   Link2,
   List as ListIcon,
   Loader2,
+  Network,
   RefreshCcw,
   Tags,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { NotesGraphView } from "../knowledge-graph/notes-graph-view";
 import { useAdmin } from "../provider";
 import { relativeDate } from "./format";
 import { GroupDetail } from "./group-detail";
@@ -45,7 +47,7 @@ import { NoteDetail } from "./note-detail";
 import { NoteFolderView } from "./note-folder-view";
 import { TagAutocomplete } from "./tag-autocomplete";
 
-type View = "list" | "folders";
+type View = "list" | "folders" | "graph";
 type Sort =
   | "updated-desc"
   | "updated-asc"
@@ -636,6 +638,10 @@ export function NotesPage() {
               value: "folders",
               label: <FolderTree className="size-3.5" aria-label="Folders" />,
             },
+            {
+              value: "graph",
+              label: <Network className="size-3.5" aria-label="Graph" />,
+            },
           ]}
         />
         <SearchField
@@ -747,18 +753,33 @@ export function NotesPage() {
         />
       ) : (
         <PageBody bleed>
-          <NoteFolderView
-            notes={sortedNotes}
-            groups={groups}
-            currentId={folderCurrentId}
-            onCurrentIdChange={setFolderCurrentId}
-            onSelect={selectNote}
-            onSelectGroup={selectGroup}
-            onCreateNoteHere={setNewNoteParentId}
-            onCreateFolderHere={setNewGroupParentId}
-            onDeleteNote={setPendingDeleteNote}
-            onDeleteGroup={setPendingDeleteGroup}
-          />
+          {view === "graph" ? (
+            <NotesGraphView
+              notes={sortedNotes}
+              allNotes={notes}
+              groups={groups}
+              edges={edges}
+              onSelectNote={selectNote}
+              onSelectGroup={selectGroup}
+              onCreateNoteHere={setNewNoteParentId}
+              onCreateFolderHere={setNewGroupParentId}
+              onDeleteNote={setPendingDeleteNote}
+              onDeleteGroup={setPendingDeleteGroup}
+            />
+          ) : (
+            <NoteFolderView
+              notes={sortedNotes}
+              groups={groups}
+              currentId={folderCurrentId}
+              onCurrentIdChange={setFolderCurrentId}
+              onSelect={selectNote}
+              onSelectGroup={selectGroup}
+              onCreateNoteHere={setNewNoteParentId}
+              onCreateFolderHere={setNewGroupParentId}
+              onDeleteNote={setPendingDeleteNote}
+              onDeleteGroup={setPendingDeleteGroup}
+            />
+          )}
         </PageBody>
       )}
 

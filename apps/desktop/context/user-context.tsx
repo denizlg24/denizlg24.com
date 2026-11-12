@@ -60,6 +60,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/notes",
   "/dashboard/voice-notes",
   "/dashboard/papers",
+  "/dashboard/study",
   "/dashboard/whiteboard",
   "/dashboard/whiteboard/today",
   "/dashboard/kanban",

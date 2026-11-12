@@ -1,11 +1,14 @@
-import type { CreatePaperInput } from "@repo/schemas";
+import { type CreatePaperInput, knowledgeSourceKey } from "@repo/schemas";
 import type { Types } from "mongoose";
 import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
+import {
+  deleteKnowledgeSource,
+  enqueueKnowledgeReindex,
+} from "@/lib/knowledge/reindex";
 import { prepareNewPaper } from "@/lib/paper-route-utils";
 import { KnowledgeSemanticSuggestion } from "@/models/KnowledgeSemanticSuggestion";
 import { type ILeanNote, Note } from "@/models/Note";
 import { NoteEdge } from "@/models/NoteEdge";
-import { NoteEmbedding } from "@/models/NoteEmbedding";
 import { type ILeanPaper, Paper } from "@/models/Paper";
 
 interface PaperNoteSeed {
@@ -104,6 +107,9 @@ export async function createPaperWithLinkedNote(
       .lean<ILeanPaper>()
       .exec();
     if (!linkedPaper) throw new Error("Linked paper could not be reloaded");
+    await enqueueKnowledgeReindex([
+      knowledgeSourceKey("note", String(note._id)),
+    ]);
     return { note, paper: linkedPaper };
   } catch (error) {
     if (linkedNoteId) {
@@ -170,6 +176,7 @@ export async function ensurePaperNote(paper: ILeanPaper): Promise<ILeanNote> {
   await Paper.updateOne({ _id: paper._id }, { $set: { noteId: created._id } });
   const note = await Note.findById(created._id).lean<ILeanNote>().exec();
   if (!note) throw new Error("Linked note could not be reloaded");
+  await enqueueKnowledgeReindex([knowledgeSourceKey("note", String(note._id))]);
   return note;
 }
 
@@ -191,6 +198,7 @@ export async function syncPaperNote(paper: ILeanPaper): Promise<void> {
       },
     },
   );
+  await enqueueKnowledgeReindex([knowledgeSourceKey("note", String(note._id))]);
 }
 
 /**
@@ -260,7 +268,7 @@ export async function deleteLinkedPaperNote(paper: ILeanPaper): Promise<void> {
   await Promise.all([
     Note.deleteOne({ _id: note._id }),
     NoteEdge.deleteMany({ $or: [{ from: note._id }, { to: note._id }] }),
-    NoteEmbedding.deleteMany({ noteId: note._id }),
+    deleteKnowledgeSource(knowledgeSourceKey("note", noteId)),
     KnowledgeSemanticSuggestion.updateMany(
       { noteId: note._id, status: "pending" },
       { $set: { status: "superseded", decidedAt: new Date() } },

@@ -36,6 +36,10 @@ export const ENTITY_KINDS = [
   "timetable-entry",
   "portfolio",
   "watchlist",
+  "notebook",
+  "deck",
+  "quiz",
+  "study-document",
 ] as const;
 export const entityKindSchema = z.enum(ENTITY_KINDS);
 export type EntityKind = z.infer<typeof entityKindSchema>;

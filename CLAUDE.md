@@ -1837,6 +1837,55 @@ Things worth knowing before touching this:
 - **The equity curve runs to today, not to the last cached bar.** A daily bar for today does not exist until after the close, so a curve built from bars alone stops at the previous session while positions are already live — and a portfolio opened today has no curve at all. `performanceDates()` adds inception and today; today's point is priced from the live quote.
 - **The intraday curve is observed, not reconstructed.** `MarketPortfolioValuePoint` records what the book was worth whenever something priced it against live quotes, bucketed to the minute and expiring after 30 days. Rebuilding it from intraday bars would cost one provider request per holding per minute against a 50/hour cap; `getPerformance` has already paid for the quotes. The series is therefore dense while something is watching and sparse otherwise, and carries no per-symbol breakdown — nothing prices a single holding minute by minute.
 
+### Study space (notebooks, knowledge chunks, study agent)
+
+`/api/admin/knowledge/*` (retrieve, coverage, reindex, sources/{key}/chunks,
+space) and `/api/admin/study/*` (notebooks, documents, decks, cards, review,
+questions, quizzes, `notebooks/{id}/chat`). Wire types `@repo/schemas`
+`study`; UI `packages/admin/src/study/` and `knowledge-graph/`; MCP
+`web_study_*` and `web_knowledge`. Design: `docs/internal/plans/034-study-space.md`.
+
+- **Every note, voice-note transcript and uploaded PDF is chunked and
+  embedded; a notebook is a filter, never an index.** Chunks
+  (`knowledge_chunks`) carry `sourceKey` (`note:<id>`, `document:<id>`,
+  `voice-note:<id>`) and never a notebook id, so membership changes write no
+  chunk. Retrieval scopes with `sourceKey: { $in }` from
+  `resolveNotebookSourceKeys` — a course notebook reads `Course.noteIds` live.
+- **The chunker is `@repo/utils/knowledge-chunk`, pure and structure-aware**:
+  mdast sections → blocks → sentences → words, never cutting inside a word,
+  math, code fence or table row; tables repeat their header; every embedded
+  `text` starts with the title and heading path, which `$text` does not see
+  (it indexes `body`). PDFs are rebuilt into sections from pdfjs positions
+  first (`y` is `transform[5]`, unflipped). Changing boundaries or the header
+  means bumping `CHUNKER_VERSION` and running
+  `bun run knowledge:reindex --execute --force` — nothing sweeps on its own.
+- **Reindexing rides the agent-memory job queue** (`knowledge-reindex`,
+  `knowledge-projection`), drained in `after()` on enqueue and by the
+  external `/api/jobs/agent-memory` tick. A new write path for note title or
+  content, a transcript or a document must call `enqueueKnowledgeReindex`, and
+  a delete `deleteKnowledgeSource`, or that source silently drops out of
+  search. Chunk `_id`s are stable per `(sourceKey, ordinal)` and vectors are
+  reused by content hash, so an edit re-embeds only what changed.
+- **Retrieval is hybrid and fails soft.** `$vectorSearch` on
+  `knowledge_chunks_vector_v1` fused with `$text` by reciprocal rank; if the
+  vector index errors it answers lexical-only. The index is created by
+  `bun run knowledge:indexes --execute` and must be READY before vector
+  results appear.
+- **Cards and questions are stale on read, not by flag.** They store
+  `{ chunkId, sourceKey, contentHash }`; a missing chunk or a changed hash
+  marks them stale in every response.
+- **Study chat is always incognito and has no connectors.** The route tags the
+  conversation `notebookId` and forces `memoryMode: "incognito"` before the
+  turn. `notebookId` reaches tools from the route, never from the model, and
+  `sourceChunkIds` the model names are kept only if the conversation retrieved
+  them or they belong to the notebook. Citations are a `data-citations` part
+  (`StudyCitation[]`, each with its `[n]`), stored with the message.
+- **The Space graph is a cached UMAP projection.** `getKnowledgeSpace` hashes
+  `(sourceKey, updatedAt)` only, returns the last projection marked `stale`
+  while a job recomputes, and never loads vectors on a GET.
+- **FSRS runs without fuzz** (`@repo/utils/study`), so the interval a review
+  button previews is the one booked.
+
 ### Agent memory and agent tasks
 
 - **A disagreement is not automatically a contradiction.** The formation model

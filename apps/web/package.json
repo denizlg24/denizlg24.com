@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "agent-memory:indexes": "bun scripts/agent-memory-indexes.ts",
+    "knowledge:reindex": "bun --env-file=../../.env scripts/knowledge-reindex.ts",
+    "knowledge:indexes": "bun --env-file=../../.env scripts/knowledge-indexes.ts",
     "agent-memory:eval-retrieval": "bun scripts/eval-agent-memory-retrieval.ts",
     "agent-memory:auto-accept": "bun scripts/agent-memory-auto-accept.ts",
     "agent-memory:reembed": "bun --env-file=../../.env scripts/reembed-agent-memory.ts",
@@ -122,6 +124,7 @@
     "sonner": "^2.0.8",
     "swr": "^2.5.0",
     "tailwind-merge": "^3.7.0",
+    "umap-js": "^1.4.0",
     "unpdf": "^1.9.1",
     "vaul": "^1.1.2",
     "xlsx": "^0.18.5",

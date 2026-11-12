@@ -1,5 +1,6 @@
 "use client";
 
+import type { INote, INoteEdge, INoteGroup } from "@repo/schemas";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,11 +19,10 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { EntityGraph } from "@/components/graph/entity-graph";
-import { classColor } from "@/lib/bookmark-color";
-import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
+import { EntityGraph, useEntityGraphData } from "./entity-graph";
+import { classColor } from "./theme";
 
-interface Props {
+export interface NoteStructureGraphProps {
   notes: INote[];
   groups: INoteGroup[];
   edges: INoteEdge[];
@@ -30,7 +30,7 @@ interface Props {
   onSelectGroup: (group: INoteGroup) => void;
   onCreateNoteHere: (groupId: string | null) => void;
   onCreateFolderHere: (parentId: string | null) => void;
-  onCategorizeNote: (note: INote) => void;
+  onCategorizeNote?: (note: INote) => void;
   onDeleteNote: (note: INote) => void;
   onDeleteGroup: (group: INoteGroup) => void;
 }
@@ -44,13 +44,13 @@ type ContextTarget =
 // Module-level so their identity is stable: EntityGraph keys its node/link
 // memo on these, and a fresh lambda per render replays the force layout.
 const getNoteLabel = (note: INote) => note.title;
-export const getNoteGroupIds = (note: INote) => note.groupIds ?? [];
+const getNoteGroupIds = (note: INote) => note.groupIds ?? [];
 const getNoteColor = (note: INote, scheme: "dark" | "light") =>
   note.class
     ? classColor(note.class, scheme)
     : classColor(note.siteName ?? note.title, scheme);
 
-export function NoteGraph({
+export function NoteStructureGraph({
   notes,
   groups,
   edges,
@@ -61,8 +61,14 @@ export function NoteGraph({
   onCategorizeNote,
   onDeleteNote,
   onDeleteGroup,
-}: Props) {
+}: NoteStructureGraphProps) {
   const [target, setTarget] = useState<ContextTarget>(null);
+  const { visibleGroups, visibleEdges } = useEntityGraphData({
+    items: notes,
+    groups,
+    edges,
+    getItemGroupIds: getNoteGroupIds,
+  });
   const triggerRef = useRef<HTMLDivElement>(null);
 
   const openContextMenu = (nextTarget: ContextTarget, event: MouseEvent) => {
@@ -94,8 +100,8 @@ export function NoteGraph({
         <div ref={triggerRef} className="h-full w-full">
           <EntityGraph
             items={notes}
-            groups={groups}
-            edges={edges}
+            groups={visibleGroups}
+            edges={visibleEdges}
             getItemLabel={getNoteLabel}
             getItemGroupIds={getNoteGroupIds}
             getItemColor={getNoteColor}
@@ -120,10 +126,12 @@ export function NoteGraph({
               <SquareArrowOutUpRight className="size-3.5" />
               Open
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onCategorizeNote(target.note)}>
-              <BrainCircuit className="size-3.5" />
-              Categorize
-            </ContextMenuItem>
+            {onCategorizeNote && (
+              <ContextMenuItem onSelect={() => onCategorizeNote(target.note)}>
+                <BrainCircuit className="size-3.5" />
+                Categorize
+              </ContextMenuItem>
+            )}
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"

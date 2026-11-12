@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentMemoryModeSchema } from "./agent-memory";
 import { backgroundAgentPageContextSchema } from "./background-agent";
 import { connectorSlugSchema } from "./connectors";
+import { studyCitationSchema } from "./study";
 
 /** Tools the desktop page runs itself; the stream carries the call, the client returns the result. */
 export const AGENT_PAGE_TOOLS = [
@@ -60,10 +61,12 @@ export const agentNoticeSchema = z.object({
 
 export const agentDataPartSchemas = {
   notice: agentNoticeSchema,
+  citations: z.array(studyCitationSchema),
 };
 
 export type AgentDataTypes = {
   notice: z.infer<typeof agentNoticeSchema>;
+  citations: z.infer<typeof studyCitationSchema>[];
 };
 
 export type AgentUIMessage = UIMessage<AgentMessageMetadata, AgentDataTypes>;

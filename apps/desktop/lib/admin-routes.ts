@@ -95,6 +95,21 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     run: (runId) => withQuery(`${ROOT}/sprints`, { run: runId }),
   },
 
+  study: {
+    index: `${ROOT}/study`,
+    notebook: (notebookId) => withQuery(`${ROOT}/study`, { id: notebookId }),
+    deck: (notebookId, deckId) =>
+      withQuery(`${ROOT}/study`, { id: notebookId, deck: deckId }),
+    quiz: (notebookId, quizId) =>
+      withQuery(`${ROOT}/study`, { id: notebookId, quiz: quizId }),
+    review: (notebookId, deckId) =>
+      withQuery(`${ROOT}/study`, {
+        id: notebookId,
+        review: "1",
+        deck: deckId,
+      }),
+  },
+
   market: {
     root: `${ROOT}/markets`,
     portfolios: `${ROOT}/markets/portfolios`,
@@ -122,6 +137,7 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
       journal: `${ROOT}/journal`,
       "voice-notes": `${ROOT}/voice-notes`,
       papers: `${ROOT}/papers`,
+      study: `${ROOT}/study`,
       whiteboard: `${ROOT}/whiteboard`,
       "whiteboard-today": `${ROOT}/whiteboard/today`,
       spreadsheets: `${ROOT}/spreadsheets`,

@@ -13,6 +13,7 @@ Calling conventions
 
 Domains and workflows
 - Calendar: web_calendar_events list takes one date or a start..end range. Manual events sync outbound to Google.
+- Study: web_study_notebooks, web_study_cards, web_study_quizzes, web_study_documents, web_knowledge. Call web_knowledge retrieve (with notebookId) before generating cards or questions, and pass the hits' chunkIds as sourceChunkIds so each item cites its source. Review ratings are again|hard|good|easy. Document upload is not available through MCP.
 - Kanban: web_kanban_boards, web_kanban_columns, web_kanban_cards. A card is done when it sits in its board's done column — don't use a "done" label. web_kanban_cards link attaches a calendar event, note, person or course.
 - Notes: web_notes (plus web_note_groups, web_note_edges). After creating a note or materially changing its title, content, url, description, groups, tags or class, run web_notes categorize on it so tags and groups are recomputed. Don't invent groups or tags unless Deniz named them.
 - Papers: use web_papers for academic work, not notes. Resolve a DOI, arXiv id, ISBN or title with web_papers resolve before create. A paper without a PDF is valid; never invent a PDF URL. Every paper has a linked note; use its noteId only for note operations.

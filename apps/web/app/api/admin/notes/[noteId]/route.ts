@@ -1,6 +1,11 @@
+import { knowledgeSourceKey } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
+import {
+  deleteKnowledgeSource,
+  enqueueKnowledgeReindex,
+} from "@/lib/knowledge/reindex";
 import { connectDB } from "@/lib/mongodb";
 import { pruneGroupIds, serializeNote } from "@/lib/note-route-utils";
 import { requireAdmin } from "@/lib/require-admin";
@@ -12,7 +17,6 @@ import {
 import { KnowledgeSemanticSuggestion } from "@/models/KnowledgeSemanticSuggestion";
 import { type ILeanNote, Note } from "@/models/Note";
 import { NoteEdge } from "@/models/NoteEdge";
-import { NoteEmbedding } from "@/models/NoteEmbedding";
 import { VoiceNote } from "@/models/VoiceNote";
 
 async function updateNote(request: NextRequest, noteId: string) {
@@ -146,6 +150,9 @@ async function updateNote(request: NextRequest, noteId: string) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   await observeDomainRecordSafely("note", note);
+  if (typeof body.title === "string" || typeof body.content === "string") {
+    await enqueueKnowledgeReindex([knowledgeSourceKey("note", noteId)]);
+  }
 
   return NextResponse.json({ note: serializeNote(note) }, { status: 200 });
 }
@@ -240,7 +247,6 @@ export async function DELETE(
           { session },
         ).exec();
         await Promise.all([
-          NoteEmbedding.deleteMany({ noteId: note._id }, { session }).exec(),
           VoiceNote.updateMany(
             { noteIds: note._id },
             { $pull: { noteIds: note._id } },
@@ -256,6 +262,8 @@ export async function DELETE(
     } finally {
       await session.endSession();
     }
+
+    await deleteKnowledgeSource(knowledgeSourceKey("note", noteId));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
