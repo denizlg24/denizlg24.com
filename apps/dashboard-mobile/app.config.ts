@@ -52,7 +52,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         dark: { backgroundColor: "#303630" },
       },
     ],
-    ["expo-build-properties", { ios: { deploymentTarget: "18.0" } }],
+    [
+      "expo-build-properties",
+      {
+        ios: {
+          deploymentTarget: "18.0",
+          // Compile Expo views against this app's React Native headers. The
+          // precompiled module binary crashes in ExpoViewProps at launch.
+          usePrecompiledModules: false,
+        },
+      },
+    ],
     ["expo-notifications", { mode: apsEnvironment }],
     "./plugins/with-dashboard-targets",
   ],

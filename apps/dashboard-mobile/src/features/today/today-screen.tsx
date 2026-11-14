@@ -1,24 +1,36 @@
-import { colors, spacing, Text } from "@repo/native-ui";
+import { colors, HeaderButton, spacing, Text } from "@repo/native-ui";
 import type { DashboardToday } from "@repo/schemas";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useToday, useUpcomingTasks } from "@/api/today";
 import { StatusDot } from "@/features/shell/status";
 import { TabPage } from "@/features/shell/tab-page";
+import { WorkspaceShortcuts } from "@/features/workspace/workspace-shortcuts";
 import { LiveClock } from "./live-clock";
 import { TodayTabs } from "./today-tabs";
 
-/** The desktop's dashboard home: the time, then Events / Tasks / Alerts, then the machines. */
+/** Daily overview with the same Home page and favorite pages as desktop. */
 export function TodayScreen() {
+  const client = useQueryClient();
+  const router = useRouter();
   const today = useToday();
   const tasks = useUpcomingTasks();
   return (
     <TabPage
       title="Today"
+      actions={
+        <HeaderButton
+          symbol="square.and.pencil"
+          label="New workspace page"
+          onPress={() => router.push("/workspace-new")}
+        />
+      }
       onRefresh={() => {
         void today.refetch();
         void tasks.refetch();
+        void client.invalidateQueries({ queryKey: ["workspace"] });
       }}
       refreshing={today.isRefetching}
       contentContainerStyle={styles.page}
@@ -31,6 +43,7 @@ export function TodayScreen() {
           tasks={tasks.data}
           tasksError={tasks.error}
         />
+        <WorkspaceShortcuts />
         {today.data ? <Footer today={today.data} /> : null}
       </View>
     </TabPage>
@@ -71,7 +84,7 @@ function Footer({ today }: { today: DashboardToday }) {
 
 const styles = StyleSheet.create({
   page: { flexGrow: 1 },
-  stack: { flex: 1, justifyContent: "center", gap: spacing.xl },
+  stack: { flex: 1, gap: spacing.xl },
   footer: { alignItems: "center", gap: spacing.md, paddingTop: spacing.sm },
   resources: {
     flexDirection: "row",

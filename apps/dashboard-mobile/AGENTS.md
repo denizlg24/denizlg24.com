@@ -22,8 +22,18 @@ Calistoga, embedded at build by `expo-font` from `@repo/native-ui/fonts`.
 Anything that cannot take a dynamic colour (navigation themes, headers) reads
 `useResolvedColors()`. Widgets carry the same background and label colours.
 
-Today is the desktop's dashboard home: a live clock, then Events / Tasks /
-Alerts, then resources and LLM spend — nothing another tab already owns.
+Today combines the daily overview with the desktop workspace: a live clock, then Events / Tasks /
+Alerts, desktop workspace Home/favorites (recently edited pages when there are
+no page favorites), then resources and LLM spend. More → Pages browses and
+searches the same workspace page tree as desktop, excluding trash and templates.
+Pages are native documents: text, nested lists, checklists, toggles, tables,
+images, linked record summaries and live view queries; desktop columns stack
+vertically. Record summaries are deduplicated and fetched in batches using the
+shared API limit. Full editing,
+custom components and workflow execution open the page in the system browser.
+New pages/subpages and append-only text capture use formSheets. Checklist and
+capture writes send revision-aware `workspace/pages/:id/ops`, never replace a
+whole document from the phone cache. Locked pages stay read-only on the phone.
 A composer pinned to the bottom of a screen sits in `KeyboardDock`, which
 keeps it above the home indicator and the keyboard; scroll views use
 `automaticallyAdjustKeyboardInsets`.
@@ -57,6 +67,9 @@ bun run ios:device     # Release build on the phone
 ```
 
 `EXPO_PUBLIC_DASHBOARD_SITE` points a build at another web origin.
+Expo modules compile from source (`usePrecompiledModules: false`): the default
+precompiled views crashed in `ExpoViewProps` during native initialization with
+this app's React Native build. Regenerate iOS after changing that setting.
 
 ## Checks
 
