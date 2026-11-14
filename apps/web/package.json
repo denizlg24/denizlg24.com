@@ -77,7 +77,7 @@
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.3",
-    "googleapis": "^188.0.0",
+    "googleapis": "^189.0.0",
     "gsap": "^3.15.1",
     "html5-qrcode": "^2.3.8",
     "imapflow": "^1.7.6",
