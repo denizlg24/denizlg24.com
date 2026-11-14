@@ -9,6 +9,7 @@ on:
       - "bun.lock"
       - "scripts/update-agent-canvas-version*"
       - "scripts/changelog-stub.ts"
+      - "scripts/ci/release-notes*"
       - ".github/workflows/agent-canvas.yml"
   push:
     branches: ["main"]
@@ -50,7 +51,7 @@ jobs:
       - name: Check version manifests and bump helper
         run: |
           bun scripts/update-agent-canvas-version.ts --check
-          bun test scripts/update-agent-canvas-version.test.ts
+          bun test scripts/update-agent-canvas-version.test.ts scripts/ci/release-notes.test.ts
       - name: Check frontend
         run: |
           bun run --cwd "$APP_DIR" lint
@@ -130,7 +131,7 @@ jobs:
           bun scripts/ci/release-notes.ts \
             --version "$VERSION" --tag-prefix agents-v \
             --changelog "$APP_DIR/CHANGELOG.md" \
-            --paths apps/agent-canvas,packages/ui \
+            --paths apps/agent-canvas \
             --head "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/agents-notes.md"
       - name: Create draft release
         if: steps.version.outputs.changed == 'true'
