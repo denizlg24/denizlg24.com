@@ -1,0 +1,38 @@
+{
+  "name": "agent-canvas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1425 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "lint": "biome check src tests vite.config.ts playwright.config.ts",
+    "test:native": "cargo test --no-default-features --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@repo/ui": "workspace:*",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@xterm/xterm": "^6.0.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xyflow/react": "^12.10.0",
+    "lucide-react": "^1.70.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "^6.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "5.9.3",
+    "vite": "^8.2.0"
+  }
+}

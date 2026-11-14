@@ -38,7 +38,8 @@
     "bump:desktop": "bun scripts/update-desktop-app-version.ts",
     "bump:macros": "bun scripts/update-macros-app-version.ts",
     "bump:tally": "bun scripts/update-tally-app-version.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "bump:agents": "bun scripts/update-agent-canvas-version.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "~2.5.15",

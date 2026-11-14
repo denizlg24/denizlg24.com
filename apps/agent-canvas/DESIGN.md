@@ -1,0 +1,5 @@
+# Agents canvas
+
+Inherits ../../packages/ui/DESIGN.md and the canonical @repo/ui/theme.css. Operate mode. A blank Miro-style work surface is the requested composition: dotted canvas, movable agent cards, curved parent edges, compact top toolbar, zoom controls, and independent movable, resizable terminal windows above the canvas. Shared cream/sage palette, system sans for controls, monospace only in terminals and usage figures. Hairlines establish boundaries; no card shadows. Status uses canonical semantic tokens. Dark mode uses the shared dark palette and persists the user's choice.
+
+Card hierarchy: provider + name; state; current activity; directory; measured token count and context/limit readouts. No invented costs or quota estimates. A child opens its transcript, with a direct parent-terminal action for commands. Expanded windows coexist; a compact window strip restores focus to covered windows. Stop belongs in the title bar; no footer overlaps the terminal. The launch surface resembles a prompt screen without a prompt field: provider choice, directory, model, reasoning, and permission modes. Context menus use provider icons and clear grouped actions.

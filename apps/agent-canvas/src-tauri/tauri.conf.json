@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Agents",
+  "version": "0.1.0",
+  "identifier": "com.denizlg24.agents",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://127.0.0.1:1425",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Agents",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 800,
+        "minHeight": 580
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png", "icons/icon.icns"]
+  }
+}
