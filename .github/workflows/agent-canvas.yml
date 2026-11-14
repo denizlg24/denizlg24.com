@@ -1,0 +1,270 @@
+name: Agents (macOS)
+
+on:
+  pull_request:
+    paths:
+      - "apps/agent-canvas/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "bun.lock"
+      - "scripts/update-agent-canvas-version*"
+      - "scripts/changelog-stub.ts"
+      - ".github/workflows/agent-canvas.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/agent-canvas/src-tauri/tauri.conf.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  APP_DIR: apps/agent-canvas
+  CONFIG: apps/agent-canvas/src-tauri/tauri.conf.json
+
+jobs:
+  verify:
+    name: Build and test (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/agent-canvas/src-tauri -> target"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Check version manifests and bump helper
+        run: |
+          bun scripts/update-agent-canvas-version.ts --check
+          bun test scripts/update-agent-canvas-version.test.ts
+      - name: Check frontend
+        run: |
+          bun run --cwd "$APP_DIR" lint
+          bun run --cwd "$APP_DIR" build
+      - name: Check native host
+        run: |
+          cargo fmt --manifest-path "$APP_DIR/src-tauri/Cargo.toml" --check
+          cargo test --manifest-path "$APP_DIR/src-tauri/Cargo.toml" --no-default-features --locked
+          cargo clippy --manifest-path "$APP_DIR/src-tauri/Cargo.toml" --no-default-features --all-targets --locked -- -D warnings
+      - name: Check canvas and terminals
+        working-directory: apps/agent-canvas
+        run: |
+          bunx playwright install chromium
+          bun run test:e2e
+      - name: Build unsigned macOS bundle
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: bun run --cwd "$APP_DIR" tauri build --bundles app
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-browser-results
+          path: apps/agent-canvas/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  prepare:
+    name: Prepare versioned release
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Detect version change
+        id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          current_version="$(jq -er '.version' "$CONFIG")"
+          if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Agents version must be major.minor.patch"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            previous_version="$(git show "$BEFORE:$CONFIG" 2>/dev/null | jq -r '.version' 2>/dev/null || true)"
+            if [[ "$current_version" == "$previous_version" ]]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "The configuration changed without a version bump."
+              exit 0
+            fi
+          fi
+          {
+            echo "changed=true"
+            echo "tag=agents-v$current_version"
+            echo "version=$current_version"
+          } >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        if: steps.version.outputs.changed == 'true'
+        with:
+          bun-version-file: package.json
+      - name: Write scoped release notes
+        if: steps.version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bun scripts/ci/release-notes.ts \
+            --version "$VERSION" --tag-prefix agents-v \
+            --changelog "$APP_DIR/CHANGELOG.md" \
+            --paths apps/agent-canvas,packages/ui \
+            --head "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/agents-notes.md"
+      - name: Create draft release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" != "true" ]]; then
+              echo "::error::Release $TAG is already published"
+              exit 1
+            fi
+            target="$(gh release view "$TAG" --json targetCommitish --jq ' .targetCommitish')"
+            if [[ "$target" != "$GITHUB_SHA" ]]; then
+              echo "::error::Draft tag $TAG points to a different commit; refusing mixed artifacts"
+              exit 1
+            fi
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/agents-notes.md"
+          else
+            gh release create "$TAG" --draft --latest=false \
+              --target "$GITHUB_SHA" --title "Agents v$VERSION" \
+              --notes-file "$RUNNER_TEMP/agents-notes.md"
+          fi
+
+  release:
+    name: Sign and notarize universal macOS app
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: macos-26
+    timeout-minutes: 45
+    environment: desktop-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/agent-canvas/src-tauri -> target"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      # The same Developer ID certificate and notarization key as desktop.
+      # Missing credentials fail the release instead of publishing unsigned.
+      - name: Prepare desktop signing credentials
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          APPLE_ASC_PRIVATE_KEY: ${{ secrets.APPLE_ASC_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          missing=()
+          for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_IDENTITY \
+            APPLE_ASC_KEY_ID APPLE_ASC_ISSUER_ID APPLE_ASC_PRIVATE_KEY; do
+            [[ -z "${!name}" ]] && missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing desktop signing secrets: ${missing[*]}"
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_$APPLE_ASC_KEY_ID.p8"
+          printf '%s\n' "$APPLE_ASC_PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "APPLE_CERTIFICATE=$DEVELOPER_ID_P12"
+            echo "APPLE_CERTIFICATE_PASSWORD=$DEVELOPER_ID_P12_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$DEVELOPER_ID_IDENTITY"
+            echo "APPLE_API_KEY=$APPLE_ASC_KEY_ID"
+            echo "APPLE_API_ISSUER=$APPLE_ASC_ISSUER_ID"
+            echo "APPLE_API_KEY_PATH=$key_path"
+          } >> "$GITHUB_ENV"
+      - name: Build signed release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: apps/agent-canvas
+          tauriScript: bunx tauri
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: false
+          args: --target universal-apple-darwin --bundles app,dmg
+          releaseAssetNamePattern: "Agents_[version]_[platform]_[arch][setup][ext]"
+      - name: Verify signature and notarization
+        shell: bash
+        run: |
+          app="$APP_DIR/src-tauri/target/universal-apple-darwin/release/bundle/macos/Agents.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|flags)='
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+      - name: Upload app archive and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          app="$APP_DIR/src-tauri/target/universal-apple-darwin/release/bundle/macos/Agents.app"
+          asset="Agents_${VERSION}_macos_universal.zip"
+          cd "$RUNNER_TEMP"
+          ditto -c -k --sequesterRsrc --keepParent "$GITHUB_WORKSPACE/$app" "$asset"
+          shasum -a 256 "$asset" > "$asset.sha256"
+          gh release upload "$TAG" "$asset" "$asset.sha256" --clobber
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+  publish:
+    name: Publish verified release
+    needs: [prepare, release]
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish without changing repository latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest=false
