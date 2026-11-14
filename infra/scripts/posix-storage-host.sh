@@ -537,6 +537,25 @@ fail_closed() {
   return 20
 }
 
+# An unavailable D-Bus reply is not evidence that a service stopped. A single
+# transport error once latched the whole namespace offline for hours. Retry
+# observations briefly; an observed inactive/failed unit still fails at once,
+# and an unobservable unit still fails closed after the bounded retries.
+service_is_active() {
+  local unit=$1 state attempt
+  for attempt in 1 2 3; do
+    if state=$(systemctl show "$unit" -p ActiveState --value); then
+      case "$state" in
+        active|reloading) return 0 ;;
+        inactive|failed|deactivating) return 1 ;;
+      esac
+    fi
+    if (( attempt < 3 )); then sleep 1; fi
+  done
+  echo "Service state unavailable after three observations: $unit" >&2
+  return 1
+}
+
 # One pass over every condition the boundary has to hold, naming the first that
 # fails on stdout. Deliberately separate from fail_closed: the same checks mean
 # different things before and after the boundary has been seen whole, and only
@@ -547,8 +566,8 @@ boundary_fault() {
   validate_witness || { echo broker-witness; return 1; }
   broker_is_current || { echo api-broker-mount; return 1; }
   [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || { echo api-broker-witness; return 1; }
-  systemctl is-active --quiet "$metadata_unit" || { echo metadata-service; return 1; }
-  systemctl is-active --quiet "$smb_unit" || { echo smbd-service; return 1; }
+  service_is_active "$metadata_unit" || { echo metadata-service; return 1; }
+  service_is_active "$smb_unit" || { echo smbd-service; return 1; }
   local smbd_pid
   smbd_pid=$(systemctl show -p MainPID --value "$smb_unit")
   [[ "$smbd_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$smbd_pid/comm" && "$(cat "/proc/$smbd_pid/comm")" == smbd ]] || { echo smbd-process; return 1; }
