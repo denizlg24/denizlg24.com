@@ -18,7 +18,7 @@
     "@repo/tts": "workspace:*",
     "@repo/utils": "workspace:*",
     "@tanstack/react-query": "^5.106.1",
-    "expo": "~57.0.25",
+    "expo": "~58.0.23",
     "expo-audio": "~57.0.5",
     "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.19",
