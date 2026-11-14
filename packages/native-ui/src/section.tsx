@@ -49,6 +49,8 @@ export function Section({
 
 export interface RowProps extends Omit<PressableProps, "children" | "style"> {
   title: string;
+  /** Use zero for wrapping document titles; compact utility rows default to one line. */
+  titleLines?: number;
   subtitle?: string;
   value?: string;
   valueTone?: "primary" | "secondary" | "tertiary" | "working" | "destructive";
@@ -60,6 +62,7 @@ export interface RowProps extends Omit<PressableProps, "children" | "style"> {
 
 export function Row({
   title,
+  titleLines = 1,
   subtitle,
   value,
   valueTone = "secondary",
@@ -77,7 +80,7 @@ export function Row({
           variant="body"
           tone={destructive ? "destructive" : "primary"}
           figure
-          numberOfLines={1}
+          numberOfLines={titleLines}
         >
           {title}
         </Text>

@@ -103,6 +103,14 @@ export default function RootLayout() {
                   options={{ ...sheet, sheetAllowedDetents: [0.7, 1] }}
                 />
                 <Stack.Screen
+                  name="workspace-new"
+                  options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }}
+                />
+                <Stack.Screen
+                  name="workspace-capture"
+                  options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }}
+                />
+                <Stack.Screen
                   name="note-new"
                   options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }}
                 />

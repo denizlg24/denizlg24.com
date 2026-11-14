@@ -13,6 +13,15 @@ export function MoreScreen() {
   return (
     <TabPage title="More">
       <Gap>
+        <Section title="Workspace">
+          <Row
+            title="Pages"
+            subtitle="Your desktop workspace, on iPhone"
+            chevron
+            separator={false}
+            onPress={() => router.push("/more/workspace")}
+          />
+        </Section>
         <Section title="Agent">
           <Row
             title="Memory review"
