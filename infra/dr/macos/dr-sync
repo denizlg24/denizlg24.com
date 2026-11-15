@@ -240,7 +240,7 @@ pull_host() {
   [[ "$endpoint" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ ]] || dr_die "unsafe SSH endpoint for ${host}"
   if [[ "$endpoint" =~ ^root@100\. ]]; then
     [[ "$recovery_override_loaded" == true ]] || dr_die "recovery endpoint lacks its pinned host-key contract"
-    transport_opts+=(-o "UserKnownHostsFile=$DR_RECOVERY_KNOWN_HOSTS" -o StrictHostKeyChecking=yes -o "HostKeyAlias=$DR_RECOVERY_HOST_KEY_ALIAS")
+    transport_opts+=(-o "UserKnownHostsFile=\"$DR_RECOVERY_KNOWN_HOSTS\"" -o StrictHostKeyChecking=yes -o "HostKeyAlias=$DR_RECOVERY_HOST_KEY_ALIAS")
   fi
   signer="$(host_value "$host" signer)"
   # Backup/prune, deploy, and pull share one host lock. A READY manifest is

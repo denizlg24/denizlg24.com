@@ -101,7 +101,7 @@ fi
 for identifier in "$DR_CLOUDFLARE_ACCOUNT_ID" "$DR_CLOUDFLARE_ZONE_ID" "$DR_CLOUDFLARE_DR_TUNNEL_ID"; do
   [[ "$identifier" =~ ^[A-Za-z0-9_-]+$ ]] || dr_die "unsafe Cloudflare identifier"
 done
-ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target#*@}")
+ssh_opts=(-o BatchMode=yes -o "UserKnownHostsFile=\"$known_hosts\"" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target#*@}")
 
 cf_api() {
   local method="$1" path="$2" body="${3:-}"

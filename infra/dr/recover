@@ -469,7 +469,7 @@ else
   IFS= read -r answer
   [[ "$answer" == "$fingerprint" ]] || dr_die "target fingerprint was not confirmed"
 fi
-ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes)
+ssh_opts=(-o BatchMode=yes -o "UserKnownHostsFile=\"$known_hosts\"" -o StrictHostKeyChecking=yes)
 if [[ "$ssh_host" != "$target_host" ]]; then
   ssh_opts+=(-o "HostKeyAlias=${target_host#*@}")
 fi
@@ -613,7 +613,7 @@ if ! phase_done bootstrap; then
     || dr_die "bootstrap returned an invalid Tailscale transport"
   jq --arg tailnetHost "$ssh_host" '.target.tailnetHost=$tailnetHost | .updatedAt=(now|todate)' \
     "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
-  ssh_opts=(-o BatchMode=yes -o ConnectTimeout=5 -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target_host#*@}")
+  ssh_opts=(-o BatchMode=yes -o ConnectTimeout=5 -o "UserKnownHostsFile=\"$known_hosts\"" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target_host#*@}")
   tailnet_ready=false
   for _ in $(seq 1 60); do
     if ssh "${ssh_opts[@]}" "$ssh_host" true >/dev/null 2>&1; then tailnet_ready=true; break; fi
