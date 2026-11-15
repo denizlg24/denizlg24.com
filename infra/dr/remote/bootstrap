@@ -195,6 +195,10 @@ ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH via Tailscale'
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  ufw allow in on tailscale0 to any port 443 proto tcp comment 'Storage health probe via Tailscale'
+  ufw allow in on tailscale0 to any port 445 proto tcp comment 'SMB via Tailscale'
+fi
 ufw allow in on tailscale0 to any port 3001 proto tcp comment 'Pi API via Tailscale'
 ufw allow in on tailscale0 to any port 4010 proto tcp comment 'Forge agent via Tailscale'
 ufw allow 41641/udp comment 'Tailscale direct'
