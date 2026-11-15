@@ -649,7 +649,7 @@ fn main() {
                         }
                     }
                     ticks += 1;
-                    if ticks % 3 != 0 {
+                    if !ticks.is_multiple_of(3) {
                         continue;
                     }
                     if let Err(e) = persistence::save(&handle.state::<State>()) {
