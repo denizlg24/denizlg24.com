@@ -741,7 +741,7 @@ if ! phase_done install-continuity; then
   begin_phase install-continuity
   tar --exclude='infra/dr/opentofu/.terraform' --exclude='*.tfstate' --exclude='*.tfstate.*' \
     -C "$repo_root" -cf - infra/dr \
-    infra/scripts/posix-namespace-backup.sh infra/scripts/posix-namespace-restore-verify.sh \
+    infra/scripts/posix-namespace-backup.sh infra/scripts/posix-namespace-restore-verify.sh infra/scripts/posix-namespace-acls.py \
     | ssh "${ssh_opts[@]}" "$ssh_host" 'install -d -m 0755 /opt/deniz-cloud/infra && tar -C /opt/deniz-cloud -xf -'
   continuity_command='set -e; getent group deniz-dr >/dev/null || groupadd --system deniz-dr; install -d -m 0750 -o root -g deniz-dr /var/lib/deniz-dr /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -d -m 0700 /var/lib/deniz-dr/staging /var/lib/deniz-dr/external-state /etc/deniz-dr; setfacl -m g:deniz-dr:rwx,d:g:deniz-dr:rwx,d:m:rwx /var/lib/deniz-dr/repositories /var/lib/deniz-dr/ready /var/lib/deniz-dr/locks; install -m 0644 /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-backup@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-heartbeat@.timer /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.service /opt/deniz-cloud/infra/dr/systemd/deniz-dr-external-export.timer /etc/systemd/system/; systemctl daemon-reload'
   if [[ "$profile" == pi || "$profile" == all ]]; then
