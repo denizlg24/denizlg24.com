@@ -11,6 +11,7 @@ dr_start_mongo_verifier() {
     --memory 1024m --memory-swap 2048m --cpus 1 --ulimit nofile=65536:65536 \
     --mount "type=bind,source=${data},target=/data/db" --tmpfs /tmp \
     "$image" mongod --bind_ip_all --quiet --wiredTigerCacheSizeGB 0.25 \
+    --setParameter ttlMonitorEnabled=false \
     --setParameter diagnosticDataCollectionEnabled=false \
     --setParameter maxIndexBuildMemoryUsageMegabytes=64 \
     --setParameter maxNumActiveUserIndexBuilds=1

@@ -43,6 +43,19 @@ verify_artifact() {
 }
 while IFS= read -r relative; do verify_artifact "$relative"; done < <(jq -r '.artifacts[].path' "$manifest")
 
+# Re-staging captured host config temporarily restores the old device UUIDs.
+# Pause the watchdog and storage boundary before that transient state, and
+# preserve any data written since the completed restore proofs.
+if [[ "$(docker inspect -f '{{.State.Running}}' deniz-cloud-api-1 2>/dev/null || true)" == true ]]; then
+  [[ "$reuse_database_proof" == true ]] || { echo "STOP: active API requires a completed database proof" >&2; exit 1; }
+  docker stop --time 30 deniz-cloud-api-1 >/dev/null
+fi
+if systemctl cat deniz-cloud-storage-watchdog.service >/dev/null 2>&1; then
+  systemctl stop deniz-cloud-storage-watchdog.service
+fi
+if systemctl cat deniz-cloud-storage.target >/dev/null 2>&1; then
+  systemctl stop deniz-cloud-storage.target
+fi
 zstd -dc "$root/artifacts/config.tar.zst" | tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C / -xf -
 install -d -m 0700 /etc/deniz-dr
 zstd -dc "$root/artifacts/config-recovery-host.tar.zst" | tar --numeric-owner -C /etc/deniz-dr -xf -
@@ -127,6 +140,13 @@ set_env_value() {
 }
 set_env_value API_TAILNET_BIND_ADDRESS "$API_TAILNET_BIND_ADDRESS"
 set_env_value TERMINAL_SERVER_URL "$TERMINAL_SERVER_URL"
+terminal_env=/etc/deniz-cloud/terminal.env
+[[ -f "$terminal_env" && ! -L "$terminal_env" ]] || { echo "STOP: restored terminal configuration is missing" >&2; exit 1; }
+if grep -q '^HOST=' "$terminal_env"; then
+  sed -i -E "s/^HOST=.*/HOST=${tailnet_ip}/" "$terminal_env"
+else
+  printf 'HOST=%s\n' "$tailnet_ip" >> "$terminal_env"
+fi
 if [[ "$combined" == true ]]; then
   export DEPLOY_AGENT_URL="http://${tailnet_ip}:4010"
   set_env_value DEPLOY_AGENT_URL "$DEPLOY_AGENT_URL"
@@ -150,6 +170,7 @@ docker exec "$mongo_container" sh -ceu '
     --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" \
     --authenticationDatabase admin --eval "$1"
 ' sh '
+if (db.adminCommand({setParameter:1,ttlMonitorEnabled:false}).ok !== 1) throw new Error("Cannot pause TTL during restore");
 try {
   rs.status();
 } catch (error) {
@@ -217,7 +238,7 @@ cleanup_containers+=("$mongo_restore_container")
 docker run -d --name "$mongo_restore_container" --network none --hostname mongodb --add-host mongodb:127.0.0.1 \
   --ulimit nofile=65536:65536 \
   --mount "type=bind,src=$MONGO_DATA_DIR,dst=/data/db" "$mongo_image_id" \
-  --replSet rs0 --bind_ip 127.0.0.1 --noauth >/dev/null
+  --replSet rs0 --bind_ip 127.0.0.1 --noauth --setParameter ttlMonitorEnabled=false >/dev/null
 mongo_offline_ready=false
 for _ in $(seq 1 90); do
   if docker exec "$mongo_restore_container" mongosh --quiet 'mongodb://127.0.0.1:27017/?directConnection=true' \
@@ -236,7 +257,7 @@ docker rm "$mongo_restore_container" >/dev/null
 dc start mongodb
 mongo_authenticated_ready=false
 for _ in $(seq 1 90); do
-  if docker exec "$mongo_container" sh -ceu 'mongosh --quiet "mongodb://127.0.0.1:27017/?directConnection=true" --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "quit(db.hello().isWritablePrimary ? 0 : 1)"' >/dev/null 2>&1; then
+  if docker exec "$mongo_container" sh -ceu 'mongosh --quiet "mongodb://127.0.0.1:27017/?directConnection=true" --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "if(db.adminCommand({setParameter:1,ttlMonitorEnabled:false}).ok!==1)quit(2);quit(db.hello().isWritablePrimary ? 0 : 1)"' >/dev/null 2>&1; then
     mongo_authenticated_ready=true; break
   fi
   sleep 1
@@ -551,6 +572,7 @@ rm -f -- "$samba_expected_auth" "$samba_actual_auth"
 systemctl daemon-reload
 jq '.writersStarted=true' "$namespace_checkpoint" > "${namespace_checkpoint}.tmp"
 mv -- "${namespace_checkpoint}.tmp" "$namespace_checkpoint"
+"/usr/local/lib/deniz-cloud/posix-storage-host.sh" --execute recover >/dev/null
 systemctl enable --now deniz-cloud-storage.target
 metadata_socket=/run/deniz-cloud/storage-metadata.sock
 for _ in $(seq 1 60); do
@@ -676,8 +698,16 @@ curl --config "$synthetic_config" | jq -e '.status == "ok" and all(.checks[]; .s
   || { echo "STOP: Pi deep dependency transaction failed" >&2; exit 1; }
 rm -f -- "$synthetic_config"
 systemctl enable --now cloud-terminal.service
-for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:3003/healthz >/dev/null && break; sleep 1; done
-curl -fsS http://127.0.0.1:3003/healthz >/dev/null || { echo "STOP: cloud terminal health failed" >&2; exit 1; }
+for _ in $(seq 1 60); do curl -fsS "http://${tailnet_ip}:3003/healthz" >/dev/null && break; sleep 1; done
+curl -fsS "http://${tailnet_ip}:3003/healthz" >/dev/null || { echo "STOP: cloud terminal health failed" >&2; exit 1; }
+python3 "$(dirname "$0")/allow-terminal-api.py" --api-container "$(dc ps -q api)" --tailnet-ip "$tailnet_ip"
+docker exec "$(dc ps -q api)" bun -e '
+  const url = new URL(process.env.TERMINAL_SERVER_URL);
+  url.protocol = "http:"; url.pathname = "/healthz";
+  const response = await fetch(url, {signal: AbortSignal.timeout(5000)});
+  if (response.status !== 200) process.exit(1);
+' || { echo "STOP: API cannot reach the private terminal listener" >&2; exit 1; }
+
 
 markets_compose=/opt/markets-relay/docker-compose.markets.yml
 markets_env=/opt/markets-relay/.env.markets
@@ -717,7 +747,7 @@ fi
 postgres_summary="$(jq '{databases:(.databases|length),tables:(.tables|length),rows:([.tables[].rows]|add // 0),roles:(.roles|length)}' "$root/meta/postgres-semantic.json")"
 mongodb_summary="$(jq '{databases:(.databases|length),collections:([.databases[].collections|length]|add // 0),documents:([.databases[].collections[].documents]|add // 0),indexes:([.databases[].collections[].indexes|length]|add // 0),users:(.users|length),roles:(.roles|length)}' "$root/meta/mongodb-semantic.json")"
 redis_summary="$(jq '{keys}' "$root/meta/redis-semantic.json")"
-jq -n --argjson postgres "$postgres_summary" --argjson mongodb "$mongodb_summary" \
+jq -cn --argjson postgres "$postgres_summary" --argjson mongodb "$mongodb_summary" \
   --argjson reusedDatabases "$reuse_databases" \
   --argjson redis "$redis_summary" --argjson namespace "$namespace_verification" \
   --argjson imagesVerified "$(jq '.images|length' "$manifest")" \
@@ -729,4 +759,4 @@ jq -n --argjson postgres "$postgres_summary" --argjson mongodb "$mongodb_summary
     nutritionExpected:$nutritionExpected,nutritionVerified:$nutritionVerified,
     servicesVerified:(["postgres","mongodb","redis","meilisearch","mongot","api","deniz-cloud-storage.target","cloud-storage-metadata","cloud-terminal","markets-relay"] +
       (if $nutritionVerified then ["nutrition-api"] else [] end)),
-    deepDependencyTransaction:true,publicCutover:false}'
+    deepDependencyTransaction:true,terminalApiBridgeVerified:true,publicCutover:false}'
