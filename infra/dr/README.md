@@ -230,7 +230,7 @@ time-dependent inputs may refresh, but changed signed evidence cannot reuse one.
 
 ## Cutover and rollback
 
-Cutover requires every selected source endpoint to be reachable. It stops the
+Cutover normally requires every selected source endpoint to be reachable. It stops the
 source's backup jobs, writers and tunnel, atomically repoints the Mac bridge
 route at the target using the report's pinned host key, changes only the
 selected profile's active-site lease, then enables the target's backup and
@@ -239,8 +239,12 @@ DNS mutation and an external health URL for every domain in the signed restore
 inventory — a representative dashboard cannot stand in for the recovered
 applications.
 
-There is no override for an unreachable source. Recovery may still be verified,
-but public mutation stops until the source can be authoritatively fenced.
+For a failed Pi, `--pi-physically-isolated` accepts an explicit operator
+attestation that both power and Ethernet have already been unplugged and will
+remain disconnected until failback. Cutover requires the full confirmation
+phrase and signs the timestamped physical-isolation evidence into the recovery
+report. This never substitutes for fencing a selected Forge source. An offline
+status or failed ping alone does not establish physical isolation.
 
 Rollback reverses those steps and removes the bridge override only after the
 home host passes local service, metadata-socket and authenticated deep checks,

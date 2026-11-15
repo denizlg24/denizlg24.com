@@ -16,6 +16,7 @@ source_explicit=false
 preview_mode=""
 check_only=false
 no_cutover=false
+pi_physically_isolated=false
 accept_stale_snapshot=false
 provider=""
 region=""
@@ -32,6 +33,7 @@ Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID
   --check-only
   --plan | --simulate | --rehearsal (R2 metadata only; no target or bulk storage)
   --no-cutover
+  --pi-physically-isolated (requires explicit physical-disconnection confirmation at cutover)
   --accept-stale-snapshot
   --provider hetzner --region REGION --size recommended
 
@@ -58,6 +60,7 @@ while (($#)); do
     --simulate | --rehearsal) preview_mode=simulate; shift ;;
     --check-only) check_only=true; shift ;;
     --no-cutover) no_cutover=true; shift ;;
+    --pi-physically-isolated) pi_physically_isolated=true; shift ;;
     --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
     --provider) provider="${2:-}"; shift 2 ;;
     --region) region="${2:-}"; shift 2 ;;
@@ -67,12 +70,13 @@ while (($#)); do
 done
 
 [[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || { usage; exit 2; }
+[[ "$pi_physically_isolated" == false || "$profile" == pi || "$profile" == all ]] || dr_die "physical Pi isolation requires a Pi profile"
 [[ "$source_kind" == icloud || "$source_kind" == r2 ]] || { usage; exit 2; }
 dr_require_private_file "$config"
 # shellcheck disable=SC1090
 if [[ -n "$preview_mode" ]]; then
   [[ "$source_explicit" == false || "$source_kind" == r2 ]] || dr_die "metadata rehearsal requires --source r2"
-  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false ]] \
+  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false && "$pi_physically_isolated" == false ]] \
     || dr_die "--plan/--simulate cannot be combined with execution, stale override or target options"
   set -a
   source "$config"
@@ -751,7 +755,9 @@ if ! phase_done remove-plaintext-staging; then
 fi
 
 if [[ "$no_cutover" == false ]]; then
-  "$script_dir/cutover" --config "$config" --host "$target_host" --ssh-host "$ssh_host" --profile "$profile" --report "$report" --ssh-known-hosts "$known_hosts"
+  isolation_args=()
+  [[ "$pi_physically_isolated" == false ]] || isolation_args+=(--pi-physically-isolated)
+  "$script_dir/cutover" --config "$config" --host "$target_host" --ssh-host "$ssh_host" --profile "$profile" --report "$report" --ssh-known-hosts "$known_hosts" "${isolation_args[@]}"
 else
   jq '.result="verified-no-cutover" | .updatedAt=(now|todate)' "$report" > "${report}.tmp" && mv "${report}.tmp" "$report"
 fi
