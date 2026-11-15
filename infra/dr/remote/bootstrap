@@ -23,6 +23,10 @@ done
 [[ -f "$packages" && -f "$versions" && -f "$tailscale_key_file" ]] || { echo "STOP: bootstrap inputs are missing" >&2; exit 1; }
 [[ "$(. /etc/os-release; printf '%s' "$VERSION_ID")" == 24.04 ]] || { echo "STOP: Ubuntu 24.04 is required" >&2; exit 1; }
 [[ "$(uname -m)" == x86_64 ]] || { echo "STOP: x86_64 is required" >&2; exit 1; }
+# The caller consumes stdout as JSON. Package managers and firewall tools emit
+# progress on stdout too, so reserve the original stream for the final result.
+exec 3>&1
+exec 1>&2
 
 export DEBIAN_FRONTEND=noninteractive
 # Package post-install scripts must not expose a stock Samba listener or start
@@ -166,4 +170,4 @@ ufw allow 41641/udp comment 'Tailscale direct'
 ufw --force enable >/dev/null
 systemctl enable --now fail2ban
 jq -n --arg profile "$profile" --arg tailnetIp "$tailnet_ip" \
-  '{bootstrapped:true,profile:$profile,tailnetIp:$tailnetIp,publicCutover:false}'
+  '{bootstrapped:true,profile:$profile,tailnetIp:$tailnetIp,publicCutover:false}' >&3
