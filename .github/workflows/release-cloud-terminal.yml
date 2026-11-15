@@ -10,6 +10,8 @@ on:
       - "packages/markets/**"
       - "packages/schemas/**"
       - "infra/scripts/ensure-storage-boundary.sh"
+      - "infra/scripts/wait-tailnet-ssh.sh"
+      - "scripts/ci/test_tailnet_ssh.py"
       - ".github/workflows/release-cloud-terminal.yml"
       - "bun.lock"
       - "package.json"
@@ -46,6 +48,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck and test
         run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_tailnet_ssh.py'
           bunx turbo typecheck --filter=terminal
           bunx turbo test --filter=terminal
           bunx turbo typecheck --filter=storage-metadata
@@ -128,12 +131,12 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-      - name: Resolve Pi
+      - name: Wait for Pi SSH readiness
         run: |
           test -n "$PI_HOST"
           [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ -z "$DR_FENCING_ENABLED" || "$DR_FENCING_ENABLED" == true ]]
-          PI_ADDR="$(tailscale ip -4 "$PI_HOST")"
+          PI_ADDR="$(bash infra/scripts/wait-tailnet-ssh.sh "$PI_HOST" denizlg24)"
           [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
       - name: Acquire coordinated host lock
@@ -149,7 +152,7 @@ jobs:
           DR_LOCK_STALE_MINUTES: "60"
         run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud-binaries"
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
           set -euo pipefail
           token="$1"; wait_seconds="$2"; stale_minutes="$3"
@@ -196,9 +199,9 @@ jobs:
           (cd dist/amd64 && sha256sum -c SHA256SUMS)
           (cd dist/arm64 && sha256sum -c SHA256SUMS)
           tar -C dist -czf cloud-host-binaries.tgz amd64 arm64
-          scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes cloud-host-binaries.tgz \
+          scp -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes cloud-host-binaries.tgz \
             "denizlg24@${PI_ADDR}:/tmp/cloud-host-binaries.tgz"
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             sudo bash -s <<'REMOTE'
           set -euo pipefail
           install -d -m 0755 /usr/local/lib/deniz-cloud
@@ -260,15 +263,15 @@ jobs:
           REMOTE
       - name: Verify active host services
         run: |
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             sudo bash -s < infra/scripts/ensure-storage-boundary.sh
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "set -e; if systemctl is-active --quiet cloud-terminal.service; then curl -fsS 'http://${PI_ADDR}:3003/healthz' >/dev/null; fi; if systemctl is-active --quiet deniz-cloud-storage-metadata.service; then curl -fsS --unix-socket /run/deniz-cloud/storage-metadata.sock http://localhost/healthz >/dev/null; fi"
           # A running metadata service under a stopped boundary is the state a
           # half-finished release leaves behind: the watchdog only waits for the
           # target, never starts it, so the API stays down while this job would
           # otherwise report green.
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "if systemctl is-active --quiet deniz-cloud-storage-metadata.service && ! systemctl is-active --quiet deniz-cloud-storage.target; then echo 'storage boundary is down while its metadata service runs; start deniz-cloud-storage.target' >&2; exit 1; fi"
       - name: Release coordinated host lock
         if: always()
@@ -279,7 +282,7 @@ jobs:
             echo "no fence was taken; nothing to release"
             exit 0
           fi
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+          ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
           set -euo pipefail
           token="$1"
