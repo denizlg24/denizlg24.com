@@ -17,7 +17,7 @@
     },
     "apps/agent-canvas": {
       "name": "agent-canvas",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@repo/ui": "workspace:*",
         "@tauri-apps/api": "^2.10.1",
