@@ -302,3 +302,11 @@ count difference exactly. An operator may explicitly apply that plan with
 `DR_MONGO_TTL_APPLY=true`, retain the evidence, and resume with
 `--reuse-databases`. Every PostgreSQL, MongoDB and Redis semantic check still
 runs; successful MongoDB verification enables its TTL monitor before app startup.
+
+Pi release workflows accept an optional `PI_SSH_PRIVATE_KEY` repository secret
+for a replacement host using ordinary OpenSSH. Install its public key for the
+`denizlg24` deployment account with the same sudo access the release scripts
+require, and apply the `tag:ci` → `tag:dr` TCP 22 grant in the tailnet policy.
+The original Pi's Tailscale SSH deployment path continues to work when this
+secret is absent. Keep `PI_TAILNET_HOST=pi-cloud` when transferring that name to
+the replacement node.
