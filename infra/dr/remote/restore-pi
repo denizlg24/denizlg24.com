@@ -372,7 +372,7 @@ jq -e '.verified==true and .mismatches==0 and .entriesChecked>0' <<< "$namespace
 fi
 chown 1000:1000 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
 chmod 0700 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
-rm -rf -- "$namespace_tmp"
+[[ -z ${namespace_tmp:-} ]] || rm -rf -- "$namespace_tmp"
 
 # Rebind the restored physical-tier contract to the recovery host's two logical
 # branches. Both bind mounts intentionally share one backing filesystem, while
