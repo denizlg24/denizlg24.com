@@ -129,7 +129,8 @@ impl Tracker {
     ) {
         agents.entry(id.into()).or_insert_with(|| {
             let mut a = Agent::root(id, &root.provider, &root.cwd);
-            a.root_id = root.id.clone();
+            a.root_id = root.root_id.clone();
+            a.has_terminal = false;
             a.parent_id = Some(parent.into());
             a.name = if name.is_empty() {
                 "Subagent".into()

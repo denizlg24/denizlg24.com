@@ -3,6 +3,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Agent, LaunchOptions, ModelOption, Provider } from "./types";
 export const native = isTauri();
 export const api = {
+  git: (id: string) =>
+    invoke<{ status: string; recentCommits: string; diffStat: string }>(
+      "git_snapshot",
+      { id },
+    ),
   snapshot: () => invoke<Agent[]>("snapshot"),
   providers: () => invoke<Record<Provider, boolean>>("providers"),
   models: (provider: Provider) =>

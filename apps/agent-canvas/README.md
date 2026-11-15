@@ -1,6 +1,6 @@
 # Agents
 
-A local Tauri app for Codex and Claude Code. Uses the monorepo's shared cream/sage design tokens and UI components. Rust hosts the PTYs; the app has no server, Electron, or Node sidecar.
+A local Tauri app for Codex and Claude Code. Uses the monorepo's shared cream/sage design tokens and UI components. Rust hosts the PTYs; the app includes a small stdio MCP server in the same native executable, with no Electron or Node sidecar.
 
 ## Run
 
@@ -16,10 +16,20 @@ Install and sign in to `codex` and/or `claude` first. The app finds CLIs on PATH
 ## Use
 
 - Right-click the blank canvas → **New Codex agent** or **New Claude agent**. Choose a working directory, model, reasoning effort, and permission mode, then launch. Codex model choices are read from the installed CLI; custom model IDs and CLI defaults are also supported.
-- Drag cards to arrange the canvas. Scroll to pan; pinch to zoom. Use the zoom/fit controls at the bottom left.
+- New cards avoid occupied space. Use **Arrange** to spread whole agent trees into columns, or drag cards to arrange the canvas. Scroll to pan; pinch to zoom. Use the zoom/fit controls at the bottom left.
 - Click a card or its expand button to open the actual CLI terminal. Expanded terminals are independent draggable, resizable windows. Keep several open, use the window strip to focus one, or maximize a window. Type prompts and commands directly into the CLI.
-- Subagents appear automatically with parent connections. Click one to read its live transcript and usage. Subagents are headless CLI workers; use **Parent terminal** for interaction, including the provider's native agent-switching commands.
-- **Stop** in the window title bar terminates the root CLI and its process group, removes it and every descendant from the canvas, and closes their windows. Closing the app stops its live sessions. Card positions, viewport, and theme persist locally; processes do not resume automatically after quitting.
+- Delegate through the automatically connected `agent_canvas.spawn_agent` MCP tool. Each child launches the same provider in its own interactive PTY, inherits the parent's working directory, model, reasoning, and permissions, and appears with a parent connection. Click it to open its actual CLI terminal. Its first completed turn stops the child process and closes its window; its result and saved terminal remain available for inspection. Provider-internal headless delegation is disabled for these app launches so new delegates use canvas terminals. Previously recorded headless children retain their transcript view.
+- **Stop** in the window title bar terminates that CLI and all descendants, removes their records from the canvas, and closes their windows. Closing the app stops live sessions and saves the canvas. Session records, usage, transcripts, terminal output, card positions, viewport, theme, open windows, window sizes, and window positions survive restarts. Restored sessions are marked stopped; processes do not resume automatically.
+- Terminal windows restore a saved screen and output cursor instead of replaying their history on every open. Screen checkpoints retain up to 2,000 scrollback lines; backend output retains up to 2 MB per CLI. Output since the last checkpoint is fetched incrementally.
+- Expand **Git** in a terminal window to see its branch, staged/unstaged and untracked files, diff summary, and five recent commits. It refreshes every five seconds without changing the repository.
+
+## Thread communication
+
+Every launched CLI receives a per-invocation `agent_canvas` stdio MCP configuration. No global MCP settings are edited. The server supports `list_threads`, `get_thread`, `spawn_agent`, `send_message`, and `read_messages`. Use `spawn_agent` to delegate, then `get_thread` to inspect completion and the result.
+
+Messages go to persistent per-thread inboxes. `send_message` identifies the sender from the launching CLI, and `read_messages` returns up to 100 messages with a cursor for the next read. Messages do not type into another CLI or interrupt its current turn: recipients must call `read_messages`. The server advertises this in its instructions. All managed children have independent identities and inboxes. CLI approval prompts still apply to tools.
+
+The native executable runs this server as `--canvas-mcp DATA_DIRECTORY THREAD_ID`. Canvas records and bounded terminal output are atomically checkpointed under the Tauri local app data directory; the browser stores screen and layout checkpoints locally.
 
 ## Usage and tracking
 
@@ -29,7 +39,7 @@ Codex gets a separate `CODEX_HOME` per root agent under the app's local data dir
 
 Claude gets a unique `--session-id` and additional per-invocation lifecycle hooks. Hooks call this app's small `--capture-hook` entry point, which atomically writes the hook's JSON to the session's local event directory. They do not edit the user's settings. Transcript reads are incremental and limited to that session and its `subagents` directory. Internal hook evaluators without a session transcript are excluded.
 
-Tracking supports Codex JSONL rollouts and Claude Code session JSONL plus lifecycle hooks. Provider log formats can change. Native CLI output remains available even if a log field is unavailable. Terminal buffers are capped at 2 MB per root; transcripts are capped at 200 KB per card.
+Tracking supports Codex JSONL rollouts and Claude Code session JSONL plus lifecycle hooks. Provider log formats can change. Native CLI output remains available even if a log field is unavailable. Terminal buffers are capped at 2 MB per CLI; transcripts are capped at 200 KB per card.
 
 ## Build and checks
 
@@ -43,7 +53,7 @@ bun run --cwd apps/agent-canvas tauri build --bundles app
 
 On macOS the last command produces `src-tauri/target/release/bundle/macos/Agents.app`. Local builds are unsigned. The Agents GitHub Actions workflow builds signed, notarized universal macOS releases using the existing `desktop-release` environment.
 
-Browser tests mock the native IPC boundary and cover blank canvas creation, directory selection, terminal input, connected children, usage, movement, theme, compact-window behavior, launch settings, concurrent terminal windows, drag/resize, terminal bounds, and removal of stopped agents. Rust tests cover provider parsing, usage deduplication, metadata replay, and partial JSONL records.
+Browser tests mock the native IPC boundary and cover blank canvas creation, directory selection, terminal input, connected children, usage, movement, theme, compact-window behavior, launch settings, concurrent terminal windows, drag/resize, terminal bounds, and removal of stopped agents. Additional browser checks cover restoration after reload, terminal cursors on reopen, Git details, interactive managed children, and automatic child-window closure. Rust tests cover provider parsing, usage deduplication, metadata replay, partial JSONL records, durable canvas/output restoration, terminal paging, MCP inbox exchange, and Git status.
 
 An opt-in debug harness exercises the same native launcher against installed, authenticated CLIs. It creates one small real model task and subagent, which consumes account usage:
 

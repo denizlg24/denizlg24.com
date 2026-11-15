@@ -1,12 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod delegation;
+mod git;
+mod mcp;
 mod model;
 mod options;
+mod persistence;
 #[cfg(debug_assertions)]
 mod smoke;
 mod telemetry;
 use model::Agent;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     io::{Read, Write},
@@ -21,7 +25,7 @@ use tauri::Manager;
 use uuid::Uuid;
 
 type Agents = Arc<Mutex<HashMap<String, Agent>>>;
-#[derive(Default)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 struct Output {
     next: u64,
     bytes: usize,
@@ -97,6 +101,10 @@ impl Session {
 struct State {
     agents: Agents,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
+    archived: Mutex<HashMap<String, Output>>,
+    storage: Mutex<Option<PathBuf>>,
+    checkpoint: Mutex<()>,
+    lifecycle: Mutex<()>,
 }
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -198,14 +206,16 @@ fn create_agent(
     options: Option<options::LaunchOptions>,
 ) -> Result<Agent, String> {
     let data_root = app.path().app_local_data_dir().map_err(err)?;
-    launch(
+    let agent = launch(
         &state,
         &data_root,
         provider,
         cwd,
         None,
         options.unwrap_or_default(),
-    )
+    )?;
+    persistence::save(&state)?;
+    Ok(agent)
 }
 fn launch(
     state: &State,
@@ -214,6 +224,41 @@ fn launch(
     cwd: String,
     prompt: Option<&str>,
     options: options::LaunchOptions,
+) -> Result<Agent, String> {
+    let _lifecycle = state.lifecycle.lock().map_err(err)?;
+    launch_with_parent(state, data_root, provider, cwd, prompt, options, None)
+}
+fn launch_child(
+    state: &State,
+    data_root: &Path,
+    parent: &Agent,
+    name: &str,
+    prompt: &str,
+) -> Result<Agent, String> {
+    let _lifecycle = state.lifecycle.lock().map_err(err)?;
+    if !state.agents.lock().map_err(err)?.contains_key(&parent.id)
+        || !session(state, &parent.id)?.alive.load(Ordering::Acquire)
+    {
+        return Err("Parent CLI has stopped".into());
+    }
+    launch_with_parent(
+        state,
+        data_root,
+        parent.provider.clone(),
+        parent.cwd.clone(),
+        Some(prompt),
+        parent.settings.clone().unwrap_or_default(),
+        Some((parent, name)),
+    )
+}
+fn launch_with_parent(
+    state: &State,
+    data_root: &Path,
+    provider: String,
+    cwd: String,
+    prompt: Option<&str>,
+    options: options::LaunchOptions,
+    parent: Option<(&Agent, &str)>,
 ) -> Result<Agent, String> {
     let extra_args = options.arguments(&provider)?;
     let exe = resolve(&provider)?;
@@ -264,8 +309,10 @@ fn launch(
             .collect();
         ch.join("projects").join(project)
     };
+    mcp::configure(&mut cmd, &provider, data_root, &id)?;
     cmd.args(extra_args);
     if let Some(prompt) = prompt {
+        cmd.arg("--");
         cmd.arg(prompt);
     }
     let pair = native_pty_system()
@@ -298,6 +345,11 @@ fn launch(
     });
     let mut agent = Agent::root(&id, &provider, &cwd);
     agent.settings = Some(options);
+    if let Some((parent, name)) = parent {
+        agent.parent_id = Some(parent.id.clone());
+        agent.root_id = parent.root_id.clone();
+        agent.name = name.into();
+    }
     state
         .agents
         .lock()
@@ -329,7 +381,8 @@ fn launch(
         let status = child.wait();
         alive.store(false, Ordering::Release);
         if let Ok(mut agents) = agents.lock() {
-            for a in agents.values_mut().filter(|a| a.root_id == root.id) {
+            let ids = descendant_ids(&agents, &root.id);
+            for a in agents.values_mut().filter(|a| ids.contains(&a.id)) {
                 if a.status == "done" {
                     continue;
                 }
@@ -354,6 +407,7 @@ fn launch(
     let stopping = state.sessions.lock().map_err(err)?[&id]
         .stop_requested
         .clone();
+    let terminal = state.sessions.lock().map_err(err)?[&id].clone();
     std::thread::spawn(move || {
         let mut tracker = telemetry::Tracker::default();
         while alive.load(Ordering::Acquire) && !stopping.load(Ordering::Acquire) {
@@ -362,6 +416,20 @@ fn launch(
                     break;
                 }
                 tracker.poll(&root, &log_dir, &hook_dir, &mut a);
+                if root.parent_id.is_some() {
+                    if let Some(agent) = a.get_mut(&root.id) {
+                        if ["idle", "done"].contains(&agent.status.as_str())
+                            && agent.activity == "Turn complete"
+                        {
+                            agent.status = "done".into();
+                            let terminal = terminal.clone();
+                            std::thread::spawn(move || {
+                                let _ = terminal.terminate();
+                            });
+                            break;
+                        }
+                    }
+                }
             }
             std::thread::sleep(Duration::from_millis(700));
         }
@@ -421,33 +489,99 @@ fn read_terminal(
     id: String,
     after: u64,
 ) -> Result<TerminalRead, String> {
-    let s = session(&state, &id)?;
-    let o = s.output.lock().map_err(err)?;
+    if let Ok(session) = session(&state, &id) {
+        return Ok(terminal_page(&*session.output.lock().map_err(err)?, after));
+    }
+    let archived = state.archived.lock().map_err(err)?;
+    Ok(terminal_page(
+        archived.get(&id).ok_or("Saved terminal is unavailable")?,
+        after,
+    ))
+}
+fn terminal_page(o: &Output, after: u64) -> TerminalRead {
+    let rewound = after > o.next;
+    let after = if rewound { 0 } else { after };
     let selected: Vec<_> = o
         .chunks
         .iter()
         .filter(|(n, _)| *n > after)
         .take(32)
         .collect();
-    Ok(TerminalRead {
+    TerminalRead {
         cursor: selected.last().map(|(n, _)| *n).unwrap_or(after),
         chunks: selected.iter().map(|(_, b)| b.clone()).collect(),
-        truncated: o.chunks.front().is_some_and(|(n, _)| after + 1 < *n),
-    })
+        truncated: rewound || o.chunks.front().is_some_and(|(n, _)| after + 1 < *n),
+    }
 }
+
 #[tauri::command]
 fn stop_agent(state: tauri::State<State>, id: String) -> Result<(), String> {
-    let s = session(&state, &id)?;
-    s.terminate()?;
-    forget_root(&state, &id)
+    let _lifecycle = state.lifecycle.lock().map_err(err)?;
+    let ids = descendant_ids(&*state.agents.lock().map_err(err)?, &id);
+    for (sid, terminal) in state.sessions.lock().map_err(err)?.iter() {
+        if ids.contains(sid) {
+            terminal.terminate()?;
+        }
+    }
+    forget_root(&state, &id)?;
+    persistence::save(&state)
 }
-fn forget_root(state: &State, id: &str) -> Result<(), String> {
-    state
-        .agents
+fn shutdown(state: &State) -> Result<(), String> {
+    // Keep the host alive long enough for the termination watchdog and child
+    // waiters. Otherwise a CLI that ignores hangup could outlive app exit.
+    let _lifecycle = state.lifecycle.lock().map_err(err)?;
+    let mut failure = persistence::save(state).err();
+    let terminals: Vec<_> = state
+        .sessions
         .lock()
         .map_err(err)?
-        .retain(|_, a| a.root_id != id);
-    state.sessions.lock().map_err(err)?.remove(id);
+        .values()
+        .cloned()
+        .collect();
+    for terminal in &terminals {
+        if let Err(error) = terminal.terminate() {
+            failure.get_or_insert(error);
+        }
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while terminals.iter().any(|s| s.alive.load(Ordering::Acquire))
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if let Err(error) = persistence::save(state) {
+        failure.get_or_insert(error);
+    }
+    failure.map_or(Ok(()), Err)
+}
+fn descendant_ids(agents: &HashMap<String, Agent>, id: &str) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::from([id.to_string()]);
+    loop {
+        let previous = ids.len();
+        for agent in agents.values() {
+            if agent.parent_id.as_ref().is_some_and(|p| ids.contains(p)) {
+                ids.insert(agent.id.clone());
+            }
+        }
+        if previous == ids.len() {
+            return ids;
+        }
+    }
+}
+fn forget_root(state: &State, id: &str) -> Result<(), String> {
+    let mut agents = state.agents.lock().map_err(err)?;
+    let ids = descendant_ids(&agents, id);
+    agents.retain(|key, _| !ids.contains(key));
+    state
+        .sessions
+        .lock()
+        .map_err(err)?
+        .retain(|key, _| !ids.contains(key));
+    state
+        .archived
+        .lock()
+        .map_err(err)?
+        .retain(|key, _| !ids.contains(key));
     Ok(())
 }
 fn capture_hook() -> bool {
@@ -476,6 +610,13 @@ fn capture_hook() -> bool {
     true
 }
 fn main() {
+    let arguments: Vec<_> = std::env::args_os().collect();
+    if arguments.get(1).is_some_and(|arg| arg == "--canvas-mcp") {
+        if let (Some(bus), Some(sender)) = (arguments.get(2), arguments.get(3)) {
+            mcp::run(Path::new(bus), &sender.to_string_lossy());
+        }
+        return;
+    }
     #[cfg(debug_assertions)]
     {
         let args: Vec<_> = std::env::args().collect();
@@ -490,8 +631,37 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(State::default())
+        .setup(|app| {
+            let path = app.path().app_local_data_dir()?.join("canvas-state.json");
+            persistence::restore(&app.state::<State>(), path).map_err(std::io::Error::other)?;
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut ticks = 0u32;
+                loop {
+                    std::thread::sleep(Duration::from_millis(700));
+                    let state = handle.state::<State>();
+                    let storage_path = state.storage.lock().ok().and_then(|s| s.clone());
+                    if let Some(path) = storage_path {
+                        if let Some(bus) = path.parent() {
+                            if let Err(e) = delegation::poll(&state, bus) {
+                                eprintln!("Canvas delegation: {e}");
+                            }
+                        }
+                    }
+                    ticks += 1;
+                    if ticks % 3 != 0 {
+                        continue;
+                    }
+                    if let Err(e) = persistence::save(&handle.state::<State>()) {
+                        eprintln!("Could not checkpoint canvas: {e}");
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             options::available_models,
+            git::git_snapshot,
             providers,
             snapshot,
             create_agent,
@@ -505,11 +675,9 @@ fn main() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 let state = app.state::<State>();
-                if let Ok(sessions) = state.sessions.lock() {
-                    for s in sessions.values() {
-                        let _ = s.terminate();
-                    }
-                };
+                if let Err(e) = shutdown(&state) {
+                    eprintln!("Could not close canvas sessions: {e}");
+                }
             }
         });
 }
@@ -517,6 +685,29 @@ fn main() {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    #[test]
+    fn terminal_pages_resume_without_replay_and_recover_from_ahead_checkpoints() {
+        let mut output = Output::default();
+        for i in 0..40 {
+            output.push(vec![i]);
+        }
+        let first = terminal_page(&output, 0);
+        assert_eq!(first.cursor, 32);
+        assert_eq!(first.chunks.len(), 32);
+        let next = terminal_page(&output, first.cursor);
+        assert_eq!(next.cursor, 40);
+        assert_eq!(next.chunks[0], vec![32]);
+        assert!(terminal_page(&output, next.cursor).chunks.is_empty());
+        let rewound = terminal_page(&output, 50);
+        assert!(rewound.truncated);
+        assert_eq!(rewound.cursor, 32);
+        output.push(vec![0; 2_000_000]);
+        let expired = terminal_page(&output, 0);
+        assert!(expired.truncated);
+        assert_eq!(expired.cursor, 41);
+        assert_eq!(expired.chunks.len(), 1);
+    }
+
     #[test]
     fn stop_forgets_root_and_every_descendant() {
         let state = State::default();
