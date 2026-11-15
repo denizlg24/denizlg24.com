@@ -8,6 +8,9 @@ cleanup_dirs=()
 cleanup_containers=()
 cleanup() {
   local container
+  if [[ -n ${mongo_container:-} ]]; then
+    docker exec "$mongo_container" rm -f /tmp/deniz-dr-mongorestore.yml >/dev/null 2>&1 || true
+  fi
   for container in "${cleanup_containers[@]}"; do docker rm -f "$container" >/dev/null 2>&1 || true; done
   ((${#cleanup_files[@]} == 0)) || rm -f -- "${cleanup_files[@]}"
   ((${#cleanup_dirs[@]} == 0)) || rm -rf -- "${cleanup_dirs[@]}"
@@ -123,6 +126,28 @@ done
 dc ps --format json | jq -es 'map(select(.Service=="postgres" or .Service=="mongodb" or .Service=="redis")) | length==3 and all(.[];.Health=="healthy")' >/dev/null \
   || { echo "STOP: databases did not become healthy" >&2; exit 1; }
 
+# ping succeeds on an uninitialized replica set too. mongorestore --oplogReplay
+# needs a writable primary, so initialize it before importing any database.
+mongo_container="$(dc ps -q mongodb)"
+docker exec "$mongo_container" sh -ceu '
+  exec mongosh "mongodb://127.0.0.1:27017/?directConnection=true" --quiet \
+    --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" \
+    --authenticationDatabase admin --eval "$1"
+' sh '
+try {
+  rs.status();
+} catch (error) {
+  if (error.code !== 94) throw error;
+  const result = rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb:27017"}]});
+  if (result.ok !== 1) throw new Error("replica-set initialization failed");
+}
+for (let attempt = 0; attempt < 90; attempt++) {
+  if (db.hello().isWritablePrimary) quit(0);
+  sleep(1000);
+}
+throw new Error("MongoDB did not elect a writable primary");
+'
+
 expected_postgres="$(jq -er .databaseVersions.postgres "$manifest")"
 expected_mongodb="$(jq -er .databaseVersions.mongodb "$manifest")"
 expected_redis="$(jq -er .databaseVersions.redis "$manifest")"
@@ -159,11 +184,10 @@ mongo_container="$(dc ps -q mongodb)"
 mongo_user="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_USERNAME"')"
 mongo_password="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_PASSWORD"')"
 encoded_mongo_user="$(jq -rn --arg value "$mongo_user" '$value|@uri')"
-encoded_mongo_password="$(jq -rn --arg value "$mongo_password" '$value|@uri')"
 mongo_restore_config="$(mktemp /srv/deniz-dr/mongorestore.XXXXXX.yml)"
 cleanup_files+=("$mongo_restore_config")
-printf 'uri: "mongodb://%s:%s@127.0.0.1:27017/?authSource=admin&replicaSet=rs0"\n' \
-  "$encoded_mongo_user" "$encoded_mongo_password" > "$mongo_restore_config"
+printf 'uri: "mongodb://%s@127.0.0.1:27017/?authSource=admin&replicaSet=rs0"\npassword: %s\n' \
+  "$encoded_mongo_user" "$(printf '%s' "$mongo_password" | jq -Rs .)" > "$mongo_restore_config"
 docker cp "$mongo_restore_config" "${mongo_container}:/tmp/deniz-dr-mongorestore.yml" >/dev/null
 rm -f -- "$mongo_restore_config"
 docker exec "$mongo_container" chmod 0600 /tmp/deniz-dr-mongorestore.yml
