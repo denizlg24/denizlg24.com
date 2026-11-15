@@ -25,6 +25,17 @@ manifest="$root/snapshot-manifest.json"
 [[ "$(jq -r .profile "$manifest")" == pi ]] || { echo "STOP: Pi snapshot required" >&2; exit 1; }
 nutrition_expected="$(jq '(.inventory.authoritative | index("nutrition-config")) != null' "$manifest")"
 
+manifest_sha="$(sha256sum "$manifest" | cut -d' ' -f1)"
+database_checkpoint="$root/../databases-verified.json"
+reuse_database_proof=false
+if [[ -f "$database_checkpoint" ]]; then
+  [[ "$reuse_databases" == true && ! -L "$database_checkpoint" && "$(stat -c '%u:%a' "$database_checkpoint")" == 0:600 ]] \
+    || { echo "STOP: verified databases require a safe checkpoint and explicit database reuse" >&2; exit 1; }
+  jq -e --arg sha "$manifest_sha" '.manifestSha256==$sha and .verified==true' "$database_checkpoint" >/dev/null \
+    || { echo "STOP: database checkpoint belongs to a different snapshot" >&2; exit 1; }
+  reuse_database_proof=true
+fi
+
 verify_artifact() {
   local relative="$1" expected
   expected="$(jq -er --arg path "$relative" '.artifacts[] | select(.path==$path) | .sha256' "$manifest")"
@@ -285,6 +296,7 @@ for _ in $(seq 1 60); do
 done
 fi
 redis_container="$(dc ps -q redis)"
+if [[ "$reuse_database_proof" == false ]]; then
 redis_semantic_script="$(mktemp /srv/deniz-dr/redis-semantic.XXXXXX.lua)"
 cleanup_files+=("$redis_semantic_script" "${redis_semantic_script}.actual" \
   "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected")
@@ -310,6 +322,7 @@ cmp -s "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.ex
 docker exec "$redis_container" rm -f -- /tmp/deniz-dr-redis-semantic.lua
 rm -f -- "$redis_semantic_script" "${redis_semantic_script}.actual" \
   "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected"
+fi
 
 # Retain a completed file proof across a later account-import failure.
 # Once storage writers start the checkpoint is consumed and cannot be reused.
@@ -319,15 +332,21 @@ if [[ -f "$namespace_checkpoint" ]]; then
   [[ ! -L "$namespace_checkpoint" && "$(stat -c '%u:%a' "$namespace_checkpoint")" == 0:600 ]] \
     || { echo "STOP: unsafe namespace checkpoint" >&2; exit 1; }
   jq -e --arg sha "$namespace_manifest_sha" '
-    .manifestSha256==$sha and .writersStarted==false and
+    .manifestSha256==$sha and (.writersStarted|type)=="boolean" and
     .evidence.verified==true and .evidence.mismatches==0 and .evidence.entriesChecked>0
   ' "$namespace_checkpoint" >/dev/null \
     || { echo "STOP: namespace checkpoint is stale or storage writers have started" >&2; exit 1; }
-  for unit in deniz-cloud-storage.target deniz-cloud-storage-metadata.service smbd.service; do
-    ! systemctl is-active --quiet "$unit" || { echo "STOP: namespace checkpoint cannot be reused with active writers" >&2; exit 1; }
-  done
-  [[ "$(docker inspect -f '{{.State.Running}}' deniz-cloud-api-1 2>/dev/null || true)" != true ]] \
-    || { echo "STOP: namespace checkpoint cannot be reused with an active API" >&2; exit 1; }
+  if jq -e '.writersStarted' "$namespace_checkpoint" >/dev/null; then
+    # After activation, new writes are legitimate. Reuse the completed initial
+    # restore proof and preserve all current files and database contents.
+    [[ "$reuse_databases" == true ]] || { echo "STOP: active storage requires explicit database reuse" >&2; exit 1; }
+  else
+    for unit in deniz-cloud-storage.target deniz-cloud-storage-metadata.service smbd.service; do
+      ! systemctl is-active --quiet "$unit" || { echo "STOP: namespace checkpoint has unrecorded active writers" >&2; exit 1; }
+    done
+    [[ "$(docker inspect -f '{{.State.Running}}' deniz-cloud-api-1 2>/dev/null || true)" != true ]] \
+      || { echo "STOP: namespace checkpoint has an unrecorded active API" >&2; exit 1; }
+  fi
   namespace_verification="$(jq -c .evidence "$namespace_checkpoint")"
 else
 namespace_tmp="$(mktemp -d /srv/deniz-dr/namespace.XXXXXX)"
@@ -548,6 +567,7 @@ systemctl is-active --quiet deniz-cloud-storage.target deniz-cloud-storage-metad
 curl -fsS --unix-socket "$metadata_socket" http://localhost/healthz | jq -e '.status == "ok"' >/dev/null \
   || { echo "STOP: storage metadata health failed" >&2; exit 1; }
 
+if [[ "$reuse_database_proof" == false ]]; then
 postgres_rows="$(mktemp /srv/deniz-dr/postgres-semantic.XXXXXX)"
 cleanup_files+=("$postgres_rows" "${postgres_rows}.json" "${postgres_rows}.expected" \
   "${postgres_rows}.roles" "${postgres_rows}.roles.expected" \
@@ -587,8 +607,8 @@ docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql 
   SELECT coalesce(json_agg(row_to_json(d) ORDER BY d.name)::text, '[]') FROM (
     SELECT datname AS name, pg_get_userbyid(datdba) AS owner,
            datallowconn AS allow_connections,
-           coalesce((SELECT array_agg(value ORDER BY value)
-                     FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::aclitem[]) AS acl
+           coalesce((SELECT array_agg(value::text ORDER BY value::text)
+                     FROM unnest(coalesce(datacl, acldefault('d', datdba))) value), ARRAY[]::text[]) AS acl
     FROM pg_database WHERE NOT datistemplate
   ) d" | jq -S . > "${postgres_rows}.databases"
 jq -S .databases "$root/meta/postgres-semantic.json" > "${postgres_rows}.databases.expected"
@@ -610,14 +630,17 @@ docker exec --env-file "$mongo_semantic_env" "$mongo_container" \
 rm -f -- "$mongo_semantic_env"
 jq -S . "$root/meta/mongodb-semantic.json" > "${mongo_semantic_js}.expected"
 cmp -s "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected" || { echo "STOP: MongoDB documents, indexes, users, or roles differ" >&2; exit 1; }
+docker exec "$mongo_container" rm -f -- /tmp/deniz-dr-semantic.js
+rm -f -- "$mongo_semantic_js" "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected"
+jq -n --arg sha "$manifest_sha" '{manifestSha256:$sha,verified:true,verifiedAt:(now|todate)}' > "$database_checkpoint"
+chmod 0600 "$database_checkpoint"
+fi
 # Resume normal TTL expiry only after the complete signed baseline matches.
 docker exec "$mongo_container" sh -ceu '
   mongosh --quiet "mongodb://127.0.0.1:27017/?directConnection=true" \
     --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" \
     --authenticationDatabase admin --eval "$1"
 ' sh 'const result=db.adminCommand({setParameter:1,ttlMonitorEnabled:true}); if(result.ok!==1)throw new Error("TTL monitor could not be enabled");' >/dev/null
-docker exec "$mongo_container" rm -f -- /tmp/deniz-dr-semantic.js
-rm -f -- "$mongo_semantic_js" "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected"
 
 dc up -d
 for _ in $(seq 1 120); do
