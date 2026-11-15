@@ -255,11 +255,21 @@ while IFS= read -r item; do
   restore_bytes="$(RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
     restic stats --mode restore-size --json "$restic_id" | jq -er '.total_size | select(type=="number" and .>=0)')" \
     || dr_die "restic could not calculate local restore size"
-  local_available="$(dr_bytes_available "$path")"
-  ((local_available >= restore_bytes + 1073741824)) \
-    || dr_die "insufficient local free space for plaintext restore of ${hydrated_host} (${restore_bytes} bytes plus reserve required)"
-  RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
-    restic restore "$restic_id" --target "$path/restored" >/dev/null
+  if [[ "$source_kind" == r2 && "$check_only" == false ]]; then
+    # Authenticate the small metadata locally; restore the payload on the
+    # capacity-checked target instead of requiring a second full disk on Mac.
+    install -d -m 0700 "$path/restored/meta"
+    for metadata in snapshot-manifest.json meta/versions.lock.json meta/host-packages.json; do
+      RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+        restic dump --no-lock "$restic_id" "/$metadata" > "$path/restored/$metadata"
+    done
+  else
+    local_available="$(dr_bytes_available "$path")"
+    ((local_available >= restore_bytes + 1073741824)) \
+      || dr_die "insufficient local free space for plaintext restore of ${hydrated_host} (${restore_bytes} bytes plus reserve required)"
+    RESTIC_REPOSITORY="$item_repository" RESTIC_PASSWORD_FILE="$hydrated_password_file" \
+      restic restore "$restic_id" --target "$path/restored" >/dev/null
+  fi
   manifest="$(find "$path/restored" -name snapshot-manifest.json -type f -print -quit)"
   [[ -n "$manifest" ]] || dr_die "restic snapshot has no snapshot manifest"
   version_lock_candidate="$(dirname "$manifest")/meta/versions.lock.json"
@@ -601,6 +611,29 @@ copy_snapshot() {
   local host="$1" item local_root manifest_root
   item="$(jq -c --arg host "$host" '.[] | select(.host==$host)' <<< "$selected")"
   [[ -n "$item" ]] || dr_die "missing selected snapshot: ${host}"
+  if [[ "$source_kind" == r2 ]]; then
+    local password_file credentials expected_manifest
+    case "$host" in
+      pi-cloud) password_file="$DR_RESTIC_PASSWORD_FILE_PI" ;;
+      forge) password_file="$DR_RESTIC_PASSWORD_FILE_FORGE" ;;
+      *) dr_die "invalid remote restore host" ;;
+    esac
+    credentials="$work/r2-restore-${host}.json"
+    python3 - "$password_file" "$credentials" <<'R2_CREDENTIALS'
+import json, os, pathlib, sys
+credentials = {key: os.environ[key] for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")}
+credentials["AWS_DEFAULT_REGION"] = os.environ.get("AWS_DEFAULT_REGION", "auto")
+credentials["RESTIC_PASSWORD"] = pathlib.Path(sys.argv[1]).read_text().strip()
+pathlib.Path(sys.argv[2]).write_text(json.dumps(credentials))
+R2_CREDENTIALS
+    chmod 0600 "$credentials"
+    scp "${ssh_opts[@]}" "$script_dir/remote/restore-r2.py" "$ssh_host:$remote_root/bin/"
+    scp "${ssh_opts[@]}" "$credentials" "$ssh_host:$remote_root/"
+    rm -f -- "$credentials"
+    expected_manifest="$(jq -er .snapshotManifest.sha256 "$(jq -r .path <<< "$item")/ready/$(jq -r .snapshotId <<< "$item").json")"
+    ssh "${ssh_opts[@]}" "$ssh_host" "python3 '$remote_root/bin/restore-r2.py' --root '$remote_root' --host '$host' --snapshot '$(jq -er .resticSnapshotId <<< "$item")' --repository '$(jq -er .repository <<< "$item")' --credentials '$remote_root/r2-restore-${host}.json' --manifest-sha256 '$expected_manifest'"
+    return
+  fi
   local_root="$(jq -r .path <<< "$item")/restored"
   manifest_root="$(dirname "$(find "$local_root" -name snapshot-manifest.json -type f -print -quit)")"
   tar -C "$manifest_root" -cf - . | ssh "${ssh_opts[@]}" "$ssh_host" "install -d -m 0700 '$remote_root/$host' && tar -C '$remote_root/$host' -xf -"

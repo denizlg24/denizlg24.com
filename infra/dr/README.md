@@ -199,7 +199,10 @@ Three modes sit at different costs:
   evidence and uncompressed configuration archives; compressed backup bytes are
   reported separately and never stand in for restored bytes.
 - **Full recovery** bootstraps and verifies a real target, optionally stopping
-  before any public change.
+  before any public change. With `--source r2`, only signed metadata is staged
+  on the Mac. The target reads the encrypted payload directly from R2, checks
+  its manifest against the signed READY hash and verifies every artifact before
+  activation. Temporary restore credentials are removed on success or failure.
 
 A recovery point older than 24 hours stops after printing its age; proceeding
 requires an explicit flag and an interactive confirmation. Every snapshot binds
