@@ -596,13 +596,20 @@ mint_tailscale_auth_key() {
     || dr_die "Tailscale did not return a one-time auth key"
 }
 
+tools_refreshed=false
+refresh_remote_tools() {
+  scp "${ssh_opts[@]}" "$script_dir/remote/bootstrap" "$script_dir/remote/restore-pi" "$script_dir/remote/restore-forge" \
+    "$script_dir/remote/resource-sampler" "$script_dir/lib/filter-pg-globals.py" \
+    "$script_dir/lib/mongo-semantic.js" "$script_dir/lib/redis-semantic.lua" \
+    "$repo_root/infra/scripts/posix-storage-host.sh" "$ssh_host:$remote_root/bin/"
+  ssh "${ssh_opts[@]}" "$ssh_host" "chmod 0700 '$remote_root/bin/'*"
+  tools_refreshed=true
+}
+
 if ! phase_done bootstrap; then
   begin_phase bootstrap
   ssh "${ssh_opts[@]}" "$ssh_host" "install -d -m 0700 '$remote_root' '$remote_root/bin'"
-  scp "${ssh_opts[@]}" "$script_dir/remote/bootstrap" "$script_dir/remote/restore-pi" "$script_dir/remote/restore-forge" \
-    "$script_dir/remote/resource-sampler" \
-    "$script_dir/lib/mongo-semantic.js" "$script_dir/lib/redis-semantic.lua" \
-    "$repo_root/infra/scripts/posix-storage-host.sh" "$ssh_host:$remote_root/bin/"
+  refresh_remote_tools
   scp "${ssh_opts[@]}" "$package_source" "$version_source" "$ssh_host:$remote_root/"
   ssh "${ssh_opts[@]}" "$ssh_host" "mv '$remote_root/version-lock.selected' '$remote_root/versions.lock.json'"
   mint_tailscale_auth_key > "$work/tailscale.key"; chmod 0600 "$work/tailscale.key"
@@ -622,6 +629,9 @@ if ! phase_done bootstrap; then
   [[ "$tailnet_ready" == true ]] || dr_die "target did not become reachable over Tailscale after five minutes"
   finish_phase bootstrap
 fi
+# A completed bootstrap must not pin buggy restore helpers across an explicitly
+# accepted tooling update. Refresh the reviewed scripts before resuming a phase.
+[[ "$tools_refreshed" == true ]] || refresh_remote_tools
 start_resource_sampler
 
 copy_snapshot() {

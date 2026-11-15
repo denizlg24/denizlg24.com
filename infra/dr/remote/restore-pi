@@ -163,14 +163,15 @@ done
 postgres_container="$(dc ps -q postgres)"
 postgres_user="$(docker exec "$postgres_container" sh -ceu 'printf %s "$POSTGRES_USER"')"
 [[ "$postgres_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "STOP: unsafe bootstrap PostgreSQL role" >&2; exit 1; }
-# initdb already created POSTGRES_USER. Remove only that duplicate CREATE; all
-# ALTER ROLE, membership, grants and every other role still restore strictly.
-bootstrap_create_role="$(docker exec "$postgres_container" sh -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT format('\''CREATE ROLE %I;'\'', current_user)"')"
-[[ "$bootstrap_create_role" == 'CREATE ROLE '*';' && "$bootstrap_create_role" != *[$'\r\n']* ]] \
-  || { echo "STOP: could not render the PostgreSQL bootstrap role statement safely" >&2; exit 1; }
+# initdb and an interrupted import may already have created roles. Skip their
+# canonical CREATE statements only; ALTER ROLE and every grant still apply.
+existing_role_creates="$(mktemp /srv/deniz-dr/postgres-existing-roles.XXXXXX.json)"
+cleanup_files+=("$existing_role_creates")
+docker exec "$postgres_container" sh -ceu \
+  'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT coalesce(json_agg(format('\''CREATE ROLE %I;'\'', rolname)), '\''[]'\''::json) FROM pg_roles"' \
+  > "$existing_role_creates"
 zstd -dc "$root/artifacts/postgres-globals.sql.zst" \
-  | awk -v duplicate="$bootstrap_create_role" '$0 != duplicate' \
+  | python3 "$(dirname "$0")/filter-pg-globals.py" --roles "$existing_role_creates" \
   | docker exec -i "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 for dump in "$root"/artifacts/postgres-*.dump; do
   [[ -f "$dump" ]] || continue

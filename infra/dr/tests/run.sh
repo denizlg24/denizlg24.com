@@ -47,6 +47,7 @@ done
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_remote_r2.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_physical_fence.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_pg_globals.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2_bridge.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_backup_inventory.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_storage_reconcile.py'
