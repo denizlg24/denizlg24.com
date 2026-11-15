@@ -68,9 +68,7 @@ pub fn run(args: &[String]) {
                 .all(|(id, s)| id == &a.id || !s.alive.load(Ordering::Acquire));
             if children_exited
                 && agents.get(&a.id).is_some_and(|a| a.status == "idle")
-                && agents
-                    .values()
-                    .any(|a| a.parent_id.is_some() && a.has_terminal && a.status == "done")
+                && has_completed_child(&agents, &a.id)
             {
                 break;
             }
@@ -95,4 +93,28 @@ pub fn run(args: &[String]) {
         report.with_extension("processes.json"),
         serde_json::to_vec_pretty(&processes).unwrap(),
     );
+}
+
+fn has_completed_child(agents: &HashMap<String, Agent>, root_id: &str) -> bool {
+    agents.values().any(|child| {
+        child.root_id == root_id
+            && child.parent_id.is_some()
+            && child.has_terminal
+            && child.status == "done"
+    })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn old_completed_child_cannot_satisfy_a_new_smoke_run() {
+        let mut child = Agent::root("child", "codex", "/tmp");
+        child.parent_id = Some("previous-root".into());
+        child.root_id = "previous-root".into();
+        child.status = "done".into();
+        let mut agents = HashMap::from([("child".into(), child)]);
+        assert!(!has_completed_child(&agents, "current-root"));
+        agents.get_mut("child").unwrap().root_id = "current-root".into();
+        assert!(has_completed_child(&agents, "current-root"));
+    }
 }

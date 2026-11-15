@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./bridge";
 
-export function GitPanel({ id }: { id: string }) {
+export function GitPanel({ id, open }: { id: string; open: boolean }) {
   const [state, setState] = useState<{
     status: string;
     recentCommits: string;
@@ -9,6 +9,7 @@ export function GitPanel({ id }: { id: string }) {
   } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!open) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -28,7 +29,7 @@ export function GitPanel({ id }: { id: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id]);
+  }, [id, open]);
   return (
     <section className="git-panel" aria-label="Git operations">
       {error ? (

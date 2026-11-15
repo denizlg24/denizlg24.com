@@ -63,9 +63,9 @@ fn execute(state: &State, bus: &Path, request: &Value) -> Result<Value, String> 
                 .filter(|s| !s.trim().is_empty() && s.len() <= 100)
                 .ok_or("Name must contain 1–100 bytes")?;
             let agent = launch_child(state, bus, &parent, name, prompt)?;
-            persistence::save(state)?;
+            let agent = persistence::checkpoint_launch(state, agent);
             Ok(
-                json!({ "thread_id": agent.id, "name": agent.name, "status": agent.status, "terminal": true }),
+                json!({ "thread_id": agent.id, "name": agent.name, "status": agent.status, "terminal": true, "checkpointWarning": agent.checkpoint_warning }),
             )
         }
         _ => Err("Unknown canvas request".into()),

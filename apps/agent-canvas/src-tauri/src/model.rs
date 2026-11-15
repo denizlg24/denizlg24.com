@@ -7,6 +7,8 @@ pub struct Agent {
     #[serde(default)]
     pub settings: Option<crate::options::LaunchOptions>,
     #[serde(default)]
+    pub checkpoint_warning: Option<String>,
+    #[serde(default)]
     pub has_terminal: bool,
     pub id: String,
     pub root_id: String,
@@ -31,6 +33,7 @@ impl Agent {
     pub fn root(id: &str, provider: &str, cwd: &str) -> Self {
         Self {
             settings: None,
+            checkpoint_warning: None,
             has_terminal: true,
             id: id.into(),
             root_id: id.into(),

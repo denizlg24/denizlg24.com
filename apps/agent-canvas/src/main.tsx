@@ -45,6 +45,7 @@ import { AgentWindow } from "./agent-window";
 import { api, native } from "./bridge";
 import { LaunchDialog } from "./launch-dialog";
 import { freePosition } from "./layout";
+import { readStored, writeStored } from "./storage";
 import {
   type Agent,
   count,
@@ -143,17 +144,15 @@ function App() {
     }
   });
   useEffect(() => {
-    localStorage.setItem("agents:windows", JSON.stringify(opened));
+    writeStored("agents:windows", opened, setError);
   }, [opened]);
   const removedRoots = useRef(new Set<string>());
-  const completedChildren = useRef(new Set<string>());
+  const completedChildren = useRef<Set<string> | null>(null);
   const [creating, setCreating] = useState<Provider | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [providers, setProviders] = useState({ codex: false, claude: false });
-  const [dark, setDark] = useState(
-    () => localStorage.getItem("agents:theme") === "dark",
-  );
+  const [dark, setDark] = useState(() => readStored("agents:theme") === "dark");
   const spawnPoint = useRef<{ x: number; y: number } | null>(null);
   const open = useCallback(
     (id: string) =>
@@ -171,7 +170,7 @@ function App() {
   };
   useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("agents:theme", dark ? "dark" : "light");
+    writeStored("agents:theme", dark ? "dark" : "light", setError);
   }, [dark]);
   useEffect(() => {
     if (!native) return;
@@ -196,11 +195,19 @@ function App() {
               (a) =>
                 a.parentId &&
                 ["done", "stopped", "error"].includes(a.status) &&
+                completedChildren.current !== null &&
                 !completedChildren.current.has(a.id),
             )
             .map((a) => a.id),
         );
-        for (const id of closedChildren) completedChildren.current.add(id);
+        completedChildren.current = new Set(
+          next
+            .filter(
+              (a) =>
+                a.parentId && ["done", "stopped", "error"].includes(a.status),
+            )
+            .map((a) => a.id),
+        );
         const ids = new Set(next.map((a) => a.id));
         setOpened((prev) => {
           const kept = prev.filter(
@@ -259,7 +266,6 @@ function App() {
           layout.current.positions = Object.fromEntries(
             result.map((node) => [node.id, node.position]),
           );
-          localStorage.setItem("agents:layout", JSON.stringify(layout.current));
           return result;
         });
       } catch (e) {
@@ -273,6 +279,10 @@ function App() {
       clearTimeout(timer);
     };
   }, [open, setNodes]);
+  useEffect(() => {
+    if (completedChildren.current !== null)
+      writeStored("agents:layout", layout.current, setError);
+  }, [nodes]);
   const save = useCallback(() => {
     layout.current = {
       positions: Object.fromEntries(
@@ -280,7 +290,7 @@ function App() {
       ),
       viewport: flow.getViewport(),
     };
-    localStorage.setItem("agents:layout", JSON.stringify(layout.current));
+    writeStored("agents:layout", layout.current, setError);
   }, [flow]);
   const arrange = () => {
     const placed = new Map<string, { x: number; y: number }>();
@@ -315,7 +325,7 @@ function App() {
       })),
     );
     layout.current.positions = Object.fromEntries(placed);
-    localStorage.setItem("agents:layout", JSON.stringify(layout.current));
+    writeStored("agents:layout", layout.current, setError);
     requestAnimationFrame(() => {
       void flow.fitView({ padding: 0.2, duration: 250 });
     });

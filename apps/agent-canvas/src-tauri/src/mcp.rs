@@ -4,10 +4,48 @@ use super::*;
 use serde_json::{json, Value};
 use std::io::BufRead;
 
+#[derive(Deserialize)]
+struct AgentMetadata {
+    agents: HashMap<String, Agent>,
+}
 fn agents(bus: &Path) -> Result<HashMap<String, Agent>, String> {
-    let bytes = std::fs::read(bus.join("canvas-state.json")).map_err(err)?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(err)?;
-    serde_json::from_value(value["agents"].clone()).map_err(err)
+    let reader =
+        std::io::BufReader::new(std::fs::File::open(bus.join("canvas-state.json")).map_err(err)?);
+    let metadata: AgentMetadata = serde_json::from_reader(reader).map_err(err)?;
+    Ok(metadata.agents)
+}
+fn messages(directory: &Path) -> Result<Vec<Value>, String> {
+    let mut messages = Vec::new();
+    for file in std::fs::read_dir(directory).map_err(err)? {
+        let path = file.map_err(err)?.path();
+        if path.extension().is_some_and(|e| e == "json") {
+            messages.push(serde_json::from_slice(&std::fs::read(path).map_err(err)?).map_err(err)?);
+        }
+    }
+    Ok(messages)
+}
+fn next_sequence(directory: &Path) -> Result<u64, String> {
+    let path = directory.join(".sequence");
+    let counter = match std::fs::read_to_string(&path) {
+        Ok(value) => value.parse::<u64>().ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(err(e)),
+    };
+    let previous = match counter {
+        Some(value) => value,
+        None => messages(directory)?
+            .iter()
+            .filter_map(|m| m["sequence"].as_u64())
+            .max()
+            .unwrap_or(0),
+    };
+    let next = previous.checked_add(1).ok_or("Inbox sequence exhausted")?;
+    let temporary = directory.join(format!(".sequence-{}.tmp", Uuid::new_v4()));
+    let mut file = std::fs::File::create(&temporary).map_err(err)?;
+    file.write_all(next.to_string().as_bytes()).map_err(err)?;
+    file.sync_all().map_err(err)?;
+    std::fs::rename(temporary, path).map_err(err)?;
+    Ok(next)
 }
 
 fn inbox(bus: &Path, id: &str) -> Result<PathBuf, String> {
@@ -54,9 +92,7 @@ fn call(bus: &Path, sender: &str, name: &str, args: &Value) -> Result<Value, Str
             std::fs::create_dir_all(&directory).map_err(err)?;
             let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(directory.join(".lock")).map_err(err)?;
             lock.lock().map_err(err)?;
-            let sequence_path = directory.join(".sequence");
-            let sequence = std::fs::read_to_string(&sequence_path).ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0) + 1;
-            std::fs::write(sequence_path, sequence.to_string()).map_err(err)?;
+            let sequence = next_sequence(&directory)?;
             let id = Uuid::new_v4().to_string();
             let message = json!({ "sequence": sequence, "id": id, "from": sender, "to": target, "message": text,
                 "createdAt": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_millis() });
@@ -70,15 +106,7 @@ fn call(bus: &Path, sender: &str, name: &str, args: &Value) -> Result<Value, Str
         "read_messages" => {
             let directory = inbox(bus, sender)?;
             std::fs::create_dir_all(&directory).map_err(err)?;
-            let mut messages = Vec::new();
-            for file in std::fs::read_dir(directory).map_err(err)? {
-                let path = file.map_err(err)?.path();
-                if path.extension().is_some_and(|e| e == "json") {
-                    let value: Value =
-                        serde_json::from_slice(&std::fs::read(path).map_err(err)?).map_err(err)?;
-                    messages.push(value);
-                }
-            }
+            let mut messages = messages(&directory)?;
             messages.sort_by_key(|m| {
                 (
                     m["sequence"].as_u64().unwrap_or(0),
@@ -237,6 +265,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(next["messages"], json!([]));
+        // Simulate a sender dying while the old in-place counter write had
+        // truncated it. The next accepted message must stay after this cursor.
+        let counter = bus.join("messages/b/.sequence");
+        std::fs::write(&counter, "").unwrap();
         for index in 0..20 {
             call(
                 &bus,
@@ -281,6 +313,24 @@ mod tests {
                 .len(),
             2
         );
+        let last_cursor = later["cursor"].clone();
+        for (index, corrupt) in [None, Some("invalid")].into_iter().enumerate() {
+            match corrupt {
+                Some(value) => std::fs::write(&counter, value).unwrap(),
+                None => std::fs::remove_file(&counter).unwrap(),
+            }
+            call(
+                &bus,
+                "a",
+                "send_message",
+                &json!({"thread_id":"b", "message":format!("recovered {index}")}),
+            )
+            .unwrap();
+        }
+        let recovered = call(&bus, "b", "read_messages", &json!({"after": last_cursor})).unwrap();
+        assert_eq!(recovered["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(recovered["messages"][0]["sequence"], 22);
+        assert_eq!(recovered["messages"][1]["sequence"], 23);
         std::fs::remove_dir_all(bus).unwrap();
     }
 }

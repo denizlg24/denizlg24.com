@@ -24,18 +24,21 @@ async function setup(page: import("@playwright/test").Page) {
         })),
       ];
     };
+    (window as any).__testGitReads = 0;
     (window as any).__testReads = [];
     (window as any).isTauri = true;
     (window as any).__testWrites = [];
     (window as any).__testLaunches = [];
     (window as any).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args: any) => {
-        if (cmd === "git_snapshot")
+        if (cmd === "git_snapshot") {
+          (window as any).__testGitReads++;
           return {
             status: "## main\n M src/example.ts",
             recentCommits: "a1b2c3 Test commit",
             diffStat: "1 file changed",
           };
+        }
         if (cmd === "providers") return { codex: true, claude: true };
         if (cmd === "snapshot") {
           localStorage.setItem("test:agents", JSON.stringify(agents));
@@ -266,6 +269,9 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
   await page.getByRole("button", { name: "Launch agent", exact: true }).click();
   const root = page.getByRole("region", { name: "Codex window", exact: true });
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
+    "CLI ready",
+  );
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads.length))
     .toBeGreaterThan(1);
@@ -291,8 +297,14 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
+    "CLI ready",
+  );
   await page.reload();
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
+    "CLI ready",
+  );
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
@@ -349,6 +361,12 @@ test("managed subagents expose interactive terminals and close when complete", a
   await expect(child.getByLabel("Agent CLI terminal")).toBeVisible();
   await page.waitForTimeout(800);
   await expect(child).toBeVisible();
+  await page.reload();
+  await expect(child.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(child.locator(".xterm-accessibility-tree")).toContainText(
+    "CLI ready",
+  );
+  await expect(child).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Codex window", exact: true }),
   ).toBeVisible();
@@ -386,4 +404,78 @@ test("crowded agent trees arrange without overlapping cards", async ({
       ).toBeTruthy();
     }
   await page.screenshot({ path: "test-results/arranged-trees.png" });
+});
+
+test("Git inspections only run while the details are open", async ({
+  page,
+}) => {
+  await setup(page);
+  await page
+    .getByRole("button", { name: "New agent", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Working directory").fill("/tmp/git-polling");
+  await page.getByRole("button", { name: "Launch agent", exact: true }).click();
+  const root = page.getByRole("region", { name: "Codex window", exact: true });
+  await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await page.clock.install();
+  await page.clock.fastForward(6000);
+  expect(await page.evaluate(() => (window as any).__testGitReads)).toBe(0);
+  const git = root.locator("summary").filter({ hasText: "Git" });
+  await git.click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__testGitReads))
+    .toBe(1);
+  await page.clock.fastForward(6000);
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__testGitReads))
+    .toBe(2);
+  await git.click();
+  await expect(git.locator("..")).not.toHaveAttribute("open");
+  await page.clock.fastForward(6000);
+  expect(await page.evaluate(() => (window as any).__testGitReads)).toBe(2);
+  await git.focus();
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__testGitReads))
+    .toBe(3);
+});
+
+test("storage quota failures keep canvas interactions usable", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await setup(page);
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("agents:"))
+        throw new DOMException(
+          "Test storage quota exhausted",
+          "QuotaExceededError",
+        );
+      original.call(this, key, value);
+    };
+  });
+  await page
+    .getByRole("button", { name: "New agent", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Working directory").fill("/tmp/storage-failure");
+  await page.getByRole("button", { name: "Launch agent", exact: true }).click();
+  const root = page.getByRole("region", { name: "Codex window", exact: true });
+  await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(page.locator(".notice.error")).toContainText("Could not save");
+  await page.getByRole("button", { name: "Arrange", exact: true }).click();
+  await root.getByRole("button", { name: "Maximize window" }).click();
+  await expect(root).toHaveClass(/maximized/);
+  await root.getByRole("button", { name: "Restore window" }).click();
+  await page.getByRole("button", { name: "Use dark theme" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await root.getByRole("button", { name: "Close Codex window" }).click();
+  await page.getByRole("button", { name: "Expand Codex", exact: true }).click();
+  await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+  expect(errors).toEqual([]);
 });

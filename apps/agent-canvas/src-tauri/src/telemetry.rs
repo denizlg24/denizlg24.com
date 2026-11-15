@@ -46,23 +46,7 @@ impl Tracker {
         hook_dir: &Path,
         agents: &mut HashMap<String, Agent>,
     ) {
-        let paths = if root.provider == "codex" {
-            files(log_dir)
-        } else {
-            let mut paths = files(&log_dir.join(&root.id));
-            let main = log_dir.join(format!("{}.jsonl", root.id));
-            if main.exists() {
-                paths.insert(0, main);
-            }
-            paths
-        };
-        for path in paths {
-            if let Err(e) = self.read(&path, root, agents) {
-                if let Some(a) = agents.get_mut(&root.id) {
-                    a.telemetry_error = Some(format!("Session tracking: {e}"));
-                }
-            }
-        }
+        self.drain_transcripts(root, log_dir, agents);
         if root.provider == "claude" {
             if let Ok(entries) = std::fs::read_dir(hook_dir) {
                 let mut entries: Vec<_> = entries
@@ -80,6 +64,51 @@ impl Tracker {
                             self.hooks.insert(path);
                         }
                     }
+                }
+            }
+        }
+    }
+    pub fn finish_child(
+        &mut self,
+        root: &Agent,
+        log_dir: &Path,
+        agents: &mut HashMap<String, Agent>,
+    ) -> bool {
+        let completed = root.parent_id.is_some()
+            && agents.get(&root.id).is_some_and(|a| {
+                ["idle", "done"].contains(&a.status.as_str()) && a.activity == "Turn complete"
+            });
+        if !completed {
+            return false;
+        }
+        // A Stop hook can be observed after poll's first transcript read.
+        self.drain_transcripts(root, log_dir, agents);
+        if let Some(agent) = agents.get_mut(&root.id) {
+            agent.status = "done".into();
+            agent.activity = "Turn complete".into();
+        }
+        true
+    }
+    pub fn drain_transcripts(
+        &mut self,
+        root: &Agent,
+        log_dir: &Path,
+        agents: &mut HashMap<String, Agent>,
+    ) {
+        let paths = if root.provider == "codex" {
+            files(log_dir)
+        } else {
+            let mut paths = files(&log_dir.join(&root.id));
+            let main = log_dir.join(format!("{}.jsonl", root.id));
+            if main.exists() {
+                paths.insert(0, main);
+            }
+            paths
+        };
+        for path in paths {
+            if let Err(e) = self.read(&path, root, agents) {
+                if let Some(a) = agents.get_mut(&root.id) {
+                    a.telemetry_error = Some(format!("Session tracking: {e}"));
                 }
             }
         }
@@ -443,6 +472,32 @@ pub fn claude_settings(exe: &Path, hooks: &Path) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completion_drains_reply_appended_after_stop() {
+        let dir = std::env::temp_dir().join(format!("canvas-drain-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut root = Agent::root("child", "claude", "/tmp");
+        root.parent_id = Some("parent".into());
+        let mut agents = HashMap::from([("child".into(), root.clone())]);
+        let mut tracker = Tracker::default();
+        let path = dir.join("child.jsonl");
+        std::fs::write(
+            &path,
+            format!("{}\n", json!({"type":"user", "message":{"content":"task"}})),
+        )
+        .unwrap();
+        tracker.poll(&root, &dir, &dir.join("hooks"), &mut agents);
+        assert!(!tracker.finish_child(&root, &dir, &mut agents));
+        tracker.hook(&root, &json!({"hook_event_name":"Stop"}), &mut agents);
+        let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+        use std::io::Write;
+        writeln!(file, "{}", json!({"type":"assistant", "message":{"id":"final", "content":[{"type":"text", "text":"FINAL_REPLY"}], "usage":{"output_tokens":7}}})).unwrap();
+        assert!(tracker.finish_child(&root, &dir, &mut agents));
+        assert_eq!(agents["child"].status, "done");
+        assert!(agents["child"].transcript.contains("FINAL_REPLY"));
+        assert_eq!(agents["child"].output_tokens, Some(7));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn codex_children_and_usage() {
         let root = Agent::root("root", "codex", "/tmp");

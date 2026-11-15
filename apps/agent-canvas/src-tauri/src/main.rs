@@ -51,6 +51,7 @@ struct Session {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     output: Arc<Mutex<Output>>,
     alive: Arc<AtomicBool>,
+    reader_done: Arc<AtomicBool>,
 }
 impl Session {
     fn terminate(&self) -> Result<(), String> {
@@ -214,8 +215,7 @@ fn create_agent(
         None,
         options.unwrap_or_default(),
     )?;
-    persistence::save(&state)?;
-    Ok(agent)
+    Ok(persistence::checkpoint_launch(&state, agent))
 }
 fn launch(
     state: &State,
@@ -332,6 +332,7 @@ fn launch_with_parent(
     let writer = pair.master.take_writer().map_err(err)?;
     let killer = child.clone_killer();
     let output = Arc::new(Mutex::new(Output::default()));
+    let reader_done = Arc::new(AtomicBool::new(false));
     let alive = Arc::new(AtomicBool::new(true));
     let stop_requested = Arc::new(AtomicBool::new(false));
     let session = Arc::new(Session {
@@ -342,6 +343,7 @@ fn launch_with_parent(
         killer: Mutex::new(killer),
         output: output.clone(),
         alive: alive.clone(),
+        reader_done: reader_done.clone(),
     });
     let mut agent = Agent::root(&id, &provider, &cwd);
     agent.settings = Some(options);
@@ -374,6 +376,7 @@ fn launch_with_parent(
                 }
             }
         }
+        reader_done.store(true, Ordering::Release);
     });
     let agents = state.agents.clone();
     let root = agent.clone();
@@ -381,7 +384,7 @@ fn launch_with_parent(
         let status = child.wait();
         alive.store(false, Ordering::Release);
         if let Ok(mut agents) = agents.lock() {
-            let ids = descendant_ids(&agents, &root.id);
+            let ids = terminal_dependents(&agents, &root.id);
             for a in agents.values_mut().filter(|a| ids.contains(&a.id)) {
                 if a.status == "done" {
                     continue;
@@ -416,19 +419,12 @@ fn launch_with_parent(
                     break;
                 }
                 tracker.poll(&root, &log_dir, &hook_dir, &mut a);
-                if root.parent_id.is_some() {
-                    if let Some(agent) = a.get_mut(&root.id) {
-                        if ["idle", "done"].contains(&agent.status.as_str())
-                            && agent.activity == "Turn complete"
-                        {
-                            agent.status = "done".into();
-                            let terminal = terminal.clone();
-                            std::thread::spawn(move || {
-                                let _ = terminal.terminate();
-                            });
-                            break;
-                        }
-                    }
+                if tracker.finish_child(&root, &log_dir, &mut a) {
+                    let terminal = terminal.clone();
+                    std::thread::spawn(move || {
+                        let _ = terminal.terminate();
+                    });
+                    break;
                 }
             }
             std::thread::sleep(Duration::from_millis(700));
@@ -544,7 +540,9 @@ fn shutdown(state: &State) -> Result<(), String> {
         }
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while terminals.iter().any(|s| s.alive.load(Ordering::Acquire))
+    while terminals
+        .iter()
+        .any(|s| s.alive.load(Ordering::Acquire) || !s.reader_done.load(Ordering::Acquire))
         && std::time::Instant::now() < deadline
     {
         std::thread::sleep(Duration::from_millis(20));
@@ -553,6 +551,25 @@ fn shutdown(state: &State) -> Result<(), String> {
         failure.get_or_insert(error);
     }
     failure.map_or(Ok(()), Err)
+}
+// Independent PTYs have their own exit watcher. A parent's exit only ends
+// its own terminal and headless workers, never a sibling terminal's subtree.
+fn terminal_dependents(
+    agents: &HashMap<String, Agent>,
+    id: &str,
+) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::from([id.to_string()]);
+    loop {
+        let previous = ids.len();
+        for agent in agents.values() {
+            if !agent.has_terminal && agent.parent_id.as_ref().is_some_and(|p| ids.contains(p)) {
+                ids.insert(agent.id.clone());
+            }
+        }
+        if previous == ids.len() {
+            return ids;
+        }
+    }
 }
 fn descendant_ids(agents: &HashMap<String, Agent>, id: &str) -> std::collections::HashSet<String> {
     let mut ids = std::collections::HashSet::from([id.to_string()]);
@@ -686,6 +703,82 @@ fn main() {
 mod lifecycle_tests {
     use super::*;
     #[test]
+    fn parent_exit_does_not_cross_an_independent_terminal_boundary() {
+        let mut agents = HashMap::new();
+        for (id, parent, terminal) in [
+            ("root", None, true),
+            ("native", Some("root"), false),
+            ("managed", Some("root"), true),
+            ("managed-native", Some("managed"), false),
+        ] {
+            let mut agent = Agent::root(id, "codex", "/tmp");
+            agent.parent_id = parent.map(String::from);
+            agent.has_terminal = terminal;
+            agents.insert(id.into(), agent);
+        }
+        assert_eq!(
+            terminal_dependents(&agents, "root"),
+            std::collections::HashSet::from(["root".into(), "native".into()])
+        );
+        assert_eq!(
+            terminal_dependents(&agents, "managed"),
+            std::collections::HashSet::from(["managed".into(), "managed-native".into()])
+        );
+    }
+    #[test]
+    fn shutdown_waits_for_final_reader_bytes_before_saving() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "exit 0"]);
+        let mut child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+        child.wait().unwrap();
+        let output = Arc::new(Mutex::new(Output::default()));
+        let reader_done = Arc::new(AtomicBool::new(false));
+        let state = State::default();
+        let dir = std::env::temp_dir().join(format!("canvas-reader-{}", Uuid::new_v4()));
+        persistence::restore(&state, dir.join("state.json")).unwrap();
+        state
+            .agents
+            .lock()
+            .unwrap()
+            .insert("root".into(), Agent::root("root", "codex", "/tmp"));
+        state.sessions.lock().unwrap().insert(
+            "root".into(),
+            Arc::new(Session {
+                pid: None,
+                stop_requested: Arc::new(AtomicBool::new(false)),
+                writer: Mutex::new(pair.master.take_writer().unwrap()),
+                master: Mutex::new(pair.master),
+                killer: Mutex::new(child.clone_killer()),
+                output: output.clone(),
+                alive: Arc::new(AtomicBool::new(false)),
+                reader_done: reader_done.clone(),
+            }),
+        );
+        let reader = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            output.lock().unwrap().push(b"FINAL_PTY_BYTES".to_vec());
+            reader_done.store(true, Ordering::Release);
+        });
+        shutdown(&state).unwrap();
+        reader.join().unwrap();
+        let restored = State::default();
+        persistence::restore(&restored, dir.join("state.json")).unwrap();
+        assert_eq!(
+            restored.archived.lock().unwrap()["root"].chunks[0].1,
+            b"FINAL_PTY_BYTES"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn terminal_pages_resume_without_replay_and_recover_from_ahead_checkpoints() {
         let mut output = Output::default();
         for i in 0..40 {
@@ -755,6 +848,7 @@ mod lifecycle_tests {
             killer: Mutex::new(child.clone_killer()),
             output: Arc::new(Mutex::new(Output::default())),
             alive: Arc::new(AtomicBool::new(true)),
+            reader_done: Arc::new(AtomicBool::new(true)),
         };
         s.terminate().unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(3);

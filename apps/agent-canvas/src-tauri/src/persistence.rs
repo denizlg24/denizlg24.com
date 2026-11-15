@@ -41,6 +41,22 @@ pub fn save(state: &State) -> Result<(), String> {
     std::fs::rename(temporary, path).map_err(err)
 }
 
+// A running CLI must always retain its launch identity, even if disk storage
+// fails. Callers can report the warning without inviting a duplicate retry.
+pub fn checkpoint_launch(state: &State, mut agent: Agent) -> Agent {
+    if let Err(error) = save(state) {
+        let warning =
+            format!("CLI started, but its initial checkpoint could not be saved: {error}");
+        agent.checkpoint_warning = Some(warning.clone());
+        if let Ok(mut agents) = state.agents.lock() {
+            if let Some(registered) = agents.get_mut(&agent.id) {
+                registered.checkpoint_warning = Some(warning);
+            }
+        }
+    }
+    agent
+}
+
 pub fn restore(state: &State, path: PathBuf) -> Result<(), String> {
     let saved = match std::fs::read(&path) {
         Ok(bytes) => Some(
@@ -74,6 +90,30 @@ pub fn restore(state: &State, path: PathBuf) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn failed_checkpoint_preserves_successful_launch_identity() {
+        let dir = std::env::temp_dir().join(format!("canvas-save-failure-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("not-a-directory");
+        std::fs::write(&blocker, "block checkpoint").unwrap();
+        let state = State::default();
+        *state.storage.lock().unwrap() = Some(blocker.join("state.json"));
+        let agent = Agent::root("launched", "codex", "/tmp");
+        state
+            .agents
+            .lock()
+            .unwrap()
+            .insert(agent.id.clone(), agent.clone());
+        let result = checkpoint_launch(&state, agent);
+        assert_eq!(result.id, "launched");
+        assert_eq!(result.status, "starting");
+        assert!(result.checkpoint_warning.is_some());
+        assert_eq!(
+            state.agents.lock().unwrap()["launched"].checkpoint_warning,
+            result.checkpoint_warning
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn restart_restores_children_usage_and_terminal_cursor_without_live_processes() {
         let dir = std::env::temp_dir().join(format!("canvas-{}", Uuid::new_v4()));

@@ -17,6 +17,7 @@ import {
 } from "react";
 import { api } from "./bridge";
 import { GitPanel } from "./git-panel";
+import { writeStored } from "./storage";
 import { type Agent, count, statusLabel, tokens } from "./types";
 import { Usage } from "./usage";
 
@@ -56,6 +57,7 @@ export function AgentWindow({
     }
   });
   const [stopping, setStopping] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
   const [rect, setRect] = useState(() => {
     const width = Math.min(740, window.innerWidth - 40);
     const height = Math.min(590, window.innerHeight - 160);
@@ -90,11 +92,8 @@ export function AgentWindow({
     };
   });
   useEffect(() => {
-    localStorage.setItem(
-      `agents:window:${a.id}`,
-      JSON.stringify({ rect, maximized }),
-    );
-  }, [a.id, rect, maximized]);
+    writeStored(`agents:window:${a.id}`, { rect, maximized }, onError);
+  }, [a.id, rect, maximized, onError]);
   const gesture = useRef<{
     x: number;
     y: number;
@@ -219,10 +218,18 @@ export function AgentWindow({
           </summary>
           <Usage agent={a} />
         </details>
-        <details>
-          <summary>Git</summary>
-          <GitPanel id={a.id} />
+        <details open={gitOpen}>
+          <summary
+            onClick={(event) => {
+              event.preventDefault();
+              setGitOpen((value) => !value);
+            }}
+          >
+            Git
+          </summary>
+          <GitPanel id={a.id} open={gitOpen} />
         </details>
+        {a.checkpointWarning && <p role="status">{a.checkpointWarning}</p>}
         {a.settings && (
           <div className="window-settings">
             {a.settings.model || "CLI default"}
