@@ -7,7 +7,11 @@ profile=""
 packages=""
 versions=""
 tailscale_key_file=""
-cleanup() { [[ -z "$tailscale_key_file" ]] || rm -f -- "$tailscale_key_file"; }
+samba_preferences=""
+cleanup() {
+  [[ -z "$tailscale_key_file" ]] || rm -f -- "$tailscale_key_file"
+  [[ -z "$samba_preferences" ]] || rm -f -- "$samba_preferences"
+}
 trap cleanup EXIT
 while (($#)); do
   case "$1" in
@@ -58,6 +62,17 @@ printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.clou
   > /etc/apt/sources.list.d/cloudflared.list
 
 apt-get update -qq
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  # Samba's binary packages depend on exactly matching sibling versions.
+  # Prefer the captured source family together, including libldb's distinct
+  # version prefix, instead of mixing the latest security build with the pin.
+  samba_version="$(jq -er .samba "$packages")"
+  samba_preferences=/etc/apt/preferences.d/deniz-dr-recovery-samba.pref
+  [[ ! -L "$samba_preferences" ]] || { echo "STOP: unsafe Samba preference path" >&2; exit 1; }
+  printf 'Package: src:samba:any\nPin: version %s\nPin-Priority: 1001\n\nPackage: src:samba:any\nPin: version *+samba%s\nPin-Priority: 1001\n' \
+    "$samba_version" "${samba_version#*:}" > "$samba_preferences"
+  chmod 0644 "$samba_preferences"
+fi
 install_exact_or_stop() {
   local package="$1" recorded candidate
   recorded="$(jq -r --arg package "$package" '.[$package] // empty' "$packages")"
