@@ -7,8 +7,17 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { lazy, type PointerEvent, Suspense, useRef, useState } from "react";
+import {
+  lazy,
+  type PointerEvent,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "./bridge";
+import { GitPanel } from "./git-panel";
+import { writeStored } from "./storage";
 import { type Agent, count, statusLabel, tokens } from "./types";
 import { Usage } from "./usage";
 
@@ -37,11 +46,41 @@ export function AgentWindow({
   onError: (e: string) => void;
 }) {
   const element = useRef<HTMLElement>(null);
-  const [maximized, setMaximized] = useState(false);
+  const [maximized, setMaximized] = useState(() => {
+    try {
+      return (
+        JSON.parse(localStorage.getItem(`agents:window:${a.id}`) || "null")
+          ?.maximized === true
+      );
+    } catch {
+      return false;
+    }
+  });
   const [stopping, setStopping] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
   const [rect, setRect] = useState(() => {
     const width = Math.min(740, window.innerWidth - 40);
     const height = Math.min(590, window.innerHeight - 160);
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(`agents:window:${a.id}`) || "null",
+      )?.rect;
+      if (
+        saved &&
+        [saved.x, saved.y, saved.width, saved.height].every(Number.isFinite)
+      )
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 150, saved.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 160, saved.y)),
+          width: Math.max(300, Math.min(window.innerWidth - 16, saved.width)),
+          height: Math.max(
+            260,
+            Math.min(window.innerHeight - 100, saved.height),
+          ),
+        };
+    } catch {
+      /* Start with a visible window if its saved bounds are invalid. */
+    }
     return {
       x: Math.min(60 + index * 40, Math.max(8, window.innerWidth - width - 20)),
       y: Math.min(
@@ -52,6 +91,9 @@ export function AgentWindow({
       height,
     };
   });
+  useEffect(() => {
+    writeStored(`agents:window:${a.id}`, { rect, maximized }, onError);
+  }, [a.id, rect, maximized, onError]);
   const gesture = useRef<{
     x: number;
     y: number;
@@ -137,7 +179,7 @@ export function AgentWindow({
           {statusLabel[a.status] ?? a.status}
         </span>
         <div className="window-actions">
-          {!a.parentId && (
+          {(a.hasTerminal ?? !a.parentId) && (
             <Button
               variant="ghost"
               size="sm"
@@ -176,6 +218,18 @@ export function AgentWindow({
           </summary>
           <Usage agent={a} />
         </details>
+        <details open={gitOpen}>
+          <summary
+            onClick={(event) => {
+              event.preventDefault();
+              setGitOpen((value) => !value);
+            }}
+          >
+            Git
+          </summary>
+          <GitPanel id={a.id} open={gitOpen} />
+        </details>
+        {a.checkpointWarning && <p role="status">{a.checkpointWarning}</p>}
         {a.settings && (
           <div className="window-settings">
             {a.settings.model || "CLI default"}
@@ -189,7 +243,7 @@ export function AgentWindow({
         )}
       </div>
       <div className="window-content">
-        {a.parentId ? (
+        {!(a.hasTerminal ?? !a.parentId) ? (
           <>
             <div className="transcript-heading">
               <span>Subagent transcript</span>
@@ -217,7 +271,11 @@ export function AgentWindow({
               />
             }
           >
-            <AgentTerminal id={a.id} dark={dark} />
+            <AgentTerminal
+              id={a.id}
+              dark={dark}
+              running={!["stopped", "done", "error"].includes(a.status)}
+            />
           </Suspense>
         )}
       </div>

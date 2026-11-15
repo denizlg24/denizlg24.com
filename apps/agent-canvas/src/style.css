@@ -864,3 +864,24 @@ meter::-moz-meter-bar {
 .window-actions button {
   color: var(--accent-strong);
 }
+
+.git-panel {
+  max-height: 200px;
+  overflow: auto;
+  padding: 12px;
+}
+.git-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.git-panel h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin-block: 16px 8px;
+}
+
+.window-info details[open] .git-panel {
+  flex-basis: 100%;
+  width: 100%;
+}

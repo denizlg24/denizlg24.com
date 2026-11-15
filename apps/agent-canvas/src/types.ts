@@ -1,6 +1,8 @@
 export type Provider = "codex" | "claude";
 export interface Agent {
   settings?: LaunchOptions;
+  hasTerminal?: boolean;
+  checkpointWarning?: string | null;
   id: string;
   rootId: string;
   parentId: string | null;

@@ -24,6 +24,7 @@ import {
   ArrowUpRight,
   FolderOpen,
   GitBranch,
+  LayoutGrid,
   Maximize2,
   Moon,
   Plus,
@@ -43,6 +44,8 @@ import { createRoot } from "react-dom/client";
 import { AgentWindow } from "./agent-window";
 import { api, native } from "./bridge";
 import { LaunchDialog } from "./launch-dialog";
+import { freePosition } from "./layout";
+import { readStored, writeStored } from "./storage";
 import {
   type Agent,
   count,
@@ -130,15 +133,26 @@ function App() {
   const flow = useReactFlow<AgentNode>();
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentNode>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [opened, setOpened] = useState<string[]>([]);
+  const [opened, setOpened] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("agents:windows") || "[]");
+      return Array.isArray(saved)
+        ? saved.filter((id): id is string => typeof id === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    writeStored("agents:windows", opened, setError);
+  }, [opened]);
   const removedRoots = useRef(new Set<string>());
+  const completedChildren = useRef<Set<string> | null>(null);
   const [creating, setCreating] = useState<Provider | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [providers, setProviders] = useState({ codex: false, claude: false });
-  const [dark, setDark] = useState(
-    () => localStorage.getItem("agents:theme") === "dark",
-  );
+  const [dark, setDark] = useState(() => readStored("agents:theme") === "dark");
   const spawnPoint = useRef<{ x: number; y: number } | null>(null);
   const open = useCallback(
     (id: string) =>
@@ -156,7 +170,7 @@ function App() {
   };
   useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("agents:theme", dark ? "dark" : "light");
+    writeStored("agents:theme", dark ? "dark" : "light", setError);
   }, [dark]);
   useEffect(() => {
     if (!native) return;
@@ -175,6 +189,32 @@ function App() {
         );
         if (cancelled) return;
         setAgents(next);
+        const closedChildren = new Set(
+          next
+            .filter(
+              (a) =>
+                a.parentId &&
+                ["done", "stopped", "error"].includes(a.status) &&
+                completedChildren.current !== null &&
+                !completedChildren.current.has(a.id),
+            )
+            .map((a) => a.id),
+        );
+        completedChildren.current = new Set(
+          next
+            .filter(
+              (a) =>
+                a.parentId && ["done", "stopped", "error"].includes(a.status),
+            )
+            .map((a) => a.id),
+        );
+        const ids = new Set(next.map((a) => a.id));
+        setOpened((prev) => {
+          const kept = prev.filter(
+            (id) => ids.has(id) && !closedChildren.has(id),
+          );
+          return kept.length === prev.length ? prev : kept;
+        });
         setNodes((prev) => {
           const positions = new Map(prev.map((n) => [n.id, n.position]));
           const known = new Map(prev.map((n) => [n.id, n]));
@@ -184,9 +224,13 @@ function App() {
               a.id.localeCompare(b.id),
           );
           const placed = new Map<string, { x: number; y: number }>();
+          const occupied = next.flatMap((a) => {
+            const p = positions.get(a.id) ?? layout.current.positions[a.id];
+            return p ? [p] : [];
+          });
           let roots = 0;
           const siblings = new Map<string, number>();
-          return sorted.map((a) => {
+          const result = sorted.map((a) => {
             const siblingIndex = a.parentId
               ? (siblings.get(a.parentId) ?? 0)
               : roots++;
@@ -205,6 +249,11 @@ function App() {
                 position = { x: 120 + siblingIndex * 370, y: 160 };
               }
             }
+            if (!positions.has(a.id) && !layout.current.positions[a.id]) {
+              position = freePosition(position, occupied);
+              occupied.push(position);
+            }
+            layout.current.positions[a.id] = position;
             placed.set(a.id, position);
             return {
               ...known.get(a.id),
@@ -214,6 +263,10 @@ function App() {
               data: { agent: a, open },
             };
           });
+          layout.current.positions = Object.fromEntries(
+            result.map((node) => [node.id, node.position]),
+          );
+          return result;
         });
       } catch (e) {
         if (!cancelled) setError(String(e));
@@ -226,6 +279,10 @@ function App() {
       clearTimeout(timer);
     };
   }, [open, setNodes]);
+  useEffect(() => {
+    if (completedChildren.current !== null)
+      writeStored("agents:layout", layout.current, setError);
+  }, [nodes]);
   const save = useCallback(() => {
     layout.current = {
       positions: Object.fromEntries(
@@ -233,8 +290,46 @@ function App() {
       ),
       viewport: flow.getViewport(),
     };
-    localStorage.setItem("agents:layout", JSON.stringify(layout.current));
+    writeStored("agents:layout", layout.current, setError);
   }, [flow]);
+  const arrange = () => {
+    const placed = new Map<string, { x: number; y: number }>();
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const depth = (a: Agent) => {
+      let n = 0;
+      const seen = new Set([a.id]);
+      let parent = a.parentId;
+      while (parent && !seen.has(parent)) {
+        seen.add(parent);
+        n++;
+        parent = byId.get(parent)?.parentId ?? null;
+      }
+      return n;
+    };
+    for (const a of [...agents].sort(
+      (a, b) => depth(a) - depth(b) || a.id.localeCompare(b.id),
+    )) {
+      const parent = a.parentId ? placed.get(a.parentId) : null;
+      placed.set(
+        a.id,
+        freePosition(
+          parent ? { x: parent.x + 420, y: parent.y } : { x: 120, y: 160 },
+          [...placed.values()],
+        ),
+      );
+    }
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        position: placed.get(node.id) ?? node.position,
+      })),
+    );
+    layout.current.positions = Object.fromEntries(placed);
+    writeStored("agents:layout", layout.current, setError);
+    requestAnimationFrame(() => {
+      void flow.fitView({ padding: 0.2, duration: 250 });
+    });
+  };
   const choose = (provider: Provider) => {
     setError("");
     setCreating(provider);
@@ -253,7 +348,10 @@ function App() {
             160 +
             Math.floor(agents.filter((a) => !a.parentId).length / 3) * 250,
         });
-      layout.current.positions[a.id] = position;
+      layout.current.positions[a.id] = freePosition(
+        position,
+        flow.getNodes().map((n) => n.position),
+      );
       setCreating(null);
       setAgents((prev) => [...prev.filter((v) => v.id !== a.id), a]);
       open(a.id);
@@ -289,6 +387,14 @@ function App() {
           <span>{active} working</span>
         </div>
         <div className="toolbar-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!agents.length}
+            onClick={arrange}
+          >
+            <LayoutGrid size={16} /> Arrange
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
