@@ -324,8 +324,8 @@ if [[ "$namespace_archive" == *.zst ]]; then
 else
   tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf "$namespace_archive"
 fi
-(cd "$namespace_tmp" && sha256sum -c SHA256SUMS >/dev/null)
-"$(dirname "$0")/posix-namespace-restore-verify.sh" --backup "$namespace_tmp" --restore-timestamps >/dev/null
+# The final verifier authenticates the inner archives and checks the actual
+# restored branches. A second disposable 110-GiB extraction is unnecessary.
 for branch in ssd hdd object-store; do
   case "$branch" in
     ssd | hdd) destination="/mnt/${branch}/deniz-cloud/namespace" ;;

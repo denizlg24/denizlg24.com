@@ -30,8 +30,8 @@ printf '{"schemaVersion":1,"branchId":"22222222-2222-4222-8222-222222222222","fi
   > "$hdd/.denizcloud-branch.json"
 printf 'authoritative payload\n' > "$ssd/folder with spaces/document.txt"
 printf 'project object payload\n' > "$object_store/bucket/objects/object.bin"
-truncate -s 1048576 "$hdd/archive/sparse.bin"
-printf x | dd of="$hdd/archive/sparse.bin" bs=1 seek=1048575 conv=notrunc status=none
+truncate -s 1048576 "$hdd/archive/sparsê.bin"
+printf x | dd of="$hdd/archive/sparsê.bin" bs=1 seek=1048575 conv=notrunc status=none
 setfattr -n user.denizcloud.roundtrip -v preserved -- "$ssd/folder with spaces/document.txt"
 setfattr -n security.denizcloud.id -v 33333333-3333-4333-8333-333333333333 -- "$ssd/folder with spaces/document.txt"
 setfacl -m u:daemon:r-- -- "$ssd/folder with spaces/document.txt"

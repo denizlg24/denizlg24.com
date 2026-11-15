@@ -37,7 +37,11 @@ def enrich(backup):
             source = tarfile.open(fileobj=process.stdout, mode="r|")
         with source:
             for member in source:
-                relative = member.name.removeprefix("./") or "."
+                # GNU sparse PAX members can also carry a non-ASCII `path`.
+                # Python may expose that temporary GNUSparseFile name while
+                # GNU tar restores the authoritative GNU.sparse.name instead.
+                name = member.pax_headers.get("GNU.sparse.name", member.name)
+                relative = name.removeprefix("./") or "."
                 row = expected.get((role, relative))
                 if row is not None:
                     row["archiveAclHash"] = hashlib.sha256(acl_text(member).encode()).hexdigest()
