@@ -604,7 +604,7 @@ mint_tailscale_auth_key() {
 tools_refreshed=false
 refresh_remote_tools() {
   scp "${ssh_opts[@]}" "$script_dir/remote/bootstrap" "$script_dir/remote/restore-pi" "$script_dir/remote/restore-forge" \
-    "$script_dir/remote/resource-sampler" "$script_dir/lib/filter-pg-globals.py" \
+    "$script_dir/remote/resource-sampler" "$script_dir/lib/filter-pg-globals.py" "$script_dir/lib/remap-samba-passdb.py" \
     "$script_dir/lib/mongo-semantic.js" "$script_dir/lib/redis-semantic.lua" \
     "$repo_root/infra/scripts/posix-namespace-restore-verify.sh" "$repo_root/infra/scripts/posix-namespace-acls.py" \
     "$repo_root/infra/scripts/posix-storage-host.sh" "$ssh_host:$remote_root/bin/"

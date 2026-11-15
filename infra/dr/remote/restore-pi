@@ -311,6 +311,25 @@ docker exec "$redis_container" rm -f -- /tmp/deniz-dr-redis-semantic.lua
 rm -f -- "$redis_semantic_script" "${redis_semantic_script}.actual" \
   "${redis_semantic_script}.actual.normalized" "${redis_semantic_script}.expected"
 
+# Retain a completed file proof across a later account-import failure.
+# Once storage writers start the checkpoint is consumed and cannot be reused.
+namespace_checkpoint="$root/../namespace-verified.json"
+namespace_manifest_sha="$(sha256sum "$manifest" | cut -d' ' -f1)"
+if [[ -f "$namespace_checkpoint" ]]; then
+  [[ ! -L "$namespace_checkpoint" && "$(stat -c '%u:%a' "$namespace_checkpoint")" == 0:600 ]] \
+    || { echo "STOP: unsafe namespace checkpoint" >&2; exit 1; }
+  jq -e --arg sha "$namespace_manifest_sha" '
+    .manifestSha256==$sha and .writersStarted==false and
+    .evidence.verified==true and .evidence.mismatches==0 and .evidence.entriesChecked>0
+  ' "$namespace_checkpoint" >/dev/null \
+    || { echo "STOP: namespace checkpoint is stale or storage writers have started" >&2; exit 1; }
+  for unit in deniz-cloud-storage.target deniz-cloud-storage-metadata.service smbd.service; do
+    ! systemctl is-active --quiet "$unit" || { echo "STOP: namespace checkpoint cannot be reused with active writers" >&2; exit 1; }
+  done
+  [[ "$(docker inspect -f '{{.State.Running}}' deniz-cloud-api-1 2>/dev/null || true)" != true ]] \
+    || { echo "STOP: namespace checkpoint cannot be reused with an active API" >&2; exit 1; }
+  namespace_verification="$(jq -c .evidence "$namespace_checkpoint")"
+else
 namespace_tmp="$(mktemp -d /srv/deniz-dr/namespace.XXXXXX)"
 cleanup_dirs+=("$namespace_tmp")
 # The namespace archives lost their zstd wrapper once compression was shown to
@@ -347,6 +366,10 @@ namespace_verification="$("$(dirname "$0")/posix-namespace-restore-verify.sh" --
   --object-root /mnt/ssd/deniz-cloud/internal/.s3-v2)"
 jq -e '.verified==true and .mismatches==0 and .entriesChecked>0' <<< "$namespace_verification" >/dev/null \
   || { echo "STOP: restored namespace evidence is incomplete" >&2; exit 1; }
+  jq -n --arg manifestSha256 "$namespace_manifest_sha" --argjson evidence "$namespace_verification" \
+    '{manifestSha256:$manifestSha256,writersStarted:false,evidence:$evidence,verifiedAt:(now|todate)}' > "$namespace_checkpoint"
+  chmod 0600 "$namespace_checkpoint"
+fi
 chown 1000:1000 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
 chmod 0700 /mnt/ssd/deniz-cloud/internal /mnt/hdd/backups
 rm -rf -- "$namespace_tmp"
@@ -450,8 +473,6 @@ while IFS=$'\t' read -r principal home shell; do
   fi
 done < <(jq -r '.[] | [.name,.home,.shell] | @tsv' "$samba_principals")
 install -d -m 0755 /etc/samba/deniz-cloud-personal
-[[ -z "$(find /etc/samba/deniz-cloud-personal -mindepth 1 -print -quit)" ]] \
-  || { echo "STOP: clean target has unexpected Samba principal routes" >&2; exit 1; }
 zstd -dc "$samba_routes" | tar --numeric-owner -C /etc/samba/deniz-cloud-personal -xf -
 unexpected_samba_route="$(find /etc/samba/deniz-cloud-personal -mindepth 1 ! -type f -print -quit)"
 [[ -z "$unexpected_samba_route" ]] || { echo "STOP: restored Samba route tree contains an unsafe entry" >&2; exit 1; }
@@ -479,7 +500,14 @@ done < "$samba_passdb"
 sed -i -E "s/^([[:space:]]*force user = ).*$/\\1${storage_user}/" "$samba_config"
 grep -qE "^[[:space:]]*force user = ${storage_user}$" "$samba_config" \
   || { echo "STOP: Samba recovery storage user remap failed" >&2; exit 1; }
-pdbedit -s "$samba_config" -i "smbpasswd:${samba_passdb}" -e tdbsam >/dev/null
+# smbpasswd's Unix UID is host-specific. A source UID can belong to a
+# different system account here; preserve names, hashes and flags while
+# mapping the import to the local account that was just created.
+samba_import="$(mktemp /srv/deniz-dr/samba-import.XXXXXX)"
+cleanup_files+=("$samba_import")
+python3 "$(dirname "$0")/remap-samba-passdb.py" "$samba_passdb" > "$samba_import"
+pdbedit -s "$samba_config" -i "smbpasswd:${samba_import}" -e tdbsam >/dev/null
+rm -f -- "$samba_import"
 while IFS= read -r principal; do
   pdbedit -s "$samba_config" -L -u "$principal" >/dev/null 2>&1 \
     || { echo "STOP: Samba recovery principal import failed: ${principal}" >&2; exit 1; }
@@ -502,6 +530,8 @@ cmp -s "$samba_actual_auth" "$samba_expected_auth" \
 rm -f -- "$samba_expected_auth" "$samba_actual_auth"
 
 systemctl daemon-reload
+jq '.writersStarted=true' "$namespace_checkpoint" > "${namespace_checkpoint}.tmp"
+mv -- "${namespace_checkpoint}.tmp" "$namespace_checkpoint"
 systemctl enable --now deniz-cloud-storage.target
 metadata_socket=/run/deniz-cloud/storage-metadata.sock
 for _ in $(seq 1 60); do
