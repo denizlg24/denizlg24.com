@@ -16,6 +16,7 @@ source_explicit=false
 preview_mode=""
 check_only=false
 no_cutover=false
+reuse_databases=false
 pi_physically_isolated=false
 accept_stale_snapshot=false
 accept_tooling_update=false
@@ -34,6 +35,7 @@ Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID
   --check-only
   --plan | --simulate | --rehearsal (R2 metadata only; no target or bulk storage)
   --no-cutover
+  --reuse-databases (resume only; all database semantic checks still run)
   --pi-physically-isolated (requires explicit physical-disconnection confirmation at cutover)
   --accept-stale-snapshot
   --accept-tooling-update (resume with a reviewed descendant tooling commit; signed backup and capacity evidence must match)
@@ -62,6 +64,7 @@ while (($#)); do
     --simulate | --rehearsal) preview_mode=simulate; shift ;;
     --check-only) check_only=true; shift ;;
     --no-cutover) no_cutover=true; shift ;;
+    --reuse-databases) reuse_databases=true; shift ;;
     --pi-physically-isolated) pi_physically_isolated=true; shift ;;
     --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
     --accept-tooling-update) accept_tooling_update=true; shift ;;
@@ -73,13 +76,14 @@ while (($#)); do
 done
 
 [[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || { usage; exit 2; }
+[[ "$reuse_databases" == false || "$profile" == pi || "$profile" == all ]] || dr_die "database reuse requires a Pi profile"
 [[ "$pi_physically_isolated" == false || "$profile" == pi || "$profile" == all ]] || dr_die "physical Pi isolation requires a Pi profile"
 [[ "$source_kind" == icloud || "$source_kind" == r2 ]] || { usage; exit 2; }
 dr_require_private_file "$config"
 # shellcheck disable=SC1090
 if [[ -n "$preview_mode" ]]; then
   [[ "$source_explicit" == false || "$source_kind" == r2 ]] || dr_die "metadata rehearsal requires --source r2"
-  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false && "$pi_physically_isolated" == false && "$accept_tooling_update" == false ]] \
+  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false && "$pi_physically_isolated" == false && "$accept_tooling_update" == false && "$reuse_databases" == false ]] \
     || dr_die "--plan/--simulate cannot be combined with execution, stale override or target options"
   set -a
   source "$config"
@@ -494,6 +498,7 @@ if [[ -f "$report" ]]; then
   fi
   resume=true
 fi
+[[ "$reuse_databases" == false || "$resume" == true ]] || dr_die "database reuse requires an existing recovery checkpoint"
 target_json="$(ssh "${ssh_opts[@]}" "$ssh_host" 'set -eu; [[ $(id -u) == 0 ]]; for _ in $(seq 1 24); do timedatectl show -p NTPSynchronized --value | grep -qx yes && break; sleep 5; done; timedatectl show -p NTPSynchronized --value | grep -qx yes; getent ahostsv4 github.com >/dev/null; timeout 10 bash -c "</dev/tcp/github.com/443"; . /etc/os-release; populated=$(find /srv /opt -mindepth 1 -maxdepth 2 -print -quit 2>/dev/null || true); root_device=$(findmnt -no SOURCE -T /); rotational=$(lsblk -ndo ROTA "$root_device" | xargs); [[ "$rotational" == 0 || "$rotational" == 1 ]]; jq -n --arg os "$ID" --arg version "$VERSION_ID" --arg arch "$(uname -m)" --arg virt "$(systemd-detect-virt 2>/dev/null || true)" --arg populated "$populated" --argjson rotational "$rotational" --argjson vcpu "$(nproc)" --argjson memoryBytes "$(awk "/MemTotal/{print \$2*1024}" /proc/meminfo)" --argjson diskBytes "$(df -B1 --output=size / | tail -1)" --argjson availableBytes "$(df -B1 --output=avail / | tail -1)" "{os:\$os,version:\$version,architecture:\$arch,virtualization:\$virt,vcpu:\$vcpu,memoryBytes:\$memoryBytes,diskBytes:\$diskBytes,availableBytes:\$availableBytes,populated:\$populated,storageRotational:(\$rotational==1),timeSynchronized:true,outboundNetwork:true}"')"
 jq -e --argjson required "$required_disk" --argjson resume "$resume" '
   .os=="ubuntu" and .version=="24.04" and .architecture=="x86_64" and
@@ -601,6 +606,7 @@ refresh_remote_tools() {
   scp "${ssh_opts[@]}" "$script_dir/remote/bootstrap" "$script_dir/remote/restore-pi" "$script_dir/remote/restore-forge" \
     "$script_dir/remote/resource-sampler" "$script_dir/lib/filter-pg-globals.py" \
     "$script_dir/lib/mongo-semantic.js" "$script_dir/lib/redis-semantic.lua" \
+    "$repo_root/infra/scripts/posix-namespace-restore-verify.sh" "$repo_root/infra/scripts/posix-namespace-acls.py" \
     "$repo_root/infra/scripts/posix-storage-host.sh" "$ssh_host:$remote_root/bin/"
   ssh "${ssh_opts[@]}" "$ssh_host" "chmod 0700 '$remote_root/bin/'*"
   tools_refreshed=true
@@ -682,6 +688,7 @@ if [[ "$profile" == pi || "$profile" == all ]] && ! phase_done restore-pi; then
   begin_phase restore-pi
   copy_snapshot pi-cloud
   combined_flag=""; [[ "$profile" == all ]] && combined_flag="--combined"
+  [[ "$reuse_databases" == false ]] || combined_flag+=" --reuse-databases"
   restore_pi_output="$(ssh "${ssh_opts[@]}" "$ssh_host" "'$remote_root/bin/restore-pi' --root '$remote_root/pi-cloud' $combined_flag")"
   restore_pi_result="$(tail -1 <<< "$restore_pi_output")"
   jq -e '.restored==true and .databasesVerified==true and .namespace.mismatches==0 and

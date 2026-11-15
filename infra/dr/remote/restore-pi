@@ -17,8 +17,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-root=""; combined=false
-while (($#)); do case "$1" in --root) root="${2:-}"; shift 2 ;; --combined) combined=true; shift ;; *) exit 2 ;; esac; done
+root=""; combined=false; reuse_databases=false
+while (($#)); do case "$1" in --root) root="${2:-}"; shift 2 ;; --combined) combined=true; shift ;; --reuse-databases) reuse_databases=true; shift ;; *) exit 2 ;; esac; done
 ((EUID == 0)) || { echo "STOP: restore requires root" >&2; exit 1; }
 [[ "$root" == /srv/deniz-dr/restore/* && -d "$root" ]] || { echo "STOP: unsafe restore root" >&2; exit 1; }
 manifest="$root/snapshot-manifest.json"
@@ -167,6 +167,11 @@ done
 
 postgres_container="$(dc ps -q postgres)"
 postgres_user="$(docker exec "$postgres_container" sh -ceu 'printf %s "$POSTGRES_USER"')"
+mongo_container="$(dc ps -q mongodb)"
+mongo_user="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_USERNAME"')"
+mongo_password="$(docker exec "$mongo_container" sh -ceu 'printf %s "$MONGO_INITDB_ROOT_PASSWORD"')"
+if [[ "$reuse_databases" == false ]]; then
+postgres_user="$(docker exec "$postgres_container" sh -ceu 'printf %s "$POSTGRES_USER"')"
 [[ "$postgres_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "STOP: unsafe bootstrap PostgreSQL role" >&2; exit 1; }
 # initdb and an interrupted import may already have created roles. Skip their
 # canonical CREATE statements only; ALTER ROLE and every grant still apply.
@@ -278,6 +283,7 @@ for _ in $(seq 1 60); do
   [[ -n "$redis_container" ]] && docker exec "$redis_container" sh -ceu 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' 2>/dev/null | grep -q PONG && break
   sleep 1
 done
+fi
 redis_container="$(dc ps -q redis)"
 redis_semantic_script="$(mktemp /srv/deniz-dr/redis-semantic.XXXXXX.lua)"
 cleanup_files+=("$redis_semantic_script" "${redis_semantic_script}.actual" \
@@ -319,7 +325,7 @@ else
   tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$namespace_tmp" -xf "$namespace_archive"
 fi
 (cd "$namespace_tmp" && sha256sum -c SHA256SUMS >/dev/null)
-/opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" >/dev/null
+"$(dirname "$0")/posix-namespace-restore-verify.sh" --backup "$namespace_tmp" --restore-timestamps >/dev/null
 for branch in ssd hdd object-store; do
   case "$branch" in
     ssd | hdd) destination="/mnt/${branch}/deniz-cloud/namespace" ;;
@@ -336,7 +342,7 @@ for branch in ssd hdd object-store; do
     tar --sparse --xattrs --xattrs-include='user.*' --xattrs-include='security.*' --acls --numeric-owner -C "$destination" -xf "$branch_archive"
   fi
 done
-namespace_verification="$(/opt/deniz-cloud/infra/scripts/posix-namespace-restore-verify.sh --backup "$namespace_tmp" \
+namespace_verification="$("$(dirname "$0")/posix-namespace-restore-verify.sh" --backup "$namespace_tmp" --restore-timestamps \
   --ssd-root /mnt/ssd/deniz-cloud/namespace --hdd-root /mnt/hdd/deniz-cloud/namespace \
   --object-root /mnt/ssd/deniz-cloud/internal/.s3-v2)"
 jq -e '.verified==true and .mismatches==0 and .entriesChecked>0' <<< "$namespace_verification" >/dev/null \
@@ -574,6 +580,12 @@ docker exec --env-file "$mongo_semantic_env" "$mongo_container" \
 rm -f -- "$mongo_semantic_env"
 jq -S . "$root/meta/mongodb-semantic.json" > "${mongo_semantic_js}.expected"
 cmp -s "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected" || { echo "STOP: MongoDB documents, indexes, users, or roles differ" >&2; exit 1; }
+# Resume normal TTL expiry only after the complete signed baseline matches.
+docker exec "$mongo_container" sh -ceu '
+  mongosh --quiet "mongodb://127.0.0.1:27017/?directConnection=true" \
+    --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" \
+    --authenticationDatabase admin --eval "$1"
+' sh 'const result=db.adminCommand({setParameter:1,ttlMonitorEnabled:true}); if(result.ok!==1)throw new Error("TTL monitor could not be enabled");' >/dev/null
 docker exec "$mongo_container" rm -f -- /tmp/deniz-dr-semantic.js
 rm -f -- "$mongo_semantic_js" "${mongo_semantic_js}.actual" "${mongo_semantic_js}.expected"
 
@@ -653,12 +665,14 @@ postgres_summary="$(jq '{databases:(.databases|length),tables:(.tables|length),r
 mongodb_summary="$(jq '{databases:(.databases|length),collections:([.databases[].collections|length]|add // 0),documents:([.databases[].collections[].documents]|add // 0),indexes:([.databases[].collections[].indexes|length]|add // 0),users:(.users|length),roles:(.roles|length)}' "$root/meta/mongodb-semantic.json")"
 redis_summary="$(jq '{keys}' "$root/meta/redis-semantic.json")"
 jq -n --argjson postgres "$postgres_summary" --argjson mongodb "$mongodb_summary" \
+  --argjson reusedDatabases "$reuse_databases" \
   --argjson redis "$redis_summary" --argjson namespace "$namespace_verification" \
   --argjson imagesVerified "$(jq '.images|length' "$manifest")" \
   --argjson nutritionExpected "$nutrition_expected" \
   --argjson nutritionVerified "$nutrition_verified" \
-  '{restored:true,profile:"pi",databasesVerified:true,postgres:$postgres,mongodb:$mongodb,redis:$redis,
-    namespace:{entriesChecked:$namespace.entriesChecked,mismatches:$namespace.mismatches},imagesVerified:$imagesVerified,
+  '{restored:true,profile:"pi",databasesVerified:true,reusedDatabases:$reusedDatabases,postgres:$postgres,mongodb:$mongodb,redis:$redis,
+    namespace:{entriesChecked:$namespace.entriesChecked,mismatches:$namespace.mismatches,aclVerification:$namespace.aclVerification,
+      legacyAclNameDifferences:$namespace.legacyAclNameDifferences,timestampsRestored:$namespace.timestampsRestored},imagesVerified:$imagesVerified,
     nutritionExpected:$nutritionExpected,nutritionVerified:$nutritionVerified,
     servicesVerified:(["postgres","mongodb","redis","meilisearch","mongot","api","deniz-cloud-storage.target","cloud-storage-metadata","cloud-terminal","markets-relay"] +
       (if $nutritionVerified then ["nutrition-api"] else [] end)),

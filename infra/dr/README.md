@@ -251,6 +251,12 @@ phrase and signs the timestamped physical-isolation evidence into the recovery
 report. This never substitutes for fencing a selected Forge source. An offline
 status or failed ping alone does not establish physical isolation.
 
+For Pi-only recovery with Forge surviving, preserve `/etc/forge/agent.env` and
+repoint its `CONTROL_PLANE_URL` to the verified replacement Pi API on the tailnet.
+Restart `forge-agent` under the coordinated Forge host lock, check agent health
+and existing public routes, and retain the old endpoint for failback. This
+changes the agent connection; it does not replace the running deployments.
+
 Rollback reverses those steps and removes the bridge override only after the
 home host passes local service, metadata-socket and authenticated deep checks,
 every fenced container and hostname passes through the local proxy, and the
@@ -284,3 +290,15 @@ application's implementation and its named encrypted deep-health credential.
 [Resource monitoring](../../docs/dr/README.md#resource-monitoring) covers how it
 relates to the external monitoring provider and to the status history the public
 site reads.
+
+Legacy MongoDB backups may have captured their semantic counts after the backup
+verifier's TTL monitor expired some archived records. `lib/mongo-ttl-plan.py`
+prepares a compatibility plan only when excess documents have one unchanged TTL
+index and every other semantic field agrees. The cutoff comes from the
+checksum-verified semantic artifact's timestamp, bounded by the backup window.
+With writers stopped and the TTL monitor paused, `lib/mongo-reconcile-ttl.js`
+defaults to a dry run: the records expired at that cutoff must explain the entire
+count difference exactly. An operator may explicitly apply that plan with
+`DR_MONGO_TTL_APPLY=true`, retain the evidence, and resume with
+`--reuse-databases`. Every PostgreSQL, MongoDB and Redis semantic check still
+runs; successful MongoDB verification enables its TTL monitor before app startup.
