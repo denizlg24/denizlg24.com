@@ -7,7 +7,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 source "$script_dir/lib/common.sh"
 config=""; target=""; ssh_host=""; profile=""; report=""; known_hosts=""
 pi_physically_isolated=false
-token_file=""; tunnel_started=false; public_mutated=false; override_written=false; opened_ports=()
+token_file=""; tunnel_started=false; public_mutated=false; override_written=false; opened_ports=""
 cleanup() {
   local status=$?
   [[ -z "$token_file" ]] || rm -f -- "$token_file"
@@ -17,11 +17,12 @@ cleanup() {
   if ((status != 0)) && [[ "$tunnel_started" == true && "$public_mutated" == false ]]; then
     ssh "${ssh_opts[@]}" "$ssh_host" "systemctl disable --now deniz-dr-tunnel.service" >/dev/null 2>&1 || true
   fi
-  if ((status != 0)) && [[ "$public_mutated" == false && ${#opened_ports[@]} -gt 0 ]]; then
-    for port in "${opened_ports[@]}"; do
+  if ((status != 0)) && [[ "$public_mutated" == false && -n "$opened_ports" ]]; then
+    for port in $opened_ports; do
       ssh "${ssh_opts[@]}" "$ssh_host" "ufw --force delete allow '${port}/tcp'" >/dev/null 2>&1 || true
     done
   fi
+  exit "$status"
 }
 trap cleanup EXIT
 while (($#)); do
@@ -213,15 +214,15 @@ while IFS= read -r url; do
   [[ "$probe_ready" == true ]] || dr_die "dedicated DR tunnel external probe failed: ${url}"
 done < <(jq -r --arg profile "$profile" '.preCutoverHealthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
 target_ip="${target#*@}"
-while IFS=$'\t' read -r host port; do
+while IFS=$'\t' read -r host port starttls; do
   [[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || dr_die "invalid reviewed TLS port"
-  if [[ ! " ${opened_ports[*]} " == *" ${port} "* ]]; then
+  if [[ ! " $opened_ports " == *" ${port} "* ]]; then
     ssh -n "${ssh_opts[@]}" "$ssh_host" "ufw allow '${port}/tcp' comment 'DR reviewed TLS cutover'" >/dev/null
-    opened_ports+=("$port")
+    opened_ports+=" $port"
   fi
-  openssl s_client -connect "${target_ip}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+  python3 "$script_dir/lib/tls-probe.py" --address "${target_ip}" --host "$host" --port "$port" --starttls "$starttls" \
     || dr_die "pre-cutover TLS probe failed for ${host}:${port} at ${target_ip}"
-done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port,(.starttls // "none")] | @tsv' "$DR_EXTERNAL_STATE")
 jq '.checks += [{name:"dedicated DR tunnel",status:"ok",detail:"local readiness, Cloudflare edge status, and external probe hostnames passed before cutover"},
                 {name:"pre-cutover external TLS",status:"ok",detail:"selected direct TLS services passed against the new public IP before DNS mutation"}] | .updatedAt=(now|todate)' \
   "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
@@ -410,10 +411,10 @@ while IFS= read -r url; do
   for _ in $(seq 1 30); do curl -fsS --max-time 10 "$url" >/dev/null && break; sleep 10; done
   curl -fsS --max-time 10 "$url" >/dev/null || failures=$((failures + 1))
 done < <(jq -r --arg profile "$profile" '.healthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
-while IFS=$'\t' read -r host port; do
-  openssl s_client -connect "${host}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+while IFS=$'\t' read -r host port starttls; do
+  python3 "$script_dir/lib/tls-probe.py" --address "${host}" --host "$host" --port "$port" --starttls "$starttls" \
     || failures=$((failures + 1))
-done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port,(.starttls // "none")] | @tsv' "$DR_EXTERNAL_STATE")
 ((failures == 0)) || dr_die "post-cutover external health checks failed; apply the signed reverse patch"
 
 better_get() {

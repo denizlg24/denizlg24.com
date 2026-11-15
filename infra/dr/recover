@@ -788,6 +788,8 @@ if [[ "$no_cutover" == false ]]; then
   isolation_args=()
   [[ "$pi_physically_isolated" == false ]] || isolation_args+=(--pi-physically-isolated)
   "$script_dir/cutover" --config "$config" --host "$target_host" --ssh-host "$ssh_host" --profile "$profile" --report "$report" --ssh-known-hosts "$known_hosts" "${isolation_args[@]}"
+  jq -e '.result=="recovered" and .cutover.performed==true and .cutover.fenced==true' "$report" >/dev/null \
+    || dr_die "cutover exited without recording complete external verification"
 else
   jq '.result="verified-no-cutover" | .updatedAt=(now|todate)' "$report" > "${report}.tmp" && mv "${report}.tmp" "$report"
 fi

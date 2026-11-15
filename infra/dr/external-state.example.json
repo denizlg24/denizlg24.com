@@ -91,9 +91,14 @@
     { "url": "https://dr-forge-probe.denizlg24.com", "profiles": ["forge"] }
   ],
   "tlsEndpoints": [
-    { "host": "postgres.denizlg24.com", "port": 5433, "profiles": ["pi"] },
+    {
+      "host": "postgres.denizlg24.com",
+      "port": 5433,
+      "starttls": "postgres",
+      "profiles": ["pi"]
+    },
     { "host": "mongodb.denizlg24.com", "port": 27018, "profiles": ["pi"] },
-    { "host": "redis.denizlg24.com", "port": 6380, "profiles": ["pi"] }
+    { "host": "redis.denizlg24.com", "port": 6381, "profiles": ["pi"] }
   ],
   "betterStackMonitorIds": [
     { "id": "replace-api-monitor-id", "profiles": ["pi"] },
