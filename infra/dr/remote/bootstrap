@@ -53,7 +53,8 @@ fi
 curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.tailscale-keyring.list" \
   -o /etc/apt/sources.list.d/tailscale.list
 curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
-printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared %s main\n' "$VERSION_CODENAME" \
+chmod 0644 /usr/share/keyrings/tailscale-archive-keyring.gpg /usr/share/keyrings/cloudflare-main.gpg
+printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared %s main\n' any \
   > /etc/apt/sources.list.d/cloudflared.list
 
 apt-get update -qq
@@ -61,9 +62,27 @@ install_exact_or_stop() {
   local package="$1" recorded candidate
   recorded="$(jq -r --arg package "$package" '.[$package] // empty' "$packages")"
   [[ -n "$recorded" ]] || { echo "STOP: snapshot did not record ${package}" >&2; return 1; }
+  if [[ "$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null || true)" == "$recorded" ]]; then return; fi
   candidate="$(apt-cache madison "$package" | awk '{print $3}' | grep -Fx "$recorded" | head -1 || true)"
+  if [[ -z "$candidate" && "$package" == cloudflared ]]; then
+    # Cloudflare's APT index retains only its latest release. Bind an older
+    # official release asset to GitHub's published SHA-256, then verify the
+    # package version before installing it.
+    [[ "$recorded" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]+$ ]] || return 1
+    local release asset digest deb
+    release="$(curl --proto '=https' --tlsv1.2 -fsSL "https://api.github.com/repos/cloudflare/cloudflared/releases/tags/$recorded")"
+    asset="$(jq -ce '[.assets[] | select(.name=="cloudflared-linux-amd64.deb")] | if length==1 then .[0] else error("missing unique cloudflared asset") end' <<< "$release")"
+    digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<< "$asset")"
+    deb="$(mktemp /tmp/cloudflared.XXXXXX.deb)"
+    curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$recorded/cloudflared-linux-amd64.deb" -o "$deb"
+    [[ "$(sha256sum "$deb" | awk '{print $1}')" == "${digest#sha256:}" && "$(dpkg-deb -f "$deb" Version)" == "$recorded" ]] \
+      || { rm -f -- "$deb"; echo "STOP: cloudflared release verification failed" >&2; return 1; }
+    apt-get install -y --allow-downgrades "$deb"
+    rm -f -- "$deb"
+    return
+  fi
   [[ "$candidate" == "$recorded" ]] || { echo "STOP: recorded package is unavailable: ${package}=${recorded}" >&2; return 1; }
-  apt-get install -y "${package}=${recorded}"
+  apt-get install -y --allow-downgrades "${package}=${recorded}"
 }
 required_packages=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic tailscale cloudflared)
 if [[ "$profile" == pi || "$profile" == all ]]; then

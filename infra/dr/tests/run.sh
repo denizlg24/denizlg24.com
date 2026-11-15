@@ -123,6 +123,18 @@ jq '.preflight | .oldestSnapshotAgeSeconds=7200 | .stale=false | .staleAccepted=
   "$dr_root/tests/fixtures/recovery-report.valid.json" > "$preflight_current"
 dr_assert_recovery_preflight_compatible \
   "$dr_root/tests/fixtures/recovery-report.valid.json" "$preflight_current"
+jq '.recoveryToolRevision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' "$preflight_current" > "$temporary/preflight-tooling-update.json"
+if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-update.json") >/dev/null 2>&1; then
+  dr_die "recovery checkpoint accepted a tooling change without explicit acceptance"
+fi
+dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-update.json" true
+jq '.restoredBytes += 1' "$temporary/preflight-tooling-update.json" > "$temporary/preflight-tooling-unsafe.json"
+if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-unsafe.json" true) >/dev/null 2>&1; then
+  dr_die "tooling update accepted changed signed capacity evidence"
+fi
 jq '.restoredBytes += 1' "$preflight_current" > "$temporary/preflight-incompatible.json"
 if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
   "$temporary/preflight-incompatible.json") >/dev/null 2>&1; then

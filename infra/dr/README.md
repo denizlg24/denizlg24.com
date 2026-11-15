@@ -227,6 +227,11 @@ path. The public address remains only the target's identity and DNS
 destination. Plaintext staging is deleted after a verified restore. Rerunning
 the same target, profile and snapshot resumes only compatible checkpoints:
 time-dependent inputs may refresh, but changed signed evidence cannot reuse one.
+If a bootstrap fix is needed during an incident, `--accept-tooling-update`
+permits a clean descendant tooling commit after verifying the previous signed
+report. Every other preflight field must still match; the report records both
+tooling revisions. Bootstrap retries reuse the pinned public host key until the
+target has joined Tailscale.
 
 ## Cutover and rollback
 

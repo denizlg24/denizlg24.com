@@ -18,6 +18,7 @@ check_only=false
 no_cutover=false
 pi_physically_isolated=false
 accept_stale_snapshot=false
+accept_tooling_update=false
 provider=""
 region=""
 size=""
@@ -35,6 +36,7 @@ Usage: recover [--config FILE] --profile pi|forge|all --snapshot latest|ID|PI_ID
   --no-cutover
   --pi-physically-isolated (requires explicit physical-disconnection confirmation at cutover)
   --accept-stale-snapshot
+  --accept-tooling-update (resume with a reviewed descendant tooling commit; signed backup and capacity evidence must match)
   --provider hetzner --region REGION --size recommended
 
 Runs on macOS. --check-only performs the complete local signature/restic
@@ -62,6 +64,7 @@ while (($#)); do
     --no-cutover) no_cutover=true; shift ;;
     --pi-physically-isolated) pi_physically_isolated=true; shift ;;
     --accept-stale-snapshot) accept_stale_snapshot=true; shift ;;
+    --accept-tooling-update) accept_tooling_update=true; shift ;;
     --provider) provider="${2:-}"; shift 2 ;;
     --region) region="${2:-}"; shift 2 ;;
     --size) size="${2:-}"; shift 2 ;;
@@ -76,7 +79,7 @@ dr_require_private_file "$config"
 # shellcheck disable=SC1090
 if [[ -n "$preview_mode" ]]; then
   [[ "$source_explicit" == false || "$source_kind" == r2 ]] || dr_die "metadata rehearsal requires --source r2"
-  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false && "$pi_physically_isolated" == false ]] \
+  [[ -z "$target_host" && -z "$provider" && "$check_only" == false && "$no_cutover" == false && "$accept_stale_snapshot" == false && "$pi_physically_isolated" == false && "$accept_tooling_update" == false ]] \
     || dr_die "--plan/--simulate cannot be combined with execution, stale override or target options"
   set -a
   source "$config"
@@ -449,10 +452,10 @@ cutover_requested="$([[ "$no_cutover" == false ]] && printf true || printf false
 resume=false
 ssh_host="$target_host"
 known_hosts="$work/known_hosts"
-if [[ -f "$report" && -f "$report_dir/known_hosts" ]] && jq -e '.target.tailnetHost != null' "$report" >/dev/null; then
+if [[ -f "$report" && -f "$report_dir/known_hosts" ]]; then
   known_hosts="$report_dir/known_hosts"
-  ssh_host="$(jq -er .target.tailnetHost "$report")"
-  [[ "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
+  ssh_host="$(jq -er '.target.tailnetHost // .target.host' "$report")"
+  [[ "$ssh_host" == "$target_host" || "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
     || dr_die "existing recovery checkpoint has an invalid Tailscale transport"
   fingerprint="$(jq -er .target.fingerprint "$report")"
 else
@@ -471,7 +474,14 @@ if [[ "$ssh_host" != "$target_host" ]]; then
   ssh_opts+=(-o "HostKeyAlias=${target_host#*@}")
 fi
 if [[ -f "$report" ]]; then
-  dr_assert_recovery_preflight_compatible "$report" "$work/preflight.json"
+  dr_verify_file "$DR_ALLOWED_SIGNERS" "$DR_COMPLETION_SIGNER" deniz-dr-recovery "${report}.sig" "$report"
+  previous_tool_revision="$(jq -er .preflight.recoveryToolRevision "$report")"
+  if [[ "$previous_tool_revision" != "$recovery_tool_revision" ]]; then
+    [[ "$accept_tooling_update" == true ]] || dr_die "recovery tooling changed; review the commits and rerun with --accept-tooling-update"
+    git -C "$repo_root" merge-base --is-ancestor "$previous_tool_revision" "$recovery_tool_revision" \
+      || dr_die "updated recovery tooling must descend from the recorded revision"
+  fi
+  dr_assert_recovery_preflight_compatible "$report" "$work/preflight.json" "$accept_tooling_update"
   jq -e --arg id "$recovery_id" --arg profile "$profile" --argjson snapshots "$snapshot_ids" \
     --arg host "$target_host" --arg fingerprint "$fingerprint" --argjson cutover "$cutover_requested" \
     '.recoveryId==$id and .profile==$profile and .snapshotIds==$snapshots and
@@ -500,7 +510,10 @@ report_mutable=true
 rm -f -- "${report}.sig"
 if [[ -f "$report" ]]; then
   jq --argjson cutover "$cutover_requested" --argjson preflight "$preflight" \
-    '.result="in-progress" | .cutover.requested=$cutover | .preflight=$preflight | .updatedAt=(now|todate)' \
+    --arg previousRevision "$previous_tool_revision" --arg revision "$recovery_tool_revision" \
+    '.result="in-progress" | .cutover.requested=$cutover |
+     (if $previousRevision!=$revision then .checks += [{name:"reviewed recovery tooling update",status:"ok",detail:"Operator accepted a clean descendant tooling revision; all other signed preflight evidence matches",evidence:{previousRevision:$previousRevision,revision:$revision,acceptedAt:(now|todate)}}] else . end) |
+     .preflight=$preflight | .updatedAt=(now|todate)' \
     "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
 else
   jq -n --arg id "$recovery_id" --arg now "$(date -u +%FT%TZ)" --arg profile "$profile" --argjson snapshots "$snapshot_ids" \
