@@ -199,7 +199,10 @@ Three modes sit at different costs:
   evidence and uncompressed configuration archives; compressed backup bytes are
   reported separately and never stand in for restored bytes.
 - **Full recovery** bootstraps and verifies a real target, optionally stopping
-  before any public change.
+  before any public change. With `--source r2`, only signed metadata is staged
+  on the Mac. The target reads the encrypted payload directly from R2, checks
+  its manifest against the signed READY hash and verifies every artifact before
+  activation. Temporary restore credentials are removed on success or failure.
 
 A recovery point older than 24 hours stops after printing its age; proceeding
 requires an explicit flag and an interactive confirmation. Every snapshot binds
@@ -224,10 +227,15 @@ path. The public address remains only the target's identity and DNS
 destination. Plaintext staging is deleted after a verified restore. Rerunning
 the same target, profile and snapshot resumes only compatible checkpoints:
 time-dependent inputs may refresh, but changed signed evidence cannot reuse one.
+If a bootstrap fix is needed during an incident, `--accept-tooling-update`
+permits a clean descendant tooling commit after verifying the previous signed
+report. Every other preflight field must still match; the report records both
+tooling revisions. Bootstrap retries reuse the pinned public host key until the
+target has joined Tailscale.
 
 ## Cutover and rollback
 
-Cutover requires every selected source endpoint to be reachable. It stops the
+Cutover normally requires every selected source endpoint to be reachable. It stops the
 source's backup jobs, writers and tunnel, atomically repoints the Mac bridge
 route at the target using the report's pinned host key, changes only the
 selected profile's active-site lease, then enables the target's backup and
@@ -236,8 +244,18 @@ DNS mutation and an external health URL for every domain in the signed restore
 inventory — a representative dashboard cannot stand in for the recovered
 applications.
 
-There is no override for an unreachable source. Recovery may still be verified,
-but public mutation stops until the source can be authoritatively fenced.
+For a failed Pi, `--pi-physically-isolated` accepts an explicit operator
+attestation that both power and Ethernet have already been unplugged and will
+remain disconnected until failback. Cutover requires the full confirmation
+phrase and signs the timestamped physical-isolation evidence into the recovery
+report. This never substitutes for fencing a selected Forge source. An offline
+status or failed ping alone does not establish physical isolation.
+
+For Pi-only recovery with Forge surviving, preserve `/etc/forge/agent.env` and
+repoint its `CONTROL_PLANE_URL` to the verified replacement Pi API on the tailnet.
+Restart `forge-agent` under the coordinated Forge host lock, check agent health
+and existing public routes, and retain the old endpoint for failback. This
+changes the agent connection; it does not replace the running deployments.
 
 Rollback reverses those steps and removes the bridge override only after the
 home host passes local service, metadata-socket and authenticated deep checks,
@@ -272,3 +290,23 @@ application's implementation and its named encrypted deep-health credential.
 [Resource monitoring](../../docs/dr/README.md#resource-monitoring) covers how it
 relates to the external monitoring provider and to the status history the public
 site reads.
+
+Legacy MongoDB backups may have captured their semantic counts after the backup
+verifier's TTL monitor expired some archived records. `lib/mongo-ttl-plan.py`
+prepares a compatibility plan only when excess documents have one unchanged TTL
+index and every other semantic field agrees. The cutoff comes from the
+checksum-verified semantic artifact's timestamp, bounded by the backup window.
+With writers stopped and the TTL monitor paused, `lib/mongo-reconcile-ttl.js`
+defaults to a dry run: the records expired at that cutoff must explain the entire
+count difference exactly. An operator may explicitly apply that plan with
+`DR_MONGO_TTL_APPLY=true`, retain the evidence, and resume with
+`--reuse-databases`. Every PostgreSQL, MongoDB and Redis semantic check still
+runs; successful MongoDB verification enables its TTL monitor before app startup.
+
+Pi release workflows accept an optional `PI_SSH_PRIVATE_KEY` repository secret
+for a replacement host using ordinary OpenSSH. Install its public key for the
+`denizlg24` deployment account with the same sudo access the release scripts
+require, and apply the `tag:ci` → `tag:dr` TCP 22 grant in the tailnet policy.
+The original Pi's Tailscale SSH deployment path continues to work when this
+secret is absent. Keep `PI_TAILNET_HOST=pi-cloud` when transferring that name to
+the replacement node.

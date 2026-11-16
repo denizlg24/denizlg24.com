@@ -17,7 +17,14 @@ const databases = admin
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(({ name: collectionName }) => ({
           name: collectionName,
-          documents: database.getCollection(collectionName).countDocuments({}),
+          // Authenticated root can list view definitions but cannot aggregate
+          // system.views. Its records correspond exactly to the view catalog.
+          documents:
+            collectionName === "system.views"
+              ? database.getCollectionInfos({
+                  type: { $in: ["view", "timeseries"] },
+                }).length
+              : database.getCollection(collectionName).countDocuments({}),
           indexes: database
             .getCollection(collectionName)
             .getIndexes()

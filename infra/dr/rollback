@@ -102,7 +102,7 @@ target="$(jq -er .target.tailnetHost "$report")"
 [[ "$public_target" =~ ^root@([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "report public target is invalid"
 [[ "$target" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || dr_die "report Tailscale target is invalid"
 known_hosts="$(dirname "$report")/known_hosts"
-ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${public_target#*@}")
+ssh_opts=(-o BatchMode=yes -o "UserKnownHostsFile=\"$known_hosts\"" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${public_target#*@}")
 dr_require_private_file "$DR_ACTIVE_RECOVERY_OVERRIDE"
 if [[ "$profile" == pi || "$profile" == all ]]; then
   grep -Fxq "DR_PI_SSH=${target}" "$DR_ACTIVE_RECOVERY_OVERRIDE" || dr_die "Mac bridge override does not point Pi at this recovery target"

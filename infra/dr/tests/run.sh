@@ -45,8 +45,16 @@ for script in \
 done
 
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_remote_r2.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_physical_fence.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_pg_globals.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_mongo_semantic.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_mongo_ttl_plan.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_samba_import.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_cutover_contract.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_r2_bridge.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_backup_inventory.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_namespace_pack.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_storage_reconcile.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_deploy_fences.py'
 python3 -m unittest discover -s "$root/infra/status" -p 'test_*.py'
@@ -121,6 +129,18 @@ jq '.preflight | .oldestSnapshotAgeSeconds=7200 | .stale=false | .staleAccepted=
   "$dr_root/tests/fixtures/recovery-report.valid.json" > "$preflight_current"
 dr_assert_recovery_preflight_compatible \
   "$dr_root/tests/fixtures/recovery-report.valid.json" "$preflight_current"
+jq '.recoveryToolRevision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' "$preflight_current" > "$temporary/preflight-tooling-update.json"
+if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-update.json") >/dev/null 2>&1; then
+  dr_die "recovery checkpoint accepted a tooling change without explicit acceptance"
+fi
+dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-update.json" true
+jq '.restoredBytes += 1' "$temporary/preflight-tooling-update.json" > "$temporary/preflight-tooling-unsafe.json"
+if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
+  "$temporary/preflight-tooling-unsafe.json" true) >/dev/null 2>&1; then
+  dr_die "tooling update accepted changed signed capacity evidence"
+fi
 jq '.restoredBytes += 1' "$preflight_current" > "$temporary/preflight-incompatible.json"
 if (dr_assert_recovery_preflight_compatible "$dr_root/tests/fixtures/recovery-report.valid.json" \
   "$temporary/preflight-incompatible.json") >/dev/null 2>&1; then

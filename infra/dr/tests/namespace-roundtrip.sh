@@ -30,8 +30,8 @@ printf '{"schemaVersion":1,"branchId":"22222222-2222-4222-8222-222222222222","fi
   > "$hdd/.denizcloud-branch.json"
 printf 'authoritative payload\n' > "$ssd/folder with spaces/document.txt"
 printf 'project object payload\n' > "$object_store/bucket/objects/object.bin"
-truncate -s 1048576 "$hdd/archive/sparse.bin"
-printf x | dd of="$hdd/archive/sparse.bin" bs=1 seek=1048575 conv=notrunc status=none
+truncate -s 1048576 "$hdd/archive/sparsê.bin"
+printf x | dd of="$hdd/archive/sparsê.bin" bs=1 seek=1048575 conv=notrunc status=none
 setfattr -n user.denizcloud.roundtrip -v preserved -- "$ssd/folder with spaces/document.txt"
 setfattr -n security.denizcloud.id -v 33333333-3333-4333-8333-333333333333 -- "$ssd/folder with spaces/document.txt"
 setfacl -m u:daemon:r-- -- "$ssd/folder with spaces/document.txt"
@@ -60,5 +60,25 @@ jq -e '.verified==true and .mismatches==0 and .entriesChecked==12 and .liveNames
   <<< "$verification" >/dev/null
 [[ "$(getfattr --only-values -n user.denizcloud.roundtrip -- "$restored_ssd/folder with spaces/document.txt")" == preserved ]] \
   || { echo "user xattr did not survive namespace round trip" >&2; exit 1; }
+
+touch -m -d '@1' "$restored_ssd/folder with spaces/document.txt"
+if "$root/infra/scripts/posix-namespace-restore-verify.sh" --backup "$backup_dir" --ssd-root "$restored_ssd" \
+  --hdd-root "$restored_hdd" --object-root "$restored_object_store" >/dev/null 2>&1; then
+  echo "strict verification accepted a changed timestamp" >&2; exit 1
+fi
+verification="$("$root/infra/scripts/posix-namespace-restore-verify.sh" --backup "$backup_dir" --ssd-root "$restored_ssd" \
+  --hdd-root "$restored_hdd" --object-root "$restored_object_store" --restore-timestamps)"
+jq -e '.verified and .timestampsRestored==1 and .aclVerification=="archive-numeric"' <<< "$verification" >/dev/null
+setfacl -m u:daemon:rwx -- "$restored_ssd/folder with spaces/document.txt"
+if "$root/infra/scripts/posix-namespace-restore-verify.sh" --backup "$backup_dir" --ssd-root "$restored_ssd" \
+  --hdd-root "$restored_hdd" --object-root "$restored_object_store" --restore-timestamps >/dev/null 2>&1; then
+  echo "numeric ACL verification accepted changed permissions" >&2; exit 1
+fi
+setfacl -m u:daemon:r-- -- "$restored_ssd/folder with spaces/document.txt"
+printf 'changed payload\n' > "$restored_ssd/folder with spaces/document.txt"
+if "$root/infra/scripts/posix-namespace-restore-verify.sh" --backup "$backup_dir" --ssd-root "$restored_ssd" \
+  --hdd-root "$restored_hdd" --object-root "$restored_object_store" --restore-timestamps >/dev/null 2>&1; then
+  echo "metadata restoration bypassed content verification" >&2; exit 1
+fi
 
 printf 'Namespace backup disposable restore round-trip passed\n'

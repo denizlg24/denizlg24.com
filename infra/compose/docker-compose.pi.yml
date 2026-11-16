@@ -368,7 +368,8 @@ services:
       MEILISEARCH_ADMIN_KEY: ${MEILI_MASTER_KEY}
       MEILISEARCH_URL: http://meilisearch:7700
       METRICS_NOTIFICATION_WEBHOOK_URL: ${METRICS_NOTIFICATION_WEBHOOK_URL:-}
-      MICROSD_DEVICE: ${MICROSD_DEVICE:-/dev/mmcblk0p2}
+      # An explicitly empty value disables SD-card monitoring on a recovery VM.
+      MICROSD_DEVICE: ${MICROSD_DEVICE-/dev/mmcblk0p2}
       MOBILE_NOTIFY_TOKEN: ${MOBILE_NOTIFY_TOKEN:-}
       MOBILE_NOTIFY_URL: ${MOBILE_NOTIFY_URL:-}
       OPS_ALERT_EMAIL_FROM: ${OPS_ALERT_EMAIL_FROM:-}

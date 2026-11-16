@@ -103,7 +103,7 @@ server_created=true
 for _ in $(seq 1 60); do
   server="$(api GET "servers/$id" | jq -c .server)"
   status="$(jq -r .status <<< "$server")"
-  firewall_status="$(jq -r --argjson id "$firewall_id" '.public_net.firewalls[]? | select(.firewall.id==$id) | .status' <<< "$server")"
+  firewall_status="$(jq -r --argjson id "$firewall_id" '.public_net.firewalls[]? | select(.id==$id) | .status' <<< "$server")"
   [[ "$status" == running && "$firewall_status" == applied ]] && break
   sleep 2
 done

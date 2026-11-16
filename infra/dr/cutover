@@ -6,7 +6,8 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$script_dir/lib/common.sh"
 config=""; target=""; ssh_host=""; profile=""; report=""; known_hosts=""
-token_file=""; tunnel_started=false; public_mutated=false; override_written=false; opened_ports=()
+pi_physically_isolated=false
+token_file=""; tunnel_started=false; public_mutated=false; override_written=false; opened_ports=""
 cleanup() {
   local status=$?
   [[ -z "$token_file" ]] || rm -f -- "$token_file"
@@ -16,11 +17,12 @@ cleanup() {
   if ((status != 0)) && [[ "$tunnel_started" == true && "$public_mutated" == false ]]; then
     ssh "${ssh_opts[@]}" "$ssh_host" "systemctl disable --now deniz-dr-tunnel.service" >/dev/null 2>&1 || true
   fi
-  if ((status != 0)) && [[ "$public_mutated" == false && ${#opened_ports[@]} -gt 0 ]]; then
-    for port in "${opened_ports[@]}"; do
+  if ((status != 0)) && [[ "$public_mutated" == false && -n "$opened_ports" ]]; then
+    for port in $opened_ports; do
       ssh "${ssh_opts[@]}" "$ssh_host" "ufw --force delete allow '${port}/tcp'" >/dev/null 2>&1 || true
     done
   fi
+  exit "$status"
 }
 trap cleanup EXIT
 while (($#)); do
@@ -31,6 +33,7 @@ while (($#)); do
     --profile) profile="${2:-}"; shift 2 ;;
     --report) report="${2:-}"; shift 2 ;;
     --ssh-known-hosts) known_hosts="${2:-}"; shift 2 ;;
+    --pi-physically-isolated) pi_physically_isolated=true; shift ;;
     *) exit 2 ;;
   esac
 done
@@ -38,6 +41,7 @@ done
 [[ "$target" =~ ^root@([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || dr_die "cutover public target is invalid"
 [[ "$ssh_host" =~ ^root@100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || dr_die "cutover Tailscale target is invalid"
 [[ "$profile" == pi || "$profile" == forge || "$profile" == all ]] || dr_die "cutover profile is invalid"
+[[ "$pi_physically_isolated" == false || "$profile" == pi || "$profile" == all ]] || dr_die "physical Pi isolation requires a Pi profile"
 dr_require_private_file "$config"
 # shellcheck disable=SC1090
 source "$config"
@@ -68,7 +72,7 @@ jq -e '
     (.expectedHomeContent|type=="string" and length>0) and
     (.ttl|type=="number" and .>=1 and .<=60) and (.proxied|type=="boolean") and
     (.publicHostnames|type=="array" and length>0 and
-      all(.publicHostnames[]; type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) and
+      all(.[]; type=="string" and test("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) and
     (.profiles|type=="array" and length>0 and all(.[]; .=="pi" or .=="forge"))) and
   all(.healthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and
   all(.preCutoverHealthUrls[]; (.url|type=="string" and startswith("https://")) and (.profiles|length>0)) and
@@ -98,7 +102,7 @@ fi
 for identifier in "$DR_CLOUDFLARE_ACCOUNT_ID" "$DR_CLOUDFLARE_ZONE_ID" "$DR_CLOUDFLARE_DR_TUNNEL_ID"; do
   [[ "$identifier" =~ ^[A-Za-z0-9_-]+$ ]] || dr_die "unsafe Cloudflare identifier"
 done
-ssh_opts=(-o BatchMode=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target#*@}")
+ssh_opts=(-o BatchMode=yes -o "UserKnownHostsFile=\"$known_hosts\"" -o StrictHostKeyChecking=yes -o "HostKeyAlias=${target#*@}")
 
 cf_api() {
   local method="$1" path="$2" body="${3:-}"
@@ -210,15 +214,15 @@ while IFS= read -r url; do
   [[ "$probe_ready" == true ]] || dr_die "dedicated DR tunnel external probe failed: ${url}"
 done < <(jq -r --arg profile "$profile" '.preCutoverHealthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
 target_ip="${target#*@}"
-while IFS=$'\t' read -r host port; do
+while IFS=$'\t' read -r host port starttls; do
   [[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || dr_die "invalid reviewed TLS port"
-  if [[ ! " ${opened_ports[*]} " == *" ${port} "* ]]; then
+  if [[ ! " $opened_ports " == *" ${port} "* ]]; then
     ssh -n "${ssh_opts[@]}" "$ssh_host" "ufw allow '${port}/tcp' comment 'DR reviewed TLS cutover'" >/dev/null
-    opened_ports+=("$port")
+    opened_ports+=" $port"
   fi
-  openssl s_client -connect "${target_ip}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+  python3 "$script_dir/lib/tls-probe.py" --address "${target_ip}" --host "$host" --port "$port" --starttls "$starttls" \
     || dr_die "pre-cutover TLS probe failed for ${host}:${port} at ${target_ip}"
-done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port,(.starttls // "none")] | @tsv' "$DR_EXTERNAL_STATE")
 jq '.checks += [{name:"dedicated DR tunnel",status:"ok",detail:"local readiness, Cloudflare edge status, and external probe hostnames passed before cutover"},
                 {name:"pre-cutover external TLS",status:"ok",detail:"selected direct TLS services passed against the new public IP before DNS mutation"}] | .updatedAt=(now|todate)' \
   "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
@@ -227,6 +231,14 @@ dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}
 printf 'Pre-cutover checks passed. Reverse patch: %s\nType CUTOVER to fence writers and move public traffic: ' "$reverse" >&2
 IFS= read -r confirmation
 [[ "$confirmation" == CUTOVER ]] || dr_die "public cutover was not confirmed"
+if [[ "$pi_physically_isolated" == true ]]; then
+  printf 'Physical Pi isolation requires power AND Ethernet unplugged, and no reconnection until failback.\nType PI POWER AND ETHERNET DISCONNECTED to attest this is already done: ' >&2
+  IFS= read -r isolation_confirmation
+  [[ "$isolation_confirmation" == 'PI POWER AND ETHERNET DISCONNECTED' ]] || dr_die "physical Pi isolation was not confirmed"
+  jq '.checks += [{name:"Pi physical isolation",status:"ok",detail:"Operator attests that old Pi power and Ethernet are disconnected and will remain disconnected until failback; no SSH isolation was claimed",evidence:{method:"operator-physical-disconnection",confirmedAt:(now|todate),powerDisconnected:true,ethernetDisconnected:true,remainDisconnectedUntilFailback:true}}] | .updatedAt=(now|todate)' \
+    "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
+  dr_sign_file "$DR_COMPLETION_SIGNING_KEY" deniz-dr-recovery "$report" "${report}.sig"
+fi
 
 fenced=true
 fence_one() {
@@ -274,14 +286,14 @@ done < "$state"
 [[ -z "$(docker ps --no-trunc -q --filter label=forge.deployment)" ]]
 REMOTE_FORGE_FENCE
 }
-if [[ "$profile" == pi || "$profile" == all ]]; then
+if [[ ( "$profile" == pi || "$profile" == all ) && "$pi_physically_isolated" == false ]]; then
   fence_one "${DR_PI_SSH:-}" "sudo systemctl disable --now deniz-dr-backup@pi.timer deniz-dr-heartbeat@pi.timer deniz-dr-r2-sync@pi.timer deniz-dr-r2-retention@pi.timer deniz-dr-external-export.timer; sudo systemctl stop deniz-dr-backup@pi.service deniz-dr-heartbeat@pi.service deniz-dr-r2-sync@pi.service deniz-dr-r2-retention@pi.service deniz-dr-external-export.service deniz-cloud-storage.target cloud-terminal.service cloudflared.service; test -f /opt/markets-relay/docker-compose.markets.yml && test -f /opt/markets-relay/.env.markets; cd /opt/markets-relay && sudo docker compose --env-file .env.markets -f docker-compose.markets.yml down; if [ -f /opt/nutrition-api/docker-compose.yml ]; then cd /opt/nutrition-api && sudo docker compose -f docker-compose.yml down; elif [ -f /etc/systemd/system/nutrition-api.service ]; then sudo systemctl stop nutrition-api.service; elif [ -d /opt/nutrition-api ]; then exit 1; fi; cd /opt/deniz-cloud/infra/compose && sudo docker compose --env-file .env.pi -f docker-compose.pi.yml down"
 fi
 if [[ "$profile" == forge || "$profile" == all ]]; then
   fence_forge "${DR_FORGE_SSH:-}"
 fi
 [[ "$fenced" == true ]] || dr_die "an old writable host cannot be proven off or fenced"
-jq '.cutover.fenced=true | .checks += [{name:"old writable hosts fenced",status:"ok",detail:"every selected source was reached over SSH; Pi core/relay/nutrition and the exact running Forge deployment set were stopped with tunnels, backups, and heartbeats"}] | .updatedAt=(now|todate)' \
+jq --argjson physicalPi "$pi_physically_isolated" '.cutover.fenced=true | .checks += [{name:"old writable hosts fenced",status:"ok",detail:(if $physicalPi then "Old Pi physically disconnected by explicit operator attestation; any selected Forge source was fenced over SSH" else "Every selected source was fenced over SSH; writers, tunnels, backups and heartbeats stopped" end)}] | .updatedAt=(now|todate)' \
   "$report" > "${report}.tmp" && mv -- "${report}.tmp" "$report"
 
 [[ ! -e "$DR_ACTIVE_RECOVERY_OVERRIDE" ]] || dr_die "active recovery override already exists; review the previous incident before cutover"
@@ -399,10 +411,10 @@ while IFS= read -r url; do
   for _ in $(seq 1 30); do curl -fsS --max-time 10 "$url" >/dev/null && break; sleep 10; done
   curl -fsS --max-time 10 "$url" >/dev/null || failures=$((failures + 1))
 done < <(jq -r --arg profile "$profile" '.healthUrls[] | select($profile=="all" or (.profiles | index($profile))) | .url' "$DR_EXTERNAL_STATE")
-while IFS=$'\t' read -r host port; do
-  openssl s_client -connect "${host}:${port}" -servername "$host" -verify_hostname "$host" -verify_return_error -brief </dev/null >/dev/null 2>&1 \
+while IFS=$'\t' read -r host port starttls; do
+  python3 "$script_dir/lib/tls-probe.py" --address "${host}" --host "$host" --port "$port" --starttls "$starttls" \
     || failures=$((failures + 1))
-done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port] | @tsv' "$DR_EXTERNAL_STATE")
+done < <(jq -r --arg profile "$profile" '.tlsEndpoints[] | select($profile=="all" or (.profiles | index($profile))) | [.host,.port,(.starttls // "none")] | @tsv' "$DR_EXTERNAL_STATE")
 ((failures == 0)) || dr_die "post-cutover external health checks failed; apply the signed reverse patch"
 
 better_get() {

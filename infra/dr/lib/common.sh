@@ -118,10 +118,11 @@ dr_required_disk_bytes() {
 }
 
 dr_assert_recovery_preflight_compatible() {
-  local report="$1" current="$2"
-  jq -e --slurpfile current "$current" '
-    (.preflight | del(.oldestSnapshotAgeSeconds,.stale,.staleAccepted,.cutoverRequested,.intendedMutations)) ==
-    ($current[0] | del(.oldestSnapshotAgeSeconds,.stale,.staleAccepted,.cutoverRequested,.intendedMutations))
+  local report="$1" current="$2" allow_tooling_update="${3:-false}"
+  jq -e --argjson allowToolingUpdate "$allow_tooling_update" --slurpfile current "$current" '
+    def comparable: if $allowToolingUpdate then del(.recoveryToolRevision) else . end;
+    (.preflight | del(.oldestSnapshotAgeSeconds,.stale,.staleAccepted,.cutoverRequested,.intendedMutations) | comparable) ==
+    ($current[0] | del(.oldestSnapshotAgeSeconds,.stale,.staleAccepted,.cutoverRequested,.intendedMutations) | comparable)
   ' "$report" >/dev/null || dr_die "existing recovery checkpoint has incompatible preflight evidence"
 }
 

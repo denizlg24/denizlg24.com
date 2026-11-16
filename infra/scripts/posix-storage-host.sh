@@ -382,7 +382,10 @@ mount_namespace() {
   install -d -m 0755 -o root -g root "$merged" "$internal" "$broker_mount"
   [[ -z "$(find "$merged" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo "Unmounted merged path is not empty" >&2; return 1; }
   [[ "$(mergerfs --version | awk 'NR==1{sub(/^v/,"",$NF);print $NF}')" == 2.42.0 ]] || { echo "mergerfs 2.42.0 is required" >&2; return 1; }
-  mergerfs -o "allow_other,nodev,nosuid,branches-mount-timeout=5,branches-mount-timeout-fail=true,minfreespace=$DENIZ_POSIX_SSD_RESERVE,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-storage" "$ssd_branch:$hdd_branch" "$merged"
+  # validate_branches already checks each backing mount and its UUID. The
+  # namespace subdirectories are not mount points, so mergerfs must not wait
+  # for those subdirectories to become mounts.
+  mergerfs -o "allow_other,nodev,nosuid,minfreespace=$DENIZ_POSIX_SSD_RESERVE,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-storage" "$ssd_branch:$hdd_branch" "$merged"
   if ! merged_is_current || ! publish_witness; then
     fusermount3 -u "$merged" || umount "$merged" || true
     echo "Merged mount verification failed and was rolled back" >&2

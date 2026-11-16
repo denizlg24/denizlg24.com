@@ -704,8 +704,9 @@ namespace_dump() {
   record_restore_footprint namespace allocated-source-inventory "$namespace_bytes"
   # Uncompressed for the same reason as the branch archives it carries: this
   # is the artifact restic chunks, and compressing it defeats deduplication.
-  tar --xattrs --acls --numeric-owner --sparse -C "$backup_dir" \
-    -cf "$stage/artifacts/namespace.tar" .
+  # Consume already-copied staging extents as the outer archive grows. Keeping
+  # both copies at once can exhaust a recovery host after its first backup.
+  python3 "$script_dir/lib/pack-namespace.py" "$backup_dir" "$stage/artifacts/namespace.tar"
   rm -rf -- "$destination"
 }
 

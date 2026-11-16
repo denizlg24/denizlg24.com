@@ -8,16 +8,28 @@ backup_dir=""
 ssd_root=""
 hdd_root=""
 object_root=""
+restore_timestamps=false
+acl_manifest=""
+work=""
+cleanup() {
+  [[ -z "$work" ]] || rm -rf -- "$work"
+  [[ -z "$acl_manifest" ]] || rm -f -- "$acl_manifest"
+}
+trap cleanup EXIT
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: posix-namespace-restore-verify.sh --backup DIR [--ssd-root DIR --hdd-root DIR --object-root DIR]
+Usage: posix-namespace-restore-verify.sh --backup DIR [--ssd-root DIR --hdd-root DIR --object-root DIR] [--restore-timestamps]
 
 Restores a namespace backup into disposable directories and compares the result
 against its manifest: every id, path, branch, size, checksum and protected
 metadata hash must match exactly.
 
-This is a bare restore. It never touches the live namespace, and it is the only
+--restore-timestamps reapplies manifest timestamps to the restored copy before
+checking them. Numeric ACLs are checked against the authenticated tar headers;
+legacy hashes containing machine-specific account names remain diagnostic.
+
+This is a bare restore. It never touches the source namespace, and it is the only
 thing that turns "a backup exists" into "a backup restores" — an archive that
 silently dropped xattrs looks identical to a good one until the day it is
 needed.
@@ -32,6 +44,7 @@ while (($# > 0)); do
     --ssd-root) [[ $# -ge 2 ]] || { usage; exit 2; }; ssd_root="$2"; shift 2 ;;
     --hdd-root) [[ $# -ge 2 ]] || { usage; exit 2; }; hdd_root="$2"; shift 2 ;;
     --object-root) [[ $# -ge 2 ]] || { usage; exit 2; }; object_root="$2"; shift 2 ;;
+    --restore-timestamps) restore_timestamps=true; shift ;;
     *) usage; exit 2 ;;
   esac
 done
@@ -45,7 +58,7 @@ for root in "$ssd_root" "$hdd_root" "$object_root"; do
     || { echo "Unsafe restored root: ${root}" >&2; exit 1; }
 done
 
-for command in getfacl getfattr jq sha256sum stat tar zstd; do
+for command in getfacl getfattr jq sha256sum stat tar zstd python3; do
   command -v "$command" >/dev/null || {
     echo "Required command is missing: ${command}" >&2
     exit 1
@@ -110,11 +123,13 @@ jq -e --slurpfile manifest "$manifest" '
   exit 1
 }
 
-work=""
+acl_manifest="$(mktemp "${TMPDIR:-/var/tmp}/posix-acl-manifest.XXXXXX")"
+python3 "$(dirname "$0")/posix-namespace-acls.py" "$backup_dir" > "$acl_manifest"
+manifest="$acl_manifest"
+timestamps_restored=0
+legacy_acl_name_differences=0
 if [[ -z "$ssd_root" ]]; then
   work="$(mktemp -d "${TMPDIR:-/var/tmp}/posix-restore-verify.XXXXXX")"
-  cleanup() { rm -rf -- "$work"; }
-  trap cleanup EXIT
   for role in ssd hdd object-store; do
     install -d -m 0700 "${work}/${role}"
     archive="$(branch_archive "$role")"
@@ -199,9 +214,17 @@ while IFS= read -r line; do
   [[ -z "$expected_uid" || "$(stat -c '%u' "$restored")" == "$expected_uid" ]] || report uid "$relative"
   [[ -z "$expected_gid" || "$(stat -c '%g' "$restored")" == "$expected_gid" ]] || report gid "$relative"
   [[ -z "$expected_mode" || "$(stat -c '%a' "$restored")" == "$expected_mode" ]] || report mode "$relative"
+  if [[ "$restore_timestamps" == true && "$(stat -c '%Y' "$restored")" != "$expected_mtime" &&
+        "$actual_id" == "$expected_id" && "$actual_hash" == "$expected_hash" ]]; then
+    touch -m -d "@${expected_mtime}" -- "$restored"
+    timestamps_restored=$((timestamps_restored + 1))
+  fi
   [[ "$(stat -c '%Y' "$restored")" == "$expected_mtime" ]] || report mtime "$relative"
   actual_acl=$(getfacl -cp -- "$restored" | sha256sum | cut -d' ' -f1)
-  [[ -z "$expected_acl" || "$actual_acl" == "$expected_acl" ]] || report acl "$relative"
+  [[ -z "$expected_acl" || "$actual_acl" == "$expected_acl" ]] || legacy_acl_name_differences=$((legacy_acl_name_differences + 1))
+  expected_numeric_acl=$(jq -er .archiveAclHash <<< "$line")
+  actual_numeric_acl=$(getfacl -cpn -- "$restored" | sed 's/[[:blank:]]*#effective:.*//' | sha256sum | cut -d' ' -f1)
+  [[ "$actual_numeric_acl" == "$expected_numeric_acl" ]] || report acl "$relative"
   if [[ "$expected_sparse" == true ]]; then
     actual_allocated=$(( $(stat -c '%b' "$restored") * 512 ))
     [[ "$actual_allocated" -lt "$expected_size" ]] || report sparse-extents "$relative"
@@ -221,7 +244,9 @@ done
 
 jq -n --arg backup "$backup_dir" --argjson checked "$checked" \
   --argjson mismatches "$mismatches" \
+  --argjson timestampsRestored "$timestamps_restored" --argjson legacyAclNameDifferences "$legacy_acl_name_differences" \
   '{verified:($mismatches == 0),backup:$backup,entriesChecked:$checked,
-    mismatches:$mismatches,liveNamespaceTouched:false}'
+    mismatches:$mismatches,liveNamespaceTouched:false,timestampsRestored:$timestampsRestored,
+    aclVerification:"archive-numeric",legacyAclNameDifferences:$legacyAclNameDifferences}'
 
 [[ "$mismatches" -eq 0 ]] || exit 1

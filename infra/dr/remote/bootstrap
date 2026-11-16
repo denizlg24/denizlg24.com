@@ -7,7 +7,11 @@ profile=""
 packages=""
 versions=""
 tailscale_key_file=""
-cleanup() { [[ -z "$tailscale_key_file" ]] || rm -f -- "$tailscale_key_file"; }
+samba_preferences=""
+cleanup() {
+  [[ -z "$tailscale_key_file" ]] || rm -f -- "$tailscale_key_file"
+  [[ -z "$samba_preferences" ]] || rm -f -- "$samba_preferences"
+}
 trap cleanup EXIT
 while (($#)); do
   case "$1" in
@@ -23,6 +27,10 @@ done
 [[ -f "$packages" && -f "$versions" && -f "$tailscale_key_file" ]] || { echo "STOP: bootstrap inputs are missing" >&2; exit 1; }
 [[ "$(. /etc/os-release; printf '%s' "$VERSION_ID")" == 24.04 ]] || { echo "STOP: Ubuntu 24.04 is required" >&2; exit 1; }
 [[ "$(uname -m)" == x86_64 ]] || { echo "STOP: x86_64 is required" >&2; exit 1; }
+# The caller consumes stdout as JSON. Package managers and firewall tools emit
+# progress on stdout too, so reserve the original stream for the final result.
+exec 3>&1
+exec 1>&2
 
 export DEBIAN_FRONTEND=noninteractive
 # Package post-install scripts must not expose a stock Samba listener or start
@@ -49,17 +57,47 @@ fi
 curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.tailscale-keyring.list" \
   -o /etc/apt/sources.list.d/tailscale.list
 curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
-printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared %s main\n' "$VERSION_CODENAME" \
+chmod 0644 /usr/share/keyrings/tailscale-archive-keyring.gpg /usr/share/keyrings/cloudflare-main.gpg
+printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared %s main\n' any \
   > /etc/apt/sources.list.d/cloudflared.list
 
 apt-get update -qq
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  # Samba's binary packages depend on exactly matching sibling versions.
+  # Prefer the captured source family together, including libldb's distinct
+  # version prefix, instead of mixing the latest security build with the pin.
+  samba_version="$(jq -er .samba "$packages")"
+  samba_preferences=/etc/apt/preferences.d/deniz-dr-recovery-samba.pref
+  [[ ! -L "$samba_preferences" ]] || { echo "STOP: unsafe Samba preference path" >&2; exit 1; }
+  printf 'Package: src:samba:any\nPin: version %s\nPin-Priority: 1001\n\nPackage: src:samba:any\nPin: version *+samba%s\nPin-Priority: 1001\n' \
+    "$samba_version" "${samba_version#*:}" > "$samba_preferences"
+  chmod 0644 "$samba_preferences"
+fi
 install_exact_or_stop() {
   local package="$1" recorded candidate
   recorded="$(jq -r --arg package "$package" '.[$package] // empty' "$packages")"
   [[ -n "$recorded" ]] || { echo "STOP: snapshot did not record ${package}" >&2; return 1; }
+  if [[ "$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null || true)" == "$recorded" ]]; then return; fi
   candidate="$(apt-cache madison "$package" | awk '{print $3}' | grep -Fx "$recorded" | head -1 || true)"
+  if [[ -z "$candidate" && "$package" == cloudflared ]]; then
+    # Cloudflare's APT index retains only its latest release. Bind an older
+    # official release asset to GitHub's published SHA-256, then verify the
+    # package version before installing it.
+    [[ "$recorded" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]+$ ]] || return 1
+    local release asset digest deb
+    release="$(curl --proto '=https' --tlsv1.2 -fsSL "https://api.github.com/repos/cloudflare/cloudflared/releases/tags/$recorded")"
+    asset="$(jq -ce '[.assets[] | select(.name=="cloudflared-linux-amd64.deb")] | if length==1 then .[0] else error("missing unique cloudflared asset") end' <<< "$release")"
+    digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<< "$asset")"
+    deb="$(mktemp /tmp/cloudflared.XXXXXX.deb)"
+    curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$recorded/cloudflared-linux-amd64.deb" -o "$deb"
+    [[ "$(sha256sum "$deb" | awk '{print $1}')" == "${digest#sha256:}" && "$(dpkg-deb -f "$deb" Version)" == "$recorded" ]] \
+      || { rm -f -- "$deb"; echo "STOP: cloudflared release verification failed" >&2; return 1; }
+    apt-get install -y --allow-downgrades "$deb"
+    rm -f -- "$deb"
+    return
+  fi
   [[ "$candidate" == "$recorded" ]] || { echo "STOP: recorded package is unavailable: ${package}=${recorded}" >&2; return 1; }
-  apt-get install -y "${package}=${recorded}"
+  apt-get install -y --allow-downgrades "${package}=${recorded}"
 }
 required_packages=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic tailscale cloudflared)
 if [[ "$profile" == pi || "$profile" == all ]]; then
@@ -157,6 +195,10 @@ ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH via Tailscale'
+if [[ "$profile" == pi || "$profile" == all ]]; then
+  ufw allow in on tailscale0 to any port 443 proto tcp comment 'Storage health probe via Tailscale'
+  ufw allow in on tailscale0 to any port 445 proto tcp comment 'SMB via Tailscale'
+fi
 ufw allow in on tailscale0 to any port 3001 proto tcp comment 'Pi API via Tailscale'
 ufw allow in on tailscale0 to any port 4010 proto tcp comment 'Forge agent via Tailscale'
 ufw allow 41641/udp comment 'Tailscale direct'
@@ -166,4 +208,4 @@ ufw allow 41641/udp comment 'Tailscale direct'
 ufw --force enable >/dev/null
 systemctl enable --now fail2ban
 jq -n --arg profile "$profile" --arg tailnetIp "$tailnet_ip" \
-  '{bootstrapped:true,profile:$profile,tailnetIp:$tailnetIp,publicCutover:false}'
+  '{bootstrapped:true,profile:$profile,tailnetIp:$tailnetIp,publicCutover:false}' >&3

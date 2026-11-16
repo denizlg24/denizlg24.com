@@ -13,6 +13,19 @@ ID = "d404f213-01af-4255-805c-2b513b13ea76"
 
 
 class AgentTests(unittest.TestCase):
+    def test_reports_identify_the_agent_to_the_edge(self):
+        import io
+        instance = agent.Agent.__new__(agent.Agent)
+        instance.profile = "pi"
+        instance.url = "https://status.example.com"
+        instance.config = {"token": "test-token"}
+        instance.opener = Mock()
+        instance.opener.open.return_value = io.BytesIO(b'{"ok":true}')
+        self.assertEqual(instance.post({"reports": []}), {"ok": True})
+        request = instance.opener.open.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), "deniz-status-agent/1.0")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+
     def test_cross_host_and_shell_input_are_rejected(self):
         for value in (
             {"id": ID, "job": "icloud", "action": "run"},

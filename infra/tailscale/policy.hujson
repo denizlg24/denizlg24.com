@@ -78,6 +78,13 @@
             "ip":  ["tcp:22"],
         },
         {
+            // Pi-only recovery retains tag:dr. Release jobs use an OpenSSH
+            // deployment key on that host; Tailscale supplies private transport.
+            "src": ["tag:ci"],
+            "dst": ["tag:dr"],
+            "ip":  ["tcp:22"],
+        },
+        {
             // The agent claiming work. This is the hot path and it is
             // agent-initiated: nothing pushes a build, the agent polls
             // POST /api/deploy/agent/claim every few seconds. Easy to get
