@@ -157,11 +157,15 @@ jobs:
         run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud-binaries"
           ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
+            sudo -n bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
           set -euo pipefail
           token="$1"; wait_seconds="$2"; stale_minutes="$3"
           lease="$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '"' | head -1)"
-          test "$lease" = home
+          # A recovered host is active only while its configured role matches
+          # the public lease. An old home node stays fenced after DR cutover.
+          expected="$(awk -F= '$1=="DR_ACTIVE_SITE_VALUE" {sub(/^[^=]*=/, ""); print; exit}' /etc/deniz-dr/pi.env)"
+          [[ "$expected" == home || "$expected" == dr ]]
+          test "$lease" = "$expected"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
           # Guard the parent inode: it survives lock-directory replacement.
           exec 9<"$(dirname "$lock")"
@@ -287,7 +291,7 @@ jobs:
             exit 0
           fi
           ssh -o ConnectTimeout=10 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
+            sudo -n bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
           set -euo pipefail
           token="$1"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
