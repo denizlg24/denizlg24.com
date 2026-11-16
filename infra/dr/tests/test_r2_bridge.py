@@ -136,6 +136,69 @@ class BridgeTests(unittest.TestCase):
                  patch.object(bridge, "cloud_state"):
                 bridge.transfer_object("forge", relative, len(payload), root, previous, True)
 
+    def test_unconfirmed_resident_pack_can_drain_below_the_reserve(self):
+        payload = b"encrypted-resident-pack"
+        name = hashlib.sha256(payload).hexdigest()
+        relative = f"data/{name[:2]}/{name}"
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work).resolve()
+            bridge.atomic(root / relative, payload)
+            events = []
+            with patch.object(bridge.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), \
+                 patch.object(bridge.r2, "request", side_effect=AssertionError("unexpected download")), \
+                 patch.object(bridge, "cloud_state", side_effect=lambda cmd, *_: events.append(cmd)):
+                _, result = bridge.transfer_object("pi-cloud", relative, len(payload), root, {}, True)
+            self.assertEqual(events, ["wait-uploaded", "evict"])
+            self.assertEqual(result["sha256"], name)
+
+    def test_dataless_placeholder_is_budgeted_even_with_allocated_metadata(self):
+        target = SimpleNamespace(is_file=lambda: True,
+                                 stat=lambda: SimpleNamespace(st_size=155, st_blocks=8, st_flags=0x40000000))
+        with patch.object(bridge.stat, "SF_DATALESS", 0x40000000, create=True):
+            self.assertEqual(bridge.allocation_bytes(target, 155), 155)
+
+    def test_corrupt_resident_pack_is_not_evicted_below_the_reserve(self):
+        payload = b"good"
+        name = hashlib.sha256(payload).hexdigest()
+        relative = f"data/{name[:2]}/{name}"
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work).resolve()
+            bridge.atomic(root / relative, b"evil")
+            with patch.object(bridge.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), \
+                 patch.object(bridge, "cloud_state") as cloud:
+                with self.assertRaisesRegex(ValueError, "immutable destination collision"):
+                    bridge.transfer_object("pi-cloud", relative, len(payload), root, {}, True)
+                cloud.assert_not_called()
+
+    def test_resident_resume_precedes_missing_packs_and_preserves_reserve(self):
+        payload = b"resident"
+        name = hashlib.sha256(payload).hexdigest()
+        resident = (f"data/{name[:2]}/{name}", len(payload))
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work).resolve()
+            bridge.atomic(root / resident[0], payload)
+            missing = [(f"data/aa/{index:064x}", 6) for index in range(4)]
+            free = 95
+            maximum_staged = 0
+            staged = 0
+            with patch.object(bridge, "RESERVE", 100), \
+                 patch.object(bridge.shutil, "disk_usage", side_effect=lambda _: SimpleNamespace(free=free)):
+                batches = bridge.transfer_batches([*missing, resident], root, {})
+                self.assertEqual(next(batches), [resident])
+                free = 110  # Upload confirmation and eviction reclaim the resident file.
+                seen = []
+                for batch in batches:
+                    for relative, size in batch:
+                        free -= size
+                        staged += size
+                        maximum_staged = max(maximum_staged, staged)
+                        self.assertGreaterEqual(free, 100)
+                        seen.append((relative, size))
+                    free += staged  # Each bounded batch is confirmed and evicted.
+                    staged = 0
+            self.assertEqual(seen, missing)
+            self.assertLessEqual(maximum_staged, 10)
+
     def test_symlinked_destinations_are_refused(self):
         with tempfile.TemporaryDirectory() as work:
             root = Path(work).resolve()
