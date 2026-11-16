@@ -161,7 +161,11 @@ jobs:
           set -euo pipefail
           token="$1"; wait_seconds="$2"; stale_minutes="$3"
           lease="$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '"' | head -1)"
-          test "$lease" = home
+          # A recovered host is active only while its configured role matches
+          # the public lease. An old home node stays fenced after DR cutover.
+          expected="$(sudo -n awk -F= '$1=="DR_ACTIVE_SITE_VALUE" {print $2; exit}' /etc/deniz-dr/pi.env)"
+          [[ "$expected" == home || "$expected" == dr ]]
+          test "$lease" = "$expected"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
           # Guard the parent inode: it survives lock-directory replacement.
           exec 9<"$(dirname "$lock")"

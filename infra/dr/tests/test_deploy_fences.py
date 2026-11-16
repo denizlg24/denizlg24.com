@@ -19,11 +19,16 @@ class DeployFenceTests(unittest.TestCase):
         self.assertIsNotNone(match)
         script = textwrap.dedent(match.group().rsplit("\n", 1)[0])
         script = re.sub(r"/var/lib/deniz-dr/locks/[a-z-]+\.lock", str(root / "host.lock"), script)
+        script = re.sub(r'/etc/deniz-dr/(?:pi|forge)\.env', str(root / 'site.env'), script)
         return script.replace('/proc/$pid', f'{root}/proc/$pid')
 
-    def commands(self, root):
+    def commands(self, root, *, lease="home", expected="home"):
+        (root / "site.env").write_text("DR_ACTIVE_SITE_VALUE=" + expected + "\n")
+        sudo = root / "sudo"
+        sudo.write_text('#!/usr/bin/env bash\nif [ "$1" = -n ]; then shift; fi\nexec "$@"\n')
+        sudo.chmod(0o755)
         dig = root / "dig"
-        dig.write_text('#!/usr/bin/env bash\necho \'"home"\'\n')
+        dig.write_text('#!/usr/bin/env bash\necho \'"' + lease + '"\'\n')
         dig.chmod(0o755)
         # macOS has flock(2), but no flock CLI. Use the same OS primitive in
         # tests so the extracted Linux scripts also run on developer Macs.
@@ -53,6 +58,19 @@ fcntl.flock(int(sys.argv[-1]), fcntl.LOCK_UN if sys.argv[1] == "-u" else fcntl.L
                                     env=self.commands(root),
                                     text=True, capture_output=True, timeout=5)
             return result, (lock / "owner").read_text().strip()
+
+    def test_only_the_host_holding_the_active_site_lease_can_acquire(self):
+        for workflow in WORKFLOWS:
+            for lease, expected, allowed in [("home", "home", True), ("dr", "dr", True),
+                                             ("dr", "home", False), ("home", "dr", False),
+                                             ("dr", "", False), ("dr", "invalid", False)]:
+                with self.subTest(workflow=workflow, lease=lease, expected=expected), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    result = subprocess.run(["bash", "-s", "--", "holder", "0", "60"],
+                                            input=self.script(workflow, root), env=self.commands(root, lease=lease, expected=expected),
+                                            text=True, capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    self.assertEqual((root / "host.lock").exists(), allowed)
 
     def test_reclaimer_cannot_remove_another_runners_replacement(self):
         for workflow in WORKFLOWS:
