@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { PublicData } from "@/lib/data";
+import { incidentTextParts } from "@/lib/incident-text";
 import { Dot, healthText } from "./health";
 import { Time } from "./time";
 
@@ -72,7 +73,20 @@ export function IncidentTimeline({
                 </span>
               </div>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {update.text}
+                {incidentTextParts(update.text).map((part, index) =>
+                  part.href ? (
+                    <a
+                      key={index}
+                      href={part.href}
+                      className="break-words underline underline-offset-4 hover:text-foreground"
+                      rel="noopener noreferrer"
+                    >
+                      {part.text}
+                    </a>
+                  ) : (
+                    part.text
+                  ),
+                )}
               </p>
             </li>
           ))}
