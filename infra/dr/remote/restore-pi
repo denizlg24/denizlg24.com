@@ -138,8 +138,27 @@ set_env_value() {
   fi
   grep -Fxq "${key}=${value}" "$env_file" || { echo "STOP: failed to persist ${key}" >&2; exit 1; }
 }
-set_env_value API_TAILNET_BIND_ADDRESS "$API_TAILNET_BIND_ADDRESS"
-set_env_value TERMINAL_SERVER_URL "$TERMINAL_SERVER_URL"
+# A release starts a fresh shell and reads only .env.pi. Exporting these for
+# this restore alone would let the next release reconnect empty Pi paths.
+for key in POSTGRES_DATA_DIR MONGO_DATA_DIR REDIS_DATA_DIR MEILI_DATA_DIR MONGOT_DATA_DIR \
+  SSD_STORAGE_PATH HDD_STORAGE_PATH STORAGE_BROKER_MOUNT_PATH BACKUP_DIR HOST_CONTROL_DIR \
+  API_TAILNET_BIND_ADDRESS TERMINAL_SERVER_URL; do
+  set_env_value "$key" "${!key}"
+done
+# Keep infrastructure on the captured versions after the restore override is
+# gone. API_IMAGE stays under the release workflow's control.
+while IFS=$'\t' read -r scoped_service reference; do
+  case "$scoped_service" in
+    pi/postgres) key=POSTGRES_IMAGE ;;
+    pi/mongodb) key=MONGO_IMAGE ;;
+    pi/redis) key=REDIS_IMAGE ;;
+    pi/meilisearch) key=MEILI_IMAGE ;;
+    pi/mongot) key=MONGOT_IMAGE ;;
+    pi/docker-proxy) key=DOCKER_PROXY_IMAGE ;;
+    *) continue ;;
+  esac
+  set_env_value "$key" "$reference"
+done < <(jq -r '.images[] | [.service,.reference] | @tsv' "$manifest")
 terminal_env=/etc/deniz-cloud/terminal.env
 [[ -f "$terminal_env" && ! -L "$terminal_env" ]] || { echo "STOP: restored terminal configuration is missing" >&2; exit 1; }
 if grep -q '^HOST=' "$terminal_env"; then
