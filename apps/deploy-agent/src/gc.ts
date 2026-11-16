@@ -319,7 +319,7 @@ export async function runGarbageCollection(
       "--filter",
       "label=forge.deployment",
       "--format",
-      '{{.ID}}\t{{.Label "forge.deployment"}}\t{{.Image}}',
+      '{{.ID}}\t{{.Label "forge.deployment"}}\t{{.Image}}\t{{.State}}',
     ],
     signal,
     timeoutMs: 60_000,
@@ -333,11 +333,19 @@ export async function runGarbageCollection(
   }
 
   for (const line of listed.stdout.split("\n")) {
-    const [containerId = "", deploymentId = "", image = ""] = line
+    const [containerId = "", deploymentId = "", image = "", state = ""] = line
       .trim()
       .split("\t");
     if (containerId.length === 0) continue;
-    if (keepDeployments.has(deploymentId)) {
+    // A restored control plane can predate a surviving host. Absence from its
+    // keep set is not proof that a running deployment should be destroyed.
+    // Unknown states also fail closed; normal deployment retirement stops
+    // containers before the sweep reclaims them.
+    if (
+      keepDeployments.has(deploymentId) ||
+      !["exited", "dead"].includes(state)
+    ) {
+      keepDeployments.add(deploymentId);
       if (image.length > 0) inUseImages.add(image);
       continue;
     }
@@ -346,7 +354,8 @@ export async function runGarbageCollection(
       continue;
     }
     const removed = await exec({
-      command: ["docker", "rm", "--force", "--volumes", containerId],
+      // Refuse a container that started again after the listing.
+      command: ["docker", "rm", "--volumes", containerId],
       signal,
       timeoutMs: 120_000,
     });

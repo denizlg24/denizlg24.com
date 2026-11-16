@@ -215,13 +215,44 @@ describe("builderPruneCommands", () => {
 });
 
 describe("runGarbageCollection", () => {
+  it("preserves surviving deployments absent from a restored keep set", async () => {
+    for (const dryRun of [false, true]) {
+      const { exec, commands } = scriptedExec({
+        "docker ps --all": {
+          stdout: ["running", "restarting", "paused", ""]
+            .map(
+              (state, index) =>
+                `c${index}\tunknown-${index}\tforge/app:live-${index}\t${state}`,
+            )
+            .join("\n"),
+        },
+        "docker images --filter": {
+          stdout: [0, 1, 2, 3]
+            .map((index) => `forge/app:live-${index}`)
+            .join("\n"),
+        },
+      });
+      const report = await withRoots((roots) =>
+        runGarbageCollection(request({ dryRun }), {
+          exec,
+          ...roots,
+          dockerDataRoot: "/var/lib/docker",
+          statfsImplementation: NO_DISK,
+        }),
+      );
+      expect(report.containersRemoved).toEqual([]);
+      expect(report.imagesRemoved).toEqual([]);
+      expect(commands.some((command) => command[1] === "rm")).toBe(false);
+    }
+  });
+
   it("reaps containers before images, and keeps the live ones", async () => {
     const keep = crypto.randomUUID();
     const { exec, commands } = scriptedExec({
       "docker ps --all": {
         stdout: [
-          `c1\t${keep}\tforge/app:keep`,
-          "c2\t00000000-0000-4000-8000-000000000002\tforge/app:old",
+          `c1\t${keep}\tforge/app:keep\trunning`,
+          "c2\t00000000-0000-4000-8000-000000000002\tforge/app:old\texited",
         ].join("\n"),
       },
       "docker images --filter": {
@@ -245,15 +276,17 @@ describe("runGarbageCollection", () => {
     const removals = commands.filter((command) => command[1] === "rm");
     const images = commands.findIndex((command) => command[1] === "rmi");
     expect(removals.length).toBe(1);
+    expect(removals[0]).not.toContain("--force");
     expect(images).toBeGreaterThan(commands.indexOf(removals[0] ?? []));
   });
 
   it("records a failed removal without failing the sweep", async () => {
     const { exec } = scriptedExec({
       "docker ps --all": {
-        stdout: "c1\t00000000-0000-4000-8000-000000000003\tforge/app:old",
+        stdout:
+          "c1\t00000000-0000-4000-8000-000000000003\tforge/app:old\texited",
       },
-      "docker rm --force": { exitCode: 1, stderr: "container is in use" },
+      "docker rm --volumes": { exitCode: 1, stderr: "container is in use" },
       "docker images --filter": { stdout: "forge/app:old" },
     });
 
@@ -400,7 +433,8 @@ describe("runGarbageCollection", () => {
   it("changes nothing on a dry run", async () => {
     const { exec, commands } = scriptedExec({
       "docker ps --all": {
-        stdout: "c1\t00000000-0000-4000-8000-000000000004\tforge/app:old",
+        stdout:
+          "c1\t00000000-0000-4000-8000-000000000004\tforge/app:old\texited",
       },
       "docker images --filter": { stdout: "forge/app:old" },
     });

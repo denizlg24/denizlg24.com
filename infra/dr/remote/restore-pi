@@ -664,6 +664,25 @@ docker exec "$mongo_container" sh -ceu '
     --authenticationDatabase admin --eval "$1"
 ' sh 'const result=db.adminCommand({setParameter:1,ttlMonitorEnabled:true}); if(result.ok!==1)throw new Error("TTL monitor could not be enabled");' >/dev/null
 
+
+# The restored scheduler predates a surviving Forge host. Do not let its old
+# inventory delete newer containers, domains, or recovery images on API startup.
+# Preserve the original flags for explicit restoration after inventory reconciliation.
+maintenance_checkpoint="$root/../forge-maintenance-paused.json"
+if [[ ! -e "$maintenance_checkpoint" ]]; then
+  docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh \
+    "SELECT json_build_object('manifestSha256', '$manifest_sha', 'tasks', coalesce(json_agg(t), '[]')) FROM (SELECT id, type::text, enabled FROM scheduled_tasks WHERE type::text IN ('forge_gc','domain_verification','forge_recovery_publish','forge_reboot')) t" \
+    > "${maintenance_checkpoint}.tmp"
+  chmod 0600 "${maintenance_checkpoint}.tmp"
+  mv -- "${maintenance_checkpoint}.tmp" "$maintenance_checkpoint"
+fi
+[[ ! -L "$maintenance_checkpoint" && "$(stat -c '%u:%a' "$maintenance_checkpoint")" == 0:600 ]] \
+  || { echo "STOP: unsafe Forge maintenance checkpoint" >&2; exit 1; }
+jq -e --arg sha "$manifest_sha" '.manifestSha256==$sha and (.tasks|type=="array")' "$maintenance_checkpoint" >/dev/null \
+  || { echo "STOP: Forge maintenance checkpoint belongs to another snapshot" >&2; exit 1; }
+docker exec "$postgres_container" sh -ceu 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh \
+  "UPDATE scheduled_tasks SET enabled=false, updated_at=now() WHERE type::text IN ('forge_gc','domain_verification','forge_recovery_publish','forge_reboot')" >/dev/null
+
 dc up -d
 for _ in $(seq 1 120); do
   if dc ps --format json | jq -es '
