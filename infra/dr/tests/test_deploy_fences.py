@@ -24,9 +24,6 @@ class DeployFenceTests(unittest.TestCase):
 
     def commands(self, root, *, lease="home", expected="home"):
         (root / "site.env").write_text("DR_ACTIVE_SITE_VALUE=" + expected + "\n")
-        sudo = root / "sudo"
-        sudo.write_text('#!/usr/bin/env bash\nif [ "$1" = -n ]; then shift; fi\nexec "$@"\n')
-        sudo.chmod(0o755)
         dig = root / "dig"
         dig.write_text('#!/usr/bin/env bash\necho \'"' + lease + '"\'\n')
         dig.chmod(0o755)
@@ -63,7 +60,8 @@ fcntl.flock(int(sys.argv[-1]), fcntl.LOCK_UN if sys.argv[1] == "-u" else fcntl.L
         for workflow in WORKFLOWS:
             for lease, expected, allowed in [("home", "home", True), ("dr", "dr", True),
                                              ("dr", "home", False), ("home", "dr", False),
-                                             ("dr", "", False), ("dr", "invalid", False)]:
+                                             ("dr", "", False), ("dr", "invalid", False),
+                                             ("dr", "dr=invalid", False), ("home", "home=invalid", False)]:
                 with self.subTest(workflow=workflow, lease=lease, expected=expected), tempfile.TemporaryDirectory() as temporary:
                     root = Path(temporary)
                     result = subprocess.run(["bash", "-s", "--", "holder", "0", "60"],

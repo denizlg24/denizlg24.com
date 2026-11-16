@@ -31,7 +31,9 @@ esac
             dig.chmod(0o755)
             env = {**os.environ, "PATH": f"{path}:{os.environ['PATH']}",
                    "CALLS": str(path / "calls"), "STARTED": str(path / "started"), **settings}
-            result = subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True)
+            (path / "site.env").write_text("DR_ACTIVE_SITE_VALUE=" + settings.get("EXPECTED", "home") + "\n")
+            script = SCRIPT.read_text().replace("/etc/deniz-dr/pi.env", str(path / "site.env"))
+            result = subprocess.run(["bash"], input=script, env=env, capture_output=True, text=True)
             return result, (path / "started").exists(), (path / "calls").read_text()
 
     def test_enabled_boundary_is_started_and_every_component_checked(self):
@@ -56,6 +58,15 @@ esac
         result, started, _ = self.run_case(LEASE="recovery")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(started)
+
+    def test_only_the_configured_active_site_can_reconcile(self):
+        for lease, expected, allowed in [("home", "home", True), ("dr", "dr", True),
+                                         ("dr", "home", False), ("home", "dr", False),
+                                         ("dr", "dr=invalid", False), ("home", "", False)]:
+            with self.subTest(lease=lease, expected=expected):
+                result, started, _ = self.run_case(LEASE=lease, EXPECTED=expected)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                self.assertEqual(started, allowed)
 
     def test_unhealthy_component_cannot_report_success(self):
         result, started, _ = self.run_case(BROKEN="api-broker")

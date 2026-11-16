@@ -117,13 +117,13 @@ jobs:
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-markets"
           [[ "$lock_token" =~ ^[0-9]+-[0-9]+-markets$ ]]
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
+            sudo -n bash -s -- "$lock_token" "$DR_LOCK_WAIT_SECONDS" "$DR_LOCK_STALE_MINUTES" <<'REMOTE'
           set -euo pipefail
           token="$1"; wait_seconds="$2"; stale_minutes="$3"
           lease="$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '"' | head -1)"
           # A recovered host is active only while its configured role matches
           # the public lease. An old home node stays fenced after DR cutover.
-          expected="$(sudo -n awk -F= '$1=="DR_ACTIVE_SITE_VALUE" {print $2; exit}' /etc/deniz-dr/pi.env)"
+          expected="$(awk -F= '$1=="DR_ACTIVE_SITE_VALUE" {sub(/^[^=]*=/, ""); print; exit}' /etc/deniz-dr/pi.env)"
           [[ "$expected" == home || "$expected" == dr ]]
           test "$lease" = "$expected"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
@@ -221,7 +221,7 @@ jobs:
         if: always() && env.DR_DEPLOY_LOCK_TOKEN != ''
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
+            sudo -n bash -s -- "$DR_DEPLOY_LOCK_TOKEN" <<'REMOTE'
           set -euo pipefail
           token="$1"
           lock=/var/lib/deniz-dr/locks/pi-cloud.lock
