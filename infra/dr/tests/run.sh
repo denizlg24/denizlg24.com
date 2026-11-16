@@ -58,6 +58,8 @@ python3 -m unittest discover -s "$dr_root/tests" -p 'test_namespace_pack.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_storage_reconcile.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_deploy_fences.py'
 python3 -m unittest discover -s "$dr_root/tests" -p 'test_terminal_release_architecture.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_database_mounts.py'
+python3 -m unittest discover -s "$dr_root/tests" -p 'test_restore_runtime.py'
 python3 -m unittest discover -s "$root/infra/status" -p 'test_*.py'
 bun "$dr_root/tests/validate-schemas.ts"
 node --check "$dr_root/lib/mongo-semantic.js"

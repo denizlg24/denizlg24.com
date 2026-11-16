@@ -238,6 +238,11 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} config -q"
 
+      - name: Verify existing database data mounts
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' python3 ../scripts/check-database-mounts.py --env-file .env.pi ${COMPOSE_FILES}"
+
       - name: Pull images
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
