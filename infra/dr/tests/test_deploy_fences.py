@@ -13,6 +13,18 @@ WORKFLOWS = ("release-cloud", "release-cloud-terminal", "release-deploy-agent", 
 
 
 class DeployFenceTests(unittest.TestCase):
+    def test_runtime_installer_accepts_only_known_site_roles(self):
+        text = (ROOT / 'infra/dr/install-host').read_text()
+        match = re.search(r'^\[\[ "\$DR_ACTIVE_SITE_VALUE".*?dr_die "host backup ownership[^\n]*',
+                          text, re.M | re.S)
+        self.assertIsNotNone(match)
+        for role in ['home', 'dr', '', 'invalid', 'dr=invalid']:
+            with self.subTest(role=role):
+                result = subprocess.run(['bash', '-c', 'dr_die() { exit 1; };\n' + match.group()],
+                                        env={**os.environ, 'DR_ACTIVE_SITE_VALUE': role},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, role in ['home', 'dr'])
+
     def script(self, workflow, root):
         text = (ROOT / f".github/workflows/{workflow}.yml").read_text()
         match = re.search(r"^          set -euo pipefail\n          token=\"\$1\"; wait_seconds=.*?^          REMOTE", text, re.M | re.S)
