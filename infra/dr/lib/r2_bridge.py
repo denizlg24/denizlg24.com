@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -134,6 +135,53 @@ def inventory(catalog):
     return objects
 
 
+def allocation_bytes(target, size):
+    """Budget hydration/downloads, allowing resident interrupted files to drain."""
+    if target.is_file():
+        info = target.stat()
+        dataless = getattr(info, "st_flags", 0) & getattr(stat, "SF_DATALESS", 0)
+        if not dataless and info.st_size == size and info.st_blocks * 512 >= size:
+            return 0
+    return size
+
+
+def transfer_allocation(relative, size, destination, previous):
+    target = safe_path(destination / relative)
+    recorded = previous.get(relative)
+    if relative != "config" and target.is_file() and recorded and target.stat().st_size == size == recorded["bytes"]:
+        return 0  # A confirmed, evicted pack is never hydrated by transfer_object.
+    return allocation_bytes(target, size)
+
+
+def transfer_batches(objects, destination, previous):
+    # Confirm and evict resident files left by interrupted batches first. This
+    # can recover space even when there is too little room for new downloads.
+    def priority(item):
+        relative, size = item
+        target = safe_path(destination / relative)
+        needed = transfer_allocation(relative, size, destination, previous)
+        resident = target.stat().st_blocks * 512 if target.is_file() else 0
+        return (needed > 0, -resident if needed == 0 else 0)
+
+    pending = sorted(objects, key=priority)
+    position = 0
+    while position < len(pending):
+        budget = max(0, shutil.disk_usage(destination).free - RESERVE)
+        batch = []
+        planned = 0
+        while position < len(pending) and len(batch) < 64:
+            relative, size = pending[position]
+            needed = transfer_allocation(relative, size, destination, previous)
+            if needed and planned + needed > budget:
+                if not batch:
+                    raise ValueError("less than 5 GiB free; waiting for local space before copying more data")
+                break
+            batch.append((relative, size))
+            planned += needed
+            position += 1
+        yield batch
+
+
 def transfer_object(host, relative, size, destination, previous, cloud, defer_confirmation=False):
     target = safe_path(destination / relative)
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -147,10 +195,11 @@ def transfer_object(host, relative, size, destination, previous, cloud, defer_co
             return relative, recorded
         if digest(target) == recorded["sha256"]:
             return relative, recorded
-    if shutil.disk_usage(destination).free < size + RESERVE:
+    needed = allocation_bytes(target, size)
+    if needed and shutil.disk_usage(destination).free < needed + RESERVE:
         raise ValueError("less than 5 GiB free; waiting for local space before copying more data")
     if target.exists():
-        if cloud:
+        if cloud and needed:
             # An interrupted run may have evicted a confirmed object before
             # persisting its checkpoint. Request hydration before opening it;
             # opening an evicted item directly can fail with EDEADLK on macOS.
@@ -205,10 +254,10 @@ def mirror(catalog, root, state_root, workers):
         batch = [(p, s) for p, s in objects if p.startswith("snapshots/") == snapshot_phase]
         # Queue a bounded batch before waiting. File Provider coalesces uploads;
         # waiting after each tiny index file otherwise spends a minute per file.
-        for offset in range(0, len(batch), 64):
+        for group in transfer_batches(batch, destination, previous):
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = [pool.submit(transfer_object, catalog.host, p, s, destination, previous, True, True)
-                           for p, s in batch[offset:offset + 64]]
+                           for p, s in group]
                 try:
                     staged = [future.result() for future in futures]
                     futures = [pool.submit(confirm_object, destination, result) for result in staged]
