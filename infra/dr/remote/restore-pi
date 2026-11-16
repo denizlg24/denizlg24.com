@@ -472,8 +472,15 @@ set_env_value SSD_STORAGE_PATH /mnt/ssd/deniz-cloud/namespace
 set_env_value HDD_STORAGE_PATH /mnt/hdd/deniz-cloud/namespace
 set_env_value BACKUP_DIR /mnt/hdd/backups
 set_env_value SSD_DEVICE "$ssd_recovery_uuid"
-set_env_value HDD_DEVICES "$hdd_recovery_uuid"
+# Both recovered tiers can share one VM filesystem; monitor that device once.
+if [[ "$hdd_recovery_uuid" == "$ssd_recovery_uuid" ]]; then
+  set_env_value HDD_DEVICES ""
+else
+  set_env_value HDD_DEVICES "$hdd_recovery_uuid"
+fi
 set_env_value MICROSD_DEVICE ""
+# Captured Compose files can predate support for explicitly disabling an SD.
+sed -i 's|${MICROSD_DEVICE:-/dev/mmcblk0p2}|${MICROSD_DEVICE-/dev/mmcblk0p2}|g' /opt/deniz-cloud/infra/compose/docker-compose.pi.yml
 
 samba_config=/etc/samba/deniz-cloud-storage.conf
 samba_passdb="$root/meta/samba-passdb.smbpasswd"
