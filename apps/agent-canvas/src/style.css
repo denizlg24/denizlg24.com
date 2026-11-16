@@ -651,6 +651,7 @@ meter::-moz-meter-bar {
   pointer-events: auto;
   display: grid;
   grid-template-rows: 44px auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--background);
@@ -865,23 +866,296 @@ meter::-moz-meter-bar {
   color: var(--accent-strong);
 }
 
-.git-panel {
-  max-height: 200px;
-  overflow: auto;
-  padding: 12px;
+.window-actions button.active {
+  background: var(--surface);
 }
-.git-panel pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 12px;
+.window-body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  container-type: inline-size;
 }
-.git-panel h3 {
-  font-size: 12px;
+.window-body > .window-content {
+  flex: 1;
+}
+.git-sidebar {
+  width: clamp(280px, 42%, 460px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  font-size: 11px;
+}
+@container (max-width: 640px) {
+  .git-sidebar {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(340px, 100%);
+    z-index: 2;
+    box-shadow: -12px 0 28px #0000001c;
+  }
+}
+.git-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  flex: none;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent-strong);
+}
+.git-sidebar-header strong {
   font-weight: 600;
-  margin-block: 16px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
-
-.window-info details[open] .git-panel {
-  flex-basis: 100%;
+.git-sidebar-header button {
+  margin-left: auto;
+  flex: none;
+}
+.git-sync {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.git-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  flex: none;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.git-summary > span:first-child {
+  margin-right: auto;
+}
+.git-empty {
+  padding: 16px 12px;
+  color: var(--muted-foreground);
+}
+.git-additions {
+  color: var(--status-good);
+  font-variant-numeric: tabular-nums;
+}
+.git-deletions {
+  color: var(--status-critical);
+  font-variant-numeric: tabular-nums;
+}
+.git-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.git-files > li {
+  border-bottom: 1px solid var(--border);
+}
+.git-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
+  min-height: 30px;
+  padding: 4px 10px 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+.git-file:hover {
+  background: var(--surface);
+}
+.git-files > li.open > .git-file {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.git-chevron {
+  flex: none;
+  color: var(--muted-foreground);
+  transition: transform 120ms ease;
+}
+.git-files > li.open .git-chevron {
+  transform: rotate(90deg);
+}
+.git-status {
+  flex: none;
+  width: 14px;
+  font:
+    600 10px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.git-status.status-M,
+.git-status.status-T {
+  color: var(--status-warning);
+}
+.git-status.status-A,
+.git-status.status-untracked {
+  color: var(--status-good);
+}
+.git-status.status-D,
+.git-status.status-U {
+  color: var(--status-critical);
+}
+.git-status.status-R,
+.git-status.status-C {
+  color: var(--status-info);
+}
+.git-path {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.git-path b {
+  font-weight: 500;
+  color: var(--accent-strong);
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-path span {
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.git-diff-note {
+  padding: 8px 12px 10px 30px;
+  color: var(--muted-foreground);
+}
+.git-diff {
+  overflow-x: auto;
+  font:
+    11px / 1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: var(--background);
+}
+.git-diff table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+:where(.git-diff) td {
+  padding: 0;
+  vertical-align: top;
+}
+.diff-number {
+  min-width: 34px;
+  padding: 0 6px;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.diff-sign {
+  width: 14px;
+  text-align: center;
+  user-select: none;
+}
+.diff-text {
+  white-space: pre;
+  padding-right: 12px;
+  color: var(--accent-strong);
+}
+.diff-add {
+  background: color-mix(in srgb, var(--status-good) 12%, transparent);
+}
+.diff-add .diff-sign {
+  color: var(--status-good);
+}
+.diff-del {
+  background: color-mix(in srgb, var(--status-critical) 12%, transparent);
+}
+.diff-del .diff-sign {
+  color: var(--status-critical);
+}
+.diff-hunk td {
+  background: var(--surface);
+  color: var(--muted-foreground);
+  padding-block: 2px;
+}
+.diff-note .diff-text {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.git-commits {
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+.git-commits summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+.git-commits ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 10px;
+  display: grid;
+  gap: 4px;
+}
+.git-commits li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+.git-commits code {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.git-commits li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-strong);
+}
+.git-commits time {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .git-chevron {
+    transition: none;
+  }
+}
+.update-notice > div {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: none;
+}
+.update-notice > span {
+  color: var(--accent-strong);
+}
+.version-button {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
 }

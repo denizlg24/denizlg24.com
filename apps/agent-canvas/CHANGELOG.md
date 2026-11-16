@@ -1,5 +1,17 @@
 # Agents
 
+## 0.3.0 — 2026-11-16
+
+### Added
+- In-app update checks, with a version button in the toolbar, background checks, and a restart prompt that warns about running agents.
+- A Git sidebar per window with branch drift, changed files with line counts, and inline per-file diffs.
+
+### Changed
+- Agents has its own app icon instead of sharing the dashboard's.
+
+### Fixed
+- Typed input no longer duplicates in agent terminals when macOS text suggestions or autocorrect edit xterm's hidden input.
+
 ## 0.2.0 — 2026-11-15
 
 ### Added

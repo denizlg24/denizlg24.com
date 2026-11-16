@@ -31,14 +31,36 @@ async function setup(page: import("@playwright/test").Page) {
     (window as any).__testLaunches = [];
     (window as any).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args: any) => {
-        if (cmd === "git_snapshot") {
+        if (cmd === "git_changes") {
           (window as any).__testGitReads++;
           return {
-            status: "## main\n M src/example.ts",
-            recentCommits: "a1b2c3 Test commit",
-            diffStat: "1 file changed",
+            branch: "main",
+            upstream: "origin/main",
+            ahead: 2,
+            behind: 0,
+            files: [
+              {
+                path: "src/example.ts",
+                oldPath: null,
+                status: "M",
+                staged: false,
+                additions: 1,
+                deletions: 1,
+              },
+            ],
+            filesTruncated: false,
+            commits: [{ hash: "a1b2c3", subject: "Test commit", when: "now" }],
           };
         }
+        if (cmd === "git_file_diff")
+          return {
+            diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1,2 +1,2 @@\n keep\n-const before = 1;\n+const after = 2;\n",
+            binary: false,
+            truncated: false,
+          };
+        if (cmd === "plugin:app|version") return "0.2.0";
+        if (cmd === "plugin:updater|check")
+          return (window as any).__testUpdate ?? null;
         if (cmd === "providers") return { codex: true, claude: true };
         if (cmd === "snapshot") {
           localStorage.setItem("test:agents", JSON.stringify(agents));
@@ -148,14 +170,21 @@ test("launch configuration, floating terminals, resize, and stop removes descend
     "12% used",
   );
   await root.locator("summary").filter({ hasText: "Usage" }).click();
-  await root.locator("summary").filter({ hasText: "Git" }).click();
-  await expect(
-    root.getByRole("region", { name: "Git operations" }),
-  ).toContainText("M src/example.ts");
-  await expect(
-    root.getByRole("region", { name: "Git operations" }),
-  ).toContainText("a1b2c3 Test commit");
-  await root.locator("summary").filter({ hasText: "Git" }).click();
+  await root.getByRole("button", { name: "Changes" }).click();
+  const sidebar = root.getByRole("complementary", { name: "Git changes" });
+  await expect(sidebar).toContainText("main");
+  await expect(sidebar).toContainText("↑2");
+  const file = sidebar.getByRole("button", { name: /example\.ts/ });
+  await expect(file).toHaveAttribute("aria-expanded", "false");
+  await file.click();
+  await expect(file).toHaveAttribute("aria-expanded", "true");
+  await expect(sidebar.locator(".diff-del")).toContainText("const before = 1;");
+  await expect(sidebar.locator(".diff-add")).toContainText("const after = 2;");
+  await sidebar.getByText("Recent commits").click();
+  await expect(sidebar).toContainText("Test commit");
+  await page.screenshot({ path: "test-results/git-sidebar.png" });
+  await sidebar.getByRole("button", { name: "Close Git sidebar" }).click();
+  await expect(sidebar).toHaveCount(0);
   await root.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("hello");
   await expect
@@ -269,9 +298,7 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
   await page.getByRole("button", { name: "Launch agent", exact: true }).click();
   const root = page.getByRole("region", { name: "Codex window", exact: true });
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
-  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
-    "CLI ready",
-  );
+  await expect(root.locator(".xterm-rows")).toContainText("CLI ready");
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads.length))
     .toBeGreaterThan(1);
@@ -297,14 +324,10 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
-  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
-    "CLI ready",
-  );
+  await expect(root.locator(".xterm-rows")).toContainText("CLI ready");
   await page.reload();
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
-  await expect(root.locator(".xterm-accessibility-tree")).toContainText(
-    "CLI ready",
-  );
+  await expect(root.locator(".xterm-rows")).toContainText("CLI ready");
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
@@ -363,9 +386,7 @@ test("managed subagents expose interactive terminals and close when complete", a
   await expect(child).toBeVisible();
   await page.reload();
   await expect(child.getByLabel("Agent CLI terminal")).toBeVisible();
-  await expect(child.locator(".xterm-accessibility-tree")).toContainText(
-    "CLI ready",
-  );
+  await expect(child.locator(".xterm-rows")).toContainText("CLI ready");
   await expect(child).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Codex window", exact: true }),
@@ -406,9 +427,7 @@ test("crowded agent trees arrange without overlapping cards", async ({
   await page.screenshot({ path: "test-results/arranged-trees.png" });
 });
 
-test("Git inspections only run while the details are open", async ({
-  page,
-}) => {
+test("Git inspections only run while the sidebar is open", async ({ page }) => {
   await setup(page);
   await page
     .getByRole("button", { name: "New agent", exact: true })
@@ -421,24 +440,21 @@ test("Git inspections only run while the details are open", async ({
   await page.clock.install();
   await page.clock.fastForward(6000);
   expect(await page.evaluate(() => (window as any).__testGitReads)).toBe(0);
-  const git = root.locator("summary").filter({ hasText: "Git" });
+  const reads = () => page.evaluate(() => (window as any).__testGitReads);
+  const git = root.getByRole("button", { name: "Changes" });
   await git.click();
-  await expect
-    .poll(() => page.evaluate(() => (window as any).__testGitReads))
-    .toBe(1);
-  await page.clock.fastForward(6000);
-  await expect
-    .poll(() => page.evaluate(() => (window as any).__testGitReads))
-    .toBe(2);
+  await expect.poll(reads).toBeGreaterThan(0);
+  const opened = await reads();
+  await page.clock.fastForward(4500);
+  await expect.poll(reads).toBeGreaterThan(opened);
   await git.click();
-  await expect(git.locator("..")).not.toHaveAttribute("open");
-  await page.clock.fastForward(6000);
-  expect(await page.evaluate(() => (window as any).__testGitReads)).toBe(2);
+  await expect(git).toHaveAttribute("aria-pressed", "false");
+  const closed = await reads();
+  await page.clock.fastForward(12000);
+  expect(await reads()).toBe(closed);
   await git.focus();
   await page.keyboard.press("Enter");
-  await expect
-    .poll(() => page.evaluate(() => (window as any).__testGitReads))
-    .toBe(3);
+  await expect.poll(reads).toBeGreaterThan(closed);
 });
 
 test("storage quota failures keep canvas interactions usable", async ({
@@ -478,4 +494,26 @@ test("storage quota failures keep canvas interactions usable", async ({
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
   await expect(page.locator(".agent-card")).toHaveCount(2);
   expect(errors).toEqual([]);
+});
+
+test("shows the running version and offers available updates", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await setup(page);
+  await page.evaluate(() => {
+    (window as any).__testUpdate = {
+      rid: 1,
+      currentVersion: "0.2.0",
+      version: "0.3.0",
+      rawJson: {},
+    };
+  });
+  await expect(page.getByRole("button", { name: "v0.2.0" })).toBeVisible();
+  await page.clock.fastForward(6000);
+  await expect(
+    page.getByRole("status").filter({ hasText: "0.3.0" }),
+  ).toContainText("Agents 0.3.0 is available.");
+  await page.getByRole("button", { name: "Dismiss update notice" }).click();
+  await expect(page.getByText("Agents 0.3.0 is available.")).toHaveCount(0);
 });

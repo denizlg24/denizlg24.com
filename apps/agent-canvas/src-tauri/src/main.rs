@@ -522,6 +522,12 @@ fn stop_agent(state: tauri::State<State>, id: String) -> Result<(), String> {
     forget_root(&state, &id)?;
     persistence::save(&state)
 }
+// Restarting through the exit request runs the RunEvent::Exit shutdown, so
+// live CLIs are stopped and the canvas is saved before the new build starts.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.request_restart();
+}
 fn shutdown(state: &State) -> Result<(), String> {
     // Keep the host alive long enough for the termination watchdog and child
     // waiters. Otherwise a CLI that ignores hangup could outlive app exit.
@@ -647,6 +653,7 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(State::default())
         .setup(|app| {
             let path = app.path().app_local_data_dir()?.join("canvas-state.json");
@@ -678,7 +685,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             options::available_models,
-            git::git_snapshot,
+            git::git_changes,
+            git::git_file_diff,
+            restart_app,
             providers,
             snapshot,
             create_agent,

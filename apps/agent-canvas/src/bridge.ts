@@ -1,13 +1,25 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Agent, LaunchOptions, ModelOption, Provider } from "./types";
+import type {
+  Agent,
+  FileChange,
+  FileDiff,
+  GitChanges,
+  LaunchOptions,
+  ModelOption,
+  Provider,
+} from "./types";
 export const native = isTauri();
 export const api = {
-  git: (id: string) =>
-    invoke<{ status: string; recentCommits: string; diffStat: string }>(
-      "git_snapshot",
-      { id },
-    ),
+  gitChanges: (id: string) => invoke<GitChanges>("git_changes", { id }),
+  gitDiff: (id: string, file: FileChange) =>
+    invoke<FileDiff>("git_file_diff", {
+      id,
+      path: file.path,
+      oldPath: file.oldPath,
+      untracked: file.status === "?",
+    }),
+  restart: () => invoke<void>("restart_app"),
   snapshot: () => invoke<Agent[]>("snapshot"),
   providers: () => invoke<Record<Provider, boolean>>("providers"),
   models: (provider: Provider) =>
