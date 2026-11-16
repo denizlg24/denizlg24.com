@@ -217,8 +217,12 @@ jobs:
           rm -f /tmp/cloud-host-binaries.tgz
           (cd /usr/local/lib/deniz-cloud/amd64 && sha256sum -c SHA256SUMS)
           (cd /usr/local/lib/deniz-cloud/arm64 && sha256sum -c SHA256SUMS)
-          test "$(uname -m)" = aarch64
-          cd /usr/local/lib/deniz-cloud/arm64
+          case "$(uname -m)" in
+            x86_64) host_arch=amd64 ;;
+            aarch64) host_arch=arm64 ;;
+            *) echo "unsupported cloud host architecture" >&2; exit 1 ;;
+          esac
+          cd "/usr/local/lib/deniz-cloud/$host_arch"
 
           # The build is reproducible, so most pushes that reach this workflow
           # (root package.json, the lockfile, cloud-core) ship byte-identical
