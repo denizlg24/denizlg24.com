@@ -149,7 +149,7 @@ class Agent:
         self.opener = urllib.request.build_opener(NoRedirect)
 
     def post(self, body):
-        request = urllib.request.Request(f"{self.url}/api/agent/{self.profile}", data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {self.config['token']}", "Content-Type": "application/json"}, method="POST")
+        request = urllib.request.Request(f"{self.url}/api/agent/{self.profile}", data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {self.config['token']}", "Content-Type": "application/json", "User-Agent": "deniz-status-agent/1.0"}, method="POST")
         with self.opener.open(request, timeout=15) as response:
             return json.load(response)
 
