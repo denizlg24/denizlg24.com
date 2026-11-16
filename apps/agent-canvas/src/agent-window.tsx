@@ -1,6 +1,7 @@
 import { Button } from "@repo/ui/button";
 import {
   ArrowUpRight,
+  GitBranch,
   Grip,
   Maximize2,
   Minimize2,
@@ -16,11 +17,34 @@ import {
   useState,
 } from "react";
 import { api } from "./bridge";
-import { GitPanel } from "./git-panel";
+import { GitSidebar } from "./git-panel";
 import { writeStored } from "./storage";
 import { type Agent, count, statusLabel, tokens } from "./types";
 import { Usage } from "./usage";
 
+function readWindow(
+  id: string,
+): { maximized?: unknown; gitOpen?: unknown; rect?: unknown } | null {
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(`agents:window:${id}`) || "null",
+    );
+    return typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+const finite = (n: unknown): n is number =>
+  typeof n === "number" && Number.isFinite(n);
+function savedRect(value: unknown) {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("x" in value && "y" in value && "width" in value && "height" in value))
+    return null;
+  const { x, y, width, height } = value;
+  return finite(x) && finite(y) && finite(width) && finite(height)
+    ? { x, y, width, height }
+    : null;
+}
 const AgentTerminal = lazy(() =>
   import("./terminal").then((m) => ({ default: m.AgentTerminal })),
 );
@@ -46,41 +70,24 @@ export function AgentWindow({
   onError: (e: string) => void;
 }) {
   const element = useRef<HTMLElement>(null);
-  const [maximized, setMaximized] = useState(() => {
-    try {
-      return (
-        JSON.parse(localStorage.getItem(`agents:window:${a.id}`) || "null")
-          ?.maximized === true
-      );
-    } catch {
-      return false;
-    }
-  });
+  const [maximized, setMaximized] = useState(
+    () => readWindow(a.id)?.maximized === true,
+  );
   const [stopping, setStopping] = useState(false);
-  const [gitOpen, setGitOpen] = useState(false);
+  const [gitOpen, setGitOpen] = useState(
+    () => readWindow(a.id)?.gitOpen === true,
+  );
   const [rect, setRect] = useState(() => {
     const width = Math.min(740, window.innerWidth - 40);
     const height = Math.min(590, window.innerHeight - 160);
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem(`agents:window:${a.id}`) || "null",
-      )?.rect;
-      if (
-        saved &&
-        [saved.x, saved.y, saved.width, saved.height].every(Number.isFinite)
-      )
-        return {
-          x: Math.max(0, Math.min(window.innerWidth - 150, saved.x)),
-          y: Math.max(0, Math.min(window.innerHeight - 160, saved.y)),
-          width: Math.max(300, Math.min(window.innerWidth - 16, saved.width)),
-          height: Math.max(
-            260,
-            Math.min(window.innerHeight - 100, saved.height),
-          ),
-        };
-    } catch {
-      /* Start with a visible window if its saved bounds are invalid. */
-    }
+    const saved = savedRect(readWindow(a.id)?.rect);
+    if (saved)
+      return {
+        x: Math.max(0, Math.min(window.innerWidth - 150, saved.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 160, saved.y)),
+        width: Math.max(300, Math.min(window.innerWidth - 16, saved.width)),
+        height: Math.max(260, Math.min(window.innerHeight - 100, saved.height)),
+      };
     return {
       x: Math.min(60 + index * 40, Math.max(8, window.innerWidth - width - 20)),
       y: Math.min(
@@ -92,8 +99,8 @@ export function AgentWindow({
     };
   });
   useEffect(() => {
-    writeStored(`agents:window:${a.id}`, { rect, maximized }, onError);
-  }, [a.id, rect, maximized, onError]);
+    writeStored(`agents:window:${a.id}`, { rect, maximized, gitOpen }, onError);
+  }, [a.id, rect, maximized, gitOpen, onError]);
   const gesture = useRef<{
     x: number;
     y: number;
@@ -179,6 +186,16 @@ export function AgentWindow({
           {statusLabel[a.status] ?? a.status}
         </span>
         <div className="window-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-pressed={gitOpen}
+            className={gitOpen ? "active" : undefined}
+            onClick={() => setGitOpen((v) => !v)}
+          >
+            <GitBranch size={12} />
+            Changes
+          </Button>
           {(a.hasTerminal ?? !a.parentId) && (
             <Button
               variant="ghost"
@@ -218,17 +235,6 @@ export function AgentWindow({
           </summary>
           <Usage agent={a} />
         </details>
-        <details open={gitOpen}>
-          <summary
-            onClick={(event) => {
-              event.preventDefault();
-              setGitOpen((value) => !value);
-            }}
-          >
-            Git
-          </summary>
-          <GitPanel id={a.id} open={gitOpen} />
-        </details>
         {a.checkpointWarning && <p role="status">{a.checkpointWarning}</p>}
         {a.settings && (
           <div className="window-settings">
@@ -242,42 +248,45 @@ export function AgentWindow({
           </div>
         )}
       </div>
-      <div className="window-content">
-        {!(a.hasTerminal ?? !a.parentId) ? (
-          <>
-            <div className="transcript-heading">
-              <span>Subagent transcript</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onOpen(a.rootId)}
-              >
-                Parent terminal
-                <ArrowUpRight size={13} />
-              </Button>
-            </div>
-            {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard scrolling for live transcript. */}
-            <pre className="transcript" tabIndex={0}>
-              {a.transcript || "Waiting for transcript…"}
-            </pre>
-          </>
-        ) : (
-          <Suspense
-            fallback={
-              <div
-                role="status"
-                className="terminal-wrap"
-                aria-label="Loading terminal"
+      <div className={`window-body ${gitOpen ? "with-git" : ""}`}>
+        <div className="window-content">
+          {!(a.hasTerminal ?? !a.parentId) ? (
+            <>
+              <div className="transcript-heading">
+                <span>Subagent transcript</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onOpen(a.rootId)}
+                >
+                  Parent terminal
+                  <ArrowUpRight size={13} />
+                </Button>
+              </div>
+              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard scrolling for live transcript. */}
+              <pre className="transcript" tabIndex={0}>
+                {a.transcript || "Waiting for transcript…"}
+              </pre>
+            </>
+          ) : (
+            <Suspense
+              fallback={
+                <div
+                  role="status"
+                  className="terminal-wrap"
+                  aria-label="Loading terminal"
+                />
+              }
+            >
+              <AgentTerminal
+                id={a.id}
+                dark={dark}
+                running={!["stopped", "done", "error"].includes(a.status)}
               />
-            }
-          >
-            <AgentTerminal
-              id={a.id}
-              dark={dark}
-              running={!["stopped", "done", "error"].includes(a.status)}
-            />
-          </Suspense>
-        )}
+            </Suspense>
+          )}
+        </div>
+        {gitOpen && <GitSidebar id={a.id} onClose={() => setGitOpen(false)} />}
       </div>
       {!maximized && (
         <button

@@ -57,3 +57,25 @@ export interface ModelOption {
   label: string;
   reasoning: string[];
 }
+export interface FileChange {
+  path: string;
+  oldPath: string | null;
+  status: string;
+  staged: boolean;
+  additions: number | null;
+  deletions: number | null;
+}
+export interface GitChanges {
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  files: FileChange[];
+  filesTruncated: boolean;
+  commits: { hash: string; subject: string; when: string }[];
+}
+export interface FileDiff {
+  diff: string;
+  binary: boolean;
+  truncated: boolean;
+}

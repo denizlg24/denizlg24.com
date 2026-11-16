@@ -54,6 +54,7 @@ import {
   statusLabel,
   tokens,
 } from "./types";
+import { UpdateNotice, useUpdater, VersionButton } from "./updater";
 
 import "@xyflow/react/dist/style.css";
 import "./style.css";
@@ -153,6 +154,7 @@ function App() {
   const [error, setError] = useState("");
   const [providers, setProviders] = useState({ codex: false, claude: false });
   const [dark, setDark] = useState(() => readStored("agents:theme") === "dark");
+  const updater = useUpdater();
   const spawnPoint = useRef<{ x: number; y: number } | null>(null);
   const open = useCallback(
     (id: string) =>
@@ -365,6 +367,11 @@ function App() {
   const active = agents.filter((a) =>
     ["working", "starting"].includes(a.status),
   ).length;
+  const liveAgents = agents.filter(
+    (a) =>
+      (a.hasTerminal ?? !a.parentId) &&
+      !["stopped", "done", "error"].includes(a.status),
+  ).length;
   const edges = agents
     .filter((a) => a.parentId)
     .map((a) => ({
@@ -387,6 +394,11 @@ function App() {
           <span>{active} working</span>
         </div>
         <div className="toolbar-actions">
+          <VersionButton
+            version={updater.version}
+            phase={updater.phase}
+            onClick={updater.fromToolbar}
+          />
           <Button
             variant="ghost"
             size="sm"
@@ -415,6 +427,13 @@ function App() {
           <code>bun run desktop</code>
         </div>
       )}
+      <UpdateNotice
+        phase={updater.phase}
+        liveAgents={liveAgents}
+        onInstall={updater.install}
+        onDismiss={updater.dismiss}
+        onRetry={() => void updater.lookForUpdate(true)}
+      />
       {error && !creating && (
         <div className="notice error" role="alert">
           {error}

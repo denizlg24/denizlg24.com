@@ -25,7 +25,6 @@ export function AgentTerminal({
     const term = new Terminal({
       cursorBlink: running,
       disableStdin: !running,
-      screenReaderMode: true,
       fontSize: 13,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       scrollback: 8000,
@@ -57,6 +56,16 @@ export function AgentTerminal({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element.current);
+    // WebKit's inline predictions and autocorrect write into xterm's hidden
+    // textarea, which xterm then replays to the PTY as extra input.
+    for (const [name, value] of [
+      ["autocorrect", "off"],
+      ["autocapitalize", "off"],
+      ["autocomplete", "off"],
+      ["spellcheck", "false"],
+      ["writingsuggestions", "false"],
+    ])
+      term.textarea?.setAttribute(name, value);
     const report = (e: unknown) => {
       if (!cancelled) setError(String(e));
     };
