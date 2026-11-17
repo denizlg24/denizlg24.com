@@ -34,8 +34,9 @@ import {
   loadAgentComposerPrefs,
   saveAgentComposerPrefs,
 } from "../agent/launcher-prefs";
+import { reconcileAgentModel } from "../agent/provider-models";
 import { describeAgentError, useAgentChat } from "../agent/use-agent-chat";
-import { pickDefaultModel, useModelCatalog } from "../agent/use-model-catalog";
+import { useModelCatalog } from "../agent/use-model-catalog";
 import { useAdmin } from "../provider";
 import { CitationList, CitedText } from "./citations";
 import { listStudyThreads, type StudyThread } from "./study-api";
@@ -100,13 +101,9 @@ export function NotebookChat({
   settingsRef.current = { model, tools };
 
   useEffect(() => {
-    if (model || !catalog.models?.length) return;
-    const stored = prefs.model;
-    const next =
-      stored && catalog.models.some((entry) => entry.id === stored)
-        ? stored
-        : pickDefaultModel(catalog.models, REQUIRED);
-    if (next) setModel(next);
+    if (!catalog.models?.length) return;
+    const next = reconcileAgentModel(model, prefs.model, catalog.models);
+    if (next !== model) setModel(next);
   }, [catalog.models, model, prefs.model]);
 
   const refreshThreads = useCallback(async () => {

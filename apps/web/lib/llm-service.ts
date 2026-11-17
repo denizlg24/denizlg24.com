@@ -1,3 +1,4 @@
+import { createOpenAI } from "@ai-sdk/openai";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   type FlexibleSchema,
@@ -9,6 +10,10 @@ import {
   type ToolApprovalStatus,
   type ToolSet,
 } from "ai";
+import {
+  claudeSubscriptionCredential,
+  subscriptionSelection,
+} from "@/lib/ai-subscriptions/service";
 import { CatalogUnavailableError, LlmModelError } from "@/lib/llm-errors";
 import {
   findModel,
@@ -25,6 +30,10 @@ import {
 import { getGatewayAnthropicClient } from "@/lib/llm-transports/anthropic-gateway";
 import { requestChatCompletion } from "@/lib/llm-transports/chat-completions";
 import {
+  chatgptSubscriptionModel,
+  chatgptSubscriptionTools,
+} from "@/lib/llm-transports/chatgpt-subscription";
+import {
   type CohereEmbedInputType,
   type MultimodalEmbeddingInput,
   requestMultimodalEmbedding,
@@ -38,8 +47,6 @@ import {
 } from "@/lib/llm-transports/jev-evaluate";
 import { requestTranscription } from "@/lib/llm-transports/openai-transcription";
 import { connectDB } from "@/lib/mongodb";
-import type { ToolExecutionContext } from "@/lib/tools/types";
-import type { TokenUsage } from "@/models/Conversation";
 import { LlmUsage } from "@/models/LlmUsage";
 
 // The single application-facing LLM boundary. Every caller goes through the
@@ -707,7 +714,7 @@ export async function generateText({
   temperature,
 }: GenerateTextRequest): Promise<TextResult> {
   const resolved = await resolveModel({ model, purpose });
-  const client = getGatewayAnthropicClient();
+  const client = await getGatewayAnthropicClient();
   const limits = getModelLimits(resolved.catalogModel);
 
   const response = await client.messages.create({
@@ -785,7 +792,7 @@ export async function generateToolResult({
     purpose,
     requiredTags: ["tool-use"],
   });
-  const client = getGatewayAnthropicClient();
+  const client = await getGatewayAnthropicClient();
   const outputLimit = Math.min(
     maxTokens,
     getModelLimits(resolved.catalogModel).maxOutput,
@@ -962,7 +969,7 @@ export async function runToolLoop({
     purpose,
     requiredTags: ["tool-use"],
   });
-  const client = getGatewayAnthropicClient();
+  const client = await getGatewayAnthropicClient();
   const outputLimit = Math.min(
     maxTokens,
     getModelLimits(resolved.catalogModel).maxOutput,
@@ -1240,7 +1247,7 @@ export async function generateStructured<T>({
   const deadline = AbortSignal.timeout(timeoutMs);
 
   const result = await generateTextOnce({
-    model: gatewayLanguageModel(resolved.id),
+    model: await gatewayLanguageModel(resolved.id),
     system,
     messages: [
       {
@@ -1301,7 +1308,7 @@ export async function countTokens({
   prompt,
 }: CountTokensRequest): Promise<number> {
   const resolved = await resolveModel({ model, purpose });
-  const client = getGatewayAnthropicClient();
+  const client = await getGatewayAnthropicClient();
   const { input_tokens } = await client.messages.countTokens({
     model: resolved.id as Anthropic.Model,
     system,
@@ -1330,7 +1337,7 @@ export async function streamText({
   enableCache = false,
 }: StreamTextRequest): Promise<ReadableStream> {
   const resolved = await resolveModel({ model, purpose });
-  const client = getGatewayAnthropicClient();
+  const client = await getGatewayAnthropicClient();
   const limits = getModelLimits(resolved.catalogModel);
 
   const { input_tokens: inputTokens } = await client.messages.countTokens({
@@ -1468,7 +1475,7 @@ export interface AgentTurnRequest extends LlmRequestContext {
 }
 
 export interface AgentTurn {
-  result: ReturnType<typeof streamTextTurn<ToolSet>>;
+  result: Pick<ReturnType<typeof streamTextTurn<ToolSet>>, "stream">;
   modelId: string;
   contextWindow: number;
   /** Usage and cost for a finished stream's total, in the shape the UI shows. */
@@ -1511,6 +1518,96 @@ export async function streamAgentTurn({
   logPrompt,
   onTurnEnd,
 }: AgentTurnRequest): Promise<AgentTurn> {
+  const selection = await subscriptionSelection();
+  if (selection.provider === "claude-code") {
+    const credential = await claudeSubscriptionCredential();
+    const { streamClaudeSubscriptionTurn } = await import(
+      "@/lib/llm-transports/claude-subscription"
+    );
+    return streamClaudeSubscriptionTurn({
+      model: credential.model,
+      token: credential.token,
+      instructions,
+      messages,
+      tools,
+      toolApproval,
+      abortSignal,
+      onTurnEnd: async (end) => {
+        await logLlmUsage({
+          llmModel: `claude-code/${credential.model}`,
+          inputTokens: end.usage.inputTokens,
+          outputTokens: end.usage.outputTokens,
+          costUsd: 0,
+          systemPrompt: logInstructions ?? instructions,
+          userPrompt: logPrompt ?? "",
+          source,
+        });
+        await onTurnEnd?.(end);
+      },
+    });
+  }
+  if (selection.provider === "chatgpt") {
+    if (!selection.model)
+      throw new LlmModelError("Choose a ChatGPT model in Models settings.");
+    const modelId = `chatgpt/${selection.model}`;
+    const describeUsage = (usage: LanguageModelUsage): AgentTurnUsage => ({
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
+      cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
+      reasoningTokens: usage.outputTokenDetails.reasoningTokens ?? 0,
+      costUsd: 0,
+      contextWindow: DEFAULT_CONTEXT_WINDOW,
+    });
+    const subscriptionTools: ToolSet = {
+      ...chatgptSubscriptionTools(tools),
+      ...(webSearch ? { web_search: createOpenAI().tools.webSearch({}) } : {}),
+    };
+    const result = streamTextTurn<ToolSet>({
+      model: chatgptSubscriptionModel(selection.model),
+      instructions,
+      messages,
+      tools: subscriptionTools,
+      ...(toolApproval
+        ? {
+            toolApproval: ({
+              toolCall,
+            }: {
+              toolCall: { toolName: string; input: unknown };
+            }) =>
+              toolApproval({
+                toolName: toolCall.toolName,
+                input: toolCall.input,
+              }),
+          }
+        : {}),
+      providerOptions: {
+        openai: { store: false, systemMessageMode: "developer" },
+      },
+      stopWhen: () => false,
+      maxRetries: 0,
+      abortSignal,
+      onEnd: async ({ totalUsage, finishReason }) => {
+        const usage = describeUsage(totalUsage);
+        await logLlmUsage({
+          llmModel: modelId,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          costUsd: 0,
+          systemPrompt: logInstructions ?? instructions,
+          userPrompt: logPrompt ?? "",
+          source,
+        });
+        await onTurnEnd?.({ usage, finishReason });
+      },
+    });
+    return {
+      result,
+      modelId,
+      contextWindow: DEFAULT_CONTEXT_WINDOW,
+      describeUsage,
+    };
+  }
   const requestedModel = resolveLegacyAlias(model);
   const nativeSearch = isAnthropicModel(requestedModel);
   const requiredTags = [
@@ -1530,7 +1627,7 @@ export async function streamAgentTurn({
     resolved.catalogModel?.tags.includes("reasoning") ?? false;
   const allTools: ToolSet = {
     ...tools,
-    ...providerTools(resolved.id, { webSearch, webFetch }),
+    ...(await providerTools(resolved.id, { webSearch, webFetch })),
   };
 
   const describeUsage = (usage: LanguageModelUsage): AgentTurnUsage => {
@@ -1561,7 +1658,7 @@ export async function streamAgentTurn({
   };
 
   const result = streamTextTurn<ToolSet>({
-    model: gatewayLanguageModel(resolved.id),
+    model: await gatewayLanguageModel(resolved.id),
     instructions,
     messages,
     tools: allTools,

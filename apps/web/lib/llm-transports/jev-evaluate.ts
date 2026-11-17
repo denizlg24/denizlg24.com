@@ -1,6 +1,6 @@
 import { createGateway } from "@ai-sdk/gateway";
 import { experimental_evaluate as evaluate } from "ai";
-import { LlmConfigurationError } from "@/lib/llm-errors";
+import { getGatewayCredential } from "@/lib/ai-connections/gateway";
 
 // The evaluation side of the Vercel AI Gateway. Jev is a System One model:
 // it takes one shared state and a map of typed questions and answers all of
@@ -17,21 +17,14 @@ import { LlmConfigurationError } from "@/lib/llm-errors";
 /** Overridable so a newer Jev revision can be pinned without a release. */
 const DEFAULT_JEV_MODEL = "typesafe-ai/jev";
 
-let provider: ReturnType<typeof createGateway> | null = null;
-let providerKey: string | null = null;
-
-function gatewayProvider(): ReturnType<typeof createGateway> {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) {
-    throw new LlmConfigurationError(
-      "AI_GATEWAY_API_KEY is not configured; evaluation is unavailable",
-    );
-  }
-  if (!provider || providerKey !== apiKey) {
-    provider = createGateway({ apiKey });
-    providerKey = apiKey;
-  }
-  return provider;
+async function gatewayProvider(): Promise<ReturnType<typeof createGateway>> {
+  const credential = await getGatewayCredential();
+  return createGateway({
+    apiKey: async () => (await getGatewayCredential()).apiKey,
+    ...(credential.teamIdOrSlug
+      ? { teamIdOrSlug: credential.teamIdOrSlug }
+      : {}),
+  });
 }
 
 export function jevModelId(): string {
@@ -59,7 +52,7 @@ export async function runJevEvaluation<Q extends JevQuestions>({
   signal,
 }: JevEvaluateRequest<Q>) {
   return evaluate({
-    model: gatewayProvider().evaluationModel(jevModelId()),
+    model: (await gatewayProvider()).evaluationModel(jevModelId()),
     state,
     questions,
     ...(signal ? { abortSignal: signal } : {}),

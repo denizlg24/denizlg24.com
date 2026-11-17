@@ -15,6 +15,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { postStream } from "@/lib/stream";
+import { useAiSubscriptions } from "./ai-connections";
 
 export function useConversations() {
   return useQuery({
@@ -36,12 +37,29 @@ export function useConversation(id: string | undefined) {
   });
 }
 
-/** The model new conversations start on, as Voice picks it. */
+/** Follow subscription settings; only Gateway discovers a per-turn default. */
 export function useDefaultModel() {
+  const subscriptions = useAiSubscriptions();
+  const status = subscriptions.data;
+  const connection =
+    status?.activeProvider === "chatgpt" ? status.chatgpt : status?.claude;
   return useQuery({
-    queryKey: ["llm", "default-model"],
+    queryKey: [
+      "llm",
+      "default-model",
+      status?.activeProvider,
+      connection?.model,
+      connection?.configured,
+    ],
+    enabled: Boolean(status),
     staleTime: 60 * 60_000,
     queryFn: async () => {
+      if (status && status.activeProvider !== "gateway") {
+        if (!connection?.configured || !connection.model) {
+          throw new Error("Reconnect the selected AI provider in Settings.");
+        }
+        return `${status.activeProvider}/${connection.model}`;
+      }
       const { models } = await api.request<LlmModelsResponse>("llm/models");
       const model = pickDefaultModel(models, ["tool-use"]);
       if (!model) throw new Error("No model available");

@@ -65,7 +65,15 @@ export function Thread({
   const scroll = useRef<ScrollView>(null);
   const started = useRef(false);
   const busy = live !== null || pending !== null;
-  const model = conversation.data?.llmModel ?? defaultModel.data;
+  const previousModel = conversation.data?.llmModel;
+  const selectedDefault = defaultModel.data;
+  const isSubscription = (value: string | undefined) =>
+    value?.startsWith("chatgpt/") || value?.startsWith("claude-code/");
+  const model = isSubscription(selectedDefault)
+    ? selectedDefault
+    : isSubscription(previousModel)
+      ? selectedDefault
+      : (previousModel ?? selectedDefault);
 
   const { refetch } = conversation;
 

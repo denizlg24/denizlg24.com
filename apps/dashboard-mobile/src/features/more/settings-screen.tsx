@@ -17,7 +17,7 @@ import {
   notificationEnabled,
 } from "@repo/schemas";
 import Constants from "expo-constants";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, StyleSheet, Switch, View } from "react-native";
 import { forgetPush } from "@/features/notifications/push";
@@ -78,6 +78,7 @@ function Lead({
 }
 
 export function SettingsScreen() {
+  const router = useRouter();
   const settings = useSettings();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -127,6 +128,12 @@ export function SettingsScreen() {
           </Section>
         ))}
         <Section title="App">
+          <Row
+            title="AI connections"
+            subtitle="Subscriptions and Gateway credits"
+            chevron
+            onPress={() => router.push("/more/ai-connections")}
+          />
           <Row
             title="Version"
             value={Constants.expoConfig?.version ?? "—"}

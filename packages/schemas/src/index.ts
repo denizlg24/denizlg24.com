@@ -1,6 +1,7 @@
 export * from "./agent-chat";
 export * from "./agent-memory";
 export * from "./agent-tasks";
+export * from "./ai-connections";
 export * from "./authenticator";
 export * from "./background-agent";
 export * from "./blog";

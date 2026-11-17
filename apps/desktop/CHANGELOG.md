@@ -7,6 +7,18 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.5.0 — 2026-11-17
+
+### Added
+- **AI connections** in Settings → Models: connect personal ChatGPT and Claude
+  subscriptions or save an encrypted Vercel AI Gateway key. Provider setup and
+  eligibility guidance is included in the connection settings.
+
+### Fixed
+- The agent dock and Study chat now follow the selected AI provider and its
+  saved subscription model. Switching providers refreshes the model picker
+  immediately, including when reopening an older conversation.
+
 ## 3.4.0 — 2026-11-12
 
 ### Added

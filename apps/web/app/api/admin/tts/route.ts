@@ -1,6 +1,7 @@
 import { createGateway } from "@ai-sdk/gateway";
 import { generateSpeech } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
+import { getGatewayCredential } from "@/lib/ai-connections/gateway";
 import { requireAdmin } from "@/lib/require-admin";
 import { getTtsSettings } from "@/lib/tts-settings";
 
@@ -24,18 +25,12 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "AI Gateway is not configured" },
-      { status: 503 },
-    );
-  }
   try {
     const settings = await getTtsSettings();
+    const credential = await getGatewayCredential();
     const google = settings.effectiveTtsModel.startsWith("google/");
     const result = await generateSpeech({
-      model: createGateway({ apiKey }).speechModel(settings.effectiveTtsModel),
+      model: createGateway(credential).speechModel(settings.effectiveTtsModel),
       text: text.trim(),
       voice: settings.effectiveTtsVoice,
       ...(google && settings.ttsInstructions?.trim()

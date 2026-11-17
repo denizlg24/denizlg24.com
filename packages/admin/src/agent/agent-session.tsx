@@ -34,12 +34,12 @@ import {
   loadAgentComposerPrefs,
   saveAgentComposerPrefs,
 } from "./launcher-prefs";
+import { reconcileAgentModel } from "./provider-models";
 import { type AgentChat, useAgentChat } from "./use-agent-chat";
 import { useConnectors } from "./use-connectors";
 import {
   isModelEligible,
   type ModelCatalogState,
-  pickDefaultModel,
   useModelCatalog,
 } from "./use-model-catalog";
 
@@ -252,13 +252,14 @@ export function AgentSessionProvider({
     !isModelEligible(settings.model, catalog.models, requiredCapabilities);
 
   useEffect(() => {
-    if (settings.model || !catalog.models?.length) return;
-    const stored = prefs.model;
-    const next =
-      stored && catalog.models.some((model) => model.id === stored)
-        ? stored
-        : pickDefaultModel(catalog.models, ["tool-use"]);
-    if (next) setSettings((current) => ({ ...current, model: next }));
+    if (!catalog.models?.length) return;
+    const next = reconcileAgentModel(
+      settings.model,
+      prefs.model,
+      catalog.models,
+    );
+    if (next !== settings.model)
+      setSettings((current) => ({ ...current, model: next }));
   }, [catalog.models, prefs.model, settings.model]);
 
   const updateSettings = useCallback((patch: Partial<AgentSettings>) => {

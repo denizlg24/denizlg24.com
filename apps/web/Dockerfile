@@ -22,6 +22,12 @@ RUN --mount=type=secret,id=forge-env,required=false \
 RUN tectonic="$(find /workspace -path '*/@node-latex-compiler/bin-linux-x64/bin/tectonic' -print -quit)" \
   && test -n "$tectonic" \
   && cp "$tectonic" /workspace/tectonic
+# The Agent SDK starts Anthropic's unmodified native runtime. Optional platform
+# packages cannot be inferred reliably by Next's standalone file tracing.
+RUN case "$(uname -m)" in x86_64) claude_arch=x64 ;; aarch64) claude_arch=arm64 ;; *) exit 1 ;; esac \
+  && claude_binary="$(find /workspace/node_modules/.bun -path "*/@anthropic-ai/claude-agent-sdk-linux-${claude_arch}/claude" -type f -print -quit)" \
+  && test -n "$claude_binary" && test -x "$claude_binary" \
+  && cp "$claude_binary" /workspace/claude-agent
 
 # trixie, not bookworm: the Tectonic binary wants glibc 2.39 and bookworm ships
 # 2.36. ca-certificates is for the TeX bundle it fetches over HTTPS on first use.
@@ -39,8 +45,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV LATEX_TECTONIC_PATH=/usr/local/bin/tectonic
 ENV FFMPEG_PATH=/usr/local/bin/ffmpeg
+ENV CLAUDE_CODE_EXECUTABLE=/usr/local/bin/claude-agent
 
 COPY --from=build /workspace/tectonic /usr/local/bin/tectonic
+COPY --from=build /workspace/claude-agent /usr/local/bin/claude-agent
 # Static build, so it needs nothing from trixie. Voice transcription splits long
 # recordings with it: the model refuses anything much past twenty minutes.
 COPY --from=mwader/static-ffmpeg:8.0.1 /ffmpeg /usr/local/bin/ffmpeg
