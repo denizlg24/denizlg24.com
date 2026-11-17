@@ -1,13 +1,13 @@
 import type { LlmCatalogModel, LlmModelsResponse } from "@repo/schemas";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export { pickDefaultModel } from "@repo/utils";
 
 import { useAdmin } from "../provider";
+import { AI_PROVIDER_CHANGED, getAgentModelCatalog } from "./provider-models";
 
-// Fetches the Gateway model catalog through the authenticated web API. There
-// is deliberately no hardcoded fallback list: when discovery fails the UI
-// shows a retry state and keeps the currently selected id for display.
+// Agent selectors follow the selected connection, including changes made
+// while the desktop dock stays mounted beside Settings.
 
 export interface ModelCatalogState {
   models: LlmCatalogModel[] | null;
@@ -17,21 +17,31 @@ export interface ModelCatalogState {
   retry: () => void;
 }
 
-export function useModelCatalog(): ModelCatalogState {
+export function useModelCatalog(
+  source: "agent" | "gateway" = "agent",
+): ModelCatalogState {
   const { client } = useAdmin();
   const [models, setModels] = useState<LlmCatalogModel[] | null>(null);
   const [stale, setStale] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const generation = useRef(0);
   const load = useCallback(async () => {
+    const request = ++generation.current;
     setLoading(true);
     setError(null);
     try {
-      const result = await client.get<LlmModelsResponse>("llm/models");
+      const result =
+        source === "agent"
+          ? await getAgentModelCatalog(client)
+          : await client.get<LlmModelsResponse>("llm/models");
+      if (request !== generation.current) return;
       setModels(result.models);
       setStale(result.stale);
     } catch (error) {
+      if (request !== generation.current) return;
+      setModels(null);
       setError(
         error instanceof Error ? error.message : "Failed to load models",
       );
@@ -39,10 +49,18 @@ export function useModelCatalog(): ModelCatalogState {
       return;
     }
     setLoading(false);
-  }, [client]);
+  }, [client, source]);
 
   useEffect(() => {
-    load();
+    void load();
+    const refresh = () => void load();
+    window.addEventListener(AI_PROVIDER_CHANGED, refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      generation.current++;
+      window.removeEventListener(AI_PROVIDER_CHANGED, refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, [load]);
 
   return { models, stale, loading, error, retry: load };

@@ -74,7 +74,7 @@ interface ClaudeCodeModel {
 }
 
 export function useClaudeCodeModels(): ClaudeCodeModel[] {
-  const { models } = useModelCatalog();
+  const { models } = useModelCatalog("gateway");
   return useMemo(() => {
     const byId = new Map<string, ClaudeCodeModel>(
       CLAUDE_CODE_ALIASES.map((alias) => [alias, { id: alias, name: alias }]),

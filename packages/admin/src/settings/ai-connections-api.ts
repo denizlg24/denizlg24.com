@@ -6,6 +6,7 @@ import type {
   DisconnectAiSubscriptionResponse,
   SaveAiSubscription,
 } from "@repo/schemas";
+import { notifyAiProviderChanged } from "../agent/provider-models";
 import type { AdminClient, AdminRequestOptions } from "../client";
 
 export type {
@@ -51,20 +52,24 @@ export function getAiSubscriptions(
   return client.get<AiSubscriptionsResponse>("ai-subscriptions", options);
 }
 
-export function saveAiSubscription(
+export async function saveAiSubscription(
   client: AdminClient,
   input: SaveAiSubscription,
 ) {
-  return client.put("ai-subscriptions", input);
+  const result = await client.put("ai-subscriptions", input);
+  notifyAiProviderChanged();
+  return result;
 }
 
-export function disconnectAiSubscription(
+export async function disconnectAiSubscription(
   client: AdminClient,
   provider: "chatgpt" | "claude-code",
 ) {
-  return client.del<DisconnectAiSubscriptionResponse>(
+  const result = await client.del<DisconnectAiSubscriptionResponse>(
     `ai-subscriptions?provider=${provider}`,
   );
+  notifyAiProviderChanged();
+  return result;
 }
 
 export function getChatgptModels(

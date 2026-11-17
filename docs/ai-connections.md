@@ -118,3 +118,8 @@ Account-specific eligibility, live subscription sign-in, Vercel beta access and
 actual quota consumption require the owner's real authorization. Automated
 tests use synthetic provider streams and an isolated local database; they do
 not consume subscription allowance or Gateway credits.
+
+The agent model picker follows the active connection. For ChatGPT and Claude,
+it displays the subscription model saved in Models settings; for Gateway, it
+shows the Gateway catalog. Changing providers refreshes the desktop dock and
+Study chat immediately, including an open conversation with an older model.
