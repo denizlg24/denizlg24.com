@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { LlmConfigurationError } from "@/lib/llm-errors";
+import { getGatewayCredential } from "@/lib/ai-connections/gateway";
 
 // The only place an Anthropic SDK client is constructed. It talks to the
 // Vercel AI Gateway's Anthropic-compatible Messages endpoint, so model ids
@@ -7,30 +7,21 @@ import { LlmConfigurationError } from "@/lib/llm-errors";
 
 const GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh";
 
-let client: Anthropic | null = null;
-let clientKey: string | null = null;
-
-/**
- * Lazily builds the Gateway Messages client. The key is validated here — at
- * the start of a generation/counting operation — never at module import, so
- * discovery and tests run without credentials.
- */
-export function getGatewayAnthropicClient(): Anthropic {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) {
-    throw new LlmConfigurationError(
-      "AI_GATEWAY_API_KEY is not configured; LLM generation is unavailable",
-    );
-  }
-  if (!client || clientKey !== apiKey) {
-    client = new Anthropic({
-      apiKey,
-      baseURL: GATEWAY_BASE_URL,
-      // Resolve fetch at call time so runtime fetch replacements (tests,
-      // tracing) are honored even though the client instance is cached.
-      fetch: (input, init) => globalThis.fetch(input, init),
-    });
-    clientKey = apiKey;
-  }
-  return client;
+/** The stored connection also applies to Messages API callers and background jobs. */
+export async function getGatewayAnthropicClient(): Promise<Anthropic> {
+  const credential = await getGatewayCredential();
+  return new Anthropic({
+    apiKey: null,
+    authToken: credential.apiKey,
+    baseURL: GATEWAY_BASE_URL,
+    fetch: async (input, init) => {
+      const current = await getGatewayCredential();
+      const headers = new Headers(init?.headers);
+      headers.set("authorization", `Bearer ${current.apiKey}`);
+      headers.delete("x-api-key");
+      if (current.teamIdOrSlug)
+        headers.set("x-vercel-ai-gateway-team", current.teamIdOrSlug);
+      return globalThis.fetch(input, { ...init, headers });
+    },
+  });
 }

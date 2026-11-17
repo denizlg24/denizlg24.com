@@ -18,6 +18,7 @@ import { useModelCatalog } from "../../llm/model-select";
 import { useAdmin } from "../../provider";
 import { SettingsModelPicker } from "../settings-model-picker";
 import { SettingsGroup, SettingsRow } from "../settings-shell";
+import { AiConnectionsSection } from "./ai-connections-section";
 
 type Settings = AppSettingsResponse["settings"];
 type ModelKey =
@@ -105,6 +106,7 @@ export function ModelsSection() {
 
   return (
     <>
+      <AiConnectionsSection />
       <SettingsGroup
         label="Job models"
         actions={

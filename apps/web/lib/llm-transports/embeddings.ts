@@ -1,4 +1,5 @@
-import { LlmConfigurationError, LlmTransportError } from "@/lib/llm-errors";
+import { getGatewayCredential } from "@/lib/ai-connections/gateway";
+import { LlmTransportError } from "@/lib/llm-errors";
 
 const GATEWAY_EMBEDDINGS_URL = "https://ai-gateway.vercel.sh/v1/embeddings";
 
@@ -23,16 +24,16 @@ export async function requestEmbedding({
   input,
   dimensions,
 }: EmbeddingRequest): Promise<EmbeddingResult> {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) {
-    throw new LlmConfigurationError(
-      "AI_GATEWAY_API_KEY is not configured; embedding generation is unavailable",
-    );
-  }
+  const credential = await getGatewayCredential();
+  const { apiKey } = credential;
+
   const response = await fetch(GATEWAY_EMBEDDINGS_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
+      ...(credential.teamIdOrSlug
+        ? { "x-vercel-ai-gateway-team": credential.teamIdOrSlug }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model, input, dimensions }),

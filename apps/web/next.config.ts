@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/@anthropic-ai/claude-agent-sdk/**/*"],
+  },
   /* config options here */
   crossOrigin: "anonymous",
   reactCompiler: true,
@@ -39,6 +42,7 @@ const nextConfig: NextConfig = {
     ],
   },
   serverExternalPackages: [
+    "@anthropic-ai/claude-agent-sdk",
     "node-latex-compiler",
     "imapflow",
     "mailparser",

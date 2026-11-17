@@ -11,6 +11,12 @@ const llmUsageCreateMock = mock(
   async (_entry: Record<string, unknown>) => ({}),
 );
 mock.module("@/lib/mongodb", () => ({ connectDB: async () => {} }));
+mock.module("@/lib/ai-connections/gateway", () => ({
+  getGatewayCredential: async () => ({
+    apiKey: process.env.AI_GATEWAY_API_KEY,
+    source: "environment",
+  }),
+}));
 mock.module("@/models/LlmUsage", () => ({
   LlmUsage: { create: llmUsageCreateMock },
 }));

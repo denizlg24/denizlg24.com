@@ -1,4 +1,5 @@
-import { LlmConfigurationError, LlmTransportError } from "@/lib/llm-errors";
+import { getGatewayCredential } from "@/lib/ai-connections/gateway";
+import { LlmTransportError } from "@/lib/llm-errors";
 
 // OpenAI-compatible Chat Completions adapter for Gateway models that are
 // used through JSON-object generation (semantic/topic classification).
@@ -34,18 +35,17 @@ export async function requestChatCompletion({
   temperature,
   jsonObject = true,
 }: ChatCompletionRequest): Promise<ChatCompletionResult> {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) {
-    throw new LlmConfigurationError(
-      "AI_GATEWAY_API_KEY is not configured; LLM generation is unavailable",
-    );
-  }
+  const credential = await getGatewayCredential();
+  const { apiKey } = credential;
 
   const send = (includeJsonObject: boolean) =>
     fetch(GATEWAY_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        ...(credential.teamIdOrSlug
+          ? { "x-vercel-ai-gateway-team": credential.teamIdOrSlug }
+          : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

@@ -102,7 +102,7 @@ describeLive("gateway live contracts", () => {
       const { getGatewayAnthropicClient } = await import(
         "./llm-transports/anthropic-gateway"
       );
-      const client = getGatewayAnthropicClient();
+      const client = await getGatewayAnthropicClient();
       const stream = client.messages.stream({
         model: "anthropic/claude-haiku-4.5",
         max_tokens: 500,
@@ -141,7 +141,7 @@ describeLive("gateway live contracts", () => {
       const { getGatewayAnthropicClient } = await import(
         "./llm-transports/anthropic-gateway"
       );
-      const client = getGatewayAnthropicClient();
+      const client = await getGatewayAnthropicClient();
       const message = await client.messages.create({
         model: "anthropic/claude-haiku-4.5",
         max_tokens: 1000,

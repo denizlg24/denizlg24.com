@@ -21,6 +21,23 @@ const llmUsageCreateMock = mock(
   async (_entry: Record<string, unknown>) => ({}),
 );
 mock.module("@/lib/mongodb", () => ({ connectDB: async () => {} }));
+mock.module("@/lib/ai-subscriptions/service", () => ({
+  subscriptionSelection: async () => ({ provider: "gateway" }),
+  claudeSubscriptionCredential: async () => {
+    throw new Error("Not selected");
+  },
+  chatgptAccessToken: async () => {
+    throw new Error("Not selected");
+  },
+}));
+mock.module("@/lib/ai-connections/gateway", () => ({
+  getGatewayCredential: async () => {
+    const apiKey = process.env.AI_GATEWAY_API_KEY;
+    if (!apiKey)
+      throw new LlmConfigurationError("AI_GATEWAY_API_KEY is not configured");
+    return { apiKey, source: "environment" };
+  },
+}));
 mock.module("@/models/LlmUsage", () => ({
   LlmUsage: { create: llmUsageCreateMock },
 }));

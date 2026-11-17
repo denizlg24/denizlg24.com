@@ -38,6 +38,8 @@ export interface AdminRawInit {
 }
 
 export interface AdminClient {
+  /** Browser navigation to an endpoint, using this transport's configured host. */
+  endpointUrl?(endpoint: string): string;
   get<T>(endpoint: string, options?: AdminRequestOptions): Promise<T>;
   post<T>(
     endpoint: string,
@@ -208,6 +210,7 @@ export function createAdminClient(config: AdminTransportConfig): AdminClient {
   }
 
   return {
+    endpointUrl: (endpoint: string) => `${base}/${endpoint}`,
     get: <T>(endpoint: string, options?: AdminRequestOptions) =>
       json<T>("GET", endpoint, { signal: options?.signal }),
     post: <T>(
