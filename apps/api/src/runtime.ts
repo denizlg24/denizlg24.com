@@ -275,6 +275,7 @@ export async function createRuntimeApp() {
       ensureStorageSearchIndex(meili),
       initializeS3(s3Config),
     ]);
+    await storageService.ensureProjectRoots();
     thumbnailWarmer?.start();
     cleanupActions.push(async () => thumbnailWarmer?.stop());
     const cleanupTimer = setInterval(
@@ -853,6 +854,7 @@ export async function createRuntimeApp() {
               process.env.DEPLOY_S3_ENDPOINT ?? "https://api.denizlg24.com/v2",
             s3Region: process.env.DEPLOY_S3_REGION ?? "auto",
             s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
+            storage: storageService,
             provisioners,
             meili,
             runTokens: {
@@ -915,6 +917,7 @@ export async function createRuntimeApp() {
           databaseHosts,
           s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
           s3CredentialResolver,
+          storage: storageService,
           mongotHealthUrl:
             process.env.MONGOT_HEALTH_URL ?? "http://mongot:8080",
           mongotMaxIndexesPerProject: maxVectorIndexes,

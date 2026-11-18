@@ -33,6 +33,8 @@ import {
   type Folder,
   files,
   folders,
+  type Project,
+  projects,
   type StorageFile,
   type StorageShare,
   type StorageTier,
@@ -542,6 +544,64 @@ export class StorageService {
     ]);
   }
 
+  /**
+   * `createProject` writes only the folder row. Until the directory exists, the
+   * namespace reconciler reaps that row as stale, the foreign key nulls
+   * `projects.storage_folder_id`, and every S3 credential of the project stops
+   * resolving — the resolver allows a bucket only while the root sits at
+   * `/<slug>`. S3 never passes through here on its own, so this runs at
+   * creation and once per project at boot, and re-links a root that was
+   * already reaped.
+   */
+  async ensureProjectRoot(
+    project: Pick<Project, "id" | "slug" | "ownerId" | "storageFolderId">,
+  ): Promise<Folder> {
+    const linked = project.storageFolderId
+      ? await this.db.query.folders.findFirst({
+          where: eq(folders.id, project.storageFolderId),
+        })
+      : undefined;
+    const folder =
+      linked ??
+      (await resolveStorageRoot(
+        this.db,
+        this.#namespace,
+        project.ownerId,
+        buildProjectRootPath(project.slug),
+        project.slug,
+      ));
+    if (!linked) {
+      await this.db
+        .update(projects)
+        .set({ storageFolderId: folder.id })
+        .where(eq(projects.id, project.id));
+    }
+    await ensureDir(this.#namespace.resolveFolderPath(folder.path));
+    await ensureRootIdentity(this.#metadata, folder);
+    return folder;
+  }
+
+  async ensureProjectRoots(): Promise<void> {
+    const all = await this.db
+      .select({
+        id: projects.id,
+        slug: projects.slug,
+        ownerId: projects.ownerId,
+        storageFolderId: projects.storageFolderId,
+      })
+      .from(projects);
+    for (const project of all) {
+      try {
+        await this.ensureProjectRoot(project);
+      } catch (error) {
+        console.error(
+          `Failed to ensure storage root for project ${project.slug}`,
+          error,
+        );
+      }
+    }
+  }
+
   async roots(principal: StoragePrincipal) {
     if (principal.project) {
       deny(
@@ -551,25 +611,7 @@ export class StorageService {
         principal.project.ownerId,
         "read",
       );
-      const folder = principal.project.storageFolderId
-        ? await this.db.query.folders.findFirst({
-            where: eq(folders.id, principal.project.storageFolderId),
-          })
-        : undefined;
-      if (!folder) {
-        throw new StorageServiceError(
-          500,
-          "PROJECT_FOLDER_MISSING",
-          "Project storage folder not found",
-        );
-      }
-      // `createProject` writes the row inside a transaction and leaves the
-      // directory to whichever write lands first, so a project root reaches the
-      // namespace unstamped exactly the way a user root used to. It sits at the
-      // top level, so nothing can adopt it afterwards — ensure both here, where
-      // the namespace and the metadata socket are actually in reach.
-      await ensureDir(this.#namespace.resolveFolderPath(folder.path));
-      await ensureRootIdentity(this.#metadata, folder);
+      const folder = await this.ensureProjectRoot(principal.project);
       return {
         projectRoot: { id: folder.id, path: folder.path, name: folder.name },
       };

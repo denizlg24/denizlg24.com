@@ -23,6 +23,7 @@ import {
   resourceConnectionDetails,
   resourceCredentials,
   type SearchKeyClient,
+  type StorageService,
   toResourceContract,
   ValidationError,
 } from "@repo/cloud-core";
@@ -202,6 +203,7 @@ export interface DeployRouteOptions {
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
+  storage: Pick<StorageService, "ensureProjectRoot">;
   /**
    * Creating a resource reaches the same engines Cloud provisions against, and
    * a `meilisearch` resource is a key issued on the search daemon. Both live
@@ -1177,15 +1179,17 @@ export function deployRoutes(options: DeployRouteOptions) {
       // is provisioned that would then have nothing attached to it.
       const hostname = assertDeployHostname(`${label}.${zoneName}`, zoneName);
 
-      const project =
-        existingProject ??
-        (await createProject(db, {
+      let project = existingProject;
+      if (!project) {
+        project = await createProject(db, {
           name: input.project?.name ?? projectSlug,
           slug: projectSlug,
           description: input.project?.description,
           ownerId: context.get("user").id,
           storageRootPath: `/${projectSlug}`,
-        }));
+        });
+        await options.storage.ensureProjectRoot(project);
+      }
 
       const availability = await deployNamespaceAvailability(db, project.id);
       const created = await db.transaction(async (tx) => {
