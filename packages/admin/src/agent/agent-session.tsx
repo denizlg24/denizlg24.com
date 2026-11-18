@@ -34,7 +34,11 @@ import {
   loadAgentComposerPrefs,
   saveAgentComposerPrefs,
 } from "./launcher-prefs";
-import { reconcileAgentModel } from "./provider-models";
+import {
+  reconcileAgentModel,
+  supportedAgentTools,
+  unsupportedAgentTools,
+} from "./provider-models";
 import { type AgentChat, useAgentChat } from "./use-agent-chat";
 import { useConnectors } from "./use-connectors";
 import {
@@ -91,6 +95,8 @@ export interface AgentSession {
   catalog: ModelCatalogState;
   requiredCapabilities: string[];
   modelIncompatible: boolean;
+  /** Tool toggles the selected model's runtime cannot honour; never sent. */
+  unsupportedTools: Set<keyof AgentToolToggles>;
   draft: string;
   setDraft: (value: string) => void;
   attachments: AgentAttachment[];
@@ -217,7 +223,7 @@ export function AgentSessionProvider({
       return {
         conversationId: conversationIdRef.current,
         model: current.model,
-        tools: current.tools,
+        tools: supportedAgentTools(current.tools, unsupportedToolsRef.current),
         connectors:
           disabled.size === 0
             ? undefined
@@ -236,15 +242,24 @@ export function AgentSessionProvider({
     },
   });
 
+  const unsupportedTools = useMemo(
+    () => unsupportedAgentTools(settings.model, catalog.models),
+    [settings.model, catalog.models],
+  );
+  const unsupportedToolsRef = useRef(unsupportedTools);
+  unsupportedToolsRef.current = unsupportedTools;
+  const effectiveWebSearch =
+    settings.tools.webSearch && !unsupportedTools.has("webSearch");
+
   const requiredCapabilities = useMemo(
     () => [
       "tool-use",
-      ...(settings.tools.webSearch ? ["web-search"] : []),
+      ...(effectiveWebSearch ? ["web-search"] : []),
       ...(attachments.some((attachment) => attachment.kind === "image")
         ? ["vision"]
         : []),
     ],
-    [attachments, settings.tools.webSearch],
+    [attachments, effectiveWebSearch],
   );
 
   const modelIncompatible =
@@ -257,10 +272,11 @@ export function AgentSessionProvider({
       settings.model,
       prefs.model,
       catalog.models,
+      catalog.defaultModel,
     );
     if (next !== settings.model)
       setSettings((current) => ({ ...current, model: next }));
-  }, [catalog.models, prefs.model, settings.model]);
+  }, [catalog.models, catalog.defaultModel, prefs.model, settings.model]);
 
   const updateSettings = useCallback((patch: Partial<AgentSettings>) => {
     setSettings((current) => {
@@ -735,6 +751,7 @@ export function AgentSessionProvider({
       catalog,
       requiredCapabilities,
       modelIncompatible,
+      unsupportedTools,
       draft,
       setDraft,
       attachments,
@@ -772,6 +789,7 @@ export function AgentSessionProvider({
       loadMoreHistory,
       loadingConversation,
       modelIncompatible,
+      unsupportedTools,
       newChat,
       openConversation,
       refreshHistory,

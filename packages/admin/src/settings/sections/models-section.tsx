@@ -14,11 +14,12 @@ import { Spinner } from "@repo/ui/spinner";
 import { Textarea } from "@repo/ui/textarea";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useModelCatalog } from "../../llm/model-select";
+import { AI_PROVIDER_CHANGED } from "../../agent/provider-models";
 import { useAdmin } from "../../provider";
 import { SettingsModelPicker } from "../settings-model-picker";
 import { SettingsGroup, SettingsRow } from "../settings-shell";
-import { AiConnectionsSection } from "./ai-connections-section";
+import { useAiProviders } from "../use-ai-providers";
+import { AiProvidersSection } from "./ai-providers-section";
 
 type Settings = AppSettingsResponse["settings"];
 type ModelKey =
@@ -30,13 +31,23 @@ type ModelKey =
 
 export function ModelsSection() {
   const { client } = useAdmin();
-  const { models, modelsLoading, modelsError, stale, retry } =
-    useModelCatalog();
+  const providers = useAiProviders();
+  const { models } = providers;
+  const modelsLoading = providers.providersLoading;
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState<ModelKey | null>(null);
   const [voiceInstructions, setVoiceInstructions] = useState("");
 
+  const [settingsVersion, setSettingsVersion] = useState(0);
   useEffect(() => {
+    const refresh = () => setSettingsVersion((version) => version + 1);
+    window.addEventListener(AI_PROVIDER_CHANGED, refresh);
+    return () => window.removeEventListener(AI_PROVIDER_CHANGED, refresh);
+  }, []);
+
+  // Unset job models follow the active provider, so their defaults move with it.
+  useEffect(() => {
+    void settingsVersion;
     let cancelled = false;
     (async () => {
       try {
@@ -52,7 +63,7 @@ export function ModelsSection() {
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, settingsVersion]);
 
   const update = useCallback(
     async (key: ModelKey, value: string | null) => {
@@ -93,11 +104,17 @@ export function ModelsSection() {
         value={settings[key]}
         models={models}
         loading={modelsLoading}
-        error={modelsError}
-        stale={stale}
-        onRetry={retry}
+        error={
+          !modelsLoading && models.length === 0 ? "No connected provider" : null
+        }
+        stale={providers.providers?.providers.some(
+          (entry) => entry.connected && entry.stale,
+        )}
+        onRetry={() => void providers.reload()}
         disabled={saving === key}
-        defaultLabel={`Default (${effective})`}
+        defaultLabel={`Default · ${
+          models.find((model) => model.id === effective)?.name ?? effective
+        }`}
         onChange={(value) => void update(key, value)}
       />
     ) : (
@@ -106,7 +123,7 @@ export function ModelsSection() {
 
   return (
     <>
-      <AiConnectionsSection />
+      <AiProvidersSection state={providers} />
       <SettingsGroup
         label="Job models"
         actions={

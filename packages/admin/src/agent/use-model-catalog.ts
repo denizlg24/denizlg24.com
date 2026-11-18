@@ -11,6 +11,8 @@ import { AI_PROVIDER_CHANGED, getAgentModelCatalog } from "./provider-models";
 
 export interface ModelCatalogState {
   models: LlmCatalogModel[] | null;
+  /** The active subscription's saved model; null on Gateway. */
+  defaultModel: string | null;
   stale: boolean;
   loading: boolean;
   error: string | null;
@@ -22,6 +24,7 @@ export function useModelCatalog(
 ): ModelCatalogState {
   const { client } = useAdmin();
   const [models, setModels] = useState<LlmCatalogModel[] | null>(null);
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,9 +38,13 @@ export function useModelCatalog(
       const result =
         source === "agent"
           ? await getAgentModelCatalog(client)
-          : await client.get<LlmModelsResponse>("llm/models");
+          : {
+              ...(await client.get<LlmModelsResponse>("llm/models")),
+              defaultModel: null,
+            };
       if (request !== generation.current) return;
       setModels(result.models);
+      setDefaultModel(result.defaultModel);
       setStale(result.stale);
     } catch (error) {
       if (request !== generation.current) return;
@@ -63,7 +70,7 @@ export function useModelCatalog(
     };
   }, [load]);
 
-  return { models, stale, loading, error, retry: load };
+  return { models, defaultModel, stale, loading, error, retry: load };
 }
 
 /**

@@ -1,5 +1,6 @@
 import type {
   AiConnectionsResponse,
+  AiProvidersResponse,
   AiSubscriptionsResponse,
   DisconnectAiSubscriptionResponse,
   GatewayConnectionInput,
@@ -10,6 +11,15 @@ import { api } from "@/lib/api";
 
 export const aiConnectionsKey = ["ai-connections"] as const;
 export const aiSubscriptionsKey = ["ai-subscriptions"] as const;
+export const aiProvidersKey = ["llm-providers"] as const;
+
+export function useAiProviders() {
+  return useQuery({
+    queryKey: aiProvidersKey,
+    queryFn: ({ signal }) =>
+      api.request<AiProvidersResponse>("llm/providers", { signal }),
+  });
+}
 
 export function useAiConnections() {
   return useQuery({

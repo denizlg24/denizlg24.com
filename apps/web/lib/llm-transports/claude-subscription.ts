@@ -1,7 +1,12 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Options, Query } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  EffortLevel,
+  ModelInfo,
+  Options,
+  Query,
+} from "@anthropic-ai/claude-agent-sdk";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   CallToolRequestSchema,
@@ -124,233 +129,364 @@ function childEnv(directory: string, token: string): Options["env"] {
   };
 }
 
-/** Factory permits synthetic SDK streams in tests without paid runtime calls. */
-export function createClaudeSubscriptionAdapter(
-  loadSdk: () => Promise<SdkRuntime>,
-) {
-  return async function streamClaudeSubscriptionTurn(
-    input: ClaudeSubscriptionTurnInput,
-  ): Promise<AgentTurn> {
-    if (!input.token.trim())
-      throw new Error("Claude subscription setup-token is required.");
-    if (input.webSearch || input.webFetch || input.thinkLonger) {
+interface RuntimeModelSettings {
+  token: string;
+  modelId: string;
+  instructions?: string;
+  effort?: EffortLevel;
+  onContextWindow?: (contextWindow: number) => void;
+}
+
+function createRuntimeModel(
+  sdk: SdkRuntime,
+  settings: RuntimeModelSettings,
+): RuntimeModel {
+  return {
+    specificationVersion: "v4",
+    provider: "claude-subscription",
+    modelId: settings.modelId,
+    supportedUrls: {},
+    async doGenerate() {
       throw new ClaudeSubscriptionUnsupportedError(
-        "Claude subscription web search, web fetch and think-longer overrides are not supported by this adapter.",
+        "Claude subscription is streaming only.",
       );
-    }
-    const modelId = input.model.replace(/^anthropic\//, "");
-    if (!/^claude-[a-zA-Z0-9._-]+$/.test(modelId)) {
-      throw new Error(
-        "Claude subscription requires an explicit Claude model ID.",
-      );
-    }
-    input.abortSignal?.throwIfAborted();
-    const sdk = await loadSdk();
-    let contextWindow = input.contextWindow ?? 0;
-    const describeUsage = (usage: LanguageModelUsage) => ({
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-      cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
-      cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
-      reasoningTokens: usage.outputTokenDetails.reasoningTokens ?? 0,
-      // Subscription usage is not an incremental API charge. Do not expose the
-      // SDK's equivalent API-dollar estimate as a subscription bill.
-      costUsd: 0,
-      contextWindow,
-    });
-    const model: RuntimeModel = {
-      specificationVersion: "v4",
-      provider: "claude-subscription",
-      modelId,
-      supportedUrls: {},
-      async doGenerate() {
-        throw new ClaudeSubscriptionUnsupportedError(
-          "Claude subscription is streaming only.",
-        );
-      },
-      async doStream(options) {
-        const abort = new AbortController();
-        const signal = options.abortSignal;
-        const onAbort = () => abort.abort();
-        signal?.addEventListener("abort", onAbort, { once: true });
-        if (signal?.aborted) abort.abort();
-        let runtime: ReturnType<SdkRuntime["query"]> | undefined;
-        let directory: string | undefined;
-        let cancelled = false;
-        let closed = false;
-        let server: McpServer | undefined;
-        const closeRuntime = () => {
-          // close() is SDK code too; never allow its raw error into the stream.
-          if (closed) return;
-          closed = true;
+    },
+    async doStream(options) {
+      const abort = new AbortController();
+      const signal = options.abortSignal;
+      const onAbort = () => abort.abort();
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) abort.abort();
+      let runtime: ReturnType<SdkRuntime["query"]> | undefined;
+      let directory: string | undefined;
+      let cancelled = false;
+      let closed = false;
+      let server: McpServer | undefined;
+      let release: (() => void) | undefined;
+      const closeRuntime = () => {
+        // close() is SDK code too; never allow its raw error into the stream.
+        if (closed) return;
+        closed = true;
+        try {
+          runtime?.close();
+        } catch {
+          /* sanitized; cleanup continues */
+        }
+      };
+      const cleanup = async () => {
+        closeRuntime();
+        abort.abort();
+        await server?.close();
+        server = undefined;
+        release?.();
+        release = undefined;
+        if (directory) {
+          await rm(directory, { recursive: true, force: true });
+          directory = undefined;
+        }
+      };
+      const stream = new ReadableStream<RuntimePart>({
+        async start(controller) {
+          const send = (part: RuntimePart) => {
+            if (!cancelled) controller.enqueue(part);
+          };
           try {
-            runtime?.close();
-          } catch {
-            /* sanitized; cleanup continues */
-          }
-        };
-        const cleanup = async () => {
-          closeRuntime();
-          abort.abort();
-          await server?.close();
-          server = undefined;
-          if (directory) {
-            await rm(directory, { recursive: true, force: true });
-            directory = undefined;
-          }
-        };
-        const stream = new ReadableStream<RuntimePart>({
-          async start(controller) {
-            const send = (part: RuntimePart) => {
-              if (!cancelled) controller.enqueue(part);
-            };
-            try {
-              const prompt = transcriptPrompt(options.prompt);
-              const advertised = (options.tools ?? []).map((tool) => {
-                if (tool.type !== "function")
-                  throw new ClaudeSubscriptionUnsupportedError(
-                    "Only app function tools are supported.",
-                  );
-                return {
-                  name: tool.name,
-                  description: tool.description,
-                  inputSchema: { ...tool.inputSchema, type: "object" as const },
-                  _meta: { "anthropic/alwaysLoad": true },
-                };
-              });
-              const allowed = new Set(
-                advertised.map((tool) => `mcp__dashboard__${tool.name}`),
+            const prompt = transcriptPrompt(options.prompt);
+            const advertised = (options.tools ?? []).map((tool) => {
+              if (tool.type !== "function")
+                throw new ClaudeSubscriptionUnsupportedError(
+                  "Only app function tools are supported.",
+                );
+              return {
+                name: tool.name,
+                description: tool.description,
+                inputSchema: { ...tool.inputSchema, type: "object" as const },
+                _meta: { "anthropic/alwaysLoad": true },
+              };
+            });
+            const allowed = new Set(
+              advertised.map((tool) => `mcp__dashboard__${tool.name}`),
+            );
+            if (advertised.length) {
+              server = new McpServer(
+                { name: "dashboard", version: "1.0.0" },
+                { capabilities: { tools: {} } },
               );
-              if (advertised.length) {
-                server = new McpServer(
-                  { name: "dashboard", version: "1.0.0" },
-                  { capabilities: { tools: {} } },
-                );
-                server.server.setRequestHandler(
-                  ListToolsRequestSchema,
-                  async () => ({ tools: advertised }),
-                );
-                server.server.setRequestHandler(
-                  CallToolRequestSchema,
-                  async () => {
-                    // Never capture or call an app execute function here. Hold the
-                    // SDK agent loop until we close at the assistant boundary.
-                    if (!abort.signal.aborted)
-                      await new Promise<void>((resolve) => {
-                        abort.signal.addEventListener(
-                          "abort",
-                          () => resolve(),
-                          { once: true },
-                        );
+              server.server.setRequestHandler(
+                ListToolsRequestSchema,
+                async () => ({ tools: advertised }),
+              );
+              server.server.setRequestHandler(
+                CallToolRequestSchema,
+                async () => {
+                  // Never capture or call an app execute function here. Hold the
+                  // SDK agent loop until we close at the assistant boundary.
+                  if (!abort.signal.aborted)
+                    await new Promise<void>((resolve) => {
+                      abort.signal.addEventListener("abort", () => resolve(), {
+                        once: true,
                       });
-                    return {
-                      isError: true,
-                      content: [
-                        {
-                          type: "text",
-                          text: "Deferred to dashboard approval and execution.",
-                        },
-                      ],
-                    };
+                    });
+                  return {
+                    isError: true,
+                    content: [
+                      {
+                        type: "text",
+                        text: "Deferred to dashboard approval and execution.",
+                      },
+                    ],
+                  };
+                },
+              );
+            }
+            release = await acquireRuntimeSlot(abort.signal);
+            abort.signal.throwIfAborted();
+            directory = await mkdtemp(join(tmpdir(), "claude-subscription-"));
+            await mkdir(join(directory, "config"), { mode: 0o700 });
+            abort.signal.throwIfAborted();
+            runtime = sdk.query({
+              prompt,
+              options: {
+                model: settings.modelId,
+                ...(settings.effort ? { effort: settings.effort } : {}),
+                ...(process.env.CLAUDE_CODE_EXECUTABLE
+                  ? {
+                      pathToClaudeCodeExecutable:
+                        process.env.CLAUDE_CODE_EXECUTABLE,
+                    }
+                  : {}),
+                systemPrompt: settings.instructions,
+                cwd: directory,
+                env: childEnv(directory, settings.token),
+                abortController: abort,
+                includePartialMessages: true,
+                persistSession: false,
+                settingSources: [],
+                settings: { disableAllHooks: true },
+                skills: [],
+                plugins: [],
+                tools: [],
+                allowedTools: [...allowed],
+                mcpServers: server
+                  ? {
+                      dashboard: {
+                        type: "sdk",
+                        name: "dashboard",
+                        instance: server,
+                      },
+                    }
+                  : {},
+                strictMcpConfig: true,
+                permissionMode: "default",
+                canUseTool: async (name, args) =>
+                  allowed.has(name)
+                    ? { behavior: "allow", updatedInput: args }
+                    : {
+                        behavior: "deny",
+                        message:
+                          "Only advertised dashboard tools are available.",
+                      },
+                maxTurns: 1,
+                debug: false,
+                stderr: () => {},
+              },
+            });
+            send({ type: "stream-start", warnings: [] });
+            let message = 0;
+            let completed = false;
+            let sawText = false;
+            let stopReason: string | undefined;
+            let usage = {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+            };
+            const updateUsage = (
+              next: { [Key in keyof typeof usage]?: number | null },
+            ) => {
+              usage = {
+                input_tokens: next.input_tokens ?? usage.input_tokens,
+                output_tokens: next.output_tokens ?? usage.output_tokens,
+                cache_read_input_tokens:
+                  next.cache_read_input_tokens ?? usage.cache_read_input_tokens,
+                cache_creation_input_tokens:
+                  next.cache_creation_input_tokens ??
+                  usage.cache_creation_input_tokens,
+              };
+            };
+            const calls = new Map<
+              number,
+              { id: string; name: string; json: string; initial: unknown }
+            >();
+            const finishTools = async () => {
+              // Validate all calls before exposing any to the outer executor.
+              const parts = [...calls.values()].map((call) => ({
+                type: "tool-call" as const,
+                toolCallId: call.id,
+                toolName: call.name.slice("mcp__dashboard__".length),
+                input: JSON.stringify(
+                  call.json ? JSON.parse(call.json) : call.initial,
+                ),
+              }));
+              await cleanup();
+              for (const part of parts) send(part);
+              const cacheRead = usage.cache_read_input_tokens ?? 0;
+              const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+              send({
+                type: "finish",
+                finishReason: { unified: "tool-calls", raw: "tool_use" },
+                usage: {
+                  inputTokens: {
+                    total: usage.input_tokens + cacheRead + cacheWrite,
+                    noCache: usage.input_tokens,
+                    cacheRead,
+                    cacheWrite,
                   },
-                );
-              }
-              abort.signal.throwIfAborted();
-              directory = await mkdtemp(join(tmpdir(), "claude-subscription-"));
-              await mkdir(join(directory, "config"), { mode: 0o700 });
-              abort.signal.throwIfAborted();
-              runtime = sdk.query({
-                prompt,
-                options: {
-                  model: modelId,
-                  ...(process.env.CLAUDE_CODE_EXECUTABLE
-                    ? {
-                        pathToClaudeCodeExecutable:
-                          process.env.CLAUDE_CODE_EXECUTABLE,
-                      }
-                    : {}),
-                  systemPrompt: input.instructions,
-                  cwd: directory,
-                  env: childEnv(directory, input.token),
-                  abortController: abort,
-                  includePartialMessages: true,
-                  persistSession: false,
-                  settingSources: [],
-                  settings: { disableAllHooks: true },
-                  skills: [],
-                  plugins: [],
-                  tools: [],
-                  allowedTools: [...allowed],
-                  mcpServers: server
-                    ? {
-                        dashboard: {
-                          type: "sdk",
-                          name: "dashboard",
-                          instance: server,
-                        },
-                      }
-                    : {},
-                  strictMcpConfig: true,
-                  permissionMode: "default",
-                  canUseTool: async (name, args) =>
-                    allowed.has(name)
-                      ? { behavior: "allow", updatedInput: args }
-                      : {
-                          behavior: "deny",
-                          message:
-                            "Only advertised dashboard tools are available.",
-                        },
-                  maxTurns: 1,
-                  debug: false,
-                  stderr: () => {},
+                  outputTokens: {
+                    total: usage.output_tokens,
+                    text: undefined,
+                    reasoning: undefined,
+                  },
                 },
               });
-              send({ type: "stream-start", warnings: [] });
-              let message = 0;
-              let completed = false;
-              let sawText = false;
-              let stopReason: string | undefined;
-              let usage = {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_read_input_tokens: 0,
-                cache_creation_input_tokens: 0,
-              };
-              const updateUsage = (
-                next: { [Key in keyof typeof usage]?: number | null },
-              ) => {
-                usage = {
-                  input_tokens: next.input_tokens ?? usage.input_tokens,
-                  output_tokens: next.output_tokens ?? usage.output_tokens,
-                  cache_read_input_tokens:
-                    next.cache_read_input_tokens ??
-                    usage.cache_read_input_tokens,
-                  cache_creation_input_tokens:
-                    next.cache_creation_input_tokens ??
-                    usage.cache_creation_input_tokens,
-                };
-              };
-              const calls = new Map<
-                number,
-                { id: string; name: string; json: string; initial: unknown }
-              >();
-              const finishTools = async () => {
-                // Validate all calls before exposing any to the outer executor.
-                const parts = [...calls.values()].map((call) => ({
-                  type: "tool-call" as const,
-                  toolCallId: call.id,
-                  toolName: call.name.slice("mcp__dashboard__".length),
-                  input: JSON.stringify(
-                    call.json ? JSON.parse(call.json) : call.initial,
-                  ),
-                }));
-                await cleanup();
-                for (const part of parts) send(part);
+              completed = true;
+            };
+            const blocks = new Map<
+              number,
+              { id: string; type: "text" | "reasoning" }
+            >();
+            for await (const item of runtime) {
+              abort.signal.throwIfAborted();
+              if (
+                item.type === "system" &&
+                item.subtype === "model_refusal_fallback"
+              ) {
+                throw new Error("Runtime model fallback is not supported.");
+              }
+              if (item.type === "stream_event") {
+                const event = item.event;
+                if (event.type === "message_start") {
+                  message++;
+                  updateUsage(event.message.usage);
+                }
+                if (event.type === "message_delta") updateUsage(event.usage);
+                if (event.type === "message_stop" && calls.size) {
+                  await finishTools();
+                  break;
+                }
+                if (event.type === "message_delta" && event.delta.stop_reason) {
+                  stopReason = event.delta.stop_reason;
+                }
+                if (event.type === "content_block_start") {
+                  const block = event.content_block;
+                  if (block.type === "tool_use") {
+                    if (!allowed.has(block.name) || !block.id)
+                      throw new Error("Unexpected runtime tool call.");
+                    calls.set(event.index, {
+                      id: block.id,
+                      name: block.name,
+                      json: "",
+                      initial: block.input,
+                    });
+                    continue;
+                  }
+                  if (block.type === "server_tool_use")
+                    throw new Error("Unexpected runtime tool call.");
+                  if (block.type !== "text" && block.type !== "thinking")
+                    continue;
+                  const type = block.type === "text" ? "text" : "reasoning";
+                  if (type === "text") sawText = true;
+                  const id = `${message}:${event.index}`;
+                  blocks.set(event.index, { id, type });
+                  send({ type: `${type}-start`, id });
+                  const delta =
+                    block.type === "text" ? block.text : block.thinking;
+                  if (delta) send({ type: `${type}-delta`, id, delta });
+                }
+                if (event.type === "content_block_delta") {
+                  const call = calls.get(event.index);
+                  if (call && event.delta.type === "input_json_delta")
+                    call.json += event.delta.partial_json;
+                  const block = blocks.get(event.index);
+                  if (!block) continue;
+                  const delta =
+                    event.delta.type === "text_delta"
+                      ? event.delta.text
+                      : event.delta.type === "thinking_delta"
+                        ? event.delta.thinking
+                        : undefined;
+                  if (delta)
+                    send({
+                      type: `${block.type}-delta`,
+                      id: block.id,
+                      delta,
+                    });
+                }
+                if (event.type === "content_block_stop") {
+                  const block = blocks.get(event.index);
+                  if (block) send({ type: `${block.type}-end`, id: block.id });
+                  blocks.delete(event.index);
+                }
+              }
+              if (item.type === "assistant") {
+                // Some SDK runtimes expose only the completed assistant block.
+                for (const [index, block] of item.message.content.entries()) {
+                  if (block.type !== "tool_use") continue;
+                  if (!allowed.has(block.name) || !block.id)
+                    throw new Error("Unexpected runtime tool call.");
+                  if (
+                    ![...calls.values()].some((call) => call.id === block.id)
+                  ) {
+                    calls.set(index, {
+                      id: block.id,
+                      name: block.name,
+                      json: "",
+                      initial: block.input,
+                    });
+                  }
+                }
+                if (calls.size) {
+                  updateUsage(item.message.usage);
+                  await finishTools();
+                  break;
+                }
+              }
+              if (item.type === "result") {
+                if (item.subtype !== "success" || item.is_error) {
+                  throw new Error(
+                    "Claude subscription runtime failed; check account authentication, plan limits and model availability.",
+                  );
+                }
+                const usage = item.usage;
                 const cacheRead = usage.cache_read_input_tokens ?? 0;
                 const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+                const modelUsage =
+                  item.modelUsage[settings.modelId] ??
+                  Object.values(item.modelUsage)[0];
+                if (modelUsage)
+                  settings.onContextWindow?.(modelUsage.contextWindow);
+                if (!sawText && item.result) {
+                  send({ type: "text-start", id: "result" });
+                  send({
+                    type: "text-delta",
+                    id: "result",
+                    delta: item.result,
+                  });
+                  send({ type: "text-end", id: "result" });
+                }
+                stopReason = item.stop_reason ?? stopReason;
                 send({
                   type: "finish",
-                  finishReason: { unified: "tool-calls", raw: "tool_use" },
+                  finishReason: {
+                    unified:
+                      stopReason === "max_tokens"
+                        ? "length"
+                        : stopReason === "refusal"
+                          ? "content-filter"
+                          : "stop",
+                    raw: stopReason ?? "end_turn",
+                  },
                   usage: {
                     inputTokens: {
                       total: usage.input_tokens + cacheRead + cacheWrite,
@@ -366,214 +502,100 @@ export function createClaudeSubscriptionAdapter(
                   },
                 });
                 completed = true;
-              };
-              const blocks = new Map<
-                number,
-                { id: string; type: "text" | "reasoning" }
-              >();
-              for await (const item of runtime) {
-                abort.signal.throwIfAborted();
-                if (
-                  item.type === "system" &&
-                  item.subtype === "model_refusal_fallback"
-                ) {
-                  throw new Error("Runtime model fallback is not supported.");
-                }
-                if (item.type === "stream_event") {
-                  const event = item.event;
-                  if (event.type === "message_start") {
-                    message++;
-                    updateUsage(event.message.usage);
-                  }
-                  if (event.type === "message_delta") updateUsage(event.usage);
-                  if (event.type === "message_stop" && calls.size) {
-                    await finishTools();
-                    break;
-                  }
-                  if (
-                    event.type === "message_delta" &&
-                    event.delta.stop_reason
-                  ) {
-                    stopReason = event.delta.stop_reason;
-                  }
-                  if (event.type === "content_block_start") {
-                    const block = event.content_block;
-                    if (block.type === "tool_use") {
-                      if (!allowed.has(block.name) || !block.id)
-                        throw new Error("Unexpected runtime tool call.");
-                      calls.set(event.index, {
-                        id: block.id,
-                        name: block.name,
-                        json: "",
-                        initial: block.input,
-                      });
-                      continue;
-                    }
-                    if (block.type === "server_tool_use")
-                      throw new Error("Unexpected runtime tool call.");
-                    if (block.type !== "text" && block.type !== "thinking")
-                      continue;
-                    const type = block.type === "text" ? "text" : "reasoning";
-                    if (type === "text") sawText = true;
-                    const id = `${message}:${event.index}`;
-                    blocks.set(event.index, { id, type });
-                    send({ type: `${type}-start`, id });
-                    const delta =
-                      block.type === "text" ? block.text : block.thinking;
-                    if (delta) send({ type: `${type}-delta`, id, delta });
-                  }
-                  if (event.type === "content_block_delta") {
-                    const call = calls.get(event.index);
-                    if (call && event.delta.type === "input_json_delta")
-                      call.json += event.delta.partial_json;
-                    const block = blocks.get(event.index);
-                    if (!block) continue;
-                    const delta =
-                      event.delta.type === "text_delta"
-                        ? event.delta.text
-                        : event.delta.type === "thinking_delta"
-                          ? event.delta.thinking
-                          : undefined;
-                    if (delta)
-                      send({
-                        type: `${block.type}-delta`,
-                        id: block.id,
-                        delta,
-                      });
-                  }
-                  if (event.type === "content_block_stop") {
-                    const block = blocks.get(event.index);
-                    if (block)
-                      send({ type: `${block.type}-end`, id: block.id });
-                    blocks.delete(event.index);
-                  }
-                }
-                if (item.type === "assistant") {
-                  // Some SDK runtimes expose only the completed assistant block.
-                  for (const [index, block] of item.message.content.entries()) {
-                    if (block.type !== "tool_use") continue;
-                    if (!allowed.has(block.name) || !block.id)
-                      throw new Error("Unexpected runtime tool call.");
-                    if (
-                      ![...calls.values()].some((call) => call.id === block.id)
-                    ) {
-                      calls.set(index, {
-                        id: block.id,
-                        name: block.name,
-                        json: "",
-                        initial: block.input,
-                      });
-                    }
-                  }
-                  if (calls.size) {
-                    updateUsage(item.message.usage);
-                    await finishTools();
-                    break;
-                  }
-                }
-                if (item.type === "result") {
-                  if (item.subtype !== "success" || item.is_error) {
-                    throw new Error(
-                      "Claude subscription runtime failed; check account authentication, plan limits and model availability.",
-                    );
-                  }
-                  const usage = item.usage;
-                  const cacheRead = usage.cache_read_input_tokens ?? 0;
-                  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
-                  const modelUsage =
-                    item.modelUsage[modelId] ??
-                    Object.values(item.modelUsage)[0];
-                  if (modelUsage) contextWindow = modelUsage.contextWindow;
-                  if (!sawText && item.result) {
-                    send({ type: "text-start", id: "result" });
-                    send({
-                      type: "text-delta",
-                      id: "result",
-                      delta: item.result,
-                    });
-                    send({ type: "text-end", id: "result" });
-                  }
-                  stopReason = item.stop_reason ?? stopReason;
-                  send({
-                    type: "finish",
-                    finishReason: {
-                      unified:
-                        stopReason === "max_tokens"
-                          ? "length"
-                          : stopReason === "refusal"
-                            ? "content-filter"
-                            : "stop",
-                      raw: stopReason ?? "end_turn",
-                    },
-                    usage: {
-                      inputTokens: {
-                        total: usage.input_tokens + cacheRead + cacheWrite,
-                        noCache: usage.input_tokens,
-                        cacheRead,
-                        cacheWrite,
-                      },
-                      outputTokens: {
-                        total: usage.output_tokens,
-                        text: undefined,
-                        reasoning: undefined,
-                      },
-                    },
-                  });
-                  completed = true;
-                  break;
-                }
+                break;
               }
-              if (!completed)
-                throw new Error(
-                  "Claude subscription runtime ended without a result.",
-                );
-            } catch (error) {
-              // SDK errors can include child environment, stderr and credential
-              // material. Surface a fixed message; never attach the raw cause.
+            }
+            if (!completed)
+              throw new Error(
+                "Claude subscription runtime ended without a result.",
+              );
+          } catch (error) {
+            // SDK errors can include child environment, stderr and credential
+            // material. Surface a fixed message; never attach the raw cause.
+            send({
+              type: "error",
+              error:
+                error instanceof ClaudeSubscriptionUnsupportedError
+                  ? error
+                  : abort.signal.aborted
+                    ? new DOMException(
+                        "Claude subscription turn aborted.",
+                        "AbortError",
+                      )
+                    : new Error(
+                        "Claude subscription runtime failed; verify setup-token, plan limits, model and native runtime installation.",
+                      ),
+            });
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+            try {
+              await cleanup();
+            } catch {
               send({
                 type: "error",
-                error:
-                  error instanceof ClaudeSubscriptionUnsupportedError
-                    ? error
-                    : abort.signal.aborted
-                      ? new DOMException(
-                          "Claude subscription turn aborted.",
-                          "AbortError",
-                        )
-                      : new Error(
-                          "Claude subscription runtime failed; verify setup-token, plan limits, model and native runtime installation.",
-                        ),
+                error: new Error(
+                  "Claude subscription runtime directory cleanup failed.",
+                ),
               });
-            } finally {
-              signal?.removeEventListener("abort", onAbort);
-              try {
-                await cleanup();
-              } catch {
-                send({
-                  type: "error",
-                  error: new Error(
-                    "Claude subscription runtime directory cleanup failed.",
-                  ),
-                });
-              }
             }
-            if (!cancelled) {
-              try {
-                controller.close();
-              } catch {
-                /* already errored */
-              }
+          }
+          if (!cancelled) {
+            try {
+              controller.close();
+            } catch {
+              /* already errored */
             }
-          },
-          cancel() {
-            cancelled = true;
-            abort.abort();
-            closeRuntime();
-          },
-        });
-        return { stream };
+          }
+        },
+        cancel() {
+          cancelled = true;
+          abort.abort();
+          closeRuntime();
+        },
+      });
+      return { stream };
+    },
+  };
+}
+
+/** Factory permits synthetic SDK streams in tests without paid runtime calls. */
+export function createClaudeSubscriptionAdapter(
+  loadSdk: () => Promise<SdkRuntime>,
+) {
+  return async function streamClaudeSubscriptionTurn(
+    input: ClaudeSubscriptionTurnInput,
+  ): Promise<AgentTurn> {
+    if (!input.token.trim())
+      throw new Error("Claude subscription setup-token is required.");
+    if (input.webSearch || input.webFetch) {
+      throw new ClaudeSubscriptionUnsupportedError(
+        "Claude subscription web search and web fetch are not supported.",
+      );
+    }
+    const modelId = claudeModelId(input.model);
+    input.abortSignal?.throwIfAborted();
+    const sdk = await loadSdk();
+    let contextWindow = input.contextWindow ?? 0;
+    const describeUsage = (usage: LanguageModelUsage) => ({
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
+      cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
+      reasoningTokens: usage.outputTokenDetails.reasoningTokens ?? 0,
+      // Subscription usage is not an incremental API charge. Do not expose the
+      // SDK's equivalent API-dollar estimate as a subscription bill.
+      costUsd: 0,
+      contextWindow,
+    });
+    const model = createRuntimeModel(sdk, {
+      token: input.token,
+      modelId,
+      instructions: input.instructions,
+      ...(input.thinkLonger ? { effort: "max" as const } : {}),
+      onContextWindow: (value) => {
+        contextWindow = value;
       },
-    };
+    });
     const result = streamText({
       model,
       messages: input.messages,
@@ -614,3 +636,170 @@ export function createClaudeSubscriptionAdapter(
 
 export const streamClaudeSubscriptionTurn =
   createClaudeSubscriptionAdapter(loadRuntime);
+
+export function claudeModelId(model: string): string {
+  const modelId = model.replace(/^(anthropic|claude-code)\//, "");
+  if (!/^claude-[a-zA-Z0-9._-]+$/.test(modelId)) {
+    throw new Error(
+      "Claude subscription requires an explicit Claude model ID.",
+    );
+  }
+  return modelId;
+}
+
+// Each runtime is a Claude Code process (~150 MB). Jobs and agent turns share
+// the host, so a burst of classification work queues instead of fanning out.
+const MAX_RUNTIMES = 3;
+let runningRuntimes = 0;
+const runtimeQueue: Array<() => void> = [];
+
+async function acquireRuntimeSlot(signal: AbortSignal): Promise<() => void> {
+  if (runningRuntimes >= MAX_RUNTIMES) {
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        const index = runtimeQueue.indexOf(start);
+        if (index !== -1) runtimeQueue.splice(index, 1);
+        reject(signal.reason);
+      };
+      const start = () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      runtimeQueue.push(start);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+  runningRuntimes++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    runningRuntimes--;
+    runtimeQueue.shift()?.();
+  };
+}
+
+/** A subscription-backed AI SDK model for single-shot jobs (streaming only). */
+export async function claudeSubscriptionLanguageModel(settings: {
+  token: string;
+  model: string;
+  instructions?: string;
+}): Promise<LanguageModel> {
+  const sdk = await loadRuntime();
+  return createRuntimeModel(sdk, {
+    token: settings.token,
+    modelId: claudeModelId(settings.model),
+    instructions: settings.instructions,
+  });
+}
+
+export interface ClaudeSubscriptionModel {
+  id: string;
+  name: string;
+  supportsEffort: boolean;
+}
+
+/** "Sonnet" + claude-sonnet-5-5 → "Sonnet 5.5"; names that carry a version stay. */
+function versionedName(name: string, id: string) {
+  if (/\d/.test(name)) return name;
+  const version = id.match(/-(\d+)-(\d+)$/);
+  return version ? `${name} ${version[1]}.${version[2]}` : name;
+}
+
+/** Models the account's runtime offers, aliases resolved to explicit ids. */
+export function claudeModelsFromRuntime(
+  entries: ModelInfo[],
+): ClaudeSubscriptionModel[] {
+  // The "Default" row names whatever another row also lists; prefer that row.
+  const models = new Map<
+    string,
+    ClaudeSubscriptionModel & { fromDefault: boolean }
+  >();
+  for (const entry of entries) {
+    const id = [entry.resolvedModel, entry.value].find(
+      (value): value is string => !!value && /^claude-[\w.-]+$/.test(value),
+    );
+    if (!id) continue;
+    const fromDefault = /^default\b/i.test(entry.displayName);
+    const existing = models.get(id);
+    if (existing && (fromDefault || !existing.fromDefault)) continue;
+    models.set(id, {
+      id,
+      name: fromDefault ? id : versionedName(entry.displayName, id),
+      supportsEffort: entry.supportsEffort === true,
+      fromDefault,
+    });
+  }
+  return [...models.values()].map(({ fromDefault: _, ...model }) => model);
+}
+
+export async function listClaudeSubscriptionModels(
+  token: string,
+): Promise<ClaudeSubscriptionModel[]> {
+  const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => {
+    throw new Error("Claude subscription runtime unavailable.");
+  });
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 30_000);
+  const release = await acquireRuntimeSlot(abort.signal);
+  const directory = await mkdtemp(join(tmpdir(), "claude-subscription-"));
+  let runtime: Query | undefined;
+  try {
+    await mkdir(join(directory, "config"), { mode: 0o700 });
+    // The session never receives a prompt; it only answers control requests.
+    const idle = async function* () {
+      await new Promise<void>((resolve) =>
+        abort.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        }),
+      );
+      yield* [];
+    };
+    runtime = sdk.query({
+      prompt: idle(),
+      options: {
+        ...(process.env.CLAUDE_CODE_EXECUTABLE
+          ? { pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_EXECUTABLE }
+          : {}),
+        cwd: directory,
+        env: childEnv(directory, token),
+        abortController: abort,
+        persistSession: false,
+        settingSources: [],
+        settings: { disableAllHooks: true },
+        skills: [],
+        plugins: [],
+        tools: [],
+        mcpServers: {},
+        strictMcpConfig: true,
+        debug: false,
+        stderr: () => {},
+      },
+    });
+    const listed = await Promise.race([
+      runtime.supportedModels(),
+      new Promise<never>((_, reject) =>
+        abort.signal.addEventListener(
+          "abort",
+          () => reject(new Error("Timed out")),
+          { once: true },
+        ),
+      ),
+    ]);
+    return claudeModelsFromRuntime(listed);
+  } catch {
+    throw new Error(
+      "Could not list Claude models. Check the setup token and runtime installation.",
+    );
+  } finally {
+    clearTimeout(timeout);
+    abort.abort();
+    try {
+      runtime?.close();
+    } catch {
+      /* sanitized */
+    }
+    release();
+    await rm(directory, { recursive: true, force: true });
+  }
+}

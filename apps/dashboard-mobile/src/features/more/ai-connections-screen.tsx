@@ -9,6 +9,10 @@ import {
   spacing,
   Text,
 } from "@repo/native-ui";
+import {
+  type AiProvidersResponse,
+  parseSubscriptionModel,
+} from "@repo/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -16,6 +20,7 @@ import { useRef, useState } from "react";
 import { Alert } from "react-native";
 import {
   aiConnectionsKey,
+  aiProvidersKey,
   aiSubscriptionsKey,
   disconnectGateway,
   disconnectSubscription,
@@ -23,6 +28,7 @@ import {
   saveSubscription,
   testGateway,
   useAiConnections,
+  useAiProviders,
   useAiSubscriptions,
 } from "@/api/ai-connections";
 import { QueryState } from "@/features/shell/tab-page";
@@ -55,6 +61,7 @@ export function AiConnectionsScreen() {
   const client = useQueryClient();
   const connections = useAiConnections();
   const subscriptions = useAiSubscriptions();
+  const providers = useAiProviders();
   const [apiKey, setApiKey] = useState("");
   const [team, setTeam] = useState<string | null>(null);
   const [claudeToken, setClaudeToken] = useState("");
@@ -101,6 +108,7 @@ export function AiConnectionsScreen() {
     setClaudeToken("");
     await client.cancelQueries({ queryKey: aiSubscriptionsKey });
     client.setQueryData(aiSubscriptionsKey, status);
+    await client.invalidateQueries({ queryKey: aiProvidersKey });
   };
 
   const remove = (provider: "gateway" | "chatgpt" | "claude-code") => {
@@ -326,14 +334,12 @@ export function AiConnectionsScreen() {
                   dashboard settings. Then refresh here and select the saved
                   account.
                 </Text>
-                <Field
-                  label="Model"
-                  accessibilityLabel="ChatGPT model"
-                  {...inputProps}
-                  value={chatgptModel ?? saved.chatgpt.model ?? ""}
-                  placeholder="Saved model"
-                  editable={!busy}
-                  onChangeText={setChatgptModel}
+                <ModelRows
+                  provider="chatgpt"
+                  providers={providers.data}
+                  selected={chatgptModel ?? saved.chatgpt.model}
+                  disabled={busy}
+                  onSelect={setChatgptModel}
                 />
                 <Button
                   label="Use saved ChatGPT account"
@@ -390,14 +396,12 @@ export function AiConnectionsScreen() {
                   editable={!busy}
                   onChangeText={setClaudeToken}
                 />
-                <Field
-                  label="Model"
-                  accessibilityLabel="Claude Code model"
-                  {...inputProps}
-                  value={claudeModel ?? saved.claude.model ?? ""}
-                  placeholder="Server default"
-                  editable={!busy}
-                  onChangeText={setClaudeModel}
+                <ModelRows
+                  provider="claude-code"
+                  providers={providers.data}
+                  selected={claudeModel ?? saved.claude.model}
+                  disabled={busy}
+                  onSelect={setClaudeModel}
                 />
                 <Button
                   label={
@@ -452,5 +456,45 @@ export function AiConnectionsScreen() {
         </Text>
       </Gap>
     </Screen>
+  );
+}
+
+/** The account's models as tappable rows; ids are sent without their prefix. */
+function ModelRows({
+  provider,
+  providers,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  provider: "chatgpt" | "claude-code";
+  providers: AiProvidersResponse | undefined;
+  selected: string | null;
+  disabled: boolean;
+  onSelect: (model: string) => void;
+}) {
+  const entry = providers?.providers.find((item) => item.provider === provider);
+  if (!entry?.connected) return null;
+  if (entry.error)
+    return (
+      <Text variant="footnote" tone="destructive">
+        {entry.error}
+      </Text>
+    );
+  return (
+    <>
+      {entry.models.map((model, index) => {
+        const id = parseSubscriptionModel(model.id)?.model ?? model.id;
+        return (
+          <Row
+            key={model.id}
+            title={model.name}
+            value={id === selected ? "Selected" : undefined}
+            separator={index < entry.models.length - 1}
+            onPress={disabled ? undefined : () => onSelect(id)}
+          />
+        );
+      })}
+    </>
   );
 }

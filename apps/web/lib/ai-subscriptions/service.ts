@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { subscriptionModelId } from "@repo/schemas";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { decryptSecret, encryptSecret } from "@/lib/encrypted-secret";
 import { LlmConfigurationError } from "@/lib/llm-errors";
+import { invalidateModelSettings } from "@/lib/llm-model-settings";
+import {
+  type ClaudeSubscriptionModel,
+  listClaudeSubscriptionModels,
+} from "@/lib/llm-transports/claude-subscription";
 import { connectDB } from "@/lib/mongodb";
 import { AiSubscriptionSettings } from "@/models/AiSubscriptionSettings";
 import {
@@ -85,38 +91,52 @@ export async function updateSubscription(
       { $set: { activeProvider: "gateway" } },
     );
   } else if (input.provider === "claude-code") {
-    const model = input.model ?? row.claude?.model;
-    if (!model) throw new LlmConfigurationError("Choose a Claude Code model.");
     if (!input.token && !row.claude)
       throw new LlmConfigurationError(
-        "Connect Claude Code first using your own setup token.",
+        "Connect Claude first using your own setup token.",
       );
+    if (input.token && !input.token.startsWith("sk-ant-oat"))
+      throw new LlmConfigurationError(
+        "Use a Claude Code subscription setup token, not an Anthropic API key.",
+      );
+    const token = input.token ?? (await claudeSubscriptionCredential()).token;
+    const available = await claudeModelsForToken(
+      token,
+      input.token ? undefined : row.claude?.revision,
+    );
+    const requested = input.model ?? row.claude?.model;
+    const model = requested ? stripClaudePrefix(requested) : available[0]?.id;
+    if (!model)
+      throw new LlmConfigurationError("This Claude account lists no models.");
+    if (!available.some((entry) => entry.id === model))
+      throw new LlmConfigurationError(
+        "Choose a model available to this Claude account.",
+      );
+    const activate =
+      input.activate !== false
+        ? { activeProvider: "claude-code" as const }
+        : {};
     if (input.token) {
-      if (!input.token.startsWith("sk-ant-oat"))
-        throw new LlmConfigurationError(
-          "Use a Claude Code subscription setup token, not an Anthropic API key.",
-        );
+      const revision = randomUUID();
+      claudeModelCache = { revision, models: available, at: Date.now() };
       await AiSubscriptionSettings.updateOne(
         { _id: "singleton" },
         {
           $set: {
-            activeProvider: "claude-code",
-            claude: {
-              secret: encryptSecret(input.token),
-              model,
-              revision: randomUUID(),
-            },
+            ...activate,
+            claude: { secret: encryptSecret(input.token), model, revision },
           },
         },
       );
     } else {
       await AiSubscriptionSettings.updateOne(
         { _id: "singleton" },
-        { $set: { activeProvider: "claude-code", "claude.model": model } },
+        { $set: { ...activate, "claude.model": model } },
       );
     }
   } else {
-    const model = input.model ?? row.chatgpt?.model;
+    const requested = input.model ?? row.chatgpt?.model;
+    const model = requested?.replace(/^chatgpt\//, "");
     if (!model)
       throw new LlmConfigurationError(
         "Choose a model from your ChatGPT account.",
@@ -138,7 +158,9 @@ export async function updateSubscription(
         { _id: "singleton" },
         {
           $set: {
-            activeProvider: "chatgpt",
+            ...(input.activate !== false
+              ? { activeProvider: "chatgpt" as const }
+              : {}),
             chatgpt: {
               secret: encryptSecret(
                 JSON.stringify({ ...record, ext_agent_host_id: row.hostId }),
@@ -152,17 +174,25 @@ export async function updateSubscription(
         },
       );
     } else {
-      const models = await chatgptModels(await chatgptAccessToken());
+      const models = await chatgptModelsCached();
       if (!models.some((entry) => entry.slug === model))
         throw new LlmConfigurationError(
           "Choose a model available to this ChatGPT account.",
         );
       await AiSubscriptionSettings.updateOne(
         { _id: "singleton" },
-        { $set: { activeProvider: "chatgpt", "chatgpt.model": model } },
+        {
+          $set: {
+            ...(input.activate !== false
+              ? { activeProvider: "chatgpt" as const }
+              : {}),
+            "chatgpt.model": model,
+          },
+        },
       );
     }
   }
+  invalidateModelSettings();
   return subscriptionStatus();
 }
 
@@ -198,6 +228,7 @@ export async function disconnectSubscription(provider: SubscriptionProvider) {
       revocationConfirmed = false;
     }
   }
+  invalidateModelSettings();
   return { ...(await subscriptionStatus()), revocationConfirmed };
 }
 
@@ -381,4 +412,71 @@ export async function chatgptAccessToken(): Promise<string> {
   throw new LlmConfigurationError(
     "ChatGPT is renewing its connection. Retry in a moment.",
   );
+}
+
+function stripClaudePrefix(model: string) {
+  return model.replace(/^(claude-code|anthropic)\//, "");
+}
+
+const CLAUDE_MODELS_TTL_MS = 6 * 60 * 60_000;
+const CHATGPT_MODELS_TTL_MS = 10 * 60_000;
+let claudeModelCache: {
+  revision: string;
+  models: ClaudeSubscriptionModel[];
+  at: number;
+} | null = null;
+let chatgptModelCache: {
+  revision: string;
+  models: Awaited<ReturnType<typeof chatgptModels>>;
+  at: number;
+} | null = null;
+
+/** Listing spawns a runtime, so a saved connection's answer is reused per revision. */
+async function claudeModelsForToken(token: string, revision?: string) {
+  if (
+    revision &&
+    claudeModelCache?.revision === revision &&
+    Date.now() - claudeModelCache.at < CLAUDE_MODELS_TTL_MS
+  )
+    return claudeModelCache.models;
+  try {
+    const models = await listClaudeSubscriptionModels(token);
+    if (revision) claudeModelCache = { revision, models, at: Date.now() };
+    return models;
+  } catch (error) {
+    throw new LlmConfigurationError(
+      error instanceof Error ? error.message : "Could not list Claude models.",
+    );
+  }
+}
+
+export async function claudeModels() {
+  const row = await settings();
+  if (!row.claude) throw new LlmConfigurationError("Claude is not connected.");
+  const { token } = await claudeSubscriptionCredential();
+  return claudeModelsForToken(token, row.claude.revision);
+}
+
+export async function chatgptModelsCached() {
+  const row = await settings();
+  const revision = row.chatgpt?.revision;
+  if (
+    revision &&
+    chatgptModelCache?.revision === revision &&
+    Date.now() - chatgptModelCache.at < CHATGPT_MODELS_TTL_MS
+  )
+    return chatgptModelCache.models;
+  const models = await chatgptModels(await chatgptAccessToken());
+  if (revision) chatgptModelCache = { revision, models, at: Date.now() };
+  return models;
+}
+
+/** The active subscription's saved model as a qualified id; null on Gateway. */
+export async function activeSubscriptionModel(): Promise<string | null> {
+  const row = await settings();
+  if (row.activeProvider === "claude-code" && row.claude?.model)
+    return subscriptionModelId("claude-code", row.claude.model);
+  if (row.activeProvider === "chatgpt" && row.chatgpt?.model)
+    return subscriptionModelId("chatgpt", row.chatgpt.model);
+  return null;
 }

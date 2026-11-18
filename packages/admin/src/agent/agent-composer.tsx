@@ -109,11 +109,15 @@ function formatSize(size: number): string {
 export function AgentToolsMenu({
   tools,
   onChange,
+  unsupported,
 }: {
   tools: AgentToolToggles;
   onChange: (tools: AgentToolToggles) => void;
+  unsupported?: Set<keyof AgentToolToggles>;
 }) {
-  const activeCount = TOOL_ITEMS.filter((item) => tools[item.key]).length;
+  const activeCount = TOOL_ITEMS.filter(
+    (item) => tools[item.key] && !unsupported?.has(item.key),
+  ).length;
   return (
     <PromptInputActionMenu>
       <PromptInputActionMenuTrigger active={activeCount > 0} aria-label="Tools">
@@ -128,7 +132,8 @@ export function AgentToolsMenu({
         {TOOL_ITEMS.map((item) => (
           <PromptInputActionMenuCheckboxItem
             key={item.key}
-            checked={tools[item.key]}
+            checked={tools[item.key] && !unsupported?.has(item.key)}
+            disabled={unsupported?.has(item.key)}
             onCheckedChange={(checked) =>
               onChange({ ...tools, [item.key]: checked === true })
             }
@@ -145,18 +150,22 @@ export function AgentToolsMenu({
 function AgentCapabilitiesMenu({
   tools,
   onToolsChange,
+  unsupported,
   connectors,
   disabledConnectors,
   onConnectorsChange,
 }: {
   tools: AgentToolToggles;
+  unsupported: Set<keyof AgentToolToggles>;
   onToolsChange: (tools: AgentToolToggles) => void;
   connectors: Connector[];
   disabledConnectors: string[];
   onConnectorsChange: (disabled: string[]) => void;
 }) {
   const disabled = new Set(disabledConnectors);
-  const optionalTools = TOOL_ITEMS.filter((item) => tools[item.key]).length;
+  const optionalTools = TOOL_ITEMS.filter(
+    (item) => tools[item.key] && !unsupported.has(item.key),
+  ).length;
   const connectorCount = connectors.filter(
     (connector) => !disabled.has(connector.slug),
   ).length;
@@ -179,7 +188,8 @@ function AgentCapabilitiesMenu({
         {TOOL_ITEMS.map((item) => (
           <PromptInputActionMenuCheckboxItem
             key={item.key}
-            checked={tools[item.key]}
+            checked={tools[item.key] && !unsupported.has(item.key)}
+            disabled={unsupported.has(item.key)}
             onCheckedChange={(checked) =>
               onToolsChange({ ...tools, [item.key]: checked === true })
             }
@@ -635,6 +645,7 @@ export function AgentComposer({
             <AgentCapabilitiesMenu
               tools={settings.tools}
               onToolsChange={(tools) => updateSettings({ tools })}
+              unsupported={session.unsupportedTools}
               connectors={session.connectors}
               disabledConnectors={settings.disabledConnectors}
               onConnectorsChange={(disabledConnectors) =>

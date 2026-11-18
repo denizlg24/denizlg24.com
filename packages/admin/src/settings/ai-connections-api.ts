@@ -1,5 +1,6 @@
 import type {
   AiConnectionsResponse,
+  AiProvidersResponse,
   AiSubscriptionsResponse,
   ChatgptCredential,
   ChatgptModelsResponse,
@@ -11,6 +12,7 @@ import type { AdminClient, AdminRequestOptions } from "../client";
 
 export type {
   AiConnectionsResponse,
+  AiProvidersResponse,
   AiSubscriptionsResponse,
   SaveAiSubscription,
 } from "@repo/schemas";
@@ -80,4 +82,11 @@ export function getChatgptModels(
     "ai-subscriptions/chatgpt-models",
     credentials ? { credentials } : {},
   );
+}
+
+export function getAiProviders(
+  client: AdminClient,
+  options?: AdminRequestOptions,
+) {
+  return client.get<AiProvidersResponse>("llm/providers", options);
 }
