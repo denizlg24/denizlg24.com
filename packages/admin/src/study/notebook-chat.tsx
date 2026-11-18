@@ -34,7 +34,11 @@ import {
   loadAgentComposerPrefs,
   saveAgentComposerPrefs,
 } from "../agent/launcher-prefs";
-import { reconcileAgentModel } from "../agent/provider-models";
+import {
+  reconcileAgentModel,
+  supportedAgentTools,
+  unsupportedAgentTools,
+} from "../agent/provider-models";
 import { describeAgentError, useAgentChat } from "../agent/use-agent-chat";
 import { useModelCatalog } from "../agent/use-model-catalog";
 import { useAdmin } from "../provider";
@@ -97,14 +101,26 @@ export function NotebookChat({
   const [draft, setDraft] = useState("");
 
   const conversationIdRef = useRef<string | null>(null);
+  const unsupportedTools = useMemo(
+    () => unsupportedAgentTools(model, catalog.models),
+    [model, catalog.models],
+  );
   const settingsRef = useRef({ model, tools });
-  settingsRef.current = { model, tools };
+  settingsRef.current = {
+    model,
+    tools: supportedAgentTools(tools, unsupportedTools),
+  };
 
   useEffect(() => {
     if (!catalog.models?.length) return;
-    const next = reconcileAgentModel(model, prefs.model, catalog.models);
+    const next = reconcileAgentModel(
+      model,
+      prefs.model,
+      catalog.models,
+      catalog.defaultModel,
+    );
     if (next !== model) setModel(next);
-  }, [catalog.models, model, prefs.model]);
+  }, [catalog.models, catalog.defaultModel, model, prefs.model]);
 
   const refreshThreads = useCallback(async () => {
     try {
@@ -371,7 +387,11 @@ export function NotebookChat({
                 onRetry={catalog.retry}
                 requiredCapabilities={REQUIRED}
               />
-              <AgentToolsMenu tools={tools} onChange={setTools} />
+              <AgentToolsMenu
+                tools={tools}
+                onChange={setTools}
+                unsupported={unsupportedTools}
+              />
             </PromptInputTools>
             <PromptInputSubmit
               status={chat.status}

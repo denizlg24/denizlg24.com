@@ -7,6 +7,24 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.6.0 — 2026-11-18
+
+### Changed
+- **Settings → Models** is one Providers list: each provider's status, account
+  and default model on one row, **Use** to make it active, and connect,
+  replace or disconnect inline. Claude's models are listed from the account
+  instead of typed by hand.
+- Semantic and Unattended job models can run on any connected provider,
+  including the Claude and ChatGPT subscriptions; left on default, they follow
+  the active provider.
+- The agent picker lists every model of the active subscription, not just its
+  saved one.
+
+### Fixed
+- A Claude subscription model no longer reads as "Incompatible model" when web
+  search is on: tools the selected runtime cannot use are disabled instead.
+  Think longer works on Claude models with effort levels.
+
 ## 3.5.0 — 2026-11-17
 
 ### Added

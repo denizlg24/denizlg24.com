@@ -34,16 +34,26 @@ async function loadModelSettings(): Promise<Record<ModelSettingKey, string>> {
     const settings = await AppSettings.findById("singleton")
       .lean<ILeanAppSettings>()
       .exec();
+    // An unset job follows the active subscription; on Gateway, the default.
+    const { activeSubscriptionModel } = await import(
+      "@/lib/ai-subscriptions/service"
+    );
+    const active = await activeSubscriptionModel().catch(() => null);
     const values: Record<ModelSettingKey, string> = {
-      semanticModel: settings?.semanticModel?.trim() || DEFAULT_SEMANTIC_MODEL,
+      semanticModel:
+        settings?.semanticModel?.trim() || active || DEFAULT_SEMANTIC_MODEL,
       unattendedModel:
-        settings?.unattendedModel?.trim() || DEFAULT_UNATTENDED_MODEL,
+        settings?.unattendedModel?.trim() || active || DEFAULT_UNATTENDED_MODEL,
     };
     cached = { values, fetchedAt: Date.now() };
     return values;
   } catch {
     return cached?.values ?? DEFAULTS;
   }
+}
+
+export function invalidateModelSettings() {
+  cached = null;
 }
 
 /** Model for semantic/JSON classification work. */

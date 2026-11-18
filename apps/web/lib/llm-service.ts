@@ -1,8 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type Anthropic from "@anthropic-ai/sdk";
+import { parseSubscriptionModel } from "@repo/schemas";
 import {
   type FlexibleSchema,
   generateText as generateTextOnce,
+  jsonSchema,
   type LanguageModelUsage,
   type ModelMessage,
   Output,
@@ -46,6 +48,11 @@ import {
   runJevEvaluation,
 } from "@/lib/llm-transports/jev-evaluate";
 import { requestTranscription } from "@/lib/llm-transports/openai-transcription";
+import {
+  subscriptionText,
+  subscriptionToolLoop,
+  userContent,
+} from "@/lib/llm-transports/subscription-oneshot";
 import { connectDB } from "@/lib/mongodb";
 import { LlmUsage } from "@/models/LlmUsage";
 
@@ -713,6 +720,23 @@ export async function generateText({
   maxTokens,
   temperature,
 }: GenerateTextRequest): Promise<TextResult> {
+  const subscription = parseSubscriptionModel(model);
+  if (subscription) {
+    const result = await subscriptionText({
+      target: subscription,
+      system,
+      content: [{ type: "text", text: prompt }],
+    });
+    logLlmUsage({
+      llmModel: model,
+      ...result.usage,
+      costUsd: 0,
+      systemPrompt: logSystemPrompt ?? system,
+      userPrompt: prompt,
+      source,
+    });
+    return { text: result.text, usage: { ...result.usage, costUsd: 0 } };
+  }
   const resolved = await resolveModel({ model, purpose });
   const client = await getGatewayAnthropicClient();
   const limits = getModelLimits(resolved.catalogModel);
@@ -787,6 +811,28 @@ export async function generateToolResult({
   logSystemPrompt,
   logUserPrompt,
 }: GenerateToolResultRequest): Promise<ToolResultOutcome> {
+  const subscription = parseSubscriptionModel(model);
+  if (subscription) {
+    const result = await subscriptionToolLoop({
+      target: subscription,
+      system,
+      content: userContent(content, prompt),
+      output: {
+        name: tool.name,
+        description: tool.description,
+        schema: jsonSchema<Record<string, unknown>>(tool.input_schema),
+      },
+    });
+    logLlmUsage({
+      llmModel: model,
+      ...result.usage,
+      costUsd: 0,
+      systemPrompt: logSystemPrompt ?? system,
+      userPrompt: logUserPrompt ?? prompt,
+      source,
+    });
+    return { input: result.input, usage: { ...result.usage, costUsd: 0 } };
+  }
   const resolved = await resolveModel({
     model,
     purpose,
@@ -964,6 +1010,39 @@ export async function runToolLoop({
   logSystemPrompt,
   logUserPrompt,
 }: RunToolLoopRequest): Promise<ToolLoopOutcome> {
+  const subscription = parseSubscriptionModel(model);
+  if (subscription) {
+    const combinedSystem = [cachedSystem, system].filter(Boolean).join("\n\n");
+    const result = await subscriptionToolLoop({
+      target: subscription,
+      system: combinedSystem,
+      content: userContent(content, prompt),
+      serverTools: serverTools.map((entry) => ({
+        name: entry.tool.name,
+        description: entry.tool.description,
+        inputSchema: entry.tool.input_schema,
+        execute: entry.handler,
+      })),
+      output: {
+        name: outputTool.name,
+        description: outputTool.description,
+        schema: jsonSchema<Record<string, unknown>>(outputTool.input_schema),
+      },
+    });
+    logLlmUsage({
+      llmModel: model,
+      ...result.usage,
+      costUsd: 0,
+      systemPrompt: logSystemPrompt ?? combinedSystem,
+      userPrompt: logUserPrompt ?? prompt,
+      source,
+    });
+    return {
+      input: result.input,
+      usage: { ...result.usage, costUsd: 0 },
+      rounds: result.rounds,
+    };
+  }
   const resolved = await resolveModel({
     model,
     purpose,
@@ -1137,10 +1216,29 @@ export async function generateJson<T>({
   logUserPrompt,
   temperature,
 }: GenerateJsonRequest): Promise<JsonResult<T>> {
-  const resolved = await resolveModel({
-    model: model ?? (await getSemanticModel()),
-    purpose,
-  });
+  const chosen = model ?? (await getSemanticModel());
+  const subscription = parseSubscriptionModel(chosen);
+  if (subscription) {
+    const result = await subscriptionText({
+      target: subscription,
+      system: `${system}\n\nRespond with one JSON object and nothing else.`,
+      content: [{ type: "text", text: user }],
+    });
+    await logLlmUsage({
+      llmModel: chosen,
+      ...result.usage,
+      costUsd: 0,
+      systemPrompt: system,
+      userPrompt: logUserPrompt ?? user,
+      source,
+    });
+    return {
+      json: parseJsonObject<T>(result.text),
+      content: result.text,
+      usage: { ...result.usage, costUsd: 0 },
+    };
+  }
+  const resolved = await resolveModel({ model: chosen, purpose });
 
   const result = await requestChatCompletion({
     model: resolved.id,
@@ -1239,6 +1337,40 @@ export async function generateStructured<T>({
   timeoutMs,
   signal,
 }: GenerateStructuredRequest<T>): Promise<StructuredResult<T>> {
+  const subscription = parseSubscriptionModel(model);
+  if (subscription) {
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const result = await subscriptionToolLoop({
+      target: subscription,
+      system,
+      content: [
+        { type: "text", text: prompt },
+        ...images.map((image) => ({
+          type: "file" as const,
+          data: image.data,
+          mediaType: image.mediaType,
+        })),
+      ],
+      output: { name: "respond", schema },
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+    });
+    logLlmUsage({
+      llmModel: model,
+      ...result.usage,
+      costUsd: 0,
+      systemPrompt: system,
+      userPrompt:
+        images.length > 0 ? `${prompt}\n[${images.length} image(s)]` : prompt,
+      source,
+    });
+    if (result.input === undefined)
+      throw new LlmModelError("The model returned no structured answer.");
+    return {
+      output: result.input,
+      model,
+      usage: { ...result.usage, costUsd: 0 },
+    };
+  }
   const resolved = await resolveModel({
     model,
     purpose,
@@ -1518,15 +1650,29 @@ export async function streamAgentTurn({
   logPrompt,
   onTurnEnd,
 }: AgentTurnRequest): Promise<AgentTurn> {
-  const selection = await subscriptionSelection();
+  // An explicit subscription id picks its provider. A Gateway id while a
+  // subscription is active runs on that subscription, so a stale selection
+  // never starts charging Gateway credits.
+  const explicit = model ? parseSubscriptionModel(model) : null;
+  const selection = explicit
+    ? explicit
+    : await subscriptionSelection().then((current) => ({
+        provider: current.provider,
+        model: current.model,
+      }));
   if (selection.provider === "claude-code") {
-    const credential = await claudeSubscriptionCredential();
+    const stored = await claudeSubscriptionCredential();
+    const credential = {
+      token: stored.token,
+      model: selection.model ?? stored.model,
+    };
     const { streamClaudeSubscriptionTurn } = await import(
       "@/lib/llm-transports/claude-subscription"
     );
     return streamClaudeSubscriptionTurn({
       model: credential.model,
       token: credential.token,
+      thinkLonger,
       instructions,
       messages,
       tools,

@@ -1,4 +1,12 @@
-import type { AiSubscriptionsResponse, LlmModelsResponse } from "@repo/schemas";
+import {
+  type AgentToolToggles,
+  type AiProviderModels,
+  type AiProvidersResponse,
+  type AiSubscriptionsResponse,
+  type LlmCatalogModel,
+  type LlmModelsResponse,
+  parseSubscriptionModel,
+} from "@repo/schemas";
 import { pickDefaultModel } from "@repo/utils";
 import type { AdminClient } from "../client";
 
@@ -10,41 +18,99 @@ export function notifyAiProviderChanged() {
   }
 }
 
-/** The subscription runtime uses its saved model; Gateway accepts per-turn models. */
+export interface AgentModelCatalog extends LlmModelsResponse {
+  /** The active subscription's saved model; null on Gateway. */
+  defaultModel: string | null;
+}
+
+/**
+ * A subscription whose listing failed still runs on its saved model, so the
+ * picker keeps that one entry rather than going empty.
+ */
+function subscriptionCatalog(entry: AiProviderModels): AgentModelCatalog {
+  if (!entry.connected || (!entry.models.length && !entry.defaultModel))
+    throw new Error(
+      entry.error ?? "Reconnect the selected AI provider in Models settings.",
+    );
+  const models: LlmCatalogModel[] = entry.models.length
+    ? entry.models
+    : [
+        {
+          id: entry.defaultModel ?? "",
+          name: parseSubscriptionModel(entry.defaultModel ?? "")?.model ?? "",
+          creator: entry.provider,
+          tags: ["tool-use"],
+        },
+      ];
+  return {
+    models,
+    stale: entry.error !== undefined,
+    fetchedAt: new Date().toISOString(),
+    defaultModel: entry.defaultModel,
+  };
+}
+
+/** The agent picker lists the active provider's models only. */
 export async function getAgentModelCatalog(
   client: AdminClient,
-): Promise<LlmModelsResponse> {
+): Promise<AgentModelCatalog> {
   const status = await client.get<AiSubscriptionsResponse>("ai-subscriptions");
   if (status.activeProvider === "gateway") {
-    return client.get<LlmModelsResponse>("llm/models");
+    const gateway = await client.get<LlmModelsResponse>("llm/models");
+    return { ...gateway, defaultModel: null };
   }
   const connection =
     status.activeProvider === "chatgpt" ? status.chatgpt : status.claude;
-  if (!connection.configured || !connection.model) {
+  if (!connection.configured)
     throw new Error("Reconnect the selected AI provider in Models settings.");
-  }
-  const label = status.activeProvider === "chatgpt" ? "ChatGPT" : "Claude";
-  return {
-    models: [
-      {
-        id: `${status.activeProvider}/${connection.model}`,
-        name: `${label} · ${connection.model}`,
-        creator: status.activeProvider === "chatgpt" ? "openai" : "anthropic",
-        tags: ["tool-use"],
-      },
-    ],
-    stale: false,
-    fetchedAt: new Date().toISOString(),
-  };
+  const providers = await client.get<AiProvidersResponse>("llm/providers");
+  const entry = providers.providers.find(
+    (provider) => provider.provider === status.activeProvider,
+  );
+  if (!entry)
+    throw new Error("Reconnect the selected AI provider in Models settings.");
+  return subscriptionCatalog(entry);
 }
 
 export function reconcileAgentModel(
   current: string | null,
   preferred: string | null,
   models: LlmModelsResponse["models"],
+  providerDefault: string | null = null,
 ): string | null {
-  for (const id of [current, preferred]) {
+  for (const id of [current, preferred, providerDefault]) {
     if (id && models.some((entry) => entry.id === id)) return id;
   }
   return pickDefaultModel(models, ["tool-use"]);
+}
+
+/**
+ * Subscription runtimes carry fewer hosted tools than Gateway: ChatGPT
+ * searches but cannot fetch or take a reasoning override, Claude does neither
+ * and thinks longer only on models with effort levels.
+ */
+export function unsupportedAgentTools(
+  modelId: string | null,
+  models: LlmCatalogModel[] | null,
+): Set<keyof AgentToolToggles> {
+  const unsupported = new Set<keyof AgentToolToggles>();
+  const subscription = modelId ? parseSubscriptionModel(modelId) : null;
+  if (!subscription) return unsupported;
+  const tags = models?.find((model) => model.id === modelId)?.tags ?? [];
+  unsupported.add("webFetch");
+  if (!tags.includes("web-search")) unsupported.add("webSearch");
+  if (subscription.provider === "chatgpt" || !tags.includes("reasoning"))
+    unsupported.add("thinkLonger");
+  return unsupported;
+}
+
+export function supportedAgentTools(
+  tools: AgentToolToggles,
+  unsupported: Set<keyof AgentToolToggles>,
+): AgentToolToggles {
+  return {
+    webSearch: tools.webSearch && !unsupported.has("webSearch"),
+    webFetch: tools.webFetch && !unsupported.has("webFetch"),
+    thinkLonger: tools.thinkLonger && !unsupported.has("thinkLonger"),
+  };
 }

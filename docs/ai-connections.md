@@ -34,10 +34,37 @@ and [permissions](https://vercel.com/docs/sign-in-with-vercel/scopes-and-permiss
 
 ## Connect an account
 
-Open **Settings → Models** on the web or desktop dashboard. The native iPhone
-dashboard also exposes AI connection settings. Subscription selection affects
-agent turns; embeddings, transcription, speech and background classification
-retain their existing independently configured transports.
+Open **Settings → Models** on the web or desktop dashboard: one row per
+provider with its status, its default model and **Use** to make it active;
+the chevron opens connect, replace and disconnect. The native iPhone dashboard
+exposes the same settings. Embeddings, transcription and speech keep their own
+transports.
+
+## Which provider runs a request
+
+A model id names its provider: `claude-code/<model>` and `chatgpt/<slug>` run
+on the subscriptions, anything else is a Gateway id (`parseSubscriptionModel`
+in `@repo/schemas`). `GET /api/admin/llm/providers` lists every provider's
+models with these ids; Claude's come from the runtime's own
+`supportedModels()` (aliases resolved to explicit ids), cached per token
+revision for six hours because listing starts a runtime.
+
+- **Agent turns** follow the id. A Gateway id while a subscription is active
+  runs on that subscription's saved model, so a stale picker never starts
+  charging Gateway. The agent picker lists the active provider's models only.
+- **Jobs** (Semantic, Unattended) follow the id too, through every
+  single-shot entry point in `llm-service` (`generateText`,
+  `generateToolResult`, `runToolLoop`, `generateJson`, `generateStructured`;
+  `lib/llm-transports/subscription-oneshot.ts`). Structured answers on a
+  subscription are always a forced tool call. Each job picker lists every
+  connected provider; an unset job uses the active subscription's saved
+  model, or the Gateway default while Gateway is active.
+- Claude runtimes are capped at three concurrent processes per server;
+  further calls queue.
+- Composer tools the selected runtime cannot honour are disabled and never
+  sent: Claude has no web search or fetch and thinks longer (effort `max`)
+  only on models with effort levels; ChatGPT searches but has no fetch or
+  reasoning override.
 
 For ChatGPT, copy the host ID shown in settings, then run on the computer with
 your browser:
@@ -57,8 +84,9 @@ Use a different `--output` path to connect a different registration without
 overwriting a local file.
 
 For Claude, run Anthropic's `claude setup-token` with your own subscription and
-save its result through the write-only Claude field. Select an explicit Claude
-model supported by your account. API keys are rejected in this field. The SDK
+paste its result into the Claude row. Connecting picks the account's first
+listed model; change it from the row's model menu. API keys are rejected.
+Listing models does not authenticate, so a bad token surfaces on first use. The SDK
 runtime must be installed with its matching platform package; the web Docker
 image includes the Linux runtime and points `CLAUDE_CODE_EXECUTABLE` at it.
 See [setup-token](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token).
@@ -119,7 +147,5 @@ actual quota consumption require the owner's real authorization. Automated
 tests use synthetic provider streams and an isolated local database; they do
 not consume subscription allowance or Gateway credits.
 
-The agent model picker follows the active connection. For ChatGPT and Claude,
-it displays the subscription model saved in Models settings; for Gateway, it
-shows the Gateway catalog. Changing providers refreshes the desktop dock and
-Study chat immediately, including an open conversation with an older model.
+Changing providers refreshes the desktop dock and Study chat immediately,
+landing on the new provider's saved model.

@@ -7,6 +7,8 @@ import { toUIMessageStream } from "ai";
 import { z } from "zod";
 import {
   type ClaudeSubscriptionTurnInput,
+  claudeModelId,
+  claudeModelsFromRuntime,
   createClaudeSubscriptionAdapter,
 } from "./claude-subscription";
 
@@ -621,13 +623,9 @@ describe("Claude subscription adapter (synthetic SDK; no paid calls)", () => {
     }
   });
 
-  test("rejects enabled unsupported capabilities before starting a runtime", async () => {
+  test("rejects web search and fetch before starting a runtime", async () => {
     const f = fixture([]);
-    for (const capability of [
-      "webSearch",
-      "webFetch",
-      "thinkLonger",
-    ] as const) {
+    for (const capability of ["webSearch", "webFetch"] as const) {
       await expect(
         f.adapter({ ...input(), [capability]: true }),
       ).rejects.toThrow("not supported");
@@ -734,5 +732,44 @@ describe("Claude subscription adapter (synthetic SDK; no paid calls)", () => {
     expect(a.options.cwd).not.toBe(b.options.cwd);
     expect(a.options.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(input().token);
     expect(b.options.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("other-account-token");
+  });
+});
+
+describe("Claude subscription model listing", () => {
+  test("resolves aliases to explicit ids and drops non-Claude rows", () => {
+    expect(
+      claudeModelsFromRuntime([
+        {
+          value: "default",
+          resolvedModel: "claude-sonnet-5-5",
+          displayName: "Default (recommended)",
+          description: "",
+        },
+        {
+          value: "sonnet",
+          resolvedModel: "claude-sonnet-5-5",
+          displayName: "Sonnet 5.5",
+          description: "",
+          supportsEffort: true,
+        },
+        {
+          value: "claude-haiku-5-5",
+          displayName: "Haiku 5.5",
+          description: "",
+        },
+        { value: "custom-model", displayName: "Custom", description: "" },
+      ]),
+    ).toEqual([
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", supportsEffort: true },
+      { id: "claude-haiku-5-5", name: "Haiku 5.5", supportsEffort: false },
+    ]);
+  });
+
+  test("accepts prefixed and bare Claude ids only", () => {
+    expect(claudeModelId("claude-code/claude-haiku-5-5")).toBe(
+      "claude-haiku-5-5",
+    );
+    expect(claudeModelId("claude-opus-5-5")).toBe("claude-opus-5-5");
+    expect(() => claudeModelId("opus")).toThrow("explicit Claude model ID");
   });
 });

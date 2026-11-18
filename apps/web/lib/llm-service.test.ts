@@ -23,6 +23,7 @@ const llmUsageCreateMock = mock(
 mock.module("@/lib/mongodb", () => ({ connectDB: async () => {} }));
 mock.module("@/lib/ai-subscriptions/service", () => ({
   subscriptionSelection: async () => ({ provider: "gateway" }),
+  activeSubscriptionModel: async () => null,
   claudeSubscriptionCredential: async () => {
     throw new Error("Not selected");
   },

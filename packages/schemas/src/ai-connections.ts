@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { llmCatalogModelSchema } from "./llm";
 
 export const gatewayTeamSchema = z
   .string()
@@ -73,11 +74,14 @@ export const subscriptionUpdateSchema = z.discriminatedUnion("provider", [
     provider: z.literal("chatgpt"),
     credentials: chatgptCredentialSchema.optional(),
     model: z.string().trim().min(1).max(200).optional(),
+    /** false saves the connection or its default model without selecting it. */
+    activate: z.boolean().optional(),
   }),
   z.object({
     provider: z.literal("claude-code"),
     token: z.string().trim().min(1).max(32_000).optional(),
     model: z.string().trim().min(1).max(200).optional(),
+    activate: z.boolean().optional(),
   }),
 ]);
 
@@ -115,3 +119,53 @@ export const chatgptModelsResponseSchema = z.object({
   ),
 });
 export type ChatgptModelsResponse = z.infer<typeof chatgptModelsResponseSchema>;
+
+/**
+ * A model id names its provider: `claude-code/<model>` and `chatgpt/<slug>`
+ * run on the owner's subscriptions, anything else is a Gateway id.
+ */
+export const SUBSCRIPTION_MODEL_PREFIXES = {
+  "claude-code": "claude-code/",
+  chatgpt: "chatgpt/",
+} as const;
+export type SubscriptionModelProvider =
+  keyof typeof SUBSCRIPTION_MODEL_PREFIXES;
+
+export function subscriptionModelId(
+  provider: SubscriptionModelProvider,
+  model: string,
+): string {
+  return `${SUBSCRIPTION_MODEL_PREFIXES[provider]}${model}`;
+}
+
+export function parseSubscriptionModel(
+  id: string,
+): { provider: SubscriptionModelProvider; model: string } | null {
+  for (const provider of ["claude-code", "chatgpt"] as const) {
+    const prefix = SUBSCRIPTION_MODEL_PREFIXES[provider];
+    if (id.startsWith(prefix) && id.length > prefix.length)
+      return { provider, model: id.slice(prefix.length) };
+  }
+  return null;
+}
+
+export function modelProvider(id: string): SubscriptionProvider {
+  return parseSubscriptionModel(id)?.provider ?? "gateway";
+}
+
+export const aiProviderModelsSchema = z.object({
+  provider: subscriptionProviderSchema,
+  connected: z.boolean(),
+  /** Qualified id of the provider's saved default, when it has one. */
+  defaultModel: z.string().nullable(),
+  models: z.array(llmCatalogModelSchema),
+  stale: z.boolean(),
+  error: z.string().optional(),
+});
+export type AiProviderModels = z.infer<typeof aiProviderModelsSchema>;
+
+export const aiProvidersResponseSchema = z.object({
+  activeProvider: subscriptionProviderSchema,
+  providers: z.array(aiProviderModelsSchema),
+});
+export type AiProvidersResponse = z.infer<typeof aiProvidersResponseSchema>;
