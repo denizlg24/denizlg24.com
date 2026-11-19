@@ -14,11 +14,11 @@ paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
   unemployment and more) charted next to the watchlist.
 
 ### Changed
-- Market data comes from Yahoo Finance through the markets relay: live quotes,
-  history, instruments, news and symbol search. Portfolio pricing and order
-  fills use the same source.
-- The request-budget readout is gone from the Markets header; nothing is
-  metered any more.
+- Quotes, price history, instruments and symbol search come from Yahoo
+  Finance through the markets relay, and so do portfolio pricing and order
+  fills. News comes from the relay, falling back to Finnhub.
+- The request-budget readout is gone from the Markets header: Yahoo data is
+  not metered. EDGAR fundamentals and Finnhub profiles keep their own limits.
 
 ## 3.6.0 — 2026-11-18
 

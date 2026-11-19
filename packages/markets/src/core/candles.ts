@@ -55,12 +55,13 @@ async function getDailyCandles(
   const coverage = await stores.bars.getCoverage(ticker, { kind: "daily" });
 
   let stale = false;
-  let fetched = false;
-  // An open-ended request has no `from` to record, so the covered window is
-  // pinned to the oldest bar the provider actually returned. Leaving it null
-  // makes `planDailyFetches` treat the symbol as uncached and re-backfill the
-  // whole history on every cron run.
-  let earliestFetched: string | null = null;
+  // Coverage is one contiguous window, so each edge moves only through a gap
+  // that actually came back. Advancing it past a gap that failed would make
+  // the next request skip those dates and report them fresh.
+  let coveredFrom = coverage.from;
+  let coveredTo = coverage.to;
+  let ranOpenEnded = false;
+  const completed: FetchGap[] = [];
 
   const gaps = planDailyFetches(
     coverage.from,
@@ -73,14 +74,15 @@ async function getDailyCandles(
     if (!provider.getDailyBars) break;
     try {
       const bars = await provider.getDailyBars(ticker, gap.from, gap.to);
+      // An open-ended gap has no `from` to record, so the window is pinned to
+      // the oldest bar the provider actually returned. Leaving it null makes
+      // `planDailyFetches` treat the symbol as uncached and re-backfill the
+      // whole history on every cron run.
+      const earliest = bars.reduce<string | null>(
+        (min, bar) => minDate(min, bar.date),
+        null,
+      );
       if (bars.length > 0) {
-        earliestFetched = minDate(
-          earliestFetched,
-          bars.reduce<string | null>(
-            (min, bar) => minDate(min, bar.date),
-            null,
-          ),
-        );
         await stores.bars.upsertDailyBars(ticker, bars);
         await stores.bars.upsertActions(
           ticker,
@@ -94,7 +96,19 @@ async function getDailyCandles(
             })),
         );
       }
-      fetched = true;
+      const gapFrom = gap.from ?? earliest;
+      if (!coverage.from || !coverage.to) {
+        coveredFrom = gapFrom;
+        coveredTo = gap.to ?? to;
+      } else if (gap.to === shiftDate(coverage.from, -1)) {
+        coveredFrom = minDate(coveredFrom, gapFrom);
+      } else {
+        coveredTo = maxDate(coveredTo, gap.to ?? to);
+      }
+      // An open-ended gap that came back has seen the provider's earliest bar,
+      // so the history is complete and the older edge is never asked again.
+      if (gap.from === undefined) ranOpenEnded = true;
+      completed.push(gap);
     } catch (error) {
       if (!isProviderUnavailable(error)) throw error;
       stale = true;
@@ -102,22 +116,16 @@ async function getDailyCandles(
     }
   }
 
+  const fetched = completed.length > 0;
   if (fetched) {
-    // An open-ended gap that came back without a budget stop has seen the
-    // provider's earliest bar, so the history is now complete and the older
-    // edge never has to be asked for again.
-    const ranOpenEnded = gaps.some((gap) => gap.from === undefined);
     await stores.bars.setCoverage(
       ticker,
       { kind: "daily" },
       {
-        from: minDate(
-          coverage.from,
-          request.from ?? gaps[0]?.from ?? earliestFetched,
-        ),
-        to: maxDate(coverage.to, to),
+        from: coveredFrom,
+        to: coveredTo,
         fetchedAt: stores.clock.now().toISOString(),
-        backfilled: (coverage.backfilled ?? false) || (ranOpenEnded && !stale),
+        backfilled: (coverage.backfilled ?? false) || ranOpenEnded,
       },
     );
   }

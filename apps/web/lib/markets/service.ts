@@ -118,11 +118,20 @@ export async function getQuotes(
     const fresh = await requireYahoo().getQuotes(wanted);
     if (fresh.length > 0) await stores.quotes.upsertQuotes(fresh);
     for (const quote of fresh) byTicker.set(quote.ticker, quote);
+    // The relay answers a partial batch with 200, so a ticker it skipped still
+    // holds an expired quote. Only those count: a quote it did return carries
+    // the last trade's time, which outside the session is hours old and fresh.
+    const returned = new Set(fresh.map((quote) => quote.ticker));
+    const skippedExpired = wanted.some((ticker) => {
+      if (returned.has(ticker)) return false;
+      const quote = byTicker.get(ticker);
+      return !quote || now - Date.parse(quote.ts) > maxAge;
+    });
     return {
       quotes: wanted
         .map((ticker) => byTicker.get(ticker))
         .filter((quote): quote is Quote => quote !== undefined),
-      stale: false,
+      stale: skippedExpired,
     };
   } catch (error) {
     if (!isProviderUnavailable(error)) throw error;

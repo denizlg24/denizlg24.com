@@ -40,15 +40,31 @@ export class YahooRelayProvider implements MarketDataProvider {
   ): Promise<DailyBar[]> {
     const query = { ticker, resolution: "1day" as const, from, to };
     const [raw, adjusted, actions] = await Promise.all([
-      this.call(() => this.client.history({ ...query, adjusted: false })),
-      this.call(() => this.client.history({ ...query, adjusted: true })),
+      this.history({ ...query, adjusted: false }),
+      this.history({ ...query, adjusted: true }),
       this.call(() => this.client.actions(ticker)),
     ]);
-    return mergeDailyBars(raw.bars, adjusted.bars, actions.actions);
+    if (actions.stale) {
+      throw new ProviderUnavailableError("yahoo", "Relay served stale actions");
+    }
+    return mergeDailyBars(raw, adjusted, actions.actions);
   }
 
   async getIntradayBars(query: CandleQuery): Promise<Bar[]> {
-    return (await this.call(() => this.client.history(query))).bars;
+    return this.history(query);
+  }
+
+  /**
+   * The relay answers 200 with its own cached copy, flagged stale, when Yahoo
+   * fails. Storing that as a fetch would advance coverage over data nobody
+   * refreshed, so it reads as an outage and the cache serves stale instead.
+   */
+  private async history(query: CandleQuery): Promise<Bar[]> {
+    const series = await this.call(() => this.client.history(query));
+    if (series.freshness.stale) {
+      throw new ProviderUnavailableError("yahoo", "Relay served stale history");
+    }
+    return series.bars;
   }
 
   async getQuotes(tickers: string[]): Promise<Quote[]> {

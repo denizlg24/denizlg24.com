@@ -55,6 +55,26 @@ describe("YahooRelayProvider", () => {
     expect(isProviderUnavailable(error)).toBe(true);
   });
 
+  test("history the relay served from its own stale cache is an outage", async () => {
+    const relay = provider(() =>
+      Response.json({
+        ticker: "ABC",
+        resolution: "1hour",
+        adjusted: false,
+        bars: [bar("2026-11-18", 10)],
+        freshness: {
+          source: "yahoo",
+          fetchedAt: "2026-11-18T00:00:00Z",
+          stale: true,
+        },
+      }),
+    );
+    const error = await relay
+      .getIntradayBars({ ticker: "ABC", resolution: "1hour", adjusted: false })
+      .catch((caught) => caught);
+    expect(isProviderUnavailable(error)).toBe(true);
+  });
+
   test("an unknown ticker is null, not an outage", async () => {
     const relay = provider(() =>
       Response.json({ detail: "Instrument not found" }, { status: 404 }),
