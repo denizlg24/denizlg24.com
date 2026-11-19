@@ -7,6 +7,13 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.6.2 — 2026-11-19
+
+### Fixed
+- Sign-in works again. 3.6.1 shipped the new HTTP plugin's web side
+  against the old native side, so every request failed with "invalid args
+  `clientConfig` for command `fetch`". The native Tauri crates now match.
+
 ## 3.6.1 — 2026-11-19
 
 ### Added
