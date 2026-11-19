@@ -27,6 +27,21 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export function Tick({ value }: { value: number | null | undefined }) {
+  const [shown, setShown] = useState(value);
+  const [flash, setFlash] = useState<{ dir: "up" | "down"; n: number }>();
+  if (value !== shown) {
+    setShown(value);
+    if (value != null && shown != null)
+      setFlash({ dir: value > shown ? "up" : "down", n: (flash?.n ?? 0) + 1 });
+  }
+  return (
+    <span key={flash?.n} className={flash ? `tick tick-${flash.dir}` : "tick"}>
+      {amount(value)}
+    </span>
+  );
+}
+
 export function Change({
   value,
   arrows = false,

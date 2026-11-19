@@ -33,6 +33,7 @@ import {
   SortHead,
   SymbolLink,
   useSort,
+  Tick,
 } from "./shared";
 import { useQuotes } from "./market-widgets";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
@@ -498,7 +499,7 @@ export function Portfolio({
                             {amount(item.average)}
                           </TableCell>
                           <TableCell className="text-right">
-                            {amount(item.price)}
+                            <Tick value={item.price} />
                           </TableCell>
                           <TableCell
                             className={`text-right ${tone(item.dayPercent)}`}
@@ -587,7 +588,7 @@ export function Portfolio({
                               {number(item.quantity)}
                             </TableCell>
                             <TableCell className="text-right">
-                              {amount(item.price)}
+                              <Tick value={item.price} />
                             </TableCell>
                             <TableCell className="text-right muted">
                               {amount(item.fees)}

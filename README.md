@@ -67,6 +67,7 @@ Set these production runtime values in Forge.
 | `AI_GATEWAY_MODEL`                                 | Optional chat model ID. Defaults to `anthropic/claude-sonnet-5.5`.     |
 | `AI_GATEWAY_BRIEF_MODEL`                           | Optional daily-brief model ID. Defaults to `AI_GATEWAY_MODEL`.         |
 | `AI_GATEWAY_TEAM_ID`                               | Optional team ID or slug for requests scoped to a Vercel team.         |
+| `MARKETS_RELAY_URL`, `MARKETS_RELAY_TOKEN_SECRET`  | Markets relay WebSocket URL and its signing secret. Enables live quotes. |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.
 

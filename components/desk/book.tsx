@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Change, Failure } from "@/components/shared";
+import { Change, Failure, Tick } from "@/components/shared";
 import { useQuotes } from "@/components/market-widgets";
 import type { Quote } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
@@ -133,7 +133,7 @@ export function HoldingsWidget({ widget, ctx }: WidgetProps<"holdings">) {
                       <td className="num">{number(row.quantity)}</td>
                     ) : null}
                     <td className="num">
-                      {amount(row.price)}{" "}
+                      <Tick value={row.price} />{" "}
                       <span className="desk-ccy">{row.currency}</span>
                     </td>
                     <td className="num">

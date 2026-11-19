@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useLiveStatus } from "@/components/live-quotes";
 
 const exchanges = [
   { name: "NYSE", zone: "America/New_York", open: 570, close: 960 },
@@ -49,6 +50,24 @@ function subscribe(onChange: () => void) {
 const minuteKey = () => String(Math.floor(Date.now() / 60_000));
 const serverKey = () => "";
 
+const liveLabels = {
+  live: ["Live", "Streaming quotes from the markets relay"],
+  idle: ["Live", "Connected; the upstream feed is quiet or reconnecting"],
+  connecting: ["Connecting", "Connecting to live quotes"],
+} as const;
+
+function LiveBadge() {
+  const status = useLiveStatus();
+  if (status === "off") return null;
+  const [label, title] = liveLabels[status];
+  return (
+    <span className="live-badge" data-status={status} title={title}>
+      <i aria-hidden />
+      {label}
+    </span>
+  );
+}
+
 export function MarketClock() {
   const key = useSyncExternalStore(subscribe, minuteKey, serverKey);
   if (!key) return <div className="market-clock" aria-hidden />;
@@ -61,6 +80,7 @@ export function MarketClock() {
       <span className="market-clock-date">
         {dayFormat.format(now)} <b>{timeFormat.format(now)}</b>
       </span>
+      <LiveBadge />
       <ul aria-label="Exchange status">
         {exchanges.map((exchange) => {
           const open = isOpen(exchange, now);

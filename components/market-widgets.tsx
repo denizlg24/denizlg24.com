@@ -45,6 +45,7 @@ import {
   SourceLink,
   SymbolLink,
   useSort,
+  Tick,
 } from "./shared";
 import {
   benchmarks,
@@ -61,6 +62,7 @@ import type {
   Workspace,
 } from "@/lib/models";
 import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
+import { useLiveTicks, type LiveTick } from "./live-quotes";
 
 const PriceChart = dynamic(() => import("./price-chart"), {
   ssr: false,
@@ -79,14 +81,47 @@ const benchmarkLabels = benchmarks as Record<string, string>;
 const marketURL = (query: Record<string, string>) =>
   `/api/market?${new URLSearchParams(query)}`;
 
+function withTick(quote: Quote, tick: LiveTick | undefined): Quote {
+  const time = tick ? Math.floor(tick.time / 1000) : 0;
+  if (!tick || time < quote.time) return quote;
+  const previous = quote.previous ?? tick.previous;
+  const change = previous == null ? null : tick.last - previous;
+  return {
+    ...quote,
+    price: tick.last,
+    previous,
+    change,
+    percent: change == null || !previous ? null : (change / previous) * 100,
+    time,
+    open: quote.open ?? tick.open,
+    high: Math.max(quote.high ?? tick.last, tick.high ?? tick.last, tick.last),
+    low: Math.min(quote.low ?? tick.last, tick.low ?? tick.last, tick.last),
+    volume: tick.volume ?? quote.volume,
+  };
+}
+
 export function useQuotes(symbols: string[], refresh = false) {
-  const key = symbols.length
-    ? marketURL({ symbols: [...new Set(symbols)].sort().join(",") })
-    : null;
-  return useSWR<QuotesData>(key, api, {
-    refreshInterval: refresh ? 75_000 : 0,
-    errorRetryCount: 1,
-  });
+  const unique = [...new Set(symbols)].sort();
+  const key = unique.length ? marketURL({ symbols: unique.join(",") }) : null;
+  const { data, error, mutate, isLoading, isValidating } = useSWR<QuotesData>(
+    key,
+    api,
+    { refreshInterval: refresh ? 75_000 : 0, errorRetryCount: 1 },
+  );
+  const ticks = useLiveTicks(refresh ? unique : []);
+  const live = useMemo(
+    () =>
+      data && ticks.size
+        ? {
+            ...data,
+            quotes: data.quotes.map((quote) =>
+              withTick(quote, ticks.get(quote.symbol)),
+            ),
+          }
+        : data,
+    [data, ticks],
+  );
+  return { data: live, error, mutate, isLoading, isValidating };
 }
 export function useSearch(query: string, enabled = true) {
   return useSWR<SearchData>(
@@ -129,7 +164,7 @@ export function Benchmarks({
                   {isLoading ? (
                     <i className="number-placeholder" />
                   ) : quote ? (
-                    amount(quote.price)
+                    <Tick value={quote.price} />
                   ) : (
                     "—"
                   )}
@@ -398,7 +433,7 @@ export function WatchlistPanel({
                   </small>
                 </span>
                 <span>
-                  {amount(quote?.price)}
+                  <Tick value={quote?.price} />
                   <small>{quote?.currency}</small>
                 </span>
                 <Change value={quote?.percent} />

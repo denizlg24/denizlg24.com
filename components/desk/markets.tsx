@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, Change, Failure } from "@/components/shared";
+import { api, Change, Failure, Tick } from "@/components/shared";
 import { useQuotes } from "@/components/market-widgets";
 import type { Instrument, MarketSeries, Quote } from "@/lib/models";
 import {
@@ -20,7 +20,7 @@ import {
   type Range,
   type Universe,
 } from "@/lib/universes";
-import { amount, compact, percent } from "@/lib/utils";
+import { compact, percent } from "@/lib/utils";
 import { firstWatchlist } from "./data";
 import {
   DeskEmpty,
@@ -127,7 +127,7 @@ export function WatchlistWidget({ widget, ctx }: WidgetProps<"watchlist">) {
                         )}
                       </td>
                       <td className="num">
-                        {amount(quote?.price)}{" "}
+                        <Tick value={quote?.price} />{" "}
                         <span className="desk-ccy">{quote?.currency}</span>
                       </td>
                       <td className="num">
@@ -217,7 +217,9 @@ export function ChartWidget({ widget, ctx }: WidgetProps<"chart">) {
       }
     >
       <div className="desk-chart-quote">
-        <strong>{amount(quote?.price)}</strong>
+        <strong>
+          <Tick value={quote?.price} />
+        </strong>
         <span className="desk-ccy">{unit}</span>
         <Change value={quote?.percent} arrows />
         <button

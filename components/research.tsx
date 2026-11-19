@@ -38,6 +38,7 @@ import {
   signed,
   SourceLink,
   SymbolLink,
+  Tick,
 } from "./shared";
 import { NewsPanel, useQuotes } from "./market-widgets";
 import { amount, compact, marketTime, number, tone } from "@/lib/utils";
@@ -93,7 +94,9 @@ function Company({
           </div>
         </PanelHeading>
         <div className="research-quote">
-          <strong>{amount(quote?.price)}</strong>
+          <strong>
+            <Tick value={quote?.price} />
+          </strong>
           <small>{unit}</small>
           <span className={`price-delta ${tone(quote?.change)}`}>
             {signed(quote?.change)}

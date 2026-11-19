@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
-import { Empty, PanelHeading, SectionFoot, SymbolLink } from "./shared";
+import { Empty, PanelHeading, SectionFoot, SymbolLink, Tick } from "./shared";
 import { symbolSchema, type Workspace } from "@/lib/models";
 import { useQuotes } from "./market-widgets";
 import { amount, marketTime, percent } from "@/lib/utils";
@@ -136,7 +136,7 @@ export function Alerts({
                       <small className="muted">{quote?.currency}</small>
                     </TableCell>
                     <TableCell className="text-right col-mid">
-                      {amount(quote?.price)}
+                      <Tick value={quote?.price} />
                     </TableCell>
                     <TableCell className="text-right muted">
                       {percent(distance)}

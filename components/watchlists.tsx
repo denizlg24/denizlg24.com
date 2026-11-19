@@ -26,6 +26,7 @@ import {
   SortHead,
   SymbolLink,
   useSort,
+  Tick,
 } from "./shared";
 import { useQuotes } from "./market-widgets";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
@@ -362,7 +363,7 @@ export function Watchlists({
                         )}
                       </TableCell>
                       <TableCell className="text-right strong-cell">
-                        {amount(quote?.price)}
+                        <Tick value={quote?.price} />
                       </TableCell>
                       <TableCell className="muted">
                         {quote?.currency ?? ""}
