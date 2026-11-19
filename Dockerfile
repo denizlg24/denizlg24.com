@@ -4,9 +4,8 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
 COPY . .
-RUN --mount=type=tmpfs,target=/app/node_modules,size=1073741824 \
-    --mount=type=tmpfs,target=/tmp/stockwatcher-bun,size=536870912 \
-    BUN_INSTALL_CACHE_DIR=/tmp/stockwatcher-bun bun install --frozen-lockfile && bun run build
+RUN --mount=type=tmpfs,target=/app/node_modules,size=2147483648 \
+    BUN_INSTALL_CACHE_DIR=/app/node_modules/.cache/bun bun install --frozen-lockfile && bun run build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
