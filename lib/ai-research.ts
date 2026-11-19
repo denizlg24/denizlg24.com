@@ -23,12 +23,11 @@ export async function aiResearch(
     timeout: 35_000,
     maxRetries: 0,
   });
-  const stream = client.messages.stream(
+  const message = await client.messages.create(
     {
       model:
         process.env.AI_GATEWAY_MODEL?.trim() || "anthropic/claude-opus-4.8",
       max_tokens: 1600,
-      thinking: { type: "adaptive" },
       system: [
         "Answer market and company research questions in a compact, plain-text research brief.",
         "Use web search before answering. Prefer regulators, company investor relations, official statistics, and exchange publications. Include the URLs of the sources you relied on.",
@@ -44,6 +43,7 @@ export async function aiResearch(
             : query,
         },
       ],
+      tool_choice: { type: "tool", name: "web_search" },
       tools: [
         {
           type: "web_search_20250305",
@@ -54,7 +54,6 @@ export async function aiResearch(
     },
     { signal },
   );
-  const message = await stream.finalMessage();
   const blocks = message.content.filter((block) => block.type === "text");
   const answer = blocks
     .map((block) => block.text)

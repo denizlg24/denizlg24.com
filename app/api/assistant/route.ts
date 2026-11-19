@@ -73,7 +73,16 @@ export async function POST(request: Request) {
       );
     try {
       return reply(await aiResearch(query, selected, request.signal));
-    } catch {
+    } catch (error) {
+      console.warn("Stockwatcher Gateway research failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+        status:
+          error instanceof Object &&
+          "status" in error &&
+          typeof error.status === "number"
+            ? error.status
+            : undefined,
+      });
       return json(
         {
           error:
