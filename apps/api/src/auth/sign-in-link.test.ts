@@ -10,6 +10,7 @@ import {
   signInLinkCallback,
   signInLinkLandingUrl,
   signInLinkRefusal,
+  signInLinkSkip2faIdentifier,
 } from "./sign-in-link";
 
 const AUTH_APP = "https://auth.denizlg24.com";
@@ -226,5 +227,17 @@ describe("authMailerFromEnv", () => {
     expect(authMailerFromEnv({})).toBeNull();
     expect(authMailerFromEnv({ NODE_ENV: "development" })).toBeNull();
     expect(authMailerFromEnv({ AUTH_PUBLIC_ACCOUNTS_DEV: "1" })).not.toBeNull();
+  });
+});
+
+describe("signInLinkSkip2faIdentifier", () => {
+  it("is deterministic per user and namespaced", () => {
+    expect(signInLinkSkip2faIdentifier("u1")).toBe("signin-link-skip-2fa:u1");
+    expect(signInLinkSkip2faIdentifier("u1")).toBe(
+      signInLinkSkip2faIdentifier("u1"),
+    );
+    expect(signInLinkSkip2faIdentifier("u1")).not.toBe(
+      signInLinkSkip2faIdentifier("u2"),
+    );
   });
 });

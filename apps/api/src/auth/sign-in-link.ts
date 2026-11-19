@@ -16,6 +16,19 @@ import type { SignInLinkDelivery } from "@repo/schemas/cloud";
 
 export const SIGN_IN_LINK_EXPIRES_IN_SECONDS = 15 * 60;
 
+/**
+ * Identifier of the one-time grant that lets a link skip the second factor.
+ * The owner's issuance writes one row per user when it mints a skip link; the
+ * post-verify hook finds it by this deterministic identifier (no cookie rides
+ * the click), consumes it, and keeps the session instead of challenging. It is
+ * per-user, so a later skip link for the same account replaces an unused one.
+ */
+export const SIGN_IN_LINK_SKIP_2FA_PREFIX = "signin-link-skip-2fa:";
+
+export function signInLinkSkip2faIdentifier(userId: string): string {
+  return `${SIGN_IN_LINK_SKIP_2FA_PREFIX}${userId}`;
+}
+
 /** Query parameter on the auth app's `/login` that says why a link landed there. */
 const SIGN_IN_LINK_PARAM = "signInLink";
 

@@ -1319,6 +1319,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
             delivery: issued.delivery,
             returnTo: parsed.data.returnTo ?? null,
             emailConfirmed: issued.emailConfirmed,
+            skipTwoFactor: parsed.data.skipTwoFactor,
           },
         });
         const { emailConfirmed: _confirmed, ...data } = issued;
