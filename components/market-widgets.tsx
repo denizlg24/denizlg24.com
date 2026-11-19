@@ -1,0 +1,753 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import useSWR from "swr";
+import {
+  Activity,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ChartCandlestick,
+  ChartNoAxesCombined,
+  ChevronDown,
+  Grid2X2,
+  List,
+  Plus,
+  RefreshCw,
+  Star,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  api,
+  Change,
+  Empty,
+  Failure,
+  Loading,
+  PanelHeading,
+  SourceLink,
+} from "./shared";
+import {
+  benchmarks,
+  ranges,
+  universes,
+  type Range,
+  type Universe,
+} from "@/lib/universes";
+import type {
+  Instrument,
+  MarketSeries,
+  News,
+  Quote,
+  Workspace,
+} from "@/lib/models";
+import { amount, compact, marketTime, number, percent } from "@/lib/utils";
+
+const PriceChart = dynamic(() => import("./price-chart"), {
+  ssr: false,
+  loading: () => <Loading />,
+});
+
+type QuotesData = {
+  quotes: Quote[];
+  missing: string[];
+  members: Instrument[];
+  source: string;
+};
+type SearchData = { instruments: Instrument[]; news: News[] };
+const benchmarkSymbols = Object.keys(benchmarks).join(",");
+const benchmarkLabels = benchmarks as Record<string, string>;
+const marketURL = (query: Record<string, string>) =>
+  `/api/market?${new URLSearchParams(query)}`;
+
+export function useQuotes(symbols: string[], refresh = false) {
+  const key = symbols.length
+    ? marketURL({ symbols: [...new Set(symbols)].sort().join(",") })
+    : null;
+  return useSWR<QuotesData>(key, api, {
+    refreshInterval: refresh ? 75_000 : 0,
+    errorRetryCount: 1,
+  });
+}
+export function useSearch(query: string, enabled = true) {
+  return useSWR<SearchData>(
+    enabled && query.trim() ? marketURL({ q: query.trim() }) : null,
+    api,
+    { errorRetryCount: 1 },
+  );
+}
+
+export function Benchmarks({
+  select,
+  selected,
+  refresh,
+}: {
+  select: (ticker: string) => void;
+  selected: string;
+  refresh: boolean;
+}) {
+  const { data, error, mutate, isLoading } = useQuotes(
+    benchmarkSymbols.split(","),
+    refresh,
+  );
+  const bySymbol = new Map(data?.quotes.map((quote) => [quote.symbol, quote]));
+  return (
+    <section aria-label="Market benchmarks" className="benchmark-section">
+      <div className="benchmark-strip">
+        {Object.entries(benchmarks).map(([ticker, label]) => {
+          const quote = bySymbol.get(ticker);
+          return (
+            <button
+              type="button"
+              key={ticker}
+              className={`benchmark ${ticker === selected ? "chosen" : ""}`}
+              onClick={() => select(ticker)}
+              aria-pressed={ticker === selected}
+            >
+              <span>{label}</span>
+              <div>
+                <strong>
+                  {isLoading ? (
+                    <i className="number-placeholder" />
+                  ) : quote ? (
+                    number(quote.price)
+                  ) : (
+                    "—"
+                  )}
+                </strong>
+                <Change value={quote?.percent} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {error ? <Failure error={error} retry={mutate} /> : null}
+    </section>
+  );
+}
+
+export function ChartPanel({
+  ticker,
+  refresh,
+  watch,
+  onWatch,
+  onResearch,
+  since,
+  clearSince,
+}: {
+  ticker: string;
+  refresh: boolean;
+  watch: boolean;
+  onWatch: () => void;
+  onResearch: () => void;
+  since?: string;
+  clearSince?: () => void;
+}) {
+  const [range, setRange] = useState<Range>("1M");
+  const [style, setStyle] = useState<"area" | "candles">("area");
+  const [average, setAverage] = useState(false);
+  const [volume, setVolume] = useState(false);
+  const { data, error, mutate, isLoading } = useSWR<MarketSeries>(
+    marketURL({ symbol: ticker, range, ...(since ? { since } : {}) }),
+    api,
+    { refreshInterval: refresh ? 75_000 : 0, errorRetryCount: 1 },
+  );
+  const { data: quoteData } = useQuotes([ticker], refresh);
+  const snapshot = quoteData?.quotes[0] ?? data?.quote;
+  const latest = data?.points.at(-1);
+  const oldest = data?.points[0];
+  const periodChange =
+    oldest?.close && latest ? (latest.close / oldest.close - 1) * 100 : null;
+  const title = benchmarkLabels[ticker] ?? snapshot?.name ?? ticker;
+  const unit = ticker.startsWith("^") ? "pts" : snapshot?.currency;
+  return (
+    <section className="panel chart-panel">
+      <div className="chart-heading">
+        <div className="ticker-identity">
+          <span className="ticker-icon">
+            <Activity size={19} />
+          </span>
+          <div>
+            <h2>{title}</h2>
+            <p>
+              {ticker}
+              {snapshot?.exchange ? ` · ${snapshot.exchange}` : ""}
+            </p>
+          </div>
+        </div>
+        <div className="row-actions">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={
+              watch
+                ? "Remove from primary watchlist"
+                : "Add to primary watchlist"
+            }
+            title={
+              watch
+                ? "Remove from primary watchlist"
+                : "Add to primary watchlist"
+            }
+            onClick={onWatch}
+          >
+            <Star className={watch ? "filled-star" : ""} />
+          </Button>
+          <Button variant="outline" size="sm" onClick={onResearch}>
+            Research <ArrowRight />
+          </Button>
+        </div>
+      </div>
+      <div className="price-hero">
+        <strong>{amount(snapshot?.price)}</strong>
+        <span className="currency">{unit}</span>
+        <Change value={snapshot?.percent} arrows />
+        <span className="period-label">session</span>
+      </div>
+      <div className="chart-toolbar">
+        <div
+          className="segmented"
+          role="group"
+          aria-label="Price history period"
+        >
+          {(Object.keys(ranges) as Range[]).map((option) => (
+            <Button
+              key={option}
+              variant={!since && option === range ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setRange(option);
+                if (since) clearSince?.();
+              }}
+              aria-pressed={!since && option === range}
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+        <div className="row-actions chart-toggles">
+          <Button
+            variant={style === "area" ? "secondary" : "ghost"}
+            size="icon-sm"
+            aria-label="Line chart"
+            title="Line chart"
+            aria-pressed={style === "area"}
+            onClick={() => setStyle("area")}
+          >
+            <ChartNoAxesCombined />
+          </Button>
+          <Button
+            variant={style === "candles" ? "secondary" : "ghost"}
+            size="icon-sm"
+            aria-label="Candlestick chart"
+            title="Candlestick chart"
+            aria-pressed={style === "candles"}
+            onClick={() => setStyle("candles")}
+          >
+            <ChartCandlestick />
+          </Button>
+          <Button
+            variant={average ? "secondary" : "ghost"}
+            size="sm"
+            title="20-bar simple moving average"
+            aria-pressed={average}
+            onClick={() => setAverage(!average)}
+          >
+            SMA 20
+          </Button>
+          <Button
+            variant={volume ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={volume}
+            onClick={() => setVolume(!volume)}
+          >
+            Volume
+          </Button>
+        </div>
+      </div>
+      {since ? (
+        <p className="chart-since">
+          Since <time dateTime={since}>{since}</time>
+        </p>
+      ) : null}
+      {error ? <Failure error={error} retry={mutate} /> : null}
+      {isLoading ? (
+        <Loading message="Loading price history" />
+      ) : data?.points.length ? (
+        <PriceChart
+          points={data.points}
+          range={since ? "1Y" : range}
+          style={style}
+          average={average}
+          volume={volume}
+          currency={unit}
+        />
+      ) : !error ? (
+        <Empty title="No chart history">Try a longer period.</Empty>
+      ) : null}
+      <div className="chart-foot">
+        <span>
+          {data?.source ?? quoteData?.source ?? "Market data"}
+          {snapshot ? ` · ${marketTime(snapshot.time)}` : ""}
+        </span>
+        {periodChange != null ? (
+          <span>
+            {since ? "Period" : range} <Change value={periodChange} />
+          </span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function WatchlistPanel({
+  lists,
+  listId,
+  changeList,
+  onOpen,
+  onAdd,
+  select,
+  refresh,
+  full = false,
+}: {
+  lists: Workspace["watchlists"];
+  listId: string;
+  changeList: (id: string) => void;
+  onOpen: () => void;
+  onAdd: () => void;
+  select: (ticker: string) => void;
+  refresh: boolean;
+  full?: boolean;
+}) {
+  const list = lists.find((item) => item.id === listId) ?? lists[0];
+  const { data, error, mutate, isLoading } = useQuotes(
+    list?.symbols ?? [],
+    refresh,
+  );
+  const bySymbol = new Map(data?.quotes.map((item) => [item.symbol, item]));
+  return (
+    <section className="panel watchlist-panel">
+      <PanelHeading title="Watchlist">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Add symbol"
+          title="Add symbol"
+          onClick={onAdd}
+        >
+          <Plus />
+        </Button>
+      </PanelHeading>
+      {list ? (
+        <div className="watch-select">
+          <Select value={list.id} onValueChange={changeList}>
+            <SelectTrigger aria-label="Choose watchlist">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {lists.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span>{list.symbols.length} symbols</span>
+        </div>
+      ) : null}
+      <Failure error={error} retry={mutate} />
+      {list?.symbols.length ? (
+        <div className="watch-rows">
+          <div className="watch-row watch-labels">
+            <span>Symbol</span>
+            <span>Last</span>
+            <span>Change</span>
+          </div>
+          {list.symbols.slice(0, full ? 120 : 6).map((ticker) => {
+            const quote = bySymbol.get(ticker);
+            return (
+              <button
+                className="watch-row"
+                type="button"
+                key={ticker}
+                onClick={() => select(ticker)}
+              >
+                <span className="watch-name">
+                  <strong>{ticker}</strong>
+                  <small>
+                    {quote?.name ??
+                      (isLoading ? "Loading quote…" : "Quote unavailable")}
+                  </small>
+                </span>
+                <span>
+                  {amount(quote?.price)}
+                  <small>{quote?.currency}</small>
+                </span>
+                <Change value={quote?.percent} />
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <Empty title="Your watchlist is empty">
+          Add a ticker to follow its price here.
+        </Empty>
+      )}
+      {!full ? (
+        <div className="watch-foot">
+          <Button variant="ghost" onClick={onOpen}>
+            Manage watchlists <ArrowRight />
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+const sortedGroups = [
+  "Information Technology",
+  "Communication Services",
+  "Consumer Discretionary",
+  "Financials",
+  "Health Care",
+];
+
+function heatTone(value?: number | null) {
+  if (value == null) return "heat-missing";
+  if (value >= 2) return "heat-gain-strong";
+  if (value >= 0.5) return "heat-gain";
+  if (value > 0.02) return "heat-gain-soft";
+  if (value <= -2) return "heat-loss-strong";
+  if (value <= -0.5) return "heat-loss";
+  if (value < -0.02) return "heat-loss-soft";
+  return "heat-flat";
+}
+
+export function MarketMap({
+  universe,
+  setUniverse,
+  custom,
+  excluded,
+  since,
+  select,
+  compactView,
+  onOpen,
+  refresh,
+}: {
+  universe?: Universe;
+  setUniverse: (universe: Universe) => void;
+  custom: string[];
+  excluded?: string[];
+  since?: string;
+  select: (ticker: string) => void;
+  compactView?: boolean;
+  onOpen?: () => void;
+  refresh: boolean;
+}) {
+  const [mode, setMode] = useState<"map" | "table">("map");
+  const [filter, setFilter] = useState("");
+  const [direction, setDirection] = useState<"gain" | "loss">("gain");
+  const { data, error, mutate, isLoading } = useSWR<QuotesData>(
+    marketURL({
+      ...(universe ? { universe } : {}),
+      symbols: custom.join(","),
+      ...(since ? { since } : {}),
+      ...(excluded?.length ? { exclude: excluded.join(",") } : {}),
+    }),
+    api,
+    {
+      refreshInterval: refresh && universe !== "S&P 500" ? 90_000 : 0,
+      errorRetryCount: 1,
+    },
+  );
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const indexed = new Map(data.quotes.map((quote) => [quote.symbol, quote]));
+    const members = data.members;
+    const needle = filter.toUpperCase().trim();
+    return members
+      .map((member) => {
+        const quote = indexed.get(member.symbol);
+        return {
+          ...member,
+          quote,
+          change: since ? quote?.periodPercent : quote?.percent,
+        };
+      })
+      .filter(
+        ({ symbol, name, sector, quote }) =>
+          !needle ||
+          [symbol, name, sector, quote?.name].some((value) =>
+            value?.toUpperCase().includes(needle),
+          ),
+      );
+  }, [data, filter, since]);
+  const sorted = useMemo(
+    () =>
+      rows.toSorted((a, b) => {
+        const multiplier = direction === "gain" ? 1 : -1;
+        return (
+          (b.change == null ? -Infinity : b.change * multiplier) -
+          (a.change == null ? -Infinity : a.change * multiplier)
+        );
+      }),
+    [rows, direction],
+  );
+  const groups = new Map<string, typeof rows>();
+  for (const row of compactView ? rows.slice(0, 12) : rows) {
+    const group = universe === "S&P 500" ? (row.sector ?? "Other") : "All";
+    const current = groups.get(group) ?? [];
+    current.push(row);
+    groups.set(group, current);
+  }
+  const groupRows = [...groups].sort(([a], [b]) => {
+    const order = (label: string) =>
+      sortedGroups.includes(label) ? sortedGroups.indexOf(label) : 99;
+    return order(a) - order(b) || a.localeCompare(b);
+  });
+  const label = universe ?? "Custom symbols";
+  const up = rows.filter((item) => (item.change ?? 0) > 0).length;
+  const down = rows.filter((item) => (item.change ?? 0) < 0).length;
+  return (
+    <section className="panel map-panel">
+      <PanelHeading
+        title={compactView ? "Market heat map" : label}
+        subtitle={
+          since
+            ? `Since ${since} · from first available close`
+            : compactView
+              ? "Regular-session moves"
+              : "Regular-session moves · equal-sized tiles"
+        }
+      >
+        {compactView ? (
+          <Button variant="ghost" size="sm" onClick={onOpen}>
+            Explore <ArrowRight />
+          </Button>
+        ) : (
+          <div className="row-actions">
+            <Button
+              variant={mode === "map" ? "secondary" : "ghost"}
+              size="icon-sm"
+              aria-label="Heat map"
+              aria-pressed={mode === "map"}
+              onClick={() => setMode("map")}
+            >
+              <Grid2X2 />
+            </Button>
+            <Button
+              variant={mode === "table" ? "secondary" : "ghost"}
+              size="icon-sm"
+              aria-label="Table view"
+              aria-pressed={mode === "table"}
+              onClick={() => setMode("table")}
+            >
+              <List />
+            </Button>
+          </div>
+        )}
+      </PanelHeading>
+      <div className="map-toolbar">
+        <Select
+          value={universe ?? ""}
+          onValueChange={(value) => setUniverse(value as Universe)}
+        >
+          <SelectTrigger aria-label="Choose market group">
+            <SelectValue placeholder="Custom symbols" />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.keys(universes).map((item) => (
+              <SelectItem key={item} value={item}>
+                {item}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!compactView ? (
+          <Input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter by symbol, company, or sector"
+            aria-label="Filter market group"
+          />
+        ) : null}
+        <div className="breadth">
+          <span className="positive">
+            <ArrowUp size={13} /> {up}
+          </span>
+          <span className="negative">
+            <ArrowDown size={13} /> {down}
+          </span>
+        </div>
+        {!compactView ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Refresh market group"
+            onClick={() => void mutate()}
+          >
+            <RefreshCw />
+          </Button>
+        ) : null}
+      </div>
+      <Failure error={error} retry={mutate} />
+      {isLoading ? (
+        <Loading />
+      ) : rows.length ? (
+        mode === "map" ? (
+          <div className={`heat-groups ${compactView ? "compact-map" : ""}`}>
+            {groupRows.map(([group, instruments]) => (
+              <div className="heat-group" key={group}>
+                {group !== "All" ? (
+                  <h3>
+                    {group} <small>{instruments.length}</small>
+                  </h3>
+                ) : null}
+                <div className="heat-tiles">
+                  {instruments.map((item) => (
+                    <button
+                      key={item.symbol}
+                      className={`heat-tile ${heatTone(item.change)}`}
+                      title={`${item.quote?.name ?? item.name} · ${percent(item.change)}`}
+                      onClick={() => select(item.symbol)}
+                    >
+                      <strong>{item.symbol}</strong>
+                      <span>{percent(item.change)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Symbol</TableHead>
+                <TableHead>Company</TableHead>
+                <TableHead>Sector</TableHead>
+                <TableHead className="text-right">Last</TableHead>
+                <TableHead className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setDirection(direction === "gain" ? "loss" : "gain")
+                    }
+                  >
+                    Change{" "}
+                    {direction === "gain" ? <ChevronDown /> : <ArrowUp />}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">Volume</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((item) => (
+                <TableRow key={item.symbol}>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => select(item.symbol)}
+                    >
+                      {item.symbol}
+                    </Button>
+                  </TableCell>
+                  <TableCell>{item.quote?.name ?? item.name}</TableCell>
+                  <TableCell>{item.sector ?? "—"}</TableCell>
+                  <TableCell className="text-right">
+                    {amount(item.quote?.price)} {item.quote?.currency}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Change value={item.change} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {compact(item.quote?.volume)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )
+      ) : !error ? (
+        <Empty title="No matching symbols">
+          Change the filter or pick another market group.
+        </Empty>
+      ) : null}
+      <div className="map-foot">
+        <span>
+          <i className="heat-loss" /> Loss <i className="heat-flat" /> Flat{" "}
+          <i className="heat-gain" /> Gain
+        </span>
+        <span>
+          {data?.source ? `${data.source} · ` : ""}
+          {data?.quotes.length ?? "—"} quotes · {data?.missing.length ?? 0}{" "}
+          unavailable
+        </span>
+      </div>
+    </section>
+  );
+}
+
+export function NewsPanel({
+  ticker,
+  limit = 5,
+  onOpen,
+}: {
+  ticker: string;
+  limit?: number;
+  onOpen?: () => void;
+}) {
+  const { data, error, mutate, isLoading } = useSearch(ticker);
+  return (
+    <section className="panel news-panel">
+      <PanelHeading
+        title="Company news"
+        subtitle={benchmarkLabels[ticker] ?? ticker}
+      >
+        {onOpen ? (
+          <Button variant="ghost" size="sm" onClick={onOpen}>
+            Open research <ArrowRight />
+          </Button>
+        ) : null}
+      </PanelHeading>
+      <Failure error={error} retry={mutate} />
+      {isLoading ? (
+        <Loading message="Loading company news" />
+      ) : data?.news.length ? (
+        <div className="news-list">
+          {data.news.slice(0, limit).map((item, index) => (
+            <article key={`${item.url}:${index}`}>
+              <SourceLink href={item.url}>{item.title}</SourceLink>
+              <p>
+                {item.publisher}
+                {item.time ? ` · ${marketTime(item.time)}` : ""}
+              </p>
+            </article>
+          ))}
+        </div>
+      ) : !error ? (
+        <Empty title="No headlines returned">
+          Search for a company to see its recent coverage.
+        </Empty>
+      ) : null}
+    </section>
+  );
+}

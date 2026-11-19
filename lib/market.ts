@@ -1,0 +1,407 @@
+import "server-only";
+import { isMoex, moexQuotes, moexSeries } from "./moex";
+import constituents from "@/data/sp500.json";
+import { ranges, universes, type Range, type Universe } from "./universes";
+import type {
+  ChartPoint,
+  Instrument,
+  MarketSeries,
+  News,
+  Quote,
+} from "./models";
+
+const index = new Map(constituents.map((item) => [item.symbol, item]));
+type SourceMeta = {
+  symbol?: string;
+  shortName?: string;
+  longName?: string;
+  currency?: string;
+  exchangeName?: string;
+  fullExchangeName?: string;
+  regularMarketPrice?: number;
+  regularMarketTime?: number;
+  previousClose?: number;
+  chartPreviousClose?: number;
+  regularMarketDayHigh?: number;
+  regularMarketDayLow?: number;
+  regularMarketVolume?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  marketCap?: number;
+};
+type SourceBars = {
+  timestamp?: number[];
+  meta?: SourceMeta;
+  indicators?: {
+    quote?: Array<Record<string, Array<number | null>>>;
+    adjclose?: Array<{ adjclose?: Array<number | null> }>;
+  };
+};
+type YahooSearch = {
+  quotes?: Array<{
+    symbol?: string;
+    shortname?: string;
+    longname?: string;
+    exchDisp?: string;
+    typeDisp?: string;
+  }>;
+  news?: Array<{
+    title?: string;
+    publisher?: string;
+    link?: string;
+    providerPublishTime?: number;
+  }>;
+};
+const finite = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+const asNumber = (value: unknown) => (finite(value) ? value : null);
+
+async function yahoo<T>(
+  path: string,
+  query: Record<string, string>,
+  seconds: number,
+): Promise<T> {
+  for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
+    try {
+      const url = new URL(path, `https://${host}`);
+      url.search = new URLSearchParams(query).toString();
+      const result = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        next: { revalidate: seconds },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (result.status === 404) throw new Error("Symbol not found");
+      if (result.ok) return (await result.json()) as T;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Symbol not found")
+        throw error;
+    }
+  }
+  throw new Error("Yahoo Finance is temporarily unavailable");
+}
+
+function makeQuote(
+  symbol: string,
+  bars: SourceBars,
+  range: Range,
+): Quote | null {
+  const meta = bars.meta;
+  if (
+    !meta?.currency ||
+    !finite(meta.regularMarketPrice) ||
+    !finite(meta.regularMarketTime)
+  )
+    return null;
+  const closes = bars.indicators?.quote?.[0]?.close ?? [];
+  const timestamps = bars.timestamp ?? [];
+  const date = new Date(meta.regularMarketTime * 1000);
+  const dateKey = date.toISOString().slice(0, 10);
+  const lastBar = timestamps.at(-1);
+  // Daily Yahoo bars are stamped near the session open. The last dated bar
+  // can describe today's still-forming session or the previous completed one.
+  const dailyPrevious = closes.findLast(
+    (value, i) =>
+      finite(value) &&
+      timestamps[i] &&
+      new Date(timestamps[i] * 1000).toISOString().slice(0, 10) < dateKey,
+  );
+  const openIndex = timestamps.findIndex(
+    (time) => new Date(time * 1000).toISOString().slice(0, 10) === dateKey,
+  );
+  const previous =
+    range === "1D"
+      ? asNumber(meta.previousClose ?? meta.chartPreviousClose)
+      : ranges[range][1] === "1d"
+        ? asNumber(dailyPrevious)
+        : null;
+  const open =
+    openIndex >= 0 && lastBar
+      ? asNumber(bars.indicators?.quote?.[0]?.open?.[openIndex])
+      : null;
+  const change = previous != null ? meta.regularMarketPrice - previous : null;
+  return {
+    symbol,
+    name: meta.longName ?? meta.shortName ?? index.get(symbol)?.name ?? symbol,
+    exchange: meta.fullExchangeName ?? meta.exchangeName ?? "",
+    currency: meta.currency,
+    price: meta.regularMarketPrice,
+    previous,
+    change,
+    percent: change != null && previous ? (change / previous) * 100 : null,
+    time: meta.regularMarketTime,
+    open,
+    high: asNumber(meta.regularMarketDayHigh),
+    low: asNumber(meta.regularMarketDayLow),
+    yearHigh: asNumber(meta.fiftyTwoWeekHigh),
+    yearLow: asNumber(meta.fiftyTwoWeekLow),
+    volume: asNumber(meta.regularMarketVolume),
+    cap: asNumber(meta.marketCap),
+  };
+}
+
+export async function series(
+  symbol: string,
+  range: Range,
+  since?: string,
+): Promise<MarketSeries> {
+  if (isMoex(symbol)) return moexSeries(symbol, range, since);
+  const [period, interval] = ranges[range];
+  const start = since ? Date.parse(since) / 1000 : null;
+  const end = Math.floor(Date.now() / 1000);
+  const query: Record<string, string> =
+    start == null
+      ? { range: period, interval }
+      : {
+          period1: String(start),
+          period2: String(end + 86400),
+          interval: end - start > 730 * 86400 ? "1wk" : "1d",
+        };
+  const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
+    `/v8/finance/chart/${encodeURIComponent(symbol)}`,
+    query,
+    range === "1D" && !since ? 45 : 240,
+  );
+  const bars = result.chart?.result?.[0];
+  if (!bars) return { quote: null, points: [] };
+  const values = bars.indicators?.quote?.[0];
+  const adjusted = bars.indicators?.adjclose?.[0]?.adjclose;
+  const points: ChartPoint[] = [];
+  bars.timestamp?.forEach((time, i) => {
+    const open = values?.open?.[i],
+      high = values?.high?.[i],
+      low = values?.low?.[i],
+      close = values?.close?.[i];
+    if (finite(open) && finite(high) && finite(low) && finite(close)) {
+      points.push({
+        time,
+        open,
+        high,
+        low,
+        close,
+        adjustedClose: asNumber(adjusted?.[i]) ?? undefined,
+        volume: asNumber(values?.volume?.[i]),
+      });
+    }
+  });
+  return {
+    quote: makeQuote(symbol, bars, since ? "1M" : range),
+    points,
+    source: "Yahoo Finance",
+  };
+}
+
+function sparkWindow(since?: string) {
+  const days = since ? (Date.now() - Date.parse(since)) / 86400000 : 0;
+  if (!since || days <= 3) return { range: "5d", interval: "1d" };
+  if (days <= 27) return { range: "1mo", interval: "1d" };
+  if (days <= 86) return { range: "3mo", interval: "1d" };
+  if (days <= 175) return { range: "6mo", interval: "1d" };
+  if (days <= 360) return { range: "1y", interval: "1d" };
+  if (days <= 720) return { range: "2y", interval: "1d" };
+  if (days <= 1815) return { range: "5y", interval: "1wk" };
+  return { range: "max", interval: "1wk" };
+}
+
+async function spark(symbols: string[], since?: string) {
+  const result = await yahoo<{
+    spark?: { result?: Array<{ symbol: string; response?: SourceBars[] }> };
+  }>(
+    "/v7/finance/spark",
+    { symbols: symbols.join(","), ...sparkWindow(since) },
+    since ? 180 : 65,
+  );
+  return (result.spark?.result ?? []).flatMap(({ symbol, response }) => {
+    const bars = response?.[0];
+    const quote = bars && makeQuote(symbol, bars, "1M");
+    if (!bars || !quote) return [];
+    if (!since) return [quote];
+    const start = Date.parse(since) / 1000;
+    const close = bars.indicators?.quote?.[0]?.close?.find(
+      (close, i) =>
+        finite(close) && close > 0 && (bars.timestamp?.[i] ?? 0) >= start,
+    );
+    return [
+      {
+        ...quote,
+        periodPercent: close ? (quote.price / close - 1) * 100 : null,
+      },
+    ];
+  });
+}
+
+export async function quotes(
+  symbols: string[],
+  since?: string,
+): Promise<Quote[]> {
+  const unique = [...new Set(symbols)].sort();
+  const ordered = unique.filter((symbol) => !isMoex(symbol));
+  const moscow = unique.filter(isMoex);
+  const moscowBatches = Array.from(
+    { length: Math.ceil(moscow.length / 20) },
+    (_, i) => moscow.slice(i * 20, (i + 1) * 20),
+  );
+  const russianQuotes = Promise.allSettled(
+    moscowBatches.map((batch) => moexQuotes(batch, since)),
+  );
+  const batches = Array.from(
+    { length: Math.ceil(ordered.length / 20) },
+    (_, i) => ordered.slice(i * 20, (i + 1) * 20),
+  );
+  const found: Quote[] = [];
+  for (let i = 0; i < batches.length; i += 5) {
+    const results = await Promise.allSettled(
+      batches.slice(i, i + 5).map((batch) => spark(batch, since)),
+    );
+    for (const result of results)
+      if (result.status === "fulfilled") found.push(...result.value);
+  }
+  if (found.length === 0 && ordered.length <= 8) {
+    const fallback = await Promise.allSettled(
+      ordered.map((symbol) => series(symbol, "1D", since)),
+    );
+    for (const result of fallback) {
+      if (result.status === "fulfilled" && result.value.quote) {
+        const quote = result.value.quote;
+        const base = result.value.points[0]?.close;
+        found.push(
+          since
+            ? {
+                ...quote,
+                periodPercent: base ? (quote.price / base - 1) * 100 : null,
+              }
+            : quote,
+        );
+      }
+    }
+  }
+  for (const result of await russianQuotes)
+    if (result.status === "fulfilled") found.push(...result.value);
+  return found;
+}
+
+export function members(universe: Universe): Instrument[] {
+  if (universe === "S&P 500") return constituents;
+  return universes[universe].map(
+    (symbol) => index.get(symbol) ?? { symbol, name: symbol },
+  );
+}
+
+export async function search(
+  query: string,
+): Promise<{ instruments: Instrument[]; news: News[] }> {
+  let output: YahooSearch = {};
+  const needle = query.toLowerCase();
+  const local = constituents
+    .filter(
+      (item) =>
+        item.symbol.toLowerCase().startsWith(needle) ||
+        item.name.toLowerCase().includes(needle),
+    )
+    .slice(0, 8);
+  try {
+    output = await yahoo<YahooSearch>(
+      "/v1/finance/search",
+      {
+        q: query,
+        quotesCount: "10",
+        newsCount: "12",
+        enableFuzzyQuery: "true",
+      },
+      300,
+    );
+  } catch (error) {
+    if (local.length === 0) throw error;
+  }
+  const remote = (output.quotes ?? []).flatMap((item): Instrument[] =>
+    item.symbol
+      ? [
+          {
+            symbol: item.symbol,
+            name: item.longname ?? item.shortname ?? item.symbol,
+            exchange: item.exchDisp,
+            type: item.typeDisp,
+            sector: index.get(item.symbol)?.sector,
+          },
+        ]
+      : [],
+  );
+  return {
+    instruments: [
+      ...new Map(
+        [...local, ...remote].map((item) => [item.symbol, item]),
+      ).values(),
+    ],
+    news: (output.news ?? []).flatMap((item): News[] =>
+      item.title && item.link?.startsWith("https://")
+        ? [
+            {
+              title: item.title,
+              url: item.link,
+              publisher: item.publisher ?? "Yahoo Finance",
+              time: item.providerPublishTime ?? 0,
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
+export async function comparison(
+  symbols: string[],
+  range: Range,
+  since?: string,
+) {
+  const responses = await Promise.allSettled(
+    symbols.map((symbol) => series(symbol, range, since)),
+  );
+  const available = responses.flatMap((item, i) =>
+    item.status === "fulfilled" && item.value.points.length > 1
+      ? [{ symbol: symbols[i], points: item.value.points }]
+      : [],
+  );
+  const adjusted =
+    available.length > 0 &&
+    available.every(({ points }) =>
+      points.every((point) => point.adjustedClose != null),
+    );
+  const historical = available.map(({ symbol, points }) => ({
+    symbol,
+    byDay: new Map(
+      points.map((item) => [
+        new Date(item.time * 1000).toISOString().slice(0, 10),
+        adjusted ? item.adjustedClose! : item.close,
+      ]),
+    ),
+  }));
+  const reported = available.map((item) => item.symbol);
+  const dates =
+    historical.length < 2
+      ? []
+      : [...historical[0].byDay.keys()].filter((date) =>
+          historical.every((item) => (item.byDay.get(date) ?? 0) > 0),
+        );
+  const first = dates[0];
+  const points =
+    dates.length > 1
+      ? dates.map((date) => ({
+          date,
+          ...Object.fromEntries(
+            historical.map((item) => [
+              item.symbol,
+              (item.byDay.get(date)! / item.byDay.get(first)! - 1) * 100,
+            ]),
+          ),
+        }))
+      : [];
+  return {
+    points,
+    symbols: reported,
+    missing: symbols.filter((symbol) => !reported.includes(symbol)),
+    adjusted,
+    source: symbols.every(isMoex)
+      ? "Moscow Exchange"
+      : symbols.some(isMoex)
+        ? "Yahoo Finance · Moscow Exchange"
+        : "Yahoo Finance",
+  };
+}

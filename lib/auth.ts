@@ -1,0 +1,106 @@
+import "server-only";
+import { cookies } from "next/headers";
+import { cache } from "react";
+import { NextResponse } from "next/server";
+import * as oidc from "openid-client";
+import { sessionIdentity, type Identity } from "./db";
+
+export const issuer = () =>
+  process.env.DENIZ_OIDC_ISSUER ?? "https://api.denizlg24.com/api/auth";
+export const authReady = () =>
+  Boolean(
+    process.env.DENIZ_OIDC_CLIENT_ID &&
+    process.env.DENIZ_OIDC_CLIENT_SECRET &&
+    process.env.APP_URL,
+  );
+export const demoEnabled = () =>
+  process.env.DEMO_MODE === "1" ||
+  (process.env.DEMO_MODE !== "0" && process.env.NODE_ENV === "development");
+
+export function appOrigin(request?: Request): string {
+  if (process.env.APP_URL) {
+    const url = new URL(process.env.APP_URL);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(local && url.protocol === "http:"))
+      throw new Error("APP_URL must use HTTPS.");
+    return url.origin;
+  }
+  if (request && demoEnabled()) return new URL(request.url).origin;
+  throw new Error("APP_URL is required");
+}
+
+export const sessionCookie = (origin: string) =>
+  origin.startsWith("https:") ? "__Host-stockwatcher" : "stockwatcher";
+export const flowCookie = (origin: string) =>
+  origin.startsWith("https:")
+    ? "__Host-stockwatcher_oauth"
+    : "stockwatcher_oauth";
+export const cookieOptions = (origin: string, maxAge: number) => ({
+  httpOnly: true,
+  secure: origin.startsWith("https:"),
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge,
+});
+
+export function accountAllowed(identity: Identity) {
+  if (identity.demo) return demoEnabled();
+  const allowed = process.env.WORKSPACE_ALLOWED_EMAILS?.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowed?.length) return true;
+  return (
+    identity.emailVerified === true &&
+    Boolean(identity.email && allowed.includes(identity.email.toLowerCase()))
+  );
+}
+
+export const currentUser = cache(async () => {
+  const jar = await cookies();
+  const secure = process.env.APP_URL?.startsWith("https:") ?? false;
+  const token = jar.get(secure ? "__Host-stockwatcher" : "stockwatcher")?.value;
+  const identity = await sessionIdentity(token);
+  return identity && accountAllowed(identity) ? identity : null;
+});
+
+let configuration: Promise<oidc.Configuration> | undefined;
+export function oidcConfiguration() {
+  if (!authReady()) throw new Error("Deniz Cloud sign-in is not configured");
+  if (!configuration) {
+    configuration = oidc
+      .discovery(
+        new URL(issuer()),
+        process.env.DENIZ_OIDC_CLIENT_ID!,
+        { client_secret: process.env.DENIZ_OIDC_CLIENT_SECRET! },
+        oidc.ClientSecretBasic(process.env.DENIZ_OIDC_CLIENT_SECRET!),
+        process.env.OIDC_TEST_ALLOW_HTTP === "1" &&
+          process.env.DEMO_MODE === "1"
+          ? { execute: [oidc.allowInsecureRequests] }
+          : undefined,
+      )
+      .then((config) => {
+        oidc.enableNonRepudiationChecks(config);
+        config.timeout = 8;
+        return config;
+      })
+      .catch((error) => {
+        configuration = undefined;
+        throw error;
+      });
+  }
+  return configuration;
+}
+
+export function sameOrigin(request: Request) {
+  const expected = process.env.APP_URL
+    ? appOrigin()
+    : new URL(request.url).origin;
+  return request.headers.get("origin") === expected;
+}
+
+export function json(data: unknown, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}

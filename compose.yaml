@@ -1,0 +1,18 @@
+services:
+  stockwatcher:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STOCKWATCHER_DB_PATH: /app/data/stockwatcher.sqlite
+      DEMO_MODE: ${DEMO_MODE:-0}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+    volumes:
+      - stockwatcher-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  stockwatcher-data:
