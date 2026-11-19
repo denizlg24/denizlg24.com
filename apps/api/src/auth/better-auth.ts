@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import {
   oauthDeviceAuthorization,
@@ -18,13 +20,21 @@ import {
 } from "@repo/schemas/cloud";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
-import { expireCookie } from "better-auth/cookies";
-import { admin, jwt, twoFactor, username } from "better-auth/plugins";
+import { deleteSessionCookie, expireCookie } from "better-auth/cookies";
+import { generateRandomString } from "better-auth/crypto";
+import {
+  admin,
+  jwt,
+  magicLink,
+  twoFactor,
+  username,
+} from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AuthMailer,
   passwordResetEmail,
+  signInLinkEmail,
   unavailableMailer,
   verificationEmail,
 } from "./email";
@@ -34,6 +44,13 @@ import {
   passkeyRelyingParty,
 } from "./passkey";
 import { rememberMeGrants } from "./remember-me";
+import {
+  currentOwnerIssuance,
+  SIGN_IN_LINK_EXPIRES_IN_SECONDS,
+  type SignInLinkLanding,
+  signInLinkLandingUrl,
+  signInLinkRefusal,
+} from "./sign-in-link";
 import {
   activeTenant,
   currentTenantClientGrant,
@@ -57,6 +74,11 @@ const REFRESH_REUSE_GRACE_SECONDS = 30;
 // Long enough to find a phone and sign in on it; the TV asks for a new code
 // after that.
 const DEVICE_CODE_EXPIRES_IN = "15m";
+// The plugin's default; how long a challenged sign-in has to enter its code.
+const TWO_FACTOR_COOKIE_MAX_AGE_SECONDS = 10 * 60;
+// Better Auth's own per-endpoint limiter, on top of the API's per-IP one.
+const SIGN_IN_LINK_RATE_LIMIT = { window: 60, max: 5 };
+const SIGN_IN_LINK_VERIFY_PATH = "/magic-link/verify";
 
 // Dev ports, one per app: 3000 web, 3001 api, 3002 cloud, 3005 storage,
 // 3006 forge, 3007 status, 3008 auth.
@@ -169,8 +191,8 @@ export function describeUserAgent(userAgent: string | null | undefined) {
 const uuidSchema = z.uuid();
 
 /**
- * Mail is sent only to public accounts, so awaiting it would let response
- * time and delivery failures reveal which addresses hold one.
+ * Mail goes only to accounts that may receive it, so awaiting it would let
+ * response time and delivery failures reveal which addresses hold one.
  */
 function deliverInBackground(delivery: Promise<void>, kind: string): void {
   delivery.catch((error: unknown) => {
@@ -221,6 +243,20 @@ function denied(description: string): APIError {
   });
 }
 
+type AuthHookContext = Parameters<
+  Parameters<typeof createAuthMiddleware>[0]
+>[0];
+
+/** The twoFactor plugin's cookie and HMAC formats, which its routes read back. */
+const TWO_FACTOR_COOKIE = "two_factor";
+const TRUST_DEVICE_COOKIE = "trust_device";
+
+function trustDeviceToken(secret: string, userId: string, identifier: string) {
+  return createHmac("sha256", secret)
+    .update(`${userId}!${identifier}`)
+    .digest("base64url");
+}
+
 export function cloudAuthIssuer(baseURL: string): string {
   return `${baseURL.replace(/\/$/, "")}/api/auth`;
 }
@@ -241,6 +277,126 @@ export function createCloudAuth(options: CloudAuthOptions) {
     }),
     ...(options.passkey?.origins ? { origins: options.passkey.origins } : {}),
   };
+
+  /**
+   * Runs after `/magic-link/verify`. A link proves the mailbox and nothing
+   * more, so it is held to exactly what a password is: an account that has
+   * since become ineligible gets no session, and one with a second factor is
+   * challenged for it — unless this browser is a device it trusts, as on the
+   * password path — using the twoFactor plugin's own cookie and rows, so its
+   * `/two-factor/verify-*` routes finish the sign-in. The browser lands on
+   * the auth app's `/login`, which asks for the code and then resumes.
+   */
+  const settleSignInLink = async (ctx: AuthHookContext): Promise<void> => {
+    const callbackURL =
+      typeof ctx.query?.callbackURL === "string"
+        ? ctx.query.callbackURL
+        : undefined;
+    const land = (landing: SignInLinkLanding, error?: string) => {
+      const target = new URL(
+        signInLinkLandingUrl(authAppUrl, callbackURL, landing),
+      );
+      if (error) target.searchParams.set("error", error);
+      return ctx.redirect(target.toString());
+    };
+    // No session: the plugin already redirected to the error callback, or a
+    // hook refused it (a ban, the credential guard), which `app.ts` turns
+    // into the same landing — an after hook cannot change a failed status.
+    const issued = ctx.context.newSession;
+    if (!issued) return;
+    const userId = issued.user.id;
+    const secret = ctx.context.secret;
+    const adapter = ctx.context.internalAdapter;
+    const discardSession = async () => {
+      deleteSessionCookie(ctx, true);
+      await adapter.deleteSession(issued.session.token);
+      ctx.context.setNewSession(null);
+    };
+    const account = await options.db.query.authUser.findFirst({
+      columns: {
+        banned: true,
+        emailVerified: true,
+        realm: true,
+        status: true,
+        twoFactorEnabled: true,
+      },
+      where: eq(schema.authUser.id, userId),
+    });
+    if (signInLinkRefusal(account) !== null) {
+      await discardSession();
+      throw land("error", "ACCOUNT_UNAVAILABLE");
+    }
+    if (account?.twoFactorEnabled !== true) return;
+
+    const trustCookie = ctx.context.createAuthCookie(TRUST_DEVICE_COOKIE, {
+      maxAge: TRUST_DEVICE_MAX_AGE_SECONDS,
+    });
+    const trust = await ctx.getSignedCookie(trustCookie.name, secret);
+    const [trustToken, trustIdentifier] = trust ? trust.split("!") : [];
+    if (
+      trustToken &&
+      trustIdentifier &&
+      trustToken === trustDeviceToken(secret, userId, trustIdentifier)
+    ) {
+      const record = await adapter.findVerificationValue(trustIdentifier);
+      if (
+        record &&
+        record.value === userId &&
+        record.expiresAt.getTime() > Date.now()
+      ) {
+        // Re-issued on every sign-in, as the plugin does on the password path.
+        await adapter.deleteVerificationByIdentifier(trustIdentifier);
+        const renewed = `trust-device-${generateRandomString(32)}`;
+        await adapter.createVerificationValue({
+          value: userId,
+          identifier: renewed,
+          expiresAt: new Date(Date.now() + TRUST_DEVICE_MAX_AGE_SECONDS * 1000),
+        });
+        await ctx.setSignedCookie(
+          trustCookie.name,
+          `${trustDeviceToken(secret, userId, renewed)}!${renewed}`,
+          secret,
+          trustCookie.attributes,
+        );
+        return;
+      }
+    }
+    if (trust) expireCookie(ctx, trustCookie);
+
+    await discardSession();
+    const challengeCookie = ctx.context.createAuthCookie(TWO_FACTOR_COOKIE, {
+      maxAge: TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
+    });
+    const identifier = `2fa-${generateRandomString(20)}`;
+    const expiresAt = new Date(
+      Date.now() + TWO_FACTOR_COOKIE_MAX_AGE_SECONDS * 1000,
+    );
+    await adapter.createVerificationValue({
+      value: userId,
+      identifier,
+      expiresAt,
+    });
+    await adapter.createVerificationValue({
+      value: "0",
+      identifier: `2fa-attempts-${identifier}`,
+      expiresAt,
+    });
+    await ctx.setSignedCookie(
+      challengeCookie.name,
+      identifier,
+      secret,
+      challengeCookie.attributes,
+    );
+    const dontRemember = ctx.context.authCookies.dontRememberToken;
+    await ctx.setSignedCookie(
+      dontRemember.name,
+      "true",
+      secret,
+      dontRemember.attributes,
+    );
+    throw land("challenge");
+  };
+
   return betterAuth({
     appName: "Deniz Cloud",
     baseURL: options.baseURL,
@@ -283,8 +439,12 @@ export function createCloudAuth(options: CloudAuthOptions) {
         if (ctx.body?.rememberMe === false) return;
         expireCookie(ctx, ctx.context.authCookies.dontRememberToken);
       }),
-      // A passkey is both factors, so adding one is worth knowing about.
       after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === SIGN_IN_LINK_VERIFY_PATH) {
+          await settleSignInLink(ctx);
+          return;
+        }
+        // A passkey is both factors, so adding one is worth knowing about.
         if (ctx.path !== "/passkey/verify-registration") return;
         const report = options.onSecurityEvent;
         const user = ctx.context.session?.user;
@@ -298,23 +458,44 @@ export function createCloudAuth(options: CloudAuthOptions) {
       }),
     },
     databaseHooks: {
+      account: {
+        delete: {
+          // Verifying a link for an account whose address was never confirmed
+          // makes the plugin delete every credential on it. Issuance refuses
+          // such accounts; this stops one that changed in between.
+          before: async (_account, context) => {
+            if (context?.path === SIGN_IN_LINK_VERIFY_PATH) {
+              throw new APIError("FORBIDDEN", {
+                code: "ACCOUNT_UNAVAILABLE",
+                message: "This account can't use sign-in links",
+              });
+            }
+          },
+        },
+      },
       session: {
         create: {
           // Mirrors how Better Auth itself decides: a sign-in answers from its
           // body, while the TOTP step — which creates the session that
           // survives — only knows the answer through the `dont_remember`
-          // cookie the sign-in left behind.
+          // cookie the sign-in left behind. A sign-in link is never
+          // remembered — an emailed credential does not get to mint the
+          // non-expiring refresh handle — and its second-factor step reads the
+          // `dont_remember` cookie `settleSignInLink` leaves.
           before: async (session, context) => {
             if (!context) return;
-            const rememberMe = context.path.startsWith("/sign-in/")
-              ? context.body?.rememberMe !== false
-              : !(await context.getSignedCookie(
-                  context.context.authCookies.dontRememberToken.name,
-                  context.context.secret,
-                ));
+            const rememberMe =
+              context.path === SIGN_IN_LINK_VERIFY_PATH
+                ? false
+                : context.path.startsWith("/sign-in/")
+                  ? context.body?.rememberMe !== false
+                  : !(await context.getSignedCookie(
+                      context.context.authCookies.dontRememberToken.name,
+                      context.context.secret,
+                    ));
             return { data: { ...session, rememberMe } };
           },
-          after: async (session) => {
+          after: async (session, context) => {
             const report = options.onSecurityEvent;
             if (!report) return;
             const account = await options.db.query.authUser.findFirst({
@@ -326,7 +507,13 @@ export function createCloudAuth(options: CloudAuthOptions) {
               type: "auth_sign_in",
               subjectKey: session.id,
               title: `New sign-in · ${account.name}`,
-              message: [describeUserAgent(session.userAgent), session.ipAddress]
+              message: [
+                describeUserAgent(session.userAgent),
+                session.ipAddress,
+                context?.path === SIGN_IN_LINK_VERIFY_PATH
+                  ? "sign-in link"
+                  : null,
+              ]
                 .filter(Boolean)
                 .join(" · "),
             });
@@ -439,6 +626,7 @@ export function createCloudAuth(options: CloudAuthOptions) {
           period: 30,
         },
         trustDeviceMaxAge: TRUST_DEVICE_MAX_AGE_SECONDS,
+        twoFactorCookieMaxAge: TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
         twoFactorTable: "authTwoFactor",
       }),
       // A passkey sign-in is not a `/sign-in/*` path, so the twoFactor hook
@@ -458,6 +646,56 @@ export function createCloudAuth(options: CloudAuthOptions) {
             assertUserVerified(verification.authenticationInfo.userVerified),
         },
         schema: { passkey: { modelName: "authPasskey" } },
+      }),
+      // One-time sign-in links, for existing accounts only. The plugin signs
+      // in on `/magic-link/verify`, which the twoFactor hook does not match;
+      // `settleSignInLink` holds it to the second factor (and to the account
+      // still being eligible) instead. Tokens are hashed at rest, consumed
+      // atomically on first use, and expire in 15 minutes.
+      magicLink({
+        disableSignUp: true,
+        expiresIn: SIGN_IN_LINK_EXPIRES_IN_SECONDS,
+        rateLimit: SIGN_IN_LINK_RATE_LIMIT,
+        storeToken: "hashed",
+        sendMagicLink: async ({ email, url }) => {
+          const owner = currentOwnerIssuance();
+          if (owner) {
+            if (owner.delivery === "copy") {
+              owner.url = url;
+              return;
+            }
+            await mailer.send(
+              signInLinkEmail({
+                to: email,
+                name: owner.name,
+                url,
+                sentByOwner: true,
+              }),
+            );
+            return;
+          }
+          // Anyone can ask, so the answer is the same whether or not the
+          // address has an account that may receive one.
+          const account = await options.db.query.authUser.findFirst({
+            columns: {
+              banned: true,
+              email: true,
+              emailVerified: true,
+              name: true,
+              realm: true,
+              status: true,
+              twoFactorEnabled: true,
+            },
+            where: eq(schema.authUser.email, email.trim().toLowerCase()),
+          });
+          if (!account || signInLinkRefusal(account) !== null) return;
+          deliverInBackground(
+            mailer.send(
+              signInLinkEmail({ to: account.email, name: account.name, url }),
+            ),
+            "Sign-in link",
+          );
+        },
       }),
       username({
         maxUsernameLength: 255,

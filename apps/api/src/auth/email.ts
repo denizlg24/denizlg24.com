@@ -128,6 +128,30 @@ export function passwordResetEmail(input: {
   };
 }
 
+export function signInLinkEmail(input: {
+  to: string;
+  name: string;
+  url: string;
+  /** The owner sent it from the admin panel rather than the person asking. */
+  sentByOwner?: boolean;
+}): AuthEmail {
+  const paragraphs = [
+    `Hi ${input.name},`,
+    input.sentByOwner
+      ? "Here's a link that signs you in to your deniz account. Tap the button below and you're in — no password needed."
+      : "Here's the sign-in link you asked for. Tap the button below to sign in to your deniz account — no password needed.",
+    "If you've set up an authenticator app, it will still ask you for a code.",
+    "The link works once, for 15 minutes. If you didn't expect this email, you can ignore it — nobody can sign in without the link.",
+  ];
+  const action = { label: "Sign in", url: input.url };
+  return {
+    to: input.to,
+    subject: "Your sign-in link",
+    text: text(paragraphs, action),
+    html: layout(paragraphs, action),
+  };
+}
+
 export function existingAccountEmail(input: {
   to: string;
   signInUrl: string;

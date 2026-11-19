@@ -57,7 +57,10 @@ import {
   type SecurityEvent,
 } from "./auth/better-auth";
 import { oauthConfigFromEnv } from "./auth/oauth-config";
-import { publicAccountsFromEnv } from "./auth/public-accounts-config";
+import {
+  authMailerFromEnv,
+  publicAccountsFromEnv,
+} from "./auth/public-accounts-config";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
 import { GithubSurfaces } from "./deploy/github-surfaces";
@@ -180,7 +183,8 @@ export async function createRuntimeApp() {
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
       db,
-      mailer: publicAccounts?.mailer,
+      // Sign-in links need only Resend; self-service needs Turnstile too.
+      mailer: authMailerFromEnv() ?? undefined,
       oauth: oauthConfig,
       passkey: { rpId: process.env.PASSKEY_RP_ID || undefined },
       secret: sharedAuthSecret,

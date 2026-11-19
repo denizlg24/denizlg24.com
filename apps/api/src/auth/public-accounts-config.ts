@@ -10,6 +10,24 @@ export interface PublicAccountsRuntime {
   turnstile: TurnstileVerifier;
 }
 
+function emailFrom(env: Record<string, string | undefined>): string {
+  return env.AUTH_EMAIL_FROM || "deniz auth <auth@denizlg24.com>";
+}
+
+/**
+ * Account mail on its own: what the owner's sign-in links need, which unlike
+ * self-service does not depend on Turnstile. Same rule as below — never a
+ * permissive default on `NODE_ENV`'s say-so.
+ */
+export function authMailerFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): AuthMailer | null {
+  if (env.RESEND_API_KEY) {
+    return resendMailer({ apiKey: env.RESEND_API_KEY, from: emailFrom(env) });
+  }
+  return env.AUTH_PUBLIC_ACCOUNTS_DEV === "1" ? logMailer() : null;
+}
+
 /**
  * Public accounts switch on only when explicitly configured. `NODE_ENV` is
  * folded at bundle time and reads false in the production API, so nothing
@@ -21,10 +39,12 @@ export interface PublicAccountsRuntime {
 export function publicAccountsFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): PublicAccountsRuntime | null {
-  const from = env.AUTH_EMAIL_FROM || "deniz auth <auth@denizlg24.com>";
   if (env.TURNSTILE_SECRET_KEY && env.RESEND_API_KEY) {
     return {
-      mailer: resendMailer({ apiKey: env.RESEND_API_KEY, from }),
+      mailer: resendMailer({
+        apiKey: env.RESEND_API_KEY,
+        from: emailFrom(env),
+      }),
       turnstile: createTurnstileVerifier({ secret: env.TURNSTILE_SECRET_KEY }),
     };
   }

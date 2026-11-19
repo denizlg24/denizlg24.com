@@ -758,6 +758,35 @@ also the OAuth 2.1 authorization server (`@better-auth/oauth-provider`, issuer
   cookie only ever reaches the API — Forge's edge strips it with the rest of
   `deniz-cloud.*`.
 
+- **A sign-in link replaces the password, never the second factor.**
+  `magicLink` in `better-auth.ts` (no table; tokens are SHA-256-hashed rows in
+  `auth_verification`, single-use, 15 minutes, `disableSignUp`). The plugin
+  signs in on `/magic-link/verify`, which the twoFactor hook does not match,
+  so `settleSignInLink` does its job: an account with TOTP loses the session
+  the plugin made and gets the plugin's own `two_factor` cookie and rows, and
+  the browser lands on `<auth app>/login?signInLink=challenge` — unless the
+  trust-device cookie is valid, exactly as on the password path (and it is
+  re-issued). Link sessions are never remember-me (`dont_remember` is set for
+  the TOTP step). Only active, unbanned accounts with `emailVerified` (and,
+  for `cloud`, TOTP) are mailed — **the plugin deletes every credential and
+  session of an unverified account it verifies a link for**, so issuance
+  refuses them and an `account.delete.before` guard on that path refuses the
+  race. Cloud accounts are created with `emailVerified: false`; the owner's
+  issuance takes `confirmEmail` to vouch for one. The callback is always the
+  auth app's `/login` (so `trustedOrigins`, also the CSRF list, is unchanged)
+  and the destination a `returnTo` held to `sign-in-link-issuance.ts`'s list:
+  trusted origins plus https redirect origins of clients an active superuser
+  created — never dynamic or tenant-admin clients — plus the API's authorize
+  endpoint. `app.ts` checks both on request and on verify (a hand-edited
+  link lands on `?signInLink=error&error=INVALID_LINK` before the token is
+  spent) and turns a refusal raised inside Better Auth (a ban) into the same
+  landing, since an after hook cannot change a failed status. The
+  self-service request sits with the other mail routes (Turnstile, 5 per
+  15 min per IP, 404 unless public accounts are configured);
+  `POST /api/auth/admin/send-sign-in-link` (superuser session; `copy` needs
+  a browser session, not `oauth:`) needs only `RESEND_API_KEY` and records
+  `auth.sign_in_link_issued`. Sign-in pushes carry "sign-in link".
+  `sign-in-link.integration.test.ts` covers it.
 - **A TV signs in by code (RFC 8628).** `oauthDeviceAuthorization` in
   `better-auth.ts` (table `auth_device_code`, migration 0056) issues tokens
   through the provider like any grant, so `customAccessTokenClaims` holds a

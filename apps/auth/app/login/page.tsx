@@ -21,6 +21,7 @@ import {
   type SecondFactorMode,
   SecondFactorStep,
 } from "@repo/auth-ui/second-factor-step";
+import { SignInLinkStep } from "@repo/auth-ui/sign-in-link-step";
 import { SignUpStep, type SignUpValues } from "@repo/auth-ui/sign-up-step";
 import { CheckingStep, FlowMessage } from "@repo/auth-ui/status-step";
 import { TotpEnrollment } from "@repo/auth-ui/totp-enrollment";
@@ -63,6 +64,10 @@ import {
   snoozePasskeyOffer,
 } from "@/lib/passkey-device";
 import { decidePasskeyOffer } from "@/lib/passkey-offer";
+import {
+  signInLinkCallbacks,
+  signInLinkErrorMessage,
+} from "@/lib/sign-in-link";
 
 type Step =
   | "checking"
@@ -78,6 +83,8 @@ type Step =
   | "verify-email"
   | "forgot"
   | "reset-sent"
+  | "sign-in-link"
+  | "sign-in-link-sent"
   | "enroll-password"
   | "refused"
   | "redirecting";
@@ -191,6 +198,9 @@ function LoginFlow() {
   const reason = searchParams.get("reason");
   const enrollPending = searchParams.get("enroll") === "1";
   const tokenParam = searchParams.get("token");
+  // A sign-in link the API sent back here: `challenge` when the account still
+  // owes its second factor, `error` when the link could not be used.
+  const signInLinkLanding = searchParams.get("signInLink");
   const returnTo = safeReturnTo(searchParams.get("returnTo"), {
     allowLoopback: ALLOW_LOOPBACK,
   });
@@ -203,6 +213,7 @@ function LoginFlow() {
 
   const [step, setStepState] = useState<Step>(() => {
     if (tokenParam) return "invitation";
+    if (signInLinkLanding === "challenge") return "challenge";
     if (refused) {
       switch (reason) {
         case "EMAIL_VERIFICATION_REQUIRED":
@@ -548,6 +559,17 @@ function LoginFlow() {
         : await authClient.twoFactor.verifyTotp({ code, trustDevice });
     if (verifyError) {
       setBusy(false);
+      // The code step a link lands on lasts ten minutes, like the one after
+      // a password; past that only a new link starts it again.
+      if (
+        signInLinkLanding === "challenge" &&
+        verifyError.code === "INVALID_TWO_FACTOR_COOKIE"
+      ) {
+        setError(
+          "This sign-in took too long to finish. Ask for a new sign-in link and try again.",
+        );
+        return;
+      }
       setError(
         verifyError.message ??
           (mode === "backup"
@@ -637,6 +659,28 @@ function LoginFlow() {
     nextChallenge();
   };
 
+  const requestSignInLink = async (email: string) => {
+    if (!challengeToken) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.requestSignInLink(
+        { email, ...signInLinkCallbacks(window.location.origin, destination) },
+        challengeToken,
+      );
+      setSentTo(email);
+      if (step === "sign-in-link") go("sign-in-link-sent", { busy: false });
+      else {
+        setNotice("Sent. The newest link is the one that works.");
+        setBusy(false);
+      }
+    } catch (err) {
+      setBusy(false);
+      setError(challengeMessage(err));
+    }
+    nextChallenge();
+  };
+
   const requestReset = async (email: string) => {
     if (!challengeToken) return;
     setBusy(true);
@@ -705,7 +749,9 @@ function LoginFlow() {
       ? `This account can't open ${destinationName}. Sign in with a different account.`
       : enrollPending
         ? "Your authenticator app isn't set up yet. Sign in again to finish."
-        : null;
+        : signInLinkLanding === "error"
+          ? signInLinkErrorMessage(searchParams.get("error"))
+          : null;
 
   return (
     <FlowFrame
@@ -737,6 +783,7 @@ function LoginFlow() {
             go("password");
           }}
           onPasskey={() => void signInWithPasskey("button")}
+          onSignInLink={() => go("sign-in-link")}
           onInvitation={authorizing ? undefined : () => go("invitation")}
         />
       ) : null}
@@ -812,6 +859,31 @@ function LoginFlow() {
           onBack={() => go("username")}
         />
       ) : null}
+      {step === "sign-in-link" ? (
+        <SignInLinkStep
+          defaultEmail={username.includes("@") ? username : ""}
+          busy={busy}
+          error={error}
+          challenge={challenge}
+          challengeReady={challengeToken !== null}
+          onSubmit={(email) => void requestSignInLink(email)}
+          onBack={() => go("username")}
+        />
+      ) : null}
+      {step === "sign-in-link-sent" ? (
+        <CheckEmailStep
+          title="Check your email"
+          email={sentTo}
+          detail={`If there's an account for that address, the email has a link that signs you in and takes you to ${destinationName}. It works once, for 15 minutes. If you use an authenticator app, it will still ask for a code.`}
+          busy={busy}
+          error={error}
+          notice={notice}
+          challenge={challenge}
+          resendReady={challengeToken !== null}
+          onResend={sentTo ? () => void requestSignInLink(sentTo) : undefined}
+          onBack={() => go("username")}
+        />
+      ) : null}
       {step === "reset-sent" ? (
         <CheckEmailStep
           title="Check your email"
@@ -883,7 +955,9 @@ function LoginFlow() {
           trustDevice={{ checked: trustDevice, onChange: setTrustDevice }}
           onSubmit={(code, mode) => void submitChallenge(code, mode)}
           onModeChange={() => setError(null)}
-          onBack={() => go("password")}
+          onBack={() =>
+            go(signInLinkLanding === "challenge" ? "username" : "password")
+          }
         />
       ) : null}
       {step === "enroll" ? (

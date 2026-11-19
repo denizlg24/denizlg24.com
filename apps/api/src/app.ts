@@ -42,6 +42,7 @@ import {
 import {
   ACTIVITY_ACTIONS,
   adminResetMfaInputSchema,
+  adminSignInLinkInputSchema,
   completeSignupInputSchema,
   createPendingUserInputSchema,
   createSmbCredentialInputSchema,
@@ -65,6 +66,16 @@ import { createOAuthBearerResolver } from "./auth/oauth-bearer";
 import { oauthClientRoutes } from "./auth/oauth-clients";
 import { publicSignUp, SignUpRefusedError } from "./auth/public-signup";
 import { withOAuthRequestState } from "./auth/remember-me";
+import {
+  isAllowedSignInLinkCallback,
+  signInLinkLandingUrl,
+} from "./auth/sign-in-link";
+import {
+  issueSignInLink,
+  SignInLinkRefusedError,
+  signInLinkDestinations,
+  signInLinkTargets,
+} from "./auth/sign-in-link-issuance";
 import {
   clientTenancy,
   type TenantAccessDenial,
@@ -103,6 +114,15 @@ const LOGIN_MAX_REQUESTS = 10;
 // unbounded either.
 const PASSKEY_CHALLENGE_MAX_REQUESTS = 60;
 const SIGNUP_MAX_REQUESTS = 5;
+const SIGN_IN_LINK_VERIFY_PATH = "/api/auth/magic-link/verify";
+const SIGN_IN_LINK_REQUEST_PATH = "/api/auth/sign-in/magic-link";
+const signInLinkRequestSchema = z
+  .object({
+    email: z.email(),
+    callbackURL: z.string(),
+    errorCallbackURL: z.string().optional(),
+  })
+  .strict();
 const PREVIEW_AUTH_WINDOW_MS = 60 * 1_000;
 const PREVIEW_AUTH_MAX_REQUESTS = 1_200;
 // Outside production clientIp() collapses to one key, so the whole machine
@@ -264,6 +284,33 @@ function genericSignupError() {
 // cause, so responses that either may see carry both.
 function dualShapeError(code: string, message: string) {
   return { code, message, error: { code, message } } as const;
+}
+
+function signInLinkErrorLanding(
+  authAppUrl: string,
+  callbackURL: string | undefined,
+  error: string,
+): string {
+  const landing = new URL(
+    signInLinkLandingUrl(authAppUrl, callbackURL, "error"),
+  );
+  landing.searchParams.set("error", error);
+  return landing.toString();
+}
+
+function signInLinkRefusalMessage(code: SignInLinkRefusedError["code"]) {
+  switch (code) {
+    case "USER_NOT_FOUND":
+      return "No cloud account with that id";
+    case "INVALID_RETURN_TO":
+      return "That destination isn't one a sign-in link can open";
+    case "EMAIL_NOT_VERIFIED":
+      return "This account's email address was never confirmed";
+    case "MFA_ENROLLMENT_REQUIRED":
+      return "This account hasn't finished setting up two-step sign-in";
+    case "ACCOUNT_UNAVAILABLE":
+      return "This account is pending or banned";
+  }
 }
 
 const registrationBodySchema = z
@@ -863,6 +910,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     "/api/auth/public/sign-up",
     "/api/auth/request-password-reset",
     "/api/auth/send-verification-email",
+    SIGN_IN_LINK_REQUEST_PATH,
   ]) {
     app.use(
       path,
@@ -892,6 +940,93 @@ export function createCloudApiApp(options: CloudApiOptions) {
       return next();
     });
   }
+  // Sign-in links. The callback is always the auth app's `/login` and the
+  // destination a `returnTo` held to the owner's allow-list, so neither the
+  // request nor a hand-edited link can turn the API into an open redirect.
+  // Without an auth app to land on there is nothing to send.
+  const signInLinkAuthAppUrl = options.oauth?.authAppUrl;
+  const signInLinkApiUrl = options.oauth
+    ? new URL(options.oauth.issuer).origin
+    : null;
+  const currentSignInLinkTargets = () =>
+    signInLinkAuthAppUrl && signInLinkApiUrl
+      ? signInLinkTargets(options.db, {
+          authAppUrl: signInLinkAuthAppUrl,
+          apiUrl: signInLinkApiUrl,
+          trustedOrigins: options.trustedOrigins,
+        })
+      : null;
+  app.use(SIGN_IN_LINK_REQUEST_PATH, async (context, next) => {
+    if (context.req.method !== "POST") return next();
+    const targets = await currentSignInLinkTargets();
+    if (!targets) return context.notFound();
+    const parsed = signInLinkRequestSchema.safeParse(
+      await context.req.raw
+        .clone()
+        .json()
+        .catch(() => null),
+    );
+    if (
+      !parsed.success ||
+      !isAllowedSignInLinkCallback(parsed.data.callbackURL, targets) ||
+      (parsed.data.errorCallbackURL !== undefined &&
+        !isAllowedSignInLinkCallback(parsed.data.errorCallbackURL, targets, {
+          errorCallback: true,
+        }))
+    ) {
+      return context.json(
+        dualShapeError("INVALID_CALLBACK", "Invalid return address"),
+        400,
+      );
+    }
+    return next();
+  });
+  // Tokens are 32 random letters, so this bounds a browser retrying a dead
+  // link more than it bounds guessing.
+  app.use(
+    SIGN_IN_LINK_VERIFY_PATH,
+    rateLimit({
+      keyGenerator: (context) =>
+        `sign-in-link:${clientIp(context, options.isProduction)}`,
+      max: options.isProduction ? LOGIN_MAX_REQUESTS : DEV_LOGIN_MAX_REQUESTS,
+      store: options.rateLimitStore,
+      windowMs: LOGIN_WINDOW_MS,
+    }),
+  );
+  app.use(SIGN_IN_LINK_VERIFY_PATH, async (context, next) => {
+    const targets = await currentSignInLinkTargets();
+    if (!targets) return context.notFound();
+    const callbackURL = context.req.query("callbackURL");
+    const errorCallbackURL = context.req.query("errorCallbackURL");
+    if (
+      !isAllowedSignInLinkCallback(callbackURL, targets) ||
+      (errorCallbackURL !== undefined &&
+        !isAllowedSignInLinkCallback(errorCallbackURL, targets, {
+          errorCallback: true,
+        })) ||
+      context.req.query("newUserCallbackURL") !== undefined
+    ) {
+      return context.redirect(
+        signInLinkErrorLanding(targets.authAppUrl, undefined, "INVALID_LINK"),
+        302,
+      );
+    }
+    await next();
+    // Every outcome a person can act on is a redirect. A refusal raised
+    // inside Better Auth (a ban, the unconfirmed-address guard) is a bare
+    // 403 that would otherwise be the page they land on.
+    if (context.res.status >= 400) {
+      context.res = context.redirect(
+        signInLinkErrorLanding(
+          targets.authAppUrl,
+          callbackURL,
+          "ACCOUNT_UNAVAILABLE",
+        ),
+        302,
+      );
+    }
+  });
+
   app.post("/api/auth/public/sign-up", async (context) => {
     if (!publicAccounts) return context.notFound();
     const parsed = publicSignUpInputSchema.safeParse(
@@ -1113,6 +1248,108 @@ export function createCloudApiApp(options: CloudApiOptions) {
       throw error;
     }
   });
+  app.get("/api/auth/admin/sign-in-link-destinations", async (context) =>
+    context.json({
+      data: (
+        await signInLinkDestinations(options.db, options.trustedOrigins)
+      ).filter((destination) => destination.origin.startsWith("https://")),
+    }),
+  );
+  app.post(
+    "/api/auth/admin/send-sign-in-link",
+    requireSession(),
+    async (context) => {
+      const parsed = adminSignInLinkInputSchema.safeParse(
+        await context.req.json().catch(() => null),
+      );
+      if (!parsed.success) {
+        return context.json(
+          dualShapeError("INVALID_INPUT", "Invalid sign-in link request"),
+          400,
+        );
+      }
+      // A copied link is a credential in the owner's hands. A leaked service
+      // token must not be able to mint one, so that takes a person's session.
+      const sessionId = context.get("sessionId");
+      if (
+        parsed.data.delivery === "copy" &&
+        (!sessionId || sessionId.startsWith("oauth:"))
+      ) {
+        return context.json(
+          dualShapeError(
+            "BROWSER_SESSION_REQUIRED",
+            "Copying a sign-in link needs a browser session",
+          ),
+          403,
+        );
+      }
+      const targets = await currentSignInLinkTargets();
+      if (!targets) {
+        return context.json(
+          dualShapeError("NOT_CONFIGURED", "Sign-in links are not configured"),
+          503,
+        );
+      }
+      const actor = context.get("user");
+      try {
+        const issued = await issueSignInLink(
+          {
+            auth: options.auth,
+            db: options.db,
+            targets,
+            headers: context.req.raw.headers,
+          },
+          parsed.data,
+        );
+        options.activity?.recorder.record({
+          category: "auth",
+          action: "auth.sign_in_link_issued",
+          severity: "info",
+          actorType: "user",
+          actorId: actor.id,
+          actorLabel: actor.username,
+          method: context.req.method,
+          path: context.req.path,
+          ip: clientIp(context, options.isProduction),
+          userAgent: context.req.header("User-Agent") ?? null,
+          targetType: "user",
+          targetId: parsed.data.userId,
+          message: `Sign-in link (${issued.delivery})`,
+          metadata: {
+            delivery: issued.delivery,
+            returnTo: parsed.data.returnTo ?? null,
+            emailConfirmed: issued.emailConfirmed,
+          },
+        });
+        const { emailConfirmed: _confirmed, ...data } = issued;
+        return context.json({ data }, 201);
+      } catch (error) {
+        if (error instanceof SignInLinkRefusedError) {
+          const status =
+            error.code === "USER_NOT_FOUND"
+              ? 404
+              : error.code === "INVALID_RETURN_TO"
+                ? 400
+                : 409;
+          return context.json(
+            dualShapeError(error.code, signInLinkRefusalMessage(error.code)),
+            status,
+          );
+        }
+        if (error instanceof AuthMailUnavailableError) {
+          console.error("Sign-in link could not be mailed", error);
+          return context.json(
+            dualShapeError(
+              "MAIL_UNAVAILABLE",
+              "The email couldn't be sent. Try again in a few minutes.",
+            ),
+            503,
+          );
+        }
+        throw error;
+      }
+    },
+  );
   app.post("/api/auth/two-factor/disable", (context) =>
     context.json(
       dualShapeError(
