@@ -4,8 +4,15 @@ import { memo, type ComponentProps } from "react";
 import { Streamdown } from "streamdown";
 
 function Link({ href, title, children }: ComponentProps<"a">) {
+  if (typeof href !== "string" || !/^(?:https?:\/\/|mailto:)/i.test(href))
+    return <span title={title}>{children}</span>;
   return (
-    <a href={href} title={title} target="_blank" rel="noopener noreferrer">
+    <a
+      href={href}
+      title={title}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+    >
       {children}
     </a>
   );

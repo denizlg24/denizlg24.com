@@ -53,6 +53,10 @@ const Alerts = dynamic(
   () => import("./alerts").then((module) => module.Alerts),
   { loading: () => <Loading /> },
 );
+const ReportsLibrary = dynamic(
+  () => import("./reports/library").then((module) => module.ReportsLibrary),
+  { loading: () => <Loading /> },
+);
 const MemoryPanel = dynamic(
   () => import("./assistant/memory-panel").then((module) => module.MemoryPanel),
   { loading: () => <Loading /> },
@@ -200,6 +204,9 @@ export function Dashboard({
     document.documentElement.dataset.theme = workspace.settings.theme;
   }, [workspace.settings.theme]);
   useEffect(() => {
+    void fetch("/auth/renew", { method: "POST" }).catch(() => undefined);
+  }, []);
+  useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
@@ -293,7 +300,10 @@ export function Dashboard({
   const currentDashboard =
     view === "markets"
       ? marketState
-      : view === "desk" || view === "memory" || view === "settings"
+      : view === "desk" ||
+          view === "memory" ||
+          view === "settings" ||
+          view === "reports"
         ? undefined
         : (viewState ?? { view, ticker });
   const context: AssistantContext = {
@@ -461,6 +471,9 @@ export function Dashboard({
               clearProposed={() => setProposed(null)}
               notify={notify}
             />
+          ) : null}
+          {view === "reports" ? (
+            <ReportsLibrary onAsk={useAI ? ask : undefined} />
           ) : null}
           {view === "memory" ? <MemoryPanel /> : null}
           {view === "settings" ? (

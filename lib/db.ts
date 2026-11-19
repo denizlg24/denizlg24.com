@@ -57,6 +57,12 @@ function sqlite() {
       user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
       generated_at TEXT NOT NULL, PRIMARY KEY (user_id, date)
     );
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+      title TEXT NOT NULL, doc TEXT NOT NULL, share_token TEXT UNIQUE,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS reports_user ON reports(user_id, updated_at);
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -97,6 +103,12 @@ function pg(url: string) {
         user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
         generated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (user_id, date)
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_reports (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+        title TEXT NOT NULL, doc JSONB NOT NULL, share_token TEXT UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_reports_user ON stockwatcher_reports(user_id, updated_at)`;
     });
     return db;
   })().catch(async (error) => {
@@ -108,8 +120,7 @@ function pg(url: string) {
 }
 
 export type Store =
-  | { kind: "pg"; sql: postgres.Sql }
-  | { kind: "sqlite"; db: DatabaseSync };
+  { kind: "pg"; sql: postgres.Sql } | { kind: "sqlite"; db: DatabaseSync };
 
 export async function store(): Promise<Store> {
   const url = process.env.DATABASE_URL;
@@ -130,7 +141,8 @@ export async function checkDatabase() {
 
 const hash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
-export const sessionAge = 60 * 60 * 24 * 7;
+export const sessionAge = 60 * 60 * 24 * 90;
+const renewAfter = 60 * 60 * 24 * 1000;
 
 export async function createSession(identity: Identity) {
   const token = randomBytes(32).toString("base64url");
@@ -169,6 +181,27 @@ export async function sessionIdentity(
     .prepare("SELECT user_json FROM sessions WHERE hash = ? AND expires > ?")
     .get(hash(token), Date.now());
   return row ? (JSON.parse(String(row.user_json)) as Identity) : null;
+}
+
+export async function renewSession(token: string | undefined) {
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return false;
+  const now = Date.now();
+  const expires = now + sessionAge * 1000;
+  const stale = expires - renewAfter;
+  const url = process.env.DATABASE_URL;
+  if (url) {
+    const sql = await pg(url);
+    const result =
+      await sql`UPDATE stockwatcher_sessions SET expires = ${expires} WHERE hash = ${hash(token)} AND expires > ${now} AND expires < ${stale}`;
+    return result.count === 1;
+  }
+  return (
+    sqlite()
+      .prepare(
+        "UPDATE sessions SET expires = ? WHERE hash = ? AND expires > ? AND expires < ?",
+      )
+      .run(expires, hash(token), now, stale).changes === 1
+  );
 }
 
 export async function deleteSession(token: string) {

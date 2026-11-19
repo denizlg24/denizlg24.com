@@ -9,8 +9,10 @@ import {
   BookmarkCheck,
   BookmarkX,
   CircleAlert,
+  FileText,
   LayoutGrid,
   MoveRight,
+  Presentation,
   Undo2,
 } from "lucide-react";
 import type { StockwatcherMessage, StockwatcherTools } from "@/lib/ai/tools";
@@ -19,6 +21,9 @@ import { amount, compact, number, percent, tone } from "@/lib/utils";
 import { Sparkline } from "./sparkline";
 import { ago, hostOf, listSymbols, stamp, useNow } from "./format";
 import { memoriesKey } from "./memory-panel";
+import { ChartView } from "@/components/reports/chart";
+import { ShareControl } from "@/components/reports/share-control";
+import type { PublishedDoc } from "@/lib/reports/types";
 
 type Tools = InferUITools<StockwatcherTools>;
 type Part = StockwatcherMessage["parts"][number];
@@ -85,6 +90,10 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-openView": "Navigation",
   "tool-proposeAlert": "Alert",
   "tool-webSearch": "Web search",
+  "tool-createChart": "Chart",
+  "tool-createReport": "Report",
+  "tool-createDeck": "Deck",
+  "tool-shareReport": "Sharing",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -140,6 +149,22 @@ export function runningLabel(part: ToolPart): string {
         : query;
       return text ? `Searching the web for “${text}”` : "Searching the web";
     }
+    case "tool-createChart":
+      return part.input?.spec?.title
+        ? `Drawing “${part.input.spec.title}”`
+        : "Drawing chart";
+    case "tool-createReport":
+      return part.input?.title
+        ? `Writing “${part.input.title}”`
+        : "Writing report";
+    case "tool-createDeck":
+      return part.input?.title
+        ? `Building deck “${part.input.title}”`
+        : "Building deck";
+    case "tool-shareReport":
+      return part.input?.share === false
+        ? "Revoking share link"
+        : "Creating share link";
   }
 }
 
@@ -292,7 +317,51 @@ function ToolOutput({ part }: { part: DonePart }) {
       const output = part.output;
       return isFailure(output) ? failed(output) : <WebResults data={output} />;
     }
+    case "tool-createChart": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <div className="chat-tool chat-chart">
+          <ChartView chart={output} size="inline" />
+        </div>
+      );
+    }
+    case "tool-createReport":
+    case "tool-createDeck": {
+      const output = part.output;
+      return isFailure(output) ? failed(output) : <DocChip data={output} />;
+    }
+    case "tool-shareReport": {
+      const output = part.output;
+      return isFailure(output) ? failed(output) : <DocChip data={output} />;
+    }
   }
+}
+
+function DocChip({ data }: { data: PublishedDoc }) {
+  const Icon = data.kind === "deck" ? Presentation : FileText;
+  return (
+    <div className="chat-doc">
+      <p className="chat-doc-title">
+        <Icon aria-hidden />
+        <span>
+          <a href={data.previewUrl} target="_blank" rel="noopener">
+            {data.title}
+          </a>
+          <span className="chat-doc-kind">
+            {data.kind === "deck" ? "Deck" : "Report"} · saved to Reports
+          </span>
+        </span>
+      </p>
+      <ShareControl
+        id={data.id}
+        shareUrl={data.shareUrl}
+        previewUrl={data.previewUrl}
+        compact
+      />
+    </div>
+  );
 }
 
 function latest(times: readonly number[]) {

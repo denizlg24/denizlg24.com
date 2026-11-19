@@ -543,3 +543,194 @@ test("threads are private to the account that created them", async ({
   ).toBe(200);
   expect((await page.request.get(`/api/threads/${id}`)).status()).toBe(404);
 });
+
+const sampleChart = {
+  kind: "bar",
+  title: "Year-to-date return",
+  x: { type: "category" },
+  y: { format: "percent" },
+  series: [
+    {
+      name: "Return",
+      points: [
+        { x: "AAA", y: 12.5 },
+        { x: "BBB", y: -4.2 },
+      ],
+    },
+  ],
+  source: "Test fixture",
+  asOf: "2026-11-19",
+};
+
+test("reports can be shared publicly, revoked, and stay private to their owner", async ({
+  page,
+  browser,
+}) => {
+  await openPreview(page);
+  const created = await page.request.post("/api/reports", {
+    headers: origin,
+    data: {
+      kind: "report",
+      doc: {
+        title: "Quarterly book review",
+        subtitle: "Returns were driven by two names.",
+        date: "2026-11-19",
+        sections: [
+          {
+            heading: "Summary",
+            markdown: "The book **rose**. <script>alert(1)</script>",
+            chart: sampleChart,
+          },
+        ],
+      },
+    },
+  });
+  expect(created.status()).toBe(201);
+  const report = await created.json();
+  expect(report.shareUrl).toBeNull();
+
+  expect(
+    (
+      await page.request.post(`/api/reports/${report.id}/share`, {
+        headers: { Origin: "https://evil.example" },
+      })
+    ).status(),
+  ).toBe(403);
+  const shared = await (
+    await page.request.post(`/api/reports/${report.id}/share`, {
+      headers: origin,
+    })
+  ).json();
+  const path = new URL(shared.shareUrl).pathname;
+  expect(path).toMatch(/^\/r\/[A-Za-z0-9_-]{43}$/);
+
+  const anonymous = await browser.newContext({
+    baseURL: "http://127.0.0.1:3290",
+  });
+  const visitor = await anonymous.newPage();
+  const response = await visitor.goto(path);
+  expect(response?.status()).toBe(200);
+  expect(response?.headers()["x-robots-tag"]).toContain("noindex");
+  await expect(
+    visitor.getByRole("heading", { name: "Quarterly book review", level: 1 }),
+  ).toBeVisible();
+  await expect(visitor.getByText("Shared report")).toBeVisible();
+  await expect(visitor.locator('meta[name="robots"]')).toHaveAttribute(
+    "content",
+    /noindex/,
+  );
+  expect(await visitor.title()).toContain("Quarterly book review");
+  expect(await visitor.locator("script:not([src])", { hasText: "alert(1)" }).count()).toBe(0);
+  await expect(visitor.getByText("Source: Test fixture")).toBeVisible();
+
+  const otherContext = await browser.newContext({
+    baseURL: "http://127.0.0.1:3290",
+  });
+  const other = await otherContext.newPage();
+  await openPreview(other);
+  expect((await other.request.get(`/api/reports/${report.id}`)).status()).toBe(
+    404,
+  );
+  expect(
+    (
+      await other.request.patch(`/api/reports/${report.id}`, {
+        headers: origin,
+        data: { title: "Hijacked" },
+      })
+    ).status(),
+  ).toBe(404);
+  expect(
+    (
+      await other.request.delete(`/api/reports/${report.id}`, {
+        headers: origin,
+      })
+    ).status(),
+  ).toBe(404);
+  expect(
+    (
+      await other.request.delete(`/api/reports/${report.id}/share`, {
+        headers: origin,
+      })
+    ).status(),
+  ).toBe(404);
+  const otherList = await (await other.request.get("/api/reports")).json();
+  expect(otherList).toEqual([]);
+  await otherContext.close();
+
+  const renamed = await page.request.patch(`/api/reports/${report.id}`, {
+    headers: origin,
+    data: { title: "Quarterly book review (final)" },
+  });
+  expect((await renamed.json()).title).toBe("Quarterly book review (final)");
+
+  const revoked = await page.request.delete(
+    `/api/reports/${report.id}/share`,
+    { headers: origin },
+  );
+  expect((await revoked.json()).shareUrl).toBeNull();
+  expect((await visitor.goto(path))?.status()).toBe(404);
+  await anonymous.close();
+
+  await page.goto("/#reports");
+  await expect(
+    page.getByRole("link", { name: "Quarterly book review (final)" }),
+  ).toBeVisible();
+  await expect(page.getByText("Private")).toBeVisible();
+});
+
+test("shared decks render and advance with the keyboard", async ({
+  page,
+  browser,
+}) => {
+  await openPreview(page);
+  const created = await page.request.post("/api/reports", {
+    headers: origin,
+    data: {
+      kind: "deck",
+      share: true,
+      doc: {
+        title: "Committee deck",
+        date: "2026-11-19",
+        theme: "dark",
+        slides: [
+          { layout: "title", title: "Committee deck", subtitle: "Q4" },
+          {
+            layout: "chart-bullets",
+            title: "Two names drove returns",
+            chart: sampleChart,
+            bullets: ["AAA led", "BBB lagged"],
+            notes: "Mention position sizes.",
+          },
+          { layout: "bullets", title: "Next steps", bullets: ["Trim AAA"] },
+        ],
+      },
+    },
+  });
+  expect(created.status()).toBe(201);
+  const deck = await created.json();
+  const path = new URL(deck.shareUrl).pathname;
+  expect(path).toMatch(/^\/d\//);
+
+  const anonymous = await browser.newContext({
+    baseURL: "http://127.0.0.1:3290",
+  });
+  const visitor = await anonymous.newPage();
+  expect((await visitor.goto(path))?.status()).toBe(200);
+  const controls = visitor.getByRole("navigation", { name: "Slide controls" });
+  await expect(controls.getByText("1 / 3")).toBeVisible();
+  await expect(
+    visitor.getByRole("heading", { name: "Committee deck", level: 1 }),
+  ).toBeVisible();
+  await visitor.keyboard.press("ArrowRight");
+  await expect(controls.getByText("2 / 3")).toBeVisible();
+  await expect(
+    visitor.getByRole("heading", { name: "Two names drove returns" }),
+  ).toBeVisible();
+  await visitor.getByRole("button", { name: /Notes/ }).click();
+  await expect(visitor.getByText("Mention position sizes.")).toBeVisible();
+  await visitor.keyboard.press("End");
+  await expect(controls.getByText("3 / 3")).toBeVisible();
+  await visitor.keyboard.press("Home");
+  await expect(controls.getByText("1 / 3")).toBeVisible();
+  await anonymous.close();
+});

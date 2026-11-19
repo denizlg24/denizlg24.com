@@ -2,6 +2,7 @@
 @import "./styles/chat.css";
 @import "./styles/desk.css";
 @import "./styles/shell.css";
+@import "./styles/reports.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
@@ -42,7 +43,8 @@
   --radius-3xl: 4px;
 }
 
-:root {
+:root,
+.theme-light {
   --background: #f5f5ef;
   --sidebar: #ecece4;
   --card: #fbfbf7;
@@ -96,7 +98,8 @@
   --row: 30px;
   color-scheme: light;
 }
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+.theme-dark {
   --background: #111412;
   --sidebar: #0c0f0d;
   --card: #181c19;

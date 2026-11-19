@@ -22,6 +22,12 @@ import { defaultDesk, widgetSchema, type Desk, type Widget } from "@/lib/desk";
 import { memoryInputSchema } from "@/lib/memory-types";
 import { readWorkspace, type Identity } from "@/lib/db";
 import { addMemory, deleteMemory, updateWorkspace } from "@/lib/memory";
+import { chartSpecSchema, type Chart } from "@/lib/reports/chart";
+import { resolveChart } from "@/lib/reports/resolve";
+import { links, publish } from "@/lib/reports/service";
+import { reportIdSchema, setSharing } from "@/lib/reports/store";
+import { deckInputSchema, reportInputSchema } from "@/lib/reports/types";
+import { today } from "@/lib/utils";
 
 const ticker = z
   .string()
@@ -131,8 +137,35 @@ function applyDeskChange(
   return { widgets };
 }
 
-export function createTools(ctx: { user: Identity }) {
-  const { user } = ctx;
+function chartDigest(chart: Chart) {
+  const series = chart.series.map((item) => {
+    const values = item.points.filter((point) => point.y != null);
+    const last = values.at(-1);
+    return `${item.name}: ${values.length} points${last ? `, last ${last.y} at ${last.x}` : ""}`;
+  });
+  return `Chart "${chart.title}" (${chart.kind}, y ${chart.y.format}${chart.y.currency ? ` ${chart.y.currency}` : ""}) rendered for the user. Source ${chart.source}, as of ${chart.asOf}. ${series.join("; ")}.`;
+}
+
+const publishNote =
+  "Give the user the previewUrl (owner-only) and, if present, the shareUrl (public, anyone with the link). Do not paste the document back into chat.";
+
+const reportToolInput = reportInputSchema.extend({
+  date: z.iso.date().optional().describe("YYYY-MM-DD; defaults to today"),
+  share: z
+    .boolean()
+    .optional()
+    .describe("Create a public share link now. Only when the user asked to share or send it."),
+});
+const deckToolInput = deckInputSchema.extend({
+  date: z.iso.date().optional().describe("YYYY-MM-DD; defaults to today"),
+  share: z
+    .boolean()
+    .optional()
+    .describe("Create a public share link now. Only when the user asked to share or send it."),
+});
+
+export function createTools(ctx: { user: Identity; origin: string }) {
+  const { user, origin } = ctx;
   return {
     getQuotes: tool({
       description:
@@ -340,6 +373,66 @@ export function createTools(ctx: { user: Identity }) {
           price: quote?.price ?? null,
         };
       },
+    }),
+    createChart: tool({
+      description:
+        "Render a publication-quality chart inline in the chat. Use market data ({market: {symbols, range|since}}) for prices or returns — the server fetches and freezes it — or inline series for figures you already fetched (cite source). kinds: performance (normalised % return since start; use to compare symbols in different currencies), line/area (prices, one currency), bar/stacked-bar (categories; market bar = period return per symbol), scatter (inline numeric x/y with point labels). Max 6 series.",
+      inputSchema: z.object({ spec: chartSpecSchema }),
+      execute: ({ spec }) =>
+        attempt(() => resolveChart(spec), "The chart could not be built."),
+      toModelOutput: ({ output }) =>
+        "error" in output
+          ? { type: "text", value: `Chart failed: ${output.error}` }
+          : { type: "text", value: chartDigest(output) },
+    }),
+    createReport: tool({
+      description:
+        "Write and save a branded, shareable research report (sections of markdown with optional chart, table, callout). Ground every figure with tools first; charts with market specs are fetched and frozen at creation. State sources and as-of dates in the text and in sources. Returns preview and share links.",
+      inputSchema: reportToolInput,
+      execute: ({ share, ...doc }) =>
+        attempt(
+          () =>
+            publish(user.id, origin, {
+              kind: "report",
+              doc: { ...doc, date: doc.date ?? today() },
+              share,
+            }),
+          "The report could not be created.",
+        ),
+      toModelOutput: ({ output }) =>
+        "error" in output
+          ? { type: "text", value: `Report failed: ${output.error}` }
+          : { type: "json", value: { ...output, note: publishNote } },
+    }),
+    createDeck: tool({
+      description:
+        "Build and save a branded slide deck (16:9, keyboard navigable, exports to PDF). Layouts: title (first slide), section, bullets (≤6 short bullets), chart, chart-bullets (chart + 2-4 takeaways), table, quote. Put speaker detail in notes, not on slides. Ground every figure with tools first. Returns preview and share links.",
+      inputSchema: deckToolInput,
+      execute: ({ share, ...doc }) =>
+        attempt(
+          () =>
+            publish(user.id, origin, {
+              kind: "deck",
+              doc: { ...doc, date: doc.date ?? today() },
+              share,
+            }),
+          "The deck could not be created.",
+        ),
+      toModelOutput: ({ output }) =>
+        "error" in output
+          ? { type: "text", value: `Deck failed: ${output.error}` }
+          : { type: "json", value: { ...output, note: publishNote } },
+    }),
+    shareReport: tool({
+      description:
+        "Turn the public share link of a saved report or deck on (share: true; returns the link) or off (share: false; the old link stops working immediately).",
+      inputSchema: z.object({ id: reportIdSchema, share: z.boolean() }),
+      execute: ({ id, share }) =>
+        attempt(async () => {
+          const summary = await setSharing(user.id, id, share);
+          if (!summary) throw new Error(`No report or deck with id ${id}.`);
+          return { ...links(summary, origin), shared: share };
+        }, "Sharing could not be changed."),
     }),
     webSearch: gateway().tools.perplexitySearch({
       maxResults: 8,

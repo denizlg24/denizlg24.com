@@ -9,7 +9,7 @@ import {
   toUIMessageStream,
 } from "ai";
 import { z } from "zod";
-import { currentUser, json, sameOrigin } from "@/lib/auth";
+import { appOrigin, currentUser, json, sameOrigin } from "@/lib/auth";
 import { readWorkspace } from "@/lib/db";
 import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
 import { dashboardSchema } from "@/lib/assistant-types";
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
       400,
     );
 
-  const tools = createTools({ user });
+  const tools = createTools({ user, origin: appOrigin(request) });
   const validated = await safeValidateUIMessages<StockwatcherMessage>({
     messages: input.data.messages,
     tools,
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
       ignoreIncompleteToolCalls: true,
     }),
     tools,
-    stopWhen: isStepCount(8),
+    stopWhen: isStepCount(14),
     timeout: { totalMs: 110_000 },
     experimental_transform: smoothStream({ chunking: "word" }),
     onError: ({ error }) => {
