@@ -50,6 +50,7 @@ import {
   type SignInLinkLanding,
   signInLinkLandingUrl,
   signInLinkRefusal,
+  signInLinkSkip2faIdentifier,
 } from "./sign-in-link";
 import {
   activeTenant,
@@ -327,6 +328,22 @@ export function createCloudAuth(options: CloudAuthOptions) {
       throw land("error", "ACCOUNT_UNAVAILABLE");
     }
     if (account?.twoFactorEnabled !== true) return;
+
+    // An owner-issued skip link carries a one-time grant for this account.
+    // Consume it whether or not it is still valid (so it never lingers), and
+    // when valid, keep the session without a second factor — the owner chose
+    // this for the account they administer.
+    const skipIdentifier = signInLinkSkip2faIdentifier(userId);
+    const skipGrant = await adapter.findVerificationValue(skipIdentifier);
+    if (skipGrant) {
+      await adapter.deleteVerificationByIdentifier(skipIdentifier);
+      if (
+        skipGrant.value === userId &&
+        skipGrant.expiresAt.getTime() > Date.now()
+      ) {
+        return;
+      }
+    }
 
     const trustCookie = ctx.context.createAuthCookie(TRUST_DEVICE_COOKIE, {
       maxAge: TRUST_DEVICE_MAX_AGE_SECONDS,

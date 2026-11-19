@@ -10,6 +10,7 @@ import type {
 } from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { Checkbox } from "@repo/ui/checkbox";
 import { ConfirmButton } from "@repo/ui/confirm-button";
 import {
   Dialog,
@@ -150,6 +151,7 @@ function SignInLinkDialog({ user }: { user: SafeUser }) {
   const [destination, setDestination] = useState(AUTH_APP_DESTINATION);
   const [busy, setBusy] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
+  const [skipTwoFactor, setSkipTwoFactor] = useState(false);
   const [copied, setCopied] = useState<SignInLinkIssued | null>(null);
 
   useEffect(() => {
@@ -171,6 +173,7 @@ function SignInLinkDialog({ user }: { user: SafeUser }) {
   const reset = () => {
     setDestination(AUTH_APP_DESTINATION);
     setUnconfirmed(false);
+    setSkipTwoFactor(false);
     setCopied(null);
   };
 
@@ -181,6 +184,7 @@ function SignInLinkDialog({ user }: { user: SafeUser }) {
         userId: user.id,
         delivery,
         confirmEmail: unconfirmed,
+        skipTwoFactor: user.totpEnabled ? skipTwoFactor : false,
         ...(destination === AUTH_APP_DESTINATION
           ? {}
           : { returnTo: `${destination}/` }),
@@ -258,6 +262,25 @@ function SignInLinkDialog({ user }: { user: SafeUser }) {
                 {user.email ?? "address"} unconfirmed · sending marks it
                 confirmed
               </p>
+            ) : null}
+            {user.totpEnabled ? (
+              <label
+                htmlFor={`skip-2fa-${user.id}`}
+                className="flex cursor-pointer items-start gap-2.5 text-xs"
+              >
+                <Checkbox
+                  id={`skip-2fa-${user.id}`}
+                  className="mt-0.5"
+                  checked={skipTwoFactor}
+                  onCheckedChange={(checked) =>
+                    setSkipTwoFactor(checked === true)
+                  }
+                />
+                <span className="text-muted-foreground">
+                  Skip the authenticator code on this link · signs in on one
+                  tap, so anyone who opens it is in
+                </span>
+              </label>
             ) : null}
             <div className="flex gap-2">
               <Button

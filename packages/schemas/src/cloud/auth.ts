@@ -106,6 +106,14 @@ export const adminSignInLinkInputSchema = z.object({
    * link to an unconfirmed address is refused without it.
    */
   confirmEmail: z.boolean().default(false),
+  /**
+   * Owner override: the link signs the account straight in, past its second
+   * factor, for one use within the link's 15-minute life. Only the owner's
+   * admin issuance can set this; the self-service "email me a link" flow has
+   * no such field and always challenges for the code. It trades security for
+   * ease — anyone who opens the link is in — so it is off by default.
+   */
+  skipTwoFactor: z.boolean().default(false),
 });
 export type AdminSignInLinkInput = z.input<typeof adminSignInLinkInputSchema>;
 

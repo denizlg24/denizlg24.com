@@ -570,6 +570,41 @@ describe("sign-in links", () => {
         "challenge",
       );
 
+      // The owner's skip link signs mum straight in, past her second factor,
+      // on an untrusted device — and only once.
+      const skipIssued = await asOwner("/api/auth/admin/send-sign-in-link", {
+        userId: mum.id,
+        delivery: "copy",
+        returnTo: `${STOCKWATCHER}/`,
+        skipTwoFactor: true,
+      });
+      expect(skipIssued.status).toBe(201);
+      const skipUrl = z
+        .object({ data: z.object({ url: z.string() }) })
+        .parse(await skipIssued.json()).data.url;
+      const skipJar = new CookieJar();
+      const skipped = await get(skipUrl, skipJar);
+      skipJar.absorb(skipped.headers);
+      expect(landing(skipped).toString()).toBe(callback(`${STOCKWATCHER}/`));
+      expect(skipJar.has("session_token")).toBe(true);
+      expect(skipJar.has("two_factor")).toBe(false);
+      // The grant is spent: a second skip-less link still challenges.
+      expect(
+        await db.query.authVerification.findFirst({
+          where: eq(
+            authVerification.identifier,
+            `signin-link-skip-2fa:${mum.id}`,
+          ),
+        }),
+      ).toBeUndefined();
+      outbox.length = 0;
+      expect((await requestLink(mum.email)).status).toBe(200);
+      expect(
+        landing(await get(linkIn(outbox[0]), new CookieJar())).searchParams.get(
+          "signInLink",
+        ),
+      ).toBe("challenge");
+
       expect(
         (
           await asOwner("/api/auth/admin/send-sign-in-link", {

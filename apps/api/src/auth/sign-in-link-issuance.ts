@@ -1,5 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 import type { Database } from "@repo/cloud-core";
-import { authOauthClient, authUser } from "@repo/cloud-core/db/schema";
+import {
+  authOauthClient,
+  authUser,
+  authVerification,
+} from "@repo/cloud-core/db/schema";
 import type {
   SignInLinkDelivery,
   SignInLinkDestination,
@@ -17,6 +23,7 @@ import {
   type SignInLinkTargets,
   signInLinkCallback,
   signInLinkRefusal,
+  signInLinkSkip2faIdentifier,
 } from "./sign-in-link";
 
 /**
@@ -119,6 +126,7 @@ export async function issueSignInLink(
     delivery: SignInLinkDelivery;
     returnTo?: string;
     confirmEmail: boolean;
+    skipTwoFactor?: boolean;
   },
 ): Promise<SignInLinkIssued & { emailConfirmed: boolean }> {
   const account = await options.db.query.authUser.findFirst({
@@ -182,6 +190,23 @@ export async function issueSignInLink(
       headers: options.headers,
     }),
   );
+
+  // Written only after the link is successfully sent, so a delivery failure
+  // never leaves a dangling skip grant. One row per user, replaced on reissue,
+  // and it expires with the link. Harmless on an account without a second
+  // factor, so only write it where it matters.
+  if (input.skipTwoFactor && account.twoFactorEnabled === true) {
+    const identifier = signInLinkSkip2faIdentifier(input.userId);
+    await options.db
+      .delete(authVerification)
+      .where(eq(authVerification.identifier, identifier));
+    await options.db.insert(authVerification).values({
+      id: randomUUID(),
+      identifier,
+      value: input.userId,
+      expiresAt,
+    });
+  }
   return {
     delivery: input.delivery,
     email: account.email,
