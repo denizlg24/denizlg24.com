@@ -833,7 +833,30 @@ pi_images() {
   rm -f -- "$stage/meta/pi-images.ndjson" "$stage/meta/markets-images.ndjson" "$stage/meta/nutrition-images.ndjson"
 }
 
+snapshot_picron() {
+  local live=/var/lib/picron/picron.db snapshot_dir=/var/lib/picron/snapshot
+  [[ "$profile" == pi && -f "$live" && ! -L "$live" ]] || return 0
+  dr_require_commands python3
+  install -d -m 0750 -o picron -g picron "$snapshot_dir"
+  # The scheduler writes while it runs; the backup API copies a consistent
+  # page set where a raw tar of the file and its WAL could tear.
+  python3 -I - "$live" "$snapshot_dir/picron.db.tmp" <<'PY'
+import sqlite3, sys
+source = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+target = sqlite3.connect(sys.argv[2])
+source.backup(target)
+if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+    sys.exit("picron snapshot failed its integrity check")
+target.close()
+source.close()
+PY
+  chown picron:picron "$snapshot_dir/picron.db.tmp"
+  chmod 0640 "$snapshot_dir/picron.db.tmp"
+  mv -f -- "$snapshot_dir/picron.db.tmp" "$snapshot_dir/picron.db"
+}
+
 dr_phase configuration
+snapshot_picron
 archive_allowlist
 archive_recovery_host_credentials
 host_package_names=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin restic cloudflared tailscale)

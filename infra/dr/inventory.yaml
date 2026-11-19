@@ -65,6 +65,12 @@ hosts:
         restoreOrder: 5
         backup: allowlist-tar
         verifier: configured-command
+      - id: picron
+        paths: [/usr/local/bin/picron, /etc/picron, /etc/systemd/system/picron.service, /var/lib/picron/snapshot]
+        owner: picron
+        restoreOrder: 5
+        backup: allowlist-tar
+        verifier: configured-command
     derived:
       - {id: meilisearch, paths: ["${MEILI_DATA_DIR}"], rebuild: deep-health-reindex}
       - {id: mongot, paths: ["${MONGOT_DATA_DIR}"], rebuild: mongodb-search-index-sync}
