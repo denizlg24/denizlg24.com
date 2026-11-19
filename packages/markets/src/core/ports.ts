@@ -91,7 +91,10 @@ export interface FundamentalStore {
   upsertNews(news: CompanyNewsItem[]): Promise<void>;
 }
 
-export type ProviderName = "tiingo" | "edgar" | "finnhub";
+export type ProviderName = "yahoo" | "edgar" | "finnhub";
+
+/** Providers with a request quota. Yahoo is reached through the relay unmetered. */
+export type MeteredProvider = Exclude<ProviderName, "yahoo">;
 
 export interface BudgetPort {
   /**
@@ -99,10 +102,10 @@ export interface BudgetPort {
    * or daily window is exhausted; callers must then serve cache marked stale
    * rather than throw.
    */
-  consume(provider: ProviderName, cost: number): Promise<boolean>;
+  consume(provider: MeteredProvider, cost: number): Promise<boolean>;
   /** Hands back a reservation whose request never left, e.g. on a local abort. */
-  release(provider: ProviderName, cost: number): Promise<void>;
-  peek(provider: ProviderName): Promise<ProviderBudget>;
+  release(provider: MeteredProvider, cost: number): Promise<void>;
+  peek(provider: MeteredProvider): Promise<ProviderBudget>;
 }
 
 export interface ClockPort {
@@ -121,10 +124,29 @@ export interface MarketStores {
 }
 
 export class BudgetExhaustedError extends Error {
-  constructor(readonly provider: ProviderName) {
+  constructor(readonly provider: MeteredProvider) {
     super(`${provider} request budget exhausted`);
     this.name = "BudgetExhaustedError";
   }
+}
+
+/** The provider could not be reached or failed upstream; the cache still can. */
+export class ProviderUnavailableError extends Error {
+  constructor(
+    readonly provider: ProviderName,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProviderUnavailableError";
+  }
+}
+
+/** Failures that mean "serve the cache marked stale", not "fail the request". */
+export function isProviderUnavailable(error: unknown): boolean {
+  return (
+    error instanceof BudgetExhaustedError ||
+    error instanceof ProviderUnavailableError
+  );
 }
 
 export class ProviderError extends Error {

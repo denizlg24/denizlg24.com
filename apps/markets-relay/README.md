@@ -28,7 +28,7 @@ Send `Authorization: Bearer <token>` with each request. Set `MARKETS_DATA_TOKEN`
 | `/v1/macro` | FRED series catalog with units and frequency |
 | `/v1/macro/CPIAUCSL?from=2020-01-01` | Dated economic observations |
 
-History resolutions are `1min`, `5min`, `15min`, `30min`, `1hour`, `1day`, `1week`, and `1month`. Yahoo limits intraday history by resolution. Daily and longer bars use the exchange calendar date at midnight UTC. Intraday bars use the actual UTC timestamp. With `adjusted=false`, history uses Yahoo's Close and OHLC fields, which can still reflect stock splits. Financial statement values retain Yahoo's original reporting units and field names. The paper-trading ledger uses its existing Tiingo data and adjustment rules.
+History resolutions are `1min`, `5min`, `15min`, `30min`, `1hour`, `1day`, `1week`, and `1month`. Yahoo limits intraday history by resolution. Daily and longer bars use the exchange calendar date at midnight UTC. Intraday bars use the actual UTC timestamp. With `adjusted=false`, history uses Yahoo's Close and OHLC fields, which can still reflect stock splits. Financial statement values retain Yahoo's original reporting units and field names. The paper-trading ledger reads the same data through web's Mongo cache, storing raw and adjusted daily bars side by side.
 
 The HTTP service marks expired results served during an upstream failure as stale. The health endpoint `/healthz` reports worker readiness and the current streaming connection state. Yahoo market-data timing depends on the exchange and instrument. FRED observations follow the publisher's release schedule and can be revised.
 

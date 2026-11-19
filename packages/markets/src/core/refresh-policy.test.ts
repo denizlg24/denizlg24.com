@@ -1,52 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import type { ProviderBudget } from "../schemas";
 import {
-  BACKGROUND_BUDGET_RESERVE,
   backgroundQuoteMaxAgeMs,
   dailyBarsAvailableThrough,
-  hasBackgroundHeadroom,
   shouldRefreshQuotes,
 } from "./refresh-policy";
-
-function budget(partial: Partial<ProviderBudget> = {}): ProviderBudget {
-  return {
-    provider: "tiingo",
-    hourUsed: 0,
-    hourLimit: 50,
-    dayUsed: 0,
-    dayLimit: 1000,
-    hourResetsAt: "2026-08-10T15:00:00.000Z",
-    dayResetsAt: "2026-08-11T00:00:00.000Z",
-    ...partial,
-  };
-}
-
-describe("hasBackgroundHeadroom", () => {
-  it("allows background work while both windows are below the reserve", () => {
-    expect(hasBackgroundHeadroom(budget({ hourUsed: 10, dayUsed: 100 }))).toBe(
-      true,
-    );
-  });
-
-  it("stops background work on the hourly reserve alone", () => {
-    // 50 * (1 - 0.3) = 35
-    expect(hasBackgroundHeadroom(budget({ hourUsed: 35 }))).toBe(false);
-    expect(hasBackgroundHeadroom(budget({ hourUsed: 34 }))).toBe(true);
-  });
-
-  it("stops background work on the daily reserve alone", () => {
-    expect(hasBackgroundHeadroom(budget({ dayUsed: 700 }))).toBe(false);
-    expect(hasBackgroundHeadroom(budget({ dayUsed: 699 }))).toBe(true);
-  });
-
-  it("leaves the reserve untouched for the interactive path", () => {
-    const spent = budget({ hourUsed: 35, dayUsed: 700 });
-    expect(hasBackgroundHeadroom(spent)).toBe(false);
-    expect(spent.hourLimit - spent.hourUsed).toBe(
-      spent.hourLimit * BACKGROUND_BUDGET_RESERVE,
-    );
-  });
-});
 
 describe("dailyBarsAvailableThrough", () => {
   it("holds back the session that has only just closed", () => {

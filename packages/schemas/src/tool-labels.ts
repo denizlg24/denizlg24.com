@@ -128,7 +128,6 @@ export const TOOL_LABELS: Record<string, string> = {
   get_journal_entry: "Fetched journal entry",
   get_kanban_board: "Fetched kanban board",
   get_latex_project: "Fetched LaTeX project",
-  get_markets_budget: "Checked provider budget",
   get_note: "Read note",
   get_now_page: "Fetched now page",
   get_paper: "Read paper",

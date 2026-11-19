@@ -17,7 +17,6 @@ import type {
   Filing,
   FundamentalPeriod,
   MarketSymbol,
-  ProviderBudget,
   Quote,
   Resolution,
   Watchlist,
@@ -97,7 +96,7 @@ const DAILY_CHART_MS = 300_000;
 const RATIOS_MS = 60_000;
 /** Filings, profile and the ticker universe move on a scale of days. */
 const REFERENCE_MS = 600_000;
-const BUDGET_MS = 60_000;
+const UNIVERSE_MS = 60_000;
 
 interface SymbolDetailResponse {
   symbol: MarketSymbol | null;
@@ -123,7 +122,6 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
-  const [budget, setBudget] = useState<ProviderBudget | null>(null);
   const [universe, setUniverse] = useState<number | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [detail, setDetail] = useState<SymbolDetailResponse | null>(null);
@@ -254,23 +252,20 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   // Poll the whole watchlist while the streaming provider reconnects.
   const { quotes, transport, upstream } = useQuotes(watched);
 
-  const loadBudget = useCallback(
+  const loadUniverse = useCallback(
     () =>
       client
-        .get<{ tiingo: ProviderBudget; symbols: number }>("/markets/budget")
-        .then((data) => {
-          setBudget(data.tiingo);
-          setUniverse(data.symbols);
-        })
+        .get<{ symbols: number }>("/markets/universe")
+        .then((data) => setUniverse(data.symbols))
         .catch(() => undefined),
     [client],
   );
 
   useEffect(() => {
-    void loadBudget();
-  }, [loadBudget]);
+    void loadUniverse();
+  }, [loadUniverse]);
 
-  useLiveRefresh(() => void loadBudget(), { intervalMs: BUDGET_MS });
+  useLiveRefresh(() => void loadUniverse(), { intervalMs: UNIVERSE_MS });
 
   const seed = useCallback(async () => {
     setSeeding(true);
@@ -424,7 +419,6 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
           {series?.freshness.stale ? (
             <Badge variant="warning">stale</Badge>
           ) : null}
-          {budget ? <BudgetReadout budget={budget} /> : null}
         </div>
         {universe === 0 ? (
           <Button
@@ -857,24 +851,6 @@ function TransportIndicator({
         }
       />
       {live ? "streaming" : transport === "ws" ? (upstream ?? "…") : "poll"}
-    </span>
-  );
-}
-
-function BudgetReadout({ budget }: { budget: ProviderBudget }) {
-  const hour = budget.hourUsed / budget.hourLimit;
-  const day = budget.dayUsed / budget.dayLimit;
-  return (
-    <span
-      className={cn(
-        "text-xs tabular-nums",
-        hour > 0.8 || day > 0.8
-          ? "text-status-warning"
-          : "text-muted-foreground",
-      )}
-    >
-      {budget.hourUsed}/{budget.hourLimit}h · {budget.dayUsed}/{budget.dayLimit}
-      d
     </span>
   );
 }

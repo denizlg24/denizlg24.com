@@ -2,7 +2,7 @@ import {
   BudgetExhaustedError,
   backgroundQuoteMaxAgeMs,
   dailyBarsAvailableThrough,
-  hasBackgroundHeadroom,
+  isProviderUnavailable,
   type MarketSessionState,
   marketSession,
   shouldRefreshQuotes,
@@ -31,18 +31,13 @@ export interface MarketsCronResult {
   ordersClosed: number;
   /** Exchange session this run saw, for the run log to explain a quiet pass. */
   session: MarketSessionState;
-  /**
-   * Set when the run stopped asking the provider to stay clear of the reserve
-   * the interactive path draws on. Distinct from `budgetExhausted`, which means
-   * the quota itself is gone.
-   */
-  budgetReserved: boolean;
   /** Borrow booked across every portfolio this run, in cash. */
   borrowCharged: number;
   /** One line per portfolio under a call, for the run log to surface. */
   marginCalls: string[];
   snapshotsWritten: number;
-  budgetExhausted: boolean;
+  /** The relay could not be reached, so bars and quotes were left as cached. */
+  providerUnavailable: boolean;
   errors: string[];
 }
 
@@ -84,8 +79,7 @@ function needsUniverse(count: number, now: Date): boolean {
 
 /**
  * Keeps the cache warm for tracked symbols only — watchlist members, open
- * positions and benchmarks. Nothing here fans out over the whole universe,
- * which would blow the daily budget in one run.
+ * positions and benchmarks. Nothing here fans out over the whole universe.
  */
 export async function runMarketsCron(): Promise<MarketsCronResult> {
   await connectDB();
@@ -102,11 +96,10 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     ordersFilled: 0,
     ordersClosed: 0,
     session: session.state,
-    budgetReserved: false,
     borrowCharged: 0,
     marginCalls: [],
     snapshotsWritten: 0,
-    budgetExhausted: false,
+    providerUnavailable: false,
     errors: [],
   };
 
@@ -127,11 +120,6 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   const barsThrough = dailyBarsAvailableThrough(now);
 
   for (const ticker of tracked) {
-    if (result.budgetExhausted || result.budgetReserved) break;
-    if (!hasBackgroundHeadroom(await stores.budget.peek("tiingo"))) {
-      result.budgetReserved = true;
-      break;
-    }
     try {
       const series = await getCandles({
         ticker,
@@ -140,20 +128,20 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
         adjusted: false,
       });
       if (series.freshness.stale) {
-        result.budgetExhausted = true;
+        result.providerUnavailable = true;
         break;
       }
       result.candlesSynced++;
     } catch (error) {
-      if (error instanceof BudgetExhaustedError) {
-        result.budgetExhausted = true;
+      if (isProviderUnavailable(error)) {
+        result.providerUnavailable = true;
         break;
       }
       result.errors.push(`${ticker}: ${String(error)}`);
     }
   }
 
-  if (tracked.length > 0 && !result.budgetExhausted && !result.budgetReserved) {
+  if (tracked.length > 0 && !result.providerUnavailable) {
     const cachedQuotes = await stores.quotes.getQuotes(tracked);
     // A ticker with no cached quote at all reads as the oldest there is, which
     // is what makes a newly tracked symbol get its first price.
@@ -166,25 +154,21 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
             null,
           );
 
-    if (!shouldRefreshQuotes({ now, state: session.state, oldestQuoteAt })) {
-      result.quotesRefreshed = 0;
-    } else if (!hasBackgroundHeadroom(await stores.budget.peek("tiingo"))) {
-      result.budgetReserved = true;
-    } else {
+    if (shouldRefreshQuotes({ now, state: session.state, oldestQuoteAt })) {
       try {
         const { quotes, stale } = await getQuotes(tracked, {
           maxAgeMs: backgroundQuoteMaxAgeMs(session.state) ?? 0,
         });
         result.quotesRefreshed = quotes.length;
-        result.budgetExhausted = stale;
+        result.providerUnavailable = stale;
       } catch (error) {
         result.errors.push(`quotes: ${String(error)}`);
       }
     }
   }
 
-  // EDGAR has its own ledger, so an exhausted Tiingo budget says nothing about
-  // whether facts can be refreshed.
+  // EDGAR is a separate source, so a relay outage says nothing about whether
+  // facts can be refreshed.
   for (const ticker of fundamentalsSlice(tracked, now)) {
     try {
       const { refreshed, budgetExhausted } = await getFundamentals(ticker);
@@ -208,7 +192,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     backgroundQuoteMaxAgeMs(session.state) ?? Number.POSITIVE_INFINITY;
 
   // Orders and snapshots read only cached bars and quotes, so both still run
-  // when the provider budget is gone. Orders go first: a fill changes the book
+  // when the relay is down. Orders go first: a fill changes the book
   // the snapshot is then taken of, and a snapshot written before the fill would
   // record a position the portfolio no longer holds until tomorrow's run.
   const portfolios = await MarketPortfolio.find();

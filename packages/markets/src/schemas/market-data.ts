@@ -42,8 +42,8 @@ export const barSchema = z.object({
 export type Bar = z.infer<typeof barSchema>;
 
 /**
- * Tiingo returns raw and split/dividend-adjusted columns on the same row. Both
- * are stored: adjusted drives charts and returns, raw is what a trade actually
+ * Raw and split/dividend-adjusted columns live on the same row. Both are
+ * stored: adjusted drives charts and returns, raw is what a trade actually
  * filled at on the day.
  */
 export const dailyBarSchema = barSchema.extend({
@@ -105,7 +105,7 @@ export const candleQuerySchema = z.object({
 export type CandleQuery = z.infer<typeof candleQuerySchema>;
 
 export const providerBudgetSchema = z.object({
-  provider: z.enum(["tiingo", "edgar", "finnhub"]),
+  provider: z.enum(["edgar", "finnhub"]),
   hourUsed: z.number().int().nonnegative(),
   hourLimit: z.number().int().positive(),
   dayUsed: z.number().int().nonnegative(),

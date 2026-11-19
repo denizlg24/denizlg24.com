@@ -8,9 +8,9 @@ import {
 } from "./candles";
 import { createMemoryStores, fixedClock, makeDailyBar } from "./memory-stores";
 import {
-  BudgetExhaustedError,
   type MarketDataProvider,
   type MarketStores,
+  ProviderUnavailableError,
 } from "./ports";
 
 const TODAY = "2026-07-31";
@@ -27,7 +27,7 @@ function recordingProvider(bars: DailyBar[]): {
 } {
   const calls: Call[] = [];
   const provider: MarketDataProvider = {
-    name: "tiingo",
+    name: "yahoo",
     async getDailyBars(_ticker, from, to) {
       calls.push({ from, to });
       return bars.filter(
@@ -278,12 +278,12 @@ describe("getCandles daily", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("an exhausted budget serves cache marked stale instead of throwing", async () => {
+  test("an unreachable provider serves cache marked stale instead of throwing", async () => {
     const store = createMemoryStores({ clock, hourLimit: 0 });
     const provider: MarketDataProvider = {
-      name: "tiingo",
+      name: "yahoo",
       async getDailyBars() {
-        throw new BudgetExhaustedError("tiingo");
+        throw new ProviderUnavailableError("yahoo", "relay down");
       },
     };
     await store.bars.upsertDailyBars("AAPL", history);
@@ -301,7 +301,7 @@ describe("getCandles daily", () => {
   test("a provider failure that is not a budget stop still surfaces", async () => {
     const store = stores();
     const provider: MarketDataProvider = {
-      name: "tiingo",
+      name: "yahoo",
       async getDailyBars() {
         throw new Error("upstream exploded");
       },

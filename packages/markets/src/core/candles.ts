@@ -1,8 +1,8 @@
 import type { Bar, CandleSeries, DailyBar, Resolution } from "../schemas";
 import { isIntraday } from "../schemas";
 import {
-  BudgetExhaustedError,
   type Coverage,
+  isProviderUnavailable,
   type MarketDataProvider,
   type MarketStores,
 } from "./ports";
@@ -31,9 +31,9 @@ export interface CandleRequest {
  * already hold.
  *
  * Daily bars never change once printed, so a symbol costs one backfill request
- * and one request per trading day thereafter. When the budget is gone the cache
- * is served with `stale: true` rather than throwing — a dashboard showing
- * yesterday's close clearly marked beats a dashboard showing an error.
+ * and one request per trading day thereafter. When the provider is unreachable
+ * the cache is served with `stale: true` rather than throwing — a dashboard
+ * showing yesterday's close clearly marked beats a dashboard showing an error.
  */
 export async function getCandles(
   stores: MarketStores,
@@ -96,7 +96,7 @@ async function getDailyCandles(
       }
       fetched = true;
     } catch (error) {
-      if (!(error instanceof BudgetExhaustedError)) throw error;
+      if (!isProviderUnavailable(error)) throw error;
       stale = true;
       break;
     }
@@ -299,7 +299,7 @@ async function getIntradayCandles(
         fetchedAt: stores.clock.now().toISOString(),
       });
     } catch (error) {
-      if (!(error instanceof BudgetExhaustedError)) throw error;
+      if (!isProviderUnavailable(error)) throw error;
       stale = true;
     }
   }

@@ -17,14 +17,14 @@ export type UpstreamStatus = "connected" | "connecting" | "disconnected";
 export interface QuotesState {
   quotes: Map<string, Quote>;
   transport: QuoteTransport;
-  /** Tiingo's state as reported by the relay; null while polling. */
+  /** The relay's upstream feed state; null while polling. */
   upstream: UpstreamStatus | null;
 }
 
 const POLL_INTERVAL_MS = 20_000;
 /**
- * Deliberately long. A relay that flaps would otherwise burn the Tiingo budget
- * on reconnect churn, and polling already covers the gap.
+ * Deliberately long. A relay that flaps would otherwise churn reconnects, and
+ * polling already covers the gap.
  */
 const MAX_BACKOFF_MS = 300_000;
 /** How long a socket must stay open before its connection counts as good. */

@@ -478,7 +478,7 @@ struct WatchlistEntry: TimelineEntry {
 }
 
 /// Reads what the app stored after its own batched quote call. Never fetches:
-/// the provider budget is 50 requests an hour for everything.
+/// a widget timeline reload has no business hitting the quotes route.
 struct WatchlistProvider: TimelineProvider {
   func placeholder(in context: Context) -> WatchlistEntry {
     WatchlistEntry(
