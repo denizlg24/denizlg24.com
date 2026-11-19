@@ -9,7 +9,7 @@ A private market and research workspace built with Next.js and shadcn/ui. A new 
 - Multiple watchlists and portfolios, a buy/sell ledger, CSV import and export, and average-cost P/L separated by quote currency.
 - Company headlines and annual US GAAP figures, SEC filings, 13F holdings with CSV export, WallStreetBets mention counts, and a research journal.
 - Account-scoped price alerts checked every two minutes when the monitor is enabled. Triggers appear in the app.
-- Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data. Optional web research sends the submitted question and current chart symbol to Claude.
+- Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data. Optional web research sends the submitted question and current chart symbol to Claude through Vercel AI Gateway.
 
 The [Stockwatcher plugin](https://github.com/ktoetotam/stockwatcher-plugin) and [the original article](https://msukhareva.substack.com/p/building-personalised-skills-an-agentic) inspired the workflows.
 
@@ -61,7 +61,9 @@ Set these production runtime values in Forge.
 | `ALERT_MONITOR`                                    | `1`                                                                    |
 | `SEC_USER_AGENT`                                   | Application name and an operator contact email                         |
 | `WORKSPACE_ALLOWED_EMAILS`                         | Optional list of permitted, verified email addresses                   |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`             | Optional web research. Set the key to enable it.                       |
+| `AI_GATEWAY_API_KEY`                               | Server-side Vercel AI Gateway key. Set it to enable web research.      |
+| `AI_GATEWAY_MODEL`                                 | Optional Gateway model ID. Defaults to `anthropic/claude-opus-4.8`.    |
+| `AI_GATEWAY_TEAM_ID`                               | Optional team ID or slug for requests scoped to a Vercel team.         |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.
 

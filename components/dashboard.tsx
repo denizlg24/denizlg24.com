@@ -465,7 +465,10 @@ function Assistant({
             onChange={(event) => setUseWeb(event.target.checked)}
           />{" "}
           Research the web with Claude{" "}
-          <small>Sends your question and chart symbol to Anthropic.</small>
+          <small>
+            Sends your question and chart symbol to Claude through Vercel AI
+            Gateway.
+          </small>
         </label>
       ) : null}
       <form className="assistant-input" onSubmit={submit}>
