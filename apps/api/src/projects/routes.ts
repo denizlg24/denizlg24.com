@@ -43,6 +43,7 @@ import {
   revokeProjectS3Credential,
   rotateApiKey,
   type S3CredentialResolver,
+  type StorageService,
   type SyncWorker,
   scopedIndexName,
   updateCollection,
@@ -80,6 +81,7 @@ interface ProjectRouteOptions {
   databaseHosts: ProjectDatabaseHosts;
   s3CredentialEncryptionKey: string;
   s3CredentialResolver: Pick<S3CredentialResolver, "invalidate">;
+  storage: Pick<StorageService, "ensureProjectRoot">;
   mongotHealthUrl: string;
   mongotMaxIndexesPerProject: number;
 }
@@ -332,6 +334,7 @@ export function projectRoutes(options: ProjectRouteOptions) {
       ownerId: context.get("user").id,
       storageRootPath: `/${parsed.data.slug}`,
     });
+    await options.storage.ensureProjectRoot(project);
     return context.json({ data: project }, 201);
   });
 
