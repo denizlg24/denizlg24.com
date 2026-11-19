@@ -14,7 +14,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@playwright/mcp": "0.0.85",
     "hono": "^4.13.17",
-    "playwright": "1.65.0-alpha-2026-10-30"
+    "playwright": "1.66.0-alpha-2026-11-09"
   },
   "devDependencies": {
     "@ai-sdk/mcp": "2.0.96",
