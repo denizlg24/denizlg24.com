@@ -1869,7 +1869,10 @@ questions, quizzes, `notebooks/{id}/chat`). Wire types `@repo/schemas`
   external `/api/jobs/agent-memory` tick. A new write path for note title or
   content, a transcript or a document must call `enqueueKnowledgeReindex`, and
   a delete `deleteKnowledgeSource`, or that source silently drops out of
-  search. Chunk `_id`s are stable per `(sourceKey, ordinal)` and vectors are
+  search. Each tick also runs `reconcileKnowledgeIndex`, which re-queues
+  sources with no state row (or an `embedded` row with no chunks) and
+  recreates a missing vector index — the 9 Nov restore predated the study
+  space and left every source unindexed with nothing to notice. Chunk `_id`s are stable per `(sourceKey, ordinal)` and vectors are
   reused by content hash, so an edit re-embeds only what changed.
 - **Retrieval is hybrid and fails soft.** `$vectorSearch` on
   `knowledge_chunks_vector_v1` fused with `$text` by reciprocal rank; if the
