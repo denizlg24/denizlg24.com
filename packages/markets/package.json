@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./client": "./src/client.ts",
     "./schemas": "./src/schemas/index.ts",
     "./core": "./src/core/index.ts",
     "./core/*": "./src/core/*.ts"

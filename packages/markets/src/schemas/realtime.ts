@@ -62,7 +62,7 @@ export const relayTokenResponseSchema = z.object({
 export type RelayTokenResponse = z.infer<typeof relayTokenResponseSchema>;
 
 /**
- * Cloudflare closes an idle WebSocket after 100 s and Tiingo goes silent
+ * Cloudflare closes an idle WebSocket after 100 s and upstream feeds go quiet
  * outside market hours, so both hops heartbeat well inside that window.
  */
 export const RELAY_HEARTBEAT_MS = 30_000;

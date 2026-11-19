@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { preferMarketData } from "@/lib/markets/data";
 import { parseLimit, parseTicker } from "@/lib/markets/route-params";
 import { getNews } from "@/lib/markets/service";
 import { requireAdmin } from "@/lib/require-admin";
@@ -18,7 +19,14 @@ export async function GET(
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"), 20, 100);
 
   try {
-    return NextResponse.json(await getNews(symbol, limit));
+    const data =
+      limit > 30
+        ? await getNews(symbol, limit)
+        : await preferMarketData(
+            (client) => client.news(symbol, limit),
+            () => getNews(symbol, limit),
+          );
+    return NextResponse.json(data);
   } catch (error) {
     console.error("[markets] News fetch failed", error);
     return NextResponse.json({ error: "News fetch failed" }, { status: 502 });

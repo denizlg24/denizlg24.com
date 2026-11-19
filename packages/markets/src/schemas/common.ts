@@ -8,7 +8,7 @@ export const tickerSchema = z
   .string()
   .min(1)
   .max(24)
-  .regex(/^[A-Z0-9.\-:]+$/, "Expected an uppercase ticker");
+  .regex(/^(?=.*[A-Z0-9])[A-Z0-9.^=\-:]+$/, "Expected an uppercase ticker");
 export type Ticker = z.infer<typeof tickerSchema>;
 
 export const currencyCodeSchema = z
@@ -32,6 +32,6 @@ export const quantitySchema = z.number().finite();
 export const freshnessSchema = z.object({
   fetchedAt: isoDateTimeSchema,
   stale: z.boolean(),
-  source: z.enum(["tiingo", "edgar", "finnhub", "cache", "relay"]),
+  source: z.enum(["tiingo", "edgar", "finnhub", "cache", "relay", "yahoo"]),
 });
 export type Freshness = z.infer<typeof freshnessSchema>;

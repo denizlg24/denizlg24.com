@@ -1,11 +1,9 @@
+import { tickerSchema } from "@repo/markets/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { preferMarketData } from "@/lib/markets/data";
 import { getQuotes, MarketsNotConfiguredError } from "@/lib/markets/service";
 import { requireAdmin } from "@/lib/require-admin";
 
-/**
- * Batched deliberately: Tiingo charges one request whether it is asked for one
- * symbol or fifty, so the client sends the whole visible set at once.
- */
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
@@ -21,8 +19,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Too many symbols" }, { status: 400 });
   }
 
+  if (tickers.some((ticker) => !tickerSchema.safeParse(ticker).success)) {
+    return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
+  }
   try {
-    return NextResponse.json(await getQuotes(tickers));
+    const data = await preferMarketData(
+      (client) => client.quotes(tickers),
+      () => getQuotes(tickers),
+    );
+    return NextResponse.json(data);
   } catch (error) {
     if (error instanceof MarketsNotConfiguredError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
