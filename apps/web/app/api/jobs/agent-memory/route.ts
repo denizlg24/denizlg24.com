@@ -35,6 +35,7 @@ import { scheduleDueAgentTaskRuns } from "@/lib/agent-tasks/scheduling";
 import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
 import { processKnowledgeJob } from "@/lib/knowledge/jobs";
+import { reconcileKnowledgeIndex } from "@/lib/knowledge/reconcile";
 import { sweepLapsedRuns } from "@/lib/sprints/runner";
 import { fireScheduledTriggers } from "@/lib/workflows/schedule";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -122,6 +123,9 @@ async function drainScheduledJobs(request: Request) {
   });
   await fireScheduledTriggers().catch((error) => {
     console.error("[Triggers] Schedule tick failed", error);
+  });
+  await reconcileKnowledgeIndex().catch((error) => {
+    console.error("[Knowledge] Reconcile failed", error);
   });
   await scheduleNextReflectionJob();
   await scheduleNextInsightJob();
