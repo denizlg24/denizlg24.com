@@ -761,6 +761,27 @@ docker compose --env-file "$markets_env" -f "$markets_compose" -f "$markets_over
 for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:3004/healthz >/dev/null && break; sleep 1; done
 curl -fsS http://127.0.0.1:3004/healthz >/dev/null || { echo "STOP: markets relay health failed" >&2; exit 1; }
 
+if [[ -f /etc/systemd/system/picron.service && -f /etc/picron/picron.env && -x /usr/local/bin/picron ]]; then
+  id picron >/dev/null 2>&1 || useradd --system --home /var/lib/picron --shell /usr/sbin/nologin picron
+  install -d -m 0750 -o picron -g picron /var/lib/picron
+  if [[ ! -f /var/lib/picron/picron.db && -f /var/lib/picron/snapshot/picron.db ]]; then
+    install -m 0640 -o picron -g picron /var/lib/picron/snapshot/picron.db /var/lib/picron/picron.db
+  fi
+  chown -R picron:picron /var/lib/picron
+  chgrp -R picron /etc/picron
+  systemctl daemon-reload
+  systemctl enable --now picron.service
+  picron_port="$(awk -F= '$1 == "PORT" {print $2; exit}' /etc/picron/picron.env)"
+  [[ "$picron_port" =~ ^[1-9][0-9]{0,4}$ ]] || { echo "STOP: picron.env has no valid PORT" >&2; exit 1; }
+  # Every API route but login needs a token, so a 401 is the healthy answer.
+  for _ in $(seq 1 30); do
+    [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${picron_port}/api/jobs")" == 401 ]] && break
+    sleep 1
+  done
+  [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${picron_port}/api/jobs")" == 401 ]] \
+    || { echo "STOP: picron did not come up" >&2; exit 1; }
+fi
+
 nutrition_verified=false
 if [[ "$nutrition_expected" == true ]]; then
   [[ -d /opt/nutrition-api ]] || { echo "STOP: snapshot expected nutrition API config but restored none" >&2; exit 1; }
