@@ -168,7 +168,7 @@ export function CreateDeploymentDialog({
   onCreated,
 }: {
   target: DeployTarget;
-  onCreated: (deployment: Deployment) => Promise<unknown> | void;
+  onCreated: (deployment: Deployment) => unknown;
 }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");

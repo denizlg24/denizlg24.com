@@ -28,7 +28,7 @@ function appendToLastUser(
 ): ModelMessage[] {
   const index = lastUserIndex(messages);
   const target = messages[index];
-  if (!target || target.role !== "user" || parts.length === 0) return messages;
+  if (target?.role !== "user" || parts.length === 0) return messages;
   const content: UserPart[] =
     typeof target.content === "string"
       ? [{ type: "text", text: target.content }]

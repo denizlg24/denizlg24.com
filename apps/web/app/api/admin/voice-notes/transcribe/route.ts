@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { isSupportedAudio, MAX_AUDIO_BYTES } from "@/lib/voice-notes/audio";
 import { transcribeAudioFile } from "@/lib/voice-notes/transcription";

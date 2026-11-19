@@ -43,7 +43,7 @@ export function ContainersTable({
   containers: readonly ForgeContainer[];
   /** Already resolved against what is on screen; null shows everything. */
   project: string | null;
-  onChanged: () => Promise<unknown> | void;
+  onChanged: () => unknown;
 }) {
   const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());

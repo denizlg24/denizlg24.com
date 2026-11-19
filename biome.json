@@ -15,7 +15,8 @@
       "!build",
       "!vendor",
       "!**/generated",
-      "!apps/macros/db/schema.ts"
+      "!apps/macros/db/schema.ts",
+      "!.claude/helpers"
     ]
   },
   "css": {

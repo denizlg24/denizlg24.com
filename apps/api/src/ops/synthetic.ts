@@ -23,7 +23,19 @@ type SyntheticDependency = (typeof SYNTHETIC_DEPENDENCIES)[number];
  * dependency is broken must still throw.
  */
 export type SyntheticDegradation = { status: "degraded"; message: string };
-type SyntheticProbe = (canary: string) => Promise<SyntheticDegradation | void>;
+/** Resolves with nothing when healthy, a degradation when behind; throws when broken. */
+type SyntheticProbe = (canary: string) => Promise<unknown>;
+
+function isDegradation(outcome: unknown): outcome is SyntheticDegradation {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    "status" in outcome &&
+    outcome.status === "degraded" &&
+    "message" in outcome &&
+    typeof outcome.message === "string"
+  );
+}
 
 export type SyntheticResult = {
   status: "ok" | "degraded" | "down";
@@ -85,7 +97,8 @@ export class DeepSyntheticService {
       SYNTHETIC_DEPENDENCIES.map(async (name) => {
         const startedAt = performance.now();
         try {
-          const outcome = await this.probes[name](canary);
+          const result = await this.probes[name](canary);
+          const outcome = isDegradation(result) ? result : null;
           return [
             name,
             {
@@ -181,7 +194,7 @@ export type SearchProbeClient = {
 export function searchSyntheticProbe(
   client: SearchProbeClient,
   taskBudgetMs = SEARCH_TASK_BUDGET_MS,
-): SyntheticProbe {
+): (canary: string) => Promise<SyntheticDegradation | undefined> {
   return async (canary) => {
     const index = client.index(SEARCH_INDEX_UID);
     const enqueued = await index.addDocuments([{ id: canary, value: canary }], {
