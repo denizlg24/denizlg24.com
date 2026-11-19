@@ -15,7 +15,7 @@ import {
 const BASE_URL = "https://finnhub.io/api/v1/";
 
 /**
- * Finnhub covers the things Tiingo and EDGAR do not: company profiles with a
+ * Finnhub covers the things Yahoo and EDGAR do not: company profiles with a
  * logo, and news. Its candle endpoint moved behind a paid plan, so this adapter
  * deliberately implements no price method — a price path that silently 403s is
  * worse than one that does not exist.
@@ -114,7 +114,7 @@ export class FinnhubProvider implements MarketDataProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  /** Same contract as the Tiingo adapter: reserve first, hand back on a throw. */
+  /** Reserve first, hand back on a throw. */
   private async request<T>(
     path: string,
     schema: z.ZodType<T>,

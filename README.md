@@ -61,7 +61,7 @@ weight trends and energy-expenditure estimates.
 | `apps/forge` | Deployment dashboard: build history, containers, logs, and host telemetry | Personal |
 | `apps/deploy-agent` | Executor on the deploy host that builds images and runs containers | Personal |
 | `apps/email-classifier` | Python Logistic Regression Email Classifier API | Personal |
-| `apps/markets-relay` | Bun WebSocket relay fanning out Tiingo market quotes | Personal |
+| `apps/markets-relay` | Bun + Python relay serving Yahoo Finance quotes, history and FRED macro data | Personal |
 | `apps/storage` | Browser-based file manager | Family |
 | `apps/storage-metadata` | Privileged metadata, checksum, and tiering service for the storage namespace | Personal |
 | `apps/terminal` | Web-terminal daemon for the cloud host | Personal |

@@ -8,9 +8,9 @@ import {
 } from "./candles";
 import { createMemoryStores, fixedClock, makeDailyBar } from "./memory-stores";
 import {
-  BudgetExhaustedError,
   type MarketDataProvider,
   type MarketStores,
+  ProviderUnavailableError,
 } from "./ports";
 
 const TODAY = "2026-07-31";
@@ -27,7 +27,7 @@ function recordingProvider(bars: DailyBar[]): {
 } {
   const calls: Call[] = [];
   const provider: MarketDataProvider = {
-    name: "tiingo",
+    name: "yahoo",
     async getDailyBars(_ticker, from, to) {
       calls.push({ from, to });
       return bars.filter(
@@ -278,12 +278,12 @@ describe("getCandles daily", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("an exhausted budget serves cache marked stale instead of throwing", async () => {
+  test("an unreachable provider serves cache marked stale instead of throwing", async () => {
     const store = createMemoryStores({ clock, hourLimit: 0 });
     const provider: MarketDataProvider = {
-      name: "tiingo",
+      name: "yahoo",
       async getDailyBars() {
-        throw new BudgetExhaustedError("tiingo");
+        throw new ProviderUnavailableError("yahoo", "relay down");
       },
     };
     await store.bars.upsertDailyBars("AAPL", history);
@@ -298,10 +298,55 @@ describe("getCandles daily", () => {
     expect(series.bars).toHaveLength(5);
   });
 
+  test("a failed newer gap is not recorded as covered and is retried", async () => {
+    const store = stores();
+    await store.bars.upsertDailyBars("AAPL", history.slice(1, 4));
+    await store.bars.setCoverage(
+      "AAPL",
+      { kind: "daily" },
+      { from: "2026-07-28", to: "2026-07-30", fetchedAt: null },
+    );
+    const calls: Call[] = [];
+    let relayUp = false;
+    const provider: MarketDataProvider = {
+      name: "yahoo",
+      async getDailyBars(_ticker, from, to) {
+        calls.push({ from, to });
+        if (from === "2026-07-31" && !relayUp) {
+          throw new ProviderUnavailableError("yahoo", "relay down");
+        }
+        return history.filter(
+          (bar) => (!from || bar.date >= from) && (!to || bar.date <= to),
+        );
+      },
+    };
+    const request = {
+      ticker: "AAPL",
+      resolution: "1day" as const,
+      from: "2026-07-27",
+      to: "2026-07-31",
+      adjusted: false,
+    };
+
+    const first = await getCandles(store, provider, request);
+    expect(first.freshness.stale).toBe(true);
+    expect(
+      await store.bars.getCoverage("AAPL", { kind: "daily" }),
+    ).toMatchObject({ from: "2026-07-27", to: "2026-07-30" });
+
+    relayUp = true;
+    const second = await getCandles(store, provider, request);
+    expect(calls.at(-1)).toEqual({ from: "2026-07-31", to: "2026-07-31" });
+    expect(second.freshness.stale).toBe(false);
+    expect(second.bars.map((bar) => bar.close)).toEqual([
+      100, 102, 104, 106, 108,
+    ]);
+  });
+
   test("a provider failure that is not a budget stop still surfaces", async () => {
     const store = stores();
     const provider: MarketDataProvider = {
-      name: "tiingo",
+      name: "yahoo",
       async getDailyBars() {
         throw new Error("upstream exploded");
       },

@@ -7,6 +7,19 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.6.1 — 2026-11-19
+
+### Added
+- **Markets → Macro**: U.S. macro indicators from FRED (CPI, PCE, rates,
+  unemployment and more) charted next to the watchlist.
+
+### Changed
+- Quotes, price history, instruments and symbol search come from Yahoo
+  Finance through the markets relay, and so do portfolio pricing and order
+  fills. News comes from the relay, falling back to Finnhub.
+- The request-budget readout is gone from the Markets header: Yahoo data is
+  not metered. EDGAR fundamentals and Finnhub profiles keep their own limits.
+
 ## 3.6.0 — 2026-11-18
 
 ### Changed

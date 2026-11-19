@@ -224,11 +224,6 @@ export function registerWebMarkets(server: McpServer, api: Api) {
         run: ({ tickers }) =>
           api.web.get(`${base}/quotes`, { tickers: tickers.join(",") }),
       }),
-      budget: action({
-        description: "Provider request budget",
-        readOnly: true,
-        run: () => api.web.get(`${base}/budget`),
-      }),
     },
   });
 

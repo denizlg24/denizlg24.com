@@ -1,11 +1,11 @@
 import {
-  BudgetExhaustedError,
   type CandleRequest,
   EdgarProvider,
   FinnhubProvider,
   getCandles as getCachedCandles,
+  isProviderUnavailable,
   type MarketStores,
-  TiingoProvider,
+  YahooRelayProvider,
 } from "@repo/markets/core";
 import type {
   CandleSeries,
@@ -18,6 +18,7 @@ import type {
   Quote,
   SymbolSearchResult,
 } from "@repo/markets/schemas";
+import { marketData } from "./data";
 import { createMarketStores } from "./stores";
 
 /**
@@ -26,7 +27,7 @@ import { createMarketStores } from "./stores";
  */
 let cached: {
   stores: MarketStores;
-  tiingo: TiingoProvider | null;
+  yahoo: YahooRelayProvider | null;
   edgar: EdgarProvider | null;
   finnhub: FinnhubProvider | null;
 } | null = null;
@@ -38,38 +39,16 @@ export class MarketsNotConfiguredError extends Error {
   }
 }
 
-/**
- * Numbered suffixes are read until one is missing: TIINGO_API_KEY,
- * TIINGO_API_KEY_2, _3, … Each key carries its own Tiingo quota, so the
- * ledger's limits scale with how many are configured.
- */
-export function tiingoKeys(): string[] {
-  const keys: string[] = [];
-  const first = process.env.TIINGO_API_KEY?.trim();
-  if (first) keys.push(first);
-  if (keys.length === 0) return keys;
-
-  for (let index = 2; ; index++) {
-    const key = process.env[`TIINGO_API_KEY_${index}`]?.trim();
-    if (!key) break;
-    keys.push(key);
-  }
-  return keys;
-}
-
 function stack() {
   if (cached) return cached;
-  const keys = tiingoKeys();
-  const stores = createMarketStores(Math.max(keys.length, 1));
+  const stores = createMarketStores();
+  const relay = marketData();
   const edgarAgent = process.env.SEC_EDGAR_USER_AGENT;
   const finnhubKey = process.env.FINNHUB_API_KEY?.trim();
 
   cached = {
     stores,
-    tiingo:
-      keys.length > 0
-        ? new TiingoProvider({ apiKeys: keys, budget: stores.budget })
-        : null,
+    yahoo: relay ? new YahooRelayProvider(relay) : null,
     edgar: edgarAgent?.trim()
       ? new EdgarProvider({ userAgent: edgarAgent, budget: stores.budget })
       : null,
@@ -86,9 +65,9 @@ export function getStores(): MarketStores {
   return stack().stores;
 }
 
-function requireTiingo(): TiingoProvider {
-  const provider = stack().tiingo;
-  if (!provider) throw new MarketsNotConfiguredError("TIINGO_API_KEY");
+function requireYahoo(): YahooRelayProvider {
+  const provider = stack().yahoo;
+  if (!provider) throw new MarketsNotConfiguredError("MARKETS_DATA_URL");
   return provider;
 }
 
@@ -102,27 +81,17 @@ export async function getCandles(
   request: CandleRequest,
 ): Promise<CandleSeries> {
   const { stores } = stack();
-  return getCachedCandles(stores, requireTiingo(), request);
+  return getCachedCandles(stores, requireYahoo(), request);
 }
 
 /**
- * How long a cached quote counts as live before the batch is refreshed.
- *
- * This TTL, not the client's poll interval, is what rations Tiingo: every miss
- * is one request against a 50/hour cap. At 15 s a single dashboard left open
- * would have asked for 240/hour and pinned the budget within minutes. Two
- * minutes caps quote traffic at 30/hour and leaves headroom for candles.
- *
- * The relay is the live path; polling is the degraded one and is priced as
- * such. Cheap Mongo reads in between are free, so the client may poll faster.
+ * How long a cached quote counts as live before the batch is refreshed. The
+ * relay's socket is the live path; this only bounds how often polling and
+ * portfolio pricing go back to Yahoo, which throttles clients that hammer it.
  */
 const QUOTE_TTL_MS = 120_000;
 
-/**
- * Quotes are always fetched for the whole requested set at once. Tiingo's IEX
- * endpoint bills one request regardless of symbol count, so refreshing five
- * symbols individually would cost five times as much for the same data.
- */
+/** Quotes are always fetched for the whole requested set in one relay call. */
 export async function getQuotes(
   tickers: string[],
   options: { maxAgeMs?: number } = {},
@@ -146,17 +115,26 @@ export async function getQuotes(
   if (!anyStale) return { quotes: cachedQuotes, stale: false };
 
   try {
-    const fresh = await requireTiingo().getQuotes(wanted);
+    const fresh = await requireYahoo().getQuotes(wanted);
     if (fresh.length > 0) await stores.quotes.upsertQuotes(fresh);
     for (const quote of fresh) byTicker.set(quote.ticker, quote);
+    // The relay answers a partial batch with 200, so a ticker it skipped still
+    // holds an expired quote. Only those count: a quote it did return carries
+    // the last trade's time, which outside the session is hours old and fresh.
+    const returned = new Set(fresh.map((quote) => quote.ticker));
+    const skippedExpired = wanted.some((ticker) => {
+      if (returned.has(ticker)) return false;
+      const quote = byTicker.get(ticker);
+      return !quote || now - Date.parse(quote.ts) > maxAge;
+    });
     return {
       quotes: wanted
         .map((ticker) => byTicker.get(ticker))
         .filter((quote): quote is Quote => quote !== undefined),
-      stale: false,
+      stale: skippedExpired,
     };
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return { quotes: cachedQuotes, stale: true };
   }
 }
@@ -169,17 +147,16 @@ export async function searchSymbols(
 }
 
 /**
- * Metadata and profile for one symbol, served from Mongo. Tiingo is asked only
+ * Metadata and profile for one symbol, served from Mongo. Yahoo is asked only
  * when the universe has never seen the ticker — the weekly universe refresh
- * covers everything else, and a metadata call per page load would be the exact
- * per-symbol traffic the cache exists to prevent.
+ * covers everything else.
  */
 export async function getSymbolDetail(ticker: string): Promise<{
   symbol: MarketSymbol | null;
   profile: CompanyProfile | null;
   stale: boolean;
 }> {
-  const { stores, tiingo } = stack();
+  const { stores, yahoo } = stack();
   const upper = ticker.toUpperCase();
   const [existing, profile] = await Promise.all([
     stores.symbols.getSymbol(upper),
@@ -187,17 +164,17 @@ export async function getSymbolDetail(ticker: string): Promise<{
   ]);
   if (existing) return { symbol: existing, profile, stale: false };
 
-  // Without a Tiingo key the metadata lookup is simply unavailable; the Finnhub
+  // Without the relay the metadata lookup is simply unavailable; the Finnhub
   // profile already loaded is still worth returning. Throwing here would make
   // the route answer 503 and discard it.
-  if (!tiingo) return { symbol: null, profile, stale: profile !== null };
+  if (!yahoo) return { symbol: null, profile, stale: profile !== null };
 
   try {
-    const fetched = (await tiingo.getSymbol(upper)) ?? null;
+    const fetched = await yahoo.getSymbol(upper);
     if (fetched) await stores.symbols.upsertSymbols([fetched]);
     return { symbol: fetched, profile, stale: false };
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return { symbol: null, profile, stale: true };
   }
 }
@@ -208,7 +185,7 @@ const PROFILE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * Profiles come from Finnhub and are entirely optional: with no key configured
  * the surface simply shows less, which is why this returns a value rather than
- * throwing the way the Tiingo and EDGAR paths do.
+ * throwing the way the relay and EDGAR paths do.
  */
 export async function getProfile(
   ticker: string,
@@ -228,7 +205,7 @@ export async function getProfile(
     await stores.symbols.upsertProfile(profile);
     return profile;
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return cachedProfile;
   }
 }
@@ -278,7 +255,7 @@ export async function getNews(
       stale: false,
     };
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return { news: cachedNews, stale: true };
   }
 }
@@ -310,7 +287,7 @@ export async function getActions(ticker: string): Promise<{
       stale: series.freshness.stale,
     };
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return { actions: await stores.bars.getActions(upper), stale: true };
   }
 }
@@ -374,7 +351,7 @@ export async function getFundamentals(
       budgetExhausted: false,
     };
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return {
       periods: cachedPeriods,
       stale: true,
@@ -428,7 +405,7 @@ export async function getFilings(
     );
     return filings.length > 0 ? filings : cachedFilings;
   } catch (error) {
-    if (!(error instanceof BudgetExhaustedError)) throw error;
+    if (!isProviderUnavailable(error)) throw error;
     return cachedFilings;
   }
 }
@@ -442,16 +419,4 @@ export async function refreshSymbolUniverse(): Promise<number> {
   const symbols = await requireEdgar().listSymbols();
   await stores.symbols.upsertSymbols(symbols);
   return symbols.length;
-}
-
-export async function getBudgets() {
-  const { stores } = stack();
-  const [tiingo, edgar, symbols] = await Promise.all([
-    stores.budget.peek("tiingo"),
-    stores.budget.peek("edgar"),
-    stores.symbols.countSymbols(),
-  ]);
-  // The symbol count rides along so the dashboard can tell an empty universe
-  // apart from a search that genuinely matched nothing.
-  return { tiingo, edgar, symbols };
 }

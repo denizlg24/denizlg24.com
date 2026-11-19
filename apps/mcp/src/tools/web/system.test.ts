@@ -419,8 +419,12 @@ describe("web_markets", () => {
     await client.call("web_markets_symbols", { action: "refresh" });
     expect(last().method).toBe("POST");
     expect(last().path).toBe("/api/admin/markets/symbols/refresh");
-    await client.call("web_markets_symbols", { action: "budget" });
-    expect(last().path).toBe("/api/admin/markets/budget");
+    const before = calls.length;
+    const budget = await client.call("web_markets_symbols", {
+      action: "budget",
+    });
+    expect(budget.isError).toBe(true);
+    expect(calls.length).toBe(before);
   });
 
   test("watchlists", async () => {

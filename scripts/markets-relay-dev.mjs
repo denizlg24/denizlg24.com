@@ -31,7 +31,7 @@ function readEnv() {
     const raw = match[2];
     const quoted = raw.match(/^(["'])([\s\S]*)\1/);
     // An unquoted value ends at a ` #` comment. Without this a line like
-    // `TIINGO_API_KEY=abc # personal key` reaches the relay container as a
+    // `MARKETS_RELAY_TOKEN_SECRET=abc # dev secret` reaches the relay container as a
     // malformed key and fails quietly instead of with a clear error.
     values[match[1]] = quoted ? quoted[2] : raw.replace(/\s+#.*$/, "").trim();
   }

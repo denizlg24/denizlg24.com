@@ -3,8 +3,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
 
 /**
- * Mints a short-lived token for the browser's relay socket. The Tiingo key
- * never leaves the relay, and this token grants nothing but a connection.
+ * Mints a short-lived token for the browser's relay socket. The relay's secret
+ * never leaves the server, and this token grants nothing but a connection.
  */
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);

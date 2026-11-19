@@ -17,7 +17,7 @@ import type {
   Coverage,
   CoverageDataset,
   MarketStores,
-  ProviderName,
+  MeteredProvider,
 } from "./ports";
 
 /**
@@ -54,12 +54,12 @@ export function createMemoryStores(options?: {
   const fundamentals = new Map<string, FundamentalPeriod[]>();
   const filings = new Map<string, Filing[]>();
   const news = new Map<string, CompanyNewsItem[]>();
-  const usage = new Map<ProviderName, { hour: number; day: number }>();
+  const usage = new Map<MeteredProvider, { hour: number; day: number }>();
 
   const hourLimit = options?.hourLimit ?? 50;
   const dayLimit = options?.dayLimit ?? 1000;
 
-  function usageFor(provider: ProviderName) {
+  function usageFor(provider: MeteredProvider) {
     const existing = usage.get(provider);
     if (existing) return existing;
     const created = { hour: 0, day: 0 };

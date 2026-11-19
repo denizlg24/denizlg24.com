@@ -2,7 +2,7 @@ import { relayTokenClaimsSchema } from "../schemas";
 
 /**
  * Short-lived tokens minted by apps/web and verified here against a shared
- * secret. The browser never sees the Tiingo key; it only ever holds a token
+ * secret. The browser never sees the relay secret; it only ever holds a token
  * that expires in minutes and grants nothing but a socket.
  *
  * Format is `base64url(payload).base64url(hmac)`. Kept hand-rolled rather than

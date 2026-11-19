@@ -32,6 +32,6 @@ export const quantitySchema = z.number().finite();
 export const freshnessSchema = z.object({
   fetchedAt: isoDateTimeSchema,
   stale: z.boolean(),
-  source: z.enum(["tiingo", "edgar", "finnhub", "cache", "relay", "yahoo"]),
+  source: z.enum(["edgar", "finnhub", "cache", "relay", "yahoo"]),
 });
 export type Freshness = z.infer<typeof freshnessSchema>;
