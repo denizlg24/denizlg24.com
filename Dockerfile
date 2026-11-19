@@ -2,10 +2,11 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
 COPY . .
 RUN --mount=type=tmpfs,target=/app/node_modules,size=1073741824 \
-    --mount=type=tmpfs,target=/tmp/stockwatcher-npm,size=536870912 \
-    npm ci --no-audit --no-fund --cache /tmp/stockwatcher-npm && npm run build
+    --mount=type=tmpfs,target=/tmp/stockwatcher-bun,size=536870912 \
+    BUN_INSTALL_CACHE_DIR=/tmp/stockwatcher-bun bun install --frozen-lockfile && bun run build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

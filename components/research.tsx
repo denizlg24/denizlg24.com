@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BookOpen,
   FileText,
+  MessagesSquare,
   Newspaper,
   Pencil,
   Plus,
@@ -33,7 +34,10 @@ import {
   Failure,
   Loading,
   PanelHeading,
+  SectionFoot,
+  signed,
   SourceLink,
+  SymbolLink,
 } from "./shared";
 import { NewsPanel, useQuotes } from "./market-widgets";
 import { amount, compact, marketTime, number, tone } from "@/lib/utils";
@@ -70,6 +74,8 @@ function Company({
   );
   const { data: quotes } = useQuotes([ticker], refresh);
   const quote = quotes?.quotes[0];
+  const isIndex = ticker.startsWith("^");
+  const unit = isIndex ? "pts" : quote?.currency;
   return (
     <div className="research-grid">
       <section className="panel">
@@ -87,9 +93,11 @@ function Company({
           </div>
         </PanelHeading>
         <div className="research-quote">
-          <strong>
-            {amount(quote?.price)} <small>{quote?.currency}</small>
-          </strong>
+          <strong>{amount(quote?.price)}</strong>
+          <small>{unit}</small>
+          <span className={`price-delta ${tone(quote?.change)}`}>
+            {signed(quote?.change)}
+          </span>
           <Change value={quote?.percent} arrows />
         </div>
         <dl className="stats-grid">
@@ -107,10 +115,13 @@ function Company({
             </div>
           ))}
         </dl>
-        <div className="panel-foot">
-          Yahoo Finance{quote ? ` · ${marketTime(quote.time)}` : ""}
-        </div>
-        <div className="section-divider" />
+        <SectionFoot>
+          <span>
+            Yahoo Finance{quote ? ` · ${marketTime(quote.time)}` : ""}
+          </span>
+          {unit ? <span>{unit}</span> : null}
+        </SectionFoot>
+        <div className="subsection-gap" />
         <PanelHeading
           title="Annual financials"
           subtitle="Reported fiscal periods · SEC EDGAR"
@@ -135,28 +146,33 @@ function Company({
               {result.facts.map((fact) => (
                 <TableRow key={fact.label}>
                   <TableCell>{fact.label}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right strong-cell">
                     {fact.unit === "USD/shares"
                       ? amount(fact.value)
                       : compact(fact.value)}{" "}
                     {fact.unit === "USD/shares" ? "USD/share" : fact.unit}
                   </TableCell>
-                  <TableCell>{fact.period}</TableCell>
+                  <TableCell className="muted">{fact.period}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         ) : !error ? (
-          <Empty title="No annual US GAAP figures">
-            For international listings, check recent filings and the company’s
-            investor relations page.
+          <Empty
+            title={
+              isIndex
+                ? "Indexes have no reported financials"
+                : "No annual US GAAP figures"
+            }
+          >
+            {isIndex
+              ? "Search for a company to see its SEC filings and reported figures."
+              : "For international listings, check recent filings and the company’s investor relations page."}
           </Empty>
         ) : null}
         {result?.filings.length ? (
           <div className="filing-block">
-            <h3>
-              <FileText size={17} /> Recent SEC filings
-            </h3>
+            <h3>Recent SEC filings</h3>
             <div className="filing-list">
               {result.filings.map((filing, index) => (
                 <div key={`${filing.url}:${index}`}>
@@ -321,16 +337,16 @@ function Filings({
                   <TableRow
                     key={`${item.cusip}:${item.name}:${item.type}:${item.putCall}`}
                   >
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.cusip}</TableCell>
-                    <TableCell>
+                    <TableCell className="truncate-cell">{item.name}</TableCell>
+                    <TableCell className="muted">{item.cusip}</TableCell>
+                    <TableCell className="muted">
                       {item.type}
                       {item.putCall ? ` · ${item.putCall}` : ""}
                     </TableCell>
                     <TableCell className="text-right">
                       {number(item.shares)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right strong-cell">
                       {number(item.value)}
                     </TableCell>
                     <TableCell className="text-right">
@@ -401,22 +417,19 @@ function Social({ select }: { select: (ticker: string) => void }) {
           <TableBody>
             {data.map((item) => (
               <TableRow key={`${item.rank}:${item.symbol}`}>
-                <TableCell>{item.rank}</TableCell>
+                <TableCell className="muted">{item.rank}</TableCell>
                 <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => select(item.symbol)}
-                  >
-                    {item.symbol}
-                    <ArrowRight />
-                  </Button>
+                  <SymbolLink
+                    symbol={item.symbol}
+                    select={select}
+                    label={item.name}
+                  />
                 </TableCell>
-                <TableCell>{item.name}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="truncate-cell">{item.name}</TableCell>
+                <TableCell className="text-right strong-cell">
                   {number(item.count)}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right muted">
                   {number(item.prior)}
                 </TableCell>
                 <TableCell
@@ -425,7 +438,7 @@ function Social({ select }: { select: (ticker: string) => void }) {
                   {item.count > item.prior ? "+" : ""}
                   {number(item.count - item.prior)}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right muted">
                   {number(item.upvotes)}
                 </TableCell>
               </TableRow>
@@ -517,15 +530,10 @@ function Journal({
               <p>{note.body}</p>
               <div className="note-meta">
                 {note.symbol ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => select(note.symbol)}
-                  >
-                    {note.symbol}
-                    <ArrowRight />
-                  </Button>
-                ) : null}
+                  <SymbolLink symbol={note.symbol} select={select} />
+                ) : (
+                  <span />
+                )}
                 <span>{marketTime(Date.parse(note.updatedAt) / 1000)}</span>
               </div>
             </article>
@@ -647,7 +655,7 @@ export function Research({
           <FileText /> 13F holdings
         </TabsTrigger>
         <TabsTrigger value="social">
-          <Newspaper /> WallStreetBets
+          <MessagesSquare /> WallStreetBets
         </TabsTrigger>
         <TabsTrigger value="journal">
           <BookOpen /> Journal

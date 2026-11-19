@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { dashboardSchema } from "./assistant-types";
 import { symbolPattern } from "./universes";
+import { deskSchema } from "./desk";
 
 export const symbolSchema = z
   .string()
@@ -57,6 +58,7 @@ export const workspaceSchema = z.object({
     )
     .max(60),
   dashboard: dashboardSchema.optional(),
+  desk: deskSchema.optional(),
   requests: z
     .array(
       z.object({

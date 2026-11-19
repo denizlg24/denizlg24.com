@@ -9,7 +9,9 @@ A private market and research workspace built with Next.js and shadcn/ui. A new 
 - Multiple watchlists and portfolios, a buy/sell ledger, CSV import and export, and average-cost P/L separated by quote currency.
 - Company headlines and annual US GAAP figures, SEC filings, 13F holdings with CSV export, WallStreetBets mention counts, and a research journal.
 - Account-scoped price alerts checked every two minutes when the monitor is enabled. Triggers appear in the app.
-- Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data. Optional web research sends the submitted question and current chart symbol to Claude through Vercel AI Gateway.
+- Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data.
+- With an AI Gateway key, a docked assistant streams answers and calls tools for quotes, history, SEC figures, 13F holdings, news, your portfolio P/L and web search. It remembers your positions, theses and preferences across conversations (editable under Memory), keeps a thread history, and can pin charts and notes to your desk.
+- The desk is the home screen: a layout of widgets you or the assistant can add, remove and reorder, led by a daily brief written on the first visit each day. Without a key it falls back to a computed summary and the command-based assistant.
 
 The [Stockwatcher plugin](https://github.com/ktoetotam/stockwatcher-plugin) and [the original article](https://msukhareva.substack.com/p/building-personalised-skills-an-agentic) inspired the workflows.
 
@@ -18,21 +20,21 @@ The [Stockwatcher plugin](https://github.com/ktoetotam/stockwatcher-plugin) and 
 Use Node 24 or newer.
 
 ```sh
-npm ci
-npm run dev
+bun install
+bun dev
 ```
 
 Open [localhost:3000](http://localhost:3000) and select **Open preview**. Preview creates a separate workspace in a local SQLite database. The app uses real upstream market data in preview mode.
 
 ```sh
-npm run lint
-npm run typecheck
-npm run build
-npx playwright install chromium
-npm test
+bun run lint
+bun run typecheck
+bun run build
+bunx playwright install chromium
+bun run test
 ```
 
-Use `PLAYWRIGHT_CHANNEL=chrome npm test` to run against an installed Chrome. The tests start their own local OpenID Connect issuer and exercise a signed ID token, PKCE, account isolation, and workspace writes.
+Use `PLAYWRIGHT_CHANNEL=chrome bun run test` to run against an installed Chrome. The tests start their own local OpenID Connect issuer and exercise a signed ID token, PKCE, account isolation, and workspace writes.
 
 To run locally in Docker, use `DEMO_MODE=1 docker compose up --build`. The named volume preserves SQLite data across container replacements.
 
@@ -61,8 +63,9 @@ Set these production runtime values in Forge.
 | `ALERT_MONITOR`                                    | `1`                                                                    |
 | `SEC_USER_AGENT`                                   | Application name and an operator contact email                         |
 | `WORKSPACE_ALLOWED_EMAILS`                         | Optional list of permitted, verified email addresses                   |
-| `AI_GATEWAY_API_KEY`                               | Server-side Vercel AI Gateway key. Set it to enable web research.      |
-| `AI_GATEWAY_MODEL`                                 | Optional Gateway model ID. Defaults to `anthropic/claude-opus-4.8`.    |
+| `AI_GATEWAY_API_KEY`                               | Server-side Vercel AI Gateway key. Enables the assistant, brief and memory. |
+| `AI_GATEWAY_MODEL`                                 | Optional chat model ID. Defaults to `anthropic/claude-sonnet-5.5`.     |
+| `AI_GATEWAY_BRIEF_MODEL`                           | Optional daily-brief model ID. Defaults to `AI_GATEWAY_MODEL`.         |
 | `AI_GATEWAY_TEAM_ID`                               | Optional team ID or slug for requests scoped to a Vercel team.         |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.

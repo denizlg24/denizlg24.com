@@ -1,11 +1,9 @@
 import { z } from "zod";
 import type { News } from "./models";
-import { symbolPattern, universes, type Universe } from "./universes";
+import { symbolPattern, universeKeys } from "./universes";
 
 const ticker = z.string().regex(symbolPattern);
-const group = z.custom<Universe>(
-  (name) => typeof name === "string" && Object.hasOwn(universes, name),
-);
+const group = z.enum(universeKeys);
 export const dashboardSchema = z.object({
   view: z.enum(["markets", "portfolio", "research", "watchlists", "alerts"]),
   researchTab: z.enum(["company", "filings", "social", "journal"]).optional(),

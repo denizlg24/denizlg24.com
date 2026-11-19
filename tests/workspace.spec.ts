@@ -1,11 +1,55 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createHash, randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+
+const origin = { Origin: "http://127.0.0.1:3290" };
+
+async function openPreview(page: Page) {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open preview" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Desk", level: 1 }),
+  ).toBeVisible();
+}
+
+async function seedThread(page: Page, title: string) {
+  const cookie = (await page.context().cookies()).find(
+    (item) => item.name === "stockwatcher",
+  );
+  const path = process.env.STOCKWATCHER_TEST_DB;
+  if (!cookie || !path) throw new Error("No session or test database.");
+  const db = new DatabaseSync(path);
+  try {
+    const row = db
+      .prepare("SELECT user_json FROM sessions WHERE hash = ?")
+      .get(createHash("sha256").update(cookie.value).digest("hex"));
+    if (!row) throw new Error("Session not found.");
+    const user: { id: string } = JSON.parse(String(row.user_json));
+    const id = randomUUID();
+    const messages = [
+      { id: "m1", role: "user", parts: [{ type: "text", text: title }] },
+    ];
+    db.prepare(
+      "INSERT INTO threads (user_id, id, title, messages, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      user.id,
+      id,
+      title,
+      JSON.stringify(messages),
+      new Date().toISOString(),
+    );
+    return id;
+  } finally {
+    db.close();
+  }
+}
 
 async function signIn(page: Page, name: "Alice" | "Bob") {
   await page.goto("/");
   await page.getByRole("link", { name: "Continue with Deniz Cloud" }).click();
   await page.getByRole("link", { name: `Continue as ${name}` }).click();
   await expect(
-    page.getByRole("heading", { name: "What would you like to see?" }),
+    page.getByRole("heading", { name: "Desk", level: 1 }),
   ).toBeVisible();
 }
 
@@ -121,8 +165,17 @@ test("workspace writes reject foreign origins, stale revisions, and oversold tra
       await page.request.put("/api/workspace", { data: original, headers })
     ).status(),
   ).toBe(409);
-  const privileged = await page.request.post("/api/assistant", {
-    data: { query: "Research Apple", web: true },
+  const privileged = await page.request.post("/api/chat", {
+    data: {
+      id: "preview-thread",
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          parts: [{ type: "text", text: "Research Apple" }],
+        },
+      ],
+    },
     headers,
   });
   expect(privileged.status()).toBe(503);
@@ -194,7 +247,7 @@ test("requests build an empty dashboard in place, keep follow-up edits, and prod
   await page.goto("/");
   await page.getByRole("button", { name: "Open preview" }).click();
   await expect(
-    page.getByRole("heading", { name: "What would you like to see?" }),
+    page.getByRole("heading", { name: "Desk", level: 1 }),
   ).toBeVisible();
   await expect(page.locator(".chart-panel")).toHaveCount(0);
   const initial = await (await page.request.get("/api/workspace")).json();
@@ -245,6 +298,10 @@ test("requests build an empty dashboard in place, keep follow-up edits, and prod
     )
     .toBe(date);
   await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name: "Markets" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Magnificent Seven" }),
   ).toBeVisible();
@@ -260,4 +317,229 @@ test("requests build an empty dashboard in place, keep follow-up edits, and prod
     linked.getByRole("heading", { name: "Magnificent Seven" }),
   ).toBeVisible();
   await newContext.close();
+});
+
+test("the desk renders the default widgets and keeps added and removed widgets across reloads", async ({
+  page,
+}) => {
+  await openPreview(page);
+  const desk = page.locator(".desk-grid");
+  for (const label of ["Holdings", "Movers", "Watchlist", "News", "Alerts"])
+    await expect(
+      desk.getByRole("heading", { name: label, exact: true, level: 2 }),
+    ).toBeVisible();
+  await expect(desk.locator(".desk-cell")).toHaveCount(6);
+  expect(
+    (await (await page.request.get("/api/workspace")).json()).data.desk,
+  ).toBeUndefined();
+
+  await page.getByRole("button", { name: "Edit desk" }).click();
+  await page.getByRole("button", { name: "Add widget" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /^Note/ }).click();
+  await dialog.getByRole("textbox", { name: "Title" }).fill("Semis thesis");
+  await dialog
+    .getByRole("textbox", { name: "Note (markdown)" })
+    .fill("Capex cycle still early.");
+  await dialog.getByRole("button", { name: "Add note" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(desk.locator(".desk-cell")).toHaveCount(7);
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/workspace")).json()).data.desk
+          ?.widgets.length,
+    )
+    .toBe(7);
+
+  await page.reload();
+  await expect(desk.getByText("Capex cycle still early.")).toBeVisible();
+  await expect(desk.locator(".desk-cell")).toHaveCount(7);
+
+  await page.getByRole("button", { name: "Edit desk" }).click();
+  await page.getByRole("button", { name: "Remove Note" }).click();
+  await page.getByRole("button", { name: "Remove Alerts" }).click();
+  await expect(desk.locator(".desk-cell")).toHaveCount(5);
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/workspace")).json()).data.desk
+          ?.widgets.length,
+    )
+    .toBe(5);
+  await page.reload();
+  await expect(desk.locator(".desk-cell")).toHaveCount(5);
+  await expect(desk.getByText("Capex cycle still early.")).toHaveCount(0);
+  await expect(
+    desk.getByRole("heading", { name: "Alerts", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("memories can be created, edited and deleted from the memory panel and API", async ({
+  page,
+}) => {
+  await openPreview(page);
+  expect((await page.request.get("/api/memories")).status()).toBe(200);
+  expect(
+    (
+      await page.request.post("/api/memories", {
+        data: { kind: "thesis", content: "x" },
+        headers: { Origin: "https://example.test" },
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await page.request.post("/api/memories", {
+        data: { kind: "nonsense", content: "x" },
+        headers: origin,
+      })
+    ).status(),
+  ).toBe(400);
+
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name: "Memory" })
+    .click();
+  const panel = page.getByRole("region", { name: "Assistant memory" });
+  await expect(panel.getByText("Nothing remembered yet")).toBeVisible();
+  await panel.getByRole("button", { name: "Add" }).click();
+  await panel
+    .getByRole("textbox", { name: "Memory" })
+    .fill("Long ASML as an EUV monopoly");
+  await panel.getByRole("textbox", { name: "Symbols" }).fill("asml.as");
+  await panel.getByRole("button", { name: "Save memory" }).click();
+  await expect(panel.getByText("Long ASML as an EUV monopoly")).toBeVisible();
+  await expect(panel.getByText("ASML.AS", { exact: true })).toBeVisible();
+
+  const listed = await (await page.request.get("/api/memories")).json();
+  expect(listed).toHaveLength(1);
+  expect(listed[0]).toMatchObject({
+    kind: "thesis",
+    content: "Long ASML as an EUV monopoly",
+    symbols: ["ASML.AS"],
+  });
+
+  const viaApi = await page.request.post("/api/memories", {
+    data: { kind: "preference", content: "Prefers EUR figures" },
+    headers: origin,
+  });
+  expect(viaApi.status()).toBe(201);
+  const created = await viaApi.json();
+  const duplicate = await page.request.post("/api/memories", {
+    data: { kind: "preference", content: "Prefers EUR figures" },
+    headers: origin,
+  });
+  expect((await duplicate.json()).id).toBe(created.id);
+  const patched = await page.request.patch(`/api/memories/${created.id}`, {
+    data: { kind: "preference", content: "Prefers GBP figures" },
+    headers: origin,
+  });
+  expect(patched.status()).toBe(200);
+  expect((await patched.json()).content).toBe("Prefers GBP figures");
+
+  await page.reload();
+  await expect(panel.getByText("Prefers GBP figures")).toBeVisible();
+  const item = panel
+    .locator(".memory-item")
+    .filter({ hasText: "Long ASML as an EUV monopoly" });
+  await item.getByRole("button", { name: "Edit memory" }).click();
+  await panel
+    .getByRole("textbox", { name: "Memory" })
+    .fill("Long ASML; trim above 30x forward");
+  await panel.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    panel.getByText("Long ASML; trim above 30x forward"),
+  ).toBeVisible();
+  await panel
+    .locator(".memory-item")
+    .filter({ hasText: "Prefers GBP figures" })
+    .getByRole("button", { name: "Delete memory" })
+    .click();
+  await expect(panel.getByText("Prefers GBP figures")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await (await page.request.get("/api/memories")).json()).map(
+        (memory: { content: string }) => memory.content,
+      ),
+    )
+    .toEqual(["Long ASML; trim above 30x forward"]);
+  expect(
+    (
+      await page.request.delete(`/api/memories/${created.id}`, {
+        headers: origin,
+      })
+    ).status(),
+  ).toBe(404);
+});
+
+test("the chat API answers 503 JSON without AI and the assistant falls back cleanly", async ({
+  page,
+}) => {
+  const anonymous = await page.request.post("/api/chat", {
+    data: { id: "t1", messages: [] },
+    headers: origin,
+  });
+  expect(anonymous.status()).toBe(401);
+  await openPreview(page);
+  const response = await page.request.post("/api/chat", {
+    data: {
+      id: "fallback-thread",
+      messages: [
+        { id: "m1", role: "user", parts: [{ type: "text", text: "Hello" }] },
+      ],
+    },
+    headers: origin,
+  });
+  expect(response.status()).toBe(503);
+  expect(response.headers()["content-type"]).toContain("application/json");
+  expect(typeof (await response.json()).error).toBe("string");
+  await page
+    .locator(".topbar-actions")
+    .getByRole("button", { name: "Ask Stockwatcher" })
+    .click();
+  await expect(page.getByRole("textbox", { name: "Request" })).toBeVisible();
+});
+
+test("threads are private to the account that created them", async ({
+  page,
+  browser,
+}) => {
+  expect((await page.request.get("/api/threads")).status()).toBe(401);
+  await signIn(page, "Alice");
+  const id = await seedThread(page, "Alice's private thesis");
+  const mine = await (await page.request.get("/api/threads")).json();
+  expect(mine.map((thread: { id: string }) => thread.id)).toContain(id);
+  expect((await page.request.get(`/api/threads/${id}`)).status()).toBe(200);
+
+  const bobContext = await browser.newContext({
+    baseURL: "http://127.0.0.1:3290",
+  });
+  const bob = await bobContext.newPage();
+  await signIn(bob, "Bob");
+  const theirs = await (await bob.request.get("/api/threads")).json();
+  expect(theirs.map((thread: { id: string }) => thread.id)).not.toContain(id);
+  expect((await bob.request.get(`/api/threads/${id}`)).status()).toBe(404);
+  expect(
+    (
+      await bob.request.delete(`/api/threads/${id}`, { headers: origin })
+    ).status(),
+  ).toBe(404);
+  await bobContext.close();
+
+  expect((await page.request.get(`/api/threads/${id}`)).status()).toBe(200);
+  expect(
+    (
+      await page.request.delete(`/api/threads/${id}`, {
+        headers: { Origin: "https://example.test" },
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await page.request.delete(`/api/threads/${id}`, { headers: origin })
+    ).status(),
+  ).toBe(200);
+  expect((await page.request.get(`/api/threads/${id}`)).status()).toBe(404);
 });

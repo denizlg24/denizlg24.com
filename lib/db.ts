@@ -41,6 +41,22 @@ function sqlite() {
     CREATE TABLE IF NOT EXISTS workspaces (
       user_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+      content TEXT NOT NULL, symbols TEXT NOT NULL,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS memories_user ON memories(user_id, updated_at);
+    CREATE TABLE IF NOT EXISTS threads (
+      user_id TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
+      messages TEXT NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS threads_user ON threads(user_id, updated_at);
+    CREATE TABLE IF NOT EXISTS briefs (
+      user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
+      generated_at TEXT NOT NULL, PRIMARY KEY (user_id, date)
+    );
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -65,6 +81,22 @@ function pg(url: string) {
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_workspaces (
         user_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data JSONB NOT NULL
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_memories (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+        content TEXT NOT NULL, symbols JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_memories_user ON stockwatcher_memories(user_id, updated_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_threads (
+        user_id TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
+        messages JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_threads_user ON stockwatcher_threads(user_id, updated_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_briefs (
+        user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (user_id, date)
+      )`;
     });
     return db;
   })().catch(async (error) => {
@@ -73,6 +105,17 @@ function pg(url: string) {
     throw error;
   });
   return globals.stockwatcherPg;
+}
+
+export type Store =
+  | { kind: "pg"; sql: postgres.Sql }
+  | { kind: "sqlite"; db: DatabaseSync };
+
+export async function store(): Promise<Store> {
+  const url = process.env.DATABASE_URL;
+  return url
+    ? { kind: "pg", sql: await pg(url) }
+    : { kind: "sqlite", db: sqlite() };
 }
 
 export async function checkDatabase() {

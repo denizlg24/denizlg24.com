@@ -13,10 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
-import { Empty, PanelHeading } from "./shared";
+import { Empty, PanelHeading, SectionFoot, SymbolLink } from "./shared";
 import { symbolSchema, type Workspace } from "@/lib/models";
 import { useQuotes } from "./market-widgets";
-import { amount, marketTime } from "@/lib/utils";
+import { amount, marketTime, percent } from "@/lib/utils";
 
 type Rule = Workspace["alerts"][number];
 
@@ -60,7 +60,7 @@ export function Alerts({
     clearProposed();
   };
   return (
-    <section className="panel">
+    <section className="panel alerts-panel">
       <PanelHeading
         title="Price alerts"
         subtitle={
@@ -80,102 +80,143 @@ export function Alerts({
         </Button>
       </PanelHeading>
       {alerts.length ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Symbol</TableHead>
-              <TableHead>Threshold</TableHead>
-              <TableHead className="text-right">Last quote</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Last triggered</TableHead>
-              <TableHead>
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {alerts.map((item) => {
-              const quote = quotes.get(item.symbol);
-              return (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => select(item.symbol)}
-                    >
-                      {item.symbol}
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    {item.direction === "above" ? "At or above" : "At or below"}{" "}
-                    {amount(item.target)} {quote?.currency}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {amount(quote?.price)} {quote?.currency}
-                  </TableCell>
-                  <TableCell>
-                    {item.enabled
-                      ? "Armed"
-                      : item.lastTriggered
-                        ? "Triggered"
-                        : "Paused"}
-                  </TableCell>
-                  <TableCell>
-                    {item.lastTriggered
-                      ? `${marketTime(Date.parse(item.lastTriggered) / 1000)} · ${amount(item.triggeredPrice)}`
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="row-actions">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={item.enabled ? "Pause alert" : "Arm alert"}
-                        onClick={() =>
-                          void save((workspace) => ({
-                            ...workspace,
-                            alerts: workspace.alerts.map((entry) =>
-                              entry.id === item.id
-                                ? { ...entry, enabled: !entry.enabled }
-                                : entry,
-                            ),
-                          })).catch((error: Error) =>
-                            notify(error.message, true),
-                          )
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Symbol</TableHead>
+                <TableHead className="col-mid">Condition</TableHead>
+                <TableHead className="text-right">Target</TableHead>
+                <TableHead className="text-right col-mid">Last</TableHead>
+                <TableHead className="text-right">To target</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="col-wide">Last triggered</TableHead>
+                <TableHead>
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {alerts.map((item) => {
+                const quote = quotes.get(item.symbol);
+                const distance = quote?.price
+                  ? (item.target / quote.price - 1) * 100
+                  : null;
+                const status = item.enabled
+                  ? "Armed"
+                  : item.lastTriggered
+                    ? "Triggered"
+                    : "Paused";
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <SymbolLink
+                        symbol={item.symbol}
+                        select={select}
+                        label={quote?.name}
+                      />
+                    </TableCell>
+                    <TableCell className="muted col-mid">
+                      {item.direction === "above"
+                        ? "At or above"
+                        : "At or below"}
+                    </TableCell>
+                    <TableCell className="text-right strong-cell">
+                      <span
+                        className="muted alert-direction"
+                        aria-label={
+                          item.direction === "above"
+                            ? "at or above"
+                            : "at or below"
                         }
                       >
-                        {item.enabled ? <BellOff /> : <Bell />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Edit alert"
-                        onClick={() => {
-                          setRule(item);
-                          setModal("edit");
-                        }}
+                        {item.direction === "above" ? "≥" : "≤"}
+                      </span>{" "}
+                      {amount(item.target)}{" "}
+                      <small className="muted">{quote?.currency}</small>
+                    </TableCell>
+                    <TableCell className="text-right col-mid">
+                      {amount(quote?.price)}
+                    </TableCell>
+                    <TableCell className="text-right muted">
+                      {percent(distance)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="status"
+                        data-status={status.toLowerCase()}
                       >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Delete alert"
-                        onClick={() => {
-                          setRule(item);
-                          setModal("delete");
-                        }}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                        {status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="muted col-wide">
+                      {item.lastTriggered
+                        ? `${marketTime(Date.parse(item.lastTriggered) / 1000)} · ${amount(item.triggeredPrice)}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="row-actions row-actions-end">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={
+                            item.enabled ? "Pause alert" : "Arm alert"
+                          }
+                          onClick={() =>
+                            void save((workspace) => ({
+                              ...workspace,
+                              alerts: workspace.alerts.map((entry) =>
+                                entry.id === item.id
+                                  ? { ...entry, enabled: !entry.enabled }
+                                  : entry,
+                              ),
+                            })).catch((error: Error) =>
+                              notify(error.message, true),
+                            )
+                          }
+                        >
+                          {item.enabled ? <BellOff /> : <Bell />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Edit alert"
+                          onClick={() => {
+                            setRule(item);
+                            setModal("edit");
+                          }}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Delete alert"
+                          onClick={() => {
+                            setRule(item);
+                            setModal("delete");
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <SectionFoot>
+            <span>
+              {data?.source ?? "Market data"} · targets in each listing’s quote
+              currency
+            </span>
+            <span>
+              {alerts.filter((item) => item.enabled).length} of {alerts.length}{" "}
+              armed
+            </span>
+          </SectionFoot>
+        </>
       ) : (
         <Empty title="No price alerts">
           Add a target to track when a symbol reaches a price.

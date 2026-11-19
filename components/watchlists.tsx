@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,13 +12,66 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { amount, compact, marketTime } from "@/lib/utils";
-import { symbolSchema, type Workspace } from "@/lib/models";
-import { Change, Empty, Failure, Loading, PanelHeading } from "./shared";
+import { amount, compact, marketTime, tone } from "@/lib/utils";
+import { symbolSchema, type Quote, type Workspace } from "@/lib/models";
+import {
+  Change,
+  Empty,
+  Failure,
+  Loading,
+  PanelHeading,
+  quoteTime,
+  SectionFoot,
+  signed,
+  SortHead,
+  SymbolLink,
+  useSort,
+} from "./shared";
 import { useQuotes } from "./market-widgets";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
 
 type List = Workspace["watchlists"][number];
+type WatchRow = { ticker: string; quote?: Quote };
+
+const rangePosition = (quote?: Quote) =>
+  quote?.yearHigh != null &&
+  quote.yearLow != null &&
+  quote.yearHigh > quote.yearLow
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          ((quote.price - quote.yearLow) / (quote.yearHigh - quote.yearLow)) *
+            100,
+        ),
+      )
+    : null;
+
+const watchSort = {
+  symbol: (row: WatchRow) => row.ticker,
+  name: (row: WatchRow) => row.quote?.name,
+  price: (row: WatchRow) => row.quote?.price,
+  change: (row: WatchRow) => row.quote?.change,
+  percent: (row: WatchRow) => row.quote?.percent,
+  range: (row: WatchRow) => rangePosition(row.quote),
+  volume: (row: WatchRow) => row.quote?.volume,
+};
+
+function YearRange({ quote }: { quote?: Quote }) {
+  const position = rangePosition(quote);
+  if (position == null || !quote) return <span className="muted">—</span>;
+  return (
+    <span
+      className="year-range"
+      title={`52-week low ${amount(quote.yearLow)} · high ${amount(quote.yearHigh)}`}
+    >
+      <span className="sr-only">{Math.round(position)}% of 52-week range</span>
+      <i aria-hidden>
+        <b style={{ insetInlineStart: `${position}%` }} />
+      </i>
+    </span>
+  );
+}
 
 export function AddSymbolDialog({
   lists,
@@ -155,6 +208,14 @@ export function Watchlists({
     refresh,
   );
   const bySymbol = new Map(data?.quotes.map((item) => [item.symbol, item]));
+  const rows: WatchRow[] = (current?.symbols ?? []).map((ticker) => ({
+    ticker,
+    quote: bySymbol.get(ticker),
+  }));
+  const { sorted, sort, toggle } = useSort(rows, watchSort, {
+    key: "symbol",
+    dir: "asc",
+  });
   return (
     <>
       <div className="view-grid">
@@ -192,7 +253,7 @@ export function Watchlists({
             title={current?.name ?? "Watchlist"}
             subtitle={
               current
-                ? `${current.symbols.length} symbols${data?.source ? ` · ${data.source}` : ""}`
+                ? `${current.symbols.length} ${current.symbols.length === 1 ? "symbol" : "symbols"} · session moves`
                 : undefined
             }
           >
@@ -224,50 +285,111 @@ export function Watchlists({
           {isLoading ? (
             <Loading />
           ) : current?.symbols.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Symbol</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead className="text-right">Last</TableHead>
-                  <TableHead className="text-right">Session</TableHead>
-                  <TableHead className="text-right">Volume</TableHead>
-                  <TableHead>Quote time</TableHead>
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {current.symbols.map((ticker) => {
-                  const quote = bySymbol.get(ticker);
-                  return (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortHead
+                      label="Symbol"
+                      column="symbol"
+                      sort={sort}
+                      toggle={toggle}
+                    />
+                    <SortHead
+                      className="col-mid"
+                      label="Company"
+                      column="name"
+                      sort={sort}
+                      toggle={toggle}
+                    />
+                    <SortHead
+                      label="Last"
+                      column="price"
+                      sort={sort}
+                      toggle={toggle}
+                      numeric
+                    />
+                    <TableHead>Ccy</TableHead>
+                    <SortHead
+                      label="Change"
+                      column="change"
+                      sort={sort}
+                      toggle={toggle}
+                      numeric
+                    />
+                    <SortHead
+                      label="Session"
+                      column="percent"
+                      sort={sort}
+                      toggle={toggle}
+                      numeric
+                    />
+                    <SortHead
+                      className="col-wide"
+                      label="52w range"
+                      column="range"
+                      sort={sort}
+                      toggle={toggle}
+                      numeric
+                    />
+                    <SortHead
+                      className="col-wide"
+                      label="Volume"
+                      column="volume"
+                      sort={sort}
+                      toggle={toggle}
+                      numeric
+                    />
+                    <TableHead className="text-right col-wide">Time</TableHead>
+                    <TableHead>
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map(({ ticker, quote }) => (
                     <TableRow key={ticker}>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => select(ticker)}
-                        >
-                          {ticker} <ArrowRight />
-                        </Button>
+                        <SymbolLink
+                          symbol={ticker}
+                          select={select}
+                          label={quote?.name}
+                        />
                       </TableCell>
-                      <TableCell>{quote?.name ?? "Unavailable"}</TableCell>
-                      <TableCell className="text-right">
-                        {amount(quote?.price)} {quote?.currency}
+                      <TableCell className="truncate-cell col-mid">
+                        {quote?.name ?? (
+                          <span className="muted">Unavailable</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right strong-cell">
+                        {amount(quote?.price)}
+                      </TableCell>
+                      <TableCell className="muted">
+                        {quote?.currency ?? ""}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right ${tone(quote?.change)}`}
+                      >
+                        {signed(quote?.change)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Change value={quote?.percent} />
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right col-wide">
+                        <YearRange quote={quote} />
+                      </TableCell>
+                      <TableCell className="text-right muted col-wide">
                         {compact(quote?.volume)}
                       </TableCell>
-                      <TableCell>
-                        {quote ? marketTime(quote.time) : "—"}
+                      <TableCell
+                        className="text-right muted col-wide"
+                        title={quote ? marketTime(quote.time) : undefined}
+                      >
+                        {quoteTime(quote?.time)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right">
                         <Button
-                          size="icon-sm"
+                          size="icon-xs"
                           variant="ghost"
                           aria-label={`Remove ${ticker}`}
                           onClick={() => setRemove(ticker)}
@@ -276,15 +398,39 @@ export function Watchlists({
                         </Button>
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+              <SectionFoot>
+                <span>
+                  {data?.source ?? "Market data"} · prices in each listing’s
+                  quote currency
+                </span>
+                {data?.missing.length ? (
+                  <span>Unavailable: {data.missing.join(", ")}</span>
+                ) : null}
+              </SectionFoot>
+            </>
           ) : (
-            <Empty title={current ? "No symbols yet" : "Choose a watchlist"}>
-              {current
-                ? "Add tickers to get their latest prices and session moves."
-                : "Your lists will appear here."}
+            <Empty title={current ? "No symbols yet" : "No watchlist yet"}>
+              {current ? (
+                "Add tickers to get their latest prices and session moves."
+              ) : (
+                <>
+                  <p>
+                    Group the names you follow to see live quotes, session moves
+                    and headlines side by side.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="empty-action"
+                    onClick={() => setEditor("new")}
+                  >
+                    <Plus /> Create a watchlist
+                  </Button>
+                </>
+              )}
             </Empty>
           )}
         </section>

@@ -4,13 +4,11 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
 import {
-  Activity,
   ArrowDown,
   ArrowRight,
   ArrowUp,
   ChartCandlestick,
   ChartNoAxesCombined,
-  ChevronDown,
   Grid2X2,
   List,
   Plus,
@@ -41,7 +39,12 @@ import {
   Failure,
   Loading,
   PanelHeading,
+  quoteTime,
+  signed,
+  SortHead,
   SourceLink,
+  SymbolLink,
+  useSort,
 } from "./shared";
 import {
   benchmarks,
@@ -57,7 +60,7 @@ import type {
   Quote,
   Workspace,
 } from "@/lib/models";
-import { amount, compact, marketTime, number, percent } from "@/lib/utils";
+import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
 
 const PriceChart = dynamic(() => import("./price-chart"), {
   ssr: false,
@@ -126,7 +129,7 @@ export function Benchmarks({
                   {isLoading ? (
                     <i className="number-placeholder" />
                   ) : quote ? (
-                    number(quote.price)
+                    amount(quote.price)
                   ) : (
                     "—"
                   )}
@@ -180,14 +183,12 @@ export function ChartPanel({
     <section className="panel chart-panel">
       <div className="chart-heading">
         <div className="ticker-identity">
-          <span className="ticker-icon">
-            <Activity size={19} />
-          </span>
           <div>
             <h2>{title}</h2>
             <p>
               {ticker}
               {snapshot?.exchange ? ` · ${snapshot.exchange}` : ""}
+              {unit ? ` · ${unit}` : ""}
             </p>
           </div>
         </div>
@@ -217,20 +218,20 @@ export function ChartPanel({
       <div className="price-hero">
         <strong>{amount(snapshot?.price)}</strong>
         <span className="currency">{unit}</span>
+        <span className={`price-delta ${tone(snapshot?.change)}`}>
+          {signed(snapshot?.change)}
+        </span>
         <Change value={snapshot?.percent} arrows />
-        <span className="period-label">session</span>
+        <span className="period-label">
+          session{snapshot ? ` · ${quoteTime(snapshot.time)}` : ""}
+        </span>
       </div>
       <div className="chart-toolbar">
-        <div
-          className="segmented"
-          role="group"
-          aria-label="Price history period"
-        >
+        <div className="seg" role="group" aria-label="Price history period">
           {(Object.keys(ranges) as Range[]).map((option) => (
-            <Button
+            <button
+              type="button"
               key={option}
-              variant={!since && option === range ? "secondary" : "ghost"}
-              size="sm"
               onClick={() => {
                 setRange(option);
                 if (since) clearSince?.();
@@ -238,47 +239,47 @@ export function ChartPanel({
               aria-pressed={!since && option === range}
             >
               {option}
-            </Button>
+            </button>
           ))}
         </div>
         <div className="row-actions chart-toggles">
-          <Button
-            variant={style === "area" ? "secondary" : "ghost"}
-            size="icon-sm"
-            aria-label="Line chart"
-            title="Line chart"
-            aria-pressed={style === "area"}
-            onClick={() => setStyle("area")}
-          >
-            <ChartNoAxesCombined />
-          </Button>
-          <Button
-            variant={style === "candles" ? "secondary" : "ghost"}
-            size="icon-sm"
-            aria-label="Candlestick chart"
-            title="Candlestick chart"
-            aria-pressed={style === "candles"}
-            onClick={() => setStyle("candles")}
-          >
-            <ChartCandlestick />
-          </Button>
-          <Button
-            variant={average ? "secondary" : "ghost"}
-            size="sm"
+          <div className="seg" role="group" aria-label="Chart style">
+            <button
+              type="button"
+              aria-label="Line chart"
+              title="Line chart"
+              aria-pressed={style === "area"}
+              onClick={() => setStyle("area")}
+            >
+              <ChartNoAxesCombined aria-hidden />
+            </button>
+            <button
+              type="button"
+              aria-label="Candlestick chart"
+              title="Candlestick chart"
+              aria-pressed={style === "candles"}
+              onClick={() => setStyle("candles")}
+            >
+              <ChartCandlestick aria-hidden />
+            </button>
+          </div>
+          <button
+            type="button"
+            className="chip"
             title="20-bar simple moving average"
             aria-pressed={average}
             onClick={() => setAverage(!average)}
           >
             SMA 20
-          </Button>
-          <Button
-            variant={volume ? "secondary" : "ghost"}
-            size="sm"
+          </button>
+          <button
+            type="button"
+            className="chip"
             aria-pressed={volume}
             onClick={() => setVolume(!volume)}
           >
             Volume
-          </Button>
+          </button>
         </div>
       </div>
       {since ? (
@@ -305,6 +306,7 @@ export function ChartPanel({
         <span>
           {data?.source ?? quoteData?.source ?? "Market data"}
           {snapshot ? ` · ${marketTime(snapshot.time)}` : ""}
+          {unit ? ` · ${unit}` : ""}
         </span>
         {periodChange != null ? (
           <span>
@@ -428,6 +430,16 @@ const sortedGroups = [
   "Health Care",
 ];
 
+type MapRow = Instrument & { quote?: Quote; change?: number | null };
+const mapSort = {
+  symbol: (row: MapRow) => row.symbol,
+  name: (row: MapRow) => row.quote?.name ?? row.name,
+  sector: (row: MapRow) => row.sector,
+  price: (row: MapRow) => row.quote?.price,
+  change: (row: MapRow) => row.change,
+  volume: (row: MapRow) => row.quote?.volume,
+};
+
 function heatTone(value?: number | null) {
   if (value == null) return "heat-missing";
   if (value >= 2) return "heat-gain-strong";
@@ -462,7 +474,6 @@ export function MarketMap({
 }) {
   const [mode, setMode] = useState<"map" | "table">("map");
   const [filter, setFilter] = useState("");
-  const [direction, setDirection] = useState<"gain" | "loss">("gain");
   const { data, error, mutate, isLoading } = useSWR<QuotesData>(
     marketURL({
       ...(universe ? { universe } : {}),
@@ -498,17 +509,10 @@ export function MarketMap({
           ),
       );
   }, [data, filter, since]);
-  const sorted = useMemo(
-    () =>
-      rows.toSorted((a, b) => {
-        const multiplier = direction === "gain" ? 1 : -1;
-        return (
-          (b.change == null ? -Infinity : b.change * multiplier) -
-          (a.change == null ? -Infinity : a.change * multiplier)
-        );
-      }),
-    [rows, direction],
-  );
+  const { sorted, sort, toggle } = useSort(rows, mapSort, {
+    key: "change",
+    dir: "desc",
+  });
   const groups = new Map<string, typeof rows>();
   for (const row of compactView ? rows.slice(0, 12) : rows) {
     const group = universe === "S&P 500" ? (row.sector ?? "Other") : "All";
@@ -541,25 +545,25 @@ export function MarketMap({
             Explore <ArrowRight />
           </Button>
         ) : (
-          <div className="row-actions">
-            <Button
-              variant={mode === "map" ? "secondary" : "ghost"}
-              size="icon-sm"
+          <div className="seg" role="group" aria-label="Display">
+            <button
+              type="button"
               aria-label="Heat map"
+              title="Heat map"
               aria-pressed={mode === "map"}
               onClick={() => setMode("map")}
             >
-              <Grid2X2 />
-            </Button>
-            <Button
-              variant={mode === "table" ? "secondary" : "ghost"}
-              size="icon-sm"
+              <Grid2X2 aria-hidden />
+            </button>
+            <button
+              type="button"
               aria-label="Table view"
+              title="Table view"
               aria-pressed={mode === "table"}
               onClick={() => setMode("table")}
             >
-              <List />
-            </Button>
+              <List aria-hidden />
+            </button>
           </div>
         )}
       </PanelHeading>
@@ -639,46 +643,72 @@ export function MarketMap({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Symbol</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Sector</TableHead>
-                <TableHead className="text-right">Last</TableHead>
-                <TableHead className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      setDirection(direction === "gain" ? "loss" : "gain")
-                    }
-                  >
-                    Change{" "}
-                    {direction === "gain" ? <ChevronDown /> : <ArrowUp />}
-                  </Button>
-                </TableHead>
-                <TableHead className="text-right">Volume</TableHead>
+                <SortHead
+                  label="Symbol"
+                  column="symbol"
+                  sort={sort}
+                  toggle={toggle}
+                />
+                <SortHead
+                  label="Company"
+                  column="name"
+                  sort={sort}
+                  toggle={toggle}
+                />
+                <SortHead
+                  label="Sector"
+                  column="sector"
+                  sort={sort}
+                  toggle={toggle}
+                />
+                <SortHead
+                  label="Last"
+                  column="price"
+                  sort={sort}
+                  toggle={toggle}
+                  numeric
+                />
+                <TableHead>Ccy</TableHead>
+                <SortHead
+                  label={since ? "Since" : "Change"}
+                  column="change"
+                  sort={sort}
+                  toggle={toggle}
+                  numeric
+                />
+                <SortHead
+                  label="Volume"
+                  column="volume"
+                  sort={sort}
+                  toggle={toggle}
+                  numeric
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               {sorted.map((item) => (
                 <TableRow key={item.symbol}>
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => select(item.symbol)}
-                    >
-                      {item.symbol}
-                    </Button>
+                    <SymbolLink
+                      symbol={item.symbol}
+                      select={select}
+                      label={item.quote?.name ?? item.name}
+                    />
                   </TableCell>
-                  <TableCell>{item.quote?.name ?? item.name}</TableCell>
-                  <TableCell>{item.sector ?? "—"}</TableCell>
+                  <TableCell className="truncate-cell">
+                    {item.quote?.name ?? item.name}
+                  </TableCell>
+                  <TableCell className="muted">{item.sector ?? "—"}</TableCell>
                   <TableCell className="text-right">
-                    {amount(item.quote?.price)} {item.quote?.currency}
+                    {amount(item.quote?.price)}
+                  </TableCell>
+                  <TableCell className="muted">
+                    {item.quote?.currency ?? ""}
                   </TableCell>
                   <TableCell className="text-right">
                     <Change value={item.change} />
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right muted">
                     {compact(item.quote?.volume)}
                   </TableCell>
                 </TableRow>

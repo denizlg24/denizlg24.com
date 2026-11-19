@@ -6,7 +6,6 @@ import { companyResearch } from "@/lib/research";
 import { universes, symbolPattern } from "@/lib/universes";
 import { managers } from "@/lib/research-types";
 import { amount, percent } from "@/lib/utils";
-import { aiResearch, aiResearchEnabled } from "@/lib/ai-research";
 import { dashboardSchema, type AssistantResult } from "@/lib/assistant-types";
 import { editDashboard, parseStart } from "@/lib/assistant-commands";
 
@@ -65,33 +64,6 @@ export async function POST(request: Request) {
     json(
       response.view === "markets" && since ? { ...response, since } : response,
     );
-  if (input.data.web) {
-    if (user.demo || !aiResearchEnabled())
-      return json(
-        { error: "Web research is unavailable for this session." },
-        503,
-      );
-    try {
-      return reply(await aiResearch(query, selected, request.signal));
-    } catch (error) {
-      console.warn("Stockwatcher Gateway research failed", {
-        name: error instanceof Error ? error.name : "UnknownError",
-        status:
-          error instanceof Object &&
-          "status" in error &&
-          typeof error.status === "number"
-            ? error.status
-            : undefined,
-      });
-      return json(
-        {
-          error:
-            "Web research could not complete. Try a shorter question or use the dashboard lookup.",
-        },
-        502,
-      );
-    }
-  }
   const date = query.match(/\bsince\s+(.+)$/i);
   if (date) {
     since = parseStart(date[1]);

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   ArrowDownToLine,
-  ArrowRight,
   ArrowUpFromLine,
   Pencil,
   Plus,
@@ -21,10 +20,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { amount, number, today, tone } from "@/lib/utils";
+import { amount, number, percent, today, tone } from "@/lib/utils";
 import { workspaceSchema, type Trade, type Workspace } from "@/lib/models";
-import { positionsFor, valuePosition } from "@/lib/portfolio";
-import { Empty, Failure, PanelHeading } from "./shared";
+import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
+import {
+  Empty,
+  Failure,
+  PanelHeading,
+  quoteTime,
+  SectionFoot,
+  signed,
+  SortHead,
+  SymbolLink,
+  useSort,
+} from "./shared";
 import { useQuotes } from "./market-widgets";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
 
@@ -38,6 +47,40 @@ const columns = [
   "currency",
   "fees",
 ];
+
+type PositionRow = Position &
+  ReturnType<typeof valuePosition> & {
+    name?: string;
+    average: number;
+    dayPercent: number | null;
+    unrealizedPercent: number | null;
+    weight: number | null;
+  };
+
+const positionSort = {
+  symbol: (row: PositionRow) => row.symbol,
+  quantity: (row: PositionRow) => row.quantity,
+  average: (row: PositionRow) => row.average,
+  price: (row: PositionRow) => row.price,
+  dayPercent: (row: PositionRow) => row.dayPercent,
+  marketValue: (row: PositionRow) => row.marketValue,
+  weight: (row: PositionRow) => row.weight,
+  dayChange: (row: PositionRow) => row.dayChange,
+  unrealized: (row: PositionRow) => row.unrealized,
+  unrealizedPercent: (row: PositionRow) => row.unrealizedPercent,
+};
+
+function Weight({ value }: { value: number | null }) {
+  if (value == null) return <span className="muted">—</span>;
+  return (
+    <span className="weight">
+      {number(value)}%
+      <span className="weight-bar" aria-hidden>
+        <i style={{ inlineSize: `${Math.min(100, Math.max(0, value))}%` }} />
+      </span>
+    </span>
+  );
+}
 
 function parseTrade(
   fields: Record<string, string>,
@@ -111,22 +154,37 @@ export function Portfolio({
   const quoteBySymbol = new Map(
     data?.quotes.map((item) => [item.symbol, item]),
   );
-  const values = open.map((item) => ({
-    ...item,
-    ...valuePosition(item, quoteBySymbol.get(item.symbol)),
-  }));
   const totals = [...new Set(positions.map((item) => item.currency))].map(
     (currency) => {
-      const match = values.filter((item) => item.currency === currency);
+      const match = open
+        .filter((item) => item.currency === currency)
+        .map((item) => ({
+          ...item,
+          ...valuePosition(item, quoteBySymbol.get(item.symbol)),
+        }));
+      const priced = match.filter((item) => item.marketValue != null);
+      const value = priced.reduce(
+        (sum, item) => sum + (item.marketValue ?? 0),
+        0,
+      );
+      const day = match.reduce((sum, item) => sum + (item.dayChange ?? 0), 0);
+      const pricedCost = priced.reduce((sum, item) => sum + item.cost, 0);
+      const unrealized = priced.reduce(
+        (sum, item) => sum + (item.unrealized ?? 0),
+        0,
+      );
       return {
         currency,
-        value: match.reduce((sum, item) => sum + (item.marketValue ?? 0), 0),
-        missing: match.filter((item) => item.marketValue == null).length,
+        value,
+        cost: match.reduce((sum, item) => sum + item.cost, 0),
+        missing: match.length - priced.length,
         count: match.length,
-        unrealized: match.reduce(
-          (sum, item) => sum + (item.unrealized ?? 0),
-          0,
-        ),
+        day,
+        dayPercent:
+          priced.length && value - day ? (day / (value - day)) * 100 : null,
+        unrealized,
+        unrealizedPercent:
+          priced.length && pricedCost ? (unrealized / pricedCost) * 100 : null,
         realized: positions
           .filter((item) => item.currency === currency)
           .reduce((sum, item) => sum + item.realized, 0),
@@ -135,6 +193,34 @@ export function Portfolio({
   );
   const totalByCurrency = new Map(
     totals.map((total) => [total.currency, total]),
+  );
+  const rows: PositionRow[] = open.map((item) => {
+    const quote = quoteBySymbol.get(item.symbol);
+    const valued = valuePosition(item, quote);
+    const total = totalByCurrency.get(item.currency);
+    return {
+      ...item,
+      ...valued,
+      name: quote?.currency === item.currency ? quote.name : undefined,
+      average: item.cost / item.quantity,
+      dayPercent: quote?.currency === item.currency ? quote.percent : null,
+      unrealizedPercent:
+        valued.unrealized != null && item.cost
+          ? (valued.unrealized / item.cost) * 100
+          : null,
+      weight:
+        total?.value && !total.missing && valued.marketValue != null
+          ? (valued.marketValue / total.value) * 100
+          : null,
+    };
+  });
+  const { sorted, sort, toggle } = useSort(rows, positionSort, {
+    key: "weight",
+    dir: "desc",
+  });
+  const quotedAt = data?.quotes.reduce(
+    (latest, item) => Math.max(latest, item.time),
+    0,
   );
   const close = () => {
     setDialog(null);
@@ -185,7 +271,11 @@ export function Portfolio({
         <section className="panel detail-panel">
           <PanelHeading
             title={book?.name ?? "Portfolio"}
-            subtitle="Average cost and position weights by quote currency"
+            subtitle={
+              book
+                ? `${open.length} open ${open.length === 1 ? "position" : "positions"} · ${trades.length} ${trades.length === 1 ? "transaction" : "transactions"} · average cost basis`
+                : undefined
+            }
           >
             {book ? (
               <div className="row-actions">
@@ -212,35 +302,81 @@ export function Portfolio({
             ) : null}
           </PanelHeading>
           {totals.length ? (
-            <div className="portfolio-totals">
-              {totals.map((item) => (
-                <div key={item.currency}>
-                  <span>
-                    {item.currency} market value
-                    {item.missing ? " · partial" : ""}
-                  </span>
-                  <strong>
-                    {item.missing && item.missing === item.count
-                      ? "—"
-                      : amount(item.value)}
-                  </strong>
-                  <small>
-                    Realized P/L{" "}
-                    <b className={tone(item.realized)}>
-                      {amount(item.realized)}
-                    </b>{" "}
-                    · Unrealized P/L{" "}
-                    <b className={tone(item.unrealized)}>
-                      {item.missing === item.count && item.count
-                        ? "—"
-                        : amount(item.unrealized)}
-                    </b>
-                  </small>
-                </div>
-              ))}
+            <div className="book-summary">
+              {totals.map((item) => {
+                const unpriced = item.count > 0 && item.missing === item.count;
+                return (
+                  <div className="stat-row" key={item.currency}>
+                    <div className="figure figure-lg">
+                      <span className="figure-label">
+                        Market value · {item.currency}
+                        {item.missing && !unpriced ? " · partial" : ""}
+                      </span>
+                      <strong className="figure-value">
+                        {unpriced ? "—" : amount(item.value)}
+                      </strong>
+                      <span className="figure-sub">
+                        {item.count
+                          ? `${item.count} ${item.count === 1 ? "position" : "positions"} · cost ${amount(item.cost)}`
+                          : "No open positions"}
+                      </span>
+                    </div>
+                    <div className="figure">
+                      <span className="figure-label">Day P/L</span>
+                      <strong className={`figure-value ${tone(item.day)}`}>
+                        {unpriced || !item.count ? "—" : signed(item.day)}
+                      </strong>
+                      <span className={`figure-sub ${tone(item.dayPercent)}`}>
+                        {percent(item.dayPercent)}
+                      </span>
+                    </div>
+                    <div className="figure">
+                      <span className="figure-label">Unrealized P/L</span>
+                      <strong
+                        className={`figure-value ${tone(item.unrealized)}`}
+                      >
+                        {unpriced || !item.count
+                          ? "—"
+                          : signed(item.unrealized)}
+                      </strong>
+                      <span
+                        className={`figure-sub ${tone(item.unrealizedPercent)}`}
+                      >
+                        {percent(item.unrealizedPercent)}
+                        {item.unrealizedPercent != null ? " on cost" : ""}
+                      </span>
+                    </div>
+                    <div className="figure">
+                      <span className="figure-label">Realized P/L</span>
+                      <strong className={`figure-value ${tone(item.realized)}`}>
+                        {signed(item.realized)}
+                      </strong>
+                      <span className="figure-sub">
+                        Closed lots, net of fees
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
           <Failure error={error} retry={mutate} />
+          {!book ? (
+            <Empty title="No portfolio yet">
+              <p>
+                Record buys and sells to track positions at live prices, with
+                day and unrealized P/L per currency.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="empty-action"
+                onClick={() => setDialog("book")}
+              >
+                <Plus /> Create a portfolio
+              </Button>
+            </Empty>
+          ) : null}
           {book ? (
             <Tabs defaultValue="positions" className="detail-tabs">
               <div className="tabs-bar">
@@ -267,72 +403,131 @@ export function Portfolio({
                 </div>
               </div>
               <TabsContent value="positions">
-                {values.length ? (
-                  <Table>
+                {sorted.length ? (
+                  <Table className="positions-table">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead className="text-right">Shares</TableHead>
-                        <TableHead className="text-right">Avg cost</TableHead>
-                        <TableHead className="text-right">Last</TableHead>
-                        <TableHead className="text-right">Value</TableHead>
-                        <TableHead className="text-right">Weight</TableHead>
-                        <TableHead className="text-right">Day P/L</TableHead>
-                        <TableHead className="text-right">
-                          Unrealized P/L
-                        </TableHead>
+                        <SortHead
+                          label="Symbol"
+                          column="symbol"
+                          sort={sort}
+                          toggle={toggle}
+                        />
+                        <SortHead
+                          label="Shares"
+                          column="quantity"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Avg cost"
+                          column="average"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Last"
+                          column="price"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Day %"
+                          column="dayPercent"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Market value"
+                          column="marketValue"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Weight"
+                          column="weight"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Day P/L"
+                          column="dayChange"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Unrealized P/L"
+                          column="unrealized"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
+                        <SortHead
+                          label="Return"
+                          column="unrealizedPercent"
+                          sort={sort}
+                          toggle={toggle}
+                          numeric
+                        />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {values.map((item) => {
-                        const total = totalByCurrency.get(item.currency);
-                        const weight =
-                          total?.value &&
-                          !total.missing &&
-                          item.marketValue != null
-                            ? (item.marketValue / total.value) * 100
-                            : null;
-                        return (
-                          <TableRow key={`${item.symbol}/${item.currency}`}>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => select(item.symbol)}
-                              >
-                                {item.symbol}
-                                <ArrowRight />
-                              </Button>
-                              <small className="muted">{item.currency}</small>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {number(item.quantity)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {amount(item.cost / item.quantity)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {amount(item.price)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {amount(item.marketValue)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {weight == null ? "—" : `${number(weight)}%`}
-                            </TableCell>
-                            <TableCell
-                              className={`text-right ${tone(item.dayChange)}`}
-                            >
-                              {amount(item.dayChange)}
-                            </TableCell>
-                            <TableCell
-                              className={`text-right ${tone(item.unrealized)}`}
-                            >
-                              {amount(item.unrealized)}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {sorted.map((item) => (
+                        <TableRow key={`${item.symbol}/${item.currency}`}>
+                          <TableCell>
+                            <span className="sym-cell">
+                              <SymbolLink
+                                symbol={item.symbol}
+                                select={select}
+                                label={item.name}
+                              />
+                              <small>{item.currency}</small>
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {number(item.quantity)}
+                          </TableCell>
+                          <TableCell className="text-right muted">
+                            {amount(item.average)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {amount(item.price)}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right ${tone(item.dayPercent)}`}
+                          >
+                            {percent(item.dayPercent)}
+                          </TableCell>
+                          <TableCell className="text-right strong-cell">
+                            {amount(item.marketValue)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Weight value={item.weight} />
+                          </TableCell>
+                          <TableCell
+                            className={`text-right ${tone(item.dayChange)}`}
+                          >
+                            {signed(item.dayChange)}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right ${tone(item.unrealized)}`}
+                          >
+                            {signed(item.unrealized)}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right ${tone(item.unrealizedPercent)}`}
+                          >
+                            {percent(item.unrealizedPercent)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 ) : (
@@ -340,11 +535,22 @@ export function Portfolio({
                     Record a buy or import your transaction history.
                   </Empty>
                 )}
-                {values.some((item) => item.marketValue == null) ? (
+                {rows.some((item) => item.marketValue == null) ? (
                   <p className="muted detail-note">
                     Values require a current quote in the trade currency. Totals
                     exclude positions with missing or mismatched quotes.
                   </p>
+                ) : null}
+                {sorted.length ? (
+                  <SectionFoot>
+                    <span>
+                      {data?.source ?? "Market data"}
+                      {quotedAt ? ` · as of ${quoteTime(quotedAt)}` : ""}
+                    </span>
+                    <span>
+                      Weights within each currency · totals never mix currencies
+                    </span>
+                  </SectionFoot>
                 ) : null}
               </TabsContent>
               <TabsContent value="ledger">
@@ -358,6 +564,8 @@ export function Portfolio({
                         <TableHead className="text-right">Shares</TableHead>
                         <TableHead className="text-right">Price</TableHead>
                         <TableHead className="text-right">Fees</TableHead>
+                        <TableHead className="text-right">Net amount</TableHead>
+                        <TableHead>Ccy</TableHead>
                         <TableHead>
                           <span className="sr-only">Actions</span>
                         </TableHead>
@@ -368,25 +576,37 @@ export function Portfolio({
                         .toSorted((a, b) => b.date.localeCompare(a.date))
                         .map((item) => (
                           <TableRow key={item.id}>
-                            <TableCell>{item.date}</TableCell>
-                            <TableCell>{item.symbol}</TableCell>
-                            <TableCell className="capitalize">
-                              {item.side}
+                            <TableCell className="muted">{item.date}</TableCell>
+                            <TableCell className="sym">{item.symbol}</TableCell>
+                            <TableCell>
+                              <span className={`side side-${item.side}`}>
+                                {item.side === "buy" ? "Buy" : "Sell"}
+                              </span>
                             </TableCell>
                             <TableCell className="text-right">
                               {number(item.quantity)}
                             </TableCell>
                             <TableCell className="text-right">
-                              {amount(item.price)} {item.currency}
+                              {amount(item.price)}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-right muted">
                               {amount(item.fees)}
                             </TableCell>
-                            <TableCell>
-                              <div className="row-actions">
+                            <TableCell className="text-right">
+                              {signed(
+                                item.side === "buy"
+                                  ? -(item.quantity * item.price + item.fees)
+                                  : item.quantity * item.price - item.fees,
+                              )}
+                            </TableCell>
+                            <TableCell className="muted">
+                              {item.currency}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="row-actions row-actions-end">
                                 <Button
                                   variant="ghost"
-                                  size="icon-sm"
+                                  size="icon-xs"
                                   aria-label={`Edit ${item.symbol} transaction`}
                                   onClick={() => {
                                     setTrade(item);
@@ -397,7 +617,7 @@ export function Portfolio({
                                 </Button>
                                 <Button
                                   variant="ghost"
-                                  size="icon-sm"
+                                  size="icon-xs"
                                   aria-label={`Delete ${item.symbol} transaction`}
                                   onClick={() => {
                                     setTrade(item);

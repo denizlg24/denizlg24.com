@@ -160,3 +160,9 @@ export type Range = keyof typeof ranges;
 export type Universe = keyof typeof universes;
 
 export const symbolPattern = /^[A-Z0-9^][A-Z0-9.^=\-]{0,19}$/;
+
+export const rangeKeys = Object.keys(ranges) as [Range, ...Range[]];
+export const universeKeys = Object.keys(universes) as [
+  Universe,
+  ...Universe[],
+];

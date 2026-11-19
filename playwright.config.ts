@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
 const baseURL = "http://127.0.0.1:3290";
+process.env.STOCKWATCHER_TEST_DB ??= join(
+  tmpdir(),
+  `stockwatcher-test-${randomUUID()}.sqlite`,
+);
 export default defineConfig({
   testDir: "tests",
   workers: 1,
@@ -14,7 +18,7 @@ export default defineConfig({
       url: "http://127.0.0.1:3291/oidc/.well-known/openid-configuration",
     },
     {
-      command: "npm run dev -- --hostname 127.0.0.1 --port 3290",
+      command: "bun run dev --hostname 127.0.0.1 --port 3290",
       url: `${baseURL}/api/health`,
       env: {
         APP_URL: baseURL,
@@ -23,10 +27,7 @@ export default defineConfig({
         DENIZ_OIDC_CLIENT_SECRET: "TestStockwatcherSecret",
         OIDC_TEST_ALLOW_HTTP: "1",
         DEMO_MODE: "1",
-        STOCKWATCHER_DB_PATH: join(
-          tmpdir(),
-          `stockwatcher-test-${randomUUID()}.sqlite`,
-        ),
+        STOCKWATCHER_DB_PATH: process.env.STOCKWATCHER_TEST_DB,
         ALERT_MONITOR: "0",
         DATABASE_URL: "",
         REQUIRE_DATABASE_URL: "0",

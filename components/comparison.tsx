@@ -4,9 +4,9 @@ import { useState } from "react";
 import useSWR from "swr";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,8 +14,16 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, Change, Empty, Failure, Loading, PanelHeading } from "./shared";
-import { amount, cn } from "@/lib/utils";
+import {
+  api,
+  Change,
+  Empty,
+  Failure,
+  Loading,
+  PanelHeading,
+  SectionFoot,
+} from "./shared";
+import { percent, tone } from "@/lib/utils";
 import { symbolPattern } from "@/lib/universes";
 
 const periods = ["1M", "3M", "6M", "YTD", "1Y"] as const;
@@ -29,12 +37,12 @@ type Comparison = {
 };
 
 const colors = [
-  "var(--gain)",
+  "var(--chart-1)",
   "var(--chart-2)",
-  "#6876ce",
-  "var(--loss)",
-  "#7d61ac",
-  "#087991",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
 ];
 const dayFormat = new Intl.DateTimeFormat("en-GB", {
   month: "short",
@@ -112,23 +120,22 @@ export default function ComparePanel({
             Compare
           </Button>
         </form>
-        <div className="segmented" role="group" aria-label="Comparison period">
-          {since ? (
-            <span>Since {since}</span>
-          ) : (
-            periods.map((item) => (
-              <Button
+        {since ? (
+          <span className="muted">Since {since}</span>
+        ) : (
+          <div className="seg" role="group" aria-label="Comparison period">
+            {periods.map((item) => (
+              <button
+                type="button"
                 key={item}
-                size="sm"
-                variant={item === period ? "secondary" : "ghost"}
                 aria-pressed={item === period}
                 onClick={() => setPeriod(item)}
               >
                 {item}
-              </Button>
-            ))
-          )}
-        </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <Failure
         error={invalid || error}
@@ -139,15 +146,19 @@ export default function ComparePanel({
       ) : data?.points.length ? (
         <>
           <div className="comparison-values">
-            {data.symbols.map((symbol, index) => (
-              <div key={symbol}>
-                <i style={{ background: colors[index] }} />
-                <strong>{symbol}</strong>
-                <Change
-                  value={data.points.at(-1)?.[symbol] as number | undefined}
-                />
-              </div>
-            ))}
+            {data.symbols
+              .map((symbol, index) => ({
+                symbol,
+                color: colors[index],
+                value: data.points.at(-1)?.[symbol],
+              }))
+              .map(({ symbol, color, value }) => (
+                <div key={symbol}>
+                  <i style={{ background: color }} />
+                  <strong>{symbol}</strong>
+                  <Change value={typeof value === "number" ? value : null} />
+                </div>
+              ))}
           </div>
           <div className="price-chart">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -155,43 +166,56 @@ export default function ComparePanel({
                 data={data.points}
                 margin={{ top: 8, right: 10, left: 5, bottom: 4 }}
               >
-                <CartesianGrid
-                  vertical={false}
-                  stroke="var(--border)"
-                  strokeDasharray="3 4"
-                />
+                <CartesianGrid vertical={false} stroke="var(--rule)" />
+                <ReferenceLine y={0} stroke="var(--strong-border)" />
                 <XAxis
                   dataKey="date"
                   tickFormatter={(date) => dayFormat.format(new Date(date))}
-                  axisLine={false}
+                  axisLine={{ stroke: "var(--strong-border)" }}
                   tickLine={false}
-                  minTickGap={28}
+                  minTickGap={40}
+                  tickMargin={7}
+                  height={24}
                   tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                 />
                 <YAxis
                   width={65}
                   orientation="right"
-                  tickFormatter={(number) => `${amount(number)}%`}
+                  tickFormatter={(number: number) =>
+                    `${number > 0 ? "+" : ""}${Math.round(number)}%`
+                  }
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                 />
                 <Tooltip
-                  contentStyle={{
-                    background: "var(--card)",
-                    color: "var(--foreground)",
-                    borderColor: "var(--border)",
-                    borderRadius: "8px",
-                  }}
-                  formatter={(value) => `${amount(Number(value))}%`}
+                  cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
+                  isAnimationActive={false}
+                  content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <div className="chart-tip">
+                        <strong>
+                          {dayFormat.format(new Date(String(label)))}
+                        </strong>
+                        {payload.map((entry) => (
+                          <span key={String(entry.dataKey)} className="tip-row">
+                            <i style={{ background: entry.color }} />
+                            {String(entry.dataKey)}
+                            <b className={tone(Number(entry.value))}>
+                              {percent(Number(entry.value))}
+                            </b>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null
+                  }
                 />
-                <Legend />
                 {data.symbols.map((symbol, index) => (
                   <Line
                     key={symbol}
                     dataKey={symbol}
                     stroke={colors[index]}
-                    strokeWidth={2.1}
+                    strokeWidth={1.6}
                     dot={false}
                     isAnimationActive={false}
                   />
@@ -199,12 +223,16 @@ export default function ComparePanel({
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className={cn("panel-foot", data.missing.length && "negative")}>
-            {data.source}
-            {data.missing.length
-              ? ` · missing series: ${data.missing.join(", ")}`
-              : ""}
-          </div>
+          <SectionFoot>
+            <span>
+              {data.source} · percent change from the first shared close
+            </span>
+            {data.missing.length ? (
+              <span className="negative">
+                Missing series: {data.missing.join(", ")}
+              </span>
+            ) : null}
+          </SectionFoot>
         </>
       ) : !error ? (
         <Empty
