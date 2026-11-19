@@ -90,6 +90,40 @@ export const adminResetMfaInputSchema = z.object({
 });
 export type AdminResetMfaInput = z.infer<typeof adminResetMfaInputSchema>;
 
+// One-time sign-in links. `email` mails the link to the account's own
+// address; `copy` hands it back once, for the owner to pass on themselves.
+export const SIGN_IN_LINK_DELIVERIES = ["email", "copy"] as const;
+export const signInLinkDeliverySchema = z.enum(SIGN_IN_LINK_DELIVERIES);
+export type SignInLinkDelivery = z.infer<typeof signInLinkDeliverySchema>;
+
+export const adminSignInLinkInputSchema = z.object({
+  userId: z.uuid(),
+  delivery: signInLinkDeliverySchema.default("email"),
+  /** Where the link lands once signed in; one of the destinations listed. */
+  returnTo: z.url().optional(),
+  /**
+   * The owner vouching for an address that was never confirmed by mail. A
+   * link to an unconfirmed address is refused without it.
+   */
+  confirmEmail: z.boolean().default(false),
+});
+export type AdminSignInLinkInput = z.input<typeof adminSignInLinkInputSchema>;
+
+export const signInLinkIssuedSchema = z.object({
+  delivery: signInLinkDeliverySchema,
+  email: z.string(),
+  expiresAt: cloudDateTimeSchema,
+  /** Present only for `copy`, and only in this one response. */
+  url: z.string().optional(),
+});
+export type SignInLinkIssued = z.infer<typeof signInLinkIssuedSchema>;
+
+export const signInLinkDestinationSchema = z.object({
+  origin: z.string(),
+  name: z.string(),
+});
+export type SignInLinkDestination = z.infer<typeof signInLinkDestinationSchema>;
+
 // Devices the twoFactor plugin lets skip the TOTP step. Trust is a cookie
 // backed by a verification row; the API can count and revoke the rows but
 // cannot tell one device from another, so this is a count, not a list.

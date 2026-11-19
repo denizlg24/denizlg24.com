@@ -375,8 +375,9 @@ services:
       OPS_ALERT_EMAIL_FROM: ${OPS_ALERT_EMAIL_FROM:-}
       OPS_ALERT_EMAIL_TO: ${OPS_ALERT_EMAIL_TO:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      # Public accounts (sign-up, reset, verification) stay off until both
-      # this and RESEND_API_KEY are set.
+      # Public accounts (sign-up, reset, verification, self-service sign-in
+      # links) stay off until both this and RESEND_API_KEY are set. The
+      # owner's sign-in links need only RESEND_API_KEY.
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:-}
       MONGODB_ADMIN_URI: ${MONGODB_ADMIN_URI:?MONGODB_ADMIN_URI is required}

@@ -189,6 +189,12 @@ export const api = {
       turnstileToken,
     );
   },
+  requestSignInLink: async (
+    input: { email: string; callbackURL: string; errorCallbackURL: string },
+    turnstileToken: string,
+  ): Promise<void> => {
+    await challengedPost("/api/auth/sign-in/magic-link", input, turnstileToken);
+  },
   requestPasswordReset: async (
     input: { email: string; redirectTo: string },
     turnstileToken: string,

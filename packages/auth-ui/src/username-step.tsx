@@ -23,6 +23,7 @@ export function UsernameStep({
   onInvitation,
   acceptEmail = false,
   onSignUp,
+  onSignInLink,
 }: {
   defaultUsername?: string;
   busy: boolean;
@@ -37,6 +38,8 @@ export function UsernameStep({
   acceptEmail?: boolean;
   /** Offered when the app lets new people create an account. */
   onSignUp?: () => void;
+  /** A one-time link by email instead of a password. */
+  onSignInLink?: () => void;
 }) {
   const [username, setUsername] = useState(defaultUsername);
   const trimmed = username.trim();
@@ -76,6 +79,11 @@ export function UsernameStep({
           {onPasskey ? (
             <TextAction disabled={busy} onClick={onPasskey}>
               Use a passkey instead
+            </TextAction>
+          ) : null}
+          {onSignInLink ? (
+            <TextAction disabled={busy} onClick={onSignInLink}>
+              Email me a sign-in link
             </TextAction>
           ) : null}
           {onSignUp ? (

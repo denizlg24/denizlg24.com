@@ -10,6 +10,7 @@ import {
   type ActivityExportQuery,
   type ActivityFacets,
   type ActivityQuery,
+  type AdminSignInLinkInput,
   type AlertRule,
   type AlertRuleCreate,
   type AlertRuleListResponse,
@@ -68,6 +69,8 @@ import {
   type SafeScheduledTask,
   type SafeTaskRun,
   type SafeUser,
+  type SignInLinkDestination,
+  type SignInLinkIssued,
   type StorageStats,
   type StorageTypeBreakdown,
   s3BucketUsageSchema,
@@ -77,6 +80,8 @@ import {
   safeScheduledTaskSchema,
   safeTaskRunSchema,
   safeUserSchema,
+  signInLinkDestinationSchema,
+  signInLinkIssuedSchema,
   storageStatsSchema,
   storageTypeBreakdownSchema,
   type TerminalSession,
@@ -163,6 +168,16 @@ export const api = {
         method: "POST",
         body: { userId },
       }).then((payload) => successSchema.parse(payload)),
+    signInLinkDestinations: (): Promise<SignInLinkDestination[]> =>
+      requestData(
+        z.array(signInLinkDestinationSchema),
+        "/api/auth/admin/sign-in-link-destinations",
+      ),
+    sendSignInLink: (input: AdminSignInLinkInput): Promise<SignInLinkIssued> =>
+      requestData(signInLinkIssuedSchema, "/api/auth/admin/send-sign-in-link", {
+        method: "POST",
+        body: input,
+      }),
   },
 
   ops: {

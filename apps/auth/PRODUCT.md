@@ -52,6 +52,11 @@ about who gets one and gentle with everyone else.
   followed by a one-screen offer to add one when nothing suggests the
   device already has it — "Not now" snoozes a month, "Don't ask again" is
   account-wide.
+- "Email me a sign-in link" is a one-time, 15-minute link for an existing
+  account with a confirmed address; the owner can also send one (or copy
+  it) from the cloud users page, pointed at an app. A link replaces the
+  password, never the authenticator app: an account with one lands on the
+  code step (unless the browser is a trusted device), then continues.
 - Consent only happens for dynamically registered clients (MCP); first-party
   clients skip it. The consent page is what Claude's users see.
 - Management: OAuth clients (create web/native/service, rotate, disable),

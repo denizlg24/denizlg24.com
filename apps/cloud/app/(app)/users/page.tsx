@@ -2,7 +2,12 @@
 
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
-import type { SafeUser } from "@repo/schemas/cloud";
+import type {
+  SafeUser,
+  SignInLinkDelivery,
+  SignInLinkDestination,
+  SignInLinkIssued,
+} from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
@@ -33,11 +38,11 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { Plus, ShieldOff, Trash2 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { Mail, Plus, ShieldOff, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "@/components/session-provider";
-import { api, errorMessage } from "@/lib/api";
+import { api, errorMessage, isApiError } from "@/lib/api";
 
 function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -135,6 +140,149 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+const AUTH_APP_DESTINATION = "auth";
+
+function SignInLinkDialog({ user }: { user: SafeUser }) {
+  const [open, setOpen] = useState(false);
+  const [destinations, setDestinations] = useState<
+    SignInLinkDestination[] | null
+  >(null);
+  const [destination, setDestination] = useState(AUTH_APP_DESTINATION);
+  const [busy, setBusy] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const [copied, setCopied] = useState<SignInLinkIssued | null>(null);
+
+  useEffect(() => {
+    if (!open || destinations !== null) return;
+    let active = true;
+    void api.users
+      .signInLinkDestinations()
+      .then((found) => {
+        if (active) setDestinations(found);
+      })
+      .catch((err: unknown) => {
+        if (active) toast.error(errorMessage(err));
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, destinations]);
+
+  const reset = () => {
+    setDestination(AUTH_APP_DESTINATION);
+    setUnconfirmed(false);
+    setCopied(null);
+  };
+
+  const send = async (delivery: SignInLinkDelivery) => {
+    setBusy(true);
+    try {
+      const issued = await api.users.sendSignInLink({
+        userId: user.id,
+        delivery,
+        confirmEmail: unconfirmed,
+        ...(destination === AUTH_APP_DESTINATION
+          ? {}
+          : { returnTo: `${destination}/` }),
+      });
+      if (delivery === "copy") {
+        setCopied(issued);
+      } else {
+        toast.success(`Sign-in link sent: ${issued.email}`);
+        setOpen(false);
+        reset();
+      }
+    } catch (err) {
+      if (isApiError(err) && err.code === "EMAIL_NOT_VERIFIED") {
+        setUnconfirmed(true);
+      } else {
+        toast.error(errorMessage(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          aria-label={`Send ${user.username} a sign-in link`}
+          disabled={user.status === "pending"}
+        >
+          <Mail className="size-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Sign-in link · {user.username}</DialogTitle>
+        </DialogHeader>
+        {copied?.url ? (
+          <div className="flex flex-col gap-4">
+            <SecretValue label="link — shown once, 15 min" value={copied.url} />
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Lands on</Label>
+              <Select value={destination} onValueChange={setDestination}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUTH_APP_DESTINATION}>
+                    auth.denizlg24.com
+                  </SelectItem>
+                  {(destinations ?? []).map((option) => (
+                    <SelectItem key={option.origin} value={option.origin}>
+                      {option.name} · {new URL(option.origin).hostname}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {unconfirmed ? (
+              <p className="text-xs text-muted-foreground">
+                {user.email ?? "address"} unconfirmed · sending marks it
+                confirmed
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                disabled={busy}
+                onClick={() => void send("email")}
+              >
+                Email
+              </Button>
+              <Button
+                className="flex-1"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void send("copy")}
+              >
+                Copy link
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function UserRow({
   user,
   selfId,
@@ -179,6 +327,7 @@ function UserRow({
       </TableCell>
       <TableCell>
         <div className="flex justify-end gap-0.5">
+          <SignInLinkDialog user={user} />
           <ConfirmButton
             trigger={
               <Button
@@ -269,7 +418,7 @@ export default function UsersPage() {
                 <TableHead>mfa</TableHead>
                 <TableHead>email</TableHead>
                 <TableHead className="text-right">created</TableHead>
-                <TableHead className="w-20" />
+                <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
             <TableBody>
