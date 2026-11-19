@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { preferMarketData } from "@/lib/markets/data";
 import { parseTicker } from "@/lib/markets/route-params";
 import {
   getSymbolDetail,
@@ -20,7 +21,10 @@ export async function GET(
   }
 
   try {
-    const detail = await getSymbolDetail(symbol);
+    const detail = await preferMarketData(
+      (client) => client.instrument(symbol),
+      () => getSymbolDetail(symbol),
+    );
     if (!detail.symbol && !detail.stale) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

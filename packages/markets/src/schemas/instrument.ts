@@ -13,6 +13,10 @@ export const assetTypeSchema = z.enum([
   "index",
   "crypto",
   "fx",
+  "future",
+  "option",
+  "bond",
+  "other",
 ]);
 export type AssetType = z.infer<typeof assetTypeSchema>;
 
@@ -21,7 +25,10 @@ export const marketSymbolSchema = z.object({
   name: z.string().min(1),
   exchange: z.string().optional(),
   assetType: assetTypeSchema,
-  currency: currencyCodeSchema.default("USD"),
+  // Yahoo quotes some markets in subunits such as GBp (pence).
+  currency: z
+    .union([currencyCodeSchema, z.enum(["GBp", "ZAc", "ILA"])])
+    .default("USD"),
   /** SEC Central Index Key, zero-padded to 10. Absent for non-filers. */
   cik: z
     .string()
@@ -56,7 +63,7 @@ export const symbolSearchResultSchema = z.object({
   name: z.string(),
   exchange: z.string().optional(),
   assetType: assetTypeSchema,
-  /** Higher is better. Ranking is local, so results stay stable offline. */
+  /** Relevance score assigned by the search provider. */
   score: z.number(),
 });
 export type SymbolSearchResult = z.infer<typeof symbolSearchResultSchema>;

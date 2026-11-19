@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { preferMarketData } from "@/lib/markets/data";
 import { parseTicker } from "@/lib/markets/route-params";
 import { getActions, MarketsNotConfiguredError } from "@/lib/markets/service";
 import { requireAdmin } from "@/lib/require-admin";
@@ -17,7 +18,11 @@ export async function GET(
   }
 
   try {
-    return NextResponse.json(await getActions(symbol));
+    const data = await preferMarketData(
+      (client) => client.actions(symbol),
+      () => getActions(symbol),
+    );
+    return NextResponse.json(data);
   } catch (error) {
     if (error instanceof MarketsNotConfiguredError) {
       return NextResponse.json({ error: error.message }, { status: 503 });

@@ -67,7 +67,7 @@ export const candleSeriesSchema = z.object({
 });
 export type CandleSeries = z.infer<typeof candleSeriesSchema>;
 
-export const quoteSourceSchema = z.enum(["ws", "iex", "eod", "cache"]);
+export const quoteSourceSchema = z.enum(["ws", "iex", "eod", "cache", "yahoo"]);
 export type QuoteSource = z.infer<typeof quoteSourceSchema>;
 
 export const quoteSchema = z.object({
@@ -82,6 +82,8 @@ export const quoteSchema = z.object({
   ask: priceSchema.nullable(),
   ts: isoDateTimeSchema,
   source: quoteSourceSchema,
+  provider: z.literal("yahoo").optional(),
+  currency: z.string().nullish(),
 });
 export type Quote = z.infer<typeof quoteSchema>;
 
