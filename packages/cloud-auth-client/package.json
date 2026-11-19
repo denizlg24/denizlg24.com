@@ -18,10 +18,10 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "^1.7.18",
-    "@better-auth/passkey": "1.7.18",
+    "@better-auth/oauth-provider": "^1.7.20",
+    "@better-auth/passkey": "1.7.20",
     "@repo/schemas": "workspace:*",
-    "better-auth": "^1.7.18",
-    "jose": "^6.2.15"
+    "better-auth": "^1.7.20",
+    "jose": "^6.2.17"
   }
 }
