@@ -1,6 +1,6 @@
 [package]
 name = "denizlg24"
-version = "3.6.1"
+version = "3.6.2"
 description = "Personal Manager for Deniz Lopes Gunes"
 authors = ["Deniz Lopes Gunes"]
 license = ""
@@ -12,21 +12,21 @@ rust-version = "1.77.2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2", features = ["devtools"] }
-tauri-plugin-os = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-http = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-process = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-clipboard-manager = "2"
-tauri-plugin-store = "2"
+tauri = { version = "2.12", features = ["devtools"] }
+tauri-plugin-os = "2.4"
+tauri-plugin-dialog = "2.8"
+tauri-plugin-fs = "2.7"
+tauri-plugin-http = "2.9"
+tauri-plugin-notification = "2.8"
+tauri-plugin-process = "2.4"
+tauri-plugin-shell = "2.6"
+tauri-plugin-clipboard-manager = "2.5"
+tauri-plugin-store = "2.5"
 
 [features]
 # by default Tauri runs in production mode
@@ -37,5 +37,5 @@ default = [ "custom-protocol" ]
 custom-protocol = [ "tauri/custom-protocol" ]
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-global-shortcut = "2.4"
+tauri-plugin-updater = "2.14"
