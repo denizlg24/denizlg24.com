@@ -7,6 +7,19 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.6.1 — 2026-11-19
+
+### Added
+- **Markets → Macro**: U.S. macro indicators from FRED (CPI, PCE, rates,
+  unemployment and more) charted next to the watchlist.
+
+### Changed
+- Market data comes from Yahoo Finance through the markets relay: live quotes,
+  history, instruments, news and symbol search. Portfolio pricing and order
+  fills use the same source.
+- The request-budget readout is gone from the Markets header; nothing is
+  metered any more.
+
 ## 3.6.0 — 2026-11-18
 
 ### Changed
