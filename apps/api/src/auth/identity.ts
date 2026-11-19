@@ -77,7 +77,7 @@ export function requireIdentity(
       const banned =
         account?.banned === true &&
         (!account.banExpires || account.banExpires.getTime() > Date.now());
-      if (!account || account.status !== "active" || banned) {
+      if (account?.status !== "active" || banned) {
         return context.json(
           refusal("FORBIDDEN", "This account is not active"),
           403,

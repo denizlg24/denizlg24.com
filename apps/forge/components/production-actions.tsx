@@ -31,7 +31,7 @@ export function ProductionActions({
    * the project's, it just has nothing behind it.
    */
   paused: boolean;
-  onDone: () => Promise<unknown> | void;
+  onDone: () => unknown;
 }) {
   const [busy, setBusy] = useState(false);
 

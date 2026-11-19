@@ -31,7 +31,8 @@ export function moveFocus(container: HTMLElement, direction: Direction) {
     const rect = node.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   });
-  const current = nodes.findIndex((node) => node === document.activeElement);
+  const active = document.activeElement;
+  const current = active instanceof HTMLElement ? nodes.indexOf(active) : -1;
   if (current < 0) return false;
   const from = nodes[current];
   if (!from) return false;

@@ -23,7 +23,7 @@ export function DeploymentActions({
   onDone,
 }: {
   deployment: DeploymentActionTarget;
-  onDone: () => Promise<unknown> | void;
+  onDone: () => unknown;
 }) {
   const [busy, setBusy] = useState(false);
   const live = isDeploymentLive(deployment.status);

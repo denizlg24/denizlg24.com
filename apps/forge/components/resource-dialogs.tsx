@@ -153,7 +153,7 @@ export function CreateResourceDialog({
   trigger,
 }: {
   projectId?: string;
-  onCreated: () => Promise<unknown> | void;
+  onCreated: () => unknown;
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -279,7 +279,7 @@ export function ConnectResourceDialog({
   resourceId?: string;
   /** Fixed on `/[project]/resources`; the dialog then picks the resource. */
   projectId?: string;
-  onConnected: () => Promise<unknown> | void;
+  onConnected: () => unknown;
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);

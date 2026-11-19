@@ -108,7 +108,7 @@ export async function tenantAccess(
   const banned =
     account?.banned === true &&
     (!account.banExpires || account.banExpires.getTime() > Date.now());
-  if (!account || account.status !== "active" || banned) {
+  if (account?.status !== "active" || banned) {
     return { ok: false, reason: "account_inactive" };
   }
   if (block) return { ok: false, reason: "blocked" };

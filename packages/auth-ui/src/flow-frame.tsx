@@ -58,7 +58,6 @@ function AppMark({ app }: { app: FlowApp }) {
       {app.logoUrl ? (
         // A tenant's logo is an arbitrary external URL; next/image would need
         // every host allow-listed.
-        // biome-ignore lint/performance/noImgElement: see above
         <img
           src={app.logoUrl}
           alt=""

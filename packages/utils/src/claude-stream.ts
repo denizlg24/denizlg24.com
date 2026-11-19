@@ -332,7 +332,7 @@ export class ClaudeStreamMapper {
           part.type === "dynamic-tool" && part.toolCallId === toolCallId,
       );
       const part = owner.parts[partIndex];
-      if (!part || part.type !== "dynamic-tool") continue;
+      if (part?.type !== "dynamic-tool") continue;
       const text = truncateToolOutput(
         toolResultText(block.content),
         this.options.maxToolOutputChars,
