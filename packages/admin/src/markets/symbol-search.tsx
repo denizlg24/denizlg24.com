@@ -3,7 +3,7 @@
 import type { SymbolSearchResult } from "@repo/markets/schemas";
 import { SearchField } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAdmin } from "../provider";
 
 export interface SymbolSearchProps {
@@ -14,38 +14,49 @@ export interface SymbolSearchProps {
 
 export function SymbolSearch({
   onSelect,
-  placeholder = "Ticker",
+  placeholder = "Ticker or company",
   className = "w-72",
 }: SymbolSearchProps) {
   const { client } = useAdmin();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SymbolSearchResult[]>([]);
   const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [completed, setCompleted] = useState("");
+  const [failed, setFailed] = useState(false);
 
+  const term = query.trim();
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
-    if (query.trim().length < 1) {
-      setResults([]);
-      return;
-    }
-    // Debounced: search hits Mongo, not a provider, but a keystroke-per-query
-    // still floods the route on a fast typist.
-    timer.current = setTimeout(() => {
+    if (!term) return;
+    let disposed = false;
+    const timer = setTimeout(() => {
       client
         .get<{ results: SymbolSearchResult[] }>(
-          `/markets/symbols/search?q=${encodeURIComponent(query.trim())}`,
+          `/markets/symbols/search?q=${encodeURIComponent(term)}`,
         )
-        .then((data) => setResults(data.results))
-        .catch(() => setResults([]));
-    }, 180);
+        .then((data) => {
+          if (disposed) return;
+          setResults(data.results);
+          setFailed(false);
+          setCompleted(term);
+        })
+        .catch(() => {
+          if (disposed) return;
+          setResults([]);
+          setFailed(true);
+          setCompleted(term);
+        });
+    }, 250);
     return () => {
-      if (timer.current) clearTimeout(timer.current);
+      disposed = true;
+      clearTimeout(timer);
     };
-  }, [client, query]);
+  }, [client, term]);
+
+  const matches = term && completed === term ? results : [];
 
   const pick = (ticker: string) => {
     onSelect(ticker);
+    setCompleted("");
     setQuery("");
     setOpen(false);
   };
@@ -65,22 +76,38 @@ export function SymbolSearch({
         if (
           event.key === "Enter" &&
           event.target instanceof HTMLInputElement &&
-          results[0]
+          matches[0]
         ) {
           event.preventDefault();
-          pick(results[0].ticker);
+          pick(matches[0].ticker);
         }
       }}
     >
       <SearchField
         value={query}
-        onChange={setQuery}
+        onChange={(value) => {
+          if (value.trim() !== term) setCompleted("");
+          setQuery(value);
+          setOpen(true);
+        }}
         placeholder={placeholder}
         className="w-full"
       />
-      {open && results.length > 0 ? (
+      {open && term ? (
         <div className="absolute top-8 left-0 z-50 w-full min-w-56 overflow-hidden rounded-md border bg-popover p-1 shadow-md">
-          {results.slice(0, 12).map((result) => (
+          {matches.length === 0 ? (
+            <p
+              className="px-2 py-1.5 text-muted-foreground text-xs"
+              role="status"
+            >
+              {completed !== term
+                ? "Searching…"
+                : failed
+                  ? "Search unavailable"
+                  : "No matches"}
+            </p>
+          ) : null}
+          {matches.slice(0, 12).map((result) => (
             <button
               key={result.ticker}
               type="button"

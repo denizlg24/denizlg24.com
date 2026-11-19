@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * Brings the markets relay up (or down) for local development.
  *
  * Runs ahead of `dev:web` and `dev:desktop`, so it must never be the reason
- * either fails to start. Without a Tiingo key, or without Docker running, it
+ * either fails to start. If Docker or the relay configuration is missing, it
  * prints why and exits 0 — the dashboard falls back to polling
  * /api/admin/markets/quotes, which is the same path production takes whenever
  * the relay is unreachable.
@@ -44,28 +44,9 @@ function skip(reason) {
   process.exit(0);
 }
 
-/**
- * The relay reads TIINGO_API_KEY, TIINGO_API_KEY_2, _3, … until one is missing,
- * and rotates between them when Tiingo rejects one. Compose only substitutes
- * variables it declares, so every key has to be forwarded explicitly or the
- * container quietly runs on one key — which reads as `"keys": 1` on /healthz.
- */
-function readApiKeys(env) {
-  const keys = {};
-  if (env.TIINGO_API_KEY) keys.TIINGO_API_KEY = env.TIINGO_API_KEY;
-  for (let index = 2; ; index++) {
-    const key = env[`TIINGO_API_KEY_${index}`];
-    if (!key) break;
-    keys[`TIINGO_API_KEY_${index}`] = key;
-  }
-  return keys;
-}
-
-const env = readEnv();
-const apiKeys = readApiKeys(env);
+const env = { ...readEnv(), ...process.env };
 
 if (!down) {
-  if (!env.TIINGO_API_KEY) skip("TIINGO_API_KEY is not set in .env");
   if (!env.MARKETS_RELAY_TOKEN_SECRET) {
     skip("MARKETS_RELAY_TOKEN_SECRET is not set in .env");
   }
@@ -95,7 +76,7 @@ const result = spawnSync("docker", args, {
   shell: true,
   env: {
     ...process.env,
-    ...apiKeys,
+    MARKETS_DATA_TOKEN: env.MARKETS_DATA_TOKEN ?? "",
     MARKETS_RELAY_TOKEN_SECRET: env.MARKETS_RELAY_TOKEN_SECRET ?? "",
     ...(env.MARKETS_RELAY_PORT
       ? { MARKETS_RELAY_PORT: env.MARKETS_RELAY_PORT }
@@ -114,9 +95,7 @@ if (result.status !== 0) {
 if (down) process.exit(0);
 
 const localUrl = `ws://localhost:${env.MARKETS_RELAY_PORT ?? 3004}/ws`;
-console.log(
-  `[markets-relay] container listening on ${localUrl} with ${Object.keys(apiKeys).length} Tiingo key(s)`,
-);
+console.log(`[markets-relay] container listening on ${localUrl}`);
 
 // The browser connects to whatever NEXT_PUBLIC_MARKETS_RELAY_URL says, not to
 // the container this script just started. Pointing at production while a local

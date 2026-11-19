@@ -36,9 +36,16 @@ const STABLE_AFTER_MS = 30_000;
  */
 function mergeQuote(previous: Quote | undefined, next: Quote): Quote {
   if (!previous) return next;
+  const older = Date.parse(next.ts) < Date.parse(previous.ts);
+  if (older && next.ts.slice(0, 10) !== previous.ts.slice(0, 10))
+    return previous;
   const merged = { ...previous };
   for (const [key, value] of Object.entries(next)) {
-    if (value !== null && value !== undefined) {
+    if (
+      value !== null &&
+      value !== undefined &&
+      (!older || previous[key as keyof Quote] == null)
+    ) {
       (merged as Record<string, unknown>)[key] = value;
     }
   }
@@ -100,9 +107,9 @@ export function useQuotes(tickers: string[]): QuotesState {
   const socketRef = useRef<WebSocket | null>(null);
   const subscribedRef = useRef<string>("");
   const wantedRef = useRef<string[]>(wanted);
-  const transportRef = useRef<QuoteTransport>(transport);
+  const upstreamRef = useRef(upstream);
   wantedRef.current = wanted;
-  transportRef.current = transport;
+  upstreamRef.current = upstream;
 
   const apply = useCallback((incoming: Quote[]) => {
     if (incoming.length === 0) return;
@@ -201,7 +208,7 @@ export function useQuotes(tickers: string[]): QuotesState {
         // Record it here so the resubscribe effect sees a delta, not a repeat.
         subscribedRef.current = wantedRef.current.join(",");
 
-        // Cloudflare drops an idle WebSocket after 100 s and Tiingo goes quiet
+        // Cloudflare drops an idle WebSocket after 100 s and Yahoo goes quiet
         // outside market hours, so keep traffic on the wire either way.
         heartbeat = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
@@ -286,11 +293,11 @@ export function useQuotes(tickers: string[]): QuotesState {
     const added = wanted.filter((ticker) => !previous.includes(ticker));
     const removed = previous.filter((ticker) => !wanted.includes(ticker));
 
-    if (added.length > 0) {
-      socket.send(JSON.stringify({ type: "subscribe", tickers: added }));
-    }
     if (removed.length > 0) {
       socket.send(JSON.stringify({ type: "unsubscribe", tickers: removed }));
+    }
+    if (added.length > 0) {
+      socket.send(JSON.stringify({ type: "subscribe", tickers: added }));
     }
     subscribedRef.current = key;
   }, [key, wanted, transport]);
@@ -330,13 +337,13 @@ export function useQuotes(tickers: string[]): QuotesState {
       run();
       if (!timer) {
         timer = setInterval(() => {
-          if (transportRef.current !== "ws") run();
+          if (upstreamRef.current !== "connected") run();
         }, POLL_INTERVAL_MS);
       }
     };
 
     timer = setInterval(() => {
-      if (transportRef.current !== "ws") run();
+      if (upstreamRef.current !== "connected") run();
     }, POLL_INTERVAL_MS);
     document.addEventListener("visibilitychange", sync);
     window.addEventListener("focus", sync);

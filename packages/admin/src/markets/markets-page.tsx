@@ -42,6 +42,7 @@ import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { FilterTabs, ToolbarSpacer } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import {
+  Activity,
   CandlestickChart,
   FileText,
   ListTree,
@@ -55,6 +56,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
 import { toneClass } from "./format";
+import { MacroPanel } from "./macro-panel";
 import { QuickTrade } from "./quick-trade";
 import { SymbolSearch } from "./symbol-search";
 import { useLiveRefresh } from "./use-live-refresh";
@@ -111,6 +113,7 @@ export interface MarketsPageProps {
 
 export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   const { client, routes, slots } = useAdmin();
+  const [showMacro, setShowMacro] = useState(false);
   const [selected, setSelected] = useState(ticker ?? "AAPL");
   const [range, setRange] = useState(RANGES[4] as (typeof RANGES)[number]);
   const [kind, setKind] = useState<ChartKind>("candles");
@@ -248,9 +251,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   // writer and cannot assume its own copy is current.
   useLiveRefresh(() => void loadWatchlists(), { intervalMs: REFERENCE_MS });
 
-  // Relay socket when it is up, batched polling when it is not. Tiingo bills
-  // per request rather than per ticker, so the poll covers every visible
-  // symbol in one call.
+  // Poll the whole watchlist while the streaming provider reconnects.
   const { quotes, transport, upstream } = useQuotes(watched);
 
   const loadBudget = useCallback(
@@ -436,6 +437,16 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             Seed universe
           </Button>
         ) : null}
+        <Button
+          size="sm"
+          variant={showMacro ? "secondary" : "ghost"}
+          aria-expanded={showMacro}
+          aria-controls={showMacro ? "markets-macro" : undefined}
+          onClick={() => setShowMacro((shown) => !shown)}
+        >
+          <Activity />
+          Macro
+        </Button>
         <Button size="sm" variant="ghost" asChild>
           <a href={routes.portfolios}>
             <Wallet />
@@ -531,6 +542,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             chart and detail panel always fit above lg; on a short window they do
             not, and what did not fit could not be reached. */}
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          {showMacro ? <MacroPanel /> : null}
           <div className="flex flex-col gap-3 border-b px-4 py-3 sm:px-5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <CompanyLogo
@@ -564,6 +576,11 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
                 <span className="font-calistoga text-2xl text-accent-strong tabular-nums leading-none">
                   {last === null ? "—" : last.toFixed(2)}
                 </span>
+                {(quote?.currency ?? detail?.symbol?.currency) ? (
+                  <span className="text-muted-foreground text-xs">
+                    {quote?.currency ?? detail?.symbol?.currency}
+                  </span>
+                ) : null}
                 {change !== null && changePercent !== null ? (
                   <span
                     className={cn("text-sm tabular-nums", toneClass(change))}
@@ -839,7 +856,7 @@ function TransportIndicator({
               : "bg-muted-foreground"
         }
       />
-      {live ? "live" : transport === "ws" ? (upstream ?? "…") : "poll"}
+      {live ? "streaming" : transport === "ws" ? (upstream ?? "…") : "poll"}
     </span>
   );
 }

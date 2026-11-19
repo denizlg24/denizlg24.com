@@ -50,7 +50,6 @@ jobs:
       requested_tag: ${{ inputs.image_tag || '' }}
       health_port: 3004
       runtime_env: |
-        TIINGO_API_KEY=ci-placeholder
         MARKETS_RELAY_TOKEN_SECRET=ci-only-relay-secret
 
   deploy:
