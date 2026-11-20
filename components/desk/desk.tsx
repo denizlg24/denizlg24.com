@@ -27,6 +27,7 @@ import {
   ChartWidget,
   CompareWidget,
   MarketWidget,
+  OverlayWidget,
   WatchlistWidget,
 } from "./markets";
 import { DeskEmpty, FrameContext, type WidgetContext } from "./frame";
@@ -63,6 +64,8 @@ function WidgetView({ widget, ctx }: { widget: Widget; ctx: WidgetContext }) {
       return <MarketWidget widget={widget} ctx={ctx} />;
     case "insight":
       return <InsightWidget widget={widget} ctx={ctx} />;
+    case "overlay":
+      return <OverlayWidget widget={widget} ctx={ctx} />;
   }
 }
 

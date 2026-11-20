@@ -216,8 +216,7 @@ function MorningSummary({
       foot={
         <>
           <span>
-            {quotes.data?.source ?? "Market data"} · AI brief is off for this
-            session
+            {quotes.data?.source ?? "Market data"} · AI brief is unavailable
           </span>
           <span>Totals per currency, never converted</span>
         </>

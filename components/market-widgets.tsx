@@ -7,8 +7,6 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
-  ChartCandlestick,
-  ChartNoAxesCombined,
   Grid2X2,
   List,
   Plus,
@@ -39,7 +37,6 @@ import {
   Failure,
   Loading,
   PanelHeading,
-  quoteTime,
   signed,
   SortHead,
   SourceLink,
@@ -55,6 +52,8 @@ import {
   type Universe,
 } from "@/lib/universes";
 import type {
+  ChartPreferences,
+  ChartStyle,
   Instrument,
   MarketSeries,
   News,
@@ -62,7 +61,16 @@ import type {
   Workspace,
 } from "@/lib/models";
 import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
-import { useLiveTicks, type LiveTick } from "./live-quotes";
+import { useLiveTick, useLiveTicks, type LiveTick } from "./live-quotes";
+import { Freshness } from "./freshness";
+import {
+  samePreferences,
+  StudyChips,
+  StudyPicker,
+  StylePicker,
+} from "./chart-controls";
+import { FunctionBar, type SecurityFunction } from "./security/functions";
+import type { StudyKey } from "@/lib/indicators";
 
 const PriceChart = dynamic(() => import("./price-chart"), {
   ssr: false,
@@ -186,6 +194,9 @@ export function ChartPanel({
   watch,
   onWatch,
   onResearch,
+  onFunction,
+  preferences,
+  savePreferences,
   since,
   clearSince,
 }: {
@@ -194,26 +205,41 @@ export function ChartPanel({
   watch: boolean;
   onWatch: () => void;
   onResearch: () => void;
+  onFunction?: (fn: SecurityFunction) => void;
+  preferences: ChartPreferences;
+  savePreferences?: (next: ChartPreferences) => Promise<void>;
   since?: string;
   clearSince?: () => void;
 }) {
-  const [range, setRange] = useState<Range>("1M");
-  const [style, setStyle] = useState<"area" | "candles">("area");
-  const [average, setAverage] = useState(false);
-  const [volume, setVolume] = useState(false);
+  const [range, setRange] = useState<Range>(preferences.range);
+  const [style, setStyle] = useState<ChartStyle>(preferences.style);
+  const [studies, setStudies] = useState<StudyKey[]>(preferences.studies);
+  const [log, setLog] = useState(preferences.log);
+  const [saving, setSaving] = useState(false);
   const { data, error, mutate, isLoading } = useSWR<MarketSeries>(
-    marketURL({ symbol: ticker, range, ...(since ? { since } : {}) }),
+    marketURL({
+      symbol: ticker,
+      range,
+      warmup: "1",
+      ...(since ? { since } : {}),
+    }),
     api,
     { refreshInterval: refresh ? 75_000 : 0, errorRetryCount: 1 },
   );
   const { data: quoteData } = useQuotes([ticker], refresh);
   const snapshot = quoteData?.quotes[0] ?? data?.quote;
+  const tick = useLiveTick(refresh ? ticker : undefined);
+  const lead = data?.lead ?? 0;
   const latest = data?.points.at(-1);
-  const oldest = data?.points[0];
+  const oldest = data?.points[lead];
   const periodChange =
     oldest?.close && latest ? (latest.close / oldest.close - 1) * 100 : null;
   const title = benchmarkLabels[ticker] ?? snapshot?.name ?? ticker;
   const unit = ticker.startsWith("^") ? "pts" : snapshot?.currency;
+  const current: ChartPreferences = { style, range, studies, log };
+  const dirty = savePreferences && !samePreferences(current, preferences);
+  const turnover =
+    snapshot?.volume != null ? snapshot.volume * snapshot.price : null;
   return (
     <section className="panel chart-panel">
       <div className="chart-heading">
@@ -221,7 +247,7 @@ export function ChartPanel({
           <div>
             <h2>{title}</h2>
             <p>
-              {ticker}
+              <span className="security-code">{ticker}</span>
               {snapshot?.exchange ? ` · ${snapshot.exchange}` : ""}
               {unit ? ` · ${unit}` : ""}
             </p>
@@ -250,17 +276,73 @@ export function ChartPanel({
           </Button>
         </div>
       </div>
-      <div className="price-hero">
-        <strong>{amount(snapshot?.price)}</strong>
-        <span className="currency">{unit}</span>
-        <span className={`price-delta ${tone(snapshot?.change)}`}>
-          {signed(snapshot?.change)}
-        </span>
-        <Change value={snapshot?.percent} arrows />
-        <span className="period-label">
-          session{snapshot ? ` · ${quoteTime(snapshot.time)}` : ""}
-        </span>
+      <div className="quote-strip">
+        <div className="price-hero">
+          <strong>
+            <Tick value={snapshot?.price} />
+          </strong>
+          <span className="currency">{unit}</span>
+          <span className={`price-delta ${tone(snapshot?.change)}`}>
+            {signed(snapshot?.change)}
+          </span>
+          <Change value={snapshot?.percent} arrows />
+          <span className="period-label">vs prev close</span>
+          <Freshness
+            symbol={refresh ? ticker : undefined}
+            quoteMs={snapshot ? snapshot.time * 1000 : null}
+          />
+        </div>
+        <dl className="quote-fields">
+          {tick?.bid != null || tick?.ask != null ? (
+            <div>
+              <dt>Bid/Ask</dt>
+              <dd>
+                {amount(tick?.bid)}/{amount(tick?.ask)}
+              </dd>
+            </div>
+          ) : null}
+          {(
+            [
+              ["O", snapshot?.open],
+              ["H", snapshot?.high],
+              ["L", snapshot?.low],
+              ["Prev", snapshot?.previous],
+            ] as const
+          ).map(([label, value]) =>
+            value == null ? null : (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{amount(value)}</dd>
+              </div>
+            ),
+          )}
+          {snapshot?.volume != null ? (
+            <div>
+              <dt>Vol</dt>
+              <dd>{compact(snapshot.volume)}</dd>
+            </div>
+          ) : null}
+          {turnover != null && !ticker.startsWith("^") ? (
+            <div title="Approximate value traded: volume × last price">
+              <dt>Val</dt>
+              <dd>{compact(turnover)}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>52w</dt>
+            <dd>
+              {amount(snapshot?.yearLow)}–{amount(snapshot?.yearHigh)}
+            </dd>
+          </div>
+          {snapshot?.cap ? (
+            <div>
+              <dt>Mkt cap</dt>
+              <dd>{compact(snapshot.cap)}</dd>
+            </div>
+          ) : null}
+        </dl>
       </div>
+      {onFunction ? <FunctionBar active="GP" onSelect={onFunction} /> : null}
       <div className="chart-toolbar">
         <div className="seg" role="group" aria-label="Price history period">
           {(Object.keys(ranges) as Range[]).map((option) => (
@@ -278,45 +360,37 @@ export function ChartPanel({
           ))}
         </div>
         <div className="row-actions chart-toggles">
-          <div className="seg" role="group" aria-label="Chart style">
-            <button
-              type="button"
-              aria-label="Line chart"
-              title="Line chart"
-              aria-pressed={style === "area"}
-              onClick={() => setStyle("area")}
-            >
-              <ChartNoAxesCombined aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-label="Candlestick chart"
-              title="Candlestick chart"
-              aria-pressed={style === "candles"}
-              onClick={() => setStyle("candles")}
-            >
-              <ChartCandlestick aria-hidden />
-            </button>
-          </div>
+          <StylePicker value={style} onChange={setStyle} />
+          <StudyPicker value={studies} onChange={setStudies} />
           <button
             type="button"
             className="chip"
-            title="20-bar simple moving average"
-            aria-pressed={average}
-            onClick={() => setAverage(!average)}
+            title="Logarithmic price scale"
+            aria-pressed={log}
+            onClick={() => setLog(!log)}
           >
-            SMA 20
+            Log
           </button>
-          <button
-            type="button"
-            className="chip"
-            aria-pressed={volume}
-            onClick={() => setVolume(!volume)}
-          >
-            Volume
-          </button>
+          {dirty ? (
+            <button
+              type="button"
+              className="chip chip-save"
+              disabled={saving}
+              title="Use this chart type, period and studies by default"
+              onClick={() => {
+                setSaving(true);
+                void savePreferences(current).finally(() => setSaving(false));
+              }}
+            >
+              {saving ? "Saving…" : "Save as default"}
+            </button>
+          ) : null}
         </div>
       </div>
+      <StudyChips
+        value={studies}
+        onRemove={(key) => setStudies(studies.filter((item) => item !== key))}
+      />
       {since ? (
         <p className="chart-since">
           Since <time dateTime={since}>{since}</time>
@@ -328,10 +402,12 @@ export function ChartPanel({
       ) : data?.points.length ? (
         <PriceChart
           points={data.points}
+          lead={lead}
           range={since ? "1Y" : range}
           style={style}
-          average={average}
-          volume={volume}
+          studies={studies}
+          log={log}
+          previousClose={snapshot?.previous}
           currency={unit}
         />
       ) : !error ? (
@@ -571,8 +647,8 @@ export function MarketMap({
           since
             ? `Since ${since} · from first available close`
             : compactView
-              ? "Regular-session moves"
-              : "Regular-session moves · equal-sized tiles"
+              ? "Day moves vs prior close"
+              : "Day moves vs prior close · equal-sized tiles"
         }
       >
         {compactView ? (

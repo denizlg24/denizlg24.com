@@ -4,7 +4,11 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import postgres from "postgres";
-import { workspaceSchema, type Workspace } from "./models";
+import {
+  defaultChartPreferences,
+  workspaceSchema,
+  type Workspace,
+} from "./models";
 
 export type Identity = {
   id: string;
@@ -63,6 +67,9 @@ function sqlite() {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS reports_user ON reports(user_id, updated_at);
+    CREATE TABLE IF NOT EXISTS extracts (
+      key TEXT PRIMARY KEY, content TEXT NOT NULL, created_at TEXT NOT NULL
+    );
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -109,6 +116,9 @@ function pg(url: string) {
         created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_reports_user ON stockwatcher_reports(user_id, updated_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_extracts (
+        key TEXT PRIMARY KEY, content JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL
+      )`;
     });
     return db;
   })().catch(async (error) => {
@@ -222,7 +232,13 @@ function initialWorkspace(): Workspace {
     notes: [],
     alerts: [],
     requests: [],
-    settings: { theme: "system", home: "overview", refresh: true },
+    settings: {
+      theme: "system",
+      home: "overview",
+      refresh: true,
+      chart: defaultChartPreferences,
+    },
+    overlays: [],
   };
 }
 
@@ -309,4 +325,35 @@ export async function alertWorkspaces(): Promise<
       id: String(row.user_id),
       ...decode({ revision: Number(row.revision), data: row.data }),
     }));
+}
+
+/** Cached model extractions from public filings, keyed by accession. */
+export async function readExtract(key: string): Promise<unknown> {
+  const db = await store();
+  if (db.kind === "pg") {
+    const [row] = await db.sql<{ content: unknown }[]>`
+      SELECT content FROM stockwatcher_extracts WHERE key = ${key}`;
+    return row?.content ?? null;
+  }
+  const row = db.db
+    .prepare("SELECT content FROM extracts WHERE key = ?")
+    .get(key) as { content: string } | undefined;
+  return row ? JSON.parse(row.content) : null;
+}
+
+export async function writeExtract(key: string, content: object) {
+  const db = await store();
+  const now = new Date().toISOString();
+  if (db.kind === "pg") {
+    await db.sql`
+      INSERT INTO stockwatcher_extracts (key, content, created_at)
+      VALUES (${key}, ${db.sql.json(JSON.parse(JSON.stringify(content)))}, ${now})
+      ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, created_at = EXCLUDED.created_at`;
+    return;
+  }
+  db.db
+    .prepare(
+      "INSERT INTO extracts (key, content, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET content = excluded.content, created_at = excluded.created_at",
+    )
+    .run(key, JSON.stringify(content), now);
 }

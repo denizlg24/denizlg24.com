@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, use, useState, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useEffectEvent,
+  useState,
+  type ReactNode,
+} from "react";
 import type { InferUITools } from "ai";
 import { mutate } from "swr";
 import {
@@ -16,7 +23,11 @@ import {
   Undo2,
 } from "lucide-react";
 import type { StockwatcherMessage, StockwatcherTools } from "@/lib/ai/tools";
-import type { DashboardState } from "@/lib/assistant-types";
+import type {
+  AskUserInput,
+  AskUserOutput,
+  DashboardState,
+} from "@/lib/assistant-types";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
 import { Sparkline } from "./sparkline";
 import { ago, hostOf, listSymbols, stamp, useNow } from "./format";
@@ -43,11 +54,15 @@ export type AlertProposal = {
 type Actions = {
   openSymbol: (symbol: string) => void;
   proposeAlert: (proposal: AlertProposal) => void;
+  answer: (toolCallId: string, output: AskUserOutput) => void;
+  openSecurity: (symbol: string, fn: string) => void;
 };
 
 export const ToolActions = createContext<Actions>({
   openSymbol: () => {},
   proposeAlert: () => {},
+  answer: () => {},
+  openSecurity: () => {},
 });
 
 export function isToolPart(part: Part): part is ToolPart {
@@ -72,6 +87,9 @@ const viewNames: Record<DashboardState["view"], string> = {
   research: "Research",
   watchlists: "Watchlists",
   alerts: "Alerts",
+  security: "Security",
+  monitor: "Monitor",
+  overlay: "Charts",
 };
 
 const toolNames: Record<ToolPart["type"], string> = {
@@ -94,6 +112,8 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-createReport": "Report",
   "tool-createDeck": "Deck",
   "tool-shareReport": "Sharing",
+  "tool-askUser": "Question",
+  "tool-getSecurityData": "Security data",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -165,10 +185,30 @@ export function runningLabel(part: ToolPart): string {
       return part.input?.share === false
         ? "Revoking share link"
         : "Creating share link";
+    case "tool-askUser":
+      return "Waiting for your answer";
+    case "tool-getSecurityData":
+      return part.input?.symbol
+        ? `Reading ${part.input.symbol} ${part.input.kind?.toUpperCase() ?? ""}`
+        : "Reading security data";
   }
 }
 
-export function ToolPartView({ part }: { part: ToolPart }) {
+export function ToolPartView({
+  part,
+  interactive = false,
+}: {
+  part: ToolPart;
+  interactive?: boolean;
+}) {
+  if (part.type === "tool-askUser" && part.state === "input-available")
+    return (
+      <QuestionCard
+        id={part.toolCallId}
+        input={part.input}
+        interactive={interactive}
+      />
+    );
   switch (part.state) {
     case "input-streaming":
     case "input-available":
@@ -336,7 +376,186 @@ function ToolOutput({ part }: { part: DonePart }) {
       const output = part.output;
       return isFailure(output) ? failed(output) : <DocChip data={output} />;
     }
+    case "tool-askUser":
+      return <Answered input={part.input} output={part.output} />;
+    case "tool-getSecurityData": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <SecurityChip symbol={part.input.symbol} kind={part.input.kind} />
+      );
+    }
   }
+}
+
+function QuestionCard({
+  id,
+  input,
+  interactive,
+}: {
+  id: string;
+  input: AskUserInput;
+  interactive: boolean;
+}) {
+  const { answer } = use(ToolActions);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [other, setOther] = useState("");
+  const multiple = input.multiple ?? false;
+  const allowOther = input.allowOther ?? true;
+  const submit = (labels: string[], text = other) =>
+    answer(id, {
+      selected: labels,
+      ...(text.trim() ? { other: text.trim().slice(0, 500) } : {}),
+    });
+  const toggle = (label: string) => {
+    if (!multiple) return submit([label], "");
+    setSelected((current) =>
+      current.includes(label)
+        ? current.filter((item) => item !== label)
+        : [...current, label],
+    );
+  };
+  const ready = selected.length > 0 || other.trim().length > 0;
+  const choose = useEffectEvent((index: number) => {
+    const option = input.options[index];
+    if (option) toggle(option.label);
+  });
+  useEffect(() => {
+    if (!interactive) return;
+    function onKey(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)))
+      )
+        return;
+      const index = Number(event.key) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < 6) {
+        event.preventDefault();
+        choose(index);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [interactive]);
+  return (
+    <fieldset className="chat-question" disabled={!interactive}>
+      <legend>{input.question}</legend>
+      {input.context ? <p>{input.context}</p> : null}
+      <div className="chat-question-options" role="group">
+        {input.options.map((option, index) => (
+          <button
+            key={option.label}
+            type="button"
+            aria-pressed={multiple ? selected.includes(option.label) : undefined}
+            onClick={() => toggle(option.label)}
+          >
+            <kbd aria-hidden>{index + 1}</kbd>
+            <span>
+              <strong>{option.label}</strong>
+              {option.description ? <small>{option.description}</small> : null}
+            </span>
+          </button>
+        ))}
+      </div>
+      {allowOther || multiple ? (
+        <form
+          className="chat-question-other"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (ready) submit(selected);
+          }}
+        >
+          {allowOther ? (
+            <input
+              value={other}
+              maxLength={500}
+              placeholder="Something else…"
+              aria-label="Other answer"
+              onChange={(event) => setOther(event.target.value)}
+            />
+          ) : null}
+          <button type="submit" disabled={!ready}>
+            {multiple ? "Send answers" : "Send"}
+          </button>
+          <button
+            type="button"
+            className="chat-question-skip"
+            onClick={() => answer(id, { selected: [], skipped: true })}
+          >
+            Skip
+          </button>
+        </form>
+      ) : (
+        <div className="chat-question-other">
+          <button
+            type="button"
+            className="chat-question-skip"
+            onClick={() => answer(id, { selected: [], skipped: true })}
+          >
+            Skip
+          </button>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function Answered({
+  input,
+  output,
+}: {
+  input: AskUserInput;
+  output: AskUserOutput;
+}) {
+  const reply = output.skipped
+    ? "Skipped"
+    : [...output.selected, ...(output.other ? [`“${output.other}”`] : [])].join(
+        ", ",
+      );
+  return (
+    <div className="chat-question-answered">
+      <span>{input.question}</span>
+      <strong>{reply || "No answer"}</strong>
+    </div>
+  );
+}
+
+const securityFns = {
+  des: "DES",
+  anr: "ANR",
+  ern: "ERN",
+  hds: "HDS",
+  mgmt: "MGMT",
+  peers: "RELS",
+  splc: "SPLC",
+} as const;
+
+function SecurityChip({
+  symbol,
+  kind,
+}: {
+  symbol: string;
+  kind: keyof typeof securityFns;
+}) {
+  const { openSecurity } = use(ToolActions);
+  const fn = securityFns[kind];
+  return (
+    <p className="chat-chip-line">
+      <button
+        type="button"
+        className="chip"
+        onClick={() => openSecurity(symbol, fn)}
+      >
+        <LayoutGrid aria-hidden /> {symbol} {fn} <MoveRight aria-hidden />
+      </button>
+    </p>
+  );
 }
 
 function DocChip({ data }: { data: PublishedDoc }) {

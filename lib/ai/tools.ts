@@ -17,7 +17,13 @@ import {
 } from "@/lib/research";
 import { managers } from "@/lib/research-types";
 import { rangeKeys, symbolPattern } from "@/lib/universes";
-import { dashboardSchema } from "@/lib/assistant-types";
+import {
+  askUserInputSchema,
+  askUserOutputSchema,
+  dashboardSchema,
+} from "@/lib/assistant-types";
+import { relay } from "@/lib/relay-data";
+import { candidates, ownDisclosure } from "@/lib/supply-chain";
 import { defaultDesk, widgetSchema, type Desk, type Widget } from "@/lib/desk";
 import { memoryInputSchema } from "@/lib/memory-types";
 import { readWorkspace, type Identity } from "@/lib/db";
@@ -48,6 +54,7 @@ const [
   compare,
   market,
   insight,
+  overlay,
 ] = widgetSchema.options;
 export const widgetInputSchema = z.discriminatedUnion("kind", [
   brief.omit(omitId),
@@ -60,6 +67,7 @@ export const widgetInputSchema = z.discriminatedUnion("kind", [
   compare.omit(omitId),
   market.omit(omitId),
   insight.omit({ id: true, createdAt: true }),
+  overlay.omit(omitId),
 ]);
 export type WidgetInput = z.infer<typeof widgetInputSchema>;
 
@@ -351,9 +359,77 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     openView: tool({
       description:
-        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). Use when the user asks to show/open something.",
+        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). For a single security's terminal functions use view 'security' with ticker and fn: GP chart, DES description & key stats, FA financials, ANR analyst ratings & targets, ERN earnings, HDS holders & insider trades, MGMT officers & governance, DVD dividends & splits, RELS relationship map, CN company news. For market monitors use view 'monitor' with fn: MOST (top movers), WEI (world indices), ECO (macro series). For free-form overlays (e.g. VIX over the S&P, a ratio, a FRED series) use view 'overlay' with period (1M|3M|6M|YTD|1Y|5Y) and spec: series joined by ';', each 'expr,axis,mode,flags,studies' where expr is a symbol, FRED:<id> (DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL…) or arithmetic with spaces around minus ('NVDA / SMH', '(XLY / XLP) * 100'); axis l|r|p (pane); mode p (level) | r (% from start) | z (z-score); flags 'i' to invert; studies '+'-joined from sma20,sma50,sma100,sma200,ema9,ema21,ema50,bollinger,rsi,macd. Example: '^GSPC,l,p,,sma200;^VIX,r,p,i'. The same spec can be pinned with updateDesk as an 'overlay' widget (title, spec, range). Use when the user asks to show/open something.",
       inputSchema: z.object({ dashboard: dashboardSchema }),
       execute: async ({ dashboard }) => dashboard,
+    }),
+    askUser: tool({
+      description:
+        "Ask the user a multiple-choice question and wait for the answer. Use it when the request is ambiguous in a way that changes the work (which portfolio, which time horizon, which of several matching tickers, report audience or depth), or to let the user choose between concrete next steps. Give 2-6 short, distinct options; put your recommended option first. Ask one question per call and do not repeat the question in text. Do not use it for trivia you can resolve with tools or sensible defaults.",
+      inputSchema: askUserInputSchema,
+      outputSchema: askUserOutputSchema,
+    }),
+    getSecurityData: tool({
+      description:
+        "Fetch terminal data for one security from the markets relay: des (profile + valuation, margins, trading stats, dividend), anr (consensus, price targets, rating changes), ern (next earnings date/estimates and EPS surprise history), hds (ownership breakdown, top institutions/funds, insider trades), mgmt (officers, pay, governance risk), peers (Yahoo co-viewed symbols, sector, industry), splc (customers/suppliers disclosed in its latest 10-K with verbatim quotes, plus other filers naming it; slower, reads SEC filings). Ratios are fractions (0.25 = 25%).",
+      inputSchema: z.object({
+        symbol: ticker,
+        kind: z.enum(["des", "anr", "ern", "hds", "mgmt", "peers", "splc"]),
+      }),
+      execute: async ({ symbol, kind }) => {
+        try {
+          switch (kind) {
+            case "des": {
+              const [instrument, stats] = await Promise.all([
+                relay.instrument(symbol),
+                relay.stats(symbol).catch(() => null),
+              ]);
+              return { kind, instrument, stats };
+            }
+            case "anr":
+              return { kind, data: await relay.analysts(symbol) };
+            case "ern":
+              return { kind, data: await relay.earnings(symbol) };
+            case "hds":
+              return { kind, data: await relay.holders(symbol) };
+            case "mgmt":
+              return { kind, data: await relay.people(symbol) };
+            case "peers":
+              return { kind, data: await relay.peers(symbol) };
+            case "splc": {
+              const [own, others] = await Promise.all([
+                ownDisclosure(symbol),
+                candidates(symbol).catch(() => []),
+              ]);
+              return {
+                kind,
+                disclosed: own?.links.map((link) => ({
+                  counterparty: link.counterparty,
+                  ticker: link.ticker,
+                  role: link.role,
+                  shareOfRevenue: link.share,
+                  period: link.period,
+                  quote: link.quote,
+                })),
+                filing: own?.filing,
+                namedByOtherFilers: others.map((item) => ({
+                  name: item.name,
+                  ticker: item.ticker,
+                  filed: item.filed,
+                })),
+                note: "namedByOtherFilers are unverified candidates whose annual reports mention this company near customer/supplier language; the SPLC screen verifies each one.",
+              };
+            }
+          }
+        } catch (error) {
+          return {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Security data is unavailable.",
+          };
+        }
+      },
     }),
     proposeAlert: tool({
       description:

@@ -7,6 +7,11 @@ import { Failure } from "@/components/shared";
 import { Field, value, type Save } from "@/components/forms";
 import type { Workspace } from "@/lib/models";
 import { homeOptions } from "./nav";
+import { chartStyleLabels, chartStyles } from "@/lib/models";
+import { rangeKeys } from "@/lib/universes";
+import { studies, studyKeys } from "@/lib/indicators";
+
+const studyGroups = [...new Set(studies.map((item) => item.group))];
 
 export type Account = { name: string; email: string | null; demo: boolean };
 
@@ -19,6 +24,7 @@ export function Settings({
   account: Account;
   save: Save;
 }) {
+  const chart = workspace.settings.chart;
   const [error, setError] = useState<Error>();
   const [success, setSuccess] = useState("");
   const [working, setWorking] = useState(false);
@@ -35,6 +41,14 @@ export function Settings({
           theme: value(fields, "theme") as Workspace["settings"]["theme"],
           home: value(fields, "home") as Workspace["settings"]["home"],
           refresh: fields.has("refresh"),
+          chart: {
+            style: chartStyles.find((item) => item === value(fields, "style")) ?? "area",
+            range: rangeKeys.find((item) => item === value(fields, "range")) ?? "1M",
+            studies: studyKeys
+              .filter((key) => fields.has(`study-${key}`))
+              .slice(0, 12),
+            log: fields.has("log"),
+          },
         },
       }));
       setSuccess("Preferences saved.");
@@ -75,6 +89,7 @@ export function Settings({
               <option value="system">Follow device</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
+              <option value="terminal">Terminal (amber on black)</option>
             </select>
           </Field>
           <Field label="Opening view">
@@ -94,6 +109,52 @@ export function Settings({
             />{" "}
             Automatically refresh visible quotes
           </label>
+          <fieldset className="chart-defaults">
+            <legend>Chart defaults</legend>
+            <Field label="Chart type">
+              <select name="style" defaultValue={chart.style}>
+                {chartStyles.map((style) => (
+                  <option key={style} value={style}>
+                    {chartStyleLabels[style]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Default period">
+              <select name="range" defaultValue={chart.range}>
+                {rangeKeys.map((range) => (
+                  <option key={range} value={range}>
+                    {range}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <label className="check-field">
+              <input type="checkbox" name="log" defaultChecked={chart.log} />{" "}
+              Logarithmic price scale
+            </label>
+            {studyGroups.map((group) => (
+              <div key={group} className="study-defaults">
+                <span>{group}</span>
+                {studies
+                  .filter((item) => item.group === group)
+                  .map((item) => (
+                    <label
+                      key={item.key}
+                      className="check-field"
+                      title={item.description}
+                    >
+                      <input
+                        type="checkbox"
+                        name={`study-${item.key}`}
+                        defaultChecked={chart.studies.includes(item.key)}
+                      />{" "}
+                      {item.label}
+                    </label>
+                  ))}
+              </div>
+            ))}
+          </fieldset>
           <Failure error={error} />
           {success ? (
             <p className="positive" role="status">

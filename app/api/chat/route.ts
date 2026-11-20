@@ -96,9 +96,16 @@ export async function POST(request: Request) {
     return json({ error: "The conversation contains invalid messages." }, 400);
   const messages = validated.data;
   const last = messages.at(-1);
-  if (!last || last.role !== "user")
+  // A client-side askUser answer resubmits the thread with the assistant
+  // message last; the model then continues that same turn.
+  const answered =
+    last?.role === "assistant" &&
+    last.parts.some(
+      (part) => part.type === "tool-askUser" && part.state === "output-available",
+    );
+  if (!last || (last.role !== "user" && !answered))
     return json({ error: "The last message must be from the user." }, 400);
-  if (textOf(last).length > maxUserText)
+  if (last.role === "user" && textOf(last).length > maxUserText)
     return json(
       {
         error: `Keep messages under ${maxUserText.toLocaleString("en-US")} characters.`,

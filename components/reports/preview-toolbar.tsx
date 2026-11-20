@@ -15,7 +15,7 @@ export function PreviewToolbar({
   id: string;
   kind: "report" | "deck";
   shareUrl: string | null;
-  theme: "light" | "dark" | "system";
+  theme: "light" | "dark" | "system" | "terminal";
 }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

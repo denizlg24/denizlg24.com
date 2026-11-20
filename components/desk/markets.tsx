@@ -22,10 +22,11 @@ import {
 } from "@/lib/universes";
 import { compact, percent } from "@/lib/utils";
 import { firstWatchlist } from "./data";
+import { decodeOverlay } from "@/lib/overlay";
+import { Freshness, ListFreshness } from "@/components/freshness";
 import {
   DeskEmpty,
   SkeletonRows,
-  Stamp,
   SymbolButton,
   WidgetFrame,
   latestTime,
@@ -78,7 +79,7 @@ export function WatchlistWidget({ widget, ctx }: WidgetProps<"watchlist">) {
               ? ` · ${data.missing.length} unavailable`
               : ""}
           </span>
-          {asOf ? <Stamp ms={asOf} prefix="As of" /> : null}
+          <ListFreshness symbols={refresh ? symbols : []} ms={asOf} />
         </>
       }
     >
@@ -162,15 +163,16 @@ const isUniverse = (value: string): value is Universe =>
   Object.hasOwn(universes, value);
 
 export function ChartWidget({ widget, ctx }: WidgetProps<"chart">) {
-  const { refresh, onOpenSymbol, onOpenView, update } = ctx;
+  const { refresh, onOpenSymbol, onOpenView, update, workspace } = ctx;
+  const preferences = workspace.settings.chart;
   const range = widget.range ?? "1M";
   const { data, error, mutate, isLoading } = useSWR<MarketSeries>(
-    `/api/market?${new URLSearchParams({ symbol: widget.symbol, range })}`,
+    `/api/market?${new URLSearchParams({ symbol: widget.symbol, range, warmup: "1" })}`,
     api,
     { refreshInterval: refresh ? 75_000 : 0, errorRetryCount: 1 },
   );
   const quote = data?.quote;
-  const first = data?.points[0]?.close;
+  const first = data?.points[data.lead ?? 0]?.close;
   const last = data?.points.at(-1)?.close;
   const periodChange = first && last ? (last / first - 1) * 100 : null;
   const unit = widget.symbol.startsWith("^") ? "pts" : quote?.currency;
@@ -212,7 +214,12 @@ export function ChartWidget({ widget, ctx }: WidgetProps<"chart">) {
               </>
             ) : null}
           </span>
-          {quote ? <Stamp ms={quote.time * 1000} prefix="As of" /> : null}
+          {quote ? (
+            <Freshness
+              symbol={refresh ? widget.symbol : undefined}
+              quoteMs={quote.time * 1000}
+            />
+          ) : null}
         </>
       }
     >
@@ -245,11 +252,14 @@ export function ChartWidget({ widget, ctx }: WidgetProps<"chart">) {
         <div className="desk-chart-frame">
           <PriceChart
             points={data.points}
+            lead={data.lead}
             range={range}
-            style="area"
-            average={false}
-            volume={false}
+            style={preferences.style}
+            studies={preferences.studies}
+            log={preferences.log}
+            previousClose={quote?.previous}
             currency={unit}
+            compact
           />
         </div>
       ) : !error ? (
@@ -332,7 +342,7 @@ export function MarketWidget({ widget, ctx }: WidgetProps<"market">) {
         <>
           {tiles.length > limit
             ? `${limit} largest moves of ${tiles.length}`
-            : "Session moves"}{" "}
+            : "Day moves vs prior close"}{" "}
           ·{" "}
           <span className="positive">
             <ArrowUp size={11} aria-label="advancing" /> {up}
@@ -383,7 +393,10 @@ export function MarketWidget({ widget, ctx }: WidgetProps<"market">) {
               ? ` · ${data.missing.length} unavailable`
               : ""}
           </span>
-          {asOf ? <Stamp ms={asOf} prefix="As of" /> : null}
+          <ListFreshness
+            symbols={refresh ? tiles.map((tile) => tile.symbol).slice(0, 120) : []}
+            ms={asOf}
+          />
         </>
       }
     >
@@ -412,6 +425,43 @@ export function MarketWidget({ widget, ctx }: WidgetProps<"market">) {
           Pick another market group above.
         </DeskEmpty>
       ) : null}
+    </WidgetFrame>
+  );
+}
+
+const OverlayChart = dynamic(
+  () =>
+    import("@/components/overlay/overlay-chart").then(
+      (module) => module.OverlayChart,
+    ),
+  { ssr: false, loading: () => <div className="desk-chart-placeholder skeleton" /> },
+);
+
+export function OverlayWidget({ widget, ctx }: WidgetProps<"overlay">) {
+  const series = decodeOverlay(widget.spec);
+  return (
+    <WidgetFrame
+      label="Overlay"
+      className="desk-overlay"
+      subtitle={`${widget.title} · ${widget.range}`}
+      ask={`Interpret this overlay (${series.map((item) => item.expr).join(", ")}, ${widget.range}): how are these moving together and what does the relationship suggest?`}
+      actions={
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() =>
+            ctx.onOpenView({
+              view: "overlay",
+              spec: widget.spec,
+              period: widget.range,
+            })
+          }
+        >
+          Open
+        </Button>
+      }
+    >
+      <OverlayChart series={series} range={widget.range} compact />
     </WidgetFrame>
   );
 }

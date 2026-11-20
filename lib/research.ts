@@ -7,12 +7,12 @@ import type {
   Mention,
 } from "./research-types";
 
-const secHeaders = () => ({
+export const secHeaders = () => ({
   "User-Agent":
     process.env.SEC_USER_AGENT ||
     "Stockwatcher research contact research@denizlg24.com",
 });
-async function sec<T>(host: string, path: string, ttl = 3600): Promise<T> {
+export async function sec<T>(host: string, path: string, ttl = 3600): Promise<T> {
   const response = await fetch(`https://${host}${path}`, {
     headers: secHeaders(),
     next: { revalidate: ttl },
@@ -49,9 +49,9 @@ type SecFact = {
   >;
 };
 
-const archive = (cik: string, accession: string) =>
+export const archive = (cik: string, accession: string) =>
   `/Archives/edgar/data/${Number(cik)}/${accession.replaceAll("-", "")}`;
-const submission = (cik: string) =>
+export const submission = (cik: string) =>
   sec<Submission>(
     "data.sec.gov",
     `/submissions/CIK${cik.padStart(10, "0")}.json`,
