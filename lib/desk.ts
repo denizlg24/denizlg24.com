@@ -7,6 +7,20 @@ const widgetId = z.uuid();
 const rangeKey = z.enum(rangeKeys);
 const universeKey = z.enum(universeKeys);
 
+export const deskFunctions = [
+  "GC",
+  "RRG",
+  "CORR",
+  "TOP",
+  "EVTS",
+  "PRSK",
+  "FXC",
+  "CMDTY",
+  "CRYP",
+  "GRID",
+] as const;
+export type DeskFunction = (typeof deskFunctions)[number];
+
 const base = {
   id: widgetId,
   span: z.union([z.literal(1), z.literal(2)]).default(1),
@@ -60,6 +74,12 @@ export const widgetSchema = z.discriminatedUnion("kind", [
     ...base,
     kind: z.literal("overlay"),
     ...overlayWidgetSchema.shape,
+  }),
+  z.object({
+    ...base,
+    kind: z.literal("function"),
+    fn: z.enum(deskFunctions),
+    symbols: z.array(ticker).max(30).optional(),
   }),
 ]);
 

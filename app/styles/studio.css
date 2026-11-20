@@ -1340,3 +1340,9 @@
 .panel-tab-new:hover {
   color: var(--term-header);
 }
+
+.desk-function-body {
+  min-width: 0;
+  max-height: 640px;
+  overflow: auto;
+}
