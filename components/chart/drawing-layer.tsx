@@ -25,6 +25,7 @@ export function DrawingLayer({
   onAdd,
   onRemove,
   onAlert,
+  onNote,
 }: {
   times: number[];
   drawings: Drawing[];
@@ -34,6 +35,7 @@ export function DrawingLayer({
   onAdd: (drawing: Drawing) => void;
   onRemove: (id: string) => void;
   onAlert?: (price: number) => void;
+  onNote?: (points: { t: number; p: number }[]) => void;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale("price");
@@ -91,19 +93,11 @@ export function DrawingLayer({
     }
     setPending([]);
     if (tool === "measure") return;
-    let text: string | undefined;
     if (tool === "text") {
-      text = window.prompt("Note text")?.trim().slice(0, 200);
-      if (!text) return;
+      onNote?.(points);
+      return;
     }
-    onAdd({
-      id: crypto.randomUUID(),
-      symbol,
-      kind: tool,
-      points,
-      color,
-      ...(text ? { text } : {}),
-    });
+    onAdd({ id: crypto.randomUUID(), symbol, kind: tool, points, color });
   }
 
   const preview: Drawing | null =
@@ -248,6 +242,7 @@ export function DrawingLayer({
 
   return (
     <g className="drawing-layer" data-tool={tool}>
+
       <defs>
         <clipPath id={clip}>
           <rect x={plot.x} y={plot.y} width={plot.width} height={plot.height} />

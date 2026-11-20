@@ -21,6 +21,8 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  ZIndexLayer,
+  DefaultZIndexes,
 } from "recharts";
 import {
   defaultAppearance,
@@ -46,6 +48,7 @@ import {
   rebaseOnto,
 } from "@/lib/chart-studio";
 import { DrawingLayer, type Tool } from "./chart/drawing-layer";
+import { PromptDialog } from "./ui/prompt-dialog";
 import type { Range } from "@/lib/universes";
 import {
   computeStudies,
@@ -459,6 +462,9 @@ const numberAt = (entry: Entry | undefined, key: string) => {
 const margin = { top: 6, right: 0, left: 0, bottom: 0 };
 const axisTick = { fill: "var(--muted-foreground)", fontSize: 11 };
 
+/** Above every built-in recharts layer, so drawing clicks are never swallowed. */
+const drawingZIndex = Math.max(...Object.values(DefaultZIndexes)) + 1;
+
 export type CompareSeries = { symbol: string; points: ChartPoint[]; color: string };
 const MIN_BARS = 12;
 
@@ -516,6 +522,7 @@ export default function PriceChart({
   const gradient = useId().replaceAll(":", "");
   const sync = useId();
   const [hover, setHover] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState<{ t: number; p: number }[] | null>(null);
   const scaleKind: ChartScale = scaleMode ?? (log ? "log" : "linear");
   const logScale = scaleKind === "log";
   const studyKey = studies.join(",");
@@ -693,6 +700,27 @@ export default function PriceChart({
 
   return (
     <>
+      {noteDraft && onAddDrawing ? (
+        <PromptDialog
+          title="Chart note"
+          description="The note is pinned to this date and price."
+          label="Text"
+          placeholder="e.g. Breakout above resistance"
+          maxLength={200}
+          confirmLabel="Add note"
+          onSubmit={(text) =>
+            onAddDrawing({
+              id: crypto.randomUUID(),
+              symbol,
+              kind: "text",
+              points: noteDraft,
+              color: drawColor,
+              text,
+            })
+          }
+          onClose={() => setNoteDraft(null)}
+        />
+      ) : null}
       <dl className="chart-readout" aria-live="off">
         {active && bar ? (
           <>
@@ -1052,6 +1080,7 @@ export default function PriceChart({
                 />
               ) : null}
               {onAddDrawing && onRemoveDrawing && !small ? (
+                <ZIndexLayer zIndex={drawingZIndex}>
                 <DrawingLayer
                   times={times}
                   drawings={visibleDrawings}
@@ -1061,7 +1090,9 @@ export default function PriceChart({
                   onAdd={onAddDrawing}
                   onRemove={onRemoveDrawing}
                   onAlert={onAlert}
+                  onNote={setNoteDraft}
                 />
+                </ZIndexLayer>
               ) : null}
             </ComposedChart>
           </ResponsiveContainer>

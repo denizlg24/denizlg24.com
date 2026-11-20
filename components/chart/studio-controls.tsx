@@ -45,6 +45,7 @@ import {
 } from "@/lib/chart-studio";
 import { symbolPattern } from "@/lib/universes";
 import type { Tool } from "./drawing-layer";
+import { ConfirmDialog, PromptDialog } from "@/components/ui/prompt-dialog";
 
 const tools: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: "cursor", icon: MousePointer2, label: "Cursor: drag to pan, wheel to zoom", key: "Esc" },
@@ -79,8 +80,19 @@ export function DrawingTools({
   count: number;
   clear: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
   return (
     <div className="studio-tools" role="toolbar" aria-label="Drawing tools">
+      {confirming ? (
+        <ConfirmDialog
+          title={`Remove ${count} drawing${count === 1 ? "" : "s"}?`}
+          description="Every drawing on this symbol is deleted from your workspace. This can't be undone."
+          confirmLabel="Remove all"
+          destructive
+          onConfirm={clear}
+          onClose={() => setConfirming(false)}
+        />
+      ) : null}
       {tools.map((item) => (
         <button
           key={item.tool}
@@ -110,10 +122,7 @@ export function DrawingTools({
           type="button"
           className="studio-clear"
           title="Remove every drawing on this symbol"
-          onClick={() => {
-            if (window.confirm(`Remove all ${count} drawings on this chart?`))
-              clear();
-          }}
+          onClick={() => setConfirming(true)}
         >
           Clear {count}
         </button>
@@ -479,7 +488,27 @@ export function TemplateMenu({
   apply: (template: ChartTemplate) => void;
   save: (next: ChartTemplate[]) => void;
 }) {
+  const [naming, setNaming] = useState(false);
   return (
+    <>
+      {naming ? (
+        <PromptDialog
+          title="Save chart template"
+          description="Stores the chart type, studies, moving averages, panes, scale and style. Using an existing name replaces it."
+          label="Name"
+          placeholder="e.g. Swing setup"
+          maxLength={60}
+          onSubmit={(name) =>
+            save(
+              [
+                ...templates.filter((item) => item.name !== name),
+                { ...current, id: crypto.randomUUID(), name },
+              ].slice(-30),
+            )
+          }
+          onClose={() => setNaming(false)}
+        />
+      ) : null}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" className="chip chip-menu" title="Chart templates">
@@ -516,20 +545,14 @@ export function TemplateMenu({
           {templates.length ? <DropdownMenu.Separator className="menu-separator" /> : null}
           <DropdownMenu.Item
             className="menu-item"
-            onSelect={() => {
-              const name = window.prompt("Template name")?.trim().slice(0, 60);
-              if (!name) return;
-              save([
-                ...templates.filter((item) => item.name !== name),
-                { ...current, id: crypto.randomUUID(), name },
-              ].slice(-30));
-            }}
+            onSelect={() => setNaming(true)}
           >
             Save current chart as template…
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+    </>
   );
 }
 

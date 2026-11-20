@@ -21,6 +21,7 @@ import {
 } from "@/components/shared";
 import type { Quote } from "@/lib/models";
 import { downloadCsv } from "@/lib/export";
+import { PromptDialog } from "@/components/ui/prompt-dialog";
 import { amount, compact } from "@/lib/utils";
 
 type Row = {
@@ -126,6 +127,7 @@ export function Screener({
   overlay: (symbols: string[]) => void;
 }) {
   const [screen, setScreen] = useState<Screen>(builtIns[0]);
+  const [naming, setNaming] = useState(false);
   const universe = encodeURIComponent("S&P 500");
   const day = useSWR<{ quotes: Quote[] }>(`/api/market?universe=${universe}`, api, {
     revalidateOnFocus: false,
@@ -296,15 +298,24 @@ export function Screener({
           <button
             type="button"
             className="chip"
-            onClick={() => {
-              const name = window.prompt("Save screen as", screen.name || "My screen")?.trim();
-              if (!name) return;
-              persist([...saved.filter((item) => item.name !== name), { ...screen, name }].slice(-20));
-              update({ name });
-            }}
+            onClick={() => setNaming(true)}
           >
             Save
           </button>
+          {naming ? (
+            <PromptDialog
+              title="Save screen"
+              description="Saved screens sync with your workspace. Using an existing name replaces it."
+              label="Name"
+              initial={screen.name || "My screen"}
+              maxLength={80}
+              onSubmit={(name) => {
+                persist([...saved.filter((item) => item.name !== name), { ...screen, name }].slice(-20));
+                update({ name });
+              }}
+              onClose={() => setNaming(false)}
+            />
+          ) : null}
           {saved.some((item) => item.name === screen.name) ? (
             <button type="button" className="chip" onClick={() => persist(saved.filter((item) => item.name !== screen.name))}>
               Delete
