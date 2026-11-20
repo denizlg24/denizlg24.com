@@ -25,7 +25,7 @@ export type GraphEdge = {
 
 export type Graph = { nodes: GraphNode[]; edges: GraphEdge[] };
 export type Point = { x: number; y: number };
-export type Layout = "tiered" | "radial" | "force";
+export type Layout = "tiered" | "radial" | "force" | "sector";
 
 const unnamed = /^unnamed/i;
 const nameKey = (name: string) =>
@@ -272,6 +272,54 @@ function force(graph: Graph, rootId: string): Map<string, Point> {
     y[root] = 0;
   }
   return new Map(ids.map((id, i) => [id, { x: x[i], y: y[i] }]));
+}
+
+/**
+ * Clusters companies into labelled sector bands; within a band, suppliers
+ * sit left of customers. `sectorOf` returns null for unknown companies.
+ */
+export function sectorLayout(
+  graph: Graph,
+  rootId: string,
+  sectorOf: (node: GraphNode) => string | null,
+) {
+  const groups = new Map<string, GraphNode[]>();
+  for (const node of graph.nodes) {
+    const sector = node.id === rootId ? "★" : (sectorOf(node) ?? "Other");
+    groups.set(sector, [...(groups.get(sector) ?? []), node]);
+  }
+  const names = [...groups.keys()].sort((a, b) =>
+    a === "★" ? -1 : b === "★" ? 1 : a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b),
+  );
+  const positions = new Map<string, Point>();
+  const bands: { name: string; x: number; y: number; width: number; height: number }[] = [];
+  let y = 0;
+  const perRow = 5;
+  for (const name of names) {
+    const members = groups.get(name)!.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
+    const rows = Math.ceil(members.length / perRow);
+    members.forEach((node, index) => {
+      const row = Math.floor(index / perRow);
+      const column = index % perRow;
+      const count = Math.min(perRow, members.length - row * perRow);
+      positions.set(node.id, {
+        x: (column - (count - 1) / 2) * 175,
+        y: y + 40 + row * 56,
+      });
+    });
+    const height = 40 + rows * 56;
+    const xs = members.map((node) => positions.get(node.id)!.x);
+    const x = Math.min(...xs) - 95;
+    bands.push({
+      name: name === "★" ? "" : name,
+      x,
+      y,
+      width: Math.max(...xs) + 95 - x,
+      height,
+    });
+    y += height + 16;
+  }
+  return { positions, bands };
 }
 
 export function layoutGraph(graph: Graph, rootId: string, layout: Layout) {

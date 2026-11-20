@@ -22,6 +22,11 @@ import { useQuotes } from "@/components/market-widgets";
 import type { Link, OwnDisclosure } from "@/lib/supply-chain-types";
 import type { RelationNote } from "@/lib/models";
 import { symbolPattern } from "@/lib/universes";
+import constituents from "@/data/sp500.json";
+import { z } from "zod";
+
+const sectorBySymbol = new Map(constituents.map((item) => [item.symbol, item.sector]));
+const pointsSchema = z.record(z.string(), z.object({ x: z.number(), y: z.number() }));
 import {
   buildGraph,
   concentration,
@@ -30,6 +35,7 @@ import {
   neighbours,
   nodeId,
   propagateShock,
+  sectorLayout,
   shortestPath,
   noteLink,
   USER_FORM,
@@ -61,6 +67,7 @@ const layouts: [Layout, string][] = [
   ["tiered", "Chain"],
   ["radial", "Radial"],
   ["force", "Force"],
+  ["sector", "Sector"],
 ];
 const colorModes: [ColorMode, string][] = [
   ["move", "Day move"],
@@ -214,7 +221,30 @@ export function SupplyGraph({
   const [shock, setShock] = useState(-20);
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [moved, setMoved] = useState<Record<string, Point>>({});
+  const positionKey = (name: Layout) => `stockwatcher.splc.pos.${ticker}.${name}`;
+  const loadMoved = (name: Layout): Record<string, Point> => {
+    try {
+      const parsed = pointsSchema.safeParse(
+        JSON.parse(localStorage.getItem(positionKey(name)) ?? "{}"),
+      );
+      return parsed.success ? parsed.data : {};
+    } catch {
+      return {};
+    }
+  };
+  const [moved, setMovedState] = useState<Record<string, Point>>(() => loadMoved("tiered"));
+  const setMoved = (
+    next: Record<string, Point> | ((current: Record<string, Point>) => Record<string, Point>),
+  ) =>
+    setMovedState((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      try {
+        if (Object.keys(value).length)
+          localStorage.setItem(positionKey(layout), JSON.stringify(value));
+        else localStorage.removeItem(positionKey(layout));
+      } catch {}
+      return value;
+    });
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [box, setBox] = useState({ width: 0, height: 0 });
   const frame = useRef<HTMLDivElement>(null);
@@ -273,9 +303,18 @@ export function SupplyGraph({
       }),
     [graph, rootId, kinds, minShare, listedOnly, hideUnnamed, maxDepth],
   );
-  const base = useMemo(
-    () => layoutGraph(visible, rootId, layout),
+  const sectorBands = useMemo(
+    () =>
+      layout === "sector"
+        ? sectorLayout(visible, rootId, (node) =>
+            node.ticker ? (sectorBySymbol.get(node.ticker) ?? null) : null,
+          )
+        : null,
     [visible, rootId, layout],
+  );
+  const base = useMemo(
+    () => sectorBands?.positions ?? layoutGraph(visible, rootId, layout),
+    [visible, rootId, layout, sectorBands],
   );
   const impact = useMemo(
     () =>
@@ -487,7 +526,7 @@ export function SupplyGraph({
               aria-pressed={layout === key}
               onClick={() => {
                 setLayout(key);
-                setMoved({});
+                setMovedState(loadMoved(key));
               }}
             >
               {label}
@@ -600,6 +639,11 @@ export function SupplyGraph({
         >
           Labels
         </button>
+        {Object.keys(moved).length ? (
+          <button type="button" className="chip" onClick={() => setMoved({})}>
+            Reset positions
+          </button>
+        ) : null}
       </div>
       <div className="graph-body">
         <div className="graph-frame" ref={frame}>
@@ -647,6 +691,16 @@ export function SupplyGraph({
               height={box.height}
             />
             <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+              {sectorBands?.bands.map((band) =>
+                band.name ? (
+                  <g key={band.name} className="graph-band">
+                    <rect x={band.x} y={band.y} width={band.width} height={band.height} rx={4} />
+                    <text x={band.x + 8} y={band.y + 16}>
+                      {band.name}
+                    </text>
+                  </g>
+                ) : null,
+              )}
               {visible.edges.map((edge) => {
                 const a = positions.get(edge.from);
                 const b = positions.get(edge.to);
