@@ -242,7 +242,8 @@ export function CommandHelp({ close }: { close: () => void }) {
             . A function on its own applies to the security on screen. Monitors
             take tickers too: <kbd>CORR AAPL MSFT NVDA</kbd>. Press{" "}
             <kbd>/</kbd> anywhere to focus the command line; <kbd>↑</kbd> recalls
-            earlier commands. On a chart, <kbd>⇧T</kbd> draws a trend line,{" "}
+            earlier commands, and a function&apos;s number (<kbd>12</kbd>) opens it for the
+            security on screen. On a chart, <kbd>⇧T</kbd> draws a trend line,{" "}
             <kbd>⇧F</kbd> a Fibonacci, <kbd>⇧H</kbd> a level and <kbd>Esc</kbd>{" "}
             returns to the cursor. Bloomberg-style
             yellow keys such as <kbd>US EQUITY</kbd> and <kbd>&lt;GO&gt;</kbd>{" "}

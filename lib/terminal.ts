@@ -194,6 +194,11 @@ export function parseCommand(input: string, current?: string): Command | null {
   if (words.length === 1) {
     const [word] = words;
     if (word === "HELP" || word === "?" || word === "HL") return { kind: "help" };
+    const numbered = /^\d{1,2}$/.test(word)
+      ? securityFunctions[Number(word) - 1]?.code
+      : undefined;
+    if (numbered && current)
+      return { kind: "security", ticker: current, fn: numbered };
     const monitor = monitorCodes.get(word);
     if (monitor) return { kind: "monitor", fn: monitor };
     const view = workspaceCodes.get(word);
