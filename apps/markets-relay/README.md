@@ -25,6 +25,13 @@ Send `Authorization: Bearer <token>` with each request. Set `MARKETS_DATA_TOKEN`
 | `/v1/actions/AAPL` | Dividend and split history |
 | `/v1/news/AAPL?limit=10` | Recent related headlines and publisher links |
 | `/v1/financials/AAPL?statement=income&frequency=quarterly` | Fiscal periods and reported values for income, balance sheet, or cash flow |
+| `/v1/stats/AAPL` | Valuation, profitability, trading, dividend and fundamental statistics. Ratios are fractions and missing values are null |
+| `/v1/analysts/AAPL` | Recommendation, price targets, rating trend, and the latest 25 upgrades and downgrades |
+| `/v1/holders/AAPL` | Ownership breakdown, top institutions and funds, and recent insider transactions |
+| `/v1/earnings/AAPL` | Next earnings date with estimates and up to 12 reported quarters with surprise as a fraction |
+| `/v1/movers?list=gainers&limit=25` | Day gainers, losers, or most active symbols. `percent` is in percent units (5.2 = +5.2%) |
+| `/v1/people/AAPL` | Company officers with age, birth year and pay, plus governance risk scores |
+| `/v1/peers/AAPL` | Yahoo's similar symbols with scores, plus sector and industry |
 | `/v1/macro` | FRED series catalog with units and frequency |
 | `/v1/macro/CPIAUCSL?from=2020-01-01` | Dated economic observations |
 
