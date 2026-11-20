@@ -63,6 +63,10 @@
   --ring: #2f6b4c;
   --gain: #1b6e45;
   --loss: #b0342f;
+  --live: #2f6fd1;
+  --term-header: #a35a00;
+  --term-key: #8a6a00;
+  --term-blue: #2f6fd1;
   --chart-1: #1f5f46;
   --chart-2: #94600f;
   --chart-3: #3f5fa8;
@@ -117,6 +121,10 @@
   --ring: #86bd97;
   --gain: #6ccf95;
   --loss: #ff958c;
+  --live: #6fb3ff;
+  --term-header: #f0a640;
+  --term-key: #e8cf5a;
+  --term-blue: #6fb3ff;
   --chart-1: #8fd3a8;
   --chart-2: #e3b665;
   --chart-3: #9db4f0;
@@ -152,6 +160,10 @@
     --ring: #86bd97;
     --gain: #6ccf95;
     --loss: #ff958c;
+    --live: #6fb3ff;
+    --term-header: #f0a640;
+    --term-key: #e8cf5a;
+    --term-blue: #6fb3ff;
     --chart-1: #8fd3a8;
     --chart-2: #e3b665;
     --chart-3: #9db4f0;
@@ -209,6 +221,7 @@
   --term-header: #fb8b1e;
   --term-key: #f5e663;
   --term-blue: #4aa8ff;
+  --live: #4aa8ff;
   color-scheme: dark;
 }
 :root[data-theme="terminal"] body {
@@ -707,7 +720,7 @@ a.chip:hover {
   background: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 .benchmark.chosen {
-  box-shadow: inset 0 2px 0 var(--primary);
+  box-shadow: inset 0 2px 0 var(--term-header);
 }
 .benchmark.chosen > span {
   color: var(--foreground);
@@ -1881,7 +1894,7 @@ a.chip:hover {
   background: var(--muted-foreground);
 }
 .status[data-status="armed"]::before {
-  background: var(--gain);
+  background: var(--live);
 }
 .status[data-status="triggered"]::before {
   background: var(--chart-2);

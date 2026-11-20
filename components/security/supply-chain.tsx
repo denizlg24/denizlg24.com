@@ -203,7 +203,7 @@ export function SupplyChain({
             <strong>{ticker}</strong>
             <span>{company}</span>
             {self ? (
-              <span className={tone(self.percent)}>
+              <span>
                 {amount(self.price)} {percent(self.percent)}
               </span>
             ) : null}

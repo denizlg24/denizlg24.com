@@ -37,8 +37,8 @@ export const seriesColors = [
   "var(--chart-4)",
   "var(--chart-5)",
   "var(--chart-6)",
-  "var(--gain)",
-  "var(--loss)",
+  "var(--term-key)",
+  "var(--muted-foreground)",
 ];
 
 const rangeMonths: Record<OverlayRange, number> = {

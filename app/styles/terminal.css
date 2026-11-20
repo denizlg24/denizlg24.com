@@ -2,11 +2,6 @@
    monitors, multi-pane charts. Theme-agnostic; the terminal theme only
    swaps tokens. */
 
-:root {
-  --term-header: var(--primary);
-  --term-key: var(--chart-2);
-  --term-blue: var(--chart-3);
-}
 
 /* Command line */
 .command-line {
@@ -55,14 +50,14 @@
   padding: 0 9px;
   border: 0;
   border-radius: 2px;
-  background: #1d9a4a;
-  color: #fff;
+  background: var(--term-header);
+  color: var(--background);
   font: 800 var(--fs-2xs) / 1 inherit;
   font-family: inherit;
   letter-spacing: 0.06em;
 }
 .command-go:hover {
-  background: #23b356;
+  filter: brightness(1.1);
 }
 .command-suggestions {
   position: absolute;
@@ -241,7 +236,7 @@
   white-space: nowrap;
 }
 .freshness[data-state="live"] {
-  color: var(--gain);
+  color: var(--live);
 }
 .freshness i {
   width: 6px;
@@ -771,8 +766,19 @@
   text-anchor: middle;
 }
 .rels-center rect {
+  fill: var(--heat-flat);
+  stroke: var(--strong-border);
+}
+.rels-center[data-tone="positive"] rect {
   fill: var(--heat-gain-strong);
   stroke: var(--gain);
+}
+.rels-center[data-tone="negative"] rect {
+  fill: var(--heat-loss-strong);
+  stroke: var(--loss);
+}
+.rels-center[data-tone="neutral"] text {
+  fill: var(--foreground);
 }
 .rels-center text {
   fill: #fff;
@@ -1218,21 +1224,27 @@
   gap: 3px;
   justify-items: center;
   padding: 16px 10px;
-  border: 1px solid var(--gain);
+  border: 1px solid var(--strong-border);
+  background: var(--heat-flat);
+  color: var(--foreground);
+  text-align: center;
+}
+.splc-self[data-tone="positive"] {
+  border-color: var(--gain);
   background: var(--heat-gain-strong);
   color: #fff;
-  text-align: center;
 }
 .splc-self[data-tone="negative"] {
   border-color: var(--loss);
   background: var(--heat-loss-strong);
+  color: #fff;
 }
 .splc-self strong {
   font-size: var(--fs-xl);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 .splc-self span {
-  color: #fff;
+  color: inherit;
 }
 .splc-unconfirmed {
   font-size: var(--fs-xs);

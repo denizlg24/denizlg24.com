@@ -1019,8 +1019,8 @@ function RelationshipMap({
             label: name,
             kind: "index" as const,
           })),
-          { x: 280, y: 40 },
-          { x: W - 340, y: 40 },
+          { x: 220, y: 40 },
+          { x: W - 220, y: 40 },
         );
         const officers = spread(
           data.officers.slice(0, 4).map((officer) => ({
@@ -1029,8 +1029,8 @@ function RelationshipMap({
             detail: officer.title?.split(/[,&]/)[0]?.trim(),
             kind: "officer" as const,
           })),
-          { x: 280, y: H - 40 },
-          { x: W - 340, y: H - 40 },
+          { x: 220, y: H - 40 },
+          { x: W - 220, y: H - 40 },
         );
         const nodes = [...peers, ...holders, ...indices, ...officers];
         return (
@@ -1062,7 +1062,7 @@ function RelationshipMap({
                   data-kind={node.kind}
                 />
               ))}
-              <g className="rels-center">
+              <g className="rels-center" data-tone={tone(self?.percent)}>
                 <rect x={cx - 92} y={cy - 32} width={184} height={64} />
                 <text x={cx} y={cy - 8} className="rels-title">
                   {ticker}
