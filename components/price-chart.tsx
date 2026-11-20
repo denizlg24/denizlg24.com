@@ -28,6 +28,7 @@ import {
   type ChartPoint,
   type ChartScale,
   type ChartStyle,
+  type CorporateEvent,
   type CustomAverage,
   type Drawing,
 } from "@/lib/models";
@@ -471,6 +472,9 @@ export default function PriceChart({
   onAddDrawing,
   onRemoveDrawing,
   zoomable = false,
+  events = [],
+  alertLevels = [],
+  onAlert,
   previousClose,
   currency,
   compact: small = false,
@@ -492,6 +496,9 @@ export default function PriceChart({
   onAddDrawing?: (drawing: Drawing) => void;
   onRemoveDrawing?: (id: string) => void;
   zoomable?: boolean;
+  events?: CorporateEvent[];
+  alertLevels?: { target: number; direction: "above" | "below" }[];
+  onAlert?: (price: number) => void;
   previousClose?: number | null;
   currency?: string;
   compact?: boolean;
@@ -597,6 +604,14 @@ export default function PriceChart({
     return { high, low };
   }, [values]);
   const times = useMemo(() => values.map((entry) => entry.time), [values]);
+  const markers = useMemo(() => {
+    if (!appearance.events || small || !values.length) return [];
+    return events.flatMap((event) => {
+      const index = times.findIndex((time) => time >= event.time - 43200);
+      if (index < 0 || Math.abs(times[index] - event.time) > 8 * 86400) return [];
+      return [{ event, entry: values[index] }];
+    });
+  }, [appearance.events, small, events, times, values]);
   const visibleDrawings = drawings.filter((item) => item.symbol === symbol);
   const lineWidth = appearance.lineWidth;
   const priceStudies = studies.filter(
@@ -949,6 +964,51 @@ export default function PriceChart({
                   />
                 </>
               ) : null}
+              {markers.map(({ event, entry }) => (
+                <ReferenceDot
+                  key={`${event.kind}-${event.time}`}
+                  yAxisId="price"
+                  x={entry.time}
+                  y={entry.actual.low}
+                  r={0}
+                  ifOverflow="extendDomain"
+                  shape={(props: { cx?: number; cy?: number }) =>
+                    props.cx == null || props.cy == null ? (
+                      <g />
+                    ) : (
+                      <g className="event-marker" data-kind={event.kind}>
+                        <circle cx={props.cx} cy={props.cy + 12} r={6} />
+                        <text x={props.cx} y={props.cy + 15.5} textAnchor="middle">
+                          {event.kind === "dividend" ? "D" : "S"}
+                        </text>
+                        <title>
+                          {event.kind === "dividend"
+                            ? `Dividend ${amount(event.amount)} · ex-date ${new Date(event.time * 1000).toISOString().slice(0, 10)}`
+                            : `Split ${event.ratio} · ${new Date(event.time * 1000).toISOString().slice(0, 10)}`}
+                        </title>
+                      </g>
+                    )
+                  }
+                />
+              ))}
+              {appearance.alerts && !small
+                ? alertLevels.map((alert) => (
+                    <ReferenceLine
+                      key={`${alert.direction}-${alert.target}`}
+                      yAxisId="price"
+                      y={alert.target}
+                      stroke="var(--term-key)"
+                      strokeDasharray="6 3"
+                      ifOverflow="hidden"
+                      label={{
+                        value: `ALERT ${alert.direction === "above" ? "≥" : "≤"} ${amount(alert.target)}`,
+                        position: "insideBottomLeft",
+                        fill: "var(--term-key)",
+                        fontSize: 10,
+                      }}
+                    />
+                  ))
+                : null}
               {hover != null && active ? (
                 <ReferenceLine
                   yAxisId="price"
@@ -972,6 +1032,7 @@ export default function PriceChart({
                   symbol={symbol}
                   onAdd={onAddDrawing}
                   onRemove={onRemoveDrawing}
+                  onAlert={onAlert}
                 />
               ) : null}
             </ComposedChart>

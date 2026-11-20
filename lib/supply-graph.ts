@@ -353,3 +353,31 @@ export function propagateShock(
   }
   return impact;
 }
+
+/** Shortest undirected path between two companies, as node ids. */
+export function shortestPath(graph: Graph, from: string, to: string) {
+  if (from === to) return [from];
+  const adjacent = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    adjacent.set(edge.from, [...(adjacent.get(edge.from) ?? []), edge.to]);
+    adjacent.set(edge.to, [...(adjacent.get(edge.to) ?? []), edge.from]);
+  }
+  const previous = new Map<string, string>();
+  const queue = [from];
+  const seen = new Set([from]);
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const next of adjacent.get(id) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      previous.set(next, id);
+      if (next === to) {
+        const path = [to];
+        while (path[0] !== from) path.unshift(previous.get(path[0])!);
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+  return null;
+}

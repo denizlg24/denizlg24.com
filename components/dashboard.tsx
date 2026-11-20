@@ -246,6 +246,31 @@ export function Dashboard({
       }),
     [save, notify],
   );
+  const createAlert = useCallback(
+    (symbol: string, target: number, direction: "above" | "below") =>
+      void save((current) => ({
+        ...current,
+        alerts: [
+          ...current.alerts,
+          {
+            id: crypto.randomUUID(),
+            symbol,
+            direction,
+            target,
+            enabled: true,
+            lastTriggered: null,
+            triggeredPrice: null,
+          },
+        ].slice(-60),
+      }))
+        .then(() =>
+          notify(
+            `Alert set: ${symbol} ${direction === "above" ? "at or above" : "at or below"} ${target}.`,
+          ),
+        )
+        .catch((error: Error) => notify(error.message, true)),
+    [save, notify],
+  );
   function runCommand(command: Command) {
     setNavOpen(false);
     if (command.kind === "help") setHelp(true);
@@ -501,6 +526,8 @@ export function Dashboard({
                   clearSince={() => link({ ...marketState, since: undefined })}
                   drawings={workspace.drawings}
                   saveDrawings={saveDrawings}
+                  alerts={workspace.alerts}
+                  createAlert={createAlert}
                 />
               )}
               <MarketMap
@@ -545,6 +572,8 @@ export function Dashboard({
               }
               drawings={workspace.drawings}
               saveDrawings={saveDrawings}
+              alerts={workspace.alerts}
+              createAlert={createAlert}
             />
           ) : null}
           {view === "monitor" ? (

@@ -14,7 +14,7 @@ import {
 } from "@/components/shared";
 import { Freshness } from "@/components/freshness";
 import { ChartPanel, useQuotes } from "@/components/market-widgets";
-import type { ChartPreferences, Drawing } from "@/lib/models";
+import type { ChartPreferences, Drawing, Workspace } from "@/lib/models";
 import type {
   Actions,
   AnalystView,
@@ -1160,6 +1160,8 @@ export function SecurityView({
   openFunction,
   drawings,
   saveDrawings,
+  alerts,
+  createAlert,
 }: {
   ticker: string;
   fn: SecurityFunction;
@@ -1174,6 +1176,8 @@ export function SecurityView({
   openFunction?: (symbol: string, fn: SecurityFunction) => void;
   drawings?: Drawing[];
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
+  alerts?: Workspace["alerts"];
+  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
 }) {
   if (fn === "GP")
     return (
@@ -1189,6 +1193,8 @@ export function SecurityView({
         savePreferences={savePreferences}
         drawings={drawings}
         saveDrawings={saveDrawings}
+        alerts={alerts}
+        createAlert={createAlert}
       />
     );
   const info = securityFunctions.find((item) => item.code === fn);

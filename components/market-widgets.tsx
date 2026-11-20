@@ -221,6 +221,8 @@ export function ChartPanel({
   clearSince,
   drawings = [],
   saveDrawings,
+  alerts = [],
+  createAlert,
 }: {
   ticker: string;
   refresh: boolean;
@@ -234,6 +236,8 @@ export function ChartPanel({
   clearSince?: () => void;
   drawings?: Drawing[];
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
+  alerts?: { symbol: string; target: number; direction: "above" | "below"; enabled: boolean }[];
+  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
 }) {
   const [range, setRange] = useState<Range>(preferences.range);
   const [style, setStyle] = useState<ChartStyle>(preferences.style);
@@ -570,6 +574,19 @@ export function ChartPanel({
                 : undefined
             }
             zoomable
+            events={data.events}
+            alertLevels={alerts.filter(
+              (alert) => alert.symbol === ticker && alert.enabled,
+            )}
+            onAlert={
+              createAlert
+                ? (price) => {
+                    const last = snapshot?.price ?? data.points.at(-1)?.close ?? price;
+                    createAlert(ticker, Number(price.toPrecision(6)), price >= last ? "above" : "below");
+                    setTool("cursor");
+                  }
+                : undefined
+            }
             previousClose={snapshot?.previous}
             currency={unit}
           />

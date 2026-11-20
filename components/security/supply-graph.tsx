@@ -28,6 +28,7 @@ import {
   neighbours,
   nodeId,
   propagateShock,
+  shortestPath,
   relationLabel,
   type EdgeKind,
   type Graph,
@@ -216,6 +217,30 @@ export function SupplyGraph({
     | null
   >(null);
   const rootId = nodeId(ticker, company);
+  const storeKey = `stockwatcher.splc.${ticker}`;
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(storeKey) ?? "[]");
+      if (Array.isArray(saved))
+        saved
+          .filter((item): item is string => typeof item === "string")
+          .slice(0, MAX_EXPANSIONS)
+          .forEach(expand);
+    } catch {}
+  }, [storeKey, expand]);
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      const keys = Object.entries(expansions)
+        .filter(([, item]) => item.state !== "failed")
+        .map(([key]) => key);
+      if (keys.length) localStorage.setItem(storeKey, JSON.stringify(keys));
+      else localStorage.removeItem(storeKey);
+    } catch {}
+  }, [expansions, storeKey]);
 
   const graph: Graph = useMemo(() => {
     const done = new Map<string, Link[]>();
@@ -388,6 +413,18 @@ export function SupplyGraph({
     setSelected(state.type === "node" ? state.id : null);
   }
 
+  const path = useMemo(
+    () => (selected && selected !== rootId ? shortestPath(visible, rootId, selected) : null),
+    [visible, rootId, selected],
+  );
+  const pathEdges = useMemo(() => {
+    const keys = new Set<string>();
+    path?.slice(1).forEach((id, i) => {
+      keys.add(`${path[i]}|${id}`);
+      keys.add(`${id}|${path[i]}`);
+    });
+    return keys;
+  }, [path]);
   const focus = hovered ?? selected;
   const linked = useMemo(() => {
     if (!focus) return null;
@@ -616,6 +653,7 @@ export function SupplyGraph({
                     className="graph-edge"
                     data-kind={edge.kind}
                     data-dim={dim || undefined}
+                    data-path={pathEdges.has(`${edge.from}|${edge.to}`) || undefined}
                   >
                     <path
                       d={path.d}
@@ -674,6 +712,7 @@ export function SupplyGraph({
                     data-fill={fill}
                     data-root={node.id === rootId || undefined}
                     data-selected={selected === node.id || undefined}
+                    data-path={path?.includes(node.id) || undefined}
                     data-dim={(linked && !linked.has(node.id)) || undefined}
                     data-listed={node.ticker ? undefined : "no"}
                     transform={`translate(${point.x},${point.y}) scale(${scale})`}
@@ -801,6 +840,7 @@ export function SupplyGraph({
               expansion={
                 selectedNode.ticker ? expansions[selectedNode.ticker] : undefined
               }
+              path={path}
               nameOf={(id) => {
                 const node = visible.nodes.find((item) => item.id === id);
                 return node?.ticker ?? node?.name ?? id;
@@ -931,6 +971,7 @@ function Inspector({
   rootId,
   quote,
   expansion,
+  path,
   nameOf,
   choose,
   expand,
@@ -943,6 +984,7 @@ function Inspector({
   rootId: string;
   quote?: { price: number; percent: number | null; cap: number | null; currency: string };
   expansion?: Expansion;
+  path: string[] | null;
   nameOf: (id: string) => string;
   choose: (id: string) => void;
   expand: (ticker: string) => void;
@@ -1032,6 +1074,20 @@ function Inspector({
               </button>
             )
           ) : null}
+        </div>
+      ) : null}
+      {path && path.length > 2 ? (
+        <div className="graph-path">
+          <span className="graph-role">Route from {nameOf(rootId)}</span>
+          <ol>
+            {path.map((id) => (
+              <li key={id}>
+                <button type="button" className="security-link" onClick={() => choose(id)}>
+                  {nameOf(id)}
+                </button>
+              </li>
+            ))}
+          </ol>
         </div>
       ) : null}
       {expansion?.state === "failed" ? (

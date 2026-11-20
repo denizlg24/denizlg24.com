@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { DropdownMenu, Popover } from "radix-ui";
 import {
   Baseline,
+  BellPlus,
   ChevronDown,
   Download,
   Eraser,
@@ -45,6 +46,7 @@ const tools: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: "channel", icon: Waves, label: toolLabels.channel, key: "C" },
   { tool: "text", icon: Type, label: toolLabels.text, key: "N" },
   { tool: "measure", icon: Ruler, label: "Measure", key: "M" },
+  { tool: "alert", icon: BellPlus, label: "Set a price alert at a level", key: "A" },
   { tool: "erase", icon: Eraser, label: "Erase: click a drawing", key: "E" },
 ];
 export const toolShortcuts = new Map(
@@ -337,6 +339,8 @@ export function AppearanceMenu({
     ["crosshair", "Crosshair"],
     ["lastPrice", "Last price line"],
     ["extremes", "High / low labels"],
+    ["events", "Dividends and splits"],
+    ["alerts", "Price alert levels"],
   ];
   return (
     <Popover.Root>

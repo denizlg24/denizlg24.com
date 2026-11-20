@@ -4,6 +4,7 @@ import constituents from "@/data/sp500.json";
 import { ranges, universes, type Range, type Universe } from "./universes";
 import type {
   ChartPoint,
+  CorporateEvent,
   Instrument,
   MarketSeries,
   News,
@@ -33,6 +34,13 @@ type SourceMeta = {
 type SourceBars = {
   timestamp?: number[];
   meta?: SourceMeta;
+  events?: {
+    dividends?: Record<string, { amount?: number; date?: number }>;
+    splits?: Record<
+      string,
+      { date?: number; numerator?: number; denominator?: number; splitRatio?: string }
+    >;
+  };
   indicators?: {
     quote?: Array<Record<string, Array<number | null>>>;
     adjclose?: Array<{ adjclose?: Array<number | null> }>;
@@ -195,11 +203,12 @@ export async function series(
     start != null && warmup ? start - WARMUP_DAYS * 86400 : start;
   const query: Record<string, string> =
     start == null || fetchStart == null
-      ? { range: warmup ? warmupPeriods[range] : period, interval }
+      ? { range: warmup ? warmupPeriods[range] : period, interval, events: "div,splits" }
       : {
           period1: String(fetchStart),
           period2: String(end + 86400),
           interval: end - start > 730 * 86400 ? "1wk" : "1d",
+          events: "div,splits",
         };
   const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
     `/v8/finance/chart/${encodeURIComponent(symbol)}`,
@@ -241,7 +250,32 @@ export async function series(
     points,
     lead,
     source: "Yahoo Finance",
+    events: corporateEvents(bars),
   };
+}
+
+function corporateEvents(bars: SourceBars): CorporateEvent[] {
+  const dividends = Object.values(bars.events?.dividends ?? {}).flatMap(
+    (item): CorporateEvent[] =>
+      finite(item.amount) && finite(item.date)
+        ? [{ kind: "dividend", time: item.date, amount: item.amount }]
+        : [],
+  );
+  const splits = Object.values(bars.events?.splits ?? {}).flatMap(
+    (item): CorporateEvent[] =>
+      finite(item.date)
+        ? [
+            {
+              kind: "split",
+              time: item.date,
+              ratio:
+                item.splitRatio ??
+                `${item.numerator ?? "?"}:${item.denominator ?? "?"}`,
+            },
+          ]
+        : [],
+  );
+  return [...dividends, ...splits].sort((a, b) => a.time - b.time);
 }
 
 function sparkWindow(since?: string) {

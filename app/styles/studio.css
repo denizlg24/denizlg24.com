@@ -956,3 +956,39 @@
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+.event-marker circle {
+  fill: var(--card);
+  stroke: var(--chart-5);
+  stroke-width: 1.2;
+}
+.event-marker[data-kind="split"] circle {
+  stroke: var(--chart-4);
+}
+.event-marker text {
+  fill: var(--chart-5);
+  font-size: 8px;
+  font-weight: 800;
+}
+.event-marker[data-kind="split"] text {
+  fill: var(--chart-4);
+}
+.graph-edge[data-path] path {
+  stroke: var(--term-header);
+  stroke-opacity: 1;
+}
+.graph-node[data-path] rect {
+  stroke: var(--term-header);
+  stroke-width: 2.5;
+}
+.graph-path {
+  display: grid;
+  gap: 4px;
+}
+.graph-path ol {
+  margin: 0;
+  padding-left: 18px;
+}
+.price-pane :focus:not(:focus-visible) {
+  outline: none;
+}

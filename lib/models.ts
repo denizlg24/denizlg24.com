@@ -46,6 +46,8 @@ export const chartAppearanceSchema = z.object({
   grid: z.boolean().default(true),
   crosshair: z.boolean().default(true),
   extremes: z.boolean().default(false),
+  events: z.boolean().default(true),
+  alerts: z.boolean().default(true),
   lastPrice: z.boolean().default(true),
   lineWidth: z.number().min(0.5).max(4).default(1.6),
   up: chartColorSchema.nullable().default(null),
@@ -56,6 +58,8 @@ export const defaultAppearance: ChartAppearance = {
   grid: true,
   crosshair: true,
   extremes: false,
+  events: true,
+  alerts: true,
   lastPrice: true,
   lineWidth: 1.6,
   up: null,
@@ -233,7 +237,11 @@ export type MarketSeries = {
   /** Leading bars fetched only to warm up indicators; not part of the range. */
   lead?: number;
   source?: string;
+  events?: CorporateEvent[];
 };
+export type CorporateEvent =
+  | { kind: "dividend"; time: number; amount: number }
+  | { kind: "split"; time: number; ratio: string };
 export type News = {
   title: string;
   publisher: string;

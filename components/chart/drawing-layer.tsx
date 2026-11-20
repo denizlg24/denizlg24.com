@@ -12,7 +12,7 @@ import type { Drawing, DrawingKind } from "@/lib/models";
 import { fibLevels, nearestIndex, toolPoints } from "@/lib/chart-studio";
 import { amount, percent } from "@/lib/utils";
 
-export type Tool = "cursor" | "measure" | "erase" | DrawingKind;
+export type Tool = "cursor" | "measure" | "erase" | "alert" | DrawingKind;
 type Anchor = { t: number; p: number };
 type Pixel = { x: number; y: number };
 
@@ -24,6 +24,7 @@ export function DrawingLayer({
   symbol,
   onAdd,
   onRemove,
+  onAlert,
 }: {
   times: number[];
   drawings: Drawing[];
@@ -32,6 +33,7 @@ export function DrawingLayer({
   symbol: string;
   onAdd: (drawing: Drawing) => void;
   onRemove: (id: string) => void;
+  onAlert?: (price: number) => void;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale("price");
@@ -77,6 +79,10 @@ export function DrawingLayer({
     if (tool === "cursor" || tool === "erase") return;
     const anchor = locate(event);
     if (!anchor) return;
+    if (tool === "alert") {
+      onAlert?.(anchor.p);
+      return;
+    }
     const points = [...pending, anchor];
     const needed = tool === "measure" ? 2 : toolPoints[tool];
     if (points.length < needed) {
@@ -105,7 +111,8 @@ export function DrawingLayer({
     cursor &&
     tool !== "cursor" &&
     tool !== "erase" &&
-    tool !== "measure"
+    tool !== "measure" &&
+    tool !== "alert"
       ? {
           id: "preview",
           symbol,
@@ -258,6 +265,14 @@ export function DrawingLayer({
           </g>
         ))}
         {preview ? <g className="drawing drawing-preview">{shape(preview, true)}</g> : null}
+        {tool === "alert" && cursor ? (
+          <g className="drawing-alert-preview">
+            <line x1={plot.x} x2={right} y1={toY(cursor.p)} y2={toY(cursor.p)} stroke="var(--term-key)" strokeDasharray="6 3" />
+            <text x={right - 4} y={toY(cursor.p) - 4} className="drawing-label" fill="var(--term-key)" textAnchor="end">
+              Alert at {amount(cursor.p)}
+            </text>
+          </g>
+        ) : null}
         {measuring ? (
           <MeasureBox
             a={px(pending[0])}
