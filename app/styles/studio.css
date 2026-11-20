@@ -1183,3 +1183,104 @@
 .graph-compare input {
   width: 130px;
 }
+
+/* EVTS */
+.evts-week {
+  font-size: var(--fs-sm);
+}
+.evts-fomc {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.evts-fomc b {
+  color: var(--term-header);
+}
+.evts-fomc a {
+  color: var(--live);
+}
+.evts-fomc svg {
+  display: inline;
+}
+.evts-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  align-items: start;
+}
+.evts-day {
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+.evts-day[data-today] {
+  border-color: var(--term-header);
+}
+.evts-day h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 7px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--term-header);
+  font-size: var(--fs-xs);
+}
+.evts-day h3 small {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.evts-tag {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--live);
+  border-radius: 2px;
+  color: var(--live);
+  font-size: 10px;
+}
+.evts-day ul {
+  max-height: 560px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.evts-day li {
+  display: grid;
+  grid-template-columns: 52px 30px minmax(0, 1fr);
+  gap: 0 6px;
+  padding: 3px 7px;
+  border-bottom: 1px dotted var(--rule);
+  font-size: var(--fs-2xs);
+}
+.evts-day li[data-mine] {
+  background: color-mix(in srgb, var(--term-key) 12%, transparent);
+}
+.evts-time {
+  color: var(--muted-foreground);
+  font-weight: 700;
+}
+.evts-time[data-time="before"] {
+  color: var(--chart-5);
+}
+.evts-time[data-time="after"] {
+  color: var(--chart-4);
+}
+.evts-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evts-num {
+  grid-column: 2 / -1;
+  font-variant-numeric: tabular-nums;
+}
+.evts-num:last-child {
+  grid-column: 3;
+  text-align: right;
+  margin-top: -14px;
+}
+@media (max-width: 1200px) {
+  .evts-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -612,6 +612,9 @@ export function Dashboard({
               books={workspace.books}
               trades={workspace.trades}
               watchlists={workspace.watchlists}
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
               saveScreens={(screens) =>
                 save((current) => ({ ...current, screens })).catch(
                   (error: Error) => {

@@ -35,6 +35,8 @@ import { Rotation } from "./rotation";
 import { ChartGrid } from "./grid";
 import { PortfolioRiskView } from "./risk";
 import { NewsWire } from "./wire";
+import { EarningsCalendar } from "./calendar";
+import type { SecurityFunction } from "@/lib/terminal";
 import type { Workspace } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 
@@ -433,6 +435,7 @@ export function Monitor({
   books,
   trades,
   watchlists,
+  openFunction,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
@@ -446,6 +449,7 @@ export function Monitor({
   books: Workspace["books"];
   trades: Workspace["trades"];
   watchlists: Workspace["watchlists"];
+  openFunction: (symbol: string, fn: SecurityFunction) => void;
 }) {
   return (
     <section className="panel security-panel">
@@ -493,6 +497,9 @@ export function Monitor({
         />
       ) : null}
       {fn === "RRG" ? <Rotation select={select} /> : null}
+      {fn === "EVTS" ? (
+        <EarningsCalendar watchlists={watchlists} trades={trades} open={openFunction} />
+      ) : null}
       {fn === "TOP" ? (
         <NewsWire
           key={symbols?.join(",") ?? ""}
