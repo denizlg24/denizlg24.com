@@ -30,7 +30,9 @@ import {
   cryptoBoard,
 } from "./boards";
 import { Screener } from "./screener";
+import type { Screen } from "@/lib/screens";
 import { Rotation } from "./rotation";
+import { ChartGrid } from "./grid";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -423,6 +425,8 @@ export function Monitor({
   symbols,
   correlate,
   overlay,
+  screens,
+  saveScreens,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
@@ -431,6 +435,8 @@ export function Monitor({
   symbols?: string[];
   correlate: (symbols: string[]) => void;
   overlay: (symbols: string[]) => void;
+  screens: Screen[];
+  saveScreens: (next: Screen[]) => Promise<void>;
 }) {
   return (
     <section className="panel security-panel">
@@ -478,8 +484,21 @@ export function Monitor({
         />
       ) : null}
       {fn === "RRG" ? <Rotation select={select} /> : null}
+      {fn === "GRID" ? (
+        <ChartGrid
+          key={symbols?.join(",") ?? ""}
+          initial={symbols}
+          select={select}
+        />
+      ) : null}
       {fn === "EQS" ? (
-        <Screener select={select} correlate={correlate} overlay={overlay} />
+        <Screener
+          select={select}
+          correlate={correlate}
+          overlay={overlay}
+          saved={screens}
+          saveScreens={saveScreens}
+        />
       ) : null}
     </section>
   );

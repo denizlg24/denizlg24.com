@@ -106,7 +106,7 @@ type QuotesData = {
 type SearchData = { instruments: Instrument[]; news: News[] };
 const benchmarkSymbols = Object.keys(benchmarks).join(",");
 const benchmarkLabels = benchmarks as Record<string, string>;
-const marketURL = (query: Record<string, string>) =>
+export const marketURL = (query: Record<string, string>) =>
   `/api/market?${new URLSearchParams(query)}`;
 
 function withTick(quote: Quote, tick: LiveTick | undefined): Quote {

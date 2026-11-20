@@ -4,6 +4,7 @@ import { rangeKeys, symbolPattern } from "./universes";
 import { studyKeySchema } from "./indicators";
 import { overlayRanges, overlaySpecSchema } from "./overlay";
 import { deskSchema } from "./desk";
+import { screenSchema } from "./screens";
 
 export const symbolSchema = z
   .string()
@@ -166,6 +167,7 @@ export const workspaceSchema = z.object({
     .max(30)
     .default([]),
   drawings: z.array(drawingSchema).max(600).default([]),
+  screens: z.array(screenSchema).max(20).default([]),
   requests: z
     .array(
       z.object({

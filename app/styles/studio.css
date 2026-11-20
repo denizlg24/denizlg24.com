@@ -900,3 +900,59 @@
     height: 420px;
   }
 }
+
+/* GRID */
+.chart-grid {
+  display: grid;
+  gap: 8px;
+}
+.grid-cell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 250px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.grid-cell header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.grid-symbol {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--term-key);
+  font-weight: 750;
+}
+.grid-input {
+  width: 110px;
+}
+.grid-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grid-period {
+  color: var(--muted-foreground);
+}
+.grid-chart .chart-readout {
+  display: none;
+}
+.grid-chart .price-pane {
+  height: 200px;
+}
+@media (max-width: 980px) {
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

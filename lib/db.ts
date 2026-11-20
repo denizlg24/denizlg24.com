@@ -240,6 +240,7 @@ function initialWorkspace(): Workspace {
     },
     overlays: [],
     drawings: [],
+    screens: [],
   };
 }
 

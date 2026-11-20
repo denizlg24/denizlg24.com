@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { z } from "zod";
+import {
+  lookbackKeys,
+  screenLookbacks,
+  type Lookback,
+  type Range,
+  type Screen,
+} from "@/lib/screens";
 import constituents from "@/data/sp500.json";
 import {
   api,
@@ -29,33 +35,9 @@ type Row = {
   cap: number | null;
 };
 
-const lookbacks = {
-  "1W": 7,
-  "1M": 30,
-  "3M": 91,
-  "6M": 182,
-  YTD: 0,
-  "1Y": 365,
-} as const;
-type Lookback = keyof typeof lookbacks;
-const lookbackKeys = Object.keys(lookbacks) as [Lookback, ...Lookback[]];
-const rangeSchema = z.tuple([z.string().max(20), z.string().max(20)]);
-type Range = z.infer<typeof rangeSchema>;
-const screenSchema = z.object({
-  name: z.string().max(80),
-  sectors: z.array(z.string().max(60)).max(20),
-  query: z.string().max(80),
-  price: rangeSchema,
-  day: rangeSchema,
-  period: rangeSchema,
-  position: rangeSchema,
-  turnover: z.string().max(20),
-  lookback: z.enum(lookbackKeys),
-});
-type Screen = z.infer<typeof screenSchema>;
+const lookbacks = screenLookbacks;
 const sectors = [...new Set(constituents.map((item) => item.sector))].sort();
 const sectorOf = new Map(constituents.map((item) => [item.symbol, item]));
-const STORE = "stockwatcher.eqs.screens";
 const empty: Range = ["", ""];
 const blank: Screen = {
   name: "",
@@ -92,17 +74,6 @@ const within = (value: number | null, [lo, hi]: Range) => {
   return true;
 };
 
-function loadScreens(): Screen[] {
-  try {
-    const parsed = z
-      .array(screenSchema)
-      .max(20)
-      .safeParse(JSON.parse(localStorage.getItem(STORE) ?? "[]"));
-    return parsed.success ? parsed.data : [];
-  } catch {
-    return [];
-  }
-}
 
 function RangeField({
   label,
@@ -145,13 +116,16 @@ export function Screener({
   select,
   correlate,
   overlay,
+  saved,
+  saveScreens,
 }: {
+  saved: Screen[];
+  saveScreens: (next: Screen[]) => Promise<void>;
   select: (symbol: string) => void;
   correlate: (symbols: string[]) => void;
   overlay: (symbols: string[]) => void;
 }) {
   const [screen, setScreen] = useState<Screen>(builtIns[0]);
-  const [saved, setSaved] = useState<Screen[]>(loadScreens);
   const universe = encodeURIComponent("S&P 500");
   const day = useSWR<{ quotes: Quote[] }>(`/api/market?universe=${universe}`, api, {
     revalidateOnFocus: false,
@@ -226,12 +200,7 @@ export function Screener({
       .sort((a, b) => b.average - a.average);
   }, [matches]);
   const update = (patch: Partial<Screen>) => setScreen({ ...screen, ...patch });
-  const persist = (next: Screen[]) => {
-    setSaved(next);
-    try {
-      localStorage.setItem(STORE, JSON.stringify(next));
-    } catch {}
-  };
+  const persist = (next: Screen[]) => void saveScreens(next).catch(() => undefined);
   const top = sorted.slice(0, 12).map((row) => row.symbol);
 
   return (
@@ -439,7 +408,7 @@ export function Screener({
           </div>
         )}
         <p className="term-source">
-          S&amp;P 500 constituents · exchange-delayed Yahoo Finance quotes · turnover is volume × last price. Saved screens stay in this browser.
+          S&amp;P 500 constituents · exchange-delayed Yahoo Finance quotes · turnover is volume × last price. Saved screens sync with your workspace.
         </p>
       </div>
     </div>

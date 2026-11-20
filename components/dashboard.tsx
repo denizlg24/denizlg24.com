@@ -562,6 +562,15 @@ export function Dashboard({
               overlay={(symbols) =>
                 runCommand({ kind: "overlay", series: symbols })
               }
+              screens={workspace.screens}
+              saveScreens={(screens) =>
+                save((current) => ({ ...current, screens })).catch(
+                  (error: Error) => {
+                    notify(error.message, true);
+                    throw error;
+                  },
+                )
+              }
             />
           ) : null}
           {view === "overlay" ? (
