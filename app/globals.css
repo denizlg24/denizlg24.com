@@ -4,6 +4,7 @@
 @import "./styles/shell.css";
 @import "./styles/reports.css";
 @import "./styles/terminal.css";
+@import "./styles/studio.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
 
 @theme inline {

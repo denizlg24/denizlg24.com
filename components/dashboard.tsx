@@ -523,6 +523,9 @@ export function Dashboard({
               select={(symbol) =>
                 link({ view: "security", ticker: symbol, fn: "GP" })
               }
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
             />
           ) : null}
           {view === "monitor" ? (

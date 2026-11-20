@@ -1,0 +1,370 @@
+/* Supply-chain network graph */
+.graph-shell {
+  display: grid;
+  gap: 8px;
+}
+.graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.graph-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.graph-select select,
+.studio-select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--strong-border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: var(--fs-xs);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.graph-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 10px;
+  min-height: 560px;
+}
+.graph-frame {
+  position: relative;
+  min-height: 560px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+.graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.graph-canvas:active {
+  cursor: grabbing;
+}
+.graph-backdrop {
+  fill: var(--card);
+}
+.graph-edge path {
+  fill: none;
+  stroke: var(--edge-color, var(--strong-border));
+  stroke-opacity: 0.75;
+  transition: stroke-opacity 120ms;
+}
+.graph-edge[data-kind="supply"] {
+  --edge-color: var(--chart-5);
+}
+.graph-edge[data-kind="partner"] {
+  --edge-color: var(--chart-4);
+}
+.graph-edge[data-kind="partner"] path {
+  stroke-dasharray: 5 3;
+}
+.graph-edge[data-kind="competitor"] {
+  --edge-color: var(--loss);
+}
+.graph-edge[data-kind="competitor"] path {
+  stroke-dasharray: 2 3;
+}
+.graph-edge[data-dim] path,
+.graph-edge[data-dim] text {
+  stroke-opacity: 0.1;
+  fill-opacity: 0.15;
+}
+.graph-arrow-supply {
+  fill: var(--chart-5);
+}
+.graph-arrow-partner {
+  fill: var(--chart-4);
+}
+.graph-arrow-competitor {
+  fill: var(--loss);
+}
+.graph-edge-label {
+  fill: var(--foreground);
+  font-size: 10px;
+  font-weight: 650;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+}
+.graph-node {
+  cursor: pointer;
+  --node-fill: var(--muted);
+  --node-ink: var(--foreground);
+  transition: opacity 120ms;
+}
+.graph-node rect {
+  fill: var(--node-fill);
+  stroke: var(--strong-border);
+  stroke-width: 1;
+}
+.graph-node text {
+  fill: var(--node-ink);
+  font-size: 11px;
+}
+.graph-node .graph-node-code {
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  fill: var(--term-key);
+}
+.graph-node .graph-node-name {
+  font-size: 10px;
+  fill-opacity: 0.85;
+}
+.graph-node .graph-node-move {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.graph-node[data-listed="no"] .graph-node-code {
+  fill: var(--muted-foreground);
+}
+.graph-node[data-listed="no"] rect {
+  stroke-dasharray: 3 2;
+}
+.graph-node[data-root] rect {
+  stroke: var(--term-header);
+  stroke-width: 2;
+}
+.graph-node[data-selected] rect {
+  stroke: var(--live);
+  stroke-width: 2.5;
+}
+.graph-node:hover rect {
+  stroke: var(--foreground);
+}
+.graph-node[data-dim] {
+  opacity: 0.22;
+}
+.graph-node[data-fill="gain-3"] {
+  --node-fill: var(--heat-gain-strong);
+  --node-ink: #f3f8f1;
+}
+.graph-node[data-fill="gain-2"] {
+  --node-fill: var(--heat-gain);
+}
+.graph-node[data-fill="gain-1"] {
+  --node-fill: var(--heat-gain-soft);
+}
+.graph-node[data-fill="loss-3"] {
+  --node-fill: var(--heat-loss-strong);
+  --node-ink: #fff4f2;
+}
+.graph-node[data-fill="loss-2"] {
+  --node-fill: var(--heat-loss);
+}
+.graph-node[data-fill="loss-1"] {
+  --node-fill: var(--heat-loss-soft);
+}
+.graph-node[data-fill="flat"] {
+  --node-fill: var(--heat-flat);
+}
+.graph-node[data-fill="none"] {
+  --node-fill: var(--heat-missing);
+}
+.graph-node[data-fill="gain-3"] .graph-node-code,
+.graph-node[data-fill="loss-3"] .graph-node-code {
+  fill: var(--node-ink);
+}
+.graph-node[data-fill="root"] {
+  --node-fill: var(--secondary);
+}
+.graph-node[data-fill="up"] {
+  --node-fill: color-mix(in srgb, var(--chart-5) 22%, var(--card));
+}
+.graph-node[data-fill="down"] {
+  --node-fill: color-mix(in srgb, var(--chart-2) 22%, var(--card));
+}
+.graph-node[data-fill="side"] {
+  --node-fill: color-mix(in srgb, var(--chart-4) 18%, var(--card));
+}
+.graph-node[data-fill="d0"] {
+  --node-fill: var(--secondary);
+}
+.graph-node[data-fill="d1"] {
+  --node-fill: color-mix(in srgb, var(--chart-3) 24%, var(--card));
+}
+.graph-node[data-fill="d2"] {
+  --node-fill: color-mix(in srgb, var(--chart-3) 12%, var(--card));
+}
+.graph-node[data-fill="d3"] {
+  --node-fill: var(--muted);
+}
+.graph-node-badge {
+  fill: var(--gain);
+}
+.graph-node-badge[data-state="loading"] {
+  fill: var(--term-key);
+  animation: graph-pulse 900ms ease-in-out infinite alternate;
+}
+.graph-node-badge[data-state="failed"] {
+  fill: var(--loss);
+}
+@keyframes graph-pulse {
+  to {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-node-badge[data-state="loading"] {
+    animation: none;
+  }
+}
+.graph-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  gap: 2px;
+}
+.graph-controls button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--strong-border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+}
+.graph-controls button:hover {
+  border-color: var(--term-header);
+}
+.graph-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  pointer-events: none;
+}
+.graph-legend [data-kind="supply"] {
+  color: var(--chart-5);
+}
+.graph-legend [data-kind="partner"] {
+  color: var(--chart-4);
+}
+.graph-legend [data-kind="competitor"] {
+  color: var(--loss);
+}
+.graph-status {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--term-key);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--term-key);
+  font-size: var(--fs-2xs);
+  font-weight: 650;
+}
+.graph-inspector {
+  min-width: 0;
+  max-height: 640px;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: auto;
+  font-size: var(--fs-xs);
+}
+.graph-inspector-title {
+  margin: 0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--term-header);
+  color: var(--term-header);
+  font-size: var(--fs-sm);
+  font-weight: 750;
+}
+.graph-inspector-title span {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.graph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.graph-note {
+  margin: 0;
+}
+.graph-relations {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-relations li {
+  padding-left: 7px;
+  border-left: 3px solid var(--chart-5);
+}
+.graph-relations li[data-kind="partner"] {
+  border-left-color: var(--chart-4);
+}
+.graph-relations li[data-kind="competitor"] {
+  border-left-color: var(--loss);
+}
+.graph-relations li > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.graph-relations li > div b {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.graph-role {
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+}
+.graph-relations summary {
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+}
+.graph-relations blockquote {
+  margin: 4px 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+  line-height: 1.45;
+}
+.graph-failures {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--loss);
+}
+.chip[data-kind][aria-pressed="false"] {
+  opacity: 0.6;
+}
+.splc-role {
+  text-transform: capitalize;
+}
+@media (max-width: 980px) {
+  .graph-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .graph-frame,
+  .graph-canvas {
+    min-height: 420px;
+  }
+}

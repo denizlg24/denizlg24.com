@@ -1156,6 +1156,7 @@ export function SecurityView({
   onWatch,
   onResearch,
   select,
+  openFunction,
 }: {
   ticker: string;
   fn: SecurityFunction;
@@ -1167,6 +1168,7 @@ export function SecurityView({
   onWatch: () => void;
   onResearch: () => void;
   select: (symbol: string) => void;
+  openFunction?: (symbol: string, fn: SecurityFunction) => void;
 }) {
   if (fn === "GP")
     return (
@@ -1199,7 +1201,7 @@ export function SecurityView({
       {fn === "DVD" ? <DividendsView ticker={ticker} /> : null}
       {fn === "CN" ? <CompanyNews ticker={ticker} /> : null}
       {fn === "RELS" ? <RelationshipMap ticker={ticker} select={select} /> : null}
-      {fn === "SPLC" ? <SupplyChain ticker={ticker} select={select} /> : null}
+      {fn === "SPLC" ? <SupplyChain ticker={ticker} select={select} openFunction={openFunction} /> : null}
     </section>
   );
 }
