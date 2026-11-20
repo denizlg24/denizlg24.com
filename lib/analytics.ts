@@ -483,3 +483,100 @@ export const quadrant = (point: { ratio: number; momentum: number }) =>
     : point.momentum >= 100
       ? "Improving"
       : "Lagging";
+
+export type RiskInput = { symbol: string; weight: number; points: ChartPoint[] };
+
+export type PortfolioRisk = {
+  observations: number;
+  volatility: number;
+  beta: number | null;
+  correlation: number | null;
+  var95: number;
+  var99: number;
+  es95: number;
+  maxDrawdown: number;
+  annualReturn: number;
+  contributions: { symbol: string; weight: number; contribution: number; volatility: number; beta: number | null }[];
+  worstDays: { time: number; portfolio: number; benchmark: number }[];
+  curve: { time: number; portfolio: number; benchmark: number }[];
+};
+
+const percentile = (values: number[], p: number) => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+  return sorted[index];
+};
+
+/**
+ * Historical-simulation risk for fixed weights: today's weights applied to
+ * each past day's returns. VaR and expected shortfall are one-day losses.
+ */
+export function portfolioRisk(
+  inputs: RiskInput[],
+  benchmark: ChartPoint[],
+): PortfolioRisk | null {
+  const usable = inputs.filter((item) => item.points.length > 20 && item.weight !== 0);
+  if (!usable.length || benchmark.length < 20) return null;
+  const maps = [...usable.map((item) => item.points), benchmark].map(
+    (points) => new Map(points.map((point) => [dayKey(point.time), point])),
+  );
+  const days = [...maps.at(-1)!.keys()]
+    .filter((day) => maps.every((map) => map.has(day)))
+    .sort((a, b) => a - b);
+  if (days.length < 21) return null;
+  const series = maps.map((map) => returns(days.map((day) => map.get(day)!.close)));
+  const bench = series.at(-1)!;
+  const assets = series.slice(0, -1);
+  const total = usable.reduce((sum, item) => sum + Math.abs(item.weight), 0) || 1;
+  const weights = usable.map((item) => item.weight / total);
+  const portfolio = bench.map((_, t) =>
+    assets.reduce((sum, r, i) => sum + weights[i] * r[t], 0),
+  );
+  const covariance = (a: number[], b: number[]) => {
+    const ma = mean(a);
+    const mb = mean(b);
+    return a.reduce((sum, value, i) => sum + (value - ma) * (b[i] - mb), 0) / Math.max(1, a.length - 1);
+  };
+  const varP = variance(portfolio);
+  const varB = variance(bench);
+  const covPB = covariance(portfolio, bench);
+  const losses = portfolio.map((value) => -value);
+  const var95 = percentile(losses, 0.95);
+  const tail = losses.filter((value) => value >= var95);
+  let value = 1;
+  let bValue = 1;
+  let peak = 1;
+  let maxDrawdown = 0;
+  const curve = portfolio.map((r, t) => {
+    value *= 1 + r;
+    bValue *= 1 + bench[t];
+    peak = Math.max(peak, value);
+    maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
+    return { time: days[t + 1] * 86400, portfolio: (value - 1) * 100, benchmark: (bValue - 1) * 100 };
+  });
+  const worstDays = bench
+    .map((b, t) => ({ time: days[t + 1] * 86400, portfolio: portfolio[t] * 100, benchmark: b * 100 }))
+    .sort((a, b) => a.benchmark - b.benchmark)
+    .slice(0, 10);
+  return {
+    observations: portfolio.length,
+    volatility: Math.sqrt(varP * TRADING_DAYS) * 100,
+    beta: varB ? covPB / varB : null,
+    correlation: varB && varP ? covPB / Math.sqrt(varB * varP) : null,
+    var95: var95 * 100,
+    var99: percentile(losses, 0.99) * 100,
+    es95: mean(tail) * 100,
+    maxDrawdown: maxDrawdown * 100,
+    annualReturn: mean(portfolio) * TRADING_DAYS * 100,
+    contributions: usable.map((item, i) => ({
+      symbol: item.symbol,
+      weight: weights[i] * 100,
+      contribution: varP ? ((weights[i] * covariance(assets[i], portfolio)) / varP) * 100 : 0,
+      volatility: Math.sqrt(variance(assets[i]) * TRADING_DAYS) * 100,
+      beta: varB ? covariance(assets[i], bench) / varB : null,
+    })),
+    worstDays,
+    curve,
+  };
+}

@@ -992,3 +992,32 @@
 .price-pane :focus:not(:focus-visible) {
   outline: none;
 }
+
+/* PRSK */
+.risk-heading {
+  margin: 4px 0 0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--term-header);
+  color: var(--term-header);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.risk-bar-cell {
+  width: 90px;
+}
+.risk-bar {
+  display: block;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--term-header);
+}
+.risk-money {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.quant-split > .term-stack {
+  align-content: start;
+}

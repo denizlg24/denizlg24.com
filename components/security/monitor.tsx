@@ -33,6 +33,8 @@ import { Screener } from "./screener";
 import type { Screen } from "@/lib/screens";
 import { Rotation } from "./rotation";
 import { ChartGrid } from "./grid";
+import { PortfolioRiskView } from "./risk";
+import type { Workspace } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -427,6 +429,8 @@ export function Monitor({
   overlay,
   screens,
   saveScreens,
+  books,
+  trades,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
@@ -437,6 +441,8 @@ export function Monitor({
   overlay: (symbols: string[]) => void;
   screens: Screen[];
   saveScreens: (next: Screen[]) => Promise<void>;
+  books: Workspace["books"];
+  trades: Workspace["trades"];
 }) {
   return (
     <section className="panel security-panel">
@@ -484,6 +490,9 @@ export function Monitor({
         />
       ) : null}
       {fn === "RRG" ? <Rotation select={select} /> : null}
+      {fn === "PRSK" ? (
+        <PortfolioRiskView books={books} trades={trades} select={select} />
+      ) : null}
       {fn === "GRID" ? (
         <ChartGrid
           key={symbols?.join(",") ?? ""}

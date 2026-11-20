@@ -592,6 +592,8 @@ export function Dashboard({
                 runCommand({ kind: "overlay", series: symbols })
               }
               screens={workspace.screens}
+              books={workspace.books}
+              trades={workspace.trades}
               saveScreens={(screens) =>
                 save((current) => ({ ...current, screens })).catch(
                   (error: Error) => {
