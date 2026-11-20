@@ -32,9 +32,7 @@ export const chartStyleLabels: Record<ChartStyle, string> = {
 };
 export const averageKinds = ["sma", "ema", "wma", "hma"] as const;
 export type AverageKind = (typeof averageKinds)[number];
-export const chartColorSchema = z
-  .string()
-  .regex(/^#[0-9a-fA-F]{6}$/);
+export const chartColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const customAverageSchema = z.object({
   kind: z.enum(averageKinds),
   period: z.number().int().min(2).max(500),
@@ -153,13 +151,44 @@ export const defaultChartPreferences: ChartPreferences = {
 };
 const title = z.string().trim().min(1).max(120);
 
+export const brokerBookSchema = z.object({
+  provider: z.literal("ibkr"),
+  account: z.string().trim().min(1).max(40),
+  asOf: z.iso.date(),
+  syncedAt: z.iso.datetime(),
+  cash: z
+    .array(
+      z.object({
+        currency: z.string().regex(/^[A-Z]{3}$/),
+        amount: z.number(),
+      }),
+    )
+    .max(40)
+    .default([]),
+  skipped: z
+    .array(
+      z.object({ symbol: z.string().max(60), reason: z.string().max(120) }),
+    )
+    .max(200)
+    .default([]),
+});
+export type BrokerBook = z.infer<typeof brokerBookSchema>;
+
 export const workspaceSchema = z.object({
   watchlists: z
     .array(
       z.object({ id, name: title, symbols: z.array(symbolSchema).max(120) }),
     )
     .max(30),
-  books: z.array(z.object({ id, name: title })).max(25),
+  books: z
+    .array(
+      z.object({
+        id,
+        name: title,
+        broker: brokerBookSchema.optional(),
+      }),
+    )
+    .max(25),
   trades: z
     .array(
       z.object({

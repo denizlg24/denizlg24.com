@@ -7,6 +7,7 @@ A private market and research workspace built with Next.js and shadcn/ui. A new 
 - Price history with line and candlestick views, volume, a 20-bar moving average, and several time ranges.
 - Global symbol search, market maps, an S&P 500 sector view, a sortable market table, and normalized comparisons for up to six tickers.
 - Multiple watchlists and portfolios, a buy/sell ledger, CSV import and export, and average-cost P/L separated by quote currency.
+- Interactive Brokers sync. Under **Portfolio → Connect Interactive Brokers**, paste a Flex Query ID and token once. Stockwatcher then pulls open positions, cost basis and cash into a read-only portfolio per IBKR account, every six hours and on demand.
 - Company headlines and annual US GAAP figures, SEC filings, 13F holdings with CSV export, WallStreetBets mention counts, and a research journal.
 - Account-scoped price alerts checked every two minutes when the monitor is enabled. Triggers appear in the app.
 - Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data.
@@ -68,12 +69,24 @@ Set these production runtime values in Forge.
 | `AI_GATEWAY_BRIEF_MODEL`                           | Optional daily-brief model ID. Defaults to `AI_GATEWAY_MODEL`.         |
 | `AI_GATEWAY_TEAM_ID`                               | Optional team ID or slug for requests scoped to a Vercel team.         |
 | `MARKETS_RELAY_URL`, `MARKETS_RELAY_TOKEN_SECRET`  | Markets relay WebSocket URL and its signing secret. Enables live quotes. |
+| `BROKER_SECRET`                                    | Optional key that encrypts stored broker tokens. Defaults to a key derived from `DENIZ_OIDC_CLIENT_SECRET`. Rotating it requires reconnecting. |
+| `BROKER_SYNC`                                      | Set to `0` to turn off the six-hourly background broker sync.          |
 | `MARKETS_DATA_URL`, `MARKETS_DATA_TOKEN`  | Optional HTTP origin and bearer token for the relay data API behind the security functions and monitors. Default to the relay URL and signing secret. |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.
 
 ## Data coverage
 
-Yahoo Finance provides quotes, history, symbol search, and news. The Russian market view uses delayed Moscow Exchange ISS quotes and history for a selection of Moscow-listed stocks. Quotes can be delayed. Timestamps use your device’s time zone. Trading symbols keep their exchange suffix and quote currency. Portfolio values require a quote in the transaction currency. The ledger uses average cost and records manual trades and fees. Broker synchronization, tax accounting, and corporate-action adjustments are outside that ledger.
+Yahoo Finance provides quotes, history, symbol search, and news. The Russian market view uses delayed Moscow Exchange ISS quotes and history for a selection of Moscow-listed stocks. Quotes can be delayed. Timestamps use your device’s time zone. Trading symbols keep their exchange suffix and quote currency. Portfolio values require a quote in the transaction currency. The ledger uses average cost and records manual trades and fees. Tax accounting and corporate-action adjustments are outside that ledger.
+
+## Interactive Brokers
+
+IBKR offers OAuth sign-in only to licensed organizations and approved third-party vendors. Individual accounts cannot use it. Stockwatcher therefore uses the read-only [Flex Web Service](https://www.interactivebrokers.com/campus/ibkr-api-page/flex-web-service/), which needs no gateway and cannot trade. The account holder sets it up once in the Client Portal under Performance & Reports → Flex Queries:
+
+1. Create an Activity Flex Query with **Open Positions** (Lot or Summary detail, all fields). **Cash Report** is optional. Use XML format and the Last Business Day period. Note the Query ID.
+2. Under Flex Web Service Configuration, enable the service and generate a token with the longest expiry.
+3. In Stockwatcher, open Portfolio → Connect Interactive Brokers and paste both values.
+
+The token is stored server-side with AES-256-GCM encryption and never reaches the browser. Each IBKR account becomes one portfolio whose positions are server-owned. Rename it freely. Trades cannot be edited there. Lot-level queries keep each lot's open date. Summary queries record one entry per position at its average cost. Long stock and ETF positions on the major US, European, and Asia-Pacific venues are tracked. Options, futures, bonds, shorts, and unmapped venues are listed under "Not tracked". An expired token marks the link as needing a new token. Disconnecting deletes the token and keeps the last snapshot as a manual portfolio.
 
 The market map uses equal-sized tiles. The S&P 500 constituents are a bundled [DataHub snapshot](https://github.com/datasets/s-and-p-500-companies/tree/05c998c3e714b8dc9b621239bbdef92bccefc376) retrieved on 19 November 2026. SEC EDGAR provides annual US GAAP figures and the reported period for 13F holdings. ApeWisdom reports discussion activity.

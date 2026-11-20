@@ -18,6 +18,10 @@ export default defineConfig({
       url: "http://127.0.0.1:3291/oidc/.well-known/openid-configuration",
     },
     {
+      command: "node tests/flex-fixture.mjs",
+      url: "http://127.0.0.1:3292/health",
+    },
+    {
       command: "bun run dev --hostname 127.0.0.1 --port 3290",
       url: `${baseURL}/api/health`,
       env: {
@@ -29,6 +33,8 @@ export default defineConfig({
         DEMO_MODE: "1",
         STOCKWATCHER_DB_PATH: process.env.STOCKWATCHER_TEST_DB,
         ALERT_MONITOR: "0",
+        BROKER_SYNC: "0",
+        IBKR_FLEX_URL: "http://127.0.0.1:3292/flex",
         DATABASE_URL: "",
         REQUIRE_DATABASE_URL: "0",
       },

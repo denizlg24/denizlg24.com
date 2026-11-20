@@ -2034,3 +2034,82 @@ a.chip:hover {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Broker link ────────────────────────────────────────────── */
+
+.broker-link {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--fs-2xs);
+  color: var(--muted-foreground);
+}
+.broker-link .broker-connect {
+  justify-self: start;
+}
+.broker-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.broker-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gain);
+}
+.broker-dot-error,
+.broker-dot-relink {
+  background: var(--loss);
+}
+.broker-error {
+  margin: 0;
+  color: var(--loss);
+  overflow-wrap: anywhere;
+}
+.broker-steps {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted-foreground);
+}
+.broker-steps b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.broker-note {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-xs);
+  color: var(--muted-foreground);
+}
+.broker-note p {
+  margin: 0;
+}
+.broker-note b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.broker-skipped {
+  overflow-wrap: anywhere;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
