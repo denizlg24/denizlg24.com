@@ -35,6 +35,8 @@ import {
   neighbours,
   nodeId,
   propagateShock,
+  mergeGraphs,
+  sharedNeighbours,
   sectorLayout,
   shortestPath,
   noteLink,
@@ -219,6 +221,8 @@ export function SupplyGraph({
   const [maxDepth, setMaxDepth] = useState(9);
   const [labels, setLabels] = useState(true);
   const [shock, setShock] = useState(-20);
+  const [peer, setPeer] = useState<string | null>(null);
+  const [peerText, setPeerText] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const positionKey = (name: Layout) => `stockwatcher.splc.pos.${ticker}.${name}`;
@@ -290,18 +294,30 @@ export function SupplyGraph({
       if (note.owner === ticker) own.push(link);
       else done.set(note.owner, [...(done.get(note.owner) ?? []), link]);
     }
-    return buildGraph({ ticker, name: company }, [...links, ...own], done);
-  }, [ticker, company, links, expansions, notes]);
+    const main = buildGraph({ ticker, name: company }, [...links, ...own], done);
+    const peerData = peer ? expansions[peer] : undefined;
+    if (!peer || peerData?.state !== "done") return main;
+    return mergeGraphs(
+      main,
+      buildGraph({ ticker: peer, name: peerData.name }, peerData.links, done),
+    );
+  }, [ticker, company, links, expansions, notes, peer]);
+  const peerId = peer && expansions[peer]?.state === "done" ? peer : null;
+  const roots = useMemo(() => (peerId ? [rootId, peerId] : [rootId]), [rootId, peerId]);
   const visible = useMemo(
     () =>
-      filterGraph(graph, rootId, {
+      filterGraph(graph, roots, {
         kinds,
         minShare,
         listedOnly,
         hideUnnamed,
         maxDepth,
       }),
-    [graph, rootId, kinds, minShare, listedOnly, hideUnnamed, maxDepth],
+    [graph, roots, kinds, minShare, listedOnly, hideUnnamed, maxDepth],
+  );
+  const shared = useMemo(
+    () => (peerId ? sharedNeighbours(visible, roots) : new Set<string>()),
+    [visible, roots, peerId],
   );
   const sectorBands = useMemo(
     () =>
@@ -639,6 +655,44 @@ export function SupplyGraph({
         >
           Labels
         </button>
+        <form
+          className="graph-compare"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const next = peerText.trim().toUpperCase();
+            if (!symbolPattern.test(next) || next === ticker) return;
+            if (peer && peer !== next) collapse(peer);
+            setPeer(next);
+            expand(next);
+            setPeerText("");
+          }}
+        >
+          {peer ? (
+            <button
+              type="button"
+              className="chip"
+              aria-pressed
+              title="Stop comparing"
+              onClick={() => {
+                collapse(peer);
+                setPeer(null);
+              }}
+            >
+              vs {peer}
+              {expansions[peer]?.state === "loading" ? " …" : ""}
+              {shared.size ? ` · ${shared.size} shared` : ""} ×
+            </button>
+          ) : (
+            <input
+              className="studio-select"
+              placeholder="Compare with…"
+              value={peerText}
+              maxLength={20}
+              aria-label="Compare supply chain with"
+              onChange={(event) => setPeerText(event.target.value.toUpperCase())}
+            />
+          )}
+        </form>
         {Object.keys(moved).length ? (
           <button type="button" className="chip" onClick={() => setMoved({})}>
             Reset positions
@@ -781,7 +835,8 @@ export function SupplyGraph({
                     data-node={node.id}
                     className="graph-node"
                     data-fill={fill}
-                    data-root={node.id === rootId || undefined}
+                    data-root={roots.includes(node.id) || undefined}
+                    data-shared={shared.has(node.id) || undefined}
                     data-selected={selected === node.id || undefined}
                     data-path={path?.includes(node.id) || undefined}
                     data-dim={(linked && !linked.has(node.id)) || undefined}
@@ -940,6 +995,11 @@ export function SupplyGraph({
             />
           ) : (
             <GraphSummary
+              peer={peerId}
+              shared={[...shared].map((id) => {
+                const node = visible.nodes.find((item) => item.id === id);
+                return node?.ticker ?? node?.name ?? id;
+              })}
               graph={visible}
               total={graph}
               rootId={rootId}
@@ -963,6 +1023,8 @@ export function SupplyGraph({
 }
 
 function GraphSummary({
+  peer,
+  shared,
   graph,
   total,
   rootId,
@@ -971,6 +1033,8 @@ function GraphSummary({
   expandAll,
   reset,
 }: {
+  peer: string | null;
+  shared: string[];
   graph: Graph;
   total: Graph;
   rootId: string;
@@ -1019,6 +1083,22 @@ function GraphSummary({
           <dd>{Object.keys(expansions).length}</dd>
         </div>
       </dl>
+      {peer ? (
+        <div className="graph-path">
+          <span className="graph-role">
+            Shared by {rootId} and {peer} ({shared.length})
+          </span>
+          {shared.length ? (
+            <ol>
+              {shared.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ol>
+          ) : (
+            <span className="muted">No direct counterparties in common.</span>
+          )}
+        </div>
+      ) : null}
       <button
         type="button"
         className="chip"

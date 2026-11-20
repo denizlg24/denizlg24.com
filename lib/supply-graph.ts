@@ -125,12 +125,17 @@ export type GraphFilter = {
 };
 
 /** Applies filters, then keeps only what still connects to the root. */
-export function filterGraph(graph: Graph, rootId: string, filter: GraphFilter) {
+export function filterGraph(
+  graph: Graph,
+  root: string | string[],
+  filter: GraphFilter,
+) {
+  const roots = Array.isArray(root) ? root : [root];
   const keep = new Map(
     graph.nodes
       .filter(
         (node) =>
-          node.id === rootId ||
+          roots.includes(node.id) ||
           (node.depth <= filter.maxDepth &&
             (!filter.listedOnly || node.ticker) &&
             (!filter.hideUnnamed || !unnamed.test(node.name))),
@@ -151,8 +156,8 @@ export function filterGraph(graph: Graph, rootId: string, filter: GraphFilter) {
     adjacent.set(edge.from, [...(adjacent.get(edge.from) ?? []), edge.to]);
     adjacent.set(edge.to, [...(adjacent.get(edge.to) ?? []), edge.from]);
   }
-  const seen = new Set([rootId]);
-  const queue = [rootId];
+  const seen = new Set(roots);
+  const queue = [...roots];
   while (queue.length) {
     const id = queue.shift()!;
     for (const next of adjacent.get(id) ?? [])
@@ -460,4 +465,42 @@ export function noteLink(note: {
       url: "",
     },
   };
+}
+
+/** Union of two graphs; a node keeps its shallowest depth. */
+export function mergeGraphs(a: Graph, b: Graph): Graph {
+  const nodes = new Map(a.nodes.map((node) => [node.id, node]));
+  for (const node of b.nodes) {
+    const prior = nodes.get(node.id);
+    if (!prior || node.depth < prior.depth) nodes.set(node.id, node);
+  }
+  const edges = new Map(a.edges.map((edge) => [edge.id, edge]));
+  for (const edge of b.edges) {
+    const prior = edges.get(edge.id);
+    edges.set(
+      edge.id,
+      prior
+        ? {
+            ...prior,
+            share: Math.max(prior.share ?? 0, edge.share ?? 0) || prior.share,
+            links: [...prior.links, ...edge.links.filter((link) => !prior.links.some((item) => item.quote === link.quote))],
+          }
+        : edge,
+    );
+  }
+  return { nodes: [...nodes.values()], edges: [...edges.values()] };
+}
+
+/** Companies directly linked to every one of `roots`. */
+export function sharedNeighbours(graph: Graph, roots: string[]) {
+  const sets = roots.map((root) => {
+    const set = new Set<string>();
+    for (const edge of graph.edges) {
+      if (edge.from === root) set.add(edge.to);
+      if (edge.to === root) set.add(edge.from);
+    }
+    return set;
+  });
+  if (!sets.length) return new Set<string>();
+  return new Set([...sets[0]].filter((id) => sets.every((set) => set.has(id)) && !roots.includes(id)));
 }

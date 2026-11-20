@@ -1172,3 +1172,14 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.graph-node[data-shared] rect {
+  stroke: var(--term-key);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+.graph-node[data-shared] .graph-node-name {
+  font-weight: 700;
+}
+.graph-compare input {
+  width: 130px;
+}
