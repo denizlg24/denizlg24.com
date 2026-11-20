@@ -4,11 +4,11 @@ import { useState } from "react";
 import useSWR from "swr";
 import { Link2, RefreshCw, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import type { BrokerBook } from "@/lib/models";
 import { amount } from "@/lib/utils";
 import { api, Failure } from "./shared";
-import { Field, FormDialog, value } from "./forms";
+import { FormDialog } from "./forms";
+import { IbkrGuide, tokenStep } from "./ibkr-guide";
 
 type PublicLink = {
   provider: "ibkr";
@@ -139,69 +139,17 @@ export function BrokerConnect({
       )}
       <Failure error={error} />
       {dialog === "connect" ? (
-        <FormDialog
-          title="Connect Interactive Brokers"
-          description="IBKR's read-only Flex service shares your positions. It cannot place trades or move money. Set it up once and Stockwatcher syncs every few hours."
-          label="Connect and sync"
+        <IbkrGuide
           close={() => setDialog(null)}
-          submit={async (fields) => {
-            const response = await post({
-              token: value(fields, "token"),
-              queryId: value(fields, "queryId"),
-            });
+          initialQueryId={link?.queryId}
+          startAt={link?.status === "relink" ? tokenStep : 0}
+          connect={async (input) => {
+            const response = await post(input);
             await Promise.all([mutate({ link: response.link }), reload()]);
             if (response.result.ok)
               onSynced(response.result.accounts.map((item) => item.id));
           }}
-        >
-          <ol className="broker-steps">
-            <li>
-              In the{" "}
-              <a
-                className="source-link"
-                href="https://www.interactivebrokers.com/portal/"
-                target="_blank"
-                rel="noreferrer"
-              >
-                IBKR Client Portal
-              </a>
-              , open <b>Performance &amp; Reports → Flex Queries</b>.
-            </li>
-            <li>
-              Create an <b>Activity Flex Query</b>. Tick <b>Open Positions</b>{" "}
-              (Lot or Summary, all fields) and optionally <b>Cash Report</b>.
-              Set the format to <b>XML</b> and the period to{" "}
-              <b>Last Business Day</b>, then save it. Copy the <b>Query ID</b>.
-            </li>
-            <li>
-              Under <b>Flex Web Service Configuration</b> on the same page, turn
-              the service on and generate a token. Choose the longest expiry
-              offered.
-            </li>
-          </ol>
-          <div className="fields-grid">
-            <Field label="Query ID">
-              <Input
-                name="queryId"
-                inputMode="numeric"
-                autoComplete="off"
-                required
-                placeholder="1234567"
-                defaultValue={link?.queryId}
-              />
-            </Field>
-            <Field label="Flex token">
-              <Input
-                name="token"
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                required
-                placeholder="Paste the token"
-              />
-            </Field>
-          </div>
-        </FormDialog>
+        />
       ) : null}
       {dialog === "disconnect" ? (
         <FormDialog

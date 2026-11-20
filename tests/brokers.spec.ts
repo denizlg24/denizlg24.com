@@ -45,9 +45,31 @@ test("connecting Interactive Brokers syncs a read-only portfolio the client cann
   await page
     .getByRole("button", { name: "Connect Interactive Brokers" })
     .click();
-  await page.getByLabel("Query ID").fill("424242");
-  await page.getByLabel("Flex token").fill(token);
-  await page.getByRole("button", { name: "Connect and sync" }).click();
+  const guide = page.getByRole("dialog");
+  await expect(guide.getByText("Step 1 of 9")).toBeVisible();
+  await guide.getByRole("button", { name: "Start", exact: true }).click();
+  for (const title of [
+    "Log in to IBKR and open Flex Queries",
+    "Start a new Activity Flex Query",
+    "Name it and choose Open Positions",
+    "Choose XML and Last Business Day, then create it",
+  ]) {
+    await expect(guide.getByRole("heading", { name: title })).toBeVisible();
+    await guide.getByRole("button", { name: "Next" }).click();
+  }
+  const next = guide.getByRole("button", { name: "Next" });
+  await expect(next).toBeDisabled();
+  await guide.getByLabel("Query ID").fill("Query ID: 424242");
+  await expect(guide.getByLabel("Query ID")).toHaveValue("424242");
+  await next.click();
+  await next.click();
+  await expect(next).toBeDisabled();
+  await guide.getByLabel("Token").fill("12345");
+  await expect(guide.getByText(/looks too short/)).toBeVisible();
+  await guide.getByLabel("Token").fill(` ${token} `);
+  await next.click();
+  await expect(guide.getByText("•••• 1111")).toBeVisible();
+  await guide.getByRole("button", { name: "Connect and sync" }).click();
   await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30_000 });
 
   await expect(

@@ -5,6 +5,7 @@
 @import "./styles/reports.css";
 @import "./styles/terminal.css";
 @import "./styles/studio.css";
+@import "./styles/ibkr-guide.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
 
 @theme inline {
@@ -2069,18 +2070,6 @@ a.chip:hover {
   margin: 0;
   color: var(--loss);
   overflow-wrap: anywhere;
-}
-.broker-steps {
-  margin: 0;
-  padding-left: 1.2em;
-  display: grid;
-  gap: 6px;
-  font-size: var(--fs-sm);
-  color: var(--muted-foreground);
-}
-.broker-steps b {
-  color: var(--foreground);
-  font-weight: 600;
 }
 .broker-note {
   display: grid;
