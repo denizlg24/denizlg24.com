@@ -1346,3 +1346,74 @@
   max-height: 640px;
   overflow: auto;
 }
+
+/* Guided tour (driver.js) */
+.driver-popover.sw-tour {
+  max-width: 380px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--term-header);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-sans);
+}
+.driver-popover.sw-tour .driver-popover-title {
+  color: var(--term-header);
+  font-size: var(--fs-md);
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+.driver-popover.sw-tour .driver-popover-description {
+  color: var(--foreground);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.driver-popover.sw-tour kbd {
+  padding: 0 4px;
+  border: 1px solid var(--strong-border);
+  border-radius: 2px;
+  background: var(--muted);
+  color: var(--term-key);
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.driver-popover.sw-tour .driver-popover-progress-text {
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.driver-popover.sw-tour .driver-popover-footer button {
+  padding: 3px 10px;
+  border: 1px solid var(--strong-border);
+  border-radius: 2px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: var(--fs-xs);
+  text-shadow: none;
+}
+.driver-popover.sw-tour .driver-popover-footer .driver-popover-next-btn {
+  border-color: var(--term-header);
+  background: var(--term-header);
+  color: var(--card);
+}
+.driver-popover.sw-tour .driver-popover-close-btn {
+  color: var(--muted-foreground);
+}
+.driver-popover.sw-tour .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: var(--card);
+}
+.driver-popover.sw-tour .driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: var(--card);
+}
+.driver-popover.sw-tour .driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: var(--card);
+}
+.driver-popover.sw-tour .driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: var(--card);
+}
+.help-tour {
+  justify-self: start;
+  margin-top: 6px;
+  border-color: var(--term-header);
+  color: var(--term-header);
+}

@@ -216,6 +216,7 @@ export const workspaceSchema = z.object({
   screens: z.array(screenSchema).max(20).default([]),
   relations: z.array(relationNoteSchema).max(400).default([]),
   chartTemplates: z.array(chartTemplateSchema).max(30).default([]),
+  tourSeen: z.boolean().default(false),
   requests: z
     .array(
       z.object({

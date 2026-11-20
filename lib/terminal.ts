@@ -62,6 +62,7 @@ export type Command =
   | { kind: "overlay"; series: string[] }
   | { kind: "view"; view: WorkspaceView }
   | { kind: "help" }
+  | { kind: "tour" }
   | { kind: "search"; query: string };
 
 const securityCodes = new Map<string, SecurityFunction>(
@@ -202,6 +203,7 @@ export function parseCommand(input: string, current?: string): Command | null {
   if (words.length === 1) {
     const [word] = words;
     if (word === "HELP" || word === "?" || word === "HL") return { kind: "help" };
+    if (word === "TOUR" || word === "GUIDE") return { kind: "tour" };
     const numbered = /^\d{1,2}$/.test(word)
       ? securityFunctions[Number(word) - 1]?.code
       : undefined;

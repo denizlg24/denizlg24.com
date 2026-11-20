@@ -282,9 +282,37 @@ export function Dashboard({
     [save, notify],
   );
   const runCommandRef = useRef<(command: Command) => void>(() => undefined);
+  const touring = useRef(false);
+  const workspaceRef = useRef(workspace);
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
+  const beginTour = useCallback(() => {
+    if (touring.current) return;
+    touring.current = true;
+    setHelp(false);
+    setNavOpen(false);
+    void import("./shell/tour").then(({ startTour }) =>
+      startTour(() => {
+        touring.current = false;
+        if (!workspaceRef.current.tourSeen)
+          void save((current) => ({ ...current, tourSeen: true })).catch(
+            () => undefined,
+          );
+      }),
+    );
+  }, [save]);
+  useEffect(() => {
+    if (workspace.tourSeen || navigator.webdriver) return;
+    const timer = setTimeout(beginTour, 900);
+    return () => clearTimeout(timer);
+    // Only on first load: later workspace refreshes must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function runCommand(command: Command) {
     setNavOpen(false);
     if (command.kind === "help") setHelp(true);
+    else if (command.kind === "tour") beginTour();
     else if (command.kind === "search") setSearch(true);
     else if (command.kind === "view") go(command.view);
     else if (command.kind === "monitor")
@@ -792,7 +820,9 @@ export function Dashboard({
           }}
         />
       ) : null}
-      {help ? <CommandHelp close={() => setHelp(false)} /> : null}
+      {help ? (
+        <CommandHelp close={() => setHelp(false)} onTour={beginTour} />
+      ) : null}
       {modal === "symbol" ? (
         <AddSymbolDialog
           lists={workspace.watchlists}

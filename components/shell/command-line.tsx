@@ -207,7 +207,13 @@ export function CommandLine({
   );
 }
 
-export function CommandHelp({ close }: { close: () => void }) {
+export function CommandHelp({
+  close,
+  onTour,
+}: {
+  close: () => void;
+  onTour?: () => void;
+}) {
   const sections = [
     {
       title: "Security functions · TICKER FN <GO>",
@@ -267,6 +273,11 @@ export function CommandHelp({ close }: { close: () => void }) {
             yellow keys such as <kbd>US EQUITY</kbd> and <kbd>&lt;GO&gt;</kbd>{" "}
             are accepted and ignored.
           </DialogDescription>
+          {onTour ? (
+            <button type="button" className="chip help-tour" onClick={onTour}>
+              Take the guided tour
+            </button>
+          ) : null}
         </DialogHeader>
         {sections.map((section) => (
           <section key={section.title}>

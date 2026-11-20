@@ -243,6 +243,7 @@ function initialWorkspace(): Workspace {
     screens: [],
     relations: [],
     chartTemplates: [],
+    tourSeen: false,
   };
 }
 
