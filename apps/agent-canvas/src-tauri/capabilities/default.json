@@ -1,5 +1,11 @@
 {
   "identifier": "main",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "updater:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-request-user-attention",
+    "dialog:allow-open",
+    "updater:default"
+  ]
 }

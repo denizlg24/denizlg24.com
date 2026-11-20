@@ -106,6 +106,7 @@ struct State {
     storage: Mutex<Option<PathBuf>>,
     checkpoint: Mutex<()>,
     lifecycle: Mutex<()>,
+    notices: delegation::Notices,
 }
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -226,7 +227,15 @@ fn launch(
     options: options::LaunchOptions,
 ) -> Result<Agent, String> {
     let _lifecycle = state.lifecycle.lock().map_err(err)?;
-    launch_with_parent(state, data_root, provider, cwd, prompt, options, None)
+    launch_with_parent(
+        state,
+        data_root,
+        provider,
+        cwd,
+        prompt,
+        options,
+        Lineage::Root,
+    )
 }
 fn launch_child(
     state: &State,
@@ -248,8 +257,60 @@ fn launch_child(
         parent.cwd.clone(),
         Some(prompt),
         parent.settings.clone().unwrap_or_default(),
-        Some((parent, name)),
+        Lineage::Child(parent, name),
     )
+}
+#[tauri::command]
+fn resume_agent(
+    app: tauri::AppHandle,
+    state: tauri::State<State>,
+    id: String,
+) -> Result<Agent, String> {
+    let data_root = app.path().app_local_data_dir().map_err(err)?;
+    let _lifecycle = state.lifecycle.lock().map_err(err)?;
+    let previous = state
+        .agents
+        .lock()
+        .map_err(err)?
+        .get(&id)
+        .cloned()
+        .ok_or("Agent is no longer on the canvas")?;
+    if !previous.has_terminal {
+        return Err("Native subagents have no CLI session to resume".into());
+    }
+    if session(&state, &id).is_ok_and(|s| s.alive.load(Ordering::Acquire)) {
+        return Err("This CLI is already running".into());
+    }
+    let agent = launch_with_parent(
+        &state,
+        &data_root,
+        previous.provider.clone(),
+        previous.cwd.clone(),
+        None,
+        previous.settings.clone().unwrap_or_default(),
+        Lineage::Resume(&previous),
+    )?;
+    Ok(persistence::checkpoint_launch(&state, agent))
+}
+#[tauri::command]
+fn rename_agent(state: tauri::State<State>, id: String, name: String) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 100 || name.chars().any(char::is_control) {
+        return Err("Names need 1–100 printable characters".into());
+    }
+    state
+        .agents
+        .lock()
+        .map_err(err)?
+        .get_mut(&id)
+        .ok_or("Agent is no longer on the canvas")?
+        .name = name.into();
+    persistence::save(&state)
+}
+enum Lineage<'a> {
+    Root,
+    Child(&'a Agent, &'a str),
+    Resume(&'a Agent),
 }
 fn launch_with_parent(
     state: &State,
@@ -258,9 +319,20 @@ fn launch_with_parent(
     cwd: String,
     prompt: Option<&str>,
     options: options::LaunchOptions,
-    parent: Option<(&Agent, &str)>,
+    lineage: Lineage,
 ) -> Result<Agent, String> {
+    let (parent, resume) = match lineage {
+        Lineage::Root => (None, None),
+        Lineage::Child(agent, name) => (Some((agent, name)), None),
+        Lineage::Resume(agent) => (None, Some(agent)),
+    };
     let extra_args = options.arguments(&provider)?;
+    let codex_session = match resume {
+        Some(previous) if provider == "codex" => Some(previous.session_id.clone().ok_or(
+            "Codex never recorded a session for this agent, so there is nothing to resume",
+        )?),
+        _ => None,
+    };
     let exe = resolve(&provider)?;
     let directory =
         std::fs::canonicalize(&cwd).map_err(|e| format!("Cannot open directory: {e}"))?;
@@ -268,11 +340,19 @@ fn launch_with_parent(
         return Err("Choose a directory".into());
     }
     let cwd = directory.to_string_lossy().into_owned();
-    let id = Uuid::new_v4().to_string();
+    let id = resume.map_or_else(|| Uuid::new_v4().to_string(), |a| a.id.clone());
     let data = data_root.join("sessions").join(&id);
     let hook_dir = data.join("hooks");
+    // The previous run's Stop and SessionEnd events would otherwise be
+    // replayed onto the resumed session and mark it finished at once.
+    if resume.is_some() && hook_dir.is_dir() {
+        std::fs::remove_dir_all(&hook_dir).map_err(err)?;
+    }
     std::fs::create_dir_all(&hook_dir).map_err(err)?;
     let mut cmd = CommandBuilder::new(exe);
+    if codex_session.is_some() {
+        cmd.arg("resume");
+    }
     cmd.cwd(&directory);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -294,7 +374,11 @@ fn launch_with_parent(
         ch.join("sessions")
     } else {
         cmd.args([
-            "--session-id",
+            if resume.is_some() {
+                "--resume"
+            } else {
+                "--session-id"
+            },
             &id,
             "--settings",
             &telemetry::claude_settings(&std::env::current_exe().map_err(err)?, &hook_dir)
@@ -309,8 +393,17 @@ fn launch_with_parent(
             .collect();
         ch.join("projects").join(project)
     };
-    mcp::configure(&mut cmd, &provider, data_root, &id)?;
+    mcp::configure(
+        &mut cmd,
+        &provider,
+        data_root,
+        &id,
+        options.native_subagents,
+    )?;
     cmd.args(extra_args);
+    if let Some(session) = &codex_session {
+        cmd.arg(session);
+    }
     if let Some(prompt) = prompt {
         cmd.arg("--");
         cmd.arg(prompt);
@@ -331,7 +424,18 @@ fn launch_with_parent(
     let reader = pair.master.try_clone_reader().map_err(err)?;
     let writer = pair.master.take_writer().map_err(err)?;
     let killer = child.clone_killer();
-    let output = Arc::new(Mutex::new(Output::default()));
+    // A resumed CLI continues the saved buffer so open terminals keep their
+    // cursor instead of replaying everything.
+    let mut previous_output = Output::default();
+    if resume.is_some() {
+        if let Some(old) = state.sessions.lock().map_err(err)?.remove(&id) {
+            previous_output = old.output.lock().map_err(err)?.clone();
+        } else if let Some(saved) = state.archived.lock().map_err(err)?.remove(&id) {
+            previous_output = saved;
+        }
+        previous_output.push(b"\r\n\x1b[2m-- resumed --\x1b[0m\r\n".to_vec());
+    }
+    let output = Arc::new(Mutex::new(previous_output));
     let reader_done = Arc::new(AtomicBool::new(false));
     let alive = Arc::new(AtomicBool::new(true));
     let stop_requested = Arc::new(AtomicBool::new(false));
@@ -345,18 +449,35 @@ fn launch_with_parent(
         alive: alive.clone(),
         reader_done: reader_done.clone(),
     });
-    let mut agent = Agent::root(&id, &provider, &cwd);
+    let mut agent = match resume {
+        Some(previous) => {
+            let mut agent = previous.clone();
+            agent.status = "starting".into();
+            agent.activity = "Resuming session".into();
+            agent.transcript.clear();
+            agent.telemetry_error = None;
+            agent.checkpoint_warning = None;
+            agent
+        }
+        None => Agent::root(&id, &provider, &cwd),
+    };
     agent.settings = Some(options);
     if let Some((parent, name)) = parent {
         agent.parent_id = Some(parent.id.clone());
         agent.root_id = parent.root_id.clone();
         agent.name = name.into();
     }
-    state
-        .agents
-        .lock()
-        .map_err(err)?
-        .insert(id.clone(), agent.clone());
+    {
+        let mut agents = state.agents.lock().map_err(err)?;
+        // Transcripts are re-read from the start of the session logs.
+        if resume.is_some() {
+            let native = terminal_dependents(&agents, &id);
+            for a in agents.values_mut().filter(|a| native.contains(&a.id)) {
+                a.transcript.clear();
+            }
+        }
+        agents.insert(id.clone(), agent.clone());
+    }
     state
         .sessions
         .lock()
@@ -380,6 +501,7 @@ fn launch_with_parent(
     });
     let agents = state.agents.clone();
     let root = agent.clone();
+    let exit_notices = state.notices.clone();
     std::thread::spawn(move || {
         let status = child.wait();
         alive.store(false, Ordering::Release);
@@ -402,6 +524,11 @@ fn launch_with_parent(
                     Err(e) => format!("CLI exited: {e}"),
                 };
             }
+            if !stop_requested.load(Ordering::Acquire) {
+                if let Some(child) = agents.get(&root.id).filter(|a| a.status == "error") {
+                    delegation::notify(&exit_notices, child);
+                }
+            }
         }
     });
     let agents = state.agents.clone();
@@ -411,6 +538,9 @@ fn launch_with_parent(
         .stop_requested
         .clone();
     let terminal = state.sessions.lock().map_err(err)?[&id].clone();
+    // A resumed child is the owner continuing by hand; never auto-close it.
+    let auto_finish = resume.is_none();
+    let notices = state.notices.clone();
     std::thread::spawn(move || {
         let mut tracker = telemetry::Tracker::default();
         while alive.load(Ordering::Acquire) && !stopping.load(Ordering::Acquire) {
@@ -419,7 +549,10 @@ fn launch_with_parent(
                     break;
                 }
                 tracker.poll(&root, &log_dir, &hook_dir, &mut a);
-                if tracker.finish_child(&root, &log_dir, &mut a) {
+                if auto_finish && tracker.finish_child(&root, &log_dir, &mut a) {
+                    if let Some(child) = a.get(&root.id) {
+                        delegation::notify(&notices, child);
+                    }
                     let terminal = terminal.clone();
                     std::thread::spawn(move || {
                         let _ = terminal.terminate();
@@ -472,27 +605,39 @@ fn resize_terminal(
         .map_err(err);
     result
 }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct TerminalRead {
     chunks: Vec<Vec<u8>>,
     cursor: u64,
     truncated: bool,
 }
+// Raw bytes instead of JSON: [cursor u64 LE][truncated u8][output]. A JSON
+// array spends four characters per byte on a busy TUI's redraws.
 #[tauri::command]
 fn read_terminal(
     state: tauri::State<State>,
     id: String,
     after: u64,
-) -> Result<TerminalRead, String> {
-    if let Ok(session) = session(&state, &id) {
-        return Ok(terminal_page(&*session.output.lock().map_err(err)?, after));
+) -> Result<tauri::ipc::Response, String> {
+    let page = if let Ok(session) = session(&state, &id) {
+        terminal_page(&*session.output.lock().map_err(err)?, after)
+    } else {
+        let archived = state.archived.lock().map_err(err)?;
+        terminal_page(
+            archived.get(&id).ok_or("Saved terminal is unavailable")?,
+            after,
+        )
+    };
+    Ok(tauri::ipc::Response::new(encode_page(&page)))
+}
+fn encode_page(page: &TerminalRead) -> Vec<u8> {
+    let length: usize = page.chunks.iter().map(Vec::len).sum();
+    let mut bytes = Vec::with_capacity(9 + length);
+    bytes.extend_from_slice(&page.cursor.to_le_bytes());
+    bytes.push(u8::from(page.truncated));
+    for chunk in &page.chunks {
+        bytes.extend_from_slice(chunk);
     }
-    let archived = state.archived.lock().map_err(err)?;
-    Ok(terminal_page(
-        archived.get(&id).ok_or("Saved terminal is unavailable")?,
-        after,
-    ))
+    bytes
 }
 fn terminal_page(o: &Output, after: u64) -> TerminalRead {
     let rewound = after > o.next;
@@ -670,6 +815,9 @@ fn main() {
                             if let Err(e) = delegation::poll(&state, bus) {
                                 eprintln!("Canvas delegation: {e}");
                             }
+                            if let Err(e) = delegation::deliver(&state, bus) {
+                                eprintln!("Canvas notices: {e}");
+                            }
                         }
                     }
                     ticks += 1;
@@ -687,10 +835,13 @@ fn main() {
             options::available_models,
             git::git_changes,
             git::git_file_diff,
+            git::git_action,
             restart_app,
             providers,
             snapshot,
             create_agent,
+            resume_agent,
+            rename_agent,
             read_terminal,
             write_terminal,
             resize_terminal,
@@ -808,6 +959,10 @@ mod lifecycle_tests {
         assert!(expired.truncated);
         assert_eq!(expired.cursor, 41);
         assert_eq!(expired.chunks.len(), 1);
+        let encoded = encode_page(&next);
+        assert_eq!(u64::from_le_bytes(encoded[..8].try_into().unwrap()), 40);
+        assert_eq!(encoded[8], 0);
+        assert_eq!(&encoded[9..], (32..40).collect::<Vec<u8>>());
     }
 
     #[test]

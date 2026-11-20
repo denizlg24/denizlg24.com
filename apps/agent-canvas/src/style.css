@@ -324,19 +324,28 @@ meter::-moz-meter-bar {
   flex-direction: column;
 }
 .terminal-host {
-  background: var(--background);
+  background: var(--terminal-background);
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 10px 8px 4px 12px;
 }
-.terminal-host .xterm {
+/* Padding lives on .xterm: the fit addon subtracts it there, but reads the
+   host's border-box height, so host padding would push rows off-screen. */
+.terminal-host > .xterm {
   height: 100%;
+  padding: 6px 2px 10px 8px;
 }
+
 .terminal-error {
-  padding: 8px 16px;
+  padding: 6px 12px;
   font-size: 11px;
-  color: var(--status-critical);
+  color: #ff8a7a;
+  background: var(--terminal-background);
+  border-bottom: 1px solid #ffffff1a;
+}
+.terminal-host .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff33 transparent;
 }
 .transcript-heading {
   display: flex;
@@ -757,7 +766,9 @@ meter::-moz-meter-bar {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding-bottom: 12px;
+}
+.window-content:has(.terminal-wrap) {
+  background: var(--terminal-background);
 }
 .window-content .terminal-wrap {
   min-height: 0;
@@ -769,19 +780,16 @@ meter::-moz-meter-bar {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding: 8px 10px;
   overflow: hidden;
 }
-.window-content .terminal-host > .xterm {
-  height: 100%;
-  padding: 0;
-}
+
 .window-resize {
   position: absolute;
+  z-index: 3;
   bottom: 0;
   right: 0;
-  width: 20px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   cursor: nwse-resize;
   color: var(--muted-foreground);
   border: 0;
@@ -838,29 +846,48 @@ meter::-moz-meter-bar {
   overflow-x: auto;
   align-items: stretch;
 }
-.window-tabs button {
+.window-tab {
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground);
+  max-width: 200px;
+  flex: none;
+}
+.window-tab.active {
+  border-bottom-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+.window-tab:hover {
+  background: var(--surface);
+}
+.window-tab button {
   display: flex;
   gap: 7px;
   align-items: center;
   border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--muted-foreground);
+  color: inherit;
   background: transparent;
-  padding: 0 10px;
+  height: 100%;
   font-size: 11px;
-  max-width: 180px;
   white-space: nowrap;
+  min-width: 0;
 }
-.window-tabs button.active {
-  border-bottom-color: var(--accent-strong);
-  color: var(--accent-strong);
+.window-tab > button:first-child {
+  padding: 0 4px 0 10px;
 }
-.window-tabs button:hover {
-  background: var(--surface);
-}
-.window-tabs button span {
+.window-tab button span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.window-tab-close {
+  padding: 0 8px 0 4px;
+  opacity: 0;
+}
+.window-tab:hover .window-tab-close,
+.window-tab.active .window-tab-close,
+.window-tab-close:focus-visible {
+  opacity: 0.7;
 }
 .window-actions button {
   color: var(--accent-strong);
@@ -878,25 +905,6 @@ meter::-moz-meter-bar {
 }
 .window-body > .window-content {
   flex: 1;
-}
-.git-sidebar {
-  width: clamp(280px, 42%, 460px);
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-left: 1px solid var(--border);
-  background: var(--background);
-  font-size: 11px;
-}
-@container (max-width: 640px) {
-  .git-sidebar {
-    position: absolute;
-    inset: 0 0 0 auto;
-    width: min(340px, 100%);
-    z-index: 2;
-    box-shadow: -12px 0 28px #0000001c;
-  }
 }
 .git-sidebar-header {
   display: flex;
@@ -975,13 +983,6 @@ meter::-moz-meter-bar {
 }
 .git-file:hover {
   background: var(--surface);
-}
-.git-files > li.open > .git-file {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
 .git-chevron {
   flex: none;
@@ -1158,4 +1159,533 @@ meter::-moz-meter-bar {
 .version-button {
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
+}
+
+:root {
+  --terminal-background: #161616;
+}
+
+/* Toolbar */
+.toolbar-actions button.active {
+  background: var(--surface);
+}
+.count-waiting {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--status-warning);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Cards */
+.provider em {
+  font-style: normal;
+  font-size: 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+.agent-card.status-waiting {
+  border-color: var(--status-warning);
+}
+.agent-card.status-stopped,
+.agent-card.status-done {
+  opacity: 0.78;
+}
+.finished-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  padding: 7px 14px;
+  text-align: left;
+}
+.finished-toggle:hover {
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+.finished-toggle svg {
+  transition: transform 120ms ease;
+}
+.finished-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.canvas.auto-layout .react-flow__node:not(.dragging) {
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+.react-flow__edge-path {
+  stroke: var(--muted-foreground);
+  stroke-width: 1.25;
+}
+.react-flow__edge.edge-working .react-flow__edge-path {
+  stroke: var(--status-good);
+}
+.react-flow__edge.edge-waiting .react-flow__edge-path {
+  stroke: var(--status-warning);
+}
+.react-flow__edge.edge-error .react-flow__edge-path {
+  stroke: var(--status-critical);
+}
+
+/* Windows */
+.agent-window.is-active {
+  border-color: color-mix(in srgb, var(--accent-strong) 45%, var(--border));
+  box-shadow: 0 16px 44px #00000029;
+}
+.window-titlebar .agent-status i {
+  width: 7px;
+  height: 7px;
+}
+.window-state {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.window-edge {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.edge-n,
+.edge-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.edge-n {
+  top: 0;
+}
+.edge-s {
+  bottom: 0;
+}
+.edge-e,
+.edge-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.edge-e {
+  right: 0;
+}
+.edge-w {
+  left: 0;
+}
+.edge-ne,
+.edge-nw,
+.edge-se,
+.edge-sw {
+  width: 12px;
+  height: 12px;
+}
+.edge-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.edge-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.edge-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.edge-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+.window-resize {
+  color: #ffffff59;
+}
+.transcript-tool {
+  color: var(--muted-foreground);
+}
+
+/* Launch */
+.launch-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -12px 0 22px;
+}
+.launch-recent button {
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.launch-recent button:hover,
+.launch-recent button[aria-pressed="true"] {
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.launch-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: -12px 0 24px;
+  cursor: pointer;
+}
+.launch-toggle input {
+  margin-top: 2px;
+  accent-color: var(--accent-strong);
+}
+.launch-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.launch-toggle strong {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+.launch-toggle small {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+/* Rename */
+.rename-dialog[data-slot="dialog-content"] {
+  max-width: 380px;
+}
+.rename-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rename-dialog input {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--accent-strong);
+  padding: 0 10px;
+  font-size: 13px;
+}
+.rename-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas.auto-layout .react-flow__node,
+  .finished-toggle svg {
+    transition: none;
+  }
+}
+
+/* App layout: threads | stage (canvas + windows) | changes */
+.stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+}
+.toolbar > button:first-child {
+  margin-right: -20px;
+}
+.threads {
+  width: 248px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+  font-size: 12px;
+}
+.threads-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 10px 6px;
+  padding: 0 8px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted-foreground);
+}
+.threads-search:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.threads-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.threads-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.threads-search button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  padding: 2px;
+}
+.threads-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px 8px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
+}
+.threads-filter input {
+  accent-color: var(--accent-strong);
+  margin: 0;
+}
+.threads-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 12px;
+}
+.threads-empty {
+  padding: 12px 14px;
+  color: var(--muted-foreground);
+}
+.threads-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.threads-directory {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 7px 12px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  text-align: left;
+}
+.threads-directory span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.threads-directory small {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.threads-directory svg {
+  color: var(--muted-foreground);
+  transition: transform 120ms ease;
+}
+.threads-directory[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.thread {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 5px 12px 5px 22px;
+  text-align: left;
+  color: var(--foreground);
+}
+.thread:hover {
+  background: var(--surface);
+}
+.thread.active {
+  background: var(--surface);
+  box-shadow: inset 2px 0 0 var(--accent-strong);
+}
+.thread.is-finished {
+  opacity: 0.6;
+}
+.thread .agent-status {
+  margin-top: 5px;
+}
+.thread-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.thread-text b,
+.thread-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-text b {
+  font-weight: 500;
+  color: var(--accent-strong);
+}
+.thread-text small {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.changes-panel {
+  position: relative;
+  flex: none;
+  max-width: 75vw;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  font-size: 11px;
+}
+.panel-resize {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 3;
+  touch-action: none;
+}
+.panel-resize:hover,
+.panel-resize:active {
+  background: color-mix(in srgb, var(--accent-strong) 25%, transparent);
+}
+.git-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.git-sidebar-header .git-header-actions button {
+  margin-left: 0;
+}
+.git-repo {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.git-repo select {
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--accent-strong);
+  font-size: 11px;
+  padding: 0 6px;
+}
+.git-notice {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-strong);
+  overflow-wrap: anywhere;
+}
+.git-commit {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.git-commit textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  min-height: 34px;
+  max-height: 200px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.git-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.git-scroll .git-files {
+  overflow: visible;
+  flex: none;
+}
+.git-section > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.git-section > header b {
+  font-weight: 500;
+  margin-left: 4px;
+}
+.git-file-row {
+  display: flex;
+  align-items: center;
+}
+.git-file-row .git-file {
+  flex: 1;
+  min-width: 0;
+}
+.git-file-actions {
+  display: flex;
+  padding-right: 6px;
+  opacity: 0;
+}
+.git-file-row:hover .git-file-actions,
+.git-file-actions:focus-within {
+  opacity: 1;
+}
+.git-file-actions .confirming {
+  color: var(--status-critical);
+  opacity: 1;
+}
+.git-files > li.open > .git-file-row {
+  position: sticky;
+  top: 30px;
+  z-index: 1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 900px) {
+  .threads {
+    display: none;
+  }
 }

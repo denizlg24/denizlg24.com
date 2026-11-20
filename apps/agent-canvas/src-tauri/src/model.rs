@@ -27,6 +27,9 @@ pub struct Agent {
     pub cost: Option<f64>,
     pub rate_limits: Option<Value>,
     pub transcript: String,
+    /// The agent's latest complete reply, which is what a parent needs back.
+    #[serde(default)]
+    pub last_message: String,
     pub telemetry_error: Option<String>,
 }
 impl Agent {
@@ -57,6 +60,7 @@ impl Agent {
             cost: None,
             rate_limits: None,
             transcript: String::new(),
+            last_message: String::new(),
             telemetry_error: None,
         }
     }

@@ -23,6 +23,7 @@ export interface Agent {
     { used_percent?: number; resets_at?: number; window_minutes?: number }
   > | null;
   transcript: string;
+  lastMessage?: string;
   telemetryError: string | null;
 }
 export const count = (n: number | null) =>
@@ -37,6 +38,13 @@ export function tokens(a: Agent) {
     ? null
     : (a.inputTokens ?? 0) + (a.outputTokens ?? 0);
 }
+export const finished = (status: string) =>
+  ["done", "stopped", "error"].includes(status);
+// A root keeps its directory as its label until the owner renames it.
+export const shortName = (a: Agent) =>
+  a.parentId || !["Codex", "Claude"].includes(a.name)
+    ? a.name
+    : a.cwd.split("/").filter(Boolean).at(-1) || a.name;
 export const statusLabel: Record<string, string> = {
   starting: "Starting",
   working: "Working",
@@ -51,6 +59,7 @@ export interface LaunchOptions {
   model: string;
   reasoning: string;
   permissions: "default" | "read-only" | "bypass";
+  nativeSubagents?: boolean;
 }
 export interface ModelOption {
   id: string;
@@ -62,6 +71,7 @@ export interface FileChange {
   oldPath: string | null;
   status: string;
   staged: boolean;
+  unstaged: boolean;
   additions: number | null;
   deletions: number | null;
 }
@@ -79,3 +89,7 @@ export interface FileDiff {
   binary: boolean;
   truncated: boolean;
 }
+export type GitAction =
+  | { kind: "stage" | "unstage" | "discard"; paths: string[] }
+  | { kind: "commit"; message: string }
+  | { kind: "fetch" | "pull" | "push" };

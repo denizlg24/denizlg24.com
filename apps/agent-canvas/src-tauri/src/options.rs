@@ -12,6 +12,9 @@ pub struct LaunchOptions {
     pub model: String,
     pub reasoning: String,
     pub permissions: String,
+    /// Allow the CLI's own headless delegation (Claude's Agent/Task/Workflow,
+    /// Codex multi-agent). Off by default so subagents get canvas terminals.
+    pub native_subagents: bool,
 }
 impl LaunchOptions {
     pub fn arguments(&self, provider: &str) -> Result<Vec<String>, String> {
@@ -164,6 +167,7 @@ mod tests {
             model: "custom-model".into(),
             reasoning: "high".into(),
             permissions: "bypass".into(),
+            ..Default::default()
         };
         assert_eq!(
             o.arguments("codex").unwrap(),

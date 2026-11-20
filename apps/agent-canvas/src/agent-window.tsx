@@ -2,9 +2,9 @@ import { Button } from "@repo/ui/button";
 import {
   ArrowUpRight,
   GitBranch,
-  Grip,
   Maximize2,
   Minimize2,
+  Play,
   Square,
   X,
 } from "lucide-react";
@@ -13,18 +13,24 @@ import {
   type PointerEvent,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { api } from "./bridge";
-import { GitSidebar } from "./git-panel";
 import { writeStored } from "./storage";
-import { type Agent, count, statusLabel, tokens } from "./types";
+import { type Agent, count, finished, statusLabel, tokens } from "./types";
 import { Usage } from "./usage";
+
+type Rect = { x: number; y: number; width: number; height: number };
+type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+const MIN_WIDTH = 380;
+const MIN_HEIGHT = 240;
+const EDGES: Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
 function readWindow(
   id: string,
-): { maximized?: unknown; gitOpen?: unknown; rect?: unknown } | null {
+): { maximized?: unknown; rect?: unknown } | null {
   try {
     const value: unknown = JSON.parse(
       localStorage.getItem(`agents:window:${id}`) || "null",
@@ -36,7 +42,7 @@ function readWindow(
 }
 const finite = (n: unknown): n is number =>
   typeof n === "number" && Number.isFinite(n);
-function savedRect(value: unknown) {
+function savedRect(value: unknown): Rect | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("x" in value && "y" in value && "width" in value && "height" in value))
     return null;
@@ -45,133 +51,232 @@ function savedRect(value: unknown) {
     ? { x, y, width, height }
     : null;
 }
+function bounds(): { width: number; height: number } {
+  const layer = document.querySelector(".window-layer");
+  return {
+    width: layer?.clientWidth || window.innerWidth,
+    height: layer?.clientHeight || window.innerHeight - 90,
+  };
+}
+// Keeps a window reachable: at least its title bar stays inside the layer.
+function clamp(r: Rect): Rect {
+  const { width, height } = bounds();
+  const w = Math.max(MIN_WIDTH, Math.min(width, r.width));
+  const h = Math.max(MIN_HEIGHT, Math.min(height, r.height));
+  return {
+    width: w,
+    height: h,
+    x: Math.max(-w + 160, Math.min(width - 160, r.x)),
+    y: Math.max(0, Math.min(height - 44, r.y)),
+  };
+}
+function initialRect(id: string, index: number): Rect {
+  const saved = savedRect(readWindow(id)?.rect);
+  if (saved) return clamp(saved);
+  const { width, height } = bounds();
+  const w = Math.min(760, width - 40);
+  const h = Math.min(560, height - 40);
+  // Agent trees grow from the canvas's left edge; new windows open on the
+  // right so the cards they belong to stay in view.
+  return clamp({
+    x: Math.max(8, width - w - 20 - (index % 6) * 36),
+    y: Math.min(20 + (index % 6) * 30, Math.max(8, height - h - 16)),
+    width: w,
+    height: h,
+  });
+}
+
 const AgentTerminal = lazy(() =>
   import("./terminal").then((m) => ({ default: m.AgentTerminal })),
 );
+
+function Transcript({ text, live }: { text: string; live: boolean }) {
+  const element = useRef<HTMLPreElement>(null);
+  const pinned = useRef(true);
+  useLayoutEffect(() => {
+    const el = element.current;
+    if (el && pinned.current && text) el.scrollTop = el.scrollHeight;
+  }, [text]);
+  const lines = text ? text.replace(/\n$/, "").split("\n") : [];
+  return (
+    <pre
+      ref={element}
+      className="transcript"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard scrolling for a live transcript
+      tabIndex={0}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+    >
+      {lines.length
+        ? lines.map((line, index) => (
+            <span
+              // Lines are append-only, so the index is a stable identity.
+              key={index}
+              className={line.startsWith("› ") ? "transcript-tool" : undefined}
+            >
+              {line}
+              {index < lines.length - 1 ? "\n" : ""}
+            </span>
+          ))
+        : live
+          ? "Waiting for transcript…"
+          : "No transcript recorded."}
+    </pre>
+  );
+}
+
 export function AgentWindow({
   agent: a,
-  dark,
   index,
   order,
+  active,
+  layout,
+  changesOpen,
+  onChanges,
   onFocus,
   onClose,
   onOpen,
   onStop,
+  onResume,
   onError,
 }: {
   agent: Agent;
-  dark: boolean;
   index: number;
   order: number;
+  active: boolean;
+  layout?: { nonce: number; rect: Rect };
+  changesOpen: boolean;
+  onChanges: (id: string) => void;
   onFocus: () => void;
   onClose: () => void;
   onOpen: (id: string) => void;
   onStop: (id: string) => void;
+  onResume: (id: string) => Promise<void>;
   onError: (e: string) => void;
 }) {
-  const element = useRef<HTMLElement>(null);
   const [maximized, setMaximized] = useState(
     () => readWindow(a.id)?.maximized === true,
   );
-  const [stopping, setStopping] = useState(false);
-  const [gitOpen, setGitOpen] = useState(
-    () => readWindow(a.id)?.gitOpen === true,
-  );
-  const [rect, setRect] = useState(() => {
-    const width = Math.min(740, window.innerWidth - 40);
-    const height = Math.min(590, window.innerHeight - 160);
-    const saved = savedRect(readWindow(a.id)?.rect);
-    if (saved)
-      return {
-        x: Math.max(0, Math.min(window.innerWidth - 150, saved.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 160, saved.y)),
-        width: Math.max(300, Math.min(window.innerWidth - 16, saved.width)),
-        height: Math.max(260, Math.min(window.innerHeight - 100, saved.height)),
-      };
-    return {
-      x: Math.min(60 + index * 40, Math.max(8, window.innerWidth - width - 20)),
-      y: Math.min(
-        40 + index * 34,
-        Math.max(8, window.innerHeight - height - 85),
-      ),
-      width,
-      height,
-    };
-  });
+  const [pending, setPending] = useState<"stop" | "resume" | null>(null);
+  const [rect, setRect] = useState(() => initialRect(a.id, index));
+  const layoutNonce = layout?.nonce;
+  const layoutRect = useRef(layout?.rect);
+  layoutRect.current = layout?.rect;
   useEffect(() => {
-    writeStored(`agents:window:${a.id}`, { rect, maximized, gitOpen }, onError);
-  }, [a.id, rect, maximized, gitOpen, onError]);
+    if (layoutNonce === undefined || !layoutRect.current) return;
+    setMaximized(false);
+    setRect(clamp(layoutRect.current));
+  }, [layoutNonce]);
+  // The layer narrows when a sidebar or the changes panel opens; pull the
+  // window back fully into view rather than leaving it behind the panel.
+  useEffect(() => {
+    const layer = document.querySelector(".window-layer");
+    if (!layer) return;
+    const keep = () =>
+      setRect((r) => {
+        const { width, height } = bounds();
+        const next = clamp({
+          ...r,
+          x: Math.min(r.x, Math.max(0, width - r.width)),
+          y: Math.min(r.y, Math.max(0, height - r.height)),
+        });
+        return next.x === r.x &&
+          next.y === r.y &&
+          next.width === r.width &&
+          next.height === r.height
+          ? r
+          : next;
+      });
+    const observer = new ResizeObserver(keep);
+    observer.observe(layer);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    writeStored(`agents:window:${a.id}`, { rect, maximized }, onError);
+  }, [a.id, rect, maximized, onError]);
   const gesture = useRef<{
     x: number;
     y: number;
-    rect: typeof rect;
-    resize: boolean;
+    rect: Rect;
+    edge: Edge | null;
   } | null>(null);
-  const begin = (e: PointerEvent, resize = false) => {
-    if (maximized || (!resize && (e.target as Element).closest("button")))
-      return;
+  const begin = (e: PointerEvent, edge: Edge | null = null) => {
+    if (e.button !== 0) return;
+    if (maximized || (!edge && (e.target as Element).closest("button"))) return;
     e.preventDefault();
+    e.stopPropagation();
     onFocus();
-    gesture.current = { x: e.clientX, y: e.clientY, rect: { ...rect }, resize };
+    gesture.current = { x: e.clientX, y: e.clientY, rect: { ...rect }, edge };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const move = (e: PointerEvent) => {
     const g = gesture.current;
     if (!g) return;
-    const parent = element.current?.parentElement;
-    const width = parent?.clientWidth ?? window.innerWidth;
-    const height = parent?.clientHeight ?? window.innerHeight;
-    const dx = e.clientX - g.x,
-      dy = e.clientY - g.y;
-    if (g.resize)
-      setRect({
-        ...g.rect,
-        width: Math.max(
-          Math.min(420, width - g.rect.x),
-          Math.min(width - g.rect.x - 8, g.rect.width + dx),
-        ),
-        height: Math.max(
-          300,
-          Math.min(height - g.rect.y - 8, g.rect.height + dy),
-        ),
-      });
-    else
-      setRect({
-        ...g.rect,
-        x: Math.max(0, Math.min(width - 150, g.rect.x + dx)),
-        y: Math.max(0, Math.min(height - 60, g.rect.y + dy)),
-      });
+    const dx = e.clientX - g.x;
+    const dy = e.clientY - g.y;
+    if (!g.edge) {
+      setRect(clamp({ ...g.rect, x: g.rect.x + dx, y: g.rect.y + dy }));
+      return;
+    }
+    const { width, height } = bounds();
+    let { x, y, width: w, height: h } = g.rect;
+    if (g.edge.includes("e"))
+      w = Math.min(width - x, Math.max(MIN_WIDTH, w + dx));
+    if (g.edge.includes("s"))
+      h = Math.min(height - y, Math.max(MIN_HEIGHT, h + dy));
+    if (g.edge.includes("w")) {
+      const next = Math.max(MIN_WIDTH, w - Math.max(-x, dx));
+      x += w - next;
+      w = next;
+    }
+    if (g.edge.includes("n")) {
+      const next = Math.max(MIN_HEIGHT, h - Math.max(-y, dy));
+      y += h - next;
+      h = next;
+    }
+    setRect({ x, y, width: w, height: h });
   };
   const end = () => {
     gesture.current = null;
   };
+  const interactive = a.hasTerminal ?? !a.parentId;
+  const live = !finished(a.status);
   const stop = async () => {
-    setStopping(true);
+    setPending("stop");
     try {
       await api.stop(a.id);
       onStop(a.id);
     } catch (e) {
       onError(String(e));
-      setStopping(false);
+      setPending(null);
+    }
+  };
+  const resume = async () => {
+    setPending("resume");
+    try {
+      await onResume(a.id);
+    } finally {
+      setPending(null);
     }
   };
   return (
     <section
-      ref={element}
-      className={`agent-window ${maximized ? "maximized" : ""}`}
+      className={`agent-window ${maximized ? "maximized" : ""} ${active ? "is-active" : ""}`}
       aria-label={`${a.name} window`}
       style={{
-        left: maximized ? 8 : rect.x,
-        top: maximized ? 8 : rect.y,
-        width: maximized ? "calc(100% - 16px)" : rect.width,
-        height: maximized ? "calc(100% - 16px)" : rect.height,
+        left: maximized ? 6 : rect.x,
+        top: maximized ? 6 : rect.y,
+        width: maximized ? "calc(100% - 12px)" : rect.width,
+        height: maximized ? "calc(100% - 12px)" : rect.height,
         zIndex: 20 + order,
       }}
       onPointerDownCapture={onFocus}
     >
       <header
         className="window-titlebar"
-        onPointerDown={begin}
+        onPointerDown={(e) => begin(e)}
         onPointerMove={move}
         onPointerUp={end}
         onPointerCancel={end}
@@ -179,32 +284,44 @@ export function AgentWindow({
           if (!(e.target as Element).closest("button")) setMaximized((v) => !v);
         }}
       >
-        <Grip size={14} className="window-grip" />
-        <strong>{a.name}</strong>
         <span className={`agent-status ${a.status}`}>
           <i />
+        </span>
+        <strong>{a.name}</strong>
+        <span className="window-state">
           {statusLabel[a.status] ?? a.status}
         </span>
         <div className="window-actions">
           <Button
             variant="ghost"
             size="sm"
-            aria-pressed={gitOpen}
-            className={gitOpen ? "active" : undefined}
-            onClick={() => setGitOpen((v) => !v)}
+            aria-pressed={changesOpen}
+            className={changesOpen ? "active" : undefined}
+            onClick={() => onChanges(a.id)}
           >
             <GitBranch size={12} />
             Changes
           </Button>
-          {(a.hasTerminal ?? !a.parentId) && (
+          {interactive && live && (
             <Button
               variant="ghost"
               size="sm"
-              disabled={stopping}
+              disabled={pending !== null}
               onClick={stop}
             >
               <Square size={11} />
-              {stopping ? "Stopping…" : "Stop"}
+              {pending === "stop" ? "Stopping…" : "Stop"}
+            </Button>
+          )}
+          {interactive && !live && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending !== null}
+              onClick={resume}
+            >
+              <Play size={11} />
+              {pending === "resume" ? "Resuming…" : "Resume"}
             </Button>
           )}
           <Button
@@ -229,13 +346,6 @@ export function AgentWindow({
         <div className="window-path" title={a.cwd}>
           {a.cwd}
         </div>
-        <details>
-          <summary>
-            {count(tokens(a))} tokens <span>Usage</span>
-          </summary>
-          <Usage agent={a} />
-        </details>
-        {a.checkpointWarning && <p role="status">{a.checkpointWarning}</p>}
         {a.settings && (
           <div className="window-settings">
             {a.settings.model || "CLI default"}
@@ -247,26 +357,30 @@ export function AgentWindow({
             )}
           </div>
         )}
+        <details>
+          <summary>
+            {count(tokens(a))} tokens <span>Usage</span>
+          </summary>
+          <Usage agent={a} />
+        </details>
+        {a.checkpointWarning && <p role="status">{a.checkpointWarning}</p>}
       </div>
-      <div className={`window-body ${gitOpen ? "with-git" : ""}`}>
+      <div className="window-body">
         <div className="window-content">
-          {!(a.hasTerminal ?? !a.parentId) ? (
+          {!interactive ? (
             <>
               <div className="transcript-heading">
-                <span>Subagent transcript</span>
+                <span>Native subagent · transcript</span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => onOpen(a.rootId)}
+                  onClick={() => onOpen(a.parentId ?? a.rootId)}
                 >
                   Parent terminal
                   <ArrowUpRight size={13} />
                 </Button>
               </div>
-              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard scrolling for live transcript. */}
-              <pre className="transcript" tabIndex={0}>
-                {a.transcript || "Waiting for transcript…"}
-              </pre>
+              <Transcript text={a.transcript} live={live} />
             </>
           ) : (
             <Suspense
@@ -278,54 +392,49 @@ export function AgentWindow({
                 />
               }
             >
-              <AgentTerminal
-                id={a.id}
-                dark={dark}
-                running={!["stopped", "done", "error"].includes(a.status)}
-              />
+              <AgentTerminal id={a.id} running={live} active={active} />
             </Suspense>
           )}
         </div>
-        {gitOpen && <GitSidebar id={a.id} onClose={() => setGitOpen(false)} />}
       </div>
+      {!maximized &&
+        EDGES.map((edge) => (
+          <div
+            key={edge}
+            className={`window-edge edge-${edge}`}
+            aria-hidden="true"
+            onPointerDown={(e) => begin(e, edge)}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerCancel={end}
+          />
+        ))}
       {!maximized && (
         <button
           type="button"
           className="window-resize"
           aria-label={`Resize ${a.name} window`}
-          onPointerDown={(e) => begin(e, true)}
+          onPointerDown={(e) => begin(e, "se")}
           onPointerMove={move}
           onPointerUp={end}
           onPointerCancel={end}
           onKeyDown={(e) => {
-            if (
-              ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
-                e.key,
-              )
-            ) {
-              e.preventDefault();
-              setRect((r) => ({
+            const step: Record<string, [number, number]> = {
+              ArrowLeft: [-20, 0],
+              ArrowRight: [20, 0],
+              ArrowUp: [0, -20],
+              ArrowDown: [0, 20],
+            };
+            const delta = step[e.key];
+            if (!delta) return;
+            e.preventDefault();
+            setRect((r) =>
+              clamp({
                 ...r,
-                width: Math.max(
-                  420,
-                  r.width +
-                    (e.key === "ArrowRight"
-                      ? 20
-                      : e.key === "ArrowLeft"
-                        ? -20
-                        : 0),
-                ),
-                height: Math.max(
-                  300,
-                  r.height +
-                    (e.key === "ArrowDown"
-                      ? 20
-                      : e.key === "ArrowUp"
-                        ? -20
-                        : 0),
-                ),
-              }));
-            }
+                width: r.width + delta[0],
+                height: r.height + delta[1],
+              }),
+            );
           }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
