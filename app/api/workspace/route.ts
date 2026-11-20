@@ -44,6 +44,25 @@ export async function PUT(request: Request) {
       },
       409,
     );
+  // Broker-synced books and their positions are server-owned.
+  const priorBroker = new Map(
+    current.data.books.flatMap((book) =>
+      book.broker ? [[book.id, book.broker] as const] : [],
+    ),
+  );
+  data.books = data.books.map((book) => {
+    const broker = priorBroker.get(book.id);
+    return broker
+      ? { id: book.id, name: book.name, broker }
+      : { id: book.id, name: book.name };
+  });
+  const synced = new Set(
+    data.books.filter((book) => book.broker).map((book) => book.id),
+  );
+  data.trades = [
+    ...data.trades.filter((trade) => !synced.has(trade.bookId)),
+    ...current.data.trades.filter((trade) => synced.has(trade.bookId)),
+  ];
   try {
     for (const collection of [
       data.watchlists,

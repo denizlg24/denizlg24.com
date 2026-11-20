@@ -37,6 +37,7 @@ import {
 } from "./shared";
 import { useQuotes } from "./market-widgets";
 import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
+import { BrokerBookNote, BrokerConnect } from "./broker-link";
 
 const tradeSchema = workspaceSchema.shape.trades.element;
 const columns = [
@@ -123,15 +124,21 @@ export function Portfolio({
   save,
   select,
   refresh,
+  reload,
 }: {
   workspace: Workspace;
   save: Save;
   select: (ticker: string) => void;
   refresh: boolean;
+  reload: () => Promise<unknown>;
 }) {
   const [selected, setSelected] = useState("");
   const book =
-    workspace.books.find((item) => item.id === selected) ?? workspace.books[0];
+    workspace.books.find(
+      (item) =>
+        item.id === selected || `ibkr:${item.broker?.account}` === selected,
+    ) ?? workspace.books[0];
+  const synced = Boolean(book?.broker);
   const [dialog, setDialog] = useState<
     | "trade"
     | "import"
@@ -265,16 +272,24 @@ export function Portfolio({
           </div>
           {!workspace.books.length ? (
             <Empty title="No portfolios">
-              Create a portfolio to track transactions.
+              Create a portfolio to track transactions, or connect your broker.
             </Empty>
           ) : null}
+          <BrokerConnect
+            reload={reload}
+            onSynced={(accounts) => {
+              if (accounts[0]) setSelected(`ibkr:${accounts[0]}`);
+            }}
+          />
         </section>
         <section className="panel detail-panel">
           <PanelHeading
             title={book?.name ?? "Portfolio"}
             subtitle={
               book
-                ? `${open.length} open ${open.length === 1 ? "position" : "positions"} · ${trades.length} ${trades.length === 1 ? "transaction" : "transactions"} · average cost basis`
+                ? synced
+                  ? `${open.length} open ${open.length === 1 ? "position" : "positions"} · Interactive Brokers · as of ${book.broker?.asOf}`
+                  : `${open.length} open ${open.length === 1 ? "position" : "positions"} · ${trades.length} ${trades.length === 1 ? "transaction" : "transactions"} · average cost basis`
                 : undefined
             }
           >
@@ -296,9 +311,11 @@ export function Portfolio({
                 >
                   <Trash2 />
                 </Button>
-                <Button size="sm" onClick={() => setDialog("trade")}>
-                  <Plus /> Record trade
-                </Button>
+                {synced ? null : (
+                  <Button size="sm" onClick={() => setDialog("trade")}>
+                    <Plus /> Record trade
+                  </Button>
+                )}
               </div>
             ) : null}
           </PanelHeading>
@@ -361,6 +378,7 @@ export function Portfolio({
               })}
             </div>
           ) : null}
+          {book?.broker ? <BrokerBookNote broker={book.broker} /> : null}
           <Failure error={error} retry={mutate} />
           {!book ? (
             <Empty title="No portfolio yet">
@@ -383,16 +401,20 @@ export function Portfolio({
               <div className="tabs-bar">
                 <TabsList variant="line">
                   <TabsTrigger value="positions">Positions</TabsTrigger>
-                  <TabsTrigger value="ledger">Transactions</TabsTrigger>
+                  <TabsTrigger value="ledger">
+                    {synced ? "Lots" : "Transactions"}
+                  </TabsTrigger>
                 </TabsList>
                 <div className="row-actions">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDialog("import")}
-                  >
-                    <ArrowUpFromLine /> Import CSV
-                  </Button>
+                  {synced ? null : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDialog("import")}
+                    >
+                      <ArrowUpFromLine /> Import CSV
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -604,30 +626,32 @@ export function Portfolio({
                               {item.currency}
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="row-actions row-actions-end">
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  aria-label={`Edit ${item.symbol} transaction`}
-                                  onClick={() => {
-                                    setTrade(item);
-                                    setDialog("trade");
-                                  }}
-                                >
-                                  <Pencil />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  aria-label={`Delete ${item.symbol} transaction`}
-                                  onClick={() => {
-                                    setTrade(item);
-                                    setDialog("remove-trade");
-                                  }}
-                                >
-                                  <Trash2 />
-                                </Button>
-                              </div>
+                              {synced ? null : (
+                                <div className="row-actions row-actions-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label={`Edit ${item.symbol} transaction`}
+                                    onClick={() => {
+                                      setTrade(item);
+                                      setDialog("trade");
+                                    }}
+                                  >
+                                    <Pencil />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label={`Delete ${item.symbol} transaction`}
+                                    onClick={() => {
+                                      setTrade(item);
+                                      setDialog("remove-trade");
+                                    }}
+                                  >
+                                    <Trash2 />
+                                  </Button>
+                                </div>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -643,7 +667,7 @@ export function Portfolio({
           ) : null}
         </section>
       </div>
-      {book && dialog === "trade" ? (
+      {book && !synced && dialog === "trade" ? (
         <FormDialog
           title={trade ? "Edit transaction" : "Record a trade"}
           description={`Update the transaction ledger for ${book.name}.`}
@@ -732,7 +756,7 @@ export function Portfolio({
           </div>
         </FormDialog>
       ) : null}
-      {book && dialog === "import" ? (
+      {book && !synced && dialog === "import" ? (
         <FormDialog
           title="Import transactions"
           description={`Add transactions to ${book.name} from a CSV. Required columns are date (YYYY-MM-DD), symbol, side, quantity, price, and currency. Fees are optional.`}
@@ -826,7 +850,11 @@ export function Portfolio({
       {dialog === "remove-book" && book ? (
         <FormDialog
           title={`Delete ${book.name}?`}
-          description={`This removes the portfolio and its ${trades.length} transactions.`}
+          description={
+            synced
+              ? "This removes the synced portfolio. It returns on the next sync unless you disconnect Interactive Brokers."
+              : `This removes the portfolio and its ${trades.length} transactions.`
+          }
           close={close}
           label="Delete portfolio"
           danger

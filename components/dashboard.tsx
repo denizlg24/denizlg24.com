@@ -710,6 +710,7 @@ export function Dashboard({
               save={save}
               select={choose}
               refresh={refresh}
+              reload={mutate}
             />
           ) : null}
           {view === "research" ? (

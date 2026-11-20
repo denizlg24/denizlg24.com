@@ -70,6 +70,12 @@ function sqlite() {
     CREATE TABLE IF NOT EXISTS extracts (
       key TEXT PRIMARY KEY, content TEXT NOT NULL, created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS broker_links (
+      user_id TEXT NOT NULL, provider TEXT NOT NULL, secret TEXT NOT NULL,
+      query_id TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+      created_at TEXT NOT NULL, synced_at TEXT,
+      PRIMARY KEY (user_id, provider)
+    );
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -118,6 +124,12 @@ function pg(url: string) {
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_reports_user ON stockwatcher_reports(user_id, updated_at)`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_extracts (
         key TEXT PRIMARY KEY, content JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_broker_links (
+        user_id TEXT NOT NULL, provider TEXT NOT NULL, secret TEXT NOT NULL,
+        query_id TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+        created_at TIMESTAMPTZ NOT NULL, synced_at TIMESTAMPTZ,
+        PRIMARY KEY (user_id, provider)
       )`;
     });
     return db;
