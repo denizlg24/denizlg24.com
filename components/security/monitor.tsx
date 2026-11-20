@@ -34,6 +34,7 @@ import type { Screen } from "@/lib/screens";
 import { Rotation } from "./rotation";
 import { ChartGrid } from "./grid";
 import { PortfolioRiskView } from "./risk";
+import { NewsWire } from "./wire";
 import type { Workspace } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 
@@ -431,6 +432,7 @@ export function Monitor({
   saveScreens,
   books,
   trades,
+  watchlists,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
@@ -443,6 +445,7 @@ export function Monitor({
   saveScreens: (next: Screen[]) => Promise<void>;
   books: Workspace["books"];
   trades: Workspace["trades"];
+  watchlists: Workspace["watchlists"];
 }) {
   return (
     <section className="panel security-panel">
@@ -490,6 +493,15 @@ export function Monitor({
         />
       ) : null}
       {fn === "RRG" ? <Rotation select={select} /> : null}
+      {fn === "TOP" ? (
+        <NewsWire
+          key={symbols?.join(",") ?? ""}
+          watchlists={watchlists}
+          trades={trades}
+          initial={symbols}
+          select={select}
+        />
+      ) : null}
       {fn === "PRSK" ? (
         <PortfolioRiskView books={books} trades={trades} select={select} />
       ) : null}

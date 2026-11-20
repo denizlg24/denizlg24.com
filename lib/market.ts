@@ -554,3 +554,50 @@ export async function history(
     points,
   };
 }
+
+export type WireItem = News & { symbols: string[]; id: string };
+
+/** Recent headlines for each symbol, merged and de-duplicated by story. */
+export async function newsWire(symbols: string[]): Promise<WireItem[]> {
+  const results = await Promise.allSettled(
+    symbols.map((symbol) =>
+      yahoo<YahooSearch & { news?: Array<{ uuid?: string; relatedTickers?: string[] }> }>(
+        "/v1/finance/search",
+        { q: symbol, quotesCount: "0", newsCount: "8" },
+        300,
+      ).then((output) => ({ symbol, output })),
+    ),
+  );
+  const stories = new Map<string, WireItem>();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const { symbol, output } = result.value;
+    for (const item of output.news ?? []) {
+      if (!item.title || !item.link?.startsWith("https://")) continue;
+      const id = ("uuid" in item && typeof item.uuid === "string" && item.uuid) || item.link;
+      const related =
+        "relatedTickers" in item && Array.isArray(item.relatedTickers)
+          ? item.relatedTickers.filter((ticker): ticker is string => typeof ticker === "string")
+          : [];
+      const prior = stories.get(id);
+      stories.set(id, {
+        id,
+        title: item.title,
+        url: item.link,
+        publisher: item.publisher ?? "Yahoo Finance",
+        time: item.providerPublishTime ?? 0,
+        symbols: [...new Set([...(prior?.symbols ?? []), symbol, ...related.filter((ticker) => symbols.includes(ticker))])],
+      });
+    }
+  }
+  return [...stories.values()].sort((a, b) => b.time - a.time);
+}
+
+export async function trending(region = "US") {
+  const result = await yahoo<{
+    finance?: { result?: Array<{ quotes?: Array<{ symbol?: string }> }> };
+  }>(`/v1/finance/trending/${region}`, { count: "20" }, 300);
+  return (result.finance?.result?.[0]?.quotes ?? []).flatMap((item) =>
+    item.symbol ? [item.symbol] : [],
+  );
+}

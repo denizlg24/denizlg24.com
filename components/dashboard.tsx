@@ -594,6 +594,7 @@ export function Dashboard({
               screens={workspace.screens}
               books={workspace.books}
               trades={workspace.trades}
+              watchlists={workspace.watchlists}
               saveScreens={(screens) =>
                 save((current) => ({ ...current, screens })).catch(
                   (error: Error) => {
