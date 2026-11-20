@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { useSearch } from "@/components/market-widgets";
 import {
+  functionKeys,
   monitorFunctions,
   parseCommand,
+  shortcuts,
   securityFunctions,
   suggestFunctions,
   workspaceFunctions,
@@ -221,6 +223,22 @@ export function CommandHelp({ close }: { close: () => void }) {
         code,
         label,
         detail,
+      })),
+    },
+    {
+      title: "Function keys",
+      items: functionKeys.map(({ key, command, label }) => ({
+        code: key,
+        label: command,
+        detail: label,
+      })),
+    },
+    {
+      title: "Keyboard",
+      items: shortcuts.map(({ keys, label }) => ({
+        code: keys,
+        label: "",
+        detail: label,
       })),
     },
     {

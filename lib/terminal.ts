@@ -157,7 +157,6 @@ const yellowKeys = new Set([
   "EQ",
   "INDEX",
   "CURNCY",
-  "CMDTY",
   "COMDTY",
   "CORP",
   "GOVT",
@@ -227,6 +226,35 @@ export function parseCommand(input: string, current?: string): Command | null {
     return { kind: "security", ticker: tickerWords[0], fn: fn ?? "GP" };
   return { kind: "search", query: input.trim() };
 }
+
+/** Bloomberg-style market keys: F-key → command. */
+export const functionKeys: { key: string; command: string; label: string }[] = [
+  { key: "F1", command: "HELP", label: "Help and function directory" },
+  { key: "F2", command: "GC", label: "Govt · Treasury curve" },
+  { key: "F3", command: "TOP", label: "News wire" },
+  { key: "F4", command: "EVTS", label: "Earnings calendar" },
+  { key: "F6", command: "MOST", label: "Most active" },
+  { key: "F7", command: "PRSK", label: "Portfolio risk" },
+  { key: "F8", command: "EQS", label: "Equity · screener" },
+  { key: "F9", command: "GLCO", label: "Comdty · commodities" },
+  { key: "F10", command: "WEI", label: "Index · world indices" },
+  { key: "F11", command: "FXC", label: "Crncy · FX crosses" },
+];
+
+export const shortcuts: { keys: string; label: string }[] = [
+  { keys: "/ or F8 in a field", label: "Focus the command line" },
+  { keys: "↑ ↓ (empty command line)", label: "Recall earlier commands" },
+  { keys: "Tab", label: "Complete the highlighted suggestion" },
+  { keys: "12 <GO>", label: "Open the security function by number" },
+  { keys: "?", label: "Keyboard map and function directory" },
+  { keys: "⌘/Ctrl K", label: "Search securities" },
+  { keys: "⌘/Ctrl J", label: "Toggle the assistant" },
+  { keys: "Alt T / Alt W", label: "New panel tab / close tab" },
+  { keys: "Alt ← → / Alt 1–9", label: "Switch panel tabs" },
+  { keys: "⇧T ⇧R ⇧H ⇧V ⇧B ⇧F ⇧C ⇧N ⇧M ⇧A ⇧E", label: "Chart tools: trend, ray, level, vertical, box, Fibonacci, channel, note, measure, alert, erase" },
+  { keys: "Esc", label: "Back to the chart cursor, leave full screen" },
+  { keys: "Wheel / drag / double-click", label: "Zoom, pan and reset a chart" },
+];
 
 export function suggestFunctions(input: string) {
   const word = input.trim().toUpperCase().split(/\s+/).at(-1) ?? "";

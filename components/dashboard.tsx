@@ -21,7 +21,9 @@ import { useLiveStatus } from "./live-quotes";
 import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
 import { encodeOverlay } from "@/lib/overlay";
 import {
+  functionKeys,
   monitorFunctions,
+  parseCommand,
   securityFunctions,
   type Command,
   type MonitorFunction,
@@ -279,6 +281,7 @@ export function Dashboard({
       ),
     [save, notify],
   );
+  const runCommandRef = useRef<(command: Command) => void>(() => undefined);
   function runCommand(command: Command) {
     setNavOpen(false);
     if (command.kind === "help") setHelp(true);
@@ -333,6 +336,23 @@ export function Dashboard({
   }, []);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
+      const fkey = functionKeys.find((item) => item.key === event.key);
+      if (fkey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        const command = parseCommand(fkey.command);
+        if (command) runCommandRef.current(command);
+        return;
+      }
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+      if (event.key === "?" && !typing && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        setHelp(true);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
       if (key === "k") {
@@ -421,6 +441,10 @@ export function Dashboard({
     },
     [openAssistant],
   );
+
+  useEffect(() => {
+    runCommandRef.current = runCommand;
+  });
 
   const currentDashboard =
     view === "markets"
