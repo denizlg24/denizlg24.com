@@ -112,6 +112,17 @@ export const relationNoteSchema = z.object({
   created: z.iso.date(),
 });
 export type RelationNote = z.infer<typeof relationNoteSchema>;
+
+export const chartTemplateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(60),
+  style: z.enum(chartStyles),
+  studies: z.array(studyKeySchema).max(12),
+  scale: z.enum(chartScales),
+  averages: z.array(customAverageSchema).max(8),
+  appearance: chartAppearanceSchema,
+});
+export type ChartTemplate = z.infer<typeof chartTemplateSchema>;
 export type ChartPreferences = z.infer<typeof chartPreferencesSchema>;
 export const defaultChartPreferences: ChartPreferences = {
   style: "area",
@@ -185,6 +196,7 @@ export const workspaceSchema = z.object({
   drawings: z.array(drawingSchema).max(600).default([]),
   screens: z.array(screenSchema).max(20).default([]),
   relations: z.array(relationNoteSchema).max(400).default([]),
+  chartTemplates: z.array(chartTemplateSchema).max(30).default([]),
   requests: z
     .array(
       z.object({

@@ -78,6 +78,7 @@ import {
   ExportMenu,
   FullscreenToggle,
   ScalePicker,
+  TemplateMenu,
   compareColors,
   toolShortcuts,
 } from "./chart/studio-controls";
@@ -87,6 +88,7 @@ import {
   defaultAppearance,
   type ChartAppearance,
   type ChartScale,
+  type ChartTemplate,
   type CustomAverage,
   type Drawing,
 } from "@/lib/models";
@@ -223,6 +225,8 @@ export function ChartPanel({
   saveDrawings,
   alerts = [],
   createAlert,
+  templates,
+  saveTemplates,
 }: {
   ticker: string;
   refresh: boolean;
@@ -238,6 +242,8 @@ export function ChartPanel({
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
   alerts?: { symbol: string; target: number; direction: "above" | "below"; enabled: boolean }[];
   createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  templates?: ChartTemplate[];
+  saveTemplates?: (next: ChartTemplate[]) => void;
 }) {
   const [range, setRange] = useState<Range>(preferences.range);
   const [style, setStyle] = useState<ChartStyle>(preferences.style);
@@ -471,6 +477,20 @@ export function ChartPanel({
         <div className="row-actions chart-toggles">
           <StylePicker value={style} onChange={setStyle} />
           <StudyPicker value={studies} onChange={setStudies} />
+          {templates && saveTemplates ? (
+            <TemplateMenu
+              templates={templates}
+              current={{ style, studies, scale, averages, appearance }}
+              apply={(template) => {
+                setStyle(template.style);
+                setStudies(template.studies);
+                setScale(template.scale);
+                setAverages(template.averages);
+                setAppearance(template.appearance);
+              }}
+              save={saveTemplates}
+            />
+          ) : null}
           <AverageEditor value={averages} onChange={setAverages} />
           <ScalePicker value={scale} onChange={setScale} />
           <AppearanceMenu value={appearance} onChange={setAppearance} />

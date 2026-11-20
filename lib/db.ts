@@ -242,6 +242,7 @@ function initialWorkspace(): Workspace {
     drawings: [],
     screens: [],
     relations: [],
+    chartTemplates: [],
   };
 }
 

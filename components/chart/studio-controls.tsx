@@ -9,6 +9,7 @@ import {
   Download,
   Eraser,
   GitCompareArrows,
+  LayoutTemplate,
   Maximize2,
   Minimize2,
   MousePointer2,
@@ -29,6 +30,7 @@ import {
   chartScales,
   type ChartAppearance,
   type ChartScale,
+  type ChartTemplate,
   type CustomAverage,
 } from "@/lib/models";
 import { averageLabel, drawingPalette, toolLabels } from "@/lib/chart-studio";
@@ -456,3 +458,68 @@ export function FullscreenToggle({
   );
 }
 
+
+export function TemplateMenu({
+  templates,
+  current,
+  apply,
+  save,
+}: {
+  templates: ChartTemplate[];
+  current: Omit<ChartTemplate, "id" | "name">;
+  apply: (template: ChartTemplate) => void;
+  save: (next: ChartTemplate[]) => void;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button type="button" className="chip chip-menu" title="Chart templates">
+          <LayoutTemplate size={14} aria-hidden />
+          <span>Templates{templates.length ? ` · ${templates.length}` : ""}</span>
+          <ChevronDown size={12} aria-hidden />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="menu-content" align="end" sideOffset={4}>
+          {templates.map((template) => (
+            <DropdownMenu.Item
+              key={template.id}
+              className="menu-item template-item"
+              onSelect={() => apply(template)}
+            >
+              <span>{template.name}</span>
+              <small>
+                {template.studies.length + template.averages.length} studies · {template.scale}
+              </small>
+              <button
+                type="button"
+                className="template-delete"
+                aria-label={`Delete template ${template.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  save(templates.filter((item) => item.id !== template.id));
+                }}
+              >
+                <X size={12} />
+              </button>
+            </DropdownMenu.Item>
+          ))}
+          {templates.length ? <DropdownMenu.Separator className="menu-separator" /> : null}
+          <DropdownMenu.Item
+            className="menu-item"
+            onSelect={() => {
+              const name = window.prompt("Template name")?.trim().slice(0, 60);
+              if (!name) return;
+              save([
+                ...templates.filter((item) => item.name !== name),
+                { ...current, id: crypto.randomUUID(), name },
+              ].slice(-30));
+            }}
+          >
+            Save current chart as template…
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}

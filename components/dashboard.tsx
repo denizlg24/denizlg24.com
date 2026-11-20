@@ -18,7 +18,7 @@ import {
 import { Desk } from "./desk/desk";
 import { CommandHelp } from "./shell/command-line";
 import { useLiveStatus } from "./live-quotes";
-import type { ChartPreferences, Drawing } from "@/lib/models";
+import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
 import { encodeOverlay } from "@/lib/overlay";
 import {
   monitorFunctions,
@@ -269,6 +269,13 @@ export function Dashboard({
           ),
         )
         .catch((error: Error) => notify(error.message, true)),
+    [save, notify],
+  );
+  const saveTemplates = useCallback(
+    (chartTemplates: ChartTemplate[]) =>
+      void save((current) => ({ ...current, chartTemplates })).catch(
+        (error: Error) => notify(error.message, true),
+      ),
     [save, notify],
   );
   function runCommand(command: Command) {
@@ -528,6 +535,8 @@ export function Dashboard({
                   saveDrawings={saveDrawings}
                   alerts={workspace.alerts}
                   createAlert={createAlert}
+                  templates={workspace.chartTemplates}
+                  saveTemplates={saveTemplates}
                 />
               )}
               <MarketMap
@@ -574,6 +583,8 @@ export function Dashboard({
               saveDrawings={saveDrawings}
               alerts={workspace.alerts}
               createAlert={createAlert}
+              templates={workspace.chartTemplates}
+              saveTemplates={saveTemplates}
               relations={workspace.relations}
               saveRelations={(relations) =>
                 void save((current) => ({ ...current, relations })).catch(
