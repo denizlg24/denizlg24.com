@@ -106,8 +106,8 @@ function Company({
         <dl className="stats-grid">
           {[
             ["Previous close", amount(quote?.previous)],
-            ["Session high", amount(quote?.high)],
-            ["Session low", amount(quote?.low)],
+            ["Day high", amount(quote?.high)],
+            ["Day low", amount(quote?.low)],
             ["Volume", compact(quote?.volume)],
             ["52-week high", amount(quote?.yearHigh)],
             ["52-week low", amount(quote?.yearLow)],

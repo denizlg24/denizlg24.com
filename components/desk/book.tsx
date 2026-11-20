@@ -6,10 +6,10 @@ import { useQuotes } from "@/components/market-widgets";
 import type { Quote } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 import { firstWatchlist, useHoldings } from "./data";
+import { ListFreshness } from "@/components/freshness";
 import {
   DeskEmpty,
   SkeletonRows,
-  Stamp,
   SymbolButton,
   WidgetFrame,
   latestTime,
@@ -56,7 +56,10 @@ export function HoldingsWidget({ widget, ctx }: WidgetProps<"holdings">) {
             {quotes.data?.source ?? "Market data"} · valued at last trade, per
             currency
           </span>
-          {asOf ? <Stamp ms={asOf} prefix="As of" /> : null}
+          <ListFreshness
+            symbols={refresh ? rows.map((row) => row.symbol) : []}
+            ms={asOf}
+          />
         </>
       }
     >
@@ -206,7 +209,7 @@ export function MoversWidget({ widget, ctx }: WidgetProps<"movers">) {
     <WidgetFrame
       label="Movers"
       className="desk-movers"
-      subtitle={`${scope} · session change`}
+      subtitle={`${scope} · day change vs prior close`}
       ask={`Why are my biggest movers moving today${top ? ` (${top})` : ""}? Check news and say whether anything changes the thesis.`}
       foot={
         <>
@@ -214,7 +217,10 @@ export function MoversWidget({ widget, ctx }: WidgetProps<"movers">) {
             {source.data?.source ?? "Market data"} · {universeSize} symbols
             ranked
           </span>
-          {asOf ? <Stamp ms={asOf} prefix="As of" /> : null}
+          <ListFreshness
+            symbols={refresh ? movers.map((item) => item.symbol) : []}
+            ms={asOf}
+          />
         </>
       }
     >

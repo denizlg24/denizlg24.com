@@ -3,7 +3,8 @@
 @import "./styles/desk.css";
 @import "./styles/shell.css";
 @import "./styles/reports.css";
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@import "./styles/terminal.css";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
 
 @theme inline {
   --font-sans: "Inter Variable", "Inter", sans-serif;
@@ -62,6 +63,10 @@
   --ring: #2f6b4c;
   --gain: #1b6e45;
   --loss: #b0342f;
+  --live: #2f6fd1;
+  --term-header: #a35a00;
+  --term-key: #8a6a00;
+  --term-blue: #2f6fd1;
   --chart-1: #1f5f46;
   --chart-2: #94600f;
   --chart-3: #3f5fa8;
@@ -116,6 +121,10 @@
   --ring: #86bd97;
   --gain: #6ccf95;
   --loss: #ff958c;
+  --live: #6fb3ff;
+  --term-header: #f0a640;
+  --term-key: #e8cf5a;
+  --term-blue: #6fb3ff;
   --chart-1: #8fd3a8;
   --chart-2: #e3b665;
   --chart-3: #9db4f0;
@@ -151,6 +160,10 @@
     --ring: #86bd97;
     --gain: #6ccf95;
     --loss: #ff958c;
+    --live: #6fb3ff;
+    --term-header: #f0a640;
+    --term-key: #e8cf5a;
+    --term-blue: #6fb3ff;
     --chart-1: #8fd3a8;
     --chart-2: #e3b665;
     --chart-3: #9db4f0;
@@ -168,6 +181,66 @@
     --shadow-pop: 0 12px 32px -12px #000000b3, 0 2px 6px -2px #00000066;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="terminal"] {
+  --background: #000000;
+  --sidebar: #000000;
+  --card: #070707;
+  --foreground: #f1ede4;
+  --muted: #141414;
+  --muted-foreground: #fb8b1e;
+  --rule: #262119;
+  --strong-border: #4a3a22;
+  --rule-strong: #fb8b1e;
+  --primary: #fb8b1e;
+  --primary-foreground: #000000;
+  --secondary: #2a1a05;
+  --secondary-foreground: #ffc27a;
+  --ring: #fb8b1e;
+  --gain: #4af6c3;
+  --loss: #ff433d;
+  --chart-1: #fb8b1e;
+  --chart-2: #4aa8ff;
+  --chart-3: #f5e663;
+  --chart-4: #e07bff;
+  --chart-5: #4af6c3;
+  --chart-6: #ff7f6e;
+  --heat-gain-strong: #0d6b4f;
+  --heat-gain: #0b3d2e;
+  --heat-gain-soft: #08251c;
+  --heat-loss-strong: #8f1f1b;
+  --heat-loss: #4d1512;
+  --heat-loss-soft: #2b0e0c;
+  --heat-flat: #141414;
+  --heat-missing: #0a0a0a;
+  --shadow-pop: 0 0 0 1px #4a3a22, 0 12px 32px -12px #000000;
+  --radius: 0px;
+  --display: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    monospace;
+  --term-header: #fb8b1e;
+  --term-key: #f5e663;
+  --term-blue: #4aa8ff;
+  --live: #4aa8ff;
+  color-scheme: dark;
+}
+:root[data-theme="terminal"] body {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    monospace;
+  letter-spacing: -0.01em;
+}
+:root[data-theme="terminal"] *,
+:root[data-theme="terminal"] *::before,
+:root[data-theme="terminal"] *::after {
+  border-radius: 0 !important;
+}
+:root[data-theme="terminal"] h1,
+:root[data-theme="terminal"] h2,
+:root[data-theme="terminal"] h3 {
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--term-header);
 }
 
 @layer base {
@@ -647,7 +720,7 @@ a.chip:hover {
   background: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 .benchmark.chosen {
-  box-shadow: inset 0 2px 0 var(--primary);
+  box-shadow: inset 0 2px 0 var(--term-header);
 }
 .benchmark.chosen > span {
   color: var(--foreground);
@@ -1821,7 +1894,7 @@ a.chip:hover {
   background: var(--muted-foreground);
 }
 .status[data-status="armed"]::before {
-  background: var(--gain);
+  background: var(--live);
 }
 .status[data-status="triggered"]::before {
   background: var(--chart-2);

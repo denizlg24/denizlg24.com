@@ -1,5 +1,8 @@
 import {
   Activity,
+  ChartCandlestick,
+  MonitorDot,
+  ChartSpline,
   Bell,
   Brain,
   FileText,
@@ -14,6 +17,9 @@ import type { Workspace } from "@/lib/models";
 
 export const views = [
   { view: "desk", label: "Desk", icon: LayoutGrid },
+  { view: "security", label: "Security", icon: ChartCandlestick },
+  { view: "monitor", label: "Monitor", icon: MonitorDot },
+  { view: "overlay", label: "Charts", icon: ChartSpline },
   { view: "markets", label: "Markets", icon: Activity },
   { view: "portfolio", label: "Portfolio", icon: Wallet },
   { view: "research", label: "Research", icon: Newspaper },

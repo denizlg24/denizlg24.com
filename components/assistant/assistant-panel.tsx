@@ -11,7 +11,12 @@ import {
   type Ref,
 } from "react";
 import { useChat } from "@ai-sdk/react";
-import { APICallError, DefaultChatTransport, generateId } from "ai";
+import {
+  APICallError,
+  DefaultChatTransport,
+  generateId,
+  lastAssistantMessageIsCompleteWithToolCalls,
+} from "ai";
 import { mutate } from "swr";
 import {
   ArrowUp,
@@ -26,7 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { api } from "@/components/shared";
 import type { StockwatcherMessage } from "@/lib/ai/tools";
-import type { DashboardState } from "@/lib/assistant-types";
+import type { AskUserOutput, DashboardState } from "@/lib/assistant-types";
 import { Markdown } from "./markdown";
 import {
   SourceList,
@@ -153,11 +158,20 @@ export function AssistantPanel({
   const stick = useRef(true);
   const input = useRef<HTMLTextAreaElement>(null);
 
-  const { messages, sendMessage, regenerate, stop, status, error, clearError } =
-    useChat<StockwatcherMessage>({
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    stop,
+    status,
+    error,
+    clearError,
+    addToolOutput,
+  } = useChat<StockwatcherMessage>({
       id: session.id,
       messages: session.messages,
       transport,
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       onError: (reason) => {
         if (APICallError.isInstance(reason) && reason.statusCode === 503) {
           setRejected(true);
@@ -210,8 +224,15 @@ export function AssistantPanel({
   }, [messages, status]);
 
   const actions = useMemo(
-    () => ({ openSymbol: onOpenSymbol, proposeAlert: onProposeAlert }),
-    [onOpenSymbol, onProposeAlert],
+    () => ({
+      openSymbol: onOpenSymbol,
+      proposeAlert: onProposeAlert,
+      answer: (toolCallId: string, output: AskUserOutput) =>
+        void addToolOutput({ tool: "askUser", toolCallId, output }),
+      openSecurity: (ticker: string, fn: string) =>
+        onOpenView({ view: "security", ticker, fn }),
+    }),
+    [onOpenSymbol, onProposeAlert, onOpenView, addToolOutput],
   );
 
   function resize() {
@@ -397,6 +418,7 @@ export function AssistantPanel({
                         message={message}
                         done={!busy || index < messages.length - 1}
                         canRegenerate={!busy && index === messages.length - 1}
+                        latest={index === messages.length - 1}
                         onRegenerate={retry}
                       />
                     ) : null,
@@ -486,9 +508,11 @@ function Answer({
   done,
   canRegenerate,
   onRegenerate,
+  latest,
 }: {
   message: StockwatcherMessage;
   done: boolean;
+  latest: boolean;
   canRegenerate: boolean;
   onRegenerate: () => void;
 }) {
@@ -538,7 +562,13 @@ function Answer({
             />
           ) : null;
         if (isToolPart(part))
-          return <ToolPartView key={part.toolCallId} part={part} />;
+          return (
+            <ToolPartView
+              key={part.toolCallId}
+              part={part}
+              interactive={latest}
+            />
+          );
         if (part.type === "dynamic-tool")
           return part.state === "output-error" ? (
             <p key={part.toolCallId} className="chat-tool-error" role="alert">

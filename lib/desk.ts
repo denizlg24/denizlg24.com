@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { rangeKeys, symbolPattern, universeKeys } from "./universes";
+import { overlayWidgetSchema } from "./overlay";
 
 const ticker = z.string().regex(symbolPattern);
 const widgetId = z.uuid();
@@ -54,6 +55,11 @@ export const widgetSchema = z.discriminatedUnion("kind", [
     body: z.string().max(4000),
     symbols: z.array(ticker).max(12).default([]),
     createdAt: z.iso.datetime(),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal("overlay"),
+    ...overlayWidgetSchema.shape,
   }),
 ]);
 

@@ -1172,7 +1172,7 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--gain);
+  background: var(--live);
 }
 .library-actions {
   text-align: right;

@@ -16,6 +16,17 @@ import {
   type AssistantHandle,
 } from "./assistant/assistant-panel";
 import { Desk } from "./desk/desk";
+import { CommandHelp } from "./shell/command-line";
+import { useLiveStatus } from "./live-quotes";
+import type { ChartPreferences } from "@/lib/models";
+import { encodeOverlay } from "@/lib/overlay";
+import {
+  monitorFunctions,
+  securityFunctions,
+  type Command,
+  type MonitorFunction,
+  type SecurityFunction,
+} from "@/lib/terminal";
 import { LegacyAssistant } from "./shell/legacy-assistant";
 import { SearchDialog } from "./shell/search-dialog";
 import { Settings, type Account } from "./shell/settings";
@@ -57,12 +68,29 @@ const ReportsLibrary = dynamic(
   () => import("./reports/library").then((module) => module.ReportsLibrary),
   { loading: () => <Loading /> },
 );
+const SecurityView = dynamic(
+  () =>
+    import("./security/security-view").then((module) => module.SecurityView),
+  { loading: () => <Loading /> },
+);
+const OverlayView = dynamic(
+  () => import("./overlay/overlay-view").then((module) => module.OverlayView),
+  { loading: () => <Loading /> },
+);
+const Monitor = dynamic(
+  () => import("./security/monitor").then((module) => module.Monitor),
+  { loading: () => <Loading /> },
+);
 const MemoryPanel = dynamic(
   () => import("./assistant/memory-panel").then((module) => module.MemoryPanel),
   { loading: () => <Loading /> },
 );
 
 const mobileQuery = "(max-width: 980px)";
+const securityFn = (value?: string): SecurityFunction =>
+  securityFunctions.find((item) => item.code === value)?.code ?? "GP";
+const monitorFn = (value?: string): MonitorFunction =>
+  monitorFunctions.find((item) => item.code === value)?.code ?? "MOST";
 
 export function Dashboard({
   initial,
@@ -106,6 +134,8 @@ export function Dashboard({
     initial.data.watchlists[0]?.id ?? "",
   );
   const [search, setSearch] = useState(false);
+  const [help, setHelp] = useState(false);
+  const liveStatus = useLiveStatus();
   const [modal, setModal] = useState<"symbol" | "list" | null>(null);
   const [proposed, setProposed] = useState<AlertProposal | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -181,8 +211,55 @@ export function Dashboard({
     link(
       view === "markets"
         ? { ...marketState, ticker: symbol }
-        : { view: "markets", ticker: symbol, symbols: [symbol] },
+        : {
+            view: "security",
+            ticker: symbol,
+            fn: view === "security" ? securityFn(viewState?.fn) : "GP",
+          },
     );
+  }
+  const savePreferences = useCallback(
+    async (chart: ChartPreferences) => {
+      try {
+        await save((next) => ({
+          ...next,
+          settings: { ...next.settings, chart },
+        }));
+        notify("Chart defaults saved.");
+      } catch (error) {
+        notify((error as Error).message, true);
+      }
+    },
+    [save, notify],
+  );
+  function runCommand(command: Command) {
+    setNavOpen(false);
+    if (command.kind === "help") setHelp(true);
+    else if (command.kind === "search") setSearch(true);
+    else if (command.kind === "view") go(command.view);
+    else if (command.kind === "monitor") link({ view: "monitor", fn: command.fn });
+    else if (command.kind === "overlay")
+      link({
+        view: "overlay",
+        spec: command.series.length
+          ? encodeOverlay(
+              command.series.map((expr, index) => ({
+                expr,
+                axis: index === 0 ? "left" : "right",
+                mode: command.series.length > 2 ? "rebased" : "price",
+                invert: false,
+                studies: [],
+              })),
+            )
+          : viewState?.spec,
+        period: viewState?.period,
+      });
+    else
+      openView({
+        view: "security",
+        ticker: command.ticker,
+        fn: command.fn,
+      });
   }
 
   const openAssistant = useCallback(() => {
@@ -300,7 +377,11 @@ export function Dashboard({
   const currentDashboard =
     view === "markets"
       ? marketState
-      : view === "desk" ||
+      : view === "security"
+        ? { view: "security" as const, ticker, fn: securityFn(viewState?.fn) }
+        : view === "overlay"
+          ? { view: "overlay" as const, spec: viewState?.spec, period: viewState?.period }
+        : view === "desk" ||
           view === "memory" ||
           view === "settings" ||
           view === "reports"
@@ -341,6 +422,12 @@ export function Dashboard({
         onSymbol={choose}
         onSettings={() => go("settings")}
         onMemory={() => go("memory")}
+        security={
+          view === "security" || view === "markets" || view === "research"
+            ? ticker
+            : undefined
+        }
+        onCommand={runCommand}
       />
       <Sidebar
         view={view}
@@ -352,9 +439,21 @@ export function Dashboard({
       <main className="shell-main" id="workspace-main" ref={main} tabIndex={-1}>
         <div className="shell-content">
           <header className="view-header">
-            <h1>{viewLabel(view)}</h1>
-            {view === "markets" ? (
-              <span className="meta">Delayed market data</span>
+            <h1>
+              {view === "security"
+                ? `${ticker} ${securityFn(viewState?.fn)}`
+                : view === "monitor"
+                  ? monitorFn(viewState?.fn)
+                  : view === "overlay"
+                    ? "G · Overlay"
+                    : viewLabel(view)}
+            </h1>
+            {view === "markets" || view === "security" ? (
+              <span className="meta">
+                {liveStatus === "live"
+                  ? "Streaming quotes · history from Yahoo Finance"
+                  : "Exchange-delayed quotes · Yahoo Finance"}
+              </span>
             ) : null}
           </header>
           {view === "desk" ? (
@@ -372,6 +471,7 @@ export function Dashboard({
             <div className="stack-layout">
               {viewState?.symbols?.length === 0 && !universe ? null : (
                 <ChartPanel
+                  key={ticker}
                   ticker={ticker}
                   refresh={refresh}
                   watch={watched}
@@ -379,6 +479,9 @@ export function Dashboard({
                   onResearch={() =>
                     link({ view: "research", ticker, researchTab: "company" })
                   }
+                  onFunction={(fn) => link({ view: "security", ticker, fn })}
+                  preferences={workspace.settings.chart}
+                  savePreferences={savePreferences}
                   since={since}
                   clearSince={() => link({ ...marketState, since: undefined })}
                 />
@@ -403,6 +506,46 @@ export function Dashboard({
                 since={since}
               />
             </div>
+          ) : null}
+          {view === "security" ? (
+            <SecurityView
+              ticker={ticker}
+              fn={securityFn(viewState?.fn)}
+              setFn={(fn) => link({ view: "security", ticker, fn })}
+              refresh={refresh}
+              preferences={workspace.settings.chart}
+              savePreferences={savePreferences}
+              watch={watched}
+              onWatch={toggleWatch}
+              onResearch={() =>
+                link({ view: "research", ticker, researchTab: "company" })
+              }
+              select={(symbol) =>
+                link({ view: "security", ticker: symbol, fn: "GP" })
+              }
+            />
+          ) : null}
+          {view === "monitor" ? (
+            <Monitor
+              fn={monitorFn(viewState?.fn)}
+              setFn={(fn) => link({ view: "monitor", fn })}
+              select={(symbol) =>
+                link({ view: "security", ticker: symbol, fn: "GP" })
+              }
+              refresh={refresh}
+            />
+          ) : null}
+          {view === "overlay" ? (
+            <OverlayView
+              spec={viewState?.spec}
+              period={viewState?.period}
+              onChange={(spec, period) =>
+                link({ view: "overlay", spec, period })
+              }
+              workspace={workspace}
+              save={save}
+              notify={notify}
+            />
           ) : null}
           {view === "watchlists" ? (
             <Watchlists
@@ -480,7 +623,11 @@ export function Dashboard({
             <Settings workspace={workspace} account={account} save={save} />
           ) : null}
           <footer className="workspace-footer">
-            <span>Quotes may be delayed</span>
+            <span>
+              {liveStatus === "live"
+                ? "Live quotes streaming; history and fundamentals from Yahoo Finance"
+                : "Quotes are exchange-delayed when the live feed is off"}
+            </span>
             <span>Times shown in your device’s time zone</span>
           </footer>
         </div>
@@ -529,6 +676,7 @@ export function Dashboard({
           }}
         />
       ) : null}
+      {help ? <CommandHelp close={() => setHelp(false)} /> : null}
       {modal === "symbol" ? (
         <AddSymbolDialog
           lists={workspace.watchlists}

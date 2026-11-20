@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { dashboardSchema } from "./assistant-types";
-import { symbolPattern } from "./universes";
+import { rangeKeys, symbolPattern } from "./universes";
+import { studyKeySchema } from "./indicators";
+import { overlayRanges, overlaySpecSchema } from "./overlay";
 import { deskSchema } from "./desk";
 
 export const symbolSchema = z
@@ -9,6 +11,37 @@ export const symbolSchema = z
   .toUpperCase()
   .regex(symbolPattern);
 const id = z.string().uuid();
+
+export const chartStyles = [
+  "line",
+  "area",
+  "candles",
+  "hollow",
+  "bars",
+  "heikin",
+] as const;
+export type ChartStyle = (typeof chartStyles)[number];
+export const chartStyleLabels: Record<ChartStyle, string> = {
+  line: "Line",
+  area: "Mountain",
+  candles: "Candles",
+  hollow: "Hollow candles",
+  bars: "OHLC bars",
+  heikin: "Heikin-Ashi",
+};
+export const chartPreferencesSchema = z.object({
+  style: z.enum(chartStyles).default("area"),
+  range: z.enum(rangeKeys).default("1M"),
+  studies: z.array(studyKeySchema).max(12).default([]),
+  log: z.boolean().default(false),
+});
+export type ChartPreferences = z.infer<typeof chartPreferencesSchema>;
+export const defaultChartPreferences: ChartPreferences = {
+  style: "area",
+  range: "1M",
+  studies: [],
+  log: false,
+};
 const title = z.string().trim().min(1).max(120);
 
 export const workspaceSchema = z.object({
@@ -59,6 +92,17 @@ export const workspaceSchema = z.object({
     .max(60),
   dashboard: dashboardSchema.optional(),
   desk: deskSchema.optional(),
+  overlays: z
+    .array(
+      z.object({
+        id,
+        name: title,
+        spec: overlaySpecSchema,
+        range: z.enum(overlayRanges),
+      }),
+    )
+    .max(30)
+    .default([]),
   requests: z
     .array(
       z.object({
@@ -81,9 +125,10 @@ export const workspaceSchema = z.object({
     )
     .max(40),
   settings: z.object({
-    theme: z.enum(["light", "dark", "system"]),
+    theme: z.enum(["light", "dark", "system", "terminal"]),
     home: z.enum(["overview", "markets", "portfolio", "research"]),
     refresh: z.boolean(),
+    chart: chartPreferencesSchema.default(defaultChartPreferences),
   }),
 });
 
@@ -120,6 +165,8 @@ export type Quote = {
 export type MarketSeries = {
   quote: Quote | null;
   points: ChartPoint[];
+  /** Leading bars fetched only to warm up indicators; not part of the range. */
+  lead?: number;
   source?: string;
 };
 export type News = {

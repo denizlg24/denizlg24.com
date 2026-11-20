@@ -46,7 +46,12 @@ export async function GET(request: Request) {
       const range = args.get("range") || "1M";
       if (!symbolPattern.test(symbol) || !Object.hasOwn(ranges, range))
         return json({ error: "Invalid symbol or period." }, 400);
-      const result = await series(symbol, range as Range, since);
+      const result = await series(
+        symbol,
+        range as Range,
+        since,
+        args.get("warmup") === "1",
+      );
       return json(result);
     }
     const universe = args.get("universe");

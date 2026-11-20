@@ -11,6 +11,8 @@ export type LiveTick = {
   high: number | null;
   low: number | null;
   volume: number | null;
+  bid: number | null;
+  ask: number | null;
   time: number;
 };
 
@@ -24,6 +26,8 @@ const relayQuote = z.object({
   high: price,
   low: price,
   volume: z.number().nonnegative().nullable(),
+  bid: price.optional(),
+  ask: price.optional(),
   ts: z.string(),
 });
 const serverMessage = z.discriminatedUnion("type", [
@@ -127,6 +131,8 @@ function apply(quotes: z.infer<typeof relayQuote>[]) {
       high: quote.high ?? prior?.high ?? null,
       low: quote.low ?? prior?.low ?? null,
       volume: quote.volume ?? prior?.volume ?? null,
+      bid: quote.bid ?? prior?.bid ?? null,
+      ask: quote.ask ?? prior?.ask ?? null,
       time,
     });
     changed = true;
@@ -150,7 +156,10 @@ async function connect() {
     const address = new URL(url);
     if (address.pathname === "" || address.pathname === "/")
       address.pathname = "/ws";
-    address.protocol = address.protocol === "http:" ? "ws:" : "wss:";
+    address.protocol =
+      address.protocol === "http:" || address.protocol === "ws:"
+        ? "ws:"
+        : "wss:";
     address.searchParams.set("token", token);
     target = address.toString();
   } catch {
@@ -234,6 +243,10 @@ function subscribe(listener: () => void) {
 const getSnapshot = () => snapshot;
 const serverSnapshot: Snapshot = { version: 0, status: "off", ticks };
 const getServerSnapshot = () => serverSnapshot;
+
+export function useLiveTick(symbol: string | undefined) {
+  return useLiveTicks(symbol ? [symbol] : []).get(symbol ?? "");
+}
 
 export function useLiveStatus() {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot).status;

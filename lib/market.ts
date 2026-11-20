@@ -28,6 +28,7 @@ type SourceMeta = {
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
   marketCap?: number;
+  gmtoffset?: number;
 };
 type SourceBars = {
   timestamp?: number[];
@@ -110,7 +111,9 @@ function makeQuote(
   );
   const previous =
     range === "1D"
-      ? asNumber(meta.previousClose ?? meta.chartPreviousClose)
+      ? asNumber(
+          meta.previousClose ?? dailyPrevious ?? meta.chartPreviousClose,
+        )
       : ranges[range][1] === "1d"
         ? asNumber(dailyPrevious)
         : null;
@@ -139,20 +142,62 @@ function makeQuote(
   };
 }
 
+const warmupPeriods: Record<Range, string> = {
+  "1D": "5d",
+  "5D": "1mo",
+  "1M": "2y",
+  "3M": "2y",
+  "6M": "2y",
+  YTD: "2y",
+  "1Y": "2y",
+  "5Y": "10y",
+};
+const WARMUP_DAYS = 420;
+
+function monthsAgo(months: number) {
+  const date = new Date();
+  date.setUTCMonth(date.getUTCMonth() - months);
+  return Math.floor(date.getTime() / 1000);
+}
+
+/** Index of the first bar the requested range would have shown on its own. */
+function visibleFrom(points: ChartPoint[], range: Range, offset: number) {
+  if (points.length === 0) return 0;
+  const day = (time: number) =>
+    new Date((time + offset) * 1000).toISOString().slice(0, 10);
+  if (range === "1D" || range === "5D") {
+    const sessions = [...new Set(points.map((point) => day(point.time)))];
+    const keep = new Set(sessions.slice(range === "1D" ? -1 : -5));
+    return Math.max(
+      0,
+      points.findIndex((point) => keep.has(day(point.time))),
+    );
+  }
+  const cutoff =
+    range === "YTD"
+      ? Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000
+      : monthsAgo({ "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "5Y": 60 }[range]);
+  const index = points.findIndex((point) => point.time >= cutoff);
+  return index < 0 ? points.length - 1 : index;
+}
+
 export async function series(
   symbol: string,
   range: Range,
   since?: string,
+  warmup = false,
 ): Promise<MarketSeries> {
   if (isMoex(symbol)) return moexSeries(symbol, range, since);
   const [period, interval] = ranges[range];
   const start = since ? Date.parse(since) / 1000 : null;
   const end = Math.floor(Date.now() / 1000);
+  const fetchStart =
+    start != null && warmup ? start - WARMUP_DAYS * 86400 : start;
   const query: Record<string, string> =
-    start == null
-      ? { range: period, interval }
+    start == null || fetchStart == null
+      ? { range: warmup ? warmupPeriods[range] : period, interval }
       : {
-          period1: String(start),
+          period1: String(fetchStart),
           period2: String(end + 86400),
           interval: end - start > 730 * 86400 ? "1wk" : "1d",
         };
@@ -183,9 +228,18 @@ export async function series(
       });
     }
   });
+  const lead = !warmup
+    ? 0
+    : start != null
+      ? Math.max(
+          0,
+          points.findIndex((point) => point.time >= start),
+        )
+      : visibleFrom(points, range, bars.meta?.gmtoffset ?? 0);
   return {
     quote: makeQuote(symbol, bars, since ? "1M" : range),
     points,
+    lead,
     source: "Yahoo Finance",
   };
 }

@@ -75,9 +75,15 @@ export const widgetCatalog: Record<
     description: "A pinned markdown note",
     span: 1,
   },
+  overlay: {
+    label: "Overlay chart",
+    description: "A saved multi-series chart; pin one from Charts (G)",
+    span: 2,
+  },
 };
 
 const kinds = Object.keys(widgetCatalog).filter((kind): kind is WidgetKind =>
+  kind !== "overlay" &&
   Object.hasOwn(widgetCatalog, kind),
 );
 const rangeKeys = Object.keys(ranges).filter((key): key is Range =>

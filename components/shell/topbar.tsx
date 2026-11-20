@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Benchmarks } from "@/components/market-widgets";
 import { MarketClock } from "./market-clock";
+import { CommandLine } from "./command-line";
+import type { Command as TerminalCommand } from "@/lib/terminal";
 import type { Account } from "./settings";
 
 export function Topbar({
@@ -30,9 +32,13 @@ export function Topbar({
   onSymbol,
   onSettings,
   onMemory,
+  security,
+  onCommand,
 }: {
   account: Account;
   ticker?: string;
+  security?: string;
+  onCommand: (command: TerminalCommand) => void;
   refresh: boolean;
   navOpen: boolean;
   assistantOpen: boolean;
@@ -80,6 +86,7 @@ export function Topbar({
         />
       </div>
       <div className="topbar-actions">
+        <CommandLine current={security} onCommand={onCommand} />
         <Button
           variant="outline"
           size="sm"
@@ -88,7 +95,7 @@ export function Topbar({
           onClick={onSearch}
         >
           <Search />
-          <span>Search</span>
+          <span className="sr-only">Search</span>
           <kbd>
             <Command size={10} />K
           </kbd>

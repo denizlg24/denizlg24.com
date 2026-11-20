@@ -254,7 +254,7 @@ export function Watchlists({
             title={current?.name ?? "Watchlist"}
             subtitle={
               current
-                ? `${current.symbols.length} ${current.symbols.length === 1 ? "symbol" : "symbols"} · session moves`
+                ? `${current.symbols.length} ${current.symbols.length === 1 ? "symbol" : "symbols"} · day moves vs prior close`
                 : undefined
             }
           >
@@ -319,7 +319,7 @@ export function Watchlists({
                       numeric
                     />
                     <SortHead
-                      label="Session"
+                      label="Day %"
                       column="percent"
                       sort={sort}
                       toggle={toggle}
@@ -415,11 +415,11 @@ export function Watchlists({
           ) : (
             <Empty title={current ? "No symbols yet" : "No watchlist yet"}>
               {current ? (
-                "Add tickers to get their latest prices and session moves."
+                "Add tickers to get their latest prices and day moves."
               ) : (
                 <>
                   <p>
-                    Group the names you follow to see live quotes, session moves
+                    Group the names you follow to see live quotes, day moves
                     and headlines side by side.
                   </p>
                   <Button

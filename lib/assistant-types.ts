@@ -1,11 +1,27 @@
 import { z } from "zod";
 import type { News } from "./models";
 import { symbolPattern, universeKeys } from "./universes";
+import { overlayRanges, overlaySpecSchema } from "./overlay";
 
 const ticker = z.string().regex(symbolPattern);
 const group = z.enum(universeKeys);
 export const dashboardSchema = z.object({
-  view: z.enum(["markets", "portfolio", "research", "watchlists", "alerts"]),
+  view: z.enum([
+    "markets",
+    "portfolio",
+    "research",
+    "watchlists",
+    "alerts",
+    "security",
+    "monitor",
+    "overlay",
+  ]),
+  spec: overlaySpecSchema.optional(),
+  period: z.enum(overlayRanges).optional(),
+  fn: z
+    .string()
+    .regex(/^[A-Z]{1,5}$/)
+    .optional(),
   researchTab: z.enum(["company", "filings", "social", "journal"]).optional(),
   ticker: ticker.optional(),
   symbols: z.array(ticker).max(120).optional(),
@@ -33,6 +49,9 @@ export function dashboardLink(state: DashboardState) {
     "universe",
     "since",
     "cik",
+    "fn",
+    "spec",
+    "period",
   ] as const) {
     if (state[key]) query.set(key, state[key]);
   }
@@ -87,3 +106,36 @@ export function dashboardReturn(fragment: unknown) {
   if (state) return dashboardLink(state);
   return dashboardSchema.shape.view.safeParse(hash).success ? fragment : "";
 }
+
+export const askUserInputSchema = z.object({
+  question: z.string().trim().min(1).max(300),
+  context: z
+    .string()
+    .max(400)
+    .optional()
+    .describe("One short sentence on why the answer matters."),
+  options: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(80),
+        description: z.string().max(200).optional(),
+      }),
+    )
+    .min(2)
+    .max(6),
+  multiple: z
+    .boolean()
+    .default(false)
+    .describe("Allow selecting several options."),
+  allowOther: z
+    .boolean()
+    .default(true)
+    .describe("Offer a free-text answer besides the options."),
+});
+export const askUserOutputSchema = z.object({
+  selected: z.array(z.string().max(80)).max(6),
+  other: z.string().max(500).optional(),
+  skipped: z.boolean().optional(),
+});
+export type AskUserInput = z.infer<typeof askUserInputSchema>;
+export type AskUserOutput = z.infer<typeof askUserOutputSchema>;
