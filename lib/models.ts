@@ -100,6 +100,18 @@ export const drawingSchema = z.object({
   text: z.string().max(200).optional(),
 });
 export type Drawing = z.infer<typeof drawingSchema>;
+
+export const relationNoteSchema = z.object({
+  id: z.string().uuid(),
+  owner: z.string().trim().toUpperCase().regex(symbolPattern),
+  counterparty: z.string().trim().min(1).max(120),
+  ticker: z.string().trim().toUpperCase().regex(symbolPattern).nullable(),
+  role: z.enum(["supplier", "customer", "partner", "competitor"]),
+  share: z.number().min(0).max(1).nullable(),
+  note: z.string().max(300),
+  created: z.iso.date(),
+});
+export type RelationNote = z.infer<typeof relationNoteSchema>;
 export type ChartPreferences = z.infer<typeof chartPreferencesSchema>;
 export const defaultChartPreferences: ChartPreferences = {
   style: "area",
@@ -172,6 +184,7 @@ export const workspaceSchema = z.object({
     .default([]),
   drawings: z.array(drawingSchema).max(600).default([]),
   screens: z.array(screenSchema).max(20).default([]),
+  relations: z.array(relationNoteSchema).max(400).default([]),
   requests: z
     .array(
       z.object({

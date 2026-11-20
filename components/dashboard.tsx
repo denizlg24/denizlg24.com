@@ -574,6 +574,12 @@ export function Dashboard({
               saveDrawings={saveDrawings}
               alerts={workspace.alerts}
               createAlert={createAlert}
+              relations={workspace.relations}
+              saveRelations={(relations) =>
+                void save((current) => ({ ...current, relations })).catch(
+                  (error: Error) => notify(error.message, true),
+                )
+              }
             />
           ) : null}
           {view === "monitor" ? (

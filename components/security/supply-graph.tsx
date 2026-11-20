@@ -20,6 +20,8 @@ import {
 import { api } from "@/components/shared";
 import { useQuotes } from "@/components/market-widgets";
 import type { Link, OwnDisclosure } from "@/lib/supply-chain-types";
+import type { RelationNote } from "@/lib/models";
+import { symbolPattern } from "@/lib/universes";
 import {
   buildGraph,
   concentration,
@@ -29,6 +31,8 @@ import {
   nodeId,
   propagateShock,
   shortestPath,
+  noteLink,
+  USER_FORM,
   relationLabel,
   type EdgeKind,
   type Graph,
@@ -183,6 +187,8 @@ export function SupplyGraph({
   loading,
   select,
   openFunction,
+  notes = [],
+  saveNotes,
 }: {
   ticker: string;
   company: string;
@@ -190,6 +196,8 @@ export function SupplyGraph({
   loading: boolean;
   select: (symbol: string) => void;
   openFunction?: (symbol: string, fn: SecurityFunction) => void;
+  notes?: RelationNote[];
+  saveNotes?: (next: RelationNote[]) => void;
 }) {
   const { expansions, expand, collapse, reset } = useExpansions();
   const [layout, setLayout] = useState<Layout>("tiered");
@@ -246,8 +254,14 @@ export function SupplyGraph({
     const done = new Map<string, Link[]>();
     for (const [key, value] of Object.entries(expansions))
       if (value.state === "done") done.set(key, value.links);
-    return buildGraph({ ticker, name: company }, links, done);
-  }, [ticker, company, links, expansions]);
+    const own: Link[] = [];
+    for (const note of notes) {
+      const link = noteLink(note);
+      if (note.owner === ticker) own.push(link);
+      else done.set(note.owner, [...(done.get(note.owner) ?? []), link]);
+    }
+    return buildGraph({ ticker, name: company }, [...links, ...own], done);
+  }, [ticker, company, links, expansions, notes]);
   const visible = useMemo(
     () =>
       filterGraph(graph, rootId, {
@@ -654,6 +668,9 @@ export function SupplyGraph({
                     data-kind={edge.kind}
                     data-dim={dim || undefined}
                     data-path={pathEdges.has(`${edge.from}|${edge.to}`) || undefined}
+                    data-user={
+                      edge.links.every((item) => item.source.form === USER_FORM) || undefined
+                    }
                   >
                     <path
                       d={path.d}
@@ -822,6 +839,7 @@ export function SupplyGraph({
             <span data-kind="supply">→ sells to</span>
             <span data-kind="partner">partner</span>
             <span data-kind="competitor">competitor</span>
+            <span data-kind="user">your link</span>
             <span>width = revenue share · drag to move · double-click to expand</span>
           </div>
           {loading || pending ? (
@@ -850,6 +868,21 @@ export function SupplyGraph({
               collapse={collapse}
               select={select}
               openFunction={openFunction}
+              notes={notes.filter(
+                (note) =>
+                  note.owner === selectedNode.ticker ||
+                  (note.ticker != null && note.ticker === selectedNode.ticker),
+              )}
+              addNote={
+                saveNotes
+                  ? (note) => saveNotes([...notes, note].slice(-400))
+                  : undefined
+              }
+              removeNote={
+                saveNotes
+                  ? (id) => saveNotes(notes.filter((note) => note.id !== id))
+                  : undefined
+              }
             />
           ) : (
             <GraphSummary
@@ -978,7 +1011,13 @@ function Inspector({
   collapse,
   select,
   openFunction,
+  notes,
+  addNote,
+  removeNote,
 }: {
+  notes: RelationNote[];
+  addNote?: (note: RelationNote) => void;
+  removeNote?: (id: string) => void;
   node: GraphNode;
   graph: Graph;
   rootId: string;
@@ -1093,6 +1132,23 @@ function Inspector({
       {expansion?.state === "failed" ? (
         <p className="negative graph-note">{expansion.error}</p>
       ) : null}
+      {node.ticker && addNote ? <NoteForm owner={node.ticker} add={addNote} /> : null}
+      {notes.length && removeNote ? (
+        <ul className="graph-notes">
+          {notes.map((note) => (
+            <li key={note.id}>
+              <span>
+                <b>{note.owner}</b> {note.role === "customer" ? "sells to" : note.role === "supplier" ? "buys from" : note.role === "partner" ? "partners with" : "competes with"}{" "}
+                <b>{note.ticker ?? note.counterparty}</b>
+                {note.share != null ? ` · ${amount(note.share * 100)}%` : ""}
+              </span>
+              <button type="button" aria-label="Delete your relationship" onClick={() => removeNote(note.id)}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <ul className="graph-relations">
         {relations.map(({ edge, other, role }) => (
           <Relation
@@ -1132,20 +1188,122 @@ function Relation({
       {link ? (
         <details>
           <summary>
-            {link.source.ticker ?? link.source.name} {link.source.form} ·{" "}
-            {link.source.filed.slice(0, 7)}
+            {link.source.form === USER_FORM
+              ? "Your note"
+              : `${link.source.ticker ?? link.source.name} ${link.source.form}`}{" "}
+            · {link.source.filed.slice(0, 7)}
             {edge.links.length > 1 ? ` · +${edge.links.length - 1}` : ""}
           </summary>
           {edge.links.map((item) => (
             <blockquote key={item.quote}>
               “{item.quote}”{" "}
-              <a href={item.source.url} target="_blank" rel="noreferrer">
-                <ExternalLink size={11} aria-label="Open filing" />
-              </a>
+              {item.source.url ? (
+                <a href={item.source.url} target="_blank" rel="noreferrer">
+                  <ExternalLink size={11} aria-label="Open filing" />
+                </a>
+              ) : null}
             </blockquote>
           ))}
         </details>
       ) : null}
     </li>
+  );
+}
+
+const noteRoles = [
+  ["customer", "sells to"],
+  ["supplier", "buys from"],
+  ["partner", "partners with"],
+  ["competitor", "competes with"],
+] as const;
+
+function NoteForm({ owner, add }: { owner: string; add: (note: RelationNote) => void }) {
+  const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<RelationNote["role"]>("customer");
+  const [other, setOther] = useState("");
+  const [share, setShare] = useState("");
+  const [text, setText] = useState("");
+  if (!open)
+    return (
+      <button type="button" className="chip" onClick={() => setOpen(true)}>
+        + Add relationship
+      </button>
+    );
+  const name = other.trim();
+  const listed = symbolPattern.test(name.toUpperCase()) && !/\s/.test(name);
+  const pct = share.trim() === "" ? null : Number(share) / 100;
+  const valid = name.length > 0 && (pct == null || (pct >= 0 && pct <= 1));
+  return (
+    <form
+      className="graph-note-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        add({
+          id: crypto.randomUUID(),
+          owner,
+          counterparty: listed ? name.toUpperCase() : name,
+          ticker: listed ? name.toUpperCase() : null,
+          role,
+          share: pct,
+          note: text.trim().slice(0, 300),
+          created: new Date().toISOString().slice(0, 10),
+        });
+        setOther("");
+        setShare("");
+        setText("");
+        setOpen(false);
+      }}
+    >
+      <span className="graph-role">{owner}</span>
+      <select
+        className="studio-select"
+        value={role}
+        aria-label="Relationship"
+        onChange={(event) => {
+          const next = noteRoles.find(([key]) => key === event.target.value);
+          if (next) setRole(next[0]);
+        }}
+      >
+        {noteRoles.map(([key, label]) => (
+          <option key={key} value={key}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="studio-select"
+        placeholder="Ticker or company name"
+        value={other}
+        maxLength={120}
+        onChange={(event) => setOther(event.target.value)}
+        aria-label="Counterparty"
+        autoFocus
+      />
+      <input
+        className="studio-select"
+        placeholder={`% of ${owner} revenue (optional)`}
+        inputMode="decimal"
+        value={share}
+        onChange={(event) => setShare(event.target.value)}
+        aria-label="Revenue share percent"
+      />
+      <input
+        className="studio-select"
+        placeholder="Note or source (optional)"
+        value={text}
+        maxLength={300}
+        onChange={(event) => setText(event.target.value)}
+        aria-label="Note"
+      />
+      <div className="graph-actions">
+        <button type="submit" className="chip" disabled={!valid}>
+          Add
+        </button>
+        <button type="button" className="chip" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

@@ -14,7 +14,12 @@ import {
 } from "@/components/shared";
 import { Freshness } from "@/components/freshness";
 import { ChartPanel, useQuotes } from "@/components/market-widgets";
-import type { ChartPreferences, Drawing, Workspace } from "@/lib/models";
+import type {
+  ChartPreferences,
+  Drawing,
+  RelationNote,
+  Workspace,
+} from "@/lib/models";
 import type {
   Actions,
   AnalystView,
@@ -1162,6 +1167,8 @@ export function SecurityView({
   saveDrawings,
   alerts,
   createAlert,
+  relations,
+  saveRelations,
 }: {
   ticker: string;
   fn: SecurityFunction;
@@ -1178,6 +1185,8 @@ export function SecurityView({
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
   alerts?: Workspace["alerts"];
   createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  relations?: RelationNote[];
+  saveRelations?: (next: RelationNote[]) => void;
 }) {
   if (fn === "GP")
     return (
@@ -1218,7 +1227,13 @@ export function SecurityView({
       {fn === "BETA" ? <BetaView ticker={ticker} /> : null}
       {fn === "SEAS" ? <SeasonalityView ticker={ticker} /> : null}
       {fn === "BTST" ? <Backtest ticker={ticker} /> : null}
-      {fn === "SPLC" ? <SupplyChain ticker={ticker} select={select} openFunction={openFunction} /> : null}
+      {fn === "SPLC" ? <SupplyChain
+          ticker={ticker}
+          select={select}
+          openFunction={openFunction}
+          notes={relations}
+          saveNotes={saveRelations}
+        /> : null}
     </section>
   );
 }

@@ -241,6 +241,7 @@ function initialWorkspace(): Workspace {
     overlays: [],
     drawings: [],
     screens: [],
+    relations: [],
   };
 }
 

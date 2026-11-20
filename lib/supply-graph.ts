@@ -381,3 +381,35 @@ export function shortestPath(graph: Graph, from: string, to: string) {
   }
   return null;
 }
+
+export const USER_FORM = "Note";
+
+/** Turns a user-entered relationship into a link owned by `note.owner`. */
+export function noteLink(note: {
+  owner: string;
+  counterparty: string;
+  ticker: string | null;
+  role: "supplier" | "customer" | "partner" | "competitor";
+  share: number | null;
+  note: string;
+  created: string;
+}): Link {
+  return {
+    counterparty: note.counterparty,
+    ticker: note.ticker,
+    role: note.role,
+    share: note.share,
+    shareOf: "company",
+    period: null,
+    quote: note.note || "Added by you.",
+    source: {
+      cik: "",
+      name: "Your note",
+      ticker: note.owner,
+      form: USER_FORM,
+      filed: note.created,
+      accession: "",
+      url: "",
+    },
+  };
+}

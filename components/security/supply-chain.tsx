@@ -15,6 +15,7 @@ import { amount, percent, tone } from "@/lib/utils";
 import type { SecurityFunction } from "@/lib/terminal";
 import { downloadCsv } from "@/lib/export";
 import { SupplyGraph } from "./supply-graph";
+import type { RelationNote } from "@/lib/models";
 
 type Check = { state: "pending" | "done" | "failed"; link: Link | null };
 const CONCURRENCY = 3;
@@ -129,10 +130,14 @@ export function SupplyChain({
   ticker,
   select,
   openFunction,
+  notes,
+  saveNotes,
 }: {
   ticker: string;
   select: (symbol: string) => void;
   openFunction?: (symbol: string, fn: SecurityFunction) => void;
+  notes?: RelationNote[];
+  saveNotes?: (next: RelationNote[]) => void;
 }) {
   const [mode, setModeState] = useState<Mode>(() => {
     try {
@@ -263,6 +268,8 @@ export function SupplyChain({
           loading={own.isLoading || pending > 0}
           select={select}
           openFunction={openFunction}
+          notes={notes}
+          saveNotes={saveNotes}
         />
       ) : null}
       {mode === "table" ? (
