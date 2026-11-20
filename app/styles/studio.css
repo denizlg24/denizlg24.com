@@ -32,13 +32,13 @@
 }
 .graph-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 270px;
   gap: 10px;
-  min-height: 560px;
+  min-height: 600px;
 }
 .graph-frame {
   position: relative;
-  min-height: 560px;
+  min-height: 600px;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   background: var(--card);
@@ -52,6 +52,7 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  min-height: 600px;
 }
 .graph-canvas:active {
   cursor: grabbing;
@@ -588,4 +589,164 @@
 }
 .chart-panel[data-fullscreen] .price-pane {
   height: max(420px, calc(100vh - 360px));
+}
+
+/* Quant functions and boards */
+.quant-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 0 14px;
+  margin: 0;
+}
+.quant-stats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dotted var(--rule);
+  font-size: var(--fs-xs);
+}
+.quant-stats dt {
+  color: var(--muted-foreground);
+}
+.quant-stats dd {
+  margin: 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.quant-chart {
+  height: 320px;
+  min-width: 0;
+}
+.quant-chart-tall {
+  height: 340px;
+}
+.quant-chart-short {
+  height: 130px;
+}
+.quant-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.quant-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.quant-tip {
+  display: grid;
+  gap: 1px;
+  padding: 5px 8px;
+  border: 1px solid var(--strong-border);
+  border-radius: var(--radius);
+  background: var(--card);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-pop);
+}
+.quant-params {
+  flex-wrap: wrap;
+}
+.quant-number {
+  width: 62px;
+}
+.quant-trades summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--term-header);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  cursor: pointer;
+}
+.seas-table td,
+.seas-table th {
+  padding: 3px 6px;
+}
+.seas-table th[data-now] {
+  color: var(--term-header);
+}
+.seas-table tfoot th,
+.seas-table tfoot td {
+  border-top: 1px solid var(--strong-border);
+  font-weight: 650;
+}
+.fx-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.fx-matrix td {
+  padding: 0;
+}
+.fx-cell {
+  display: grid;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fx-cell small {
+  font-size: 10px;
+}
+.fx-self {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--muted) 0 4px,
+    transparent 4px 8px
+  );
+}
+.corr-matrix td {
+  min-width: 46px;
+  font-variant-numeric: tabular-nums;
+}
+.corr-matrix th[data-hover] {
+  color: var(--term-header);
+}
+.corr-remove {
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+}
+.corr-remove:hover {
+  color: var(--loss);
+}
+.range-bar {
+  position: relative;
+  display: inline-block;
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+  vertical-align: middle;
+}
+.range-bar i {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 10px;
+  margin-left: -1px;
+  background: var(--term-header);
+}
+@media (max-width: 980px) {
+  .quant-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.heat-gain-strong .fx-cell small,
+.heat-loss-strong .fx-cell small {
+  color: inherit;
+}
+.fx-matrix tbody th {
+  vertical-align: middle;
 }

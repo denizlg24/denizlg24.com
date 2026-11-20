@@ -167,8 +167,8 @@ export function filterGraph(graph: Graph, rootId: string, filter: GraphFilter) {
   };
 }
 
-const COLUMN = 250;
-const ROW = 64;
+const COLUMN = 210;
+const ROW = 56;
 
 function tiered(graph: Graph): Map<string, Point> {
   const columns = new Map<number, GraphNode[]>();

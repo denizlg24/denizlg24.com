@@ -12,6 +12,10 @@ export const securityFunctions = [
   { code: "RELS", label: "Relationships", detail: "Peers, holders, indices, board" },
   { code: "SPLC", label: "Supply chain", detail: "Customers and suppliers from SEC filings" },
   { code: "CN", label: "Company news", detail: "Latest headlines" },
+  { code: "HVT", label: "Volatility", detail: "Realised volatility, 10–90 day, with percentile" },
+  { code: "BETA", label: "Beta", detail: "Regression vs any benchmark, rolling beta" },
+  { code: "SEAS", label: "Seasonality", detail: "Monthly returns by year, averages and hit rate" },
+  { code: "BTST", label: "Backtest", detail: "Test crossover, RSI, breakout and momentum rules" },
 ] as const;
 export type SecurityFunction = (typeof securityFunctions)[number]["code"];
 
@@ -19,6 +23,11 @@ export const monitorFunctions = [
   { code: "MOST", label: "Most active", detail: "Top gainers, losers and volume" },
   { code: "WEI", label: "World indices", detail: "Global equity benchmarks" },
   { code: "ECO", label: "Economics", detail: "Rates, inflation, jobs (FRED)" },
+  { code: "GC", label: "Yield curve", detail: "US Treasury curve, 2s10s and 3m10y" },
+  { code: "FXC", label: "FX crosses", detail: "Currency cross-rate matrix" },
+  { code: "CMDTY", label: "Commodities", detail: "Energy, metals and agriculture futures" },
+  { code: "CRYP", label: "Crypto", detail: "Digital assets and listed proxies" },
+  { code: "CORR", label: "Correlation", detail: "Correlation matrix of any tickers" },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
 
@@ -70,6 +79,15 @@ const aliases: Record<string, SecurityFunction> = {
   PEERS: "RELS",
   N: "CN",
   NEWS: "CN",
+  HVG: "HVT",
+  VOL: "HVT",
+  HV: "HVT",
+  REG: "BETA",
+  SEASON: "SEAS",
+  BT: "BTST",
+  BACKTEST: "BTST",
+  SPLY: "SPLC",
+  SUPPLY: "SPLC",
 };
 const monitorCodes = new Map<string, MonitorFunction>([
   ["MOST", "MOST"],
@@ -80,6 +98,20 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["ECO", "ECO"],
   ["ECST", "ECO"],
   ["MACRO", "ECO"],
+  ["GC", "GC"],
+  ["YC", "GC"],
+  ["CURVE", "GC"],
+  ["FXC", "FXC"],
+  ["FX", "FXC"],
+  ["WCR", "FXC"],
+  ["CMDTY", "CMDTY"],
+  ["GLCO", "CMDTY"],
+  ["COMMODITIES", "CMDTY"],
+  ["CRYP", "CRYP"],
+  ["CRYPTO", "CRYP"],
+  ["XBT", "CRYP"],
+  ["CORR", "CORR"],
+  ["CORRELATION", "CORR"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
   ...workspaceFunctions.map(

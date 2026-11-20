@@ -161,11 +161,11 @@ function fit(positions: Map<string, Point>, width: number, height: number): View
   if (!positions.size || !width || !height) return { x: width / 2, y: height / 2, k: 1 };
   const xs = [...positions.values()].map((point) => point.x);
   const ys = [...positions.values()].map((point) => point.y);
-  const minX = Math.min(...xs) - NODE_W;
-  const maxX = Math.max(...xs) + NODE_W;
-  const minY = Math.min(...ys) - NODE_H * 1.5;
-  const maxY = Math.max(...ys) + NODE_H * 1.5;
-  const k = Math.min(1.4, Math.max(0.2, Math.min(width / (maxX - minX), height / (maxY - minY))));
+  const minX = Math.min(...xs) - NODE_W * 0.75;
+  const maxX = Math.max(...xs) + NODE_W * 0.75;
+  const minY = Math.min(...ys) - NODE_H * 1.2;
+  const maxY = Math.max(...ys) + NODE_H * 1.2;
+  const k = Math.min(1.6, Math.max(0.2, Math.min(width / (maxX - minX), height / (maxY - minY))));
   return {
     k,
     x: width / 2 - ((minX + maxX) / 2) * k,
@@ -266,7 +266,7 @@ export function SupplyGraph({
   const scaleOf = (node: GraphNode) => {
     if (size === "uniform") return node.id === rootId ? 1.15 : 1;
     const cap = node.ticker ? quotes.get(node.ticker)?.cap : null;
-    if (!cap) return 0.85;
+    if (!cap) return 1;
     const span = capRange[1] - capRange[0] || 1;
     return 0.8 + ((Math.log10(cap) - capRange[0]) / span) * 0.65;
   };
@@ -555,8 +555,9 @@ export function SupplyGraph({
                   viewBox="0 0 10 10"
                   refX="8"
                   refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
+                  markerWidth="9"
+                  markerHeight="9"
+                  markerUnits="userSpaceOnUse"
                   orient="auto-start-reverse"
                 >
                   <path d="M0,0 L10,5 L0,10 z" className={`graph-arrow-${kind}`} />

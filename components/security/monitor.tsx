@@ -21,6 +21,14 @@ import type {
   Movers,
 } from "@/lib/security-types";
 import { monitorFunctions, type MonitorFunction } from "@/lib/terminal";
+import {
+  Correlation,
+  CrossRates,
+  QuoteBoard,
+  YieldCurve,
+  commodityBoard,
+  cryptoBoard,
+} from "./boards";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -436,6 +444,25 @@ export function Monitor({
       {fn === "MOST" ? <MostActive select={select} /> : null}
       {fn === "WEI" ? <WorldIndices select={select} refresh={refresh} /> : null}
       {fn === "ECO" ? <Economics /> : null}
+      {fn === "GC" ? <YieldCurve /> : null}
+      {fn === "FXC" ? <CrossRates select={select} /> : null}
+      {fn === "CMDTY" ? (
+        <QuoteBoard
+          groups={commodityBoard}
+          refresh={refresh}
+          select={select}
+          source="Front-month futures · exchange-delayed · Yahoo Finance"
+        />
+      ) : null}
+      {fn === "CRYP" ? (
+        <QuoteBoard
+          groups={cryptoBoard}
+          refresh={refresh}
+          select={select}
+          source="Spot prices in USD and US-listed proxies · Yahoo Finance"
+        />
+      ) : null}
+      {fn === "CORR" ? <Correlation select={select} /> : null}
     </section>
   );
 }

@@ -31,6 +31,7 @@ import { securityFunctions, type SecurityFunction } from "@/lib/terminal";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
 import { FunctionBar } from "./functions";
 import { SupplyChain } from "./supply-chain";
+import { Backtest, BetaView, SeasonalityView, Volatility } from "./quant";
 
 type Fetch<T> = { data?: T; error?: Error; isLoading: boolean; retry: () => void };
 
@@ -1207,6 +1208,10 @@ export function SecurityView({
       {fn === "DVD" ? <DividendsView ticker={ticker} /> : null}
       {fn === "CN" ? <CompanyNews ticker={ticker} /> : null}
       {fn === "RELS" ? <RelationshipMap ticker={ticker} select={select} /> : null}
+      {fn === "HVT" ? <Volatility ticker={ticker} /> : null}
+      {fn === "BETA" ? <BetaView ticker={ticker} /> : null}
+      {fn === "SEAS" ? <SeasonalityView ticker={ticker} /> : null}
+      {fn === "BTST" ? <Backtest ticker={ticker} /> : null}
       {fn === "SPLC" ? <SupplyChain ticker={ticker} select={select} openFunction={openFunction} /> : null}
     </section>
   );

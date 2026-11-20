@@ -459,3 +459,64 @@ export async function comparison(
         : "Yahoo Finance",
   };
 }
+
+export const historyIntervals = ["1d", "1wk", "1mo"] as const;
+export type HistoryInterval = (typeof historyIntervals)[number];
+export type History = {
+  symbol: string;
+  name: string | null;
+  currency: string | null;
+  points: ChartPoint[];
+};
+
+/**
+ * Long daily, weekly or monthly history for analytics. Closes are adjusted
+ * for splits and dividends when Yahoo provides an adjusted series, so
+ * returns are total returns.
+ */
+export async function history(
+  symbol: string,
+  years: number,
+  interval: HistoryInterval,
+): Promise<History> {
+  const end = Math.floor(Date.now() / 1000);
+  const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
+    `/v8/finance/chart/${encodeURIComponent(symbol)}`,
+    {
+      period1: String(end - Math.round(years * 365.25 * 86400)),
+      period2: String(end + 86400),
+      interval,
+      events: "div,splits",
+    },
+    interval === "1d" ? 900 : 3600,
+  );
+  const bars = result.chart?.result?.[0];
+  if (!bars) return { symbol, name: null, currency: null, points: [] };
+  const values = bars.indicators?.quote?.[0];
+  const adjusted = bars.indicators?.adjclose?.[0]?.adjclose;
+  const points: ChartPoint[] = [];
+  bars.timestamp?.forEach((time, i) => {
+    const open = values?.open?.[i],
+      high = values?.high?.[i],
+      low = values?.low?.[i],
+      close = values?.close?.[i];
+    if (finite(open) && finite(high) && finite(low) && finite(close)) {
+      const adj = adjusted?.[i];
+      const adjustment = finite(adj) ? adj / close : 1;
+      points.push({
+        time,
+        open: open * adjustment,
+        high: high * adjustment,
+        low: low * adjustment,
+        close: close * adjustment,
+        volume: asNumber(values?.volume?.[i]),
+      });
+    }
+  });
+  return {
+    symbol,
+    name: bars.meta?.longName ?? bars.meta?.shortName ?? null,
+    currency: bars.meta?.currency ?? null,
+    points,
+  };
+}
