@@ -1,42 +1,198 @@
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal } from "@xterm/xterm";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { type ITheme, Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
-import { api } from "./bridge";
+import { api, native } from "./bridge";
 import "@xterm/xterm/css/xterm.css";
+
+// Terminal.app's "Clear Dark" profile over its standard ANSI palette, so the
+// CLIs look the way they do in the owner's own terminal.
+export const terminalTheme: ITheme = {
+  background: "#161616",
+  foreground: "#e5e5e5",
+  cursor: "#a6a6a6",
+  cursorAccent: "#161616",
+  selectionBackground: "#ffffff40",
+  selectionInactiveBackground: "#ffffff26",
+  black: "#000000",
+  red: "#c23621",
+  green: "#25bc24",
+  yellow: "#adad27",
+  blue: "#492ee1",
+  magenta: "#d338d3",
+  cyan: "#33bbc8",
+  white: "#cbcccd",
+  brightBlack: "#818383",
+  brightRed: "#fc391f",
+  brightGreen: "#31e722",
+  brightYellow: "#eaec23",
+  brightBlue: "#5833ff",
+  brightMagenta: "#f935f8",
+  brightCyan: "#14f0f0",
+  brightWhite: "#e9ebeb",
+};
+
+type Saved = { cursor: number; cols: number; rows: number; screen: string };
+function readSaved(key: string): Saved | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "null");
+    if (
+      value &&
+      Number.isSafeInteger(value.cursor) &&
+      value.cursor >= 0 &&
+      typeof value.screen === "string" &&
+      Number.isInteger(value.cols) &&
+      Number.isInteger(value.rows) &&
+      value.cols >= 2 &&
+      value.cols <= 500 &&
+      value.rows >= 2 &&
+      value.rows <= 200
+    )
+      return value;
+  } catch {
+    // An invalid checkpoint falls back to the backend's output buffer.
+  }
+  return null;
+}
+const quotePath = (path: string) =>
+  /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
+
 export function AgentTerminal({
   id,
-  dark,
   running = true,
+  active = false,
 }: {
   id: string;
-  dark: boolean;
   running?: boolean;
+  active?: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const terminal = useRef<Terminal | null>(null);
+  const live = useRef(running);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (!element.current) return;
+    live.current = running;
+    const term = terminal.current;
+    if (!term) return;
+    term.options.disableStdin = !running;
+    term.options.cursorBlink = running;
+  }, [running]);
+  useEffect(() => {
+    if (active) terminal.current?.focus();
+  }, [active]);
+  useEffect(() => {
+    const host = element.current;
+    if (!host) return;
     let cancelled = false;
-    let cursor = 0;
     let timer: ReturnType<typeof setTimeout>;
-    let resizeTimer: ReturnType<typeof setTimeout>;
-    const css = getComputedStyle(document.documentElement);
+    let ptyTimer: ReturnType<typeof setTimeout>;
+    let frame = 0;
+    let cursor = 0;
+    const report = (e: unknown) => {
+      if (!cancelled) setError(String(e));
+    };
     const term = new Terminal({
-      cursorBlink: running,
-      disableStdin: !running,
-      fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      scrollback: 8000,
-      theme: {
-        background: css.getPropertyValue("--background").trim(),
-        foreground: css.getPropertyValue("--accent-strong").trim(),
-        cursor: css.getPropertyValue("--accent-strong").trim(),
-        selectionBackground: css.getPropertyValue("--muted").trim(),
-      },
+      allowProposedApi: true,
+      cursorBlink: live.current,
+      cursorStyle: "block",
+      cursorInactiveStyle: "outline",
+      disableStdin: !live.current,
+      fontSize: 12,
+      fontFamily: '"SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace',
+      lineHeight: 1.12,
+      macOptionIsMeta: true,
+      macOptionClickForcesSelection: true,
+      rightClickSelectsWord: true,
+      scrollback: 10000,
+      scrollSensitivity: 1,
+      fastScrollSensitivity: 6,
+      smoothScrollDuration: 0,
+      minimumContrastRatio: 1,
+      drawBoldTextInBrightColors: true,
+      theme: terminalTheme,
     });
+    terminal.current = term;
     const serialize = new SerializeAddon();
+    const fit = new FitAddon();
     term.loadAddon(serialize);
+    term.loadAddon(fit);
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
+    term.open(host);
+    // Automated browsers keep the DOM renderer so tests can read the rows.
+    if (!navigator.webdriver)
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      } catch {
+        // The DOM renderer stays in place when WebGL is unavailable.
+      }
+    // WebKit's inline predictions and autocorrect write into xterm's hidden
+    // textarea, which xterm then replays to the PTY as extra input.
+    for (const [name, value] of [
+      ["autocorrect", "off"],
+      ["autocapitalize", "off"],
+      ["autocomplete", "off"],
+      ["spellcheck", "false"],
+      ["writingsuggestions", "false"],
+    ])
+      term.textarea?.setAttribute(name, value);
+    const send = (data: string) => {
+      if (live.current) api.write(id, data).catch(report);
+    };
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        send("\x1b\r");
+        return false;
+      }
+      if (!e.metaKey) return true;
+      if (e.key === "k") {
+        term.clear();
+        return false;
+      }
+      if (e.key === "c" && term.hasSelection()) {
+        void navigator.clipboard?.writeText(term.getSelection());
+        return false;
+      }
+      const line: Record<string, string> = {
+        ArrowLeft: "\x01",
+        ArrowRight: "\x05",
+        Backspace: "\x15",
+      };
+      if (line[e.key]) {
+        send(line[e.key]);
+        return false;
+      }
+      return e.key === "v";
+    });
+    const input = term.onData(send);
+    const syncPty = term.onResize(({ cols, rows }) => {
+      clearTimeout(ptyTimer);
+      ptyTimer = setTimeout(() => {
+        if (live.current) api.resize(id, cols, rows).catch(report);
+      }, 90);
+    });
+    const size = () => {
+      frame = 0;
+      if (cancelled || !host.clientWidth || !host.clientHeight) return;
+      const next = fit.proposeDimensions();
+      if (
+        next &&
+        Number.isFinite(next.cols) &&
+        Number.isFinite(next.rows) &&
+        (next.cols !== term.cols || next.rows !== term.rows)
+      )
+        term.resize(Math.max(2, next.cols), Math.max(2, next.rows));
+    };
+    const observer = new ResizeObserver(() => {
+      if (!frame) frame = requestAnimationFrame(size);
+    });
+    observer.observe(host);
     const storageKey = `agents:terminal:${id}`;
     const persist = () => {
       try {
@@ -53,115 +209,93 @@ export function AgentTerminal({
         report(`Could not save terminal screen: ${e}`);
       }
     };
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(element.current);
-    // WebKit's inline predictions and autocorrect write into xterm's hidden
-    // textarea, which xterm then replays to the PTY as extra input.
-    for (const [name, value] of [
-      ["autocorrect", "off"],
-      ["autocapitalize", "off"],
-      ["autocomplete", "off"],
-      ["spellcheck", "false"],
-      ["writingsuggestions", "false"],
-    ])
-      term.textarea?.setAttribute(name, value);
-    const report = (e: unknown) => {
-      if (!cancelled) setError(String(e));
-    };
-    const size = () => {
-      if (cancelled) return;
-      fit.fit();
-      if (running) api.resize(id, term.cols, term.rows).catch(report);
-    };
-    const observer = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(size, 80);
-    });
-    observer.observe(element.current);
-    const input = term.onData((data) => {
-      if (running) api.write(id, data).catch(report);
-    });
+    let idle = 0;
     async function poll() {
+      let received = false;
       try {
-        const data = await api.read(id, cursor);
+        const page = await api.read(id, cursor);
         if (cancelled) return;
-        if (data.truncated) {
+        if (page.truncated) {
           term.reset();
-          term.writeln("\r\n[Earlier terminal output expired]\r\n");
+          term.writeln("\x1b[2m[Earlier terminal output expired]\x1b[0m");
         }
-        const bytes = new Uint8Array(
-          data.chunks.reduce((n, chunk) => n + chunk.length, 0),
-        );
-        let offset = 0;
-        for (const chunk of data.chunks) {
-          bytes.set(chunk, offset);
-          offset += chunk.length;
-        }
-        await new Promise<void>((resolve) =>
-          term.write(bytes, () => {
-            cursor = data.cursor;
-            resolve();
-          }),
-        );
+        received = page.data.length > 0 || page.cursor !== cursor;
+        if (received)
+          await new Promise<void>((resolve) =>
+            term.write(page.data, () => {
+              cursor = page.cursor;
+              resolve();
+            }),
+          );
       } catch (e) {
         report(e);
       }
-      if (!cancelled) timer = setTimeout(poll, 80);
+      if (cancelled) return;
+      idle = received ? 0 : idle + 1;
+      // Stay quick while output streams; back off once the CLI is quiet.
+      const delay = !live.current
+        ? 1000
+        : idle < 10
+          ? 40
+          : Math.min(250, 40 + idle * 10);
+      timer = setTimeout(poll, delay);
     }
-    setError("");
-    let saved: {
-      cursor: number;
-      cols: number;
-      rows: number;
-      screen: string;
-    } | null = null;
-    try {
-      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
-      if (
-        value &&
-        Number.isSafeInteger(value.cursor) &&
-        value.cursor >= 0 &&
-        typeof value.screen === "string" &&
-        Number.isInteger(value.cols) &&
-        Number.isInteger(value.rows) &&
-        value.cols >= 2 &&
-        value.cols <= 500 &&
-        value.rows >= 2 &&
-        value.rows <= 200
-      )
-        saved = value;
-    } catch {
-      /* Recover from an invalid screen checkpoint using backend output. */
-    }
-    const start = () => {
-      if (!cancelled) {
-        size();
-        term.focus();
-        void poll();
+    let unlistenDrop: (() => void) | undefined;
+    const webview = (() => {
+      try {
+        return native ? getCurrentWebview() : null;
+      } catch {
+        return null;
       }
+    })();
+    if (webview)
+      webview
+        .onDragDropEvent((event) => {
+          if (event.payload.type !== "drop" || !live.current) return;
+          const scale = window.devicePixelRatio || 1;
+          const x = event.payload.position.x / scale;
+          const y = event.payload.position.y / scale;
+          if (!host.contains(document.elementFromPoint(x, y))) return;
+          send(`${event.payload.paths.map(quotePath).join(" ")} `);
+          term.focus();
+        })
+        .then((unlisten) => {
+          if (cancelled) unlisten();
+          else unlistenDrop = unlisten;
+        })
+        .catch(() => {});
+    setError("");
+    const saved = readSaved(storageKey);
+    const start = () => {
+      if (cancelled) return;
+      size();
+      if (live.current) api.resize(id, term.cols, term.rows).catch(report);
+      term.focus();
+      void poll();
     };
     if (saved) {
       cursor = saved.cursor;
       term.resize(saved.cols, saved.rows);
       term.write(saved.screen, start);
     } else start();
-    const checkpoint = setInterval(() => {
-      term.write("", persist);
-    }, 2000);
+    const checkpoint = setInterval(() => term.write("", persist), 2000);
     return () => {
       cancelled = true;
+      terminal.current = null;
       clearTimeout(timer);
-      clearTimeout(resizeTimer);
+      clearTimeout(ptyTimer);
+      cancelAnimationFrame(frame);
+      clearInterval(checkpoint);
       observer.disconnect();
       input.dispose();
-      clearInterval(checkpoint);
+      syncPty.dispose();
+      unlistenDrop?.();
       term.write("", () => {
         persist();
         term.dispose();
       });
     };
-  }, [id, dark, running]);
+  }, [id]);
   return (
     <div className="terminal-wrap">
       {error && (

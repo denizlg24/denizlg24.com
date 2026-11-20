@@ -25,6 +25,8 @@ pub struct FileChange {
     old_path: Option<String>,
     status: char,
     staged: bool,
+    /// Has work-tree changes not yet in the index (untracked files included).
+    unstaged: bool,
     additions: Option<u32>,
     deletions: Option<u32>,
 }
@@ -48,6 +50,10 @@ pub struct FileDiff {
 fn run(cwd: &str, args: &[&str]) -> Result<ProcessOutput, String> {
     Command::new("git")
         .env("PATH", cli_path())
+        // Never wait on a credential or editor prompt nobody can answer.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_EDITOR", "true")
+        .stdin(std::process::Stdio::null())
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_LITERAL_PATHSPECS", "1")
         .args(["-C", cwd, "-c", "core.quotepath=off"])
@@ -119,6 +125,93 @@ pub async fn git_file_diff(
     })
     .await
     .map_err(err)?
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum GitAction {
+    Stage { paths: Vec<String> },
+    Unstage { paths: Vec<String> },
+    Discard { paths: Vec<String> },
+    Commit { message: String },
+    Fetch,
+    Pull,
+    Push,
+}
+
+#[tauri::command]
+pub async fn git_action(
+    state: tauri::State<'_, State>,
+    id: String,
+    action: GitAction,
+) -> Result<String, String> {
+    let cwd = agent_cwd(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || perform(&cwd, action))
+        .await
+        .map_err(err)?
+}
+
+fn checked(paths: &[String]) -> Result<Vec<&str>, String> {
+    if paths.is_empty() || paths.iter().any(|p| !inside_repository(p)) {
+        return Err("Invalid repository path".into());
+    }
+    Ok(paths.iter().map(String::as_str).collect())
+}
+
+fn perform(cwd: &str, action: GitAction) -> Result<String, String> {
+    let root = toplevel(cwd)?;
+    let with = |head: &[&str], paths: &[&str]| -> Result<String, String> {
+        let mut args = head.to_vec();
+        args.push("--");
+        args.extend(paths);
+        git(&root, &args)
+    };
+    match action {
+        GitAction::Stage { paths } => with(&["add", "--all"], &checked(&paths)?),
+        GitAction::Unstage { paths } => {
+            let paths = checked(&paths)?;
+            if base(&root) == "HEAD" {
+                with(&["restore", "--staged"], &paths)
+            } else {
+                with(&["rm", "--cached", "-r", "--quiet"], &paths)
+            }
+        }
+        GitAction::Discard { paths } => {
+            for path in checked(&paths)? {
+                let tracked = git(&root, &["ls-files", "--error-unmatch", "--", path]).is_ok();
+                let committed = base(&root) == "HEAD"
+                    && git(&root, &["cat-file", "-e", &format!("HEAD:{path}")]).is_ok();
+                if committed {
+                    with(
+                        &["restore", "--source=HEAD", "--staged", "--worktree"],
+                        &[path],
+                    )?;
+                } else {
+                    if tracked {
+                        with(&["rm", "--cached", "-r", "--quiet"], &[path])?;
+                    }
+                    with(&["clean", "-f", "-d"], &[path])?;
+                }
+            }
+            Ok(String::new())
+        }
+        GitAction::Commit { message } => {
+            if message.trim().is_empty() {
+                return Err("Write a commit message".into());
+            }
+            git(&root, &["commit", "-m", message.trim()])
+        }
+        GitAction::Fetch => git(&root, &["fetch", "--prune"]),
+        GitAction::Pull => git(&root, &["pull", "--ff-only"]),
+        GitAction::Push => {
+            let has_upstream = git(&root, &["rev-parse", "--abbrev-ref", "@{upstream}"]).is_ok();
+            if has_upstream {
+                git(&root, &["push"])
+            } else {
+                git(&root, &["push", "-u", "origin", "HEAD"])
+            }
+        }
+    }
 }
 
 fn changes(cwd: &str) -> Result<GitChanges, String> {
@@ -220,6 +313,7 @@ fn parse_status(raw: &str) -> GitChanges {
                         worktree
                     },
                     staged: kind != "u" && index != '.',
+                    unstaged: kind == "u" || worktree != '.',
                     additions: None,
                     deletions: None,
                 }
@@ -229,6 +323,7 @@ fn parse_status(raw: &str) -> GitChanges {
                 old_path: None,
                 status: '?',
                 staged: false,
+                unstaged: true,
                 additions: None,
                 deletions: None,
             },
@@ -418,6 +513,88 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn stages_unstages_commits_and_discards() {
+        let (dir, cwd) = repository();
+        std::fs::write(dir.join("tracked.txt"), "one\n").unwrap();
+        perform(
+            &cwd,
+            GitAction::Stage {
+                paths: vec!["tracked.txt".into()],
+            },
+        )
+        .unwrap();
+        perform(
+            &cwd,
+            GitAction::Commit {
+                message: "first".into(),
+            },
+        )
+        .unwrap();
+        std::fs::write(dir.join("tracked.txt"), "two\n").unwrap();
+        std::fs::write(dir.join("new.txt"), "new\n").unwrap();
+        perform(
+            &cwd,
+            GitAction::Stage {
+                paths: vec!["new.txt".into()],
+            },
+        )
+        .unwrap();
+        let staged = changes(&cwd).unwrap();
+        let new = staged.files.iter().find(|f| f.path == "new.txt").unwrap();
+        assert!(new.staged && !new.unstaged);
+        perform(
+            &cwd,
+            GitAction::Unstage {
+                paths: vec!["new.txt".into()],
+            },
+        )
+        .unwrap();
+        assert!(!changes(&cwd).unwrap().files.iter().any(|f| f.staged));
+        std::fs::write(dir.join("added.txt"), "added\n").unwrap();
+        perform(
+            &cwd,
+            GitAction::Stage {
+                paths: vec!["added.txt".into()],
+            },
+        )
+        .unwrap();
+        perform(
+            &cwd,
+            GitAction::Discard {
+                paths: vec!["added.txt".into()],
+            },
+        )
+        .unwrap();
+        assert!(!dir.join("added.txt").exists());
+        perform(
+            &cwd,
+            GitAction::Discard {
+                paths: vec!["tracked.txt".into(), "new.txt".into()],
+            },
+        )
+        .unwrap();
+        assert!(changes(&cwd).unwrap().files.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("tracked.txt")).unwrap(),
+            "one\n"
+        );
+        assert!(perform(
+            &cwd,
+            GitAction::Discard {
+                paths: vec!["../x".into()]
+            }
+        )
+        .is_err());
+        assert!(perform(
+            &cwd,
+            GitAction::Commit {
+                message: " ".into()
+            }
+        )
+        .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn rejects_paths_outside_the_repository() {
         let (dir, cwd) = repository();

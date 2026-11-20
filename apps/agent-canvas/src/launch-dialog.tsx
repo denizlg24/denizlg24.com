@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "./bridge";
+import { readStored } from "./storage";
 import type { LaunchOptions, ModelOption, Provider } from "./types";
 
 const defaults: LaunchOptions = {
@@ -19,6 +20,17 @@ const defaults: LaunchOptions = {
   permissions: "default",
 };
 const catalog = new Map<Provider, Promise<ModelOption[]>>();
+export const RECENT_KEY = "agents:recent-directories";
+export function recentDirectories(): string[] {
+  try {
+    const value: unknown = JSON.parse(readStored(RECENT_KEY) || "[]");
+    return Array.isArray(value)
+      ? value.filter((v): v is string => typeof v === "string").slice(0, 6)
+      : [];
+  } catch {
+    return [];
+  }
+}
 export function LaunchDialog({
   provider,
   onProvider,
@@ -42,6 +54,7 @@ export function LaunchDialog({
   const [loading, setLoading] = useState(false);
   const [modelError, setModelError] = useState("");
   const [directoryError, setDirectoryError] = useState("");
+  const [recent] = useState(recentDirectories);
   useEffect(() => {
     let cancelled = false;
     setOptions(defaults);
@@ -155,6 +168,26 @@ export function LaunchDialog({
               Choose
             </Button>
           </div>
+          {recent.length > 0 && (
+            <div
+              className="launch-recent"
+              role="group"
+              aria-label="Recent directories"
+            >
+              {recent.map((dir) => (
+                <button
+                  type="button"
+                  key={dir}
+                  title={dir}
+                  aria-pressed={cwd === dir}
+                  onClick={() => setCwd(dir)}
+                  disabled={busy}
+                >
+                  {dir.split("/").filter(Boolean).at(-1) || dir}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="launch-config">
             <label>
               <span>
@@ -259,6 +292,27 @@ export function LaunchDialog({
               ))}
             </div>
           </fieldset>
+          <label className="launch-toggle">
+            <input
+              type="checkbox"
+              checked={options.nativeSubagents === true}
+              onChange={(e) =>
+                setOptions((o) => ({
+                  ...o,
+                  nativeSubagents: e.target.checked || undefined,
+                }))
+              }
+              disabled={busy}
+            />
+            <span>
+              <strong>Native subagents</strong>
+              <small>
+                {provider === "claude"
+                  ? "Allow Agent and Workflow · transcript only"
+                  : "Allow Codex multi-agent · transcript only"}
+              </small>
+            </span>
+          </label>
           {(error || directoryError) && (
             <p role="alert" className="error-text">
               {error || directoryError}

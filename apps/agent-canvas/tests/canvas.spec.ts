@@ -6,6 +6,11 @@ async function setup(page: import("@playwright/test").Page) {
     (window as any).__finishChild = () => {
       agents = agents.map((a) => (a.parentId ? { ...a, status: "done" } : a));
     };
+    (window as any).__stopRoots = () => {
+      agents = agents.map((a) =>
+        a.parentId ? a : { ...a, status: "stopped", activity: "CLI exited" },
+      );
+    };
     (window as any).__makeTerminalChild = () => {
       agents = agents.map((a) =>
         a.parentId ? { ...a, hasTerminal: true } : a,
@@ -31,6 +36,9 @@ async function setup(page: import("@playwright/test").Page) {
     (window as any).__testLaunches = [];
     (window as any).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args: any) => {
+        queueMicrotask(() =>
+          localStorage.setItem("test:agents", JSON.stringify(agents)),
+        );
         if (cmd === "git_changes") {
           (window as any).__testGitReads++;
           return {
@@ -44,6 +52,7 @@ async function setup(page: import("@playwright/test").Page) {
                 oldPath: null,
                 status: "M",
                 staged: false,
+                unstaged: true,
                 additions: 1,
                 deletions: 1,
               },
@@ -51,6 +60,13 @@ async function setup(page: import("@playwright/test").Page) {
             filesTruncated: false,
             commits: [{ hash: "a1b2c3", subject: "Test commit", when: "now" }],
           };
+        }
+        if (cmd === "git_action") {
+          (window as any).__testGitActions = [
+            ...((window as any).__testGitActions ?? []),
+            args.action,
+          ];
+          return "ok";
         }
         if (cmd === "git_file_diff")
           return {
@@ -117,20 +133,43 @@ async function setup(page: import("@playwright/test").Page) {
         }
         if (cmd === "read_terminal") {
           (window as any).__testReads.push(args);
-          return {
-            chunks: args.after
-              ? []
-              : [Array.from(new TextEncoder().encode("CLI ready\r\n"))],
-            cursor: 1,
-            truncated: false,
-          };
+          const data = args.after
+            ? new Uint8Array()
+            : new TextEncoder().encode("CLI ready\r\n");
+          const page = new Uint8Array(9 + data.length);
+          new DataView(page.buffer).setBigUint64(0, 1n, true);
+          page.set(data, 9);
+          return page.buffer;
         }
+        if (cmd === "resume_agent") {
+          agents = agents.map((a) =>
+            a.id === args.id ? { ...a, status: "working" } : a,
+          );
+          (window as any).__testResumes = [
+            ...((window as any).__testResumes ?? []),
+            args.id,
+          ];
+          return agents.find((a) => a.id === args.id);
+        }
+        if (cmd === "rename_agent") {
+          agents = agents.map((a) =>
+            a.id === args.id ? { ...a, name: args.name } : a,
+          );
+          return;
+        }
+        if (cmd === "resize_terminal") return;
         if (cmd === "write_terminal") {
           (window as any).__testWrites.push(args.data);
           return;
         }
         if (cmd === "stop_agent") {
-          agents = agents.filter((a) => a.rootId !== args.id);
+          const gone = new Set([args.id]);
+          let size = 0;
+          while (size !== gone.size) {
+            size = gone.size;
+            for (const a of agents) if (gone.has(a.parentId)) gone.add(a.id);
+          }
+          agents = agents.filter((a) => !gone.has(a.id));
           return;
         }
       },
@@ -149,7 +188,7 @@ test("launch configuration, floating terminals, resize, and stop removes descend
     .locator(".canvas")
     .click({ button: "right", position: { x: 200, y: 200 } });
   await expect(
-    page.getByRole("menuitem", { name: "Open all terminals" }),
+    page.getByRole("menuitem", { name: "Open running terminals" }),
   ).toBeDisabled();
   await page.getByRole("menuitem", { name: "New Claude agent" }).click();
   await page.getByRole("button", { name: "Choose", exact: true }).click();
@@ -171,10 +210,10 @@ test("launch configuration, floating terminals, resize, and stop removes descend
   );
   await root.locator("summary").filter({ hasText: "Usage" }).click();
   await root.getByRole("button", { name: "Changes" }).click();
-  const sidebar = root.getByRole("complementary", { name: "Git changes" });
+  const sidebar = page.getByRole("complementary", { name: "Git changes" });
   await expect(sidebar).toContainText("main");
   await expect(sidebar).toContainText("↑2");
-  const file = sidebar.getByRole("button", { name: /example\.ts/ });
+  const file = sidebar.locator(".git-file").first();
   await expect(file).toHaveAttribute("aria-expanded", "false");
   await file.click();
   await expect(file).toHaveAttribute("aria-expanded", "true");
@@ -190,7 +229,9 @@ test("launch configuration, floating terminals, resize, and stop removes descend
   await expect
     .poll(() => page.evaluate(() => (window as any).__testWrites.join("")))
     .toBe("hello");
-  await page.getByRole("button", { name: "Expand Scout" }).click();
+  await page
+    .getByRole("button", { name: "Expand Scout" })
+    .dispatchEvent("click");
   await expect(page.locator(".agent-window")).toHaveCount(2);
   const child = page.getByRole("region", { name: "Scout window", exact: true });
   await expect(child.locator(".transcript")).toHaveText(
@@ -202,11 +243,11 @@ test("launch configuration, floating terminals, resize, and stop removes descend
   if (!before) throw Error("window missing");
   await page.mouse.move(before.x + 100, before.y + 20);
   await page.mouse.down();
-  await page.mouse.move(before.x + 260, before.y + 100, { steps: 8 });
+  await page.mouse.move(before.x - 160, before.y + 100, { steps: 8 });
   await page.mouse.up();
   await expect
     .poll(async () => (await root.boundingBox())!.x)
-    .toBeGreaterThan(before.x + 100);
+    .toBeLessThan(before.x - 100);
   const moved = await root.boundingBox();
   if (!moved) throw Error("window missing");
   const grip = await root
@@ -319,7 +360,9 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
   await page.evaluate(() => {
     (window as any).__testReads = [];
   });
-  await page.getByRole("button", { name: "Expand Codex", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Expand Codex", exact: true })
+    .dispatchEvent("click");
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
@@ -331,7 +374,9 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
   await expect
     .poll(() => page.evaluate(() => (window as any).__testReads[0]?.after))
     .toBe(1);
-  await page.getByRole("button", { name: "Expand Scout" }).click();
+  await page
+    .getByRole("button", { name: "Expand Scout" })
+    .dispatchEvent("click");
   await expect(
     page.getByRole("region", { name: "Scout window", exact: true }),
   ).toBeVisible();
@@ -340,6 +385,11 @@ test("terminal reopens at its saved cursor and windows survive reload", async ({
     page.getByRole("region", { name: "Scout window", exact: true }),
   ).toHaveCount(0);
   await expect(root).toBeVisible();
+  await expect(page.locator(".agent-card")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Show 1 finished" })
+    .dispatchEvent("click");
+  await expect(page.locator(".agent-card")).toHaveCount(2);
   await page.getByRole("button", { name: "Arrange", exact: true }).click();
   const positions = await page
     .locator(".react-flow__node")
@@ -368,7 +418,9 @@ test("managed subagents expose interactive terminals and close when complete", a
   await page.getByRole("button", { name: "Launch agent", exact: true }).click();
   await expect(page.locator(".agent-card")).toHaveCount(2);
   await page.evaluate(() => (window as any).__makeTerminalChild());
-  await page.getByRole("button", { name: "Expand Scout" }).click();
+  await page
+    .getByRole("button", { name: "Expand Scout" })
+    .dispatchEvent("click");
   const child = page.getByRole("region", { name: "Scout window", exact: true });
   await expect(child.getByLabel("Agent CLI terminal")).toBeVisible();
   await expect(child.locator(".transcript")).toHaveCount(0);
@@ -380,7 +432,12 @@ test("managed subagents expose interactive terminals and close when complete", a
     .toBe("child input");
   await page.evaluate(() => (window as any).__finishChild());
   await expect(child).toHaveCount(0);
-  await page.getByRole("button", { name: "Expand Scout" }).click();
+  await page
+    .getByRole("button", { name: "Show 1 finished" })
+    .dispatchEvent("click");
+  await page
+    .getByRole("button", { name: "Expand Scout" })
+    .dispatchEvent("click");
   await expect(child.getByLabel("Agent CLI terminal")).toBeVisible();
   await page.waitForTimeout(800);
   await expect(child).toBeVisible();
@@ -490,7 +547,9 @@ test("storage quota failures keep canvas interactions usable", async ({
   await page.getByRole("button", { name: "Use dark theme" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await root.getByRole("button", { name: "Close Codex window" }).click();
-  await page.getByRole("button", { name: "Expand Codex", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Expand Codex", exact: true })
+    .dispatchEvent("click");
   await expect(root.getByLabel("Agent CLI terminal")).toBeVisible();
   await expect(page.locator(".agent-card")).toHaveCount(2);
   expect(errors).toEqual([]);
@@ -516,4 +575,153 @@ test("shows the running version and offers available updates", async ({
   ).toContainText("Agents 0.3.0 is available.");
   await page.getByRole("button", { name: "Dismiss update notice" }).click();
   await expect(page.getByText("Agents 0.3.0 is available.")).toHaveCount(0);
+});
+
+test("cards rename and resume from their menu, and windows tile", async ({
+  page,
+}) => {
+  await setup(page);
+  await page
+    .getByRole("button", { name: "New agent", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Working directory").fill("/tmp/menu");
+  await page.getByRole("checkbox", { name: /Native subagents/ }).check();
+  await page.getByRole("button", { name: "Launch agent", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__testLaunches[0]?.options.nativeSubagents,
+      ),
+    )
+    .toBe(true);
+  await page.locator(".agent-card").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await page.getByLabel("Agent name").fill("Refactor");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(page.locator(".agent-card h2").first()).toHaveText("Refactor");
+  await page.getByRole("button", { name: "Close Refactor window" }).click();
+  await page.evaluate(() => (window as any).__finishChild());
+  await expect(page.getByRole("button", { name: "Expand Scout" })).toHaveCount(
+    0,
+  );
+  await page.evaluate(() => (window as any).__stopRoots());
+  await page
+    .getByRole("button", { name: "Expand Refactor" })
+    .dispatchEvent("click");
+  const refactor = page.getByRole("region", { name: "Refactor window" });
+  await refactor.getByRole("button", { name: "Resume" }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__testResumes))
+    .toEqual(["root"]);
+  await expect(refactor.getByRole("button", { name: "Stop" })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Show 1 finished" })
+    .dispatchEvent("click");
+  await page
+    .getByRole("button", { name: "Expand Scout" })
+    .dispatchEvent("click");
+  await expect(page.locator(".agent-window")).toHaveCount(2);
+  await page.getByRole("button", { name: "Tile", exact: true }).click();
+  const boxes = await page
+    .locator(".agent-window")
+    .evaluateAll((w) => w.map((e) => e.getBoundingClientRect().toJSON()));
+  const [a, b] = boxes;
+  expect(a.right <= b.left || b.right <= a.left).toBeTruthy();
+  expect(Math.abs(a.width - b.width)).toBeLessThan(2);
+  const left = page.locator(".agent-window").first().locator(".edge-w");
+  const before = await page.locator(".agent-window").first().boundingBox();
+  const handle = await left.boundingBox();
+  if (!before || !handle) throw Error("window missing");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 60, handle.y + 40, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(
+      async () =>
+        (await page.locator(".agent-window").first().boundingBox())!.width,
+    )
+    .toBeLessThan(before.width - 40);
+  await page.getByRole("button", { name: "Close Scout tab" }).click();
+  await expect(page.locator(".agent-window")).toHaveCount(1);
+  await page.screenshot({ path: "test-results/tiled-windows.png" });
+});
+
+test("recent directories are offered on the next launch", async ({ page }) => {
+  await setup(page);
+  await page
+    .getByRole("button", { name: "New agent", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Working directory").fill("/tmp/recent-project");
+  await page.getByRole("button", { name: "Launch agent", exact: true }).click();
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+  await page
+    .getByRole("button", { name: "New agent", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("group", { name: "Recent directories" })
+    .getByRole("button", { name: "recent-project" })
+    .click();
+  await expect(page.getByLabel("Working directory")).toHaveValue(
+    "/tmp/recent-project",
+  );
+});
+
+test("threads sidebar groups by directory and drives the changes panel", async ({
+  page,
+}) => {
+  await setup(page);
+  for (const dir of ["/tmp/alpha", "/tmp/beta"]) {
+    await page
+      .getByRole("button", { name: "New agent", exact: true })
+      .first()
+      .click();
+    await page.getByLabel("Working directory").fill(dir);
+    await page
+      .getByRole("button", { name: "Launch agent", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  await expect(threads.getByRole("button", { name: "alpha" })).toBeVisible();
+  await expect(threads.getByRole("button", { name: "beta" })).toBeVisible();
+  await expect(threads.getByRole("button", { name: /^Thread / })).toHaveCount(
+    4,
+  );
+  await threads.getByLabel("Search threads").fill("beta");
+  await expect(threads.getByRole("button", { name: /^Thread / })).toHaveCount(
+    2,
+  );
+  await threads.getByLabel("Search threads").fill("");
+  await threads.getByRole("button", { name: "alpha" }).click();
+  await expect(threads.getByRole("button", { name: /^Thread / })).toHaveCount(
+    2,
+  );
+  await page
+    .getByRole("button", { name: "Changes", exact: true })
+    .first()
+    .click();
+  const panel = page.getByRole("complementary", { name: "Git changes" });
+  await expect(panel).toContainText("main");
+  await panel.getByRole("button", { name: "Stage example.ts" }).click();
+  await panel.getByLabel("Commit message").fill("Ship it");
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__testGitActions))
+    .toEqual([{ kind: "stage", paths: ["src/example.ts"] }]);
+  const before = await panel.boundingBox();
+  const grip = await panel
+    .getByRole("separator", { name: "Resize changes panel" })
+    .boundingBox();
+  if (!before || !grip) throw Error("panel missing");
+  await page.mouse.move(grip.x + 3, grip.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 120, grip.y + 200, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await panel.boundingBox())!.width)
+    .toBeGreaterThan(before.width + 100);
+  await page.screenshot({ path: "test-results/threads-and-changes.png" });
 });

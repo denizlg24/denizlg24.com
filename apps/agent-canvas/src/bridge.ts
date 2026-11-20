@@ -4,6 +4,7 @@ import type {
   Agent,
   FileChange,
   FileDiff,
+  GitAction,
   GitChanges,
   LaunchOptions,
   ModelOption,
@@ -19,6 +20,8 @@ export const api = {
       oldPath: file.oldPath,
       untracked: file.status === "?",
     }),
+  gitAction: (id: string, action: GitAction) =>
+    invoke<string>("git_action", { id, action }),
   restart: () => invoke<void>("restart_app"),
   snapshot: () => invoke<Agent[]>("snapshot"),
   providers: () => invoke<Record<Provider, boolean>>("providers"),
@@ -32,11 +35,23 @@ export const api = {
       multiple: false,
       title: "Agent working directory",
     }),
-  read: (id: string, after: number) =>
-    invoke<{ chunks: number[][]; cursor: number; truncated: boolean }>(
-      "read_terminal",
-      { id, after },
-    ),
+  read: async (id: string, after: number) => {
+    const raw = await invoke<ArrayBuffer | number[]>("read_terminal", {
+      id,
+      after,
+    });
+    const bytes =
+      raw instanceof ArrayBuffer ? new Uint8Array(raw) : Uint8Array.from(raw);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+    return {
+      cursor: Number(view.getBigUint64(0, true)),
+      truncated: bytes[8] === 1,
+      data: bytes.subarray(9),
+    };
+  },
+  resume: (id: string) => invoke<Agent>("resume_agent", { id }),
+  rename: (id: string, name: string) =>
+    invoke<void>("rename_agent", { id, name }),
   write: (id: string, data: string) =>
     invoke<void>("write_terminal", { id, data }),
   resize: (id: string, cols: number, rows: number) =>

@@ -244,6 +244,7 @@ impl Tracker {
                     let t = s(p, "message");
                     a.activity = cut(&t);
                     a.append(&t);
+                    a.last_message = t;
                 }
                 "token_count" => {
                     let u = &p["info"]["total_token_usage"];
@@ -322,6 +323,7 @@ impl Tracker {
                                 let t = s(item, "text");
                                 a.append(&t);
                                 a.activity = cut(&t);
+                                a.last_message = t;
                             }
                             "tool_use" => {
                                 a.status = "working".into();
@@ -426,6 +428,7 @@ impl Tracker {
             "SubagentStop" => {
                 a.status = "done".into();
                 a.activity = cut(&s(v, "last_assistant_message"));
+                a.last_message = s(v, "last_assistant_message");
             }
             "SessionEnd" => {
                 a.status = "stopped".into();
