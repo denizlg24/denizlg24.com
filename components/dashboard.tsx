@@ -251,7 +251,8 @@ export function Dashboard({
     if (command.kind === "help") setHelp(true);
     else if (command.kind === "search") setSearch(true);
     else if (command.kind === "view") go(command.view);
-    else if (command.kind === "monitor") link({ view: "monitor", fn: command.fn });
+    else if (command.kind === "monitor")
+      link({ view: "monitor", fn: command.fn, symbols: command.symbols });
     else if (command.kind === "overlay")
       link({
         view: "overlay",
@@ -554,6 +555,13 @@ export function Dashboard({
                 link({ view: "security", ticker: symbol, fn: "GP" })
               }
               refresh={refresh}
+              symbols={viewState?.symbols}
+              correlate={(symbols) =>
+                link({ view: "monitor", fn: "CORR", symbols })
+              }
+              overlay={(symbols) =>
+                runCommand({ kind: "overlay", series: symbols })
+              }
             />
           ) : null}
           {view === "overlay" ? (

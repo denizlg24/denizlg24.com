@@ -27,7 +27,8 @@ export const monitorFunctions = [
   { code: "FXC", label: "FX crosses", detail: "Currency cross-rate matrix" },
   { code: "CMDTY", label: "Commodities", detail: "Energy, metals and agriculture futures" },
   { code: "CRYP", label: "Crypto", detail: "Digital assets and listed proxies" },
-  { code: "CORR", label: "Correlation", detail: "Correlation matrix of any tickers" },
+  { code: "CORR", label: "Correlation", detail: "Correlation matrix, e.g. CORR AAPL MSFT NVDA" },
+  { code: "EQS", label: "Screener", detail: "Screen the S&P 500 by sector, moves and range" },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
 
@@ -52,7 +53,7 @@ export type WorkspaceView = (typeof workspaceFunctions)[number]["view"];
 
 export type Command =
   | { kind: "security"; ticker: string; fn: SecurityFunction }
-  | { kind: "monitor"; fn: MonitorFunction }
+  | { kind: "monitor"; fn: MonitorFunction; symbols?: string[] }
   | { kind: "overlay"; series: string[] }
   | { kind: "view"; view: WorkspaceView }
   | { kind: "help" }
@@ -112,6 +113,9 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["XBT", "CRYP"],
   ["CORR", "CORR"],
   ["CORRELATION", "CORR"],
+  ["EQS", "EQS"],
+  ["SCRN", "EQS"],
+  ["SCREEN", "EQS"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
   ...workspaceFunctions.map(
@@ -167,6 +171,13 @@ export function parseCommand(input: string, current?: string): Command | null {
       .slice(0, 8);
     return { kind: "overlay", series };
   }
+  const leading = monitorCodes.get(words[0]);
+  if (
+    leading &&
+    words.length > 1 &&
+    words.slice(1).every((word) => symbolPattern.test(word))
+  )
+    return { kind: "monitor", fn: leading, symbols: words.slice(1, 31) };
   if (words.length === 1) {
     const [word] = words;
     if (word === "HELP" || word === "?" || word === "HL") return { kind: "help" };

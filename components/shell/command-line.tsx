@@ -19,6 +19,18 @@ import {
 } from "@/lib/terminal";
 
 type Suggestion = { value: string; code: string; label: string; detail: string };
+const HISTORY_KEY = "stockwatcher.command-history";
+
+function readHistory(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").slice(0, 50)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 export function CommandLine({
   current,
@@ -32,6 +44,7 @@ export function CommandLine({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [debounced, setDebounced] = useState("");
+  const [recall, setRecall] = useState(-1);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(text.trim()), 220);
     return () => clearTimeout(timer);
@@ -84,6 +97,14 @@ export function CommandLine({
   function run(value: string) {
     const command = parseCommand(value, current);
     if (!command) return;
+    try {
+      const entry = value.trim().toUpperCase();
+      localStorage.setItem(
+        HISTORY_KEY,
+        JSON.stringify([entry, ...readHistory().filter((item) => item !== entry)].slice(0, 50)),
+      );
+    } catch {}
+    setRecall(-1);
     onCommand(command);
     setText("");
     setOpen(false);
@@ -124,11 +145,23 @@ export function CommandLine({
           setText(event.target.value.toUpperCase());
           setOpen(true);
           setActive(-1);
+          setRecall(-1);
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown") {
+          const browsing = recall >= 0 || !text.trim();
+          if (browsing && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            event.preventDefault();
+            const past = readHistory();
+            const next =
+              event.key === "ArrowUp"
+                ? Math.min(past.length - 1, recall + 1)
+                : recall - 1;
+            setRecall(next);
+            setText(next >= 0 ? (past[next] ?? "") : "");
+            setOpen(false);
+          } else if (event.key === "ArrowDown") {
             event.preventDefault();
             setActive((index) => Math.min(suggestions.length - 1, index + 1));
           } else if (event.key === "ArrowUp") {
@@ -206,8 +239,12 @@ export function CommandHelp({ close }: { close: () => void }) {
           <DialogTitle>Function directory</DialogTitle>
           <DialogDescription>
             Type a ticker, then a function, and press Enter: <kbd>NVDA ANR</kbd>
-            . A function on its own applies to the security on screen. Press{" "}
-            <kbd>/</kbd> anywhere to focus the command line. Bloomberg-style
+            . A function on its own applies to the security on screen. Monitors
+            take tickers too: <kbd>CORR AAPL MSFT NVDA</kbd>. Press{" "}
+            <kbd>/</kbd> anywhere to focus the command line; <kbd>↑</kbd> recalls
+            earlier commands. On a chart, <kbd>⇧T</kbd> draws a trend line,{" "}
+            <kbd>⇧F</kbd> a Fibonacci, <kbd>⇧H</kbd> a level and <kbd>Esc</kbd>{" "}
+            returns to the cursor. Bloomberg-style
             yellow keys such as <kbd>US EQUITY</kbd> and <kbd>&lt;GO&gt;</kbd>{" "}
             are accepted and ignored.
           </DialogDescription>

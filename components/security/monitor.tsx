@@ -29,6 +29,7 @@ import {
   commodityBoard,
   cryptoBoard,
 } from "./boards";
+import { Screener } from "./screener";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -418,11 +419,17 @@ export function Monitor({
   setFn,
   select,
   refresh,
+  symbols,
+  correlate,
+  overlay,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
   select: (symbol: string) => void;
   refresh: boolean;
+  symbols?: string[];
+  correlate: (symbols: string[]) => void;
+  overlay: (symbols: string[]) => void;
 }) {
   return (
     <section className="panel security-panel">
@@ -462,7 +469,16 @@ export function Monitor({
           source="Spot prices in USD and US-listed proxies · Yahoo Finance"
         />
       ) : null}
-      {fn === "CORR" ? <Correlation select={select} /> : null}
+      {fn === "CORR" ? (
+        <Correlation
+          key={symbols?.join(",") ?? ""}
+          select={select}
+          initial={symbols}
+        />
+      ) : null}
+      {fn === "EQS" ? (
+        <Screener select={select} correlate={correlate} overlay={overlay} />
+      ) : null}
     </section>
   );
 }
