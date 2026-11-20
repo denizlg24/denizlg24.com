@@ -42,6 +42,22 @@ export const customAverageSchema = z.object({
   source: z.enum(["close", "hl2", "hlc3", "ohlc4"]).default("close"),
 });
 export type CustomAverage = z.infer<typeof customAverageSchema>;
+export const oscillatorKinds = [
+  "rsi",
+  "roc",
+  "zscore",
+  "atr",
+  "stdev",
+  "williams",
+  "cci",
+] as const;
+export type OscillatorKind = (typeof oscillatorKinds)[number];
+export const customPaneSchema = z.object({
+  kind: z.enum(oscillatorKinds),
+  period: z.number().int().min(2).max(500),
+  color: chartColorSchema,
+});
+export type CustomPane = z.infer<typeof customPaneSchema>;
 export const chartAppearanceSchema = z.object({
   grid: z.boolean().default(true),
   crosshair: z.boolean().default(true),
@@ -74,6 +90,7 @@ export const chartPreferencesSchema = z.object({
   log: z.boolean().default(false),
   scale: z.enum(chartScales).optional(),
   averages: z.array(customAverageSchema).max(8).default([]),
+  panes: z.array(customPaneSchema).max(4).default([]),
   appearance: chartAppearanceSchema.default(defaultAppearance),
 });
 
@@ -120,6 +137,7 @@ export const chartTemplateSchema = z.object({
   studies: z.array(studyKeySchema).max(12),
   scale: z.enum(chartScales),
   averages: z.array(customAverageSchema).max(8),
+  panes: z.array(customPaneSchema).max(4).default([]),
   appearance: chartAppearanceSchema,
 });
 export type ChartTemplate = z.infer<typeof chartTemplateSchema>;
@@ -130,6 +148,7 @@ export const defaultChartPreferences: ChartPreferences = {
   studies: [],
   log: false,
   averages: [],
+  panes: [],
   appearance: defaultAppearance,
 };
 const title = z.string().trim().min(1).max(120);

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { DropdownMenu, Popover } from "radix-ui";
 import {
+  Activity,
   Baseline,
   BellPlus,
   ChevronDown,
@@ -28,12 +29,20 @@ import {
 import {
   averageKinds,
   chartScales,
+  oscillatorKinds,
   type ChartAppearance,
   type ChartScale,
   type ChartTemplate,
   type CustomAverage,
+  type CustomPane,
+  type OscillatorKind,
 } from "@/lib/models";
-import { averageLabel, drawingPalette, toolLabels } from "@/lib/chart-studio";
+import {
+  averageLabel,
+  drawingPalette,
+  paneLabel,
+  toolLabels,
+} from "@/lib/chart-studio";
 import { symbolPattern } from "@/lib/universes";
 import type { Tool } from "./drawing-layer";
 
@@ -521,5 +530,100 @@ export function TemplateMenu({
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+const paneColors = ["#a565c9", "#23798a", "#c9a227", "#d0503c"];
+
+export function PaneEditor({
+  value,
+  onChange,
+}: {
+  value: CustomPane[];
+  onChange: (panes: CustomPane[]) => void;
+}) {
+  const [kind, setKind] = useState<OscillatorKind>("rsi");
+  const [period, setPeriod] = useState("21");
+  const n = Number(period);
+  const valid = Number.isInteger(n) && n >= 2 && n <= 500 && value.length < 4;
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button" className="chip chip-menu" title="Custom oscillator panes">
+          <Activity size={14} aria-hidden />
+          <span>Panes{value.length ? ` · ${value.length}` : ""}</span>
+          <ChevronDown size={12} aria-hidden />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className="menu-content studio-popover" align="end" sideOffset={4}>
+          <h4>Custom panes</h4>
+          {value.length ? (
+            <ul className="studio-list">
+              {value.map((pane, index) => (
+                <li key={`${paneLabel(pane)}-${index}`}>
+                  <input
+                    type="color"
+                    value={pane.color}
+                    aria-label={`Colour of ${paneLabel(pane)}`}
+                    onChange={(event) =>
+                      onChange(value.map((item, i) => (i === index ? { ...item, color: event.target.value } : item)))
+                    }
+                  />
+                  <span>{paneLabel(pane)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${paneLabel(pane)}`}
+                    onClick={() => onChange(value.filter((_, i) => i !== index))}
+                  >
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Any oscillator, any period, each in its own pane. Up to four.</p>
+          )}
+          <form
+            className="studio-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!valid) return;
+              onChange([...value, { kind, period: n, color: paneColors[value.length % paneColors.length] }]);
+            }}
+          >
+            <select
+              className="studio-select"
+              value={kind}
+              aria-label="Oscillator"
+              onChange={(event) => {
+                const next = oscillatorKinds.find((item) => item === event.target.value);
+                if (next) setKind(next);
+              }}
+            >
+              <option value="rsi">RSI</option>
+              <option value="roc">Rate of change</option>
+              <option value="zscore">Z-score</option>
+              <option value="atr">ATR</option>
+              <option value="stdev">Return std dev</option>
+              <option value="williams">Williams %R</option>
+              <option value="cci">CCI</option>
+            </select>
+            <input
+              className="studio-select"
+              type="number"
+              min={2}
+              max={500}
+              value={period}
+              aria-label="Period"
+              onChange={(event) => setPeriod(event.target.value)}
+            />
+            <button type="submit" className="chip" disabled={!valid}>
+              Add
+            </button>
+          </form>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

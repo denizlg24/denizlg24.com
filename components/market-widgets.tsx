@@ -77,6 +77,7 @@ import {
   DrawingTools,
   ExportMenu,
   FullscreenToggle,
+  PaneEditor,
   ScalePicker,
   TemplateMenu,
   compareColors,
@@ -90,6 +91,7 @@ import {
   type ChartScale,
   type ChartTemplate,
   type CustomAverage,
+  type CustomPane,
   type Drawing,
 } from "@/lib/models";
 import type { StudyKey } from "@/lib/indicators";
@@ -254,6 +256,7 @@ export function ChartPanel({
   const [averages, setAverages] = useState<CustomAverage[]>(
     preferences.averages ?? [],
   );
+  const [panes, setPanes] = useState<CustomPane[]>(preferences.panes ?? []);
   const [appearance, setAppearance] = useState<ChartAppearance>(
     preferences.appearance ?? defaultAppearance,
   );
@@ -350,6 +353,7 @@ export function ChartPanel({
     log,
     scale,
     averages,
+    panes,
     appearance,
   };
   const dirty = savePreferences && !samePreferences(current, preferences);
@@ -480,8 +484,9 @@ export function ChartPanel({
           {templates && saveTemplates ? (
             <TemplateMenu
               templates={templates}
-              current={{ style, studies, scale, averages, appearance }}
+              current={{ style, studies, scale, averages, panes, appearance }}
               apply={(template) => {
+                setPanes(template.panes);
                 setStyle(template.style);
                 setStudies(template.studies);
                 setScale(template.scale);
@@ -492,6 +497,7 @@ export function ChartPanel({
             />
           ) : null}
           <AverageEditor value={averages} onChange={setAverages} />
+          <PaneEditor value={panes} onChange={setPanes} />
           <ScalePicker value={scale} onChange={setScale} />
           <AppearanceMenu value={appearance} onChange={setAppearance} />
           <ExportMenu
@@ -577,6 +583,7 @@ export function ChartPanel({
             studies={studies}
             scale={scale}
             averages={averages}
+            customPanes={panes}
             appearance={appearance}
             compare={compareSeries}
             drawings={mine}

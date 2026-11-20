@@ -29,13 +29,20 @@ import {
   type ChartScale,
   type ChartStyle,
   type CorporateEvent,
+  customAverageSchema,
+  customPaneSchema,
   type CustomAverage,
+  type CustomPane,
   type Drawing,
 } from "@/lib/models";
 import {
   averageKey,
   averageLabel,
   computeAverages,
+  computePanes,
+  paneGuides,
+  paneKey,
+  paneLabel,
   rebaseOnto,
 } from "@/lib/chart-studio";
 import { DrawingLayer, type Tool } from "./chart/drawing-layer";
@@ -350,7 +357,8 @@ function overlays(key: StudyKey): ReactNode {
 }
 
 type PaneSpec = {
-  key: StudyKey;
+  key: string;
+  label?: string;
   domain?: [number, number];
   levels?: number[];
   lines: { key: string; color: string; label: string }[];
@@ -463,6 +471,7 @@ export default function PriceChart({
   log = false,
   scale: scaleMode,
   averages = [],
+  customPanes = [],
   appearance = defaultAppearance,
   compare = [],
   drawings = [],
@@ -487,6 +496,7 @@ export default function PriceChart({
   log?: boolean;
   scale?: ChartScale;
   averages?: CustomAverage[];
+  customPanes?: CustomPane[];
   appearance?: ChartAppearance;
   compare?: CompareSeries[];
   drawings?: Drawing[];
@@ -510,12 +520,17 @@ export default function PriceChart({
   const logScale = scaleKind === "log";
   const studyKey = studies.join(",");
   const averageSpec = JSON.stringify(averages);
+  const paneSpec = JSON.stringify(customPanes);
   const all = useMemo(() => {
     const keys = studyKey ? (studyKey.split(",") as StudyKey[]) : [];
     const rows = computeStudies(points, keys);
     const custom = computeAverages(
       points,
-      JSON.parse(averageSpec) as CustomAverage[],
+      customAverageSchema.array().parse(JSON.parse(averageSpec)),
+    );
+    const oscillators = computePanes(
+      points,
+      customPaneSchema.array().parse(JSON.parse(paneSpec)),
     );
     const shown = style === "heikin" ? heikinAshi(points) : points;
     return shown.slice(lead).map((point, offset): Entry => {
@@ -523,6 +538,9 @@ export default function PriceChart({
       const extra: Record<string, number | null> = {};
       custom.forEach((series, index) => {
         extra[averageKey(index)] = series[i];
+      });
+      oscillators.forEach((series, index) => {
+        extra[paneKey(index)] = series[i];
       });
       return {
         ...point,
@@ -533,7 +551,7 @@ export default function PriceChart({
         actual: points[i],
       };
     });
-  }, [points, lead, style, studyKey, averageSpec]);
+  }, [points, lead, style, studyKey, averageSpec, paneSpec]);
 
   const [zoomWindow, setWindow] = useState<[number, number] | null>(null);
   const total = all.length;
@@ -617,9 +635,19 @@ export default function PriceChart({
   const priceStudies = studies.filter(
     (key) => studyInfo.get(key)?.pane === "price",
   );
-  const panes = small
+  const panes: PaneSpec[] = small
     ? []
-    : studies.flatMap((key) => (paneSpecs[key] ? [paneSpecs[key]] : []));
+    : [
+        ...studies.flatMap((key) => (paneSpecs[key] ? [paneSpecs[key]] : [])),
+        ...customPanes.map(
+          (pane, index): PaneSpec => ({
+            key: paneKey(index),
+            label: paneLabel(pane),
+            ...paneGuides[pane.kind],
+            lines: [{ key: paneKey(index), color: pane.color, label: "" }],
+          }),
+        ),
+      ];
   const first = values[0];
   const active = (hover != null ? values[hover] : undefined) ?? values.at(-1);
   const bar = active?.actual;
@@ -1039,7 +1067,9 @@ export default function PriceChart({
           </ResponsiveContainer>
         </div>
         {panes.map((pane) => {
-          const info = studyInfo.get(pane.key);
+          const info = pane.label
+            ? { short: pane.label }
+            : studyInfo.get(pane.key as StudyKey);
           return (
             <div
               key={pane.key}

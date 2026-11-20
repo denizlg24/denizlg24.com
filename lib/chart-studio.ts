@@ -1,5 +1,20 @@
-import { ema, sma, type Bar } from "./indicators";
-import type { ChartPoint, CustomAverage, DrawingKind } from "./models";
+import {
+  cci,
+  ema,
+  rsi,
+  sma,
+  stdev,
+  trueRange,
+  williams,
+  type Bar,
+} from "./indicators";
+import type {
+  ChartPoint,
+  CustomAverage,
+  CustomPane,
+  DrawingKind,
+  OscillatorKind,
+} from "./models";
 
 type Series = (number | null)[];
 
@@ -132,4 +147,66 @@ export function nearestIndex(times: number[], time: number) {
   if (lo > 0 && Math.abs(times[lo - 1] - time) < Math.abs(times[lo] - time))
     return lo - 1;
   return lo;
+}
+
+const paneLabels: Record<OscillatorKind, string> = {
+  rsi: "RSI",
+  roc: "ROC",
+  zscore: "Z-score",
+  atr: "ATR",
+  stdev: "StdDev",
+  williams: "%R",
+  cci: "CCI",
+};
+export const paneLabel = (pane: CustomPane) => `${paneLabels[pane.kind]} ${pane.period}`;
+export const paneKey = (index: number) => `osc${index}`;
+
+/** Reference levels and fixed domains that make each oscillator readable. */
+export const paneGuides: Record<
+  OscillatorKind,
+  { levels?: number[]; domain?: [number, number] }
+> = {
+  rsi: { levels: [70, 30], domain: [0, 100] },
+  roc: { levels: [0] },
+  zscore: { levels: [2, 0, -2] },
+  atr: {},
+  stdev: {},
+  williams: { levels: [-20, -80], domain: [-100, 0] },
+  cci: { levels: [100, -100] },
+};
+
+export function computePanes(bars: Bar[], panes: CustomPane[]) {
+  const closes = bars.map((bar) => bar.close);
+  return panes.map((pane): (number | null)[] => {
+    const n = pane.period;
+    switch (pane.kind) {
+      case "rsi":
+        return rsi(closes, n);
+      case "roc":
+        return closes.map((close, i) =>
+          i >= n && closes[i - n] ? (close / closes[i - n] - 1) * 100 : null,
+        );
+      case "zscore": {
+        const mean = sma(closes, n);
+        const deviation = stdev(closes, n, mean);
+        return closes.map((close, i) => {
+          const m = mean[i];
+          const d = deviation[i];
+          return m == null || !d ? null : (close - m) / d;
+        });
+      }
+      case "stdev": {
+        const returns = closes.map((close, i) =>
+          i > 0 && closes[i - 1] ? (close / closes[i - 1] - 1) * 100 : null,
+        );
+        return stdev(returns, n, sma(returns, n));
+      }
+      case "atr":
+        return sma(trueRange(bars), n);
+      case "williams":
+        return williams(bars, n);
+      case "cci":
+        return cci(bars, n);
+    }
+  });
 }
