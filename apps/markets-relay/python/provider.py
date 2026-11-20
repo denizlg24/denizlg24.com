@@ -8,6 +8,7 @@ from urllib.request import urlopen
 
 import yfinance as yf
 from fastapi import HTTPException
+from yfinance.data import YfData
 from yfinance.exceptions import YFPricesMissingError
 
 TICKER = re.compile(r"(?=.*[A-Z0-9])[A-Z0-9.^=:-]{1,24}")
@@ -401,4 +402,451 @@ def financials(ticker, statement, frequency):
         "frequency": frequency,
         "periods": sorted(periods, key=lambda period: period["date"], reverse=True),
         "freshness": {"source": "yahoo", "fetchedAt": now_iso(), "stale": False},
+    }
+
+
+def fraction(value):
+    result = number(value)
+    return None if result is None else result / 100
+
+
+def iso_date(value):
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10]).isoformat()
+        except ValueError:
+            return None
+    seconds = timestamp(value)
+    return seconds[:10] if seconds else None
+
+
+def text(value):
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def integer(value):
+    result = number(value)
+    return None if result is None else int(result)
+
+
+def freshness():
+    return {"source": "yahoo", "fetchedAt": now_iso(), "stale": False}
+
+
+def attempt(load):
+    """Run one sub-source; (None, error) lets siblings still answer."""
+    try:
+        return load(), None
+    except Exception as error:  # noqa: BLE001 - each part degrades independently
+        return None, error
+
+
+def settled(*loads):
+    outcomes = [attempt(load) for load in loads]
+    if all(error for _, error in outcomes):
+        raise outcomes[0][1]
+    return [value for value, _ in outcomes]
+
+
+def pick(source, mapping, convert=number):
+    return {name: convert(source.get(key)) for name, key in mapping.items()}
+
+
+STATS_SECTIONS = {
+    "valuation": {
+        "marketCap": "marketCap",
+        "enterpriseValue": "enterpriseValue",
+        "trailingPE": "trailingPE",
+        "forwardPE": "forwardPE",
+        "pegRatio": "trailingPegRatio",
+        "priceToBook": "priceToBook",
+        "priceToSales": "priceToSalesTrailing12Months",
+        "evToEbitda": "enterpriseToEbitda",
+        "evToRevenue": "enterpriseToRevenue",
+    },
+    "profitability": {
+        "grossMargin": "grossMargins",
+        "operatingMargin": "operatingMargins",
+        "profitMargin": "profitMargins",
+        "returnOnEquity": "returnOnEquity",
+        "returnOnAssets": "returnOnAssets",
+        "revenueGrowth": "revenueGrowth",
+        "earningsGrowth": "earningsGrowth",
+    },
+    "trading": {
+        "beta": "beta",
+        "fiftyTwoWeekHigh": "fiftyTwoWeekHigh",
+        "fiftyTwoWeekLow": "fiftyTwoWeekLow",
+        "fiftyTwoWeekChange": "fiftyTwoWeekChange",
+        "fiftyDayAverage": "fiftyDayAverage",
+        "twoHundredDayAverage": "twoHundredDayAverage",
+        "averageVolume": "averageVolume",
+        "averageVolume10d": "averageVolume10days",
+        "sharesOutstanding": "sharesOutstanding",
+        "floatShares": "floatShares",
+        "sharesShort": "sharesShort",
+        "shortRatio": "shortRatio",
+        "shortPercentOfFloat": "shortPercentOfFloat",
+        "heldPercentInsiders": "heldPercentInsiders",
+        "heldPercentInstitutions": "heldPercentInstitutions",
+    },
+    "fundamentals": {
+        "totalRevenue": "totalRevenue",
+        "ebitda": "ebitda",
+        "netIncome": "netIncomeToCommon",
+        "freeCashflow": "freeCashflow",
+        "operatingCashflow": "operatingCashflow",
+        "totalCash": "totalCash",
+        "totalDebt": "totalDebt",
+        "debtToEquity": "debtToEquity",
+        "currentRatio": "currentRatio",
+        "quickRatio": "quickRatio",
+        "trailingEps": "trailingEps",
+        "forwardEps": "forwardEps",
+        "bookValue": "bookValue",
+    },
+}
+
+
+def stats_from_info(ticker, info):
+    sections = {name: pick(info, mapping) for name, mapping in STATS_SECTIONS.items()}
+    if sections["valuation"]["pegRatio"] is None:
+        sections["valuation"]["pegRatio"] = number(info.get("pegRatio"))
+    # Many symbols only carry the 52-week change under Yahoo's legacy key.
+    if sections["trading"]["fiftyTwoWeekChange"] is None:
+        sections["trading"]["fiftyTwoWeekChange"] = number(info.get("52WeekChange"))
+    # yfinance 1.x reports dividend yields in percent units, unlike every other ratio.
+    sections["dividends"] = {
+        "dividendRate": number(info.get("dividendRate")),
+        "dividendYield": fraction(info.get("dividendYield")),
+        "payoutRatio": number(info.get("payoutRatio")),
+        "exDividendDate": iso_date(info.get("exDividendDate")),
+        "fiveYearAvgDividendYield": fraction(info.get("fiveYearAvgDividendYield")),
+    }
+    return {
+        "ticker": ticker,
+        "currency": text(info.get("currency")),
+        "financialCurrency": text(info.get("financialCurrency")),
+        **sections,
+        "freshness": freshness(),
+    }
+
+
+def stats(ticker):
+    info = yf.Ticker(yahoo_symbol(ticker)).get_info()
+    if not info.get("symbol"):
+        raise HTTPException(404, "Instrument not found")
+    return stats_from_info(ticker, info)
+
+
+def frame_records(frame):
+    if frame is None or not hasattr(frame, "iterrows") or frame.empty:
+        return []
+    return [row.to_dict() for _, row in frame.iterrows()]
+
+
+def trend_rows(frame):
+    return [
+        {
+            "period": text(row.get("period")) or "",
+            **{
+                key: integer(row.get(key)) or 0
+                for key in ("strongBuy", "buy", "hold", "sell", "strongSell")
+            },
+        }
+        for row in frame_records(frame)
+    ]
+
+
+def rating_changes(frame, limit=25):
+    changes = []
+    if frame is None or not hasattr(frame, "iterrows") or frame.empty:
+        return changes
+    for graded, row in frame.sort_index(ascending=False).iterrows():
+        day = iso_date(graded)
+        if day is None:
+            continue
+        changes.append(
+            {
+                "date": day,
+                "firm": text(row.get("Firm")),
+                "toGrade": text(row.get("ToGrade")),
+                "fromGrade": text(row.get("FromGrade")),
+                "action": text(row.get("Action")),
+            }
+        )
+    return changes[:limit]
+
+
+def analysts(ticker):
+    stock = yf.Ticker(yahoo_symbol(ticker))
+    info, targets, trend, changes = settled(
+        stock.get_info,
+        stock.get_analyst_price_targets,
+        stock.get_recommendations,
+        stock.get_upgrades_downgrades,
+    )
+    info = info or {}
+    targets = targets if isinstance(targets, dict) else {}
+    return {
+        "ticker": ticker,
+        "recommendation": {
+            "key": text(info.get("recommendationKey")),
+            "mean": number(info.get("recommendationMean")),
+            "analysts": integer(info.get("numberOfAnalystOpinions")),
+        },
+        "targets": pick(
+            targets, {key: key for key in ("current", "low", "high", "mean", "median")}
+        ),
+        "trend": trend_rows(trend),
+        "changes": rating_changes(changes),
+        "freshness": freshness(),
+    }
+
+
+def holder_rows(frame, limit=15):
+    rows = []
+    for row in frame_records(frame):
+        holder = text(row.get("Holder"))
+        if holder is None:
+            continue
+        rows.append(
+            {
+                "holder": holder,
+                "shares": number(row.get("Shares")),
+                "value": number(row.get("Value")),
+                "percentHeld": number(row.get("pctHeld")),
+                "change": number(row.get("pctChange")),
+                "reportedAt": iso_date(row.get("Date Reported")),
+            }
+        )
+    return rows[:limit]
+
+
+def insider_rows(frame, limit=20):
+    rows = []
+    for row in frame_records(frame):
+        rows.append(
+            {
+                "name": text(row.get("Insider")),
+                "relation": text(row.get("Position")),
+                "transaction": text(row.get("Transaction")) or text(row.get("Text")),
+                "shares": number(row.get("Shares")),
+                "value": number(row.get("Value")),
+                "date": iso_date(row.get("Start Date")),
+            }
+        )
+    rows.sort(key=lambda row: row["date"] or "", reverse=True)
+    return rows[:limit]
+
+
+def holder_breakdown(frame):
+    values = {}
+    if frame is not None and hasattr(frame, "iterrows"):
+        values = {str(key): row.get("Value") for key, row in frame.iterrows()}
+    return {
+        "insidersPercent": number(values.get("insidersPercentHeld")),
+        "institutionsPercent": number(values.get("institutionsPercentHeld")),
+        "institutionsFloatPercent": number(values.get("institutionsFloatPercentHeld")),
+        "institutionsCount": integer(values.get("institutionsCount")),
+    }
+
+
+def holders(ticker):
+    stock = yf.Ticker(yahoo_symbol(ticker))
+    major, institutions, funds, insiders = settled(
+        stock.get_major_holders,
+        stock.get_institutional_holders,
+        stock.get_mutualfund_holders,
+        stock.get_insider_transactions,
+    )
+    return {
+        "ticker": ticker,
+        "breakdown": holder_breakdown(major),
+        "institutions": holder_rows(institutions),
+        "funds": holder_rows(funds),
+        "insiders": insider_rows(insiders),
+        "freshness": freshness(),
+    }
+
+
+def earnings_history(frame, today, limit=12):
+    history = []
+    upcoming = None
+    if frame is None or not hasattr(frame, "iterrows") or frame.empty:
+        return history, upcoming
+    for stamp, row in frame.iterrows():
+        day = stamp.date()
+        actual = number(row.get("Reported EPS"))
+        if actual is None:
+            if day >= today and (upcoming is None or day < upcoming[0]):
+                upcoming = (day, number(row.get("EPS Estimate")))
+            continue
+        history.append(
+            {
+                "date": day.isoformat(),
+                "epsEstimate": number(row.get("EPS Estimate")),
+                "epsActual": actual,
+                "surprisePercent": fraction(row.get("Surprise(%)")),
+            }
+        )
+    history.sort(key=lambda row: row["date"], reverse=True)
+    return history[:limit], upcoming
+
+
+def earnings_next(calendar, upcoming):
+    calendar = calendar if isinstance(calendar, dict) else {}
+    dates = calendar.get("Earnings Date")
+    dates = dates if isinstance(dates, (list, tuple)) else [dates]
+    days = sorted(day for day in map(iso_date, dates) if day)
+    day = days[0] if days else (upcoming[0].isoformat() if upcoming else None)
+    if day is None:
+        return None
+    estimate = number(calendar.get("Earnings Average"))
+    return {
+        "date": day,
+        "epsEstimate": estimate
+        if estimate is not None
+        else (upcoming[1] if upcoming else None),
+        "epsLow": number(calendar.get("Earnings Low")),
+        "epsHigh": number(calendar.get("Earnings High")),
+        "revenueEstimate": number(calendar.get("Revenue Average")),
+        "revenueLow": number(calendar.get("Revenue Low")),
+        "revenueHigh": number(calendar.get("Revenue High")),
+    }
+
+
+def earnings(ticker):
+    stock = yf.Ticker(yahoo_symbol(ticker))
+    calendar, dates = settled(
+        stock.get_calendar, lambda: stock.get_earnings_dates(limit=16)
+    )
+    history, upcoming = earnings_history(dates, datetime.now(UTC).date())
+    return {
+        "ticker": ticker,
+        "next": earnings_next(calendar, upcoming),
+        "history": history,
+        "freshness": freshness(),
+    }
+
+
+SCREENS = {
+    "gainers": "day_gainers",
+    "losers": "day_losers",
+    "actives": "most_actives",
+}
+
+
+def mover_rows(rows):
+    movers = []
+    for row in rows:
+        ticker = str(row.get("symbol") or "").upper()
+        if not TICKER.fullmatch(ticker):
+            continue
+        movers.append(
+            {
+                "ticker": ticker,
+                "name": text(row.get("shortName"))
+                or text(row.get("longName"))
+                or ticker,
+                "last": number(row.get("regularMarketPrice")),
+                "change": number(row.get("regularMarketChange")),
+                "percent": number(row.get("regularMarketChangePercent")),
+                "volume": number(row.get("regularMarketVolume"), nonnegative=True),
+                "averageVolume": number(
+                    row.get("averageDailyVolume3Month"), nonnegative=True
+                ),
+                "marketCap": number(row.get("marketCap"), nonnegative=True),
+                "currency": text(row.get("currency")),
+                "exchange": text(row.get("fullExchangeName"))
+                or text(row.get("exchange")),
+            }
+        )
+    return movers
+
+
+def movers(list_name, limit):
+    result = yf.screen(SCREENS[list_name], count=limit)
+    return {
+        "list": list_name,
+        "quotes": mover_rows(result.get("quotes", []))[:limit],
+        "freshness": freshness(),
+    }
+
+
+GOVERNANCE_FIELDS = (
+    "auditRisk",
+    "boardRisk",
+    "compensationRisk",
+    "shareHolderRightsRisk",
+    "overallRisk",
+)
+
+
+def officer_rows(officers, limit=15):
+    rows = []
+    for officer in officers if isinstance(officers, list) else []:
+        name = text(officer.get("name")) if isinstance(officer, dict) else None
+        if name is None:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "title": text(officer.get("title")),
+                "age": integer(officer.get("age")),
+                "born": integer(officer.get("yearBorn")),
+                "totalPay": number(officer.get("totalPay")),
+            }
+        )
+    return rows[:limit]
+
+
+def people_from_info(ticker, info):
+    return {
+        "ticker": ticker,
+        "officers": officer_rows(info.get("companyOfficers")),
+        "governance": pick(info, {key: key for key in GOVERNANCE_FIELDS}),
+        "freshness": freshness(),
+    }
+
+
+def people(ticker):
+    info = yf.Ticker(yahoo_symbol(ticker)).get_info()
+    if not info.get("symbol"):
+        raise HTTPException(404, "Instrument not found")
+    return people_from_info(ticker, info)
+
+
+def peer_rows(payload, limit=12):
+    peers = {}
+    results = ((payload or {}).get("finance") or {}).get("result") or []
+    for result in results:
+        for row in result.get("recommendedSymbols") or []:
+            peer = str(row.get("symbol") or "").upper()
+            if TICKER.fullmatch(peer) and peer not in peers:
+                peers[peer] = {"ticker": peer, "score": number(row.get("score"))}
+    return list(peers.values())[:limit]
+
+
+def peers(ticker):
+    symbol = yahoo_symbol(ticker)
+    info, _ = attempt(yf.Ticker(symbol).get_info)
+    similar, error = attempt(
+        lambda: YfData().get_raw_json(
+            f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{symbol}"
+        )
+    )
+    if info is None and error:
+        raise error
+    info = info or {}
+    return {
+        "ticker": ticker,
+        "sector": text(info.get("sector")),
+        "industry": text(info.get("industry")),
+        "peers": peer_rows(similar),
+        "freshness": freshness(),
     }

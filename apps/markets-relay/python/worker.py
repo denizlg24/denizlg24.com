@@ -205,6 +205,69 @@ async def financials(
     )
 
 
+@app.get("/v1/stats/{ticker}")
+async def stats(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(("stats", symbol), 900, provider.stats, symbol, stale_for=86400)
+
+
+@app.get("/v1/analysts/{ticker}")
+async def analysts(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(
+        ("analysts", symbol), 3600, provider.analysts, symbol, stale_for=86400
+    )
+
+
+@app.get("/v1/holders/{ticker}")
+async def holders(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(
+        ("holders", symbol), 21600, provider.holders, symbol, stale_for=172800
+    )
+
+
+@app.get("/v1/earnings/{ticker}")
+async def earnings(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(
+        ("earnings", symbol), 3600, provider.earnings, symbol, stale_for=86400
+    )
+
+
+@app.get("/v1/movers")
+async def movers(
+    list_name: Annotated[
+        Literal["gainers", "losers", "actives"], Query(alias="list")
+    ] = "gainers",
+    limit: Annotated[int, Query(ge=1, le=50)] = 25,
+):
+    return await lookup(
+        ("movers", list_name, limit),
+        120,
+        provider.movers,
+        list_name,
+        limit,
+        stale_for=3600,
+    )
+
+
+@app.get("/v1/people/{ticker}")
+async def people(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(
+        ("people", symbol), 86400, provider.people, symbol, stale_for=604800
+    )
+
+
+@app.get("/v1/peers/{ticker}")
+async def peers(ticker: str):
+    symbol = provider.ticker_value(ticker)
+    return await lookup(
+        ("peers", symbol), 86400, provider.peers, symbol, stale_for=604800
+    )
+
+
 @app.get("/v1/macro")
 async def macro():
     return {"series": [provider.macro_metadata(series) for series in provider.MACRO]}

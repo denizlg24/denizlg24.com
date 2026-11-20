@@ -1,9 +1,13 @@
 import type { z } from "zod";
 import {
+  analystViewSchema,
   type CandleQuery,
   candleSeriesSchema,
+  earningsSchema,
   type FinancialFrequency,
   type FinancialStatement,
+  holdersSchema,
+  type MoverList,
   macroCatalogSchema,
   macroHistorySchema,
   marketActionsSchema,
@@ -12,6 +16,10 @@ import {
   marketNewsSchema,
   marketSearchSchema,
   marketSnapshotsSchema,
+  marketStatsSchema,
+  moversSchema,
+  peersSchema,
+  peopleSchema,
 } from "./schemas";
 
 export class MarketDataError extends Error {
@@ -98,6 +106,43 @@ export class MarketDataClient {
       `/v1/financials/${encodeURIComponent(ticker)}`,
       { statement, frequency },
     );
+  }
+
+  stats(ticker: string) {
+    return this.get(
+      marketStatsSchema,
+      `/v1/stats/${encodeURIComponent(ticker)}`,
+    );
+  }
+
+  analysts(ticker: string) {
+    return this.get(
+      analystViewSchema,
+      `/v1/analysts/${encodeURIComponent(ticker)}`,
+    );
+  }
+
+  holders(ticker: string) {
+    return this.get(holdersSchema, `/v1/holders/${encodeURIComponent(ticker)}`);
+  }
+
+  earnings(ticker: string) {
+    return this.get(
+      earningsSchema,
+      `/v1/earnings/${encodeURIComponent(ticker)}`,
+    );
+  }
+
+  movers(list: MoverList = "gainers", limit = 25) {
+    return this.get(moversSchema, "/v1/movers", { list, limit });
+  }
+
+  people(ticker: string) {
+    return this.get(peopleSchema, `/v1/people/${encodeURIComponent(ticker)}`);
+  }
+
+  peers(ticker: string) {
+    return this.get(peersSchema, `/v1/peers/${encodeURIComponent(ticker)}`);
   }
 
   macroCatalog() {
