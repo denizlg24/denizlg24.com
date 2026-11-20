@@ -14,7 +14,13 @@ import {
 } from "@/components/shared";
 import { Freshness } from "@/components/freshness";
 import { ChartPanel, useQuotes } from "@/components/market-widgets";
-import type { ChartPreferences } from "@/lib/models";
+import type {
+  ChartPreferences,
+  ChartTemplate,
+  Drawing,
+  RelationNote,
+  Workspace,
+} from "@/lib/models";
 import type {
   Actions,
   AnalystView,
@@ -31,6 +37,7 @@ import { securityFunctions, type SecurityFunction } from "@/lib/terminal";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
 import { FunctionBar } from "./functions";
 import { SupplyChain } from "./supply-chain";
+import { Backtest, BetaView, SeasonalityView, Volatility } from "./quant";
 
 type Fetch<T> = { data?: T; error?: Error; isLoading: boolean; retry: () => void };
 
@@ -1156,6 +1163,15 @@ export function SecurityView({
   onWatch,
   onResearch,
   select,
+  openFunction,
+  drawings,
+  saveDrawings,
+  alerts,
+  createAlert,
+  relations,
+  saveRelations,
+  templates,
+  saveTemplates,
 }: {
   ticker: string;
   fn: SecurityFunction;
@@ -1167,6 +1183,15 @@ export function SecurityView({
   onWatch: () => void;
   onResearch: () => void;
   select: (symbol: string) => void;
+  openFunction?: (symbol: string, fn: SecurityFunction) => void;
+  drawings?: Drawing[];
+  saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
+  alerts?: Workspace["alerts"];
+  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  relations?: RelationNote[];
+  saveRelations?: (next: RelationNote[]) => void;
+  templates?: ChartTemplate[];
+  saveTemplates?: (next: ChartTemplate[]) => void;
 }) {
   if (fn === "GP")
     return (
@@ -1180,6 +1205,12 @@ export function SecurityView({
         onFunction={setFn}
         preferences={preferences}
         savePreferences={savePreferences}
+        drawings={drawings}
+        saveDrawings={saveDrawings}
+        alerts={alerts}
+        createAlert={createAlert}
+        templates={templates}
+        saveTemplates={saveTemplates}
       />
     );
   const info = securityFunctions.find((item) => item.code === fn);
@@ -1199,7 +1230,17 @@ export function SecurityView({
       {fn === "DVD" ? <DividendsView ticker={ticker} /> : null}
       {fn === "CN" ? <CompanyNews ticker={ticker} /> : null}
       {fn === "RELS" ? <RelationshipMap ticker={ticker} select={select} /> : null}
-      {fn === "SPLC" ? <SupplyChain ticker={ticker} select={select} /> : null}
+      {fn === "HVT" ? <Volatility ticker={ticker} /> : null}
+      {fn === "BETA" ? <BetaView ticker={ticker} /> : null}
+      {fn === "SEAS" ? <SeasonalityView ticker={ticker} /> : null}
+      {fn === "BTST" ? <Backtest ticker={ticker} /> : null}
+      {fn === "SPLC" ? <SupplyChain
+          ticker={ticker}
+          select={select}
+          openFunction={openFunction}
+          notes={relations}
+          saveNotes={saveRelations}
+        /> : null}
     </section>
   );
 }

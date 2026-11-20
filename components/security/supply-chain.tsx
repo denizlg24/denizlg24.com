@@ -12,6 +12,10 @@ import type {
   Verified,
 } from "@/lib/supply-chain-types";
 import { amount, percent, tone } from "@/lib/utils";
+import type { SecurityFunction } from "@/lib/terminal";
+import { downloadCsv } from "@/lib/export";
+import { SupplyGraph } from "./supply-graph";
+import type { RelationNote } from "@/lib/models";
 
 type Check = { state: "pending" | "done" | "failed"; link: Link | null };
 const CONCURRENCY = 3;
@@ -114,13 +118,41 @@ function LinkCard({
   );
 }
 
+const modes = [
+  ["graph", "Graph"],
+  ["cards", "Columns"],
+  ["table", "Table"],
+] as const;
+type Mode = (typeof modes)[number][0];
+const MODE_KEY = "stockwatcher.splc.mode";
+
 export function SupplyChain({
   ticker,
   select,
+  openFunction,
+  notes,
+  saveNotes,
 }: {
   ticker: string;
   select: (symbol: string) => void;
+  openFunction?: (symbol: string, fn: SecurityFunction) => void;
+  notes?: RelationNote[];
+  saveNotes?: (next: RelationNote[]) => void;
 }) {
+  const [mode, setModeState] = useState<Mode>(() => {
+    try {
+      const stored = localStorage.getItem(MODE_KEY);
+      return modes.find(([key]) => key === stored)?.[0] ?? "graph";
+    } catch {
+      return "graph";
+    }
+  });
+  const setMode = (next: Mode) => {
+    setModeState(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {}
+  };
   const own = useSWR<OwnDisclosure>(
     `/api/supply-chain?${new URLSearchParams({ symbol: ticker, part: "own" })}`,
     api,
@@ -189,6 +221,113 @@ export function SupplyChain({
             ? " · searching other filings…"
             : ""}
       </p>
+      <div className="term-toolbar">
+        <div className="seg" role="group" aria-label="Supply chain view">
+          {modes.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={mode === key}
+              onClick={() => setMode(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {all.length ? (
+          <button
+            type="button"
+            className="chip"
+            onClick={() =>
+              downloadCsv(
+                all.map((link) => ({
+                  counterparty: link.counterparty,
+                  ticker: link.ticker ?? "",
+                  role: link.role,
+                  share: link.share,
+                  shareOf: link.shareOf,
+                  period: link.period ?? "",
+                  filing: `${link.source.name} ${link.source.form} ${link.source.filed}`,
+                  url: link.source.url,
+                  quote: link.quote,
+                })),
+                `${ticker}-relationships`,
+              )
+            }
+          >
+            Export CSV
+          </button>
+        ) : null}
+      </div>
+      {mode === "graph" ? (
+        <SupplyGraph
+          key={ticker}
+          ticker={ticker}
+          company={company}
+          links={all}
+          loading={own.isLoading || pending > 0}
+          select={select}
+          openFunction={openFunction}
+          notes={notes}
+          saveNotes={saveNotes}
+        />
+      ) : null}
+      {mode === "table" ? (
+        <div className="desk-table-wrap term-table-wrap">
+          <table className="data-table term-table">
+            <thead>
+              <tr>
+                <th>Counterparty</th>
+                <th>Ticker</th>
+                <th>Role</th>
+                <th className="num">Share</th>
+                <th className="num">Day</th>
+                <th>Period</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {all.map((link) => (
+                <tr key={`${link.role}-${link.counterparty}`} data-role={link.role}>
+                  <td>{link.counterparty}</td>
+                  <td>
+                    {link.ticker ? (
+                      <button
+                        type="button"
+                        className="security-link"
+                        onClick={() => link.ticker && select(link.ticker)}
+                      >
+                        {link.ticker}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="splc-role">{link.role}</td>
+                  <td className="num">
+                    {link.share == null
+                      ? "—"
+                      : `${amount(link.share * 100)}%${link.shareOf === "counterparty" ? "*" : ""}`}
+                  </td>
+                  <td className={`num ${tone(link.ticker ? move.get(link.ticker) : null)}`}>
+                    {link.ticker ? percent(move.get(link.ticker)) : "—"}
+                  </td>
+                  <td>{link.period ?? "—"}</td>
+                  <td>
+                    <a href={link.source.url} target="_blank" rel="noreferrer" title={link.quote}>
+                      {filingLabel(link)}
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="term-source">
+            * share of the counterparty&apos;s revenue rather than {ticker}&apos;s.
+          </p>
+        </div>
+      ) : null}
+      {mode === "cards" ? (
       <div className="splc-grid">
         <section aria-label="Suppliers">
           <h3>Suppliers · sell to {ticker}</h3>
@@ -226,6 +365,7 @@ export function SupplyChain({
           )}
         </section>
       </div>
+      ) : null}
       {unconfirmed.length ? (
         <details className="splc-unconfirmed">
           <summary>

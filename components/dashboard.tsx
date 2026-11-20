@@ -18,10 +18,12 @@ import {
 import { Desk } from "./desk/desk";
 import { CommandHelp } from "./shell/command-line";
 import { useLiveStatus } from "./live-quotes";
-import type { ChartPreferences } from "@/lib/models";
+import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
 import { encodeOverlay } from "@/lib/overlay";
 import {
+  functionKeys,
   monitorFunctions,
+  parseCommand,
   securityFunctions,
   type Command,
   type MonitorFunction,
@@ -32,6 +34,7 @@ import { SearchDialog } from "./shell/search-dialog";
 import { Settings, type Account } from "./shell/settings";
 import { Sidebar } from "./shell/sidebar";
 import { Topbar } from "./shell/topbar";
+import { PanelTabs } from "./shell/panel-tabs";
 import { useHash, useMediaQuery, useStoredFlag } from "./shell/hooks";
 import { homeView, viewFromHash, viewLabel, type View } from "./shell/nav";
 import type { WorkspaceRecord } from "@/lib/db";
@@ -232,12 +235,88 @@ export function Dashboard({
     },
     [save, notify],
   );
+  const saveDrawings = useCallback(
+    (symbol: string, next: Drawing[]) =>
+      save((current) => ({
+        ...current,
+        drawings: [
+          ...current.drawings.filter((item) => item.symbol !== symbol),
+          ...next,
+        ].slice(-600),
+      })).catch((error: Error) => {
+        notify(error.message, true);
+        throw error;
+      }),
+    [save, notify],
+  );
+  const createAlert = useCallback(
+    (symbol: string, target: number, direction: "above" | "below") =>
+      void save((current) => ({
+        ...current,
+        alerts: [
+          ...current.alerts,
+          {
+            id: crypto.randomUUID(),
+            symbol,
+            direction,
+            target,
+            enabled: true,
+            lastTriggered: null,
+            triggeredPrice: null,
+          },
+        ].slice(-60),
+      }))
+        .then(() =>
+          notify(
+            `Alert set: ${symbol} ${direction === "above" ? "at or above" : "at or below"} ${target}.`,
+          ),
+        )
+        .catch((error: Error) => notify(error.message, true)),
+    [save, notify],
+  );
+  const saveTemplates = useCallback(
+    (chartTemplates: ChartTemplate[]) =>
+      void save((current) => ({ ...current, chartTemplates })).catch(
+        (error: Error) => notify(error.message, true),
+      ),
+    [save, notify],
+  );
+  const runCommandRef = useRef<(command: Command) => void>(() => undefined);
+  const touring = useRef(false);
+  const workspaceRef = useRef(workspace);
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
+  const beginTour = useCallback(() => {
+    if (touring.current) return;
+    touring.current = true;
+    setHelp(false);
+    setNavOpen(false);
+    void import("./shell/tour").then(({ startTour }) =>
+      startTour(() => {
+        touring.current = false;
+        if (!workspaceRef.current.tourSeen)
+          void save((current) => ({ ...current, tourSeen: true })).catch(
+            () => undefined,
+          );
+      }),
+    );
+  }, [save]);
+  useEffect(() => {
+    if (workspace.tourSeen || navigator.webdriver) return;
+    const timer = setTimeout(beginTour, 900);
+    return () => clearTimeout(timer);
+    // Only on first load: later workspace refreshes must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function runCommand(command: Command) {
     setNavOpen(false);
     if (command.kind === "help") setHelp(true);
+    else if (command.kind === "tour") beginTour();
     else if (command.kind === "search") setSearch(true);
     else if (command.kind === "view") go(command.view);
-    else if (command.kind === "monitor") link({ view: "monitor", fn: command.fn });
+    else if (command.kind === "monitor")
+      link({ view: "monitor", fn: command.fn, symbols: command.symbols });
     else if (command.kind === "overlay")
       link({
         view: "overlay",
@@ -285,6 +364,23 @@ export function Dashboard({
   }, []);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
+      const fkey = functionKeys.find((item) => item.key === event.key);
+      if (fkey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        const command = parseCommand(fkey.command);
+        if (command) runCommandRef.current(command);
+        return;
+      }
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+      if (event.key === "?" && !typing && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        setHelp(true);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
       if (key === "k") {
@@ -374,6 +470,10 @@ export function Dashboard({
     [openAssistant],
   );
 
+  useEffect(() => {
+    runCommandRef.current = runCommand;
+  });
+
   const currentDashboard =
     view === "markets"
       ? marketState
@@ -438,6 +538,7 @@ export function Dashboard({
       />
       <main className="shell-main" id="workspace-main" ref={main} tabIndex={-1}>
         <div className="shell-content">
+          <PanelTabs hash={hash} />
           <header className="view-header">
             <h1>
               {view === "security"
@@ -484,6 +585,12 @@ export function Dashboard({
                   savePreferences={savePreferences}
                   since={since}
                   clearSince={() => link({ ...marketState, since: undefined })}
+                  drawings={workspace.drawings}
+                  saveDrawings={saveDrawings}
+                  alerts={workspace.alerts}
+                  createAlert={createAlert}
+                  templates={workspace.chartTemplates}
+                  saveTemplates={saveTemplates}
                 />
               )}
               <MarketMap
@@ -523,6 +630,21 @@ export function Dashboard({
               select={(symbol) =>
                 link({ view: "security", ticker: symbol, fn: "GP" })
               }
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
+              drawings={workspace.drawings}
+              saveDrawings={saveDrawings}
+              alerts={workspace.alerts}
+              createAlert={createAlert}
+              templates={workspace.chartTemplates}
+              saveTemplates={saveTemplates}
+              relations={workspace.relations}
+              saveRelations={(relations) =>
+                void save((current) => ({ ...current, relations })).catch(
+                  (error: Error) => notify(error.message, true),
+                )
+              }
             />
           ) : null}
           {view === "monitor" ? (
@@ -533,6 +655,28 @@ export function Dashboard({
                 link({ view: "security", ticker: symbol, fn: "GP" })
               }
               refresh={refresh}
+              symbols={viewState?.symbols}
+              correlate={(symbols) =>
+                link({ view: "monitor", fn: "CORR", symbols })
+              }
+              overlay={(symbols) =>
+                runCommand({ kind: "overlay", series: symbols })
+              }
+              screens={workspace.screens}
+              books={workspace.books}
+              trades={workspace.trades}
+              watchlists={workspace.watchlists}
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
+              saveScreens={(screens) =>
+                save((current) => ({ ...current, screens })).catch(
+                  (error: Error) => {
+                    notify(error.message, true);
+                    throw error;
+                  },
+                )
+              }
             />
           ) : null}
           {view === "overlay" ? (
@@ -676,7 +820,9 @@ export function Dashboard({
           }}
         />
       ) : null}
-      {help ? <CommandHelp close={() => setHelp(false)} /> : null}
+      {help ? (
+        <CommandHelp close={() => setHelp(false)} onTour={beginTour} />
+      ) : null}
       {modal === "symbol" ? (
         <AddSymbolDialog
           lists={workspace.watchlists}

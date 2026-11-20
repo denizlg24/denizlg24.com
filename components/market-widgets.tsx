@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
 import {
@@ -70,6 +70,30 @@ import {
   StylePicker,
 } from "./chart-controls";
 import { FunctionBar, type SecurityFunction } from "./security/functions";
+import {
+  AppearanceMenu,
+  AverageEditor,
+  CompareControl,
+  DrawingTools,
+  ExportMenu,
+  FullscreenToggle,
+  PaneEditor,
+  ScalePicker,
+  TemplateMenu,
+  compareColors,
+  toolShortcuts,
+} from "./chart/studio-controls";
+import type { Tool } from "./chart/drawing-layer";
+import { downloadCsv, downloadPng, downloadSvg } from "@/lib/export";
+import {
+  defaultAppearance,
+  type ChartAppearance,
+  type ChartScale,
+  type ChartTemplate,
+  type CustomAverage,
+  type CustomPane,
+  type Drawing,
+} from "@/lib/models";
 import type { StudyKey } from "@/lib/indicators";
 
 const PriceChart = dynamic(() => import("./price-chart"), {
@@ -86,7 +110,7 @@ type QuotesData = {
 type SearchData = { instruments: Instrument[]; news: News[] };
 const benchmarkSymbols = Object.keys(benchmarks).join(",");
 const benchmarkLabels = benchmarks as Record<string, string>;
-const marketURL = (query: Record<string, string>) =>
+export const marketURL = (query: Record<string, string>) =>
   `/api/market?${new URLSearchParams(query)}`;
 
 function withTick(quote: Quote, tick: LiveTick | undefined): Quote {
@@ -199,6 +223,12 @@ export function ChartPanel({
   savePreferences,
   since,
   clearSince,
+  drawings = [],
+  saveDrawings,
+  alerts = [],
+  createAlert,
+  templates,
+  saveTemplates,
 }: {
   ticker: string;
   refresh: boolean;
@@ -210,11 +240,91 @@ export function ChartPanel({
   savePreferences?: (next: ChartPreferences) => Promise<void>;
   since?: string;
   clearSince?: () => void;
+  drawings?: Drawing[];
+  saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
+  alerts?: { symbol: string; target: number; direction: "above" | "below"; enabled: boolean }[];
+  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  templates?: ChartTemplate[];
+  saveTemplates?: (next: ChartTemplate[]) => void;
 }) {
   const [range, setRange] = useState<Range>(preferences.range);
   const [style, setStyle] = useState<ChartStyle>(preferences.style);
   const [studies, setStudies] = useState<StudyKey[]>(preferences.studies);
-  const [log, setLog] = useState(preferences.log);
+  const [scale, setScale] = useState<ChartScale>(
+    preferences.scale ?? (preferences.log ? "log" : "linear"),
+  );
+  const [averages, setAverages] = useState<CustomAverage[]>(
+    preferences.averages ?? [],
+  );
+  const [panes, setPanes] = useState<CustomPane[]>(preferences.panes ?? []);
+  const [appearance, setAppearance] = useState<ChartAppearance>(
+    preferences.appearance ?? defaultAppearance,
+  );
+  const [compare, setCompare] = useState<string[]>([]);
+  const [tool, setTool] = useState<Tool>("cursor");
+  const [drawColor, setDrawColor] = useState("#e0a030");
+  const [fullscreen, setFullscreen] = useState(false);
+  const [local, setLocal] = useState<Drawing[] | null>(null);
+  const chartArea = useRef<HTMLDivElement>(null);
+  const mine = (local ?? drawings).filter((item) => item.symbol === ticker);
+  const updateDrawings = (next: Drawing[]) => {
+    setLocal([
+      ...(local ?? drawings).filter((item) => item.symbol !== ticker),
+      ...next,
+    ]);
+    void saveDrawings?.(ticker, next).catch(() => setLocal(null));
+  };
+  useEffect(() => {
+    function keys(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+      )
+        return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Escape") {
+        setTool("cursor");
+        setFullscreen(false);
+        return;
+      }
+      if (!saveDrawings) return;
+      const next = toolShortcuts.get(event.key.toLowerCase());
+      if (next && event.shiftKey) {
+        event.preventDefault();
+        setTool(next);
+      }
+    }
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, [saveDrawings]);
+  const compareKey = compare.length
+    ? ["compare", range, since ?? "", ...compare]
+    : null;
+  const { data: compareData } = useSWR(
+    compareKey,
+    () =>
+      Promise.all(
+        compare.map((symbol) =>
+          api<MarketSeries>(
+            marketURL({ symbol, range, ...(since ? { since } : {}) }),
+          ).then((result) => ({ symbol, points: result.points })),
+        ),
+      ),
+    { revalidateOnFocus: false, errorRetryCount: 1 },
+  );
+  const compareSeries = useMemo(
+    () =>
+      (compareData ?? []).flatMap((item) => {
+        const index = compare.indexOf(item.symbol);
+        return index < 0
+          ? []
+          : [{ ...item, color: compareColors[index % compareColors.length] }];
+      }),
+    [compareData, compare],
+  );
+  const log = scale === "log";
   const [saving, setSaving] = useState(false);
   const { data, error, mutate, isLoading } = useSWR<MarketSeries>(
     marketURL({
@@ -236,12 +346,21 @@ export function ChartPanel({
     oldest?.close && latest ? (latest.close / oldest.close - 1) * 100 : null;
   const title = benchmarkLabels[ticker] ?? snapshot?.name ?? ticker;
   const unit = ticker.startsWith("^") ? "pts" : snapshot?.currency;
-  const current: ChartPreferences = { style, range, studies, log };
+  const current: ChartPreferences = {
+    style,
+    range,
+    studies,
+    log,
+    scale,
+    averages,
+    panes,
+    appearance,
+  };
   const dirty = savePreferences && !samePreferences(current, preferences);
   const turnover =
     snapshot?.volume != null ? snapshot.volume * snapshot.price : null;
   return (
-    <section className="panel chart-panel">
+    <section className="panel chart-panel" data-fullscreen={fullscreen || undefined}>
       <div className="chart-heading">
         <div className="ticker-identity">
           <div>
@@ -362,15 +481,56 @@ export function ChartPanel({
         <div className="row-actions chart-toggles">
           <StylePicker value={style} onChange={setStyle} />
           <StudyPicker value={studies} onChange={setStudies} />
-          <button
-            type="button"
-            className="chip"
-            title="Logarithmic price scale"
-            aria-pressed={log}
-            onClick={() => setLog(!log)}
-          >
-            Log
-          </button>
+          {templates && saveTemplates ? (
+            <TemplateMenu
+              templates={templates}
+              current={{ style, studies, scale, averages, panes, appearance }}
+              apply={(template) => {
+                setPanes(template.panes);
+                setStyle(template.style);
+                setStudies(template.studies);
+                setScale(template.scale);
+                setAverages(template.averages);
+                setAppearance(template.appearance);
+              }}
+              save={saveTemplates}
+            />
+          ) : null}
+          <AverageEditor value={averages} onChange={setAverages} />
+          <PaneEditor value={panes} onChange={setPanes} />
+          <ScalePicker value={scale} onChange={setScale} />
+          <AppearanceMenu value={appearance} onChange={setAppearance} />
+          <ExportMenu
+            onPng={() => {
+              const svgs = [
+                ...(chartArea.current?.querySelectorAll<SVGSVGElement>(
+                  "svg.recharts-surface",
+                ) ?? []),
+              ];
+              void downloadPng(svgs, `${ticker}-${range}`);
+            }}
+            onSvg={() => {
+              const svg = chartArea.current?.querySelector<SVGSVGElement>(
+                "svg.recharts-surface",
+              );
+              if (svg) downloadSvg(svg, `${ticker}-${range}`);
+            }}
+            onCsv={() =>
+              downloadCsv(
+                (data?.points ?? []).slice(lead).map((point) => ({
+                  date: new Date(point.time * 1000).toISOString(),
+                  open: point.open,
+                  high: point.high,
+                  low: point.low,
+                  close: point.close,
+                  adjustedClose: point.adjustedClose ?? "",
+                  volume: point.volume ?? "",
+                })),
+                `${ticker}-${range}`,
+              )
+            }
+          />
+          <FullscreenToggle value={fullscreen} onChange={setFullscreen} />
           {dirty ? (
             <button
               type="button"
@@ -387,6 +547,19 @@ export function ChartPanel({
           ) : null}
         </div>
       </div>
+      <div className="studio-bar">
+        {saveDrawings ? (
+          <DrawingTools
+            tool={tool}
+            setTool={setTool}
+            color={drawColor}
+            setColor={setDrawColor}
+            count={mine.length}
+            clear={() => updateDrawings([])}
+          />
+        ) : null}
+        <CompareControl ticker={ticker} value={compare} onChange={setCompare} />
+      </div>
       <StudyChips
         value={studies}
         onRemove={(key) => setStudies(studies.filter((item) => item !== key))}
@@ -400,16 +573,51 @@ export function ChartPanel({
       {isLoading ? (
         <Loading message="Loading price history" />
       ) : data?.points.length ? (
-        <PriceChart
-          points={data.points}
-          lead={lead}
-          range={since ? "1Y" : range}
-          style={style}
-          studies={studies}
-          log={log}
-          previousClose={snapshot?.previous}
-          currency={unit}
-        />
+        <div ref={chartArea} className="studio-chart">
+          <PriceChart
+            key={`${range}-${since ?? ""}`}
+            points={data.points}
+            lead={lead}
+            range={since ? "1Y" : range}
+            style={style}
+            studies={studies}
+            scale={scale}
+            averages={averages}
+            customPanes={panes}
+            appearance={appearance}
+            compare={compareSeries}
+            drawings={mine}
+            tool={tool}
+            drawColor={drawColor}
+            symbol={ticker}
+            onAddDrawing={
+              saveDrawings
+                ? (drawing) => updateDrawings([...mine, drawing].slice(-80))
+                : undefined
+            }
+            onRemoveDrawing={
+              saveDrawings
+                ? (id) => updateDrawings(mine.filter((item) => item.id !== id))
+                : undefined
+            }
+            zoomable
+            events={data.events}
+            alertLevels={alerts.filter(
+              (alert) => alert.symbol === ticker && alert.enabled,
+            )}
+            onAlert={
+              createAlert
+                ? (price) => {
+                    const last = snapshot?.price ?? data.points.at(-1)?.close ?? price;
+                    createAlert(ticker, Number(price.toPrecision(6)), price >= last ? "above" : "below");
+                    setTool("cursor");
+                  }
+                : undefined
+            }
+            previousClose={snapshot?.previous}
+            currency={unit}
+          />
+        </div>
       ) : !error ? (
         <Empty title="No chart history">Try a longer period.</Empty>
       ) : null}

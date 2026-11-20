@@ -21,6 +21,23 @@ import type {
   Movers,
 } from "@/lib/security-types";
 import { monitorFunctions, type MonitorFunction } from "@/lib/terminal";
+import {
+  Correlation,
+  CrossRates,
+  QuoteBoard,
+  YieldCurve,
+  commodityBoard,
+  cryptoBoard,
+} from "./boards";
+import { Screener } from "./screener";
+import type { Screen } from "@/lib/screens";
+import { Rotation } from "./rotation";
+import { ChartGrid } from "./grid";
+import { PortfolioRiskView } from "./risk";
+import { NewsWire } from "./wire";
+import { EarningsCalendar } from "./calendar";
+import type { SecurityFunction } from "@/lib/terminal";
+import type { Workspace } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -410,11 +427,29 @@ export function Monitor({
   setFn,
   select,
   refresh,
+  symbols,
+  correlate,
+  overlay,
+  screens,
+  saveScreens,
+  books,
+  trades,
+  watchlists,
+  openFunction,
 }: {
   fn: MonitorFunction;
   setFn: (fn: MonitorFunction) => void;
   select: (symbol: string) => void;
   refresh: boolean;
+  symbols?: string[];
+  correlate: (symbols: string[]) => void;
+  overlay: (symbols: string[]) => void;
+  screens: Screen[];
+  saveScreens: (next: Screen[]) => Promise<void>;
+  books: Workspace["books"];
+  trades: Workspace["trades"];
+  watchlists: Workspace["watchlists"];
+  openFunction: (symbol: string, fn: SecurityFunction) => void;
 }) {
   return (
     <section className="panel security-panel">
@@ -436,6 +471,63 @@ export function Monitor({
       {fn === "MOST" ? <MostActive select={select} /> : null}
       {fn === "WEI" ? <WorldIndices select={select} refresh={refresh} /> : null}
       {fn === "ECO" ? <Economics /> : null}
+      {fn === "GC" ? <YieldCurve /> : null}
+      {fn === "FXC" ? <CrossRates select={select} /> : null}
+      {fn === "CMDTY" ? (
+        <QuoteBoard
+          groups={commodityBoard}
+          refresh={refresh}
+          select={select}
+          source="Front-month futures · exchange-delayed · Yahoo Finance"
+        />
+      ) : null}
+      {fn === "CRYP" ? (
+        <QuoteBoard
+          groups={cryptoBoard}
+          refresh={refresh}
+          select={select}
+          source="Spot prices in USD and US-listed proxies · Yahoo Finance"
+        />
+      ) : null}
+      {fn === "CORR" ? (
+        <Correlation
+          key={symbols?.join(",") ?? ""}
+          select={select}
+          initial={symbols}
+        />
+      ) : null}
+      {fn === "RRG" ? <Rotation select={select} /> : null}
+      {fn === "EVTS" ? (
+        <EarningsCalendar watchlists={watchlists} trades={trades} open={openFunction} />
+      ) : null}
+      {fn === "TOP" ? (
+        <NewsWire
+          key={symbols?.join(",") ?? ""}
+          watchlists={watchlists}
+          trades={trades}
+          initial={symbols}
+          select={select}
+        />
+      ) : null}
+      {fn === "PRSK" ? (
+        <PortfolioRiskView books={books} trades={trades} select={select} />
+      ) : null}
+      {fn === "GRID" ? (
+        <ChartGrid
+          key={symbols?.join(",") ?? ""}
+          initial={symbols}
+          select={select}
+        />
+      ) : null}
+      {fn === "EQS" ? (
+        <Screener
+          select={select}
+          correlate={correlate}
+          overlay={overlay}
+          saved={screens}
+          saveScreens={saveScreens}
+        />
+      ) : null}
     </section>
   );
 }

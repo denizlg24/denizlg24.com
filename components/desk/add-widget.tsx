@@ -20,7 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Failure } from "@/components/shared";
-import { widgetSchema, type Widget, type WidgetKind } from "@/lib/desk";
+import {
+  deskFunctions,
+  widgetSchema,
+  type DeskFunction,
+  type Widget,
+  type WidgetKind,
+} from "@/lib/desk";
+import { monitorFunctions } from "@/lib/terminal";
 import type { Workspace } from "@/lib/models";
 import { ranges, universes, type Range, type Universe } from "@/lib/universes";
 import { parseSymbols } from "./frame";
@@ -80,6 +87,11 @@ export const widgetCatalog: Record<
     description: "A saved multi-series chart; pin one from Charts (G)",
     span: 2,
   },
+  function: {
+    label: "Terminal function",
+    description: "GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP or GRID",
+    span: 2,
+  },
 };
 
 const kinds = Object.keys(widgetCatalog).filter((kind): kind is WidgetKind =>
@@ -126,6 +138,7 @@ export function AddWidgetDialog({
   const [universe, setUniverse] = useState<Universe>(
     universeKeys[0] ?? "S&P 500",
   );
+  const [fn, setFn] = useState<DeskFunction>("RRG");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState<Error>();
@@ -162,6 +175,10 @@ export function AddWidgetDialog({
         };
       case "market":
         return { ...base, kind, universe };
+      case "function": {
+        const symbols = parseSymbols(symbolsText);
+        return { ...base, kind, fn, ...(symbols.length ? { symbols } : {}) };
+      }
       case "insight":
         return {
           ...base,
@@ -365,6 +382,40 @@ export function AddWidgetDialog({
                 onChange={(event) => setSince(event.target.value)}
               />
             </Row>
+          ) : null}
+
+          {kind === "function" ? (
+            <div className="desk-form-row">
+              <Row label="Function">
+                <Select
+                  value={fn}
+                  onValueChange={(value) => {
+                    const next = deskFunctions.find((item) => item === value);
+                    if (next) setFn(next);
+                  }}
+                >
+                  <SelectTrigger aria-label="Function">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {deskFunctions.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item} · {monitorFunctions.find((entry) => entry.code === item)?.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Row>
+              {fn === "CORR" || fn === "TOP" || fn === "GRID" ? (
+                <Row label="Tickers (optional)">
+                  <Input
+                    value={symbolsText}
+                    onChange={(event) => setSymbolsText(event.target.value)}
+                    placeholder="SPY, TLT, GLD"
+                  />
+                </Row>
+              ) : null}
+            </div>
           ) : null}
 
           {kind === "market" ? (

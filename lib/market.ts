@@ -4,6 +4,7 @@ import constituents from "@/data/sp500.json";
 import { ranges, universes, type Range, type Universe } from "./universes";
 import type {
   ChartPoint,
+  CorporateEvent,
   Instrument,
   MarketSeries,
   News,
@@ -33,6 +34,13 @@ type SourceMeta = {
 type SourceBars = {
   timestamp?: number[];
   meta?: SourceMeta;
+  events?: {
+    dividends?: Record<string, { amount?: number; date?: number }>;
+    splits?: Record<
+      string,
+      { date?: number; numerator?: number; denominator?: number; splitRatio?: string }
+    >;
+  };
   indicators?: {
     quote?: Array<Record<string, Array<number | null>>>;
     adjclose?: Array<{ adjclose?: Array<number | null> }>;
@@ -195,11 +203,12 @@ export async function series(
     start != null && warmup ? start - WARMUP_DAYS * 86400 : start;
   const query: Record<string, string> =
     start == null || fetchStart == null
-      ? { range: warmup ? warmupPeriods[range] : period, interval }
+      ? { range: warmup ? warmupPeriods[range] : period, interval, events: "div,splits" }
       : {
           period1: String(fetchStart),
           period2: String(end + 86400),
           interval: end - start > 730 * 86400 ? "1wk" : "1d",
+          events: "div,splits",
         };
   const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
     `/v8/finance/chart/${encodeURIComponent(symbol)}`,
@@ -241,7 +250,32 @@ export async function series(
     points,
     lead,
     source: "Yahoo Finance",
+    events: corporateEvents(bars),
   };
+}
+
+function corporateEvents(bars: SourceBars): CorporateEvent[] {
+  const dividends = Object.values(bars.events?.dividends ?? {}).flatMap(
+    (item): CorporateEvent[] =>
+      finite(item.amount) && finite(item.date)
+        ? [{ kind: "dividend", time: item.date, amount: item.amount }]
+        : [],
+  );
+  const splits = Object.values(bars.events?.splits ?? {}).flatMap(
+    (item): CorporateEvent[] =>
+      finite(item.date)
+        ? [
+            {
+              kind: "split",
+              time: item.date,
+              ratio:
+                item.splitRatio ??
+                `${item.numerator ?? "?"}:${item.denominator ?? "?"}`,
+            },
+          ]
+        : [],
+  );
+  return [...dividends, ...splits].sort((a, b) => a.time - b.time);
 }
 
 function sparkWindow(since?: string) {
@@ -458,4 +492,112 @@ export async function comparison(
         ? "Yahoo Finance · Moscow Exchange"
         : "Yahoo Finance",
   };
+}
+
+export const historyIntervals = ["1d", "1wk", "1mo"] as const;
+export type HistoryInterval = (typeof historyIntervals)[number];
+export type History = {
+  symbol: string;
+  name: string | null;
+  currency: string | null;
+  points: ChartPoint[];
+};
+
+/**
+ * Long daily, weekly or monthly history for analytics. Closes are adjusted
+ * for splits and dividends when Yahoo provides an adjusted series, so
+ * returns are total returns.
+ */
+export async function history(
+  symbol: string,
+  years: number,
+  interval: HistoryInterval,
+): Promise<History> {
+  const end = Math.floor(Date.now() / 1000);
+  const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
+    `/v8/finance/chart/${encodeURIComponent(symbol)}`,
+    {
+      period1: String(end - Math.round(years * 365.25 * 86400)),
+      period2: String(end + 86400),
+      interval,
+      events: "div,splits",
+    },
+    interval === "1d" ? 900 : 3600,
+  );
+  const bars = result.chart?.result?.[0];
+  if (!bars) return { symbol, name: null, currency: null, points: [] };
+  const values = bars.indicators?.quote?.[0];
+  const adjusted = bars.indicators?.adjclose?.[0]?.adjclose;
+  const points: ChartPoint[] = [];
+  bars.timestamp?.forEach((time, i) => {
+    const open = values?.open?.[i],
+      high = values?.high?.[i],
+      low = values?.low?.[i],
+      close = values?.close?.[i];
+    if (finite(open) && finite(high) && finite(low) && finite(close)) {
+      const adj = adjusted?.[i];
+      const adjustment = finite(adj) ? adj / close : 1;
+      points.push({
+        time,
+        open: open * adjustment,
+        high: high * adjustment,
+        low: low * adjustment,
+        close: close * adjustment,
+        volume: asNumber(values?.volume?.[i]),
+      });
+    }
+  });
+  return {
+    symbol,
+    name: bars.meta?.longName ?? bars.meta?.shortName ?? null,
+    currency: bars.meta?.currency ?? null,
+    points,
+  };
+}
+
+export type WireItem = News & { symbols: string[]; id: string };
+
+/** Recent headlines for each symbol, merged and de-duplicated by story. */
+export async function newsWire(symbols: string[]): Promise<WireItem[]> {
+  const results = await Promise.allSettled(
+    symbols.map((symbol) =>
+      yahoo<YahooSearch & { news?: Array<{ uuid?: string; relatedTickers?: string[] }> }>(
+        "/v1/finance/search",
+        { q: symbol, quotesCount: "0", newsCount: "8" },
+        300,
+      ).then((output) => ({ symbol, output })),
+    ),
+  );
+  const stories = new Map<string, WireItem>();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const { symbol, output } = result.value;
+    for (const item of output.news ?? []) {
+      if (!item.title || !item.link?.startsWith("https://")) continue;
+      const id = ("uuid" in item && typeof item.uuid === "string" && item.uuid) || item.link;
+      const related =
+        "relatedTickers" in item && Array.isArray(item.relatedTickers)
+          ? item.relatedTickers.filter((ticker): ticker is string => typeof ticker === "string")
+          : [];
+      const prior = stories.get(id);
+      stories.set(id, {
+        id,
+        title: item.title,
+        url: item.link,
+        publisher: item.publisher ?? "Yahoo Finance",
+        time: item.providerPublishTime ?? 0,
+        symbols: [...new Set([...(prior?.symbols ?? []), symbol, ...related.filter((ticker) => symbols.includes(ticker))])],
+      });
+    }
+  }
+  return [...stories.values()].sort((a, b) => b.time - a.time);
+}
+
+export async function trending(region = "US") {
+  const result = await yahoo<{
+    finance?: { result?: Array<{ quotes?: Array<{ symbol?: string }> }> };
+  }>(`/v1/finance/trending/${region}`, { count: "20" }, 300);
+  return (result.finance?.result?.[0]?.quotes ?? []).flatMap((item) =>
+    item.symbol ? [item.symbol] : [],
+  );
 }

@@ -31,6 +31,7 @@ import {
   WatchlistWidget,
 } from "./markets";
 import { DeskEmpty, FrameContext, type WidgetContext } from "./frame";
+import { FunctionWidget } from "./functions";
 
 export type DeskProps = {
   workspace: Workspace;
@@ -66,6 +67,8 @@ function WidgetView({ widget, ctx }: { widget: Widget; ctx: WidgetContext }) {
       return <InsightWidget widget={widget} ctx={ctx} />;
     case "overlay":
       return <OverlayWidget widget={widget} ctx={ctx} />;
+    case "function":
+      return <FunctionWidget widget={widget} ctx={ctx} />;
   }
 }
 

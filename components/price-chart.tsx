@@ -1,19 +1,54 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   Area,
   Bar,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  ZIndexLayer,
+  DefaultZIndexes,
 } from "recharts";
-import type { ChartPoint, ChartStyle } from "@/lib/models";
+import {
+  defaultAppearance,
+  type ChartAppearance,
+  type ChartPoint,
+  type ChartScale,
+  type ChartStyle,
+  type CorporateEvent,
+  customAverageSchema,
+  customPaneSchema,
+  type CustomAverage,
+  type CustomPane,
+  type Drawing,
+} from "@/lib/models";
+import {
+  averageKey,
+  averageLabel,
+  computeAverages,
+  computePanes,
+  paneGuides,
+  paneKey,
+  paneLabel,
+  rebaseOnto,
+} from "@/lib/chart-studio";
+import { DrawingLayer, type Tool } from "./chart/drawing-layer";
+import { PromptDialog } from "./ui/prompt-dialog";
 import type { Range } from "@/lib/universes";
 import {
   computeStudies,
@@ -176,16 +211,25 @@ function signedBar(key: "volume" | "macdHist") {
 function PriceTag({
   viewBox,
   value,
+  tone,
 }: {
   viewBox?: { x?: number; y?: number; width?: number };
   value: number;
+  tone?: string;
 }) {
   if (viewBox?.x == null || viewBox.y == null || viewBox.width == null)
     return null;
   const x = viewBox.x + viewBox.width + 2;
   return (
     <g className="price-tag">
-      <rect x={x} y={viewBox.y - 9} width={62} height={18} rx={2} />
+      <rect
+        x={x}
+        y={viewBox.y - 9}
+        width={62}
+        height={18}
+        rx={2}
+        style={tone ? { fill: tone } : undefined}
+      />
       <text x={x + 6} y={viewBox.y + 4}>
         {axisPrice(value)}
       </text>
@@ -316,7 +360,8 @@ function overlays(key: StudyKey): ReactNode {
 }
 
 type PaneSpec = {
-  key: StudyKey;
+  key: string;
+  label?: string;
   domain?: [number, number];
   levels?: number[];
   lines: { key: string; color: string; label: string }[];
@@ -417,6 +462,12 @@ const numberAt = (entry: Entry | undefined, key: string) => {
 const margin = { top: 6, right: 0, left: 0, bottom: 0 };
 const axisTick = { fill: "var(--muted-foreground)", fontSize: 11 };
 
+/** Above every built-in recharts layer, so drawing clicks are never swallowed. */
+const drawingZIndex = Math.max(...Object.values(DefaultZIndexes)) + 1;
+
+export type CompareSeries = { symbol: string; points: ChartPoint[]; color: string };
+const MIN_BARS = 12;
+
 export default function PriceChart({
   points,
   lead = 0,
@@ -424,6 +475,21 @@ export default function PriceChart({
   style,
   studies = [],
   log = false,
+  scale: scaleMode,
+  averages = [],
+  customPanes = [],
+  appearance = defaultAppearance,
+  compare = [],
+  drawings = [],
+  tool = "cursor",
+  drawColor = "#e0a030",
+  symbol = "",
+  onAddDrawing,
+  onRemoveDrawing,
+  zoomable = false,
+  events = [],
+  alertLevels = [],
+  onAlert,
   previousClose,
   currency,
   compact: small = false,
@@ -434,6 +500,21 @@ export default function PriceChart({
   style: ChartStyle;
   studies?: StudyKey[];
   log?: boolean;
+  scale?: ChartScale;
+  averages?: CustomAverage[];
+  customPanes?: CustomPane[];
+  appearance?: ChartAppearance;
+  compare?: CompareSeries[];
+  drawings?: Drawing[];
+  tool?: Tool;
+  drawColor?: string;
+  symbol?: string;
+  onAddDrawing?: (drawing: Drawing) => void;
+  onRemoveDrawing?: (id: string) => void;
+  zoomable?: boolean;
+  events?: CorporateEvent[];
+  alertLevels?: { target: number; direction: "above" | "below" }[];
+  onAlert?: (price: number) => void;
   previousClose?: number | null;
   currency?: string;
   compact?: boolean;
@@ -441,29 +522,139 @@ export default function PriceChart({
   const gradient = useId().replaceAll(":", "");
   const sync = useId();
   const [hover, setHover] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState<{ t: number; p: number }[] | null>(null);
+  const scaleKind: ChartScale = scaleMode ?? (log ? "log" : "linear");
+  const logScale = scaleKind === "log";
   const studyKey = studies.join(",");
-  const values = useMemo(() => {
+  const averageSpec = JSON.stringify(averages);
+  const paneSpec = JSON.stringify(customPanes);
+  const all = useMemo(() => {
     const keys = studyKey ? (studyKey.split(",") as StudyKey[]) : [];
     const rows = computeStudies(points, keys);
+    const custom = computeAverages(
+      points,
+      customAverageSchema.array().parse(JSON.parse(averageSpec)),
+    );
+    const oscillators = computePanes(
+      points,
+      customPaneSchema.array().parse(JSON.parse(paneSpec)),
+    );
     const shown = style === "heikin" ? heikinAshi(points) : points;
     return shown.slice(lead).map((point, offset): Entry => {
       const i = offset + lead;
+      const extra: Record<string, number | null> = {};
+      custom.forEach((series, index) => {
+        extra[averageKey(index)] = series[i];
+      });
+      oscillators.forEach((series, index) => {
+        extra[paneKey(index)] = series[i];
+      });
       return {
         ...point,
         ...rows[i],
+        ...extra,
         span: [point.low, point.high],
         prior: i > 0 ? points[i - 1].close : null,
         actual: points[i],
       };
     });
-  }, [points, lead, style, studyKey]);
+  }, [points, lead, style, studyKey, averageSpec, paneSpec]);
 
+  const [zoomWindow, setWindow] = useState<[number, number] | null>(null);
+  const total = all.length;
+  const [from, to] =
+    zoomWindow && zoomWindow[1] <= total ? zoomWindow : [0, total];
+  const zoomed = from > 0 || to < total;
+  const base = useMemo(() => all.slice(from, to), [all, from, to]);
+  const values = useMemo(() => {
+    if (!compare.length || !base.length) return base;
+    const anchor = base[0].close;
+    const series = compare.map((item) => rebaseOnto(base, item.points, anchor));
+    return base.map((entry, index) => {
+      const extra: Record<string, number | null> = {};
+      series.forEach((line, i) => {
+        extra[`cmp${i}`] = line[index];
+      });
+      return { ...entry, ...extra } as Entry;
+    });
+  }, [base, compare]);
+
+  const pane = useRef<HTMLDivElement>(null);
+  const pan = useRef<{ x: number; from: number; to: number } | null>(null);
+  useEffect(() => {
+    const element = pane.current;
+    if (!element || !zoomable) return;
+    function wheel(event: WheelEvent) {
+      event.preventDefault();
+      const rect = element!.getBoundingClientRect();
+      const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width - 66)));
+      setWindow((current) => {
+        const [a, b] = current && current[1] <= total ? current : [0, total];
+        const span = b - a;
+        if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+          const shift = Math.round((event.deltaX / rect.width) * span);
+          const start = Math.min(total - span, Math.max(0, a + shift));
+          return [start, start + span];
+        }
+        const next = Math.round(
+          Math.min(total, Math.max(MIN_BARS, span * Math.exp(event.deltaY * 0.002))),
+        );
+        const anchor = a + span * fraction;
+        let start = Math.round(anchor - next * fraction);
+        start = Math.min(total - next, Math.max(0, start));
+        return next >= total ? null : [start, start + next];
+      });
+    }
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, [zoomable, total]);
+
+  const appearanceStyle = {
+    ...(appearance.up ? { "--gain": appearance.up } : {}),
+    ...(appearance.down ? { "--loss": appearance.down } : {}),
+  } as CSSProperties;
+  const percentBase = values[0]?.close ?? null;
+  const axisValue = (value: number) =>
+    scaleKind === "percent" && percentBase
+      ? `${value >= percentBase ? "+" : ""}${((value / percentBase - 1) * 100).toFixed(Math.abs(value / percentBase - 1) < 0.1 ? 1 : 0)}%`
+      : axisPrice(value);
+  const extremes = useMemo(() => {
+    if (!values.length) return null;
+    let high = values[0];
+    let low = values[0];
+    for (const entry of values) {
+      if (entry.actual.high > high.actual.high) high = entry;
+      if (entry.actual.low < low.actual.low) low = entry;
+    }
+    return { high, low };
+  }, [values]);
+  const times = useMemo(() => values.map((entry) => entry.time), [values]);
+  const markers = useMemo(() => {
+    if (!appearance.events || small || !values.length) return [];
+    return events.flatMap((event) => {
+      const index = times.findIndex((time) => time >= event.time - 43200);
+      if (index < 0 || Math.abs(times[index] - event.time) > 8 * 86400) return [];
+      return [{ event, entry: values[index] }];
+    });
+  }, [appearance.events, small, events, times, values]);
+  const visibleDrawings = drawings.filter((item) => item.symbol === symbol);
+  const lineWidth = appearance.lineWidth;
   const priceStudies = studies.filter(
     (key) => studyInfo.get(key)?.pane === "price",
   );
-  const panes = small
+  const panes: PaneSpec[] = small
     ? []
-    : studies.flatMap((key) => (paneSpecs[key] ? [paneSpecs[key]] : []));
+    : [
+        ...studies.flatMap((key) => (paneSpecs[key] ? [paneSpecs[key]] : [])),
+        ...customPanes.map(
+          (pane, index): PaneSpec => ({
+            key: paneKey(index),
+            label: paneLabel(pane),
+            ...paneGuides[pane.kind],
+            lines: [{ key: paneKey(index), color: pane.color, label: "" }],
+          }),
+        ),
+      ];
   const first = values[0];
   const active = (hover != null ? values[hover] : undefined) ?? values.at(-1);
   const bar = active?.actual;
@@ -509,6 +700,27 @@ export default function PriceChart({
 
   return (
     <>
+      {noteDraft && onAddDrawing ? (
+        <PromptDialog
+          title="Chart note"
+          description="The note is pinned to this date and price."
+          label="Text"
+          placeholder="e.g. Breakout above resistance"
+          maxLength={200}
+          confirmLabel="Add note"
+          onSubmit={(text) =>
+            onAddDrawing({
+              id: crypto.randomUUID(),
+              symbol,
+              kind: "text",
+              points: noteDraft,
+              color: drawColor,
+              text,
+            })
+          }
+          onClose={() => setNoteDraft(null)}
+        />
+      ) : null}
       <dl className="chart-readout" aria-live="off">
         {active && bar ? (
           <>
@@ -565,6 +777,44 @@ export default function PriceChart({
                   );
               });
             })}
+            {averages.map((average, index) => {
+              const value = numberAt(active, averageKey(index));
+              return value == null ? null : (
+                <div
+                  key={averageKey(index)}
+                  className="readout-study"
+                  style={{ color: average.color }}
+                >
+                  <dt>{averageLabel(average)}</dt>
+                  <dd>{amount(value)}</dd>
+                </div>
+              );
+            })}
+            {compare.map((item, index) => {
+              const value = numberAt(active, `cmp${index}`);
+              const pct =
+                value != null && percentBase
+                  ? (value / percentBase - 1) * 100
+                  : null;
+              return (
+                <div
+                  key={item.symbol}
+                  className="readout-study"
+                  style={{ color: item.color }}
+                  title={`${item.symbol} rebased to the first visible bar`}
+                >
+                  <dt>{item.symbol}</dt>
+                  <dd>{percent(pct)}</dd>
+                </div>
+              );
+            })}
+            {zoomed ? (
+              <div className="readout-zoom">
+                <button type="button" onClick={() => setWindow(null)}>
+                  Reset zoom · {to - from} bars
+                </button>
+              </div>
+            ) : null}
             {currency ? <div className="readout-unit">{currency}</div> : null}
           </>
         ) : null}
@@ -572,9 +822,30 @@ export default function PriceChart({
       <div
         className="price-chart-stack"
         data-panes={panes.length}
+        data-tool={tool}
+        style={appearanceStyle}
         aria-label={`${range} price chart`}
       >
-        <div className="price-pane">
+        <div
+          className="price-pane"
+          ref={pane}
+          onDoubleClick={() => tool === "cursor" && setWindow(null)}
+          onPointerDown={(event) => {
+            if (!zoomable || tool !== "cursor" || event.button !== 0) return;
+            pan.current = { x: event.clientX, from, to };
+          }}
+          onPointerMove={(event) => {
+            const start = pan.current;
+            if (!start || !(event.buttons & 1)) return;
+            const span = start.to - start.from;
+            if (span >= total) return;
+            const width = event.currentTarget.getBoundingClientRect().width - 66;
+            const shift = Math.round(((start.x - event.clientX) / width) * span);
+            const next = Math.min(total - span, Math.max(0, start.from + shift));
+            if (next !== from) setWindow([next, next + span]);
+          }}
+          onPointerUp={() => (pan.current = null)}
+        >
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <ComposedChart
               data={values}
@@ -589,14 +860,16 @@ export default function PriceChart({
                   <stop offset="100%" stopColor={priceColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid vertical={false} stroke="var(--rule)" />
+              {appearance.grid ? (
+                <CartesianGrid vertical={false} stroke="var(--rule)" />
+              ) : null}
               {xAxis(!lastPane)}
               <YAxis
                 yAxisId="price"
                 orientation="right"
                 width={66}
-                scale={log ? "log" : "auto"}
-                tickFormatter={axisPrice}
+                scale={logScale ? "log" : "auto"}
+                tickFormatter={axisValue}
                 domain={["auto", "auto"]}
                 allowDataOverflow={false}
                 tickCount={6}
@@ -614,7 +887,11 @@ export default function PriceChart({
               ) : null}
               <Tooltip
                 content={() => null}
-                cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
+                cursor={
+                  appearance.crosshair
+                    ? { stroke: "var(--muted-foreground)", strokeWidth: 1 }
+                    : false
+                }
                 isAnimationActive={false}
               />
               {small && studies.includes("volume") ? (
@@ -627,13 +904,19 @@ export default function PriceChart({
                 />
               ) : null}
               {priceStudies.map((key) => overlays(key))}
+              {averages.map((average, index) =>
+                overlayLine(averageKey(index), average.color, { width: 1.3 }),
+              )}
+              {compare.map((item, index) =>
+                overlayLine(`cmp${index}`, item.color, { width: 1.4, dash: "5 2" }),
+              )}
               {style === "area" ? (
                 <Area
                   yAxisId="price"
                   type="linear"
                   dataKey="close"
                   stroke={priceColor}
-                  strokeWidth={1.6}
+                  strokeWidth={lineWidth}
                   fill={`url(#${gradient})`}
                   isAnimationActive={false}
                   activeDot={{
@@ -649,7 +932,7 @@ export default function PriceChart({
                   type="linear"
                   dataKey="close"
                   stroke={priceColor}
-                  strokeWidth={1.5}
+                  strokeWidth={lineWidth}
                   dot={false}
                   isAnimationActive={false}
                   activeDot={{
@@ -669,7 +952,7 @@ export default function PriceChart({
                       : style === "hollow"
                         ? "hollow"
                         : "candles",
-                    log,
+                    logScale,
                   )}
                   fill={priceColor}
                   isAnimationActive={false}
@@ -690,6 +973,98 @@ export default function PriceChart({
                   }}
                 />
               ) : null}
+              {appearance.lastPrice && !small && values.length ? (
+                <ReferenceLine
+                  yAxisId="price"
+                  y={values.at(-1)!.close}
+                  stroke={priceColor}
+                  strokeOpacity={0.55}
+                  strokeDasharray="1 3"
+                  ifOverflow="hidden"
+                  label={(props: {
+                    viewBox?: { x?: number; y?: number; width?: number };
+                  }) => (
+                    <PriceTag
+                      viewBox={props.viewBox}
+                      value={values.at(-1)!.close}
+                      tone={priceColor}
+                    />
+                  )}
+                />
+              ) : null}
+              {appearance.extremes && extremes && !small ? (
+                <>
+                  <ReferenceDot
+                    yAxisId="price"
+                    x={extremes.high.time}
+                    y={extremes.high.actual.high}
+                    r={0}
+                    label={{
+                      value: `H ${amount(extremes.high.actual.high)}`,
+                      position: "top",
+                      fill: "var(--gain)",
+                      fontSize: 10,
+                    }}
+                  />
+                  <ReferenceDot
+                    yAxisId="price"
+                    x={extremes.low.time}
+                    y={extremes.low.actual.low}
+                    r={0}
+                    label={{
+                      value: `L ${amount(extremes.low.actual.low)}`,
+                      position: "bottom",
+                      fill: "var(--loss)",
+                      fontSize: 10,
+                    }}
+                  />
+                </>
+              ) : null}
+              {markers.map(({ event, entry }) => (
+                <ReferenceDot
+                  key={`${event.kind}-${event.time}`}
+                  yAxisId="price"
+                  x={entry.time}
+                  y={entry.actual.low}
+                  r={0}
+                  ifOverflow="extendDomain"
+                  shape={(props: { cx?: number; cy?: number }) =>
+                    props.cx == null || props.cy == null ? (
+                      <g />
+                    ) : (
+                      <g className="event-marker" data-kind={event.kind}>
+                        <circle cx={props.cx} cy={props.cy + 12} r={6} />
+                        <text x={props.cx} y={props.cy + 15.5} textAnchor="middle">
+                          {event.kind === "dividend" ? "D" : "S"}
+                        </text>
+                        <title>
+                          {event.kind === "dividend"
+                            ? `Dividend ${amount(event.amount)} · ex-date ${new Date(event.time * 1000).toISOString().slice(0, 10)}`
+                            : `Split ${event.ratio} · ${new Date(event.time * 1000).toISOString().slice(0, 10)}`}
+                        </title>
+                      </g>
+                    )
+                  }
+                />
+              ))}
+              {appearance.alerts && !small
+                ? alertLevels.map((alert) => (
+                    <ReferenceLine
+                      key={`${alert.direction}-${alert.target}`}
+                      yAxisId="price"
+                      y={alert.target}
+                      stroke="var(--term-key)"
+                      strokeDasharray="6 3"
+                      ifOverflow="hidden"
+                      label={{
+                        value: `ALERT ${alert.direction === "above" ? "≥" : "≤"} ${amount(alert.target)}`,
+                        position: "insideBottomLeft",
+                        fill: "var(--term-key)",
+                        fontSize: 10,
+                      }}
+                    />
+                  ))
+                : null}
               {hover != null && active ? (
                 <ReferenceLine
                   yAxisId="price"
@@ -704,11 +1079,28 @@ export default function PriceChart({
                   )}
                 />
               ) : null}
+              {onAddDrawing && onRemoveDrawing && !small ? (
+                <ZIndexLayer zIndex={drawingZIndex}>
+                <DrawingLayer
+                  times={times}
+                  drawings={visibleDrawings}
+                  tool={tool}
+                  color={drawColor}
+                  symbol={symbol}
+                  onAdd={onAddDrawing}
+                  onRemove={onRemoveDrawing}
+                  onAlert={onAlert}
+                  onNote={setNoteDraft}
+                />
+                </ZIndexLayer>
+              ) : null}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         {panes.map((pane) => {
-          const info = studyInfo.get(pane.key);
+          const info = pane.label
+            ? { short: pane.label }
+            : studyInfo.get(pane.key as StudyKey);
           return (
             <div
               key={pane.key}
@@ -742,7 +1134,9 @@ export default function PriceChart({
                   onMouseMove={onMove}
                   onMouseLeave={() => setHover(null)}
                 >
-                  <CartesianGrid vertical={false} stroke="var(--rule)" />
+                  {appearance.grid ? (
+                <CartesianGrid vertical={false} stroke="var(--rule)" />
+              ) : null}
                   {xAxis(pane.key === lastPane)}
                   <YAxis
                     orientation="right"
@@ -761,10 +1155,11 @@ export default function PriceChart({
                   />
                   <Tooltip
                     content={() => null}
-                    cursor={{
-                      stroke: "var(--muted-foreground)",
-                      strokeWidth: 1,
-                    }}
+                    cursor={
+                      appearance.crosshair
+                        ? { stroke: "var(--muted-foreground)", strokeWidth: 1 }
+                        : false
+                    }
                     isAnimationActive={false}
                   />
                   {pane.levels?.map((level) => (

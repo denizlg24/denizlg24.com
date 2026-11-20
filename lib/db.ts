@@ -239,6 +239,11 @@ function initialWorkspace(): Workspace {
       chart: defaultChartPreferences,
     },
     overlays: [],
+    drawings: [],
+    screens: [],
+    relations: [],
+    chartTemplates: [],
+    tourSeen: false,
   };
 }
 
