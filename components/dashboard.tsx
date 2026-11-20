@@ -32,6 +32,7 @@ import { SearchDialog } from "./shell/search-dialog";
 import { Settings, type Account } from "./shell/settings";
 import { Sidebar } from "./shell/sidebar";
 import { Topbar } from "./shell/topbar";
+import { PanelTabs } from "./shell/panel-tabs";
 import { useHash, useMediaQuery, useStoredFlag } from "./shell/hooks";
 import { homeView, viewFromHash, viewLabel, type View } from "./shell/nav";
 import type { WorkspaceRecord } from "@/lib/db";
@@ -485,6 +486,7 @@ export function Dashboard({
       />
       <main className="shell-main" id="workspace-main" ref={main} tabIndex={-1}>
         <div className="shell-content">
+          <PanelTabs hash={hash} />
           <header className="view-header">
             <h1>
               {view === "security"
