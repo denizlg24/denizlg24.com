@@ -239,6 +239,7 @@ function initialWorkspace(): Workspace {
       chart: defaultChartPreferences,
     },
     overlays: [],
+    drawings: [],
   };
 }
 

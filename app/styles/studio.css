@@ -368,3 +368,224 @@
     min-height: 420px;
   }
 }
+
+/* Chart studio */
+.studio-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 6px 0 2px;
+}
+.studio-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+.studio-tools > button:not(.studio-swatch):not(.studio-clear) {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.studio-tools > button:hover {
+  color: var(--foreground);
+  border-color: var(--strong-border);
+}
+.studio-tools > button[aria-pressed="true"]:not(.studio-swatch) {
+  border-color: var(--term-header);
+  background: color-mix(in srgb, var(--term-header) 14%, transparent);
+  color: var(--term-header);
+}
+.studio-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--rule);
+}
+.studio-swatch {
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  outline: 1px solid var(--strong-border);
+}
+.studio-swatch[aria-pressed="true"] {
+  border-color: var(--card);
+  outline: 2px solid var(--foreground);
+}
+.studio-clear {
+  margin-left: 4px;
+  border: 0;
+  background: none;
+  color: var(--loss);
+  font-size: var(--fs-2xs);
+  text-decoration: underline;
+}
+.studio-compare {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.studio-compare form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--strong-border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+}
+.studio-compare input {
+  width: 110px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--fs-xs);
+  outline: none;
+}
+.studio-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+}
+.studio-tag i {
+  width: 10px;
+  height: 2px;
+}
+.studio-popover {
+  display: grid;
+  gap: 6px;
+  min-width: 260px;
+  padding: 10px;
+  font-size: var(--fs-xs);
+}
+.studio-popover h4 {
+  margin: 0;
+  color: var(--term-header);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.studio-popover p {
+  margin: 0;
+}
+.studio-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-list li,
+.studio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-list li button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+}
+.studio-popover input[type="color"] {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--strong-border);
+  background: none;
+}
+.studio-row input[type="range"] {
+  flex: 1;
+}
+.studio-form {
+  display: flex;
+  gap: 4px;
+}
+.studio-form input[type="number"] {
+  width: 58px;
+}
+.studio-select {
+  height: 24px;
+}
+.studio-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.seg-tight > button {
+  min-width: 28px;
+}
+.readout-zoom button {
+  border: 0;
+  background: none;
+  color: var(--live);
+  font-size: var(--fs-2xs);
+  text-decoration: underline;
+}
+.studio-chart {
+  position: relative;
+}
+.price-chart-stack[data-tool]:not([data-tool="cursor"]) .price-pane {
+  cursor: crosshair;
+}
+.price-chart-stack[data-tool="cursor"] .price-pane {
+  cursor: default;
+}
+.price-chart-stack[data-tool="erase"] .drawing {
+  cursor: pointer;
+}
+.drawing-capture {
+  cursor: crosshair;
+}
+.drawing-layer .drawing {
+  pointer-events: none;
+}
+.drawing-layer[data-tool="erase"] .drawing {
+  pointer-events: visiblePainted;
+}
+.drawing-layer[data-tool="erase"] .drawing:hover {
+  opacity: 0.4;
+}
+.drawing-label {
+  font-size: 10px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+}
+.drawing-text {
+  font-size: 12px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+}
+.chart-panel[data-fullscreen] {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  overflow: auto;
+  border-radius: 0;
+}
+.chart-panel[data-fullscreen] .price-pane {
+  height: max(420px, calc(100vh - 360px));
+}

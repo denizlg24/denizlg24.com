@@ -208,4 +208,7 @@ export const samePreferences = (a: ChartPreferences, b: ChartPreferences) =>
   a.style === b.style &&
   a.range === b.range &&
   a.log === b.log &&
-  a.studies.join() === b.studies.join();
+  (a.scale ?? "linear") === (b.scale ?? (b.log ? "log" : "linear")) &&
+  a.studies.join() === b.studies.join() &&
+  JSON.stringify(a.averages ?? []) === JSON.stringify(b.averages ?? []) &&
+  JSON.stringify(a.appearance ?? {}) === JSON.stringify(b.appearance ?? {});

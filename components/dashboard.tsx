@@ -18,7 +18,7 @@ import {
 import { Desk } from "./desk/desk";
 import { CommandHelp } from "./shell/command-line";
 import { useLiveStatus } from "./live-quotes";
-import type { ChartPreferences } from "@/lib/models";
+import type { ChartPreferences, Drawing } from "@/lib/models";
 import { encodeOverlay } from "@/lib/overlay";
 import {
   monitorFunctions,
@@ -230,6 +230,20 @@ export function Dashboard({
         notify((error as Error).message, true);
       }
     },
+    [save, notify],
+  );
+  const saveDrawings = useCallback(
+    (symbol: string, next: Drawing[]) =>
+      save((current) => ({
+        ...current,
+        drawings: [
+          ...current.drawings.filter((item) => item.symbol !== symbol),
+          ...next,
+        ].slice(-600),
+      })).catch((error: Error) => {
+        notify(error.message, true);
+        throw error;
+      }),
     [save, notify],
   );
   function runCommand(command: Command) {
@@ -484,6 +498,8 @@ export function Dashboard({
                   savePreferences={savePreferences}
                   since={since}
                   clearSince={() => link({ ...marketState, since: undefined })}
+                  drawings={workspace.drawings}
+                  saveDrawings={saveDrawings}
                 />
               )}
               <MarketMap
@@ -526,6 +542,8 @@ export function Dashboard({
               openFunction={(symbol, fn) =>
                 link({ view: "security", ticker: symbol, fn })
               }
+              drawings={workspace.drawings}
+              saveDrawings={saveDrawings}
             />
           ) : null}
           {view === "monitor" ? (

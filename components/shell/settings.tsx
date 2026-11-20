@@ -42,12 +42,18 @@ export function Settings({
           home: value(fields, "home") as Workspace["settings"]["home"],
           refresh: fields.has("refresh"),
           chart: {
+            ...current.settings.chart,
             style: chartStyles.find((item) => item === value(fields, "style")) ?? "area",
             range: rangeKeys.find((item) => item === value(fields, "range")) ?? "1M",
             studies: studyKeys
               .filter((key) => fields.has(`study-${key}`))
               .slice(0, 12),
             log: fields.has("log"),
+            scale: fields.has("log")
+              ? "log"
+              : current.settings.chart.scale === "percent"
+                ? "percent"
+                : undefined,
           },
         },
       }));

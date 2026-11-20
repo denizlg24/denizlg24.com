@@ -29,18 +29,80 @@ export const chartStyleLabels: Record<ChartStyle, string> = {
   bars: "OHLC bars",
   heikin: "Heikin-Ashi",
 };
+export const averageKinds = ["sma", "ema", "wma", "hma"] as const;
+export type AverageKind = (typeof averageKinds)[number];
+export const chartColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/);
+export const customAverageSchema = z.object({
+  kind: z.enum(averageKinds),
+  period: z.number().int().min(2).max(500),
+  color: chartColorSchema,
+  source: z.enum(["close", "hl2", "hlc3", "ohlc4"]).default("close"),
+});
+export type CustomAverage = z.infer<typeof customAverageSchema>;
+export const chartAppearanceSchema = z.object({
+  grid: z.boolean().default(true),
+  crosshair: z.boolean().default(true),
+  extremes: z.boolean().default(false),
+  lastPrice: z.boolean().default(true),
+  lineWidth: z.number().min(0.5).max(4).default(1.6),
+  up: chartColorSchema.nullable().default(null),
+  down: chartColorSchema.nullable().default(null),
+});
+export type ChartAppearance = z.infer<typeof chartAppearanceSchema>;
+export const defaultAppearance: ChartAppearance = {
+  grid: true,
+  crosshair: true,
+  extremes: false,
+  lastPrice: true,
+  lineWidth: 1.6,
+  up: null,
+  down: null,
+};
+export const chartScales = ["linear", "log", "percent"] as const;
+export type ChartScale = (typeof chartScales)[number];
 export const chartPreferencesSchema = z.object({
   style: z.enum(chartStyles).default("area"),
   range: z.enum(rangeKeys).default("1M"),
   studies: z.array(studyKeySchema).max(12).default([]),
   log: z.boolean().default(false),
+  scale: z.enum(chartScales).optional(),
+  averages: z.array(customAverageSchema).max(8).default([]),
+  appearance: chartAppearanceSchema.default(defaultAppearance),
 });
+
+export const drawingKinds = [
+  "trend",
+  "ray",
+  "hline",
+  "vline",
+  "rect",
+  "fib",
+  "channel",
+  "text",
+] as const;
+export type DrawingKind = (typeof drawingKinds)[number];
+export const drawingSchema = z.object({
+  id: z.string().uuid(),
+  symbol: z.string().trim().toUpperCase().regex(symbolPattern),
+  kind: z.enum(drawingKinds),
+  points: z
+    .array(z.object({ t: z.number().int(), p: z.number().finite() }))
+    .min(1)
+    .max(3),
+  color: chartColorSchema,
+  text: z.string().max(200).optional(),
+});
+export type Drawing = z.infer<typeof drawingSchema>;
 export type ChartPreferences = z.infer<typeof chartPreferencesSchema>;
 export const defaultChartPreferences: ChartPreferences = {
   style: "area",
   range: "1M",
   studies: [],
   log: false,
+  averages: [],
+  appearance: defaultAppearance,
 };
 const title = z.string().trim().min(1).max(120);
 
@@ -103,6 +165,7 @@ export const workspaceSchema = z.object({
     )
     .max(30)
     .default([]),
+  drawings: z.array(drawingSchema).max(600).default([]),
   requests: z
     .array(
       z.object({
