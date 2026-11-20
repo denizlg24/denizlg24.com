@@ -27,6 +27,7 @@ import {
   layoutGraph,
   neighbours,
   nodeId,
+  propagateShock,
   relationLabel,
   type EdgeKind,
   type Graph,
@@ -44,7 +45,7 @@ type Expansion =
   | { state: "done"; links: Link[]; name: string }
   | { state: "failed"; error: string };
 
-type ColorMode = "move" | "chain" | "depth";
+type ColorMode = "move" | "chain" | "depth" | "shock";
 type SizeMode = "uniform" | "cap";
 type View = { x: number; y: number; k: number };
 
@@ -60,6 +61,7 @@ const colorModes: [ColorMode, string][] = [
   ["move", "Day move"],
   ["chain", "Position"],
   ["depth", "Degree"],
+  ["shock", "Shock"],
 ];
 const kindLabels: [EdgeKind, string][] = [
   ["supply", "Supply"],
@@ -200,6 +202,7 @@ export function SupplyGraph({
   const [hideUnnamed, setHideUnnamed] = useState(true);
   const [maxDepth, setMaxDepth] = useState(9);
   const [labels, setLabels] = useState(true);
+  const [shock, setShock] = useState(-20);
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [moved, setMoved] = useState<Record<string, Point>>({});
@@ -234,6 +237,13 @@ export function SupplyGraph({
   const base = useMemo(
     () => layoutGraph(visible, rootId, layout),
     [visible, rootId, layout],
+  );
+  const impact = useMemo(
+    () =>
+      color === "shock"
+        ? propagateShock(visible, rootId, shock / 100)
+        : new Map<string, number>(),
+    [color, visible, rootId, shock],
   );
   const positions = useMemo(() => {
     const merged = new Map(base);
@@ -445,6 +455,20 @@ export function SupplyGraph({
             </button>
           ))}
         </div>
+        {color === "shock" ? (
+          <label className="graph-select" title="Revenue change at the centre company, passed to suppliers by their stated revenue share">
+            Shock {ticker}
+            <input
+              type="range"
+              min={-100}
+              max={50}
+              step={5}
+              value={shock}
+              onChange={(event) => setShock(Number(event.target.value))}
+            />
+            <b className={tone(shock)}>{percent(shock)}</b>
+          </label>
+        ) : null}
         <button
           type="button"
           className="chip"
@@ -625,8 +649,13 @@ export function SupplyGraph({
                 const quote = node.ticker ? quotes.get(node.ticker) : undefined;
                 const scale = scaleOf(node);
                 const expansion = node.ticker ? expansions[node.ticker] : undefined;
+                const hit = impact.get(node.id);
                 const fill =
-                  color === "move"
+                  color === "shock"
+                    ? hit == null
+                      ? "none"
+                      : heat(hit * 100 * (node.id === rootId ? 0.2 : 1))
+                    : color === "move"
                     ? heat(quote?.percent)
                     : color === "chain"
                       ? node.id === rootId
@@ -661,7 +690,18 @@ export function SupplyGraph({
                     <text x={-NODE_W / 2 + 8} y={-4} className="graph-node-code">
                       {node.ticker ?? "PRIVATE"}
                     </text>
-                    {quote?.percent != null ? (
+                    {color === "shock" ? (
+                      hit != null ? (
+                        <text
+                          x={NODE_W / 2 - 8}
+                          y={-4}
+                          className="graph-node-move"
+                          textAnchor="end"
+                        >
+                          {percent(hit * 100)} rev
+                        </text>
+                      ) : null
+                    ) : quote?.percent != null ? (
                       <text
                         x={NODE_W / 2 - 8}
                         y={-4}

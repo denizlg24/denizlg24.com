@@ -444,3 +444,42 @@ export function backtest(bars: Bar[], strategy: Strategy) {
   };
   return { equity, trades, stats };
 }
+
+export type RotationPoint = { time: number; ratio: number; momentum: number };
+
+/**
+ * Relative-rotation coordinates against a benchmark: RS-Ratio measures
+ * relative strength against its own trailing mean, RS-Momentum the rate of
+ * change of that ratio. Both are centred on 100.
+ */
+export function rotation(
+  security: ChartPoint[],
+  benchmark: ChartPoint[],
+  window = 10,
+): RotationPoint[] {
+  const pairs = align(security, benchmark);
+  const rs = pairs.map((pair) => pair.a / pair.b);
+  const ratio: (number | null)[] = rs.map((value, i) => {
+    if (i < window - 1) return null;
+    const mean = rs.slice(i - window + 1, i + 1).reduce((sum, x) => sum + x, 0) / window;
+    return 100 + (value / mean - 1) * 100;
+  });
+  const out: RotationPoint[] = [];
+  const lag = Math.max(1, Math.round(window / 2));
+  for (let i = 0; i < pairs.length; i++) {
+    const now = ratio[i];
+    const before = ratio[i - lag];
+    if (now == null || before == null) continue;
+    out.push({ time: pairs[i].time, ratio: now, momentum: 100 + (now - before) });
+  }
+  return out;
+}
+
+export const quadrant = (point: { ratio: number; momentum: number }) =>
+  point.ratio >= 100
+    ? point.momentum >= 100
+      ? "Leading"
+      : "Weakening"
+    : point.momentum >= 100
+      ? "Improving"
+      : "Lagging";

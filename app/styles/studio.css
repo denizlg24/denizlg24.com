@@ -853,3 +853,50 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* RRG */
+.rrg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+}
+.rrg-chart {
+  position: relative;
+  height: 560px;
+}
+.rrg-label {
+  font-size: 11px;
+  font-weight: 750;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+}
+.rrg-corner {
+  position: absolute;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.rrg-corner[data-at="tr"] { top: 14px; right: 18px; color: var(--gain); }
+.rrg-corner[data-at="br"] { bottom: 44px; right: 18px; color: var(--term-key); }
+.rrg-corner[data-at="bl"] { bottom: 44px; left: 54px; color: var(--loss); }
+.rrg-corner[data-at="tl"] { top: 14px; left: 54px; color: var(--live); }
+.rrg-table tr[data-hidden] {
+  opacity: 0.45;
+}
+.rrg-table [data-quadrant="Leading"] { color: var(--gain); }
+.rrg-table [data-quadrant="Lagging"] { color: var(--loss); }
+.rrg-table [data-quadrant="Weakening"] { color: var(--term-key); }
+.rrg-table [data-quadrant="Improving"] { color: var(--live); }
+@media (max-width: 980px) {
+  .rrg {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rrg-chart {
+    height: 420px;
+  }
+}

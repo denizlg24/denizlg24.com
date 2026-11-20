@@ -29,6 +29,7 @@ export const monitorFunctions = [
   { code: "CRYP", label: "Crypto", detail: "Digital assets and listed proxies" },
   { code: "CORR", label: "Correlation", detail: "Correlation matrix, e.g. CORR AAPL MSFT NVDA" },
   { code: "EQS", label: "Screener", detail: "Screen the S&P 500 by sector, moves and range" },
+  { code: "RRG", label: "Rotation", detail: "Relative rotation of sectors, regions and factors" },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
 
@@ -116,6 +117,9 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["EQS", "EQS"],
   ["SCRN", "EQS"],
   ["SCREEN", "EQS"],
+  ["RRG", "RRG"],
+  ["ROT", "RRG"],
+  ["ROTATION", "RRG"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
   ...workspaceFunctions.map(

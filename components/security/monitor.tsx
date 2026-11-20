@@ -30,6 +30,7 @@ import {
   cryptoBoard,
 } from "./boards";
 import { Screener } from "./screener";
+import { Rotation } from "./rotation";
 import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
@@ -476,6 +477,7 @@ export function Monitor({
           initial={symbols}
         />
       ) : null}
+      {fn === "RRG" ? <Rotation select={select} /> : null}
       {fn === "EQS" ? (
         <Screener select={select} correlate={correlate} overlay={overlay} />
       ) : null}

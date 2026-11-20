@@ -322,3 +322,34 @@ export function concentration(graph: Graph, id: string) {
       return sum + (stated.length ? Math.max(...stated) : 0);
     }, 0);
 }
+
+/**
+ * Propagates a revenue shock at `rootId` up the supply chain: a supplier
+ * loses `share × shock` of revenue for every customer hit by `shock`, where
+ * `share` is the customer's stated share of that supplier's revenue. Shares
+ * are only known where filings state them, so this is a lower bound.
+ */
+export function propagateShock(
+  graph: Graph,
+  rootId: string,
+  shock: number,
+  depth = 4,
+) {
+  const impact = new Map<string, number>([[rootId, shock]]);
+  let frontier = new Map<string, number>([[rootId, shock]]);
+  for (let level = 0; level < depth && frontier.size; level++) {
+    const next = new Map<string, number>();
+    for (const [buyer, hit] of frontier)
+      for (const edge of graph.edges) {
+        if (edge.kind !== "supply" || edge.to !== buyer || edge.share == null)
+          continue;
+        if (edge.from === rootId) continue;
+        const passed = hit * edge.share;
+        if (Math.abs(passed) < 0.0001) continue;
+        next.set(edge.from, (next.get(edge.from) ?? 0) + passed);
+      }
+    for (const [id, value] of next) impact.set(id, (impact.get(id) ?? 0) + value);
+    frontier = next;
+  }
+  return impact;
+}
