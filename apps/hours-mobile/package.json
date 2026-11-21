@@ -13,7 +13,7 @@
     "icons": "bun scripts/render-icons.ts"
   },
   "dependencies": {
-    "@expo/ui": "~57.0.20",
+    "@expo/ui": "~58.0.29",
     "@repo/native-auth": "workspace:*",
     "@repo/native-ui": "workspace:*",
     "@repo/schemas": "workspace:*",
