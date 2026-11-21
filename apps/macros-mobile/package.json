@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@better-auth/expo": "1.7.20",
-    "@expo/ui": "~57.0.20",
+    "@expo/ui": "~58.0.29",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@repo/macros-core": "workspace:*",
     "@repo/schemas": "workspace:*",
