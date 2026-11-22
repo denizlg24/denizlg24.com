@@ -11,6 +11,11 @@ import {
   waitForSignal,
 } from "@/components/screen/connection";
 import { ScreenReceiver } from "@/components/screen/receiver";
+import {
+  addScreenVideo,
+  type ScreenVideoFormat,
+  screenCaptureOptions,
+} from "@/components/screen/video";
 import { joinScreenReceiver, openScreenReceiver } from "./actions";
 
 const button =
@@ -22,6 +27,7 @@ type Phase = "idle" | "starting" | "connecting" | "live";
 
 export function ScreenShare({ tv }: { tv: boolean }) {
   const [code, setCode] = useState("");
+  const [format, setFormat] = useState<ScreenVideoFormat>("auto");
   const [phase, setPhase] = useState<Phase>("idle");
   const [notice, setNotice] = useState("");
   const [receiverKey, setReceiverKey] = useState<string>();
@@ -86,23 +92,18 @@ export function ScreenShare({ tv }: { tv: boolean }) {
     setNotice("");
     setPhase("starting");
     try {
-      capture = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 30 },
-        },
-        audio: true,
-      });
+      capture = await navigator.mediaDevices.getDisplayMedia(
+        screenCaptureOptions(format),
+      );
       if (signal.aborted) {
         for (const track of capture.getTracks()) track.stop();
         return;
       }
-      capture
-        .getVideoTracks()[0]
-        ?.addEventListener("ended", () => stop("Screen sharing ended."), {
-          once: true,
-        });
+      const [video] = capture.getVideoTracks();
+      if (!video) throw new Error("Screen capture returned no video");
+      video.addEventListener("ended", () => stop("Screen sharing ended."), {
+        once: true,
+      });
       setPhase("connecting");
       key = await joinScreenReceiver(code);
       if (signal.aborted) {
@@ -126,10 +127,17 @@ export function ScreenShare({ tv }: { tv: boolean }) {
           ),
       );
       channel = peer.createDataChannel("screen-share");
-      for (const track of capture.getTracks()) peer.addTrack(track, capture);
+      const outgoingVideo = addScreenVideo(peer, video, capture, format);
+      for (const track of capture.getAudioTracks())
+        peer.addTrack(track, capture);
       await sendDescription(key, peer, "offer", signal);
       const answer = await waitForSignal(key, "answer", signal);
       await peer.setRemoteDescription(answer);
+      if (outgoingVideo.currentDirection !== "sendonly") {
+        stop(
+          "This display couldn’t play the selected format. Get a new TV code and try the other video format.",
+        );
+      }
     } catch (error) {
       if (signal.aborted) return;
       const message =
@@ -198,6 +206,30 @@ export function ScreenShare({ tv }: { tv: boolean }) {
               required
               className="min-h-12 rounded-lg border border-paper/30 bg-paper/5 px-4 text-lg tracking-widest"
             />
+            <label htmlFor="screen-format" className="text-sm font-bold">
+              Video format
+            </label>
+            <select
+              id="screen-format"
+              data-nav
+              data-nav-own="all"
+              value={format}
+              onChange={(event) =>
+                setFormat(
+                  event.target.value === "vp8"
+                    ? "vp8"
+                    : event.target.value === "h264"
+                      ? "h264"
+                      : "auto",
+                )
+              }
+              disabled={phase !== "idle"}
+              className="min-h-11 rounded-lg border border-paper/30 bg-ink px-4 text-paper"
+            >
+              <option value="auto">Automatic</option>
+              <option value="h264">H.264 · TV compatibility</option>
+              <option value="vp8">VP8 · Alternate at lower resolution</option>
+            </select>
             <div className="flex flex-wrap items-center gap-3">
               <button
                 data-nav
