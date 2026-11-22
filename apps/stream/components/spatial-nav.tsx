@@ -13,12 +13,6 @@ const KEYS: Record<string, Direction> = {
 
 const FOCUSABLE = "[data-nav]";
 
-function visible(element: HTMLElement): boolean {
-  if (element.closest("[inert],[aria-hidden='true']")) return false;
-  const rect = element.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
-}
-
 /**
  * Nearest candidate in the pressed direction, scored by distance along the
  * axis plus twice the drift across it — rows win over diagonals, which is
@@ -35,6 +29,13 @@ export function pickNext(
   for (const { rect, element } of candidates) {
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
+    if (
+      (direction === "up" && y >= cy) ||
+      (direction === "down" && y <= cy) ||
+      (direction === "left" && x >= cx) ||
+      (direction === "right" && x <= cx)
+    )
+      continue;
     const along =
       direction === "left"
         ? from.left - rect.right
@@ -80,9 +81,30 @@ export function SpatialNav({ tv }: { tv: boolean }) {
         active instanceof HTMLElement && active.matches(FOCUSABLE);
       if (!fromNav && !tv) return;
       if (active && ownsArrows(active, direction)) return;
-      const candidates = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)]
-        .filter((element) => element !== active && visible(element))
-        .map((element) => ({ element, rect: element.getBoundingClientRect() }));
+      const scope = document.querySelector("dialog[open]") ?? document;
+      const vertical = direction === "up" || direction === "down";
+      const activeRow = active?.closest(".row-scroller");
+      const rowBounds = new Map<Element, DOMRect>();
+      const candidates = [
+        ...scope.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ].flatMap((element) => {
+        if (
+          element === active ||
+          element.closest("[inert],[aria-hidden='true']") ||
+          element.matches(":disabled")
+        )
+          return [];
+        const rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height) return [];
+        const row = element.closest(".row-scroller");
+        if (vertical && row) {
+          if (row === activeRow) return [];
+          const bounds = rowBounds.get(row) ?? row.getBoundingClientRect();
+          rowBounds.set(row, bounds);
+          if (rect.right <= bounds.left || rect.left >= bounds.right) return [];
+        }
+        return [{ element, rect }];
+      });
       if (candidates.length === 0) return;
       const from =
         fromNav && active instanceof HTMLElement
@@ -96,11 +118,10 @@ export function SpatialNav({ tv }: { tv: boolean }) {
       next.focus({ preventScroll: true });
       // Rows page themselves horizontally; on a TV the focused row sits
       // mid-screen so its heading and the next row stay in sight.
-      const row = next.closest(".row-scroller")?.parentElement;
-      (row ?? next).scrollIntoView({
+      next.scrollIntoView({
         block: tv && !next.closest("header") ? "center" : "nearest",
         inline: "nearest",
-        behavior: "smooth",
+        behavior: tv ? "instant" : "smooth",
       });
     };
     window.addEventListener("keydown", onKey);

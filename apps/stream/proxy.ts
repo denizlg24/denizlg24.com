@@ -23,7 +23,11 @@ function isSignedOutDocument(request: NextRequest): boolean {
 }
 
 export function proxy(request: NextRequest) {
-  if (request.headers.has("authorization") || devSubject()) {
+  if (
+    request.nextUrl.pathname === "/screen/receive" ||
+    request.headers.has("authorization") ||
+    devSubject()
+  ) {
     return NextResponse.next();
   }
   if (isSignedOutDocument(request)) {

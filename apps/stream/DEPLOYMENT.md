@@ -21,6 +21,13 @@ local preference ranking remains available if that service is unreachable.
 `STREAM_WYZIE_KEY` (a free key from store.wyzie.io/redeem) enables subtitle
 search; without it the TV and web players offer only Off and Automatic.
 
+Screen Share uses the `screen_shares` table for short-lived pairing and
+connection setup. It needs HTTPS on the website for browser screen capture.
+The browser and TV send media directly over WebRTC where the network permits.
+Set `STREAM_TURN_URLS` (comma-separated TURN URLs) and `STREAM_TURN_SECRET`
+(the relay's shared authentication secret) to support networks that require
+a media relay. Stream issues temporary credentials to paired clients.
+
 Before deploying a schema change, run `bun run db:migrate` with the production
 `STREAM_DATABASE_URL` in the environment. Forge does not run migrations.
 The initial migration creates `pg_trgm`; the resource's Postgres role needs

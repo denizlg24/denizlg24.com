@@ -1,5 +1,6 @@
 import {
   assistantResultSchema,
+  type Browse,
   type BrowseTab,
   browseSchema,
   episodeSchema,
@@ -175,11 +176,18 @@ export function useToggleWatchlist(profileId: string) {
         method: add ? "PUT" : "DELETE",
       }),
     onMutate: async ({ title, add }) => {
+      const affectedBrowse = {
+        queryKey: ["browse"],
+        predicate: ({ queryKey }: { queryKey: readonly unknown[] }) =>
+          typeof queryKey[1] === "string" &&
+          queryKey[1].split(",").includes(profileId),
+      };
       const titleKey = keys.title(title.id, profileId);
       const listKey = keys.watchlist(profileId);
       await Promise.all([
         client.cancelQueries({ queryKey: titleKey }),
         client.cancelQueries({ queryKey: listKey }),
+        client.cancelQueries(affectedBrowse),
       ]);
       const previousTitle = client.getQueryData<TitleResponse>(titleKey);
       const previousList =
@@ -197,24 +205,72 @@ export function useToggleWatchlist(profileId: string) {
             : previousList.titles.filter((t) => t.id !== title.id),
         });
       }
-      return { previousTitle, previousList, titleKey, listKey };
+      const billboards = client
+        .getQueriesData<Browse>(affectedBrowse)
+        .flatMap(([queryKey, browse]) => {
+          const billboard = browse?.billboard;
+          if (billboard?.title.id !== title.id || billboard.inWatchlist === add)
+            return [];
+          // A sofa billboard reflects the first profile's list.
+          if (String(queryKey[1]).split(",")[0] !== profileId) return [];
+          client.setQueryData<Browse>(queryKey, (current) =>
+            current
+              ? { ...current, billboard: { ...billboard, inWatchlist: add } }
+              : current,
+          );
+          return [{ queryKey, before: billboard.inWatchlist }];
+        });
+      return {
+        previousTitle,
+        previousList,
+        titleKey,
+        listKey,
+        billboards,
+        affectedBrowse,
+      };
     },
-    onError: (_error, _input, context) => {
+    onError: (_error, { title }, context) => {
       if (!context) return;
       if (context.previousTitle) {
-        client.setQueryData(context.titleKey, context.previousTitle);
+        const inWatchlist = context.previousTitle.inWatchlist;
+        client.setQueryData<TitleResponse>(context.titleKey, (current) =>
+          current ? { ...current, inWatchlist } : current,
+        );
       }
       if (context.previousList) {
-        client.setQueryData(context.listKey, context.previousList);
+        const index = context.previousList.titles.findIndex(
+          (item) => item.id === title.id,
+        );
+        const before = context.previousList.titles[index];
+        client.setQueryData<typeof context.previousList>(
+          context.listKey,
+          (current) => {
+            if (!current) return current;
+            const rest = current.titles.filter((item) => item.id !== title.id);
+            if (before) rest.splice(index, 0, before);
+            return { ...current, titles: rest };
+          },
+        );
+      }
+      for (const { queryKey, before } of context.billboards) {
+        client.setQueryData<Browse>(queryKey, (current) =>
+          current?.billboard?.title.id === title.id
+            ? {
+                ...current,
+                billboard: { ...current.billboard, inWatchlist: before },
+              }
+            : current,
+        );
       }
     },
-    onSettled: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: keys.watchlist(profileId) }),
-        client.invalidateQueries({ queryKey: ["title"] }),
-        client.invalidateQueries({ queryKey: keys.home(profileId) }),
-        client.invalidateQueries({ queryKey: ["browse"] }),
-      ]),
+    onSettled: (_result, _error, { title }, context) => {
+      void client.invalidateQueries({ queryKey: keys.watchlist(profileId) });
+      void client.invalidateQueries({
+        queryKey: keys.title(title.id, profileId),
+      });
+      void client.invalidateQueries({ queryKey: keys.home(profileId) });
+      if (context) void client.invalidateQueries(context.affectedBrowse);
+    },
   });
 }
 

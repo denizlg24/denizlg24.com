@@ -69,7 +69,7 @@ export interface RowEvents {
   /** A tile took focus; false asks the row to stand still (focus is being sent elsewhere). */
   onTileFocus: (row: number, model: TvRowModel, column: number) => boolean;
   /** Focus left a tile, for the rail or a dialog: arrows are native again. */
-  onTileBlur?: () => void;
+  onTileBlur?: (rowId: string, column: number) => void;
   onTilePress: (tile: TvTile) => void;
 }
 
@@ -84,11 +84,13 @@ export const TvRow = memo(function TvRow({
   events,
   preferFirst = false,
   holdVertical = false,
+  initialColumn = 0,
 }: {
   model: TvRowModel;
   index: number;
   events: RowEvents;
   preferFirst?: boolean;
+  initialColumn?: number;
   /**
    * The screen moves between rows itself (`RowEvents` + the remote): rows
    * below its snap line sit off screen, where Android's search cannot find them.
@@ -98,7 +100,8 @@ export const TvRow = memo(function TvRow({
   const list = useRef<FlatList<TvTile>>(null);
   const size = tileSize(model.kind);
   const stride = size.width + TILE_GAP;
-  const column = useRef(0);
+  const initial = useRef(initialColumn).current;
+  const column = useRef(initial);
 
   const focusColumn = useCallback(
     (col: number) => {
@@ -154,6 +157,7 @@ export const TvRow = memo(function TvRow({
         scrollEnabled={false}
         scrollsChildToFocus={false}
         showsHorizontalScrollIndicator={false}
+        initialScrollIndex={initial || undefined}
         initialNumToRender={Math.ceil(960 / stride) + 2}
         maxToRenderPerBatch={6}
         windowSize={3}
@@ -184,7 +188,7 @@ const RowTile = memo(function RowTile({
   preferred: boolean;
   onFocusColumn: (column: number) => void;
   holdVertical: boolean;
-  onBlur?: () => void;
+  onBlur?: RowEvents["onTileBlur"];
   onPress: (tile: TvTile) => void;
 }) {
   const art =
@@ -221,7 +225,7 @@ const RowTile = memo(function RowTile({
           : tile.title.title
       }
       onFocus={() => onFocusColumn(column)}
-      onBlur={onBlur}
+      onBlur={onBlur ? () => onBlur(rowId, column) : undefined}
       onPress={() => onPress(tile)}
       radius={4}
       grow={kind === "poster" || kind === "rank" ? 1.07 : 1.05}

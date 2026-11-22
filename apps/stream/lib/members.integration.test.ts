@@ -249,3 +249,66 @@ integration(
     expect(await validViewing({ ...selection, episodeId: null })).toBe(false);
   },
 );
+
+integration(
+  "screen sharing pairs one sender and isolates each side’s signaling",
+  async () => {
+    const sharing = await import("./screen-share");
+    const { receiverKey } = await sharing.createScreenShare();
+    const receiver = await sharing.readScreenShare(receiverKey);
+    if (!receiver || !("code" in receiver) || !receiver.code) {
+      throw new Error("Missing TV code");
+    }
+
+    const claims = await Promise.all([
+      sharing.pairScreenShare(receiver.code),
+      sharing.pairScreenShare(receiver.code),
+    ]);
+    const keys = claims.filter((key) => key !== null);
+    expect(keys).toHaveLength(1);
+    const senderKey = keys[0]!;
+
+    expect(await sharing.readScreenShare(senderKey)).toEqual({ answer: null });
+    expect(
+      await sharing.publishScreenSignal(receiverKey, "offer", "invalid"),
+    ).toBe(false);
+    expect(
+      await sharing.publishScreenSignal(receiverKey, "answer", "too early"),
+    ).toBe(false);
+    expect(await sharing.publishScreenSignal(senderKey, "offer", "offer")).toBe(
+      true,
+    );
+    expect(await sharing.readScreenShare(receiverKey)).toEqual({
+      code: receiver.code,
+      offer: "offer",
+    });
+    expect(
+      await sharing.publishScreenSignal(senderKey, "answer", "invalid"),
+    ).toBe(false);
+    expect(
+      await sharing.publishScreenSignal(receiverKey, "answer", "answer"),
+    ).toBe(true);
+    expect(
+      await sharing.publishScreenSignal(receiverKey, "answer", "replacement"),
+    ).toBe(false);
+    expect(await sharing.readScreenShare(senderKey)).toEqual({
+      answer: "answer",
+    });
+
+    await sharing.closeScreenShare(receiverKey);
+    expect(await sharing.readScreenShare(senderKey)).toBeNull();
+    expect(await sharing.pairScreenShare(receiver.code)).toBeNull();
+  },
+);
+
+integration("expired screen share codes cannot be claimed", async () => {
+  const sharing = await import("./screen-share");
+  const { screenShares } = await import("../db/schema");
+  const code = "EXPIRED2";
+  const receiverKey = "expired-session";
+  await database.db
+    .insert(screenShares)
+    .values({ code, receiverKey, expiresAt: new Date(0) });
+  expect(await sharing.pairScreenShare(code)).toBeNull();
+  expect(await sharing.readScreenShare(receiverKey)).toBeNull();
+});

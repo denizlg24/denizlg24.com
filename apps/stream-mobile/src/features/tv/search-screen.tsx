@@ -10,8 +10,21 @@ import {
   UserRound,
   X,
 } from "lucide-react-native";
-import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import {
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  type ListRenderItem,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useSearch } from "@/api/stream";
 import { useAudience } from "@/lib/audience-store";
 import { colors, spacing } from "@/ui";
@@ -37,62 +50,80 @@ const RESULT = {
 } as const;
 const RESULT_HEIGHT = Math.round((RESULT.width * 9) / 16);
 
-function useDebounced(value: string, ms: number): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
-}
-
-/**
- * Search the way a TV does it: an on-screen keyboard on the left driven by
- * the D-pad, results on the right updating with every letter. With nothing
- * typed, the right side shows what everyone is searching for.
- */
+/** The draft updates on every keypress. Only settled text reaches the catalogue. */
 export function TvSearchScreen() {
   const { key } = useAudience();
-  const [q, setQ] = useState("");
-  const settled = useDebounced(q.trim(), 220);
-  const search = useSearch(key, settled);
+  const [query, setQuery] = useState("");
+  const search = useSearch(key, query);
   const result = search.data ?? null;
-
-  const type = useCallback((letter: string) => {
-    setQ((current) => (current.length >= 60 ? current : current + letter));
-  }, []);
-  const erase = useCallback(() => setQ((current) => current.slice(0, -1)), []);
-  const clear = useCallback(() => setQ(""), []);
 
   return (
     <TvShell section="search">
       <View style={styles.screen}>
         <View style={styles.pad}>
-          <View style={styles.query}>
-            <Search size={22} color={q ? colors.amber : colors.muted} />
-            <TvText
-              variant={q ? "heading" : "lede"}
-              color={q ? "paper" : "muted"}
-              numberOfLines={1}
-              ellipsizeMode="head"
-              style={styles.queryText}
-            >
-              {q || "Type to search"}
-            </TvText>
-          </View>
-          <Keyboard onType={type} onErase={erase} onClear={clear} />
-          <Suggestions result={settled ? result : null} />
+          <SearchPad onQuery={setQuery} />
+          <Suggestions result={result?.query ? result : null} />
         </View>
         <Results
-          query={settled}
+          query={result?.query ?? query}
           result={result}
-          loading={search.isPending || (search.isFetching && !result)}
-          failed={search.isError && !result}
+          loading={search.isPending}
+          failed={search.isError}
         />
       </View>
     </TvShell>
   );
 }
+
+const SearchPad = memo(function SearchPad({
+  onQuery,
+}: {
+  onQuery: (query: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const text = useRef("");
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const change = useCallback(
+    (next: string) => {
+      text.current = next;
+      setDraft(next);
+      clearTimeout(timer.current);
+      const query = next.trim();
+      if (!query) onQuery("");
+      else timer.current = setTimeout(() => onQuery(query), 220);
+    },
+    [onQuery],
+  );
+
+  const type = useCallback(
+    (letter: string) => {
+      if (text.current.length < 60) change(text.current + letter);
+    },
+    [change],
+  );
+  const erase = useCallback(() => change(text.current.slice(0, -1)), [change]);
+  const clear = useCallback(() => change(""), [change]);
+
+  return (
+    <View style={styles.input}>
+      <View style={styles.query}>
+        <Search size={22} color={draft ? colors.amber : colors.muted} />
+        <TvText
+          variant={draft ? "heading" : "lede"}
+          color={draft ? "paper" : "muted"}
+          numberOfLines={1}
+          ellipsizeMode="head"
+          style={styles.queryText}
+        >
+          {draft || "Type to search"}
+        </TvText>
+      </View>
+      <Keyboard onType={type} onErase={erase} onClear={clear} />
+    </View>
+  );
+});
 
 /** Memoised with stable callbacks: typing re-renders none of the keys. */
 const Keyboard = memo(function Keyboard({
@@ -225,7 +256,11 @@ function suggestionsFor(result: SearchResult | null): Suggestion[] {
 }
 
 /** People, a genre and themes that match, then a way to just describe it. */
-function Suggestions({ result }: { result: SearchResult | null }) {
+const Suggestions = memo(function Suggestions({
+  result,
+}: {
+  result: SearchResult | null;
+}) {
   return (
     <View style={styles.suggestions}>
       {suggestionsFor(result).map((item) => (
@@ -260,9 +295,9 @@ function Suggestions({ result }: { result: SearchResult | null }) {
       ))}
     </View>
   );
-}
+});
 
-function Results({
+const Results = memo(function Results({
   query,
   result,
   loading,
@@ -311,43 +346,69 @@ function Results({
       <ResultGrid titles={titles} />
     </View>
   );
-}
+});
 
 function Side({ children }: { children: ReactNode }) {
   return <View style={styles.side}>{children}</View>;
 }
+
+const resultKey = (title: TitleSummary) => title.id;
+const rightEdge = { right: "self" } as const;
+
+const ResultTile = memo(function ResultTile({
+  title,
+  last,
+}: {
+  title: TitleSummary;
+  last: boolean;
+}) {
+  return (
+    <Focusable
+      focusKey={`result:${title.id}`}
+      accessibilityRole="button"
+      accessibilityLabel={title.title}
+      next={last ? rightEdge : undefined}
+      onPress={() => openTvTitle(title.id)}
+      radius={4}
+      grow={1.05}
+    >
+      <BoxArt title={title} width={RESULT.width} height={RESULT_HEIGHT} />
+    </Focusable>
+  );
+});
 
 const ResultGrid = memo(function ResultGrid({
   titles,
 }: {
   titles: TitleSummary[];
 }) {
+  const renderItem = useCallback<ListRenderItem<TitleSummary>>(
+    ({ item, index }) => (
+      <ResultTile
+        title={item}
+        last={
+          index % RESULT_COLUMNS === RESULT_COLUMNS - 1 ||
+          index === titles.length - 1
+        }
+      />
+    ),
+    [titles.length],
+  );
+
   return (
-    <ScrollView
+    <FlatList
+      data={titles}
+      keyExtractor={resultKey}
+      renderItem={renderItem}
+      numColumns={RESULT_COLUMNS}
+      initialNumToRender={8}
+      windowSize={3}
+      removeClippedSubviews={false}
       style={styles.fill}
+      columnWrapperStyle={styles.resultRow}
       contentContainerStyle={styles.grid}
       showsVerticalScrollIndicator={false}
-    >
-      {titles.map((title, index) => (
-        <Focusable
-          key={title.id}
-          focusKey={`result:${title.id}`}
-          accessibilityRole="button"
-          accessibilityLabel={title.title}
-          next={
-            index % RESULT_COLUMNS === RESULT_COLUMNS - 1 ||
-            index === titles.length - 1
-              ? { right: "self" }
-              : undefined
-          }
-          onPress={() => openTvTitle(title.id)}
-          radius={4}
-          grow={1.05}
-        >
-          <BoxArt title={title} width={RESULT.width} height={RESULT_HEIGHT} />
-        </Focusable>
-      ))}
-    </ScrollView>
+    />
   );
 });
 
@@ -360,6 +421,7 @@ const styles = StyleSheet.create({
     paddingTop: TV_SAFE.y + spacing.sm,
     gap: spacing.md,
   },
+  input: { gap: spacing.md },
   query: {
     height: 40,
     flexDirection: "row",
@@ -401,12 +463,11 @@ const styles = StyleSheet.create({
   },
   resultsLabel: { height: 24, paddingLeft: FOCUS_ROOM },
   grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: RESULT_GAP,
     padding: FOCUS_ROOM,
     paddingBottom: TV_SAFE.y + FOCUS_ROOM,
   },
+  resultRow: { gap: RESULT_GAP },
   side: {
     position: "absolute",
     left: RESULTS_X,
