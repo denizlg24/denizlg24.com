@@ -6,6 +6,7 @@ import {
   Flame,
   House,
   type LucideIcon,
+  MonitorUp,
   Plus,
   Search,
   Tv,
@@ -38,7 +39,14 @@ import { RAIL, TV_SAFE } from "./layout";
 import { useRemote } from "./remote";
 import { TvText } from "./tv-text";
 
-export type TvSection = "search" | "home" | "series" | "films" | "new" | "list";
+export type TvSection =
+  | "search"
+  | "home"
+  | "series"
+  | "films"
+  | "new"
+  | "list"
+  | "screen";
 
 const SECTIONS: {
   key: TvSection;
@@ -52,6 +60,7 @@ const SECTIONS: {
   { key: "films", label: "Films", icon: Film, href: "/tv/films" },
   { key: "new", label: "New & Popular", icon: Flame, href: "/tv/new" },
   { key: "list", label: "My List", icon: Plus, href: "/tv/list" },
+  { key: "screen", label: "Screen Share", icon: MonitorUp, href: "/tv/screen" },
 ];
 
 type RailKey = TvSection | "profile";
@@ -68,11 +77,13 @@ type RailKey = TvSection | "profile";
 export function TvShell({
   section,
   onBack,
+  hideRail = false,
   children,
 }: {
   section: TvSection;
   /** True when the screen handled Back itself, e.g. by jumping to the top. */
   onBack?: () => boolean;
+  hideRail?: boolean;
   children: ReactNode;
 }) {
   const memory = useFocusMemoryState();
@@ -116,15 +127,17 @@ export function TvShell({
     <FocusMemoryContext value={memory}>
       <View style={styles.screen}>
         {children}
-        <Rail
-          section={section}
-          open={open}
-          aim={aim}
-          memory={memory}
-          onOpen={openRail}
-          onClose={() => setOpen(false)}
-          onAimed={() => setAim(null)}
-        />
+        {hideRail ? null : (
+          <Rail
+            section={section}
+            open={open}
+            aim={aim}
+            memory={memory}
+            onOpen={openRail}
+            onClose={() => setOpen(false)}
+            onAimed={() => setAim(null)}
+          />
+        )}
       </View>
     </FocusMemoryContext>
   );

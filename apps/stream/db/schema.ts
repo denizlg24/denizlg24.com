@@ -265,6 +265,19 @@ export const ingestRuns = pgTable("ingest_runs", {
   error: text("error"),
 });
 
+export const screenShares = pgTable(
+  "screen_shares",
+  {
+    code: text("code").primaryKey(),
+    receiverKey: text("receiver_key").notNull().unique(),
+    senderKey: text("sender_key").unique(),
+    offer: text("offer"),
+    answer: text("answer"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("screen_shares_expiry_idx").on(table.expiresAt)],
+);
+
 export const schema = {
   titles,
   episodes,
@@ -275,6 +288,7 @@ export const schema = {
   recommendations,
   trending,
   ingestRuns,
+  screenShares,
 };
 
 export type TitleRow = typeof titles.$inferSelect;

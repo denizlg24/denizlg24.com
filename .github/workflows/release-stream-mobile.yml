@@ -146,23 +146,16 @@ jobs:
           ls -l build
 
       - name: Write release notes
+        working-directory: .
         shell: bash
         run: |
-          previous_tag="$(
-            git tag --list 'stream-android-v*' --sort=-v:refname |
-              grep -Fvx "$TAG" |
-              head -n 1 ||
-              true
-          )"
-          if [[ -n "$previous_tag" ]]; then
-            git log --format='- %s' "$previous_tag..HEAD" -- . ../../packages/schemas/src/stream > build/release-notes.md
-          else
-            git log --format='- %s' -n 30 HEAD -- . > build/release-notes.md
-          fi
-          if [[ ! -s build/release-notes.md ]]; then
-            echo "- Maintenance release." > build/release-notes.md
-          fi
-          cat build/release-notes.md
+          bun scripts/ci/release-notes.ts \
+            --version "$VERSION" \
+            --tag-prefix stream-android-v \
+            --changelog apps/stream-mobile/CHANGELOG.md \
+            --paths apps/stream-mobile,packages/schemas/src/stream \
+            --head "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" > apps/stream-mobile/build/release-notes.md
+          cat apps/stream-mobile/build/release-notes.md
 
       - name: Upload APK
         uses: actions/upload-artifact@v7

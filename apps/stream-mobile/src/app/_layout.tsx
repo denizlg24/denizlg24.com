@@ -96,6 +96,7 @@ export default function RootLayout() {
                       <Stack.Screen name="tv/search" />
                       <Stack.Screen name="tv/collection" />
                       <Stack.Screen name="tv/list" />
+                      <Stack.Screen name="tv/screen" />
                       <Stack.Screen name="tv/who" />
                       <Stack.Screen name="tv/title/[id]" />
                       <Stack.Screen name="tv/actor/[name]" />

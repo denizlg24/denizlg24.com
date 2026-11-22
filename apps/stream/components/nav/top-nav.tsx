@@ -1,7 +1,7 @@
 "use client";
 
 import type { Profile } from "@repo/schemas/stream";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown, MonitorUp, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -134,6 +134,16 @@ export function TopNav({
             className="grid size-10 shrink-0 place-items-center rounded-full sm:hidden"
           >
             <Search className="size-[1.35rem]" strokeWidth={2} />
+          </Link>
+          <Link
+            href="/screen"
+            data-nav
+            aria-label="Screen Share"
+            title="Screen Share"
+            aria-current={pathname === "/screen" ? "page" : undefined}
+            className="grid size-10 shrink-0 place-items-center rounded-full hover:bg-paper/10"
+          >
+            <MonitorUp className="size-[1.35rem]" aria-hidden />
           </Link>
           <ProfileMenu
             audience={audience}

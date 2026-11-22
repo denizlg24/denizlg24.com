@@ -235,12 +235,15 @@ function Hero({
           onPress={() => playOnTv(detail.id, progress?.episodeId ?? null)}
         />
         <TvButton
-          label="My List"
+          label={inWatchlist ? "Remove from My List" : "Add to My List"}
           icon={inWatchlist ? Check : Plus}
           preferred={!detail.available}
           focusKey="title:list"
           onFocus={onFocus}
-          onPress={() => toggle.mutate({ title: detail, add: !inWatchlist })}
+          onPress={() => {
+            if (!toggle.isPending)
+              toggle.mutate({ title: detail, add: !inWatchlist });
+          }}
         />
         {detail.trailerKey ? (
           <TvButton
