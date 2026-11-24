@@ -8,6 +8,7 @@
     "./changelog": "./src/changelog.ts",
     "./apns": "./src/apns.ts",
     "./agent-stream": "./src/agent-stream.ts",
+    "./agent-live": "./src/agent-live.ts",
     "./workspace-ops": "./src/workspace-ops.ts",
     "./workspace-markdown": "./src/workspace-markdown.ts",
     "./workspace-rich-text": "./src/workspace-rich-text.ts",
