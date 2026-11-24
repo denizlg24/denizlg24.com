@@ -76,6 +76,10 @@ export function followTurnEvents(
         close();
       };
 
+      if (options.signal?.aborted) {
+        close();
+        return;
+      }
       const keepalive = setInterval(() => {
         if (!closed) controller.enqueue(encoder.encode(": ping\n\n"));
       }, options.keepaliveMs ?? KEEPALIVE_MS);

@@ -111,10 +111,18 @@ export function endLiveTurn(
   entry.resolve(status);
 }
 
-/** Aborts the turn if this process runs it; true when it did. */
-export function abortLiveTurn(conversationId: string): boolean {
+/**
+ * Aborts the turn if this process runs it; true when it did. With a turn id,
+ * only that turn, never a successor that has since claimed the thread.
+ */
+export function abortLiveTurn(
+  conversationId: string,
+  turnId?: string,
+): boolean {
   const entry = registry().get(conversationId);
-  if (!entry) return false;
+  if (!entry || (turnId !== undefined && entry.turnId !== turnId)) {
+    return false;
+  }
   entry.controller.abort(new Error("Stopped"));
   return true;
 }

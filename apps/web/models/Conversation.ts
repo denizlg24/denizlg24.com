@@ -73,6 +73,8 @@ export interface IConversation extends mongoose.Document {
   activeTurn?: IConversationActiveTurn | null;
   /** User messages sent while a turn ran, oldest first. */
   queue?: unknown[];
+  /** Set by a stop; cleared by the next send or a resume. */
+  queuePaused?: boolean;
   /** Rolling topic summary maintained by the query-summary model; used only
    *  as memory-retrieval query context, never shown to the chat model. */
   retrievalSummary?: IConversationRetrievalSummary;
@@ -101,6 +103,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
     messages: { type: [mongoose.Schema.Types.Mixed], default: [] },
     activeTurn: { type: mongoose.Schema.Types.Mixed, default: undefined },
     queue: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    queuePaused: { type: Boolean, default: undefined },
     memoryMode: {
       type: String,
       enum: ["enabled", "retrieval-off", "incognito"],

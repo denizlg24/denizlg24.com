@@ -117,6 +117,9 @@ export function beginDurableTurn(input: {
     publishNow();
     if (beat) await beat;
     if (!releasedRow) {
+      // The fallback finalize stores whatever the row holds: write the reply
+      // as far as it got first, not as of the last heartbeat.
+      if (dirty && latest) await heartbeat();
       try {
         await store.finalize();
       } catch (error) {

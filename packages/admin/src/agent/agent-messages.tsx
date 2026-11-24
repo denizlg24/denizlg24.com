@@ -485,11 +485,13 @@ function AssistantMessage({
     <Message className="group/turn">
       <MessageContent className="gap-3">
         {blocks.length === 0 ? (
-          <Marker role="status" className="text-xs">
-            <MarkerContent>
-              <ThinkingDots />
-            </MarkerContent>
-          </Marker>
+          isStreaming ? (
+            <Marker role="status" className="text-xs">
+              <MarkerContent>
+                <ThinkingDots />
+              </MarkerContent>
+            </Marker>
+          ) : null
         ) : (
           blocks.map((block) => (
             <AgentBlockView

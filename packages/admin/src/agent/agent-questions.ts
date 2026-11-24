@@ -1,4 +1,5 @@
 import {
+  AGENT_QUESTION_OTHER_MAX,
   type AgentQuestion,
   type AgentQuestionAnswer,
   type AgentQuestionOutput,
@@ -48,12 +49,12 @@ export function isAnswered(draft: QuestionDraft | undefined): boolean {
 /** The tool output for a filled questionnaire; options keep the order offered. */
 export function buildQuestionAnswers(
   questions: readonly AgentQuestion[],
-  drafts: Readonly<Record<string, QuestionDraft>>,
+  drafts: ReadonlyMap<string, QuestionDraft>,
 ): AgentQuestionOutput {
   const answers: AgentQuestionAnswer[] = questions.map((question) => {
-    const draft = drafts[question.id] ?? emptyDraft();
+    const draft = drafts.get(question.id) ?? emptyDraft();
     const offered = question.options.map((option) => option.label);
-    const other = draft.other.trim();
+    const other = draft.other.trim().slice(0, AGENT_QUESTION_OTHER_MAX);
     return {
       id: question.id,
       selected: offered.filter((label) => draft.selected.includes(label)),

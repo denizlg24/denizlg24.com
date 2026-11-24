@@ -1,6 +1,9 @@
 "use client";
 
-import type { AgentQuestionOutput } from "@repo/schemas";
+import {
+  AGENT_QUESTION_OTHER_MAX,
+  type AgentQuestionOutput,
+} from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { cn } from "@repo/ui/utils";
@@ -30,7 +33,17 @@ export function AgentQuestionnaire({
   onAnswer?: (toolCallId: string, output: AgentQuestionOutput) => void;
 }) {
   const questions = questionsOf(part.input);
-  const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({});
+  // A Map, not an object: a question id may be "__proto__" or "constructor".
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, QuestionDraft>>(
+    () => new Map(),
+  );
+  const setDraft = (
+    id: string,
+    update: (draft: QuestionDraft) => QuestionDraft,
+  ) =>
+    setDrafts((current) =>
+      new Map(current).set(id, update(current.get(id) ?? emptyDraft())),
+    );
   const [sent, setSent] = useState(false);
   // An answer whose request failed comes back from the server as a waiting
   // call again; the form has to come back with it.
@@ -76,7 +89,7 @@ export function AgentQuestionnaire({
   const stored =
     part.state === "output-available" ? answersOf(part.output) : null;
   const complete = questions.every((question) =>
-    isAnswered(drafts[question.id]),
+    isAnswered(drafts.get(question.id)),
   );
 
   const submit = (output: AgentQuestionOutput) => {
@@ -91,7 +104,7 @@ export function AgentQuestionnaire({
       data-agent-questionnaire
     >
       {questions.map((question) => {
-        const draft = drafts[question.id] ?? emptyDraft();
+        const draft = drafts.get(question.id) ?? emptyDraft();
         const answer = Array.isArray(stored)
           ? stored.find((entry) => entry.id === question.id)
           : undefined;
@@ -118,14 +131,9 @@ export function AgentQuestionnaire({
                     aria-pressed={chosen}
                     title={option.description}
                     onClick={() =>
-                      setDrafts((current) => ({
-                        ...current,
-                        [question.id]: toggleOption(
-                          question,
-                          current[question.id] ?? emptyDraft(),
-                          option.label,
-                        ),
-                      }))
+                      setDraft(question.id, (current) =>
+                        toggleOption(question, current, option.label),
+                      )
                     }
                     className={cn(
                       "inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-left text-xs transition-colors",
@@ -146,17 +154,12 @@ export function AgentQuestionnaire({
             {waiting ? (
               <Input
                 value={draft.other}
+                maxLength={AGENT_QUESTION_OTHER_MAX}
                 placeholder="Other"
                 className="h-7 text-xs"
                 onChange={(event) => {
                   const other = event.target.value;
-                  setDrafts((current) => ({
-                    ...current,
-                    [question.id]: {
-                      ...(current[question.id] ?? emptyDraft()),
-                      other,
-                    },
-                  }));
+                  setDraft(question.id, (current) => ({ ...current, other }));
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && complete) {

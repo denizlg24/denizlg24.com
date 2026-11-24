@@ -18,6 +18,7 @@ import {
   dequeueMessage,
   finalizeTurn,
   heartbeatTurn,
+  setQueuePaused,
 } from "@/lib/agent/turn-store";
 import { updateConversationRetrievalSummary } from "@/lib/agent-memory/query-context";
 import { getConversation, saveConversationMessages } from "@/lib/conversations";
@@ -93,9 +94,19 @@ export const POST = async (req: NextRequest) => {
       );
     }
     const turnId = generateTurnId();
-    if (!(await claimTurn(conversation._id, turnId))) {
+    const claim = await claimTurn(conversation._id, turnId, {
+      ...(request.queuedMessageId
+        ? { queuedMessageId: request.queuedMessageId }
+        : {}),
+    });
+    if (claim !== "claimed") {
       return NextResponse.json(
-        { error: "A turn is already running in this conversation" },
+        {
+          error:
+            claim === "not-queued"
+              ? "This message was already sent"
+              : "A turn is already running in this conversation",
+        },
         { status: 409 },
       );
     }
@@ -134,6 +145,9 @@ export const POST = async (req: NextRequest) => {
     // failed save, it would be in neither.
     if (request.queuedMessageId) {
       await dequeueMessage(conversationId, request.queuedMessageId);
+    } else if (newUserText !== null) {
+      // A message typed after a stop resumes the queue behind it.
+      await setQueuePaused(conversationId, false);
     }
     const background: Promise<unknown>[] = [];
 

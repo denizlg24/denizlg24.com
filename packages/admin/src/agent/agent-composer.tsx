@@ -570,6 +570,7 @@ function AgentQueueList() {
             size="icon-xs"
             aria-label="Remove"
             className="text-muted-foreground"
+            disabled={entry.state === "sending"}
             onClick={() => void session.removeQueued(entry.message.id)}
           >
             <X />

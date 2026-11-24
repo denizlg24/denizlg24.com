@@ -152,6 +152,7 @@ export interface StoredConversation {
   /** The running turn's row, live or not; `activeTurnView` decides. */
   activeTurn: IConversationActiveTurn | null;
   queue: AgentUIMessage[];
+  queuePaused: boolean;
   retrievalSummary?: IConversationRetrievalSummary;
   createdAt: Date;
   updatedAt: Date;
@@ -173,6 +174,7 @@ export async function getConversation(
     messages: storedMessagesToUI(conversation),
     activeTurn: conversation.activeTurn ?? null,
     queue: queuedMessages(conversation.queue),
+    queuePaused: conversation.queuePaused === true,
     retrievalSummary: conversation.retrievalSummary,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
@@ -294,6 +296,7 @@ export async function updateConversation(
   if (input.memoryMode !== undefined)
     conversation.memoryMode = input.memoryMode;
   if (input.title !== undefined) conversation.title = input.title;
+  if (input.queuePaused === false) conversation.queuePaused = undefined;
   await conversation.save();
   return getConversation(id);
 }
@@ -303,8 +306,10 @@ export async function deleteConversation(id: string): Promise<boolean> {
 
   const exists = await Conversation.exists({ _id: id });
   if (!exists) return false;
-  // The aborted turn's final save observes evidence; redacting before it
-  // lands would leave that evidence behind the deletion.
+  // An aborted turn's final save observes evidence. Redacting after the
+  // delete covers every save, local or on another replica: one landing later
+  // matches no conversation and writes none. The local wait only keeps this
+  // process's turn from racing the delete itself.
   const live = getLiveTurn(id);
   abortLiveTurn(id);
   if (live) {
@@ -313,10 +318,10 @@ export async function deleteConversation(id: string): Promise<boolean> {
       new Promise((resolve) => setTimeout(resolve, 10_000)),
     ]);
   }
+  const result = await Conversation.deleteOne({ _id: id });
   await redactAgentMemorySource({
     entityType: "conversation",
     entityId: id,
   });
-  const result = await Conversation.deleteOne({ _id: id });
   return result.deletedCount > 0;
 }

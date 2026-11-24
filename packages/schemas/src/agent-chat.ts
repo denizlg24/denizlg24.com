@@ -33,6 +33,7 @@ export function isAgentClientTool(name: string): boolean {
 
 export const AGENT_QUESTIONS_MAX = 4;
 export const AGENT_QUESTION_OPTIONS_MAX = 8;
+export const AGENT_QUESTION_OTHER_MAX = 2_000;
 
 export const agentQuestionOptionSchema = z.object({
   label: z.string().trim().min(1).max(120),
@@ -53,7 +54,16 @@ export const agentQuestionSchema = z.object({
 export type AgentQuestion = z.infer<typeof agentQuestionSchema>;
 
 export const agentQuestionInputSchema = z.object({
-  questions: z.array(agentQuestionSchema).min(1).max(AGENT_QUESTIONS_MAX),
+  questions: z
+    .array(agentQuestionSchema)
+    .min(1)
+    .max(AGENT_QUESTIONS_MAX)
+    .refine(
+      (questions) =>
+        new Set(questions.map((question) => question.id)).size ===
+        questions.length,
+      "Question ids must be unique",
+    ),
 });
 export type AgentQuestionInput = z.infer<typeof agentQuestionInputSchema>;
 
@@ -62,7 +72,7 @@ export const agentQuestionAnswerSchema = z.object({
   /** Labels of the chosen options, in the order they were offered. */
   selected: z.array(z.string().max(120)).max(AGENT_QUESTION_OPTIONS_MAX),
   /** Free text typed instead of, or beside, the options. */
-  other: z.string().max(2_000).optional(),
+  other: z.string().max(AGENT_QUESTION_OTHER_MAX).optional(),
 });
 export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
 
@@ -215,6 +225,8 @@ export const agentConversationSchema = z.object({
   activeTurn: agentActiveTurnSchema.nullable().optional(),
   /** User messages waiting for the running turn to finish, oldest first. */
   queue: z.array(agentUIMessageSchema).optional(),
+  /** A stop paused the queue; it waits for a send or a resume. */
+  queuePaused: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -42,10 +42,13 @@ describe("toggleOption", () => {
 
 describe("buildQuestionAnswers", () => {
   test("keeps the offered order and trims free text", () => {
-    const output = buildQuestionAnswers([multi, scope], {
-      multi: { selected: ["Recent", "All"], other: "" },
-      scope: { selected: [], other: "  only drafts " },
-    });
+    const output = buildQuestionAnswers(
+      [multi, scope],
+      new Map([
+        ["multi", { selected: ["Recent", "All"], other: "" }],
+        ["scope", { selected: [], other: "  only drafts " }],
+      ]),
+    );
     expect(output).toEqual({
       answers: [
         { id: "multi", selected: ["All", "Recent"] },
@@ -67,4 +70,28 @@ describe("buildQuestionAnswers", () => {
 test("answersOf reads a skip", () => {
   expect(answersOf({ dismissed: true })).toBe("dismissed");
   expect(answersOf("nope")).toBeNull();
+});
+
+describe("questionsOf edge cases", () => {
+  test("refuses duplicate ids, which would share one draft", () => {
+    const question = {
+      id: "scope",
+      question: "Which?",
+      options: [{ label: "A" }, { label: "B" }],
+    };
+    expect(questionsOf({ questions: [question, question] })).toBeNull();
+  });
+
+  test("an id like __proto__ is an ordinary key", () => {
+    const question = {
+      id: "__proto__",
+      question: "Which?",
+      options: [{ label: "A" }, { label: "B" }],
+    };
+    const questions = questionsOf({ questions: [question] });
+    expect(questions).not.toBeNull();
+    expect(buildQuestionAnswers(questions ?? [], new Map())).toEqual({
+      answers: [{ id: "__proto__", selected: [] }],
+    });
+  });
 });

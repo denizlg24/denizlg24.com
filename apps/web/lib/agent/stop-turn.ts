@@ -23,10 +23,16 @@ export async function stopConversationTurn(
   conversationId: string,
   options: { waitMs?: number; pollMs?: number } = {},
 ): Promise<{ stopped: boolean; turnId: string | null }> {
-  const turnId = await requestTurnCancel(conversationId);
-  const local = getLiveTurn(conversationId);
-  abortLiveTurn(conversationId);
-  if (!turnId && !local) return { stopped: false, turnId: null };
+  const storedId = await requestTurnCancel(conversationId);
+  // The turn this call stops: the stored one, or (its lease lapsed) the one
+  // this process runs. A local turn that claimed the thread after the read
+  // is a successor and is left alone.
+  const running = getLiveTurn(conversationId);
+  const local =
+    running && (!storedId || running.turnId === storedId) ? running : null;
+  if (local) abortLiveTurn(conversationId, local.turnId);
+  const turnId = storedId ?? local?.turnId ?? null;
+  if (!turnId) return { stopped: false, turnId: null };
 
   const deadline = Date.now() + (options.waitMs ?? STOP_WAIT_MS);
   if (local) {
@@ -43,5 +49,5 @@ export async function stopConversationTurn(
     remaining.id !== turnId ||
     Date.now() - new Date(remaining.heartbeatAt).getTime() >
       ACTIVE_TURN_LEASE_MS;
-  return { stopped: ended, turnId: turnId ?? local?.turnId ?? null };
+  return { stopped: ended, turnId };
 }

@@ -114,6 +114,7 @@ export type RunConfigOverride = z.infer<typeof runConfigOverrideSchema>;
 export const runModelSchema = z
   .string()
   .trim()
+  .max(200)
   .regex(
     /^(?:opus|sonnet|haiku|opusplan|default|claude-[a-z0-9]+(?:-[a-z0-9]+)*)(?:\[1m\])?$/,
     "Use a Claude Code alias (opus, sonnet, haiku) or a dashed model id such as claude-opus-5-5",

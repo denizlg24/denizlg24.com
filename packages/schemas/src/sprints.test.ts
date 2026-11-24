@@ -192,6 +192,7 @@ describe("run model ids", () => {
       "anthropic/claude-opus-5.5",
       "claude-opus-5.5",
       "Claude Opus",
+      `claude-${"a".repeat(194)}`,
     ]) {
       expect(runConfigInputSchema.safeParse({ model }).success).toBe(false);
     }

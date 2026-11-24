@@ -6,6 +6,7 @@ import {
   BLOCKED_V4,
   blockedCidrs,
   EGRESS_HELPER_NAME,
+  EGRESS_SCRIPT,
   EgressError,
   egressCommand,
   parseChildPid,
@@ -125,6 +126,11 @@ describe("applying the rules", () => {
       "60",
     ]);
     expect(argv.slice(-2)).toEqual([BRIDGE, "10.0.0.0/8"]);
+  });
+
+  test("the chain is refilled in one restore commit, never flushed bare", () => {
+    expect(EGRESS_SCRIPT).toContain("iptables-restore --noflush");
+    expect(EGRESS_SCRIPT).not.toContain("iptables -F");
   });
 
   test("a child_pid that is not a pid is refused", () => {

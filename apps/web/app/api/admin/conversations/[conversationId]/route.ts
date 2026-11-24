@@ -24,6 +24,7 @@ function serialize(
     messages: withTurnMessage(conversation.messages, conversation.activeTurn),
     activeTurn: activeTurnView(conversation.activeTurn),
     queue: conversation.queue,
+    queuePaused: conversation.queuePaused,
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString(),
   };

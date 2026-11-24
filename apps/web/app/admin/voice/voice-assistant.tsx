@@ -15,7 +15,12 @@ import {
 } from "@repo/admin/agent/use-model-catalog";
 import { useAdmin } from "@repo/admin/provider";
 import { useAdminSpeech } from "@repo/admin/tts/use-admin-speech";
-import { getToolLabel, voiceTranscriptionResponseSchema } from "@repo/schemas";
+import {
+  type AgentConversationResponse,
+  type AgentStopResponse,
+  getToolLabel,
+  voiceTranscriptionResponseSchema,
+} from "@repo/schemas";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type VoiceState = "idle" | "listening" | "thinking" | "responding" | "error";
@@ -217,7 +222,8 @@ export function VoiceAssistant() {
   const [ticker, setTicker] = useState("");
   const tickerRef = useRef<HTMLParagraphElement>(null);
   const conversationIdRef = useRef<string | null>(null);
-  const stopping = useRef<Promise<void> | null>(null);
+  /** Settles with whether the stopped turn released the thread. */
+  const stopping = useRef<Promise<boolean> | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -334,6 +340,24 @@ export function VoiceAssistant() {
     setLevel(0);
   }, []);
 
+  const threadReleased = useCallback(
+    async (id: string | null) => {
+      if (!id) return true;
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        try {
+          const { conversation } = await client.get<AgentConversationResponse>(
+            `conversations/${id}`,
+          );
+          if (!conversation.activeTurn) return true;
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return false;
+    },
+    [client],
+  );
+
   const sendTranscript = useCallback(
     async (blob: Blob, mimeType: string) => {
       const sequence = ++responseSequence.current;
@@ -373,8 +397,13 @@ export function VoiceAssistant() {
         }
 
         if (stopping.current) {
-          await stopping.current;
+          const released = await stopping.current;
           stopping.current = null;
+          // Sent while the old turn still holds the thread, the message
+          // would be refused; wait for the release a little longer instead.
+          if (!released && !(await threadReleased(conversationIdRef.current))) {
+            throw new Error("The previous reply is still stopping");
+          }
         }
         expectingReply.current = true;
         await chat.sendMessage({ text });
@@ -388,7 +417,7 @@ export function VoiceAssistant() {
         setTimeout(() => setState("idle"), 1_200);
       }
     },
-    [chat, client, model],
+    [chat, client, model, threadReleased],
   );
 
   const stopRecording = useCallback((send: boolean) => {
@@ -408,11 +437,14 @@ export function VoiceAssistant() {
     // The turn runs on the server past the request; barging in has to stop
     // it there too, or the next message finds the thread still taken.
     const running = conversationIdRef.current;
-    if (running && chat.status !== "ready" && chat.status !== "error") {
-      stopping.current = client.post(`chat/${running}/stop`, {}).then(
-        () => undefined,
-        () => undefined,
-      );
+    // Also after a stream error: the turn may still be running server-side.
+    if (running && chat.status !== "ready") {
+      stopping.current = client
+        .post<AgentStopResponse>(`chat/${running}/stop`, {})
+        .then(
+          (result) => result.stopped || result.turnId === null,
+          () => false,
+        );
     }
     try {
       const media = await navigator.mediaDevices.getUserMedia({

@@ -559,7 +559,7 @@ export class RunSupervisor {
         failure: exit.failure,
         usage: usageFrom(stream.outcome(), run.config.credential),
         ...(exit.failure.code === "timeout"
-          ? await this.#salvage(state, paths, stream, stopping)
+          ? await this.#salvage(state, paths, stream, stopping, control)
           : {}),
       };
     } else if (exit.kind === "exited") {
@@ -598,11 +598,14 @@ export class RunSupervisor {
     paths: RunPaths,
     stream: HarnessStream,
     stopping: Promise<void> | null,
+    control: Control,
   ): Promise<Pick<RunnerCompleteRequestInput, "headSha" | "pushed">> {
     const { deps } = this;
     const { run } = state;
     if (run.slot.kind === "review") return {};
     await stopping;
+    // Web no longer tracks an abandoned run; its branch is not ours to push.
+    if (control.abandoned) return {};
     const status = await deps.docker.state(state.containerName);
     if (status !== "exited" && status !== "dead") {
       stream.notice(

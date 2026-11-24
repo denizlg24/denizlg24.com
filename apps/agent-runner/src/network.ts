@@ -47,16 +47,18 @@ export function blockedCidrs(extra: string[]): string[] {
 
 /**
  * Run as `sh -c <script> sh <bridge> <cidr>...` inside the rootlesskit
- * network namespace. Idempotent: the egress chain is flushed and refilled and
+ * network namespace. Idempotent: the egress chain is flushed and refilled in
+ * one `iptables-restore` commit, so a helper killed mid-refresh never leaves
+ * running containers behind an empty chain (verified on Forge's
+ * iptables-nft 1.8.11: declaring an existing chain under `--noflush` flushes
+ * only that chain), and
  * each jump is added only when `-C` cannot find it. IPv6 is dropped wholesale
  * on the bridge (the network is created without it); a missing ip6tables is
  * reported, not fatal.
  */
 export const EGRESS_SCRIPT = `set -eu
 bridge="$1"; shift
-iptables -N ${EGRESS_CHAIN} 2>/dev/null || true
-iptables -F ${EGRESS_CHAIN}
-for cidr in "$@"; do iptables -A ${EGRESS_CHAIN} -d "$cidr" -j DROP; done
+{ echo "*filter"; echo ":${EGRESS_CHAIN} - [0:0]"; for cidr in "$@"; do echo "-A ${EGRESS_CHAIN} -d $cidr -j DROP"; done; echo COMMIT; } | iptables-restore --noflush
 iptables -N DOCKER-USER 2>/dev/null || true
 iptables -C DOCKER-USER -i "$bridge" -j ${EGRESS_CHAIN} 2>/dev/null || iptables -I DOCKER-USER 1 -i "$bridge" -j ${EGRESS_CHAIN}
 iptables -C INPUT -i "$bridge" -j DROP 2>/dev/null || iptables -I INPUT 1 -i "$bridge" -j DROP

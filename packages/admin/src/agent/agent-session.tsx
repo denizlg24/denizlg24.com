@@ -503,6 +503,7 @@ export function AgentSessionProvider({
         setQueue((local) =>
           mergeServerQueue(local, conversation.queue ?? [], alreadySent()),
         );
+        if (conversation.queuePaused) setQueuePaused(true);
         if (conversation.activeTurn && !followAbort.current) {
           void followTurn(id);
         }
@@ -512,10 +513,14 @@ export function AgentSessionProvider({
   );
   syncConversationRef.current = syncConversation;
 
+  // A freshly opened thread attaches to its running turn, or, with none,
+  // runs any page tool the stored reply still waits on: stored messages never
+  // fire `onToolCall`, and the thread could not continue otherwise.
   useEffect(() => {
     const id = conversationIdRef.current;
-    if (!thread.follow || thread.follow !== id) return;
-    void followTurn(id);
+    if (!id || !thread.key.startsWith(`${id}:`)) return;
+    if (thread.follow === id) void followTurn(id);
+    else chatRef.current.runPendingClientTools();
   }, [followTurn, thread]);
 
   useEffect(
@@ -584,7 +589,7 @@ export function AgentSessionProvider({
             new Set(conversation.messages.map((message) => message.id)),
           ),
         );
-        setQueuePaused(false);
+        setQueuePaused(conversation.queuePaused === true);
         setThread({
           key: `${id}:${generateId()}`,
           messages: conversation.messages,
@@ -744,32 +749,40 @@ export function AgentSessionProvider({
   const turnActive = streaming || following || stopping;
   const awaitingClient = awaitsClient(chat.messages);
 
+  // One queue write at a time, in the order they were made: two POSTs in
+  // flight can land on the server in either order.
+  const enqueueChain = useRef<Promise<void>>(Promise.resolve());
   const enqueue = useCallback(
-    async (id: string, message: AgentUIMessage) => {
+    (id: string, message: AgentUIMessage) => {
       setQueue((current) => [...current, { message, state: "sending" }]);
-      try {
-        const result = await client.post<AgentQueueResponse>(
-          `conversations/${id}/queue`,
-          { message },
-        );
-        if (conversationIdRef.current !== id) return;
-        setQueue((current) =>
-          mergeServerQueue(current, result.queue, alreadySent()),
-        );
-      } catch (cause) {
-        setQueue((current) =>
-          current.map((entry) =>
-            entry.message.id === message.id
-              ? { ...entry, state: "failed" }
-              : entry,
-          ),
-        );
-        toast.error(
-          cause instanceof AdminApiError ? cause.message : "Failed to queue",
-        );
-      }
+      const write = enqueueChain.current.then(async () => {
+        try {
+          const result = await client.post<AgentQueueResponse>(
+            `conversations/${id}/queue`,
+            { message },
+          );
+          if (conversationIdRef.current !== id) return;
+          setQueue((current) =>
+            mergeServerQueue(current, result.queue, alreadySent()),
+          );
+        } catch (cause) {
+          if (conversationIdRef.current !== id) return;
+          setQueue((current) =>
+            current.map((entry) =>
+              entry.message.id === message.id
+                ? { ...entry, state: "failed" }
+                : entry,
+            ),
+          );
+          toast.error(
+            cause instanceof AdminApiError ? cause.message : "Failed to queue",
+          );
+        }
+      });
+      enqueueChain.current = write;
+      return write;
     },
-    [client],
+    [alreadySent, client],
   );
 
   const send = useCallback(
@@ -958,29 +971,45 @@ export function AgentSessionProvider({
     async (messageId: string) => {
       const id = conversationIdRef.current;
       const removed = queue.find((entry) => entry.message.id === messageId);
+      // Still being written: a DELETE now could land before the POST and
+      // the message would come back. The composer disables it meanwhile.
+      if (!removed || removed.state === "sending") return;
       setQueue((current) =>
         current.filter((entry) => entry.message.id !== messageId),
       );
-      if (!id || !removed || removed.state === "failed") return;
+      if (!id) return;
+      // A failed entry too: its POST may have stored it before the answer
+      // was lost.
       try {
         const result = await client.del<AgentQueueResponse>(
           `conversations/${id}/queue?messageId=${encodeURIComponent(messageId)}`,
         );
+        if (conversationIdRef.current !== id) return;
         setQueue((current) =>
           mergeServerQueue(current, result.queue, alreadySent()),
         );
       } catch {
+        if (conversationIdRef.current !== id) return;
         setQueue((current) => [removed, ...current]);
         toast.error("Failed to remove the queued message");
       }
     },
-    [client, queue],
+    [alreadySent, client, queue],
   );
+
+  const unpauseQueue = useCallback(() => {
+    setQueuePaused(false);
+    const id = conversationIdRef.current;
+    if (!id) return;
+    void client
+      .patch(`conversations/${id}`, { queuePaused: false })
+      .catch(() => {});
+  }, [client]);
 
   const resumeQueue = useCallback(() => {
     chat.clearError();
-    setQueuePaused(false);
-  }, [chat]);
+    unpauseQueue();
+  }, [chat, unpauseQueue]);
 
   const answerQuestion = useCallback(
     (toolCallId: string, output: AgentQuestionOutput) => {
@@ -1046,7 +1075,7 @@ export function AgentSessionProvider({
       last.role !== "user" &&
       queue.some((entry) => entry.state === "queued")
     ) {
-      setQueuePaused(false);
+      unpauseQueue();
       return;
     }
     if (last.role === "user" || shouldContinueAgentTurn({ messages })) {
@@ -1054,7 +1083,7 @@ export function AgentSessionProvider({
       return;
     }
     void chat.regenerate({ messageId: last.id });
-  }, [chat, queue]);
+  }, [chat, queue, unpauseQueue]);
 
   useEffect(() => {
     if (!trackedRunId) return;

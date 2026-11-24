@@ -34,6 +34,8 @@ export const updateConversationInputSchema = z
   .object({
     title: z.string().trim().min(1).max(200),
     memoryMode: agentMemoryModeSchema,
+    /** false resumes a queue a stop paused. */
+    queuePaused: z.literal(false),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, {

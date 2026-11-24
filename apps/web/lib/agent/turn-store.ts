@@ -40,9 +40,15 @@ export function turnMessage(
 export function withTurnMessage(
   messages: readonly AgentUIMessage[],
   turn: IConversationActiveTurn | null | undefined,
+  now = Date.now(),
 ): AgentUIMessage[] {
   const message = turnMessage(turn);
-  return message ? upsertMessage(messages, message) : [...messages];
+  if (!message) return [...messages];
+  // A lapsed lease not yet reaped reads as what the reap will store.
+  return upsertMessage(
+    messages,
+    isTurnLive(turn, now) ? message : interruptMessage(message),
+  );
 }
 
 export function activeTurnView(
@@ -72,19 +78,31 @@ function objectId(id: string): Types.ObjectId | null {
  * Takes the thread for a new turn. Refused while another turn holds a live
  * lease; a dead one's partial reply is settled first, so it is never lost.
  */
+export type TurnClaim = "claimed" | "busy" | "not-queued";
+
 export async function claimTurn(
   conversationId: string,
   turnId: string,
-): Promise<boolean> {
+  options: {
+    /**
+     * A queue head being sent: claimed only while it is still queued, in the
+     * same write, so a stale window cannot start a second turn for it.
+     */
+    queuedMessageId?: string;
+  } = {},
+): Promise<TurnClaim> {
   await connectDB();
   const _id = objectId(conversationId);
-  if (!_id) return false;
+  if (!_id) return "busy";
   await reapStaleTurn(conversationId);
   const now = new Date();
   const result = await Conversation.updateOne(
     {
       _id,
       $or: [{ activeTurn: null }, { activeTurn: { $exists: false } }],
+      ...(options.queuedMessageId
+        ? { "queue.id": options.queuedMessageId }
+        : {}),
     },
     {
       $set: {
@@ -97,7 +115,15 @@ export async function claimTurn(
       },
     },
   );
-  return result.modifiedCount === 1;
+  if (result.modifiedCount === 1) return "claimed";
+  if (options.queuedMessageId) {
+    const queued = await Conversation.exists({
+      _id,
+      "queue.id": options.queuedMessageId,
+    });
+    if (!queued) return "not-queued";
+  }
+  return "busy";
 }
 
 export interface TurnHeartbeat {
@@ -153,6 +179,21 @@ export async function requestTurnCancel(
   ).lean();
   const turn = row?.activeTurn;
   return isTurnLive(turn) ? turn.id : null;
+}
+
+/** A stop pauses the queue until the next send or an explicit resume. */
+export async function setQueuePaused(
+  conversationId: string,
+  paused: boolean,
+): Promise<void> {
+  await connectDB();
+  const _id = objectId(conversationId);
+  if (!_id) return;
+  await Conversation.updateOne(
+    { _id },
+    paused ? { $set: { queuePaused: true } } : { $unset: { queuePaused: 1 } },
+    { timestamps: false },
+  );
 }
 
 export async function readActiveTurn(
@@ -211,6 +252,9 @@ export async function finalizeTurn(
     {
       _id,
       "activeTurn.id": turnId,
+      // The partial stored is the one read above; a heartbeat since then
+      // means a newer reply, and the next reap stores that one instead.
+      "activeTurn.seq": row.activeTurn?.seq ?? { $exists: false },
       ...(options.onlyIfStale
         ? {
             "activeTurn.heartbeatAt": {
@@ -257,18 +301,24 @@ export async function enqueueMessage(
   const exists = await Conversation.exists({ _id });
   if (!exists) return null;
   // Re-sending the same message id is a retry, not a second message.
-  await Conversation.updateOne(
+  const pushed = await Conversation.findOneAndUpdate(
     {
       _id,
       "queue.id": { $ne: message.id },
       [`queue.${AGENT_QUEUE_MAX - 1}`]: { $exists: false },
     },
-    { $push: { queue: message } },
-    { timestamps: false },
-  );
+    // Sending again is what resumes a queue a stop paused.
+    { $push: { queue: message }, $unset: { queuePaused: 1 } },
+    { returnDocument: "after", projection: { queue: 1 }, timestamps: false },
+  ).lean();
+  if (pushed) return queuedMessages(pushed.queue);
   const row = await Conversation.findById(_id).select("queue").lean();
   const queue = queuedMessages(row?.queue);
-  if (!queue.some((entry) => entry.id === message.id)) {
+  // Not pushed: already queued (a retry, possibly dispatched since) or full.
+  if (
+    queue.length >= AGENT_QUEUE_MAX &&
+    !queue.some((entry) => entry.id === message.id)
+  ) {
     throw new QueueFullError();
   }
   return queue;
