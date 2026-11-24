@@ -212,6 +212,7 @@ export const TOOL_LABELS: Record<string, string> = {
   list_whiteboards: "Listed whiteboards",
   mark_email_as_read: "Marking email as read",
   navigate_desktop: "Navigating",
+  ask_user: "Asking",
   place_order: "Placing order",
   project_course_grade: "Projected course grade",
   publish_cv: "Publishing CV",

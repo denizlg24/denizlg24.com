@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentUIMessage } from "@repo/schemas";
 import {
+  awaitsClient,
   buildAgentBlocks,
+  pendingPageToolCalls,
+  pendingQuestion,
   shouldContinueAgentTurn,
   spokenReplyText,
   toolTitle,
@@ -193,5 +196,100 @@ describe("toolTitle", () => {
         },
       }),
     ).toBe("Notes · list");
+  });
+});
+
+describe("ask_user", () => {
+  const asking = (state: "input-available" | "output-available") =>
+    assistant([
+      { type: "step-start" },
+      { type: "text", text: "One thing first.", state: "done" },
+      state === "input-available"
+        ? {
+            type: "tool-ask_user",
+            toolCallId: "q1",
+            state,
+            input: { questions: [] },
+          }
+        : {
+            type: "tool-ask_user",
+            toolCallId: "q1",
+            state,
+            input: { questions: [] },
+            output: { answers: [] },
+          },
+    ]);
+
+  test("an open question holds the turn on the client", () => {
+    const messages = [user, asking("input-available")];
+    expect(awaitsClient(messages)).toBe(true);
+    expect(pendingQuestion(messages)?.toolCallId).toBe("q1");
+    expect(shouldContinueAgentTurn({ messages })).toBe(false);
+  });
+
+  test("the answer continues the same turn", () => {
+    const messages = [user, asking("output-available")];
+    expect(awaitsClient(messages)).toBe(false);
+    expect(pendingQuestion(messages)).toBeNull();
+    expect(shouldContinueAgentTurn({ messages })).toBe(true);
+  });
+
+  test("an answer from an earlier step does not resubmit", () => {
+    const answered = asking("output-available");
+    const messages = [
+      user,
+      {
+        ...answered,
+        parts: [
+          ...answered.parts,
+          { type: "step-start" as const },
+          { type: "text" as const, text: "Done.", state: "done" as const },
+        ],
+      },
+    ];
+    expect(shouldContinueAgentTurn({ messages })).toBe(false);
+  });
+});
+
+describe("pendingPageToolCalls", () => {
+  test("lists only page tools of the last step still waiting", () => {
+    const messages = [
+      user,
+      assistant([
+        {
+          type: "tool-navigate_desktop",
+          toolCallId: "old",
+          state: "input-available",
+          input: { path: "/dashboard/a" },
+        },
+        { type: "step-start" },
+        {
+          type: "tool-navigate_desktop",
+          toolCallId: "n1",
+          state: "input-available",
+          input: { path: "/dashboard/notes" },
+        },
+        {
+          type: "tool-ask_user",
+          toolCallId: "q1",
+          state: "input-available",
+          input: {},
+        },
+        {
+          type: "tool-refresh_current_page",
+          toolCallId: "r1",
+          state: "output-available",
+          input: {},
+          output: { ok: true },
+        },
+      ]),
+    ];
+    expect(pendingPageToolCalls(messages)).toEqual([
+      {
+        toolCallId: "n1",
+        tool: "navigate_desktop",
+        input: { path: "/dashboard/notes" },
+      },
+    ]);
   });
 });

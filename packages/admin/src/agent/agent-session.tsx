@@ -1,19 +1,27 @@
 "use client";
 
-import type {
-  AgentConversationResponse,
-  AgentExecutionMode,
-  AgentMemoryMode,
-  AgentToolToggles,
-  AgentUIMessage,
-  BackgroundAgentRun,
-  BackgroundAgentRunList,
-  BackgroundAgentRunResponse,
-  Connector,
-  ConversationListResponse,
-  IConversationMeta,
+import {
+  AGENT_QUESTION_TOOL,
+  type AgentConversationResponse,
+  type AgentExecutionMode,
+  type AgentMemoryMode,
+  type AgentQuestionOutput,
+  type AgentQueueResponse,
+  type AgentToolToggles,
+  type AgentUIMessage,
+  type BackgroundAgentRun,
+  type BackgroundAgentRunList,
+  type BackgroundAgentRunResponse,
+  type Connector,
+  type ConversationListResponse,
+  type IConversationMeta,
 } from "@repo/schemas";
-import { type FileUIPart, generateId } from "ai";
+import {
+  applyLivePatch,
+  createPatchGate,
+  interruptMessage,
+} from "@repo/utils/agent-live";
+import { type ChatStatus, type FileUIPart, generateId } from "ai";
 import {
   createContext,
   type ReactNode,
@@ -30,10 +38,19 @@ import { useAdmin } from "../provider";
 import { captureAgentPageContext } from "./agent-page-context";
 import { awaitsClient, shouldContinueAgentTurn } from "./agent-parts";
 import {
+  mergeServerQueue,
+  nextQueuedMessage,
+  type QueuedMessage,
+  shouldQueueMessage,
+} from "./agent-queue";
+import {
   type AgentComposerPrefs,
   loadAgentComposerPrefs,
+  loadLastConversation,
   saveAgentComposerPrefs,
+  saveLastConversation,
 } from "./launcher-prefs";
+import { readLiveEvents } from "./live-turn";
 import {
   reconcileAgentModel,
   supportedAgentTools,
@@ -53,6 +70,22 @@ const ACTIVE_RUN_POLL_MS = 4_000;
 const IDLE_RUN_POLL_MS = 15_000;
 const MAX_ATTACHMENTS = 8;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const RESUME_MAX_ATTEMPTS = 6;
+const RESUME_BACKOFF_MS = 750;
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
 
 export interface AgentSettings {
   model: string | null;
@@ -104,8 +137,24 @@ export interface AgentSession {
   removeAttachment: (id: string) => void;
   send: (text?: string) => Promise<void>;
   retry: () => void;
+  /** Stops the running turn on the server, wherever it was started. */
+  stop: () => Promise<void>;
+  /** The chat status, counting a turn followed after a refresh as streaming. */
+  turnStatus: ChatStatus;
+  /** Attached to a turn this client did not start (after a refresh or elsewhere). */
+  following: boolean;
+  stopping: boolean;
+  queue: QueuedMessage[];
+  /** True after a stop: queued messages wait until Deniz sends one on. */
+  queuePaused: boolean;
+  removeQueued: (id: string) => Promise<void>;
+  resumeQueue: () => void;
+  answerQuestion: (toolCallId: string, output: AgentQuestionOutput) => void;
   newChat: () => void;
-  openConversation: (id: string) => Promise<void>;
+  openConversation: (
+    id: string,
+    options?: { quiet?: boolean },
+  ) => Promise<void>;
   renameConversation: (title: string) => Promise<void>;
   setMemoryMode: (mode: AgentMemoryMode) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
@@ -183,7 +232,21 @@ export function AgentSessionProvider({
   const [thread, setThread] = useState<{
     key: string;
     messages: AgentUIMessage[];
+    /** A turn was running when the thread was opened; attach to it. */
+    follow?: string;
   }>(() => ({ key: `draft:${generateId()}`, messages: [] }));
+  const [following, setFollowing] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  const [queuePaused, setQueuePaused] = useState(false);
+  const followAbort = useRef<AbortController | null>(null);
+  const stoppingRef = useRef(false);
+  const dispatchingRef = useRef<string | null>(null);
+  const alreadySent = useCallback(
+    (): ReadonlySet<string> =>
+      new Set(chatRef.current.messages.map((message) => message.id)),
+    [],
+  );
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AgentAttachment[]>([]);
   const [history, setHistory] = useState<HistoryState>({
@@ -212,17 +275,22 @@ export function AgentSessionProvider({
   const connectorsRef = useRef(connectors);
   connectorsRef.current = connectors;
 
+  const onTurnEndRef = useRef<
+    (event: { isAbort: boolean; isError: boolean }) => void
+  >(() => {});
   const chat = useAgentChat({
     endpoint: "chat",
     chatKey: thread.key,
     initialMessages: thread.messages,
     canReadPage: () => settingsRef.current.memoryMode !== "incognito",
+    onFinish: (event) => onTurnEndRef.current(event),
     body: () => {
       const current = settingsRef.current;
       const disabled = new Set(current.disabledConnectors);
       return {
         conversationId: conversationIdRef.current,
         model: current.model,
+        questions: true,
         tools: supportedAgentTools(current.tools, unsupportedToolsRef.current),
         connectors:
           disabled.size === 0
@@ -348,7 +416,135 @@ export function AgentSessionProvider({
     });
   }, []);
 
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
+
+  /**
+   * Re-reads the thread from the server and takes it as the truth: the
+   * stored messages (with any running turn's reply so far merged in) and the
+   * queue. Attaches to a turn still running.
+   */
+  const syncConversationRef = useRef<(id: string) => Promise<void>>(
+    async () => {},
+  );
+
+  const followTurn = useCallback(
+    async (id: string) => {
+      followAbort.current?.abort();
+      const controller = new AbortController();
+      followAbort.current = controller;
+      setFollowing(true);
+      const gate = createPatchGate();
+      let attempts = 0;
+      let ended = false;
+      try {
+        while (
+          !controller.signal.aborted &&
+          conversationIdRef.current === id &&
+          attempts < RESUME_MAX_ATTEMPTS
+        ) {
+          let response: Response;
+          try {
+            response = await client.raw(`chat/${id}/stream`, {
+              signal: controller.signal,
+            });
+          } catch {
+            if (controller.signal.aborted) break;
+            attempts += 1;
+            await sleep(RESUME_BACKOFF_MS * attempts, controller.signal);
+            continue;
+          }
+          if (response.status === 204 || !response.body) {
+            ended = true;
+            break;
+          }
+          ended = await readLiveEvents(
+            response.body,
+            (event) => {
+              if (event.type !== "patch" || !gate.accept(event)) return;
+              if (conversationIdRef.current !== id) return;
+              chatRef.current.setMessages((messages) =>
+                applyLivePatch(messages, event),
+              );
+            },
+            controller.signal,
+          );
+          if (ended) break;
+          attempts += 1;
+          await sleep(RESUME_BACKOFF_MS * attempts, controller.signal);
+        }
+      } finally {
+        if (followAbort.current === controller) {
+          followAbort.current = null;
+          setFollowing(false);
+          if (!controller.signal.aborted && conversationIdRef.current === id) {
+            if (!ended) toast.error("Lost the connection to the agent");
+            await syncConversationRef.current(id);
+          }
+        }
+      }
+    },
+    [client],
+  );
+
+  const syncConversation = useCallback(
+    async (id: string) => {
+      try {
+        const { conversation } = await client.get<AgentConversationResponse>(
+          `conversations/${id}`,
+        );
+        if (conversationIdRef.current !== id) return;
+        const current = chatRef.current;
+        if (current.status === "submitted" || current.status === "streaming") {
+          return;
+        }
+        current.setMessages(conversation.messages);
+        if (!conversation.activeTurn) current.runPendingClientTools();
+        setQueue((local) =>
+          mergeServerQueue(local, conversation.queue ?? [], alreadySent()),
+        );
+        if (conversation.queuePaused) setQueuePaused(true);
+        if (conversation.activeTurn && !followAbort.current) {
+          void followTurn(id);
+        }
+      } catch {}
+    },
+    [client, followTurn],
+  );
+  syncConversationRef.current = syncConversation;
+
+  // A freshly opened thread attaches to its running turn, or, with none,
+  // runs any page tool the stored reply still waits on: stored messages never
+  // fire `onToolCall`, and the thread could not continue otherwise.
+  useEffect(() => {
+    const id = conversationIdRef.current;
+    if (!id || !thread.key.startsWith(`${id}:`)) return;
+    if (thread.follow === id) void followTurn(id);
+    else chatRef.current.runPendingClientTools();
+  }, [followTurn, thread]);
+
+  useEffect(
+    () => () => {
+      followAbort.current?.abort();
+    },
+    [],
+  );
+
+  // A stream that dropped mid-turn (network, sleep, a remount) leaves the
+  // turn running on the server: re-read the thread and attach to it.
+  onTurnEndRef.current = ({ isAbort, isError }) => {
+    const id = conversationIdRef.current;
+    if (!id || stoppingRef.current) return;
+    if (isAbort || isError) void syncConversation(id);
+  };
+
   const newChat = useCallback(() => {
+    followAbort.current?.abort();
+    followAbort.current = null;
+    setFollowing(false);
+    setQueue([]);
+    setQueuePaused(false);
+    saveLastConversation(null);
     conversationIdRef.current = null;
     setConversationId(null);
     setTitle("");
@@ -366,13 +562,17 @@ export function AgentSessionProvider({
   }, [resetAttachments]);
 
   const openConversation = useCallback(
-    async (id: string) => {
+    async (id: string, options?: { quiet?: boolean }) => {
       setLoadingConversation(true);
       try {
         const { conversation } = await client.get<AgentConversationResponse>(
           `conversations/${id}`,
         );
+        followAbort.current?.abort();
+        followAbort.current = null;
+        setFollowing(false);
         conversationIdRef.current = id;
+        saveLastConversation(id);
         setConversationId(id);
         setTitle(conversation.title);
         setSettings((current) => ({
@@ -382,12 +582,22 @@ export function AgentSessionProvider({
           background: false,
           disabledConnectors: [],
         }));
+        setQueue(
+          mergeServerQueue(
+            [],
+            conversation.queue ?? [],
+            new Set(conversation.messages.map((message) => message.id)),
+          ),
+        );
+        setQueuePaused(conversation.queuePaused === true);
         setThread({
           key: `${id}:${generateId()}`,
           messages: conversation.messages,
+          ...(conversation.activeTurn ? { follow: id } : {}),
         });
       } catch {
-        toast.error("Failed to load conversation");
+        if (options?.quiet) saveLastConversation(null);
+        else toast.error("Failed to load conversation");
       } finally {
         setLoadingConversation(false);
       }
@@ -536,6 +746,44 @@ export function AgentSessionProvider({
   }, []);
 
   const streaming = chat.status === "submitted" || chat.status === "streaming";
+  const turnActive = streaming || following || stopping;
+  const awaitingClient = awaitsClient(chat.messages);
+
+  // One queue write at a time, in the order they were made: two POSTs in
+  // flight can land on the server in either order.
+  const enqueueChain = useRef<Promise<void>>(Promise.resolve());
+  const enqueue = useCallback(
+    (id: string, message: AgentUIMessage) => {
+      setQueue((current) => [...current, { message, state: "sending" }]);
+      const write = enqueueChain.current.then(async () => {
+        try {
+          const result = await client.post<AgentQueueResponse>(
+            `conversations/${id}/queue`,
+            { message },
+          );
+          if (conversationIdRef.current !== id) return;
+          setQueue((current) =>
+            mergeServerQueue(current, result.queue, alreadySent()),
+          );
+        } catch (cause) {
+          if (conversationIdRef.current !== id) return;
+          setQueue((current) =>
+            current.map((entry) =>
+              entry.message.id === message.id
+                ? { ...entry, state: "failed" }
+                : entry,
+            ),
+          );
+          toast.error(
+            cause instanceof AdminApiError ? cause.message : "Failed to queue",
+          );
+        }
+      });
+      enqueueChain.current = write;
+      return write;
+    },
+    [alreadySent, client],
+  );
 
   const send = useCallback(
     async (override?: string) => {
@@ -549,7 +797,16 @@ export function AgentSessionProvider({
           : [];
       const current = settingsRef.current;
       if ((!text && ready.length === 0) || !current.model) return;
-      if (streaming || trackedRunId) return;
+      if (trackedRunId) return;
+      const queueing =
+        conversationIdRef.current !== null &&
+        !current.background &&
+        shouldQueueMessage({
+          turnActive,
+          awaitingClient,
+          queued: queue.length,
+        });
+      if (!queueing && streaming) return;
       if (
         override === undefined &&
         attachments.some((attachment) => attachment.status === "uploading")
@@ -575,6 +832,18 @@ export function AgentSessionProvider({
         setDraft("");
         resetAttachments();
       }
+      setQueuePaused(false);
+
+      const queuedId = conversationIdRef.current;
+      if (queueing && queuedId) {
+        await enqueue(queuedId, {
+          id: generateId(),
+          role: "user",
+          parts: [...files, ...(text ? [{ type: "text" as const, text }] : [])],
+          ...(page ? { metadata: { page } } : {}),
+        });
+        return;
+      }
 
       let id = conversationIdRef.current;
       if (!id) {
@@ -595,6 +864,7 @@ export function AgentSessionProvider({
           return;
         }
         conversationIdRef.current = id;
+        saveLastConversation(id);
         setConversationId(id);
         setTitle(nextTitle);
         if (history.loaded) void refreshHistory();
@@ -651,29 +921,169 @@ export function AgentSessionProvider({
     [
       allowBackground,
       attachments,
+      awaitingClient,
       chat,
       client,
       draft,
+      enqueue,
       history.loaded,
+      queue.length,
       refreshHistory,
       resetAttachments,
       routes.dashboardRoot,
       streaming,
       trackedRunId,
+      turnActive,
     ],
   );
+
+  const stop = useCallback(async () => {
+    const id = conversationIdRef.current;
+    stoppingRef.current = true;
+    setQueuePaused(true);
+    followAbort.current?.abort();
+    followAbort.current = null;
+    setFollowing(false);
+    void chat.stop();
+    chat.setMessages((messages) => {
+      const last = messages.at(-1);
+      return last?.role === "assistant"
+        ? [...messages.slice(0, -1), interruptMessage(last)]
+        : messages;
+    });
+    if (!id) {
+      stoppingRef.current = false;
+      return;
+    }
+    setStopping(true);
+    try {
+      await client.post(`chat/${id}/stop`, {});
+    } catch {
+      toast.error("Failed to stop the agent");
+    } finally {
+      stoppingRef.current = false;
+      setStopping(false);
+      await syncConversation(id);
+    }
+  }, [chat, client, syncConversation]);
+
+  const removeQueued = useCallback(
+    async (messageId: string) => {
+      const id = conversationIdRef.current;
+      const removed = queue.find((entry) => entry.message.id === messageId);
+      // Still being written: a DELETE now could land before the POST and
+      // the message would come back. The composer disables it meanwhile.
+      if (!removed || removed.state === "sending") return;
+      setQueue((current) =>
+        current.filter((entry) => entry.message.id !== messageId),
+      );
+      if (!id) return;
+      // A failed entry too: its POST may have stored it before the answer
+      // was lost.
+      try {
+        const result = await client.del<AgentQueueResponse>(
+          `conversations/${id}/queue?messageId=${encodeURIComponent(messageId)}`,
+        );
+        if (conversationIdRef.current !== id) return;
+        setQueue((current) =>
+          mergeServerQueue(current, result.queue, alreadySent()),
+        );
+      } catch {
+        if (conversationIdRef.current !== id) return;
+        setQueue((current) => [removed, ...current]);
+        toast.error("Failed to remove the queued message");
+      }
+    },
+    [alreadySent, client, queue],
+  );
+
+  const unpauseQueue = useCallback(() => {
+    setQueuePaused(false);
+    const id = conversationIdRef.current;
+    if (!id) return;
+    void client
+      .patch(`conversations/${id}`, { queuePaused: false })
+      .catch(() => {});
+  }, [client]);
+
+  const resumeQueue = useCallback(() => {
+    chat.clearError();
+    unpauseQueue();
+  }, [chat, unpauseQueue]);
+
+  const answerQuestion = useCallback(
+    (toolCallId: string, output: AgentQuestionOutput) => {
+      void chat.addToolOutput({
+        tool: AGENT_QUESTION_TOOL,
+        toolCallId,
+        output,
+      });
+    },
+    [chat],
+  );
+
+  // The queue's head goes out once nothing holds the thread. It leaves the
+  // queue on the server as its turn claims the thread (`queuedMessageId`).
+  const nextQueued = nextQueuedMessage(queue, {
+    turnActive,
+    awaitingClient: awaitingClient || shouldContinueAgentTurn(chat),
+    paused: queuePaused,
+    backgroundRun: trackedRunId !== null,
+    failed: chat.status === "error",
+  });
+  useEffect(() => {
+    if (!nextQueued || !settingsRef.current.model) return;
+    const head = nextQueued.message;
+    if (dispatchingRef.current === head.id) return;
+    dispatchingRef.current = head.id;
+    setQueue((current) =>
+      current.filter((entry) => entry.message.id !== head.id),
+    );
+    void chat
+      .sendMessage(
+        {
+          id: head.id,
+          role: "user",
+          parts: head.parts,
+          metadata: head.metadata,
+        },
+        { body: { queuedMessageId: head.id } },
+      )
+      .finally(() => {
+        if (dispatchingRef.current === head.id) dispatchingRef.current = null;
+      });
+  }, [chat, nextQueued]);
+
+  // Reopen the thread that was open before a refresh or a restart, and
+  // attach to its turn if one is still running.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    const last = loadLastConversation();
+    if (last) void openConversation(last, { quiet: true });
+  }, [openConversation]);
 
   const retry = useCallback(() => {
     const messages = chat.messages;
     const last = messages.at(-1);
     chat.clearError();
     if (!last) return;
+    // A queued message that failed to start goes again, rather than the
+    // previous reply being regenerated under it.
+    if (
+      last.role !== "user" &&
+      queue.some((entry) => entry.state === "queued")
+    ) {
+      unpauseQueue();
+      return;
+    }
     if (last.role === "user" || shouldContinueAgentTurn({ messages })) {
       void chat.sendMessage();
       return;
     }
     void chat.regenerate({ messageId: last.id });
-  }, [chat]);
+  }, [chat, queue, unpauseQueue]);
 
   useEffect(() => {
     if (!trackedRunId) return;
@@ -737,8 +1147,6 @@ export function AgentSessionProvider({
     };
   }, [allowBackground, client, trackedRunId]);
 
-  const awaitingApproval = awaitsClient(chat.messages);
-
   const value = useMemo<AgentSession>(
     () => ({
       chat,
@@ -759,6 +1167,15 @@ export function AgentSessionProvider({
       removeAttachment,
       send,
       retry,
+      stop,
+      turnStatus: following && !streaming ? "streaming" : chat.status,
+      following,
+      stopping,
+      queue,
+      queuePaused,
+      removeQueued,
+      resumeQueue,
+      answerQuestion,
       newChat,
       openConversation,
       renameConversation,
@@ -771,13 +1188,22 @@ export function AgentSessionProvider({
       },
       allowBackground,
       backgroundRun,
-      busy: streaming || trackedRunId !== null || awaitingApproval,
+      busy: turnActive || trackedRunId !== null || awaitingClient,
     }),
     [
       addFiles,
       allowBackground,
+      answerQuestion,
       attachments,
-      awaitingApproval,
+      awaitingClient,
+      following,
+      queue,
+      queuePaused,
+      removeQueued,
+      resumeQueue,
+      stop,
+      stopping,
+      turnActive,
       backgroundRun,
       catalog,
       chat,

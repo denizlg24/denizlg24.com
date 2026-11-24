@@ -1,6 +1,11 @@
 import { updateConversationInputSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
+  activeTurnView,
+  reapStaleTurn,
+  withTurnMessage,
+} from "@/lib/agent/turn-store";
+import {
   deleteConversation,
   getConversation,
   IncognitoConversationConflictError,
@@ -16,7 +21,10 @@ function serialize(
     title: conversation.title,
     llmModel: conversation.llmModel,
     memoryMode: conversation.memoryMode,
-    messages: conversation.messages,
+    messages: withTurnMessage(conversation.messages, conversation.activeTurn),
+    activeTurn: activeTurnView(conversation.activeTurn),
+    queue: conversation.queue,
+    queuePaused: conversation.queuePaused,
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString(),
   };
@@ -31,6 +39,9 @@ export async function GET(
 
   try {
     const { conversationId } = await params;
+    // A turn whose process died leaves its partial reply on the row; settle it
+    // as interrupted before anyone reads the thread.
+    await reapStaleTurn(conversationId);
     const conversation = await getConversation(conversationId);
     if (!conversation)
       return NextResponse.json(

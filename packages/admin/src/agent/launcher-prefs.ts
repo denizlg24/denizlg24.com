@@ -135,3 +135,37 @@ export function loadAgentComposerPrefs(): AgentComposerPrefs {
 export function saveAgentComposerPrefs(prefs: AgentComposerPrefs): void {
   localStorage.setItem(AGENT_COMPOSER_STORAGE_KEY, JSON.stringify(prefs));
 }
+
+export const AGENT_LAST_CONVERSATION_KEY = "denizlg24:agent-last-conversation";
+/** A thread opened longer ago than this is not reopened on launch. */
+export const AGENT_LAST_CONVERSATION_TTL_MS = 12 * 60 * 60 * 1000;
+
+/** The thread to reopen after a refresh or a restart, if it is recent enough. */
+export function loadLastConversation(now = Date.now()): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(AGENT_LAST_CONVERSATION_KEY) ?? "null",
+    ) as { id?: unknown; at?: unknown } | null;
+    if (typeof parsed?.id !== "string" || typeof parsed.at !== "number") {
+      return null;
+    }
+    return now - parsed.at <= AGENT_LAST_CONVERSATION_TTL_MS ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastConversation(id: string | null, now = Date.now()) {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) {
+      localStorage.setItem(
+        AGENT_LAST_CONVERSATION_KEY,
+        JSON.stringify({ id, at: now }),
+      );
+    } else {
+      localStorage.removeItem(AGENT_LAST_CONVERSATION_KEY);
+    }
+  } catch {}
+}

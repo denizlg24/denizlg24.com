@@ -12,11 +12,11 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { AdminApiError, type AdminClient } from "../client";
 import { useAdmin } from "../provider";
 import { captureAgentPageContext } from "./agent-page-context";
-import { shouldContinueAgentTurn } from "./agent-parts";
+import { pendingPageToolCalls, shouldContinueAgentTurn } from "./agent-parts";
 import { readCurrentPageAloud, stopPageSpeech } from "./page-speech";
 
 export type AgentChatTrigger = "submit-message" | "regenerate-message";
@@ -79,12 +79,14 @@ class AdminChatTransport extends DefaultChatTransport<AgentUIMessage> {
     messages,
     trigger,
     messageId,
+    body: requestBody,
   }: SendMessagesOptions): Promise<ReadableStream<UIMessageChunk>> {
     const body = await this.buildBody({ trigger, messageId, messages });
     const response = await this.adminClient.raw(this.resolveEndpoint(), {
       method: "POST",
       body: {
         ...body,
+        ...(requestBody ?? {}),
         trigger,
         messageId,
         message: messages.at(-1),
@@ -128,6 +130,9 @@ export function useAgentChat(options: UseAgentChatOptions) {
   const latest = useRef({ options, client, routes, router });
   latest.current = { options, client, routes, router };
 
+  const runPageToolRef = useRef<
+    ((tool: AgentPageTool, input: unknown) => Promise<unknown>) | null
+  >(null);
   const chat = useMemo(() => {
     const runPageTool = async (tool: AgentPageTool, input: unknown) => {
       const { routes: currentRoutes, router: currentRouter } = latest.current;
@@ -165,6 +170,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       return { ok: true, path: window.location.pathname };
     };
 
+    runPageToolRef.current = runPageTool;
     const instance: Chat<AgentUIMessage> = new Chat<AgentUIMessage>({
       id: options.chatKey,
       messages: options.initialMessages,
@@ -215,8 +221,36 @@ export function useAgentChat(options: UseAgentChatOptions) {
     [chat],
   );
 
+  /**
+   * Runs page tools the stored turn is waiting on. `onToolCall` only fires
+   * for a stream this chat read itself; a turn followed after a refresh, or
+   * finished while the client was away, leaves its calls for this.
+   */
+  const runPendingClientTools = useCallback(() => {
+    const run = runPageToolRef.current;
+    if (!run) return;
+    for (const { toolCallId, tool, input } of pendingPageToolCalls(
+      chat.messages,
+    )) {
+      run(tool, input).then(
+        (output) => {
+          void chat.addToolOutput({ tool, toolCallId, output });
+        },
+        (error: unknown) => {
+          void chat.addToolOutput({
+            tool,
+            toolCallId,
+            state: "output-error",
+            errorText:
+              error instanceof Error ? error.message : "The page tool failed",
+          });
+        },
+      );
+    }
+  }, [chat]);
+
   const helpers = useChat<AgentUIMessage>({ chat });
-  return { ...helpers, chat };
+  return { ...helpers, chat, runPendingClientTools };
 }
 
 export type AgentChat = ReturnType<typeof useAgentChat>;

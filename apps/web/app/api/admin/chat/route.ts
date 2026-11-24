@@ -3,19 +3,23 @@ import {
   agentChatRequestSchema,
   MOBILE_INSTALLATION_HEADER,
 } from "@repo/schemas";
+import { interruptMessage } from "@repo/utils/agent-live";
 import { pendingApprovals, replyText } from "@repo/utils/agent-stream";
-import { createUIMessageStreamResponse } from "ai";
-import { type NextRequest, NextResponse } from "next/server";
+import { createIdGenerator, createUIMessageStreamResponse } from "ai";
+import { after, type NextRequest, NextResponse } from "next/server";
+import { beginDurableTurn, type DurableTurn } from "@/lib/agent/durable-turn";
+import { resolveHistory } from "@/lib/agent/history";
 import { recallForTurn } from "@/lib/agent/memory";
-import {
-  AgentMergeError,
-  applyClientDecisions,
-  hasPendingWork,
-  sanitizeUserMessage,
-  truncateForRegenerate,
-} from "@/lib/agent/merge";
+import { AgentMergeError } from "@/lib/agent/merge";
 import { messageText } from "@/lib/agent/messages";
 import { startAgentTurn } from "@/lib/agent/turn";
+import {
+  claimTurn,
+  dequeueMessage,
+  finalizeTurn,
+  heartbeatTurn,
+  setQueuePaused,
+} from "@/lib/agent/turn-store";
 import { updateConversationRetrievalSummary } from "@/lib/agent-memory/query-context";
 import { getConversation, saveConversationMessages } from "@/lib/conversations";
 import {
@@ -29,43 +33,7 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const maxDuration = 300;
 
-function resolveHistory(
-  stored: AgentUIMessage[],
-  request: {
-    trigger: "submit-message" | "regenerate-message";
-    message?: AgentUIMessage;
-    messageId?: string;
-  },
-): { history: AgentUIMessage[]; newUserText: string | null } {
-  if (request.trigger === "regenerate-message") {
-    if (!request.messageId) {
-      throw new AgentMergeError("messageId is required to regenerate", 400);
-    }
-    const history = truncateForRegenerate(stored, request.messageId);
-    const last = history.at(-1);
-    return {
-      history,
-      newUserText: last?.role === "user" ? messageText(last) : null,
-    };
-  }
-  if (!request.message) {
-    throw new AgentMergeError("message is required", 400);
-  }
-  if (request.message.role === "assistant") {
-    return {
-      history: applyClientDecisions(stored, request.message),
-      newUserText: null,
-    };
-  }
-  if (hasPendingWork(stored)) {
-    throw new AgentMergeError(
-      "Resolve the pending tool call before sending a new message",
-      409,
-    );
-  }
-  const user = sanitizeUserMessage(request.message);
-  return { history: [...stored, user], newUserText: messageText(user) };
-}
+const generateTurnId = createIdGenerator({ prefix: "turn", size: 16 });
 
 function announceReply(
   conversationId: string,
@@ -116,6 +84,7 @@ export const POST = async (req: NextRequest) => {
   }
   const request = parsed.data;
 
+  let turn: DurableTurn | null = null;
   try {
     const conversation = await getConversation(request.conversationId);
     if (!conversation) {
@@ -124,10 +93,64 @@ export const POST = async (req: NextRequest) => {
         { status: 404 },
       );
     }
-    const { history, newUserText } = resolveHistory(
-      conversation.messages,
-      request,
-    );
+    const turnId = generateTurnId();
+    const claim = await claimTurn(conversation._id, turnId, {
+      ...(request.queuedMessageId
+        ? { queuedMessageId: request.queuedMessageId }
+        : {}),
+    });
+    if (claim !== "claimed") {
+      return NextResponse.json(
+        {
+          error:
+            claim === "not-queued"
+              ? "This message was already sent"
+              : "A turn is already running in this conversation",
+        },
+        { status: 409 },
+      );
+    }
+    const conversationId = conversation._id;
+    turn = beginDurableTurn({
+      conversationId,
+      turnId,
+      store: {
+        heartbeat: (snapshot) =>
+          heartbeatTurn(conversationId, turnId, snapshot),
+        finalize: async () => {
+          await finalizeTurn(conversationId, turnId);
+        },
+      },
+      onError: (error) => console.error("Agent turn error:", error),
+    });
+    const durable = turn;
+
+    // Re-read after the claim: a dead turn's partial reply was settled by it.
+    const stored = (await getConversation(conversationId)) ?? conversation;
+    const { history, newUserText } = resolveHistory(stored.messages, request);
+    // The thread as the turn starts is stored before the model is called, so
+    // the message survives a turn that dies, and a retry finds it.
+    const saved = await saveConversationMessages(conversationId, history, {
+      llmModel: request.model,
+      whileTurnId: turnId,
+    });
+    if (!saved) {
+      await durable.fail();
+      return NextResponse.json(
+        { error: "The conversation changed while the turn started" },
+        { status: 409 },
+      );
+    }
+    // Only once the message is in the thread: dequeued first and then a
+    // failed save, it would be in neither.
+    if (request.queuedMessageId) {
+      await dequeueMessage(conversationId, request.queuedMessageId);
+    } else if (newUserText !== null) {
+      // A message typed after a stop resumes the queue behind it.
+      await setQueuePaused(conversationId, false);
+    }
+    const background: Promise<unknown>[] = [];
+
     const memory = await recallForTurn({
       conversationId: conversation._id,
       memoryMode: conversation.memoryMode,
@@ -154,41 +177,69 @@ export const POST = async (req: NextRequest) => {
       pageContext: request.pageContext,
       responseStyle: request.responseStyle,
       pageTools: request.pageTools,
+      questions: request.questions,
       memory,
-      abortSignal: req.signal,
-      onFinish: async ({ messages }) => {
-        await saveConversationMessages(conversation._id, messages, {
-          llmModel: request.model,
-        });
-        if (fromPhone) {
+      // The turn's own signal, not the request's: closing the tab or
+      // refreshing leaves the turn running; only a stop ends it early.
+      abortSignal: durable.signal,
+      onFinish: async ({ messages, isAborted }) => {
+        const settled = isAborted
+          ? messages.map((message, index) =>
+              index === messages.length - 1 && message.role === "assistant"
+                ? interruptMessage(message)
+                : message,
+            )
+          : messages;
+        const ended = await saveConversationMessages(
+          conversation._id,
+          settled,
+          { llmModel: request.model, endTurnId: turnId },
+        );
+        // A turn that lost the thread to a newer one writes nothing more.
+        if (!ended) return;
+        durable.released();
+        if (fromPhone && !isAborted) {
           announceReply(
             conversation._id.toString(),
             conversation.title,
-            messages,
+            settled,
           );
         }
         if (newUserText === null) return;
-        try {
-          await updateConversationRetrievalSummary({
+        // An LLM call: kept off the stream so the turn's end reaches its
+        // readers without waiting on it.
+        background.push(
+          updateConversationRetrievalSummary({
             conversationId: conversation._id,
             memoryMode: conversation.memoryMode,
             previousSummary: conversation.retrievalSummary?.text ?? null,
-            turns: messages.map((message) => ({
+            turns: settled.map((message) => ({
               role: message.role === "assistant" ? "assistant" : "user",
               text: messageText(message),
             })),
-          });
-        } catch (error) {
-          console.error("Agent memory query summary update failed", {
-            error: error instanceof Error ? error.message : "unknown error",
-          });
-        }
+          }).catch((error: unknown) => {
+            console.error("Agent memory query summary update failed", {
+              error: error instanceof Error ? error.message : "unknown error",
+            });
+          }),
+        );
       },
     });
 
-    return createUIMessageStreamResponse({
+    const last = history.at(-1);
+    const response = durable.attach(
       stream,
+      last?.role === "assistant" ? last : undefined,
+    );
+    after(async () => {
+      await durable.done;
+      await Promise.allSettled(background);
+    });
+
+    return createUIMessageStreamResponse({
+      stream: response,
       headers: {
+        "X-Agent-Turn-Id": turnId,
         ...(memory.traceId
           ? {
               "X-Agent-Memory-Trace-Id": memory.traceId,
@@ -198,6 +249,7 @@ export const POST = async (req: NextRequest) => {
       },
     });
   } catch (error) {
+    await turn?.fail();
     if (error instanceof AgentMergeError) {
       return NextResponse.json(
         { error: error.message },

@@ -6,6 +6,7 @@ import type {
 import { type ClientSession, Types } from "mongoose";
 import {
   Conversation,
+  type IConversationActiveTurn,
   type IConversationMessage,
   type IConversationRetrievalSummary,
 } from "@/models/Conversation";
@@ -14,7 +15,9 @@ import {
   sanitizeMessagesForStorage,
 } from "./agent/evidence-units";
 import { isLegacyConversation, legacyToUIMessages } from "./agent/legacy";
+import { abortLiveTurn, getLiveTurn } from "./agent/live-turns";
 import { isAgentUIMessage, normalizeAgentMessage } from "./agent/messages";
+import { queuedMessages } from "./agent/turn-store";
 import { observeConversationMessages } from "./agent-memory/evidence";
 import { redactAgentMemorySource } from "./agent-memory/source-deletion";
 import { connectDB } from "./mongodb";
@@ -146,6 +149,10 @@ export interface StoredConversation {
   llmModel: string;
   memoryMode: AgentMemoryMode;
   messages: AgentUIMessage[];
+  /** The running turn's row, live or not; `activeTurnView` decides. */
+  activeTurn: IConversationActiveTurn | null;
+  queue: AgentUIMessage[];
+  queuePaused: boolean;
   retrievalSummary?: IConversationRetrievalSummary;
   createdAt: Date;
   updatedAt: Date;
@@ -165,6 +172,9 @@ export async function getConversation(
     llmModel: conversation.llmModel,
     memoryMode: conversation.memoryMode ?? "enabled",
     messages: storedMessagesToUI(conversation),
+    activeTurn: conversation.activeTurn ?? null,
+    queue: queuedMessages(conversation.queue),
+    queuePaused: conversation.queuePaused === true,
     retrievalSummary: conversation.retrievalSummary,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
@@ -201,7 +211,13 @@ export async function createConversation(
 export async function saveConversationMessages(
   id: string,
   messages: readonly AgentUIMessage[],
-  options?: { llmModel?: string },
+  options?: {
+    llmModel?: string;
+    /** Writes only while this turn holds the thread. */
+    whileTurnId?: string;
+    /** As `whileTurnId`, and releases the hold in the same write. */
+    endTurnId?: string;
+  },
 ): Promise<boolean> {
   await connectDB();
   const session = await Conversation.startSession();
@@ -219,8 +235,12 @@ export async function saveConversationMessages(
         ),
       );
       const stored = sanitizeMessagesForStorage(messages);
-      await Conversation.updateOne(
-        { _id: id },
+      // A turn's final save lands only while the turn still holds the row:
+      // one that lost its lease (reaped while its process could not reach
+      // Mongo) would otherwise replace the newer turn's thread with its own.
+      const holder = options?.endTurnId ?? options?.whileTurnId;
+      const written = await Conversation.updateOne(
+        holder ? { _id: id, "activeTurn.id": holder } : { _id: id },
         {
           $set: {
             messages: stored,
@@ -228,9 +248,11 @@ export async function saveConversationMessages(
             updatedAt: new Date(),
             ...(options?.llmModel ? { llmModel: options.llmModel } : {}),
           },
+          ...(options?.endTurnId ? { $unset: { activeTurn: 1 } } : {}),
         },
         { session },
       );
+      if (written.matchedCount === 0) return false;
 
       const added = agentEvidenceUnits(stored).filter(
         (unit) => !seen.has(unit.eventId),
@@ -274,6 +296,7 @@ export async function updateConversation(
   if (input.memoryMode !== undefined)
     conversation.memoryMode = input.memoryMode;
   if (input.title !== undefined) conversation.title = input.title;
+  if (input.queuePaused === false) conversation.queuePaused = undefined;
   await conversation.save();
   return getConversation(id);
 }
@@ -283,10 +306,22 @@ export async function deleteConversation(id: string): Promise<boolean> {
 
   const exists = await Conversation.exists({ _id: id });
   if (!exists) return false;
+  // An aborted turn's final save observes evidence. Redacting after the
+  // delete covers every save, local or on another replica: one landing later
+  // matches no conversation and writes none. The local wait only keeps this
+  // process's turn from racing the delete itself.
+  const live = getLiveTurn(id);
+  abortLiveTurn(id);
+  if (live) {
+    await Promise.race([
+      live.done,
+      new Promise((resolve) => setTimeout(resolve, 10_000)),
+    ]);
+  }
+  const result = await Conversation.deleteOne({ _id: id });
   await redactAgentMemorySource({
     entityType: "conversation",
     entityId: id,
   });
-  const result = await Conversation.deleteOne({ _id: id });
   return result.deletedCount > 0;
 }

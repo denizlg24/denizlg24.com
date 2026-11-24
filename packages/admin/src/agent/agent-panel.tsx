@@ -371,8 +371,9 @@ function PanelSurface({
       onApproval: (id: string, approved: boolean) =>
         void chat.addToolApprovalResponse({ id, approved }),
       onRegenerate: (messageId: string) => void chat.regenerate({ messageId }),
+      onAnswer: session.answerQuestion,
     }),
-    [chat],
+    [chat, session.answerQuestion],
   );
 
   if (page && empty && !session.loadingConversation) {
@@ -420,7 +421,7 @@ function PanelSurface({
       ) : (
         <AgentMessageList
           messages={chat.messages}
-          status={chat.status}
+          status={session.turnStatus}
           handlers={handlers}
           contentClassName={page ? "max-w-3xl" : undefined}
         />

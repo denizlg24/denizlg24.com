@@ -133,6 +133,8 @@ interface Scenario {
   finalize?: FinalizeOutcome;
   heartbeat?: RunnerHeartbeatResponse;
   wait?: (name: string, options?: { timeoutMs?: number }) => Promise<number>;
+  now?: () => number;
+  containerState?: "exited" | "running";
 }
 
 async function execute(scenario: Scenario) {
@@ -144,7 +146,11 @@ async function execute(scenario: Scenario) {
   const { web, completes, events, starts } = fakeWeb(scenario.heartbeat);
   const github = fakeGitHub();
   const specs: ContainerSpec[] = [];
-  const finalizeCalls: Array<{ commit: boolean; push: boolean }> = [];
+  const finalizeCalls: Array<{
+    commit: boolean;
+    push: boolean;
+    salvage?: boolean;
+  }> = [];
   const removed: string[] = [];
   const supervisor = new RunSupervisor({
     config: {
@@ -170,7 +176,7 @@ async function execute(scenario: Scenario) {
       remove: async (name) => {
         removed.push(name);
       },
-      state: async () => "exited",
+      state: async () => scenario.containerState ?? "exited",
     },
     workspaces: {
       resolvConfMount: {
@@ -229,6 +235,7 @@ async function execute(scenario: Scenario) {
       token: () => "ghs",
     }),
     sleep: async () => {},
+    now: scenario.now,
     heartbeatMs: 10,
     flushMs: 10,
     ci: { graceMs: 0, intervalMs: 0, timeoutMs: 0 },
@@ -358,6 +365,38 @@ describe("RunSupervisor", () => {
     );
     expect(outcome.finalizeCalls).toEqual([]);
     expect(outcome.github).toEqual([]);
+  });
+
+  test("a run stopped at its limit pushes what it left behind", async () => {
+    let calls = 0;
+    const outcome = await execute({
+      now: () => (calls++ === 0 ? 0 : 10 ** 12),
+      wait: () => new Promise((resolve) => setTimeout(() => resolve(137), 30)),
+    });
+    expect(outcome.finalizeCalls).toEqual([
+      { commit: true, push: true, salvage: true },
+    ]);
+    expect(outcome.completes[0]).toMatchObject({
+      status: "failed",
+      failure: { code: "timeout" },
+      headSha: HEAD,
+      pushed: true,
+    });
+  });
+
+  test("a container that would not stop is not salvaged", async () => {
+    let calls = 0;
+    const outcome = await execute({
+      now: () => (calls++ === 0 ? 0 : 10 ** 12),
+      wait: () => new Promise((resolve) => setTimeout(() => resolve(137), 30)),
+      containerState: "running",
+    });
+    expect(outcome.finalizeCalls).toEqual([]);
+    expect(outcome.completes[0]).toMatchObject({
+      status: "failed",
+      failure: { code: "timeout" },
+    });
+    expect(outcome.completes[0]?.pushed).toBeFalsy();
   });
 
   test("the wait is bounded by the run's deadline plus a grace", async () => {

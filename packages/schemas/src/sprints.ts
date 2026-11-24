@@ -103,6 +103,27 @@ export type RunConfig = z.infer<typeof runConfigSchema>;
 export const runConfigOverrideSchema = runConfigSchema.partial();
 export type RunConfigOverride = z.infer<typeof runConfigOverrideSchema>;
 
+/**
+ * What Claude Code's `--model` accepts: an alias or a dashed `claude-*` id,
+ * optionally with the `[1m]` context suffix. A Gateway id
+ * (`anthropic/claude-opus-5.5`) or a shorthand like `opus-5.5` passes the CLI
+ * and fails the first request with a 404, after the slot has been spent.
+ * Enforced on input only: stored configs are read with the looser schema so
+ * one old row cannot break the claim.
+ */
+export const runModelSchema = z
+  .string()
+  .trim()
+  .max(200)
+  .regex(
+    /^(?:opus|sonnet|haiku|opusplan|default|claude-[a-z0-9]+(?:-[a-z0-9]+)*)(?:\[1m\])?$/,
+    "Use a Claude Code alias (opus, sonnet, haiku) or a dashed model id such as claude-opus-5-5",
+  );
+
+export const runConfigInputSchema = runConfigOverrideSchema.extend({
+  model: runModelSchema.optional(),
+});
+
 export const DEFAULT_RUN_CONFIG: RunConfig = {
   harness: "claude-code",
   model: "claude-opus-5-5",
@@ -167,7 +188,7 @@ export const createSprintSchema = z.object({
   baseBranch: gitBranchSchema.default("main"),
   /** Generated as `sprint/<slug>-<4 hex>` when absent. */
   branch: gitBranchSchema.optional(),
-  defaults: runConfigOverrideSchema.default({}),
+  defaults: runConfigInputSchema.default({}),
   timeZone: timeZoneSchema.default("UTC"),
 });
 export type CreateSprint = z.infer<typeof createSprintSchema>;
@@ -181,7 +202,7 @@ export const updateSprintSchema = z
     repo: sprintRepoSchema,
     baseBranch: gitBranchSchema,
     branch: gitBranchSchema,
-    defaults: runConfigOverrideSchema,
+    defaults: runConfigInputSchema,
     timeZone: timeZoneSchema,
   })
   .partial();
@@ -267,7 +288,7 @@ export const createSprintSlotSchema = z.object({
   kind: sprintSlotKindSchema,
   title: z.string().trim().min(1).max(200),
   task: z.string().max(40_000).default(""),
-  config: runConfigOverrideSchema.default({}),
+  config: runConfigInputSchema.default({}),
   /** Absent means "the slot before this one in time". */
   dependsOn: z.array(objectIdSchema).max(32).optional(),
   onUpstreamRunning: slotUpstreamPolicySchema.default({
@@ -283,7 +304,7 @@ export const updateSprintSlotSchema = z
     kind: sprintSlotKindSchema,
     title: z.string().trim().min(1).max(200),
     task: z.string().max(40_000),
-    config: runConfigOverrideSchema,
+    config: runConfigInputSchema,
     dependsOn: z.array(objectIdSchema).max(32),
     onUpstreamRunning: slotUpstreamPolicySchema,
   })

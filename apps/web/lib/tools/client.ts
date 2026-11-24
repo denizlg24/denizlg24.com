@@ -64,3 +64,60 @@ export const clientTools: ToolDefinition[] = [
     runtime: "client",
   },
 ];
+
+/**
+ * Asks Deniz and waits for the answer, which resumes the same turn. Offered
+ * only to a client that draws the questionnaire, and never unattended.
+ */
+export const questionTool: ToolDefinition = {
+  schema: {
+    name: "ask_user",
+    description:
+      "Ask Deniz one to four multiple-choice questions and wait for his answers before continuing. Use it when a decision is genuinely his and the options are clear — not to confirm something you can just do. Each question has 2-8 short options; he can also type his own answer. The result is { answers: [{ id, selected, other? }] }, or { dismissed: true } if he skipped it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+                maxLength: 64,
+                description: "Stable key, e.g. 'scope'.",
+              },
+              question: { type: "string", maxLength: 500 },
+              header: {
+                type: "string",
+                maxLength: 32,
+                description: "One or two words shown above the question.",
+              },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 8,
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", maxLength: 120 },
+                    description: { type: "string", maxLength: 300 },
+                  },
+                  required: ["label"],
+                },
+              },
+              multiSelect: { type: "boolean" },
+            },
+            required: ["id", "question", "options"],
+          },
+        },
+      },
+      required: ["questions"],
+    },
+  },
+  isWrite: false,
+  category: "desktop",
+  runtime: "client",
+};

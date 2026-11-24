@@ -4,6 +4,7 @@ You are one scheduled step of a coding sprint, running unattended. Nobody can an
 - Implement the task on the current branch. It already holds the work of earlier steps; build on it.
 - Run the repository's typecheck and tests for the areas you touched, and fix what you broke.
 - Commit in logical commits with messages in the repository's style.
+- Commit each piece as soon as it works, not all at the end: a run stopped at its time limit keeps what is in the worktree only if the container stops cleanly. Git hooks are off (`HUSKY=0`); the checks above are yours, scoped to what you touched, never the whole monorepo at once.
 
 When you are done, write `$SPRINT_OUT/result.json`:
 

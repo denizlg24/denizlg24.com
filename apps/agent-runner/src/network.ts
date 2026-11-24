@@ -6,6 +6,18 @@ import type { CommandRunner } from "./exec";
 const EGRESS_CHAIN = "AGENT-RUNS-EGRESS";
 
 /**
+ * One fixed name, so at most one helper exists. Killing the `docker run` CLI
+ * on a timeout leaves its container running; on 2026-11-23 a check that
+ * timed out under load left its helper behind, every later check added
+ * another, and some sixty privileged iptables processes livelocked on the
+ * netns's ruleset for a day while the runner admitted nothing.
+ */
+export const EGRESS_HELPER_NAME = "agent-runner-egress";
+/** Inside the helper; the CLI's own timeout sits above it. */
+const EGRESS_SCRIPT_TIMEOUT_SECONDS = 60;
+const EGRESS_CLI_TIMEOUT_MS = 120_000;
+
+/**
  * The host, not "the internet": loopback, RFC 1918 (which holds the Forge
  * bridge 172.18.0.1 and the sandbox daemon's TCP listener), CGNAT/tailnet,
  * link-local, and the unroutable blocks — the same boundary `apps/browser`
@@ -35,16 +47,18 @@ export function blockedCidrs(extra: string[]): string[] {
 
 /**
  * Run as `sh -c <script> sh <bridge> <cidr>...` inside the rootlesskit
- * network namespace. Idempotent: the egress chain is flushed and refilled and
+ * network namespace. Idempotent: the egress chain is flushed and refilled in
+ * one `iptables-restore` commit, so a helper killed mid-refresh never leaves
+ * running containers behind an empty chain (verified on Forge's
+ * iptables-nft 1.8.11: declaring an existing chain under `--noflush` flushes
+ * only that chain), and
  * each jump is added only when `-C` cannot find it. IPv6 is dropped wholesale
  * on the bridge (the network is created without it); a missing ip6tables is
  * reported, not fatal.
  */
 export const EGRESS_SCRIPT = `set -eu
 bridge="$1"; shift
-iptables -N ${EGRESS_CHAIN} 2>/dev/null || true
-iptables -F ${EGRESS_CHAIN}
-for cidr in "$@"; do iptables -A ${EGRESS_CHAIN} -d "$cidr" -j DROP; done
+{ echo "*filter"; echo ":${EGRESS_CHAIN} - [0:0]"; for cidr in "$@"; do echo "-A ${EGRESS_CHAIN} -d $cidr -j DROP"; done; echo COMMIT; } | iptables-restore --noflush
 iptables -N DOCKER-USER 2>/dev/null || true
 iptables -C DOCKER-USER -i "$bridge" -j ${EGRESS_CHAIN} 2>/dev/null || iptables -I DOCKER-USER 1 -i "$bridge" -j ${EGRESS_CHAIN}
 iptables -C INPUT -i "$bridge" -j DROP 2>/dev/null || iptables -I INPUT 1 -i "$bridge" -j DROP
@@ -136,6 +150,8 @@ export function egressCommand(
     "docker",
     "run",
     "--rm",
+    "--name",
+    EGRESS_HELPER_NAME,
     "--runtime",
     "runc",
     "--network",
@@ -150,6 +166,10 @@ export function egressCommand(
     image,
     `--net=/proc/${childPid}/root${stateDir}/netns`,
     "--",
+    "timeout",
+    "-s",
+    "KILL",
+    String(EGRESS_SCRIPT_TIMEOUT_SECONDS),
     "sh",
     "-c",
     EGRESS_SCRIPT,
@@ -182,6 +202,12 @@ export async function applyEgressRules(
   const childPid = parseChildPid(
     await readText(`${config.rootlesskitStateDir}/child_pid`),
   );
+  const removeHelper = () =>
+    exec(["docker", "rm", "--force", EGRESS_HELPER_NAME], {
+      timeoutMs: 60_000,
+    });
+  // A leftover from a check whose CLI was killed would hold the name.
+  await removeHelper();
   const result = await exec(
     egressCommand(
       config.image,
@@ -190,11 +216,18 @@ export async function applyEgressRules(
       config.bridge,
       cidrs,
     ),
-    { timeoutMs: 120_000 },
+    { timeoutMs: EGRESS_CLI_TIMEOUT_MS },
   );
-  if (result.exitCode !== 0) {
+  if (result.timedOut) {
+    await removeHelper();
     throw new EgressError(
-      `applying egress rules failed: ${result.stderr.trim().slice(0, 500)}`,
+      `applying egress rules timed out after ${EGRESS_CLI_TIMEOUT_MS / 1000} s`,
+    );
+  }
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.trim().slice(0, 500);
+    throw new EgressError(
+      `applying egress rules failed (exit ${result.exitCode})${stderr ? `: ${stderr}` : ""}`,
     );
   }
   const problems = verifyEgressRules(result.stdout, config.bridge, cidrs);

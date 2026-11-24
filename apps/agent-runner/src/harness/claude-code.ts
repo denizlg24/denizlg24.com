@@ -126,6 +126,11 @@ export class ClaudeCodeHarness implements HarnessAdapter {
         GIT_AUTHOR_EMAIL: identity.email,
         GIT_COMMITTER_NAME: identity.name,
         GIT_COMMITTER_EMAIL: identity.email,
+        // The repository's pre-commit hook typechecks and tests the whole
+        // monorepo. Under gVisor beside a build it froze a run for its last
+        // two and a half hours (2026-11-23), uncommitted. The agent runs the
+        // checks for what it touched; CI runs the rest.
+        HUSKY: "0",
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
         ...credentialEnv(run, this.credentials),

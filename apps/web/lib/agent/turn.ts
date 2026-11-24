@@ -66,6 +66,8 @@ export interface AgentTurnInput {
   responseStyle?: "voice";
   /** A client is attached and can run the desktop page tools. */
   pageTools: boolean;
+  /** The client draws `ask_user`'s questionnaire; ignored for unattended turns. */
+  questions?: boolean;
   task?: AgentRunTaskContext;
   memory: TurnMemory;
   /** Surface-specific tools, e.g. the LaTeX project's. */
@@ -108,6 +110,7 @@ export async function startAgentTurn(
   const messages = input.messages.map(normalizeAgentMessage);
   const builtins = await buildBuiltinTools({
     pageTools: input.pageTools,
+    questions: input.questions === true && !input.unattended,
     context: {
       conversationId: input.conversationId,
       memoryMode: input.memoryMode,

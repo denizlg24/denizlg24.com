@@ -1,6 +1,7 @@
 import type {
   AgentChatRequestInput,
   AgentConversationResponse,
+  AgentStopResponse,
   AgentUIMessage,
   ConversationListResponse,
   LlmModelsResponse,
@@ -34,6 +35,9 @@ export function useConversation(id: string | undefined) {
     queryFn: async () =>
       (await api.request<AgentConversationResponse>(`conversations/${id}`))
         .conversation,
+    // A turn outlives the request that started it (the app was put away, or
+    // it runs from another surface); follow it on the row until it ends.
+    refetchInterval: (query) => (query.state.data?.activeTurn ? 1_500 : false),
   });
 }
 
@@ -123,4 +127,14 @@ export async function runTurn({
     onTurn(turn);
   }
   return turn;
+}
+
+/**
+ * A turn runs on the server past the request that started it, so aborting
+ * the stream only stops reading it; this ends the turn itself.
+ */
+export function stopTurn(conversationId: string) {
+  return api.request<AgentStopResponse>(`chat/${conversationId}/stop`, {
+    method: "POST",
+  });
 }

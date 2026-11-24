@@ -28,7 +28,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { runTurn, useConversation, useDefaultModel } from "@/api/agent";
+import {
+  runTurn,
+  stopTurn,
+  useConversation,
+  useDefaultModel,
+} from "@/api/agent";
 import { KeyboardDock } from "@/features/shell/keyboard-dock";
 import { blocksOf, describeInput, toolLabel } from "./parts";
 
@@ -64,7 +69,11 @@ export function Thread({
   const abort = useRef<AbortController | null>(null);
   const scroll = useRef<ScrollView>(null);
   const started = useRef(false);
-  const busy = live !== null || pending !== null;
+  /** `converse` is running and answers its own approvals. */
+  const conversing = useRef(false);
+  const followedTurn = useRef(false);
+  const serverTurn = Boolean(conversation.data?.activeTurn);
+  const busy = live !== null || pending !== null || serverTurn;
   const previousModel = conversation.data?.llmModel;
   const selectedDefault = defaultModel.data;
   const isSubscription = (value: string | undefined) =>
@@ -81,50 +90,62 @@ export function Thread({
   const converse = useCallback(
     async (first: AgentUIMessage, mode: boolean) => {
       if (!model) return;
+      conversing.current = true;
       let message: AgentUIMessage | null = first;
-      while (message) {
-        setError(null);
-        const controller = new AbortController();
-        abort.current = controller;
-        try {
-          const done = await runTurn({
-            conversationId: id,
-            model,
-            message,
-            yolo: mode,
-            signal: controller.signal,
-            onTurn: setLive,
+      let stillRunning = false;
+      try {
+        while (message) {
+          setError(null);
+          const controller = new AbortController();
+          abort.current = controller;
+          try {
+            const done = await runTurn({
+              conversationId: id,
+              model,
+              message,
+              yolo: mode,
+              signal: controller.signal,
+              onTurn: setLive,
+            });
+            if (done.error) setError(done.error);
+          } catch (cause) {
+            if (!(cause instanceof Error && cause.name === "AbortError")) {
+              setError(
+                cause instanceof Error ? cause.message : "The turn failed",
+              );
+            }
+          }
+          abort.current = null;
+          const fresh = (await refetch()).data;
+          const stored = fresh?.messages;
+          void client.invalidateQueries({
+            queryKey: ["conversations"],
+            exact: true,
           });
-          if (done.error) setError(done.error);
-        } catch (cause) {
-          if (!(cause instanceof Error && cause.name === "AbortError")) {
-            setError(
-              cause instanceof Error ? cause.message : "The turn failed",
+          setLive(null);
+          setPending(null);
+          message = null;
+          const last = stored?.at(-1);
+          // Still running on the server (the stream dropped, not the turn):
+          // the conversation query follows it from here.
+          stillRunning = Boolean(fresh?.activeTurn);
+          if (!last || controller.signal.aborted || stillRunning) break;
+          const asks = pendingApprovals(last);
+          if (asks.length === 0) break;
+          haptics.warning();
+          const decisions = new Map<string, boolean>();
+          for (const part of asks) {
+            decisions.set(
+              part.approval.id,
+              await ask(toolLabel(part), describeInput(part.input)),
             );
           }
+          message = approvalReply(last, decisions);
         }
-        abort.current = null;
-        const stored = (await refetch()).data?.messages;
-        void client.invalidateQueries({
-          queryKey: ["conversations"],
-          exact: true,
-        });
-        setLive(null);
-        setPending(null);
-        message = null;
-        const last = stored?.at(-1);
-        if (!last || controller.signal.aborted) break;
-        const asks = pendingApprovals(last);
-        if (asks.length === 0) break;
-        haptics.warning();
-        const decisions = new Map<string, boolean>();
-        for (const part of asks) {
-          decisions.set(
-            part.approval.id,
-            await ask(toolLabel(part), describeInput(part.input)),
-          );
-        }
-        message = approvalReply(last, decisions);
+      } finally {
+        conversing.current = false;
+        // Handed over to the row: the effect below answers its approvals.
+        followedTurn.current = stillRunning;
       }
     },
     [client, id, model, refetch],
@@ -155,6 +176,32 @@ export function Thread({
   }, [firstMessage, model, send]);
 
   useEffect(() => () => abort.current?.abort(), []);
+
+  // A turn followed on the row (the stream dropped, or another surface ran
+  // it) can end waiting on an approval; ask here, as `converse` would have.
+  const lastStored = conversation.data?.messages.at(-1);
+  useEffect(() => {
+    if (serverTurn) {
+      followedTurn.current = true;
+      return;
+    }
+    if (conversing.current || !followedTurn.current) return;
+    if (live || pending || !lastStored) return;
+    followedTurn.current = false;
+    const asks = pendingApprovals(lastStored);
+    if (asks.length === 0) return;
+    void (async () => {
+      haptics.warning();
+      const decisions = new Map<string, boolean>();
+      for (const part of asks) {
+        decisions.set(
+          part.approval.id,
+          await ask(toolLabel(part), describeInput(part.input)),
+        );
+      }
+      await converse(approvalReply(lastStored, decisions), yolo);
+    })();
+  }, [converse, lastStored, live, pending, serverTurn, yolo]);
 
   const stored = conversation.data?.messages ?? [];
   const shown: AgentUIMessage[] = [
@@ -229,7 +276,14 @@ export function Thread({
           <Pressable
             accessibilityLabel="Stop"
             hitSlop={8}
-            onPress={() => abort.current?.abort()}
+            onPress={() => {
+              abort.current?.abort();
+              void stopTurn(id).catch((cause: unknown) =>
+                setError(
+                  cause instanceof Error ? cause.message : "Stopping failed",
+                ),
+              );
+            }}
           >
             <SymbolView
               name="stop.circle.fill"
