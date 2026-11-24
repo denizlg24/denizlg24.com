@@ -241,8 +241,13 @@ const FINALIZE_SCRIPT = `set -u
 cd "$WORKTREE"
 g() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
 committed=false
+message="chore(sprint): $SLOT_TITLE"
+if [ "$SALVAGE" = 1 ]; then
+  rm -f "$(g rev-parse --git-dir)/index.lock"
+  message="$message (stopped at the time limit)"
+fi
 if [ "$COMMIT" = 1 ] && [ -n "$(g status --porcelain)" ]; then
-  g add -A && g commit --quiet --no-verify -m "chore(sprint): $SLOT_TITLE" || exit 3
+  g add -A && g commit --quiet --no-verify -m "$message" || exit 3
   committed=true
 fi
 head=$(g rev-parse HEAD) || exit 3
@@ -495,7 +500,7 @@ export class Workspaces {
     run: ClaimedRun,
     paths: RunPaths,
     credsDir: string,
-    options: { commit: boolean; push: boolean },
+    options: { commit: boolean; push: boolean; salvage?: boolean },
   ): Promise<FinalizeOutcome> {
     return this.#withRepoLock(run.sprint.repo, async () => {
       const result = await this.docker.runOnce(
@@ -509,6 +514,7 @@ export class Workspaces {
             SLOT_TITLE: run.slot.title,
             COMMIT: options.commit ? "1" : "0",
             PUSH: options.push ? "1" : "0",
+            SALVAGE: options.salvage ? "1" : "0",
             GIT_AUTHOR_NAME: this.config.git.name,
             GIT_AUTHOR_EMAIL: this.config.git.email,
             GIT_COMMITTER_NAME: this.config.git.name,

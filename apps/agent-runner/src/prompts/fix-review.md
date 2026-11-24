@@ -4,6 +4,7 @@ You are the step of a coding sprint that answers a review, running unattended. N
 - Address every blocker and major finding. Address minor findings and nits where you agree; decline the rest with a reason.
 - Run the repository's typecheck and tests for the areas you touched.
 - Commit in logical commits with messages in the repository's style.
+- Commit each piece as soon as it works, not all at the end: a run stopped at its time limit keeps what is in the worktree only if the container stops cleanly. Git hooks are off (`HUSKY=0`); the checks above are yours, scoped to what you touched, never the whole monorepo at once.
 
 When you are done, write `$SPRINT_OUT/result.json`:
 

@@ -5,6 +5,7 @@ import {
   applyEgressRules,
   BLOCKED_V4,
   blockedCidrs,
+  EGRESS_HELPER_NAME,
   EgressError,
   egressCommand,
   parseChildPid,
@@ -114,7 +115,15 @@ describe("applying the rules", () => {
     expect(flags).toContain("--privileged");
     expect(flags).toContain("--network none");
     expect(flags).toContain("--entrypoint nsenter");
+    expect(flags).toContain(`--name ${EGRESS_HELPER_NAME}`);
     expect(argv[image + 1]).toBe(`--net=/proc/1133/root${STATE}/netns`);
+    expect(argv.slice(image + 2, image + 7)).toEqual([
+      "--",
+      "timeout",
+      "-s",
+      "KILL",
+      "60",
+    ]);
     expect(argv.slice(-2)).toEqual([BRIDGE, "10.0.0.0/8"]);
   });
 
@@ -137,7 +146,8 @@ describe("applying the rules", () => {
       };
     };
     await applyEgressRules(docker, ok, config, async () => "1133");
-    expect(calls[0]?.slice(0, 2)).toEqual(["docker", "run"]);
+    expect(calls[0]).toEqual(["docker", "rm", "--force", EGRESS_HELPER_NAME]);
+    expect(calls[1]?.slice(0, 2)).toEqual(["docker", "run"]);
 
     const denied: CommandRunner = async () => ({
       exitCode: 1,
@@ -148,6 +158,42 @@ describe("applying the rules", () => {
     await expect(
       applyEgressRules(docker, denied, config, async () => "1133"),
     ).rejects.toThrow("you must be root");
+  });
+
+  test("a timed-out helper is removed, not left to pile up", async () => {
+    const calls: string[][] = [];
+    const hung: CommandRunner = async (argv) => {
+      calls.push(argv);
+      const run = argv[1] === "run";
+      return {
+        exitCode: run ? -1 : 0,
+        stdout: "",
+        stderr: "",
+        timedOut: run,
+      };
+    };
+    await expect(
+      applyEgressRules(docker, hung, config, async () => "1133"),
+    ).rejects.toThrow("timed out");
+    expect(calls.map((argv) => argv[1])).toEqual(["rm", "run", "rm"]);
+    expect(calls.at(-1)).toEqual([
+      "docker",
+      "rm",
+      "--force",
+      EGRESS_HELPER_NAME,
+    ]);
+  });
+
+  test("a silent failure still says how it exited", async () => {
+    const silent: CommandRunner = async (argv) => ({
+      exitCode: argv[1] === "run" ? 137 : 0,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    });
+    await expect(
+      applyEgressRules(docker, silent, config, async () => "1133"),
+    ).rejects.toThrow("exit 137");
   });
 });
 

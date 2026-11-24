@@ -4,6 +4,7 @@ import {
   createSprintSlotSchema,
   DEFAULT_RUN_CONFIG,
   gitBranchSchema,
+  runConfigInputSchema,
   runConfigOverrideSchema,
   runConfigSchema,
   runnerCompleteRequestSchema,
@@ -167,6 +168,46 @@ describe("sprint contracts", () => {
         status: "failed",
         failure: { code: "no-result", message: "missing" },
       }).success,
+    ).toBe(true);
+  });
+});
+
+describe("run model ids", () => {
+  test("accepts Claude Code aliases and dashed ids", () => {
+    for (const model of [
+      "opus",
+      "sonnet",
+      "haiku",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5[1m]",
+    ]) {
+      expect(runConfigInputSchema.safeParse({ model }).success).toBe(true);
+    }
+  });
+
+  test("refuses shorthands and Gateway ids that 404 at the first request", () => {
+    for (const model of [
+      "opus-5.5",
+      "anthropic/claude-opus-5.5",
+      "claude-opus-5.5",
+      "Claude Opus",
+    ]) {
+      expect(runConfigInputSchema.safeParse({ model }).success).toBe(false);
+    }
+  });
+
+  test("slot input validates the model; stored configs stay readable", () => {
+    expect(
+      createSprintSlotSchema.safeParse({
+        at: "2026-11-24T09:15:00.000Z",
+        kind: "implement",
+        title: "x",
+        config: { model: "opus-5.5" },
+      }).success,
+    ).toBe(false);
+    expect(
+      runConfigOverrideSchema.safeParse({ model: "opus-5.5" }).success,
     ).toBe(true);
   });
 });

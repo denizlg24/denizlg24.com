@@ -558,6 +558,9 @@ export class RunSupervisor {
         status: "failed",
         failure: exit.failure,
         usage: usageFrom(stream.outcome(), run.config.credential),
+        ...(exit.failure.code === "timeout"
+          ? await this.#salvage(state, paths, stream, stopping)
+          : {}),
       };
     } else if (exit.kind === "exited") {
       request = await this.#afterExit(state, paths, tokenFile, stream, control);
@@ -581,6 +584,64 @@ export class RunSupervisor {
     tokenFile.stop();
     await deps.docker.remove(name).catch(() => {});
     await this.#markDone(paths, state, request?.status === "cancelled");
+  }
+
+  /**
+   * A run stopped at its limit still pushes what it wrote, so a retry builds
+   * on it instead of starting over: on 2026-11-23 three hours of uncommitted
+   * work stayed in a worktree nobody would look at. Only once the container
+   * is confirmed down, since it would otherwise still be writing; that is
+   * also what makes a leftover `index.lock` safe to remove.
+   */
+  async #salvage(
+    state: RunState,
+    paths: RunPaths,
+    stream: HarnessStream,
+    stopping: Promise<void> | null,
+  ): Promise<Pick<RunnerCompleteRequestInput, "headSha" | "pushed">> {
+    const { deps } = this;
+    const { run } = state;
+    if (run.slot.kind === "review") return {};
+    await stopping;
+    const status = await deps.docker.state(state.containerName);
+    if (status !== "exited" && status !== "dead") {
+      stream.notice(
+        "warning",
+        "The container did not stop, so its work was not pushed.",
+      );
+      return {};
+    }
+    try {
+      const finalized = await deps.workspaces.finalize(
+        run,
+        paths,
+        state.credsDir,
+        { commit: true, push: true, salvage: true },
+      );
+      if (finalized.push !== "ok") {
+        stream.notice(
+          "warning",
+          `The unfinished work was not pushed: ${finalized.pushError || finalized.push}`.slice(
+            0,
+            2_000,
+          ),
+        );
+        return { headSha: finalized.head };
+      }
+      state.milestones.pushed = true;
+      await writeRunState(paths.state, state);
+      stream.notice(
+        "info",
+        `Pushed the unfinished work to ${run.sprint.branch}; a retry continues from it.`,
+      );
+      return { headSha: finalized.head, pushed: true };
+    } catch (error) {
+      stream.notice(
+        "warning",
+        `Salvaging the worktree failed: ${String(error)}`.slice(0, 2_000),
+      );
+      return {};
+    }
   }
 
   /** The runner's half after a clean exit: result, commit, push, PR, review, CI. */

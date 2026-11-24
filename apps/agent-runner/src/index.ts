@@ -46,17 +46,25 @@ async function main(): Promise<void> {
   await workspaces.bootstrap();
 
   let egressReady = false;
-  const checkEgress = async () => {
-    try {
-      await applyEgressRules(docker, runCommand, config);
-      if (!egressReady) log.info("egress rules verified");
-      egressReady = true;
-    } catch (error) {
-      egressReady = false;
-      log.error("egress rules missing; not scheduling runs", {
-        error: String(error),
-      });
-    }
+  let egressCheck: Promise<void> | null = null;
+  // Single-flight: a check still running when the timer fires is not joined
+  // by a second helper racing it for the same netns.
+  const checkEgress = () => {
+    egressCheck ??= (async () => {
+      try {
+        await applyEgressRules(docker, runCommand, config);
+        if (!egressReady) log.info("egress rules verified");
+        egressReady = true;
+      } catch (error) {
+        egressReady = false;
+        log.error("egress rules missing; not scheduling runs", {
+          error: String(error),
+        });
+      } finally {
+        egressCheck = null;
+      }
+    })();
+    return egressCheck;
   };
   await checkEgress();
 

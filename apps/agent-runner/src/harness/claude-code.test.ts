@@ -65,6 +65,7 @@ describe("ClaudeCodeHarness.command", () => {
     expect(command.env.SPRINT_OUT).toBe("/out");
     expect(command.env.SPRINT_MERGE_BASE).toBe("a".repeat(40));
     expect(command.env.GIT_AUTHOR_EMAIL).toBe("sprint@denizlg24.com");
+    expect(command.env.HUSKY).toBe("0");
   });
 
   test("the system prompt is the kind's preamble plus the run's instructions", () => {
