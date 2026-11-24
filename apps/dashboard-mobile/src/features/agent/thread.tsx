@@ -28,7 +28,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { runTurn, useConversation, useDefaultModel } from "@/api/agent";
+import {
+  runTurn,
+  stopTurn,
+  useConversation,
+  useDefaultModel,
+} from "@/api/agent";
 import { KeyboardDock } from "@/features/shell/keyboard-dock";
 import { blocksOf, describeInput, toolLabel } from "./parts";
 
@@ -64,7 +69,8 @@ export function Thread({
   const abort = useRef<AbortController | null>(null);
   const scroll = useRef<ScrollView>(null);
   const started = useRef(false);
-  const busy = live !== null || pending !== null;
+  const serverTurn = Boolean(conversation.data?.activeTurn);
+  const busy = live !== null || pending !== null || serverTurn;
   const previousModel = conversation.data?.llmModel;
   const selectedDefault = defaultModel.data;
   const isSubscription = (value: string | undefined) =>
@@ -104,7 +110,8 @@ export function Thread({
           }
         }
         abort.current = null;
-        const stored = (await refetch()).data?.messages;
+        const fresh = (await refetch()).data;
+        const stored = fresh?.messages;
         void client.invalidateQueries({
           queryKey: ["conversations"],
           exact: true,
@@ -113,7 +120,9 @@ export function Thread({
         setPending(null);
         message = null;
         const last = stored?.at(-1);
-        if (!last || controller.signal.aborted) break;
+        // Still running on the server (the stream dropped, not the turn):
+        // the conversation query follows it from here.
+        if (!last || controller.signal.aborted || fresh?.activeTurn) break;
         const asks = pendingApprovals(last);
         if (asks.length === 0) break;
         haptics.warning();
@@ -229,7 +238,10 @@ export function Thread({
           <Pressable
             accessibilityLabel="Stop"
             hitSlop={8}
-            onPress={() => abort.current?.abort()}
+            onPress={() => {
+              abort.current?.abort();
+              void stopTurn(id).catch(() => {});
+            }}
           >
             <SymbolView
               name="stop.circle.fill"

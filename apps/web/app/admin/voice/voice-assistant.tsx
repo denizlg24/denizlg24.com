@@ -217,6 +217,7 @@ export function VoiceAssistant() {
   const [ticker, setTicker] = useState("");
   const tickerRef = useRef<HTMLParagraphElement>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const stopping = useRef<Promise<void> | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -371,6 +372,10 @@ export function VoiceAssistant() {
           conversationIdRef.current = created.conversation._id;
         }
 
+        if (stopping.current) {
+          await stopping.current;
+          stopping.current = null;
+        }
         expectingReply.current = true;
         await chat.sendMessage({ text });
         if (sequence !== responseSequence.current) return;
@@ -400,6 +405,15 @@ export function VoiceAssistant() {
     speech.stop();
     speech.prime();
     void chat.chat.stop();
+    // The turn runs on the server past the request; barging in has to stop
+    // it there too, or the next message finds the thread still taken.
+    const running = conversationIdRef.current;
+    if (running && chat.status !== "ready" && chat.status !== "error") {
+      stopping.current = client.post(`chat/${running}/stop`, {}).then(
+        () => undefined,
+        () => undefined,
+      );
+    }
     try {
       const media = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -505,7 +519,16 @@ export function VoiceAssistant() {
       );
       setTimeout(() => setState("idle"), 1_200);
     }
-  }, [chat.chat, releaseMedia, sendTranscript, speech, state, stopRecording]);
+  }, [
+    chat.chat,
+    chat.status,
+    client,
+    releaseMedia,
+    sendTranscript,
+    speech,
+    state,
+    stopRecording,
+  ]);
 
   useEffect(() => releaseMedia, [releaseMedia]);
 
