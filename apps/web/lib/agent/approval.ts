@@ -1,4 +1,8 @@
-import type { AgentExecutionMode, AgentMemoryMode } from "@repo/schemas";
+import {
+  type AgentExecutionMode,
+  type AgentMemoryMode,
+  mcpCatalogCallSchema,
+} from "@repo/schemas";
 import type { ConnectorToolBinding } from "@/lib/connectors/toolset";
 import type { AgentToolApprovalPolicy } from "@/lib/llm-service";
 
@@ -14,38 +18,77 @@ function chosenAction(input: unknown): string | null {
     : null;
 }
 
-/** Whether this call only reads, judged per action when the tool has actions. */
+/**
+ * The tool and arguments a call actually reaches. A catalog call reaches its
+ * `resource` with `operation` as the action, and is judged by that
+ * resource's own flags; null when the resource is not one it may reach.
+ */
+function resolveCall(
+  binding: ConnectorToolBinding,
+  input: unknown,
+): { binding: ConnectorToolBinding; input: unknown } | null {
+  if (!binding.catalogTargets) return { binding, input };
+  const call = mcpCatalogCallSchema.safeParse(input);
+  if (!call.success) return null;
+  const target = binding.catalogTargets.get(call.data.resource);
+  if (!target) return null;
+  return {
+    binding: target,
+    input: call.data.operation ? { action: call.data.operation } : {},
+  };
+}
+
+function flagsOf(binding: ConnectorToolBinding, input: unknown) {
+  const action = chosenAction(input);
+  if (binding.actions && action) {
+    const flags = binding.actions[action];
+    return {
+      readOnly: flags?.readOnly === true,
+      destructive: flags?.destructive === true,
+    };
+  }
+  return { readOnly: binding.readOnly, destructive: binding.destructive };
+}
+
+/**
+ * Whether this call only reads, judged per action when the tool has actions.
+ * A catalog call reads only when both the call tool and the operation it
+ * names say so; the server refuses the mismatch anyway, but approval never
+ * relies on that.
+ */
 export function isReadOnlyCall(
   binding: ConnectorToolBinding,
   input: unknown,
 ): boolean {
-  const action = chosenAction(input);
-  if (binding.actions && action) {
-    return binding.actions[action]?.readOnly === true;
-  }
-  return binding.readOnly;
+  const resolved = resolveCall(binding, input);
+  if (!resolved) return false;
+  const target = flagsOf(resolved.binding, resolved.input).readOnly;
+  return resolved.binding === binding ? target : target && binding.readOnly;
 }
 
 function isDestructiveCall(
   binding: ConnectorToolBinding,
   input: unknown,
 ): boolean {
-  const action = chosenAction(input);
-  if (binding.actions && action) {
-    return binding.actions[action]?.destructive === true;
-  }
-  return binding.destructive;
+  const resolved = resolveCall(binding, input);
+  if (!resolved) return binding.destructive;
+  return (
+    flagsOf(resolved.binding, resolved.input).destructive ||
+    (resolved.binding !== binding && binding.destructive)
+  );
 }
 
 /**
  * A connector call cannot see the turn's memory mode, so an incognito turn
  * refuses memory writes here instead — the same rule the built-in
- * `save_memory` enforces by being absent.
+ * `save_memory` enforces by being absent. Judged on the tool a catalog call
+ * reaches, not on the catalog tool's own name.
  */
 function isMemoryWrite(binding: ConnectorToolBinding, input: unknown): boolean {
+  const target = resolveCall(binding, input)?.binding;
   return (
     binding.builtIn &&
-    binding.toolName.startsWith(MEMORY_TOOL_PREFIX) &&
+    target?.toolName.startsWith(MEMORY_TOOL_PREFIX) === true &&
     !isReadOnlyCall(binding, input)
   );
 }
@@ -59,6 +102,13 @@ export function createApprovalPolicy(options: {
   return ({ toolName, input }) => {
     const binding = options.connectorBindings.get(toolName);
     if (binding) {
+      if (!resolveCall(binding, input)) {
+        return {
+          type: "denied",
+          reason:
+            "That resource is disabled or unknown; find one with catalog_search",
+        };
+      }
       if (options.memoryMode === "incognito" && isMemoryWrite(binding, input)) {
         return {
           type: "denied",

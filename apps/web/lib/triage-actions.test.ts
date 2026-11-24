@@ -55,6 +55,7 @@ describe("tool selection", () => {
     ]);
     expect(isTriageActionToolName("web_authenticator")).toBe(false);
     expect(isTriageActionToolName("cloud_user_remove")).toBe(false);
+    expect(isTriageActionToolName("catalog_write")).toBe(false);
   });
 
   test("honours the connector's disabled tools", () => {

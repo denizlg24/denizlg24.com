@@ -197,6 +197,24 @@ describe("toolTitle", () => {
       }),
     ).toBe("Notes · list");
   });
+
+  test("titles a catalog call by the resource it reaches", () => {
+    expect(
+      toolTitle({
+        type: "dynamic-tool",
+        toolName: "denizlg24__catalog_destructive",
+        toolCallId: "c2",
+        state: "input-available",
+        input: { resource: "web_notes", operation: "delete", args: {} },
+        toolMetadata: {
+          connector: "denizlg24",
+          connectorName: "denizlg24",
+          toolName: "catalog_destructive",
+          title: "Run a destructive operation",
+        },
+      }),
+    ).toBe("Notes · delete");
+  });
 });
 
 describe("ask_user", () => {
