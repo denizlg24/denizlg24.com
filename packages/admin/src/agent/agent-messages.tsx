@@ -1,6 +1,10 @@
 "use client";
 
-import type { AgentMessageMetadata, AgentUIMessage } from "@repo/schemas";
+import type {
+  AgentMessageMetadata,
+  AgentQuestionOutput,
+  AgentUIMessage,
+} from "@repo/schemas";
 import {
   Confirmation,
   ConfirmationAccepted,
@@ -71,6 +75,7 @@ import {
   Globe,
   Info,
   RotateCcw,
+  Square,
   TriangleAlert,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -84,6 +89,7 @@ import {
   connectorContent,
   formatCost,
   formatTokenCount,
+  isQuestionToolPart,
   messageText,
   shortModelName,
   toLanguageModelUsage,
@@ -91,10 +97,13 @@ import {
   toolProvenance,
   toolTitle,
 } from "./agent-parts";
+import { AgentQuestionnaire } from "./agent-questionnaire";
 
 export interface AgentMessageHandlers {
   onApproval: (approvalId: string, approved: boolean) => void;
   onRegenerate?: (messageId: string) => void;
+  /** Answers an `ask_user` call; without it a waiting questionnaire is read-only. */
+  onAnswer?: (toolCallId: string, output: AgentQuestionOutput) => void;
   /** Replaces the default row for a tool part; return undefined to keep it. */
   renderTool?: (part: AgentToolPart) => ReactNode | undefined;
   /** Replaces the default markdown for an assistant text block; return undefined to keep it. */
@@ -311,6 +320,11 @@ function AgentBlockView({
         </Reasoning>
       );
     case "tool":
+      if (isQuestionToolPart(block.part)) {
+        return (
+          <AgentQuestionnaire part={block.part} onAnswer={handlers.onAnswer} />
+        );
+      }
       return (
         handlers.renderTool?.(block.part) ?? (
           <AgentToolRow part={block.part} onApproval={handlers.onApproval} />
@@ -463,7 +477,9 @@ function AssistantMessage({
     !(isLast && awaitsClient([message])) &&
     (text || metadata?.usage);
 
-  if (blocks.length === 0 && !isStreaming) return null;
+  if (blocks.length === 0 && !isStreaming && !metadata?.interrupted) {
+    return null;
+  }
 
   return (
     <Message className="group/turn">
@@ -486,6 +502,14 @@ function AssistantMessage({
           ))
         )}
         {handlers.renderAfter?.(message)}
+        {metadata?.interrupted && !isStreaming ? (
+          <Marker role="status" className="text-xs text-muted-foreground">
+            <MarkerIcon>
+              <Square className="size-2.5 fill-current" />
+            </MarkerIcon>
+            <MarkerContent>Stopped</MarkerContent>
+          </Marker>
+        ) : null}
         {showFooter ? (
           <MessageFooter
             className={cn(

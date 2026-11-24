@@ -47,6 +47,7 @@ import {
   AttachmentMedia,
   AttachmentTitle,
 } from "@repo/ui/attachment";
+import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
@@ -59,6 +60,7 @@ import {
   Hand,
   Link2,
   Mic,
+  Play,
   Plus,
   SlidersHorizontal,
   Square,
@@ -68,6 +70,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
+import { queuedText } from "./agent-queue";
 import { type AgentAttachment, useAgentSession } from "./agent-session";
 import { useDictation } from "./use-dictation";
 import { isModelEligible } from "./use-model-catalog";
@@ -513,6 +516,70 @@ function ComposerAttachment({
   );
 }
 
+/**
+ * Messages waiting behind the running turn, in the order they will go. A
+ * stop pauses them; the play button sends the head on.
+ */
+function AgentQueueList() {
+  const session = useAgentSession();
+  const { queue } = session;
+  if (queue.length === 0) return null;
+  return (
+    <ol className="mb-1.5 space-y-1" aria-label="Queued messages">
+      {queue.map((entry, index) => (
+        <li
+          key={entry.message.id}
+          className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-surface/40 py-1 pr-1 pl-2.5 text-xs"
+          data-state={entry.state}
+        >
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {index + 1}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              entry.state === "failed" && "text-destructive",
+            )}
+            title={queuedText(entry.message)}
+          >
+            {queuedText(entry.message)}
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {entry.state === "sending" ? (
+              <Spinner className="size-3" />
+            ) : entry.state === "failed" ? (
+              "Failed"
+            ) : session.queuePaused && index === 0 ? (
+              "Paused"
+            ) : (
+              "Queued"
+            )}
+          </span>
+          {session.queuePaused && index === 0 && entry.state === "queued" ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Send now"
+              onClick={session.resumeQueue}
+            >
+              <Play className="fill-current" />
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Remove"
+            className="text-muted-foreground"
+            onClick={() => void session.removeQueued(entry.message.id)}
+          >
+            <X />
+          </Button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function AgentComposer({
   className,
   autoFocus,
@@ -530,7 +597,7 @@ export function AgentComposer({
     attachments,
     catalog,
   } = session;
-  const status: ChatStatus = chat.status;
+  const status: ChatStatus = session.turnStatus;
   const streaming = status === "submitted" || status === "streaming";
 
   const appendTranscript = useCallback(
@@ -549,13 +616,17 @@ export function AgentComposer({
   const readyAttachments = attachments.filter(
     (attachment) => attachment.status === "done",
   );
-  const waiting = session.busy && !streaming;
+  // Anything sent while a turn runs or waits on an answer joins the queue;
+  // only a background run holds the composer shut.
+  const backgroundBusy = session.backgroundRun !== null;
+  const queueing = session.busy && !backgroundBusy;
   const canSend =
     (draft.trim().length > 0 || readyAttachments.length > 0) &&
     settings.model !== null &&
     !session.modelIncompatible &&
     !uploading &&
-    !waiting &&
+    !backgroundBusy &&
+    !session.stopping &&
     !recording;
 
   const memoryLocked = chat.messages.length > 0 || streaming;
@@ -577,6 +648,7 @@ export function AgentComposer({
 
   return (
     <div className={cn("@container/composer w-full min-w-0", className)}>
+      <AgentQueueList />
       <PromptInput
         accept={ACCEPTED_TYPES}
         multiple
@@ -630,11 +702,11 @@ export function AgentComposer({
               placeholder={
                 transcribing
                   ? "Transcribing…"
-                  : waiting
-                    ? session.backgroundRun
-                      ? "Working in background"
-                      : "Waiting on approval"
-                    : "Message"
+                  : backgroundBusy
+                    ? "Working in background"
+                    : queueing
+                      ? "Queue a message"
+                      : "Message"
               }
             />
           )}
@@ -707,9 +779,24 @@ export function AgentComposer({
                 <span className={PILL_LABEL}>Voice</span>
               </PromptInputButton>
             )}
+            {streaming && canSend ? (
+              <PromptInputButton
+                aria-label="Stop"
+                tooltip="Stop"
+                onClick={() => void session.stop()}
+              >
+                <Square className="size-3 fill-current" />
+              </PromptInputButton>
+            ) : null}
             <PromptInputSubmit
-              status={status}
-              onStop={() => void chat.stop()}
+              status={
+                session.stopping
+                  ? "submitted"
+                  : streaming && canSend
+                    ? "ready"
+                    : status
+              }
+              onStop={session.stopping ? undefined : () => void session.stop()}
               hasContent={canSend}
             />
           </div>

@@ -1,8 +1,11 @@
 import {
+  AGENT_QUESTION_TOOL,
+  type AgentPageTool,
   type AgentUIMessage,
   type AgentUIMessagePart,
   type AgentUsage,
   getToolLabel,
+  isAgentClientTool,
   isAgentPageTool,
   PRIMARY_CONNECTOR_SLUG,
 } from "@repo/schemas";
@@ -35,6 +38,15 @@ export function toolPartName(part: AgentToolPart): string {
 
 export function isPageToolPart(part: AgentUIMessagePart): boolean {
   return isAgentToolPart(part) && isAgentPageTool(toolPartName(part));
+}
+
+export function isQuestionToolPart(part: AgentUIMessagePart): boolean {
+  return isAgentToolPart(part) && toolPartName(part) === AGENT_QUESTION_TOOL;
+}
+
+/** A page tool or `ask_user`: only this client can supply the result. */
+export function isClientToolPart(part: AgentUIMessagePart): boolean {
+  return isAgentToolPart(part) && isAgentClientTool(toolPartName(part));
 }
 
 export function isWebToolPart(part: AgentToolPart): boolean {
@@ -166,7 +178,7 @@ function lastStepParts(message: AgentUIMessage): AgentUIMessagePart[] {
 
 /**
  * Resubmit once the client has answered everything the stored turn waits on.
- * Only the last step counts: an answered page tool stays `output-available`
+ * Only the last step counts: an answered client tool stays `output-available`
  * forever, and reading the whole message would resubmit after every turn.
  */
 export function shouldContinueAgentTurn({
@@ -181,7 +193,7 @@ export function shouldContinueAgentTurn({
   if (
     tools.some(
       (part) =>
-        isPageToolPart(part) &&
+        isClientToolPart(part) &&
         (part.state === "input-streaming" || part.state === "input-available"),
     )
   ) {
@@ -190,9 +202,42 @@ export function shouldContinueAgentTurn({
   return tools.some(
     (part) =>
       (part.state === "approval-responded" && !part.approval.isAutomatic) ||
-      (isPageToolPart(part) &&
+      (isClientToolPart(part) &&
         (part.state === "output-available" || part.state === "output-error")),
   );
+}
+
+/** Page tool calls in the last step still waiting for this client to run them. */
+export function pendingPageToolCalls(
+  messages: AgentUIMessage[],
+): { toolCallId: string; tool: AgentPageTool; input: unknown }[] {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant") return [];
+  return lastStepParts(last).flatMap((part) => {
+    if (!isAgentToolPart(part) || part.state !== "input-available") return [];
+    const tool = toolPartName(part);
+    return isAgentPageTool(tool)
+      ? [{ toolCallId: part.toolCallId, tool, input: part.input }]
+      : [];
+  });
+}
+
+/** The `ask_user` call the thread is waiting on, if any. */
+export function pendingQuestion(
+  messages: AgentUIMessage[],
+): AgentToolPart | null {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant") return null;
+  for (const part of lastStepParts(last)) {
+    if (
+      isAgentToolPart(part) &&
+      isQuestionToolPart(part) &&
+      part.state === "input-available"
+    ) {
+      return part;
+    }
+  }
+  return null;
 }
 
 /** True while the last assistant message still has something only the client can answer. */
@@ -204,7 +249,7 @@ export function awaitsClient(messages: AgentUIMessage[]): boolean {
     .some(
       (part) =>
         (part.state === "approval-requested" && !part.approval.isAutomatic) ||
-        (isPageToolPart(part) && part.state === "input-available"),
+        (isClientToolPart(part) && part.state === "input-available"),
     );
 }
 
