@@ -9,7 +9,48 @@ const {
   exposedToolName,
   offloadConnectorImages,
   primeToolHeaderBindings,
+  selectToolSurface,
 } = await import("./toolset");
+
+describe("selectToolSurface", () => {
+  const tool = (name: string, surface?: "compact" | "catalog") => ({
+    name,
+    inputSchema: { type: "object" as const },
+    ...(surface ? { _meta: { "com.denizlg24/surface": surface } } : {}),
+  });
+  const listing = [
+    tool("catalog_search", "compact"),
+    tool("catalog_read", "compact"),
+    tool("web_emails", "compact"),
+    tool("web_notes", "catalog"),
+    tool("forge_target_delete", "catalog"),
+  ];
+
+  test("compact exposes the compact surface and routes the rest", () => {
+    const { exposed, catalog } = selectToolSurface(listing, "compact");
+    expect(exposed.map((entry) => entry.name)).toEqual([
+      "catalog_search",
+      "catalog_read",
+      "web_emails",
+    ]);
+    expect(catalog?.map((entry) => entry.name)).toEqual([
+      "web_notes",
+      "forge_target_delete",
+    ]);
+  });
+
+  test("full, or a server without the catalog, exposes everything", () => {
+    expect(selectToolSurface(listing, "full")).toEqual({
+      exposed: listing,
+      catalog: null,
+    });
+    const older = [tool("web_notes"), tool("forge_target_delete")];
+    expect(selectToolSurface(older, "compact")).toEqual({
+      exposed: older,
+      catalog: null,
+    });
+  });
+});
 
 describe("exposedToolName", () => {
   test("namespaces by connector and stays within 64 characters", () => {

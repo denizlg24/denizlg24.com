@@ -11,6 +11,10 @@ Calling conventions
 - A non-2xx upstream answer comes back as an error result carrying the status and body. Report it plainly and adjust; don't retry blindly.
 - List actions can be large; prefer filters, pagination and get on one record when you know what you need.
 
+The catalog
+- Every tool named below is also a catalog resource. When it is not in your tool list (the compact surface lists only the catalog and a few tools that act on credentials, run code or send mail), run it through catalog_read, catalog_write or catalog_destructive with {resource: <tool name>, operation: <action>, args: {…the tool's own fields, without action}}; a single-operation tool takes no operation. Each call tool accepts only operations of its kind and names the right one when you pick wrong.
+- catalog_search finds resources and shows each operation's kind and arguments (\`?\` optional); catalog_describe gives the full schema — describe one operation of a large resource (workspace pages, blocks, themes, components). An invalid call comes back with the operation's schema; fix the arguments from it.
+
 Domains and workflows
 - Calendar: web_calendar_events list takes one date or a start..end range. Manual events sync outbound to Google.
 - Study: web_study_notebooks, web_study_cards, web_study_quizzes, web_study_documents, web_knowledge. Call web_knowledge retrieve (with notebookId) before generating cards or questions, and pass the hits' chunkIds as sourceChunkIds so each item cites its source. Review ratings are again|hard|good|easy. Document upload is not available through MCP.

@@ -8,6 +8,7 @@ import {
   type ConnectorTool,
   type CreateConnectorInput,
   MCP_ACTIONS_META_KEY,
+  MCP_TOOL_PROFILE_HEADER,
   mcpActionsMetaSchema,
   PRIMARY_CONNECTOR_SLUG,
   type UpdateConnectorInput,
@@ -377,9 +378,14 @@ function connectorTransport(
       return {
         type: "http",
         url: connector.url,
-        headers: options.actor
-          ? { ...headers, [AGENT_ACTOR_HEADER]: options.actor }
-          : headers,
+        headers: {
+          ...headers,
+          // Web filters the list itself (toolset.ts): it keeps the whole one
+          // for triage and the connector settings, and hands the model the
+          // compact surface. The server's default is compact.
+          [MCP_TOOL_PROFILE_HEADER]: "full",
+          ...(options.actor ? { [AGENT_ACTOR_HEADER]: options.actor } : {}),
+        },
         fetch: primaryConnectorFetch(),
       };
     case "none":

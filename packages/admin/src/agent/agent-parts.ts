@@ -7,6 +7,9 @@ import {
   getToolLabel,
   isAgentClientTool,
   isAgentPageTool,
+  MCP_CATALOG_CALL_TOOLS,
+  type McpCatalogCall,
+  mcpCatalogCallSchema,
   PRIMARY_CONNECTOR_SLUG,
 } from "@repo/schemas";
 import {
@@ -79,7 +82,24 @@ function humanize(name: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Tool";
 }
 
-/** "Notes · list" for an action tool, a sentence-cased name otherwise. */
+const CATALOG_CALL_TOOLS = new Set(Object.values(MCP_CATALOG_CALL_TOOLS));
+
+/** A primary-connector catalog call, titled by the resource it reaches. */
+function catalogCall(
+  part: AgentToolPart,
+  connector: string | undefined,
+  raw: string,
+): McpCatalogCall | null {
+  if (connector !== PRIMARY_CONNECTOR_SLUG || !CATALOG_CALL_TOOLS.has(raw)) {
+    return null;
+  }
+  return mcpCatalogCallSchema.safeParse(part.input).data ?? null;
+}
+
+/**
+ * "Notes · list" for an action tool — reached by name or through the
+ * catalog — and a sentence-cased name otherwise.
+ */
 export function toolTitle(part: AgentToolPart): string {
   const action = inputAction(part);
   let base: string;
@@ -89,6 +109,15 @@ export function toolTitle(part: AgentToolPart): string {
       metadataString(part, "toolName") ??
       part.toolName.split("__").at(-1) ??
       part.toolName;
+    const routed = catalogCall(part, connector, raw);
+    if (routed) {
+      return [
+        humanize(routed.resource.replace(PRIMARY_DOMAIN_PREFIX, "")),
+        routed.operation,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
     base =
       metadataString(part, "title") ??
       humanize(

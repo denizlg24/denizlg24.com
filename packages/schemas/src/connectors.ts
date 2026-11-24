@@ -16,6 +16,51 @@ export type McpActionFlags = z.infer<typeof mcpActionFlagsSchema>;
 export const mcpActionsMetaSchema = z.record(z.string(), mcpActionFlagsSchema);
 export type McpActionsMeta = z.infer<typeof mcpActionsMetaSchema>;
 
+/**
+ * `_meta` key on every tool of our MCP server saying which surface it belongs
+ * to. `compact` tools are what a context-constrained client should hand its
+ * model; a `catalog` tool is still callable by name but, in the compact
+ * surface, is reached through the catalog call tools with `resource` = its
+ * name.
+ */
+export const MCP_SURFACE_META_KEY = "com.denizlg24/surface";
+export const mcpSurfaceSchema = z.enum(["compact", "catalog"]);
+export type McpSurface = z.infer<typeof mcpSurfaceSchema>;
+
+/**
+ * Which tools `tools/list` returns. `full` (the default) lists everything,
+ * `compact` only the compact surface. Sent as this header or as the
+ * `profile` query parameter on the MCP endpoint.
+ */
+export const MCP_TOOL_PROFILE_HEADER = "x-mcp-tool-profile";
+export const mcpToolProfileSchema = z.enum(["full", "compact"]);
+export type McpToolProfile = z.infer<typeof mcpToolProfileSchema>;
+
+export const MCP_CATALOG_TOOLS = {
+  search: "catalog_search",
+  describe: "catalog_describe",
+  read: "catalog_read",
+  write: "catalog_write",
+  destructive: "catalog_destructive",
+} as const;
+
+export type McpOperationKind = "read" | "write" | "destructive";
+
+/** The catalog tool that runs operations of each kind. */
+export const MCP_CATALOG_CALL_TOOLS: Record<McpOperationKind, string> = {
+  read: MCP_CATALOG_TOOLS.read,
+  write: MCP_CATALOG_TOOLS.write,
+  destructive: MCP_CATALOG_TOOLS.destructive,
+};
+
+/** Arguments of every catalog call tool. */
+export const mcpCatalogCallSchema = z.object({
+  resource: z.string().min(1),
+  operation: z.string().min(1).optional(),
+  args: z.record(z.string(), z.unknown()).optional(),
+});
+export type McpCatalogCall = z.infer<typeof mcpCatalogCallSchema>;
+
 /** The seeded connector for this infrastructure's own MCP server. */
 export const PRIMARY_CONNECTOR_SLUG = "denizlg24";
 

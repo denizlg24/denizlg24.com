@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
+import { currentToolProfile } from "../request-context";
 import type { Upstream } from "../upstream";
+import { applyToolProfile, registerCatalog } from "./catalog";
 import { registerCloud } from "./cloud";
 import { createApi } from "./define";
 import { registerForge } from "./forge";
@@ -16,4 +18,6 @@ export function registerTools(server: McpServer, upstream: Upstream) {
   registerStorage(server, api);
   registerWeb(server, api);
   registerStatus(server, api);
+  registerCatalog(server);
+  applyToolProfile(server, currentToolProfile());
 }

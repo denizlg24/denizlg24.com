@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConnectorToolBinding } from "@/lib/connectors/toolset";
-import { createApprovalPolicy } from "./approval";
+import { createApprovalPolicy, isReadOnlyCall } from "./approval";
 
 const notes: ConnectorToolBinding = {
   connectorId: "c1",
@@ -123,5 +123,129 @@ describe("createApprovalPolicy", () => {
       policy({ executionMode: "yolo" })({ toolName: "save_memory", input: {} }),
     ).toBeUndefined();
     expect(policy()({ toolName: "get_day", input: {} })).toBeUndefined();
+  });
+});
+
+describe("catalog calls", () => {
+  const forgeDelete: ConnectorToolBinding = {
+    ...notes,
+    toolName: "forge_target_delete",
+    readOnly: false,
+    destructive: true,
+    actions: undefined,
+  };
+  const targets = new Map([
+    ["web_notes", notes],
+    ["web_agent_memory_goals", memory],
+    ["forge_target_delete", forgeDelete],
+  ]);
+  const callTool = (
+    toolName: string,
+    readOnly: boolean,
+    destructive: boolean,
+  ): ConnectorToolBinding => ({
+    ...notes,
+    toolName,
+    readOnly,
+    destructive,
+    actions: undefined,
+    catalogTargets: targets,
+  });
+  const read = callTool("catalog_read", true, false);
+  const write = callTool("catalog_write", false, false);
+  const destroy = callTool("catalog_destructive", false, true);
+
+  function catalogPolicy(
+    overrides: Partial<Parameters<typeof createApprovalPolicy>[0]> = {},
+  ) {
+    return policy({
+      connectorBindings: new Map([
+        ["denizlg24__catalog_read", read],
+        ["denizlg24__catalog_write", write],
+        ["denizlg24__catalog_destructive", destroy],
+      ]),
+      ...overrides,
+    });
+  }
+
+  test("gates by the operation the call names, like the tool by name", () => {
+    const decide = catalogPolicy();
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_read",
+        input: { resource: "web_notes", operation: "list" },
+      }),
+    ).toBeUndefined();
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_write",
+        input: { resource: "web_notes", operation: "create", args: {} },
+      }),
+    ).toEqual({ type: "user-approval" });
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_destructive",
+        input: { resource: "web_notes", operation: "delete" },
+      }),
+    ).toEqual({ type: "user-approval", reason: "Destructive" });
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_destructive",
+        input: { resource: "forge_target_delete", args: {} },
+      }),
+    ).toEqual({ type: "user-approval", reason: "Destructive" });
+  });
+
+  test("a write named through the read tool still asks", () => {
+    expect(
+      catalogPolicy()({
+        toolName: "denizlg24__catalog_read",
+        input: { resource: "web_notes", operation: "delete" },
+      }),
+    ).toEqual({ type: "user-approval", reason: "Destructive" });
+  });
+
+  test("a resource it may not reach is denied, even in yolo", () => {
+    const decide = catalogPolicy({ executionMode: "yolo" });
+    for (const input of [
+      { resource: "web_api_keys", operation: "list" },
+      { operation: "list" },
+      "web_notes",
+    ]) {
+      expect(
+        decide({ toolName: "denizlg24__catalog_read", input }),
+      ).toMatchObject({ type: "denied" });
+    }
+  });
+
+  test("incognito refuses memory writes routed through the catalog", () => {
+    const decide = catalogPolicy({
+      memoryMode: "incognito",
+      executionMode: "yolo",
+    });
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_write",
+        input: { resource: "web_agent_memory_goals", operation: "create" },
+      }),
+    ).toMatchObject({ type: "denied" });
+    expect(
+      decide({
+        toolName: "denizlg24__catalog_read",
+        input: { resource: "web_agent_memory_goals", operation: "list" },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("isReadOnlyCall judges the routed operation", () => {
+    expect(
+      isReadOnlyCall(read, { resource: "web_notes", operation: "list" }),
+    ).toBe(true);
+    expect(
+      isReadOnlyCall(write, { resource: "web_notes", operation: "list" }),
+    ).toBe(false);
+    expect(
+      isReadOnlyCall(read, { resource: "missing", operation: "list" }),
+    ).toBe(false);
   });
 });

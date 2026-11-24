@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Upstream } from "../upstream";
+import { surfaceMeta } from "./define";
 
 const reachSchema = z.object({
   status: z.number().nullable(),
@@ -42,6 +43,7 @@ export function registerWhoami(server: McpServer, upstream: Upstream) {
       description:
         "Returns the authenticated principal and whether the cloud API and denizlg24.com admin API accept this server's credentials.",
       outputSchema: whoamiSchema,
+      _meta: surfaceMeta("compact"),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (ctx) => {

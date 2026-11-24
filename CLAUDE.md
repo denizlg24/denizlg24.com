@@ -1247,6 +1247,40 @@ catalogue with every tool → route mapping is
   domain workflows (read-before-replace, notes `categorize`, papers
   `resolve`, markets budget, …) are written down for every client.
   `instructions.test.ts` fails when it names a tool that does not exist.
+- **Two surfaces over one registry.** Every tool carries
+  `_meta["com.denizlg24/surface"]`: `compact` (whoami, the catalog tools and
+  `DIRECT_TOOLS` in `src/tools/surface.ts`) or `catalog`. The default
+  `compact` profile lists the 19 compact ones (≈5k tokens) to every client,
+  Claude Code included; `x-mcp-tool-profile: full` or `?profile=full` lists
+  all ~270 (≈116k tokens of schemas).
+  `bun run scripts/tool-surface.ts` prints both; `catalog.test.ts` bounds the
+  compact one. Nothing was renamed — names in instructions, `disabledTools`
+  and client permissions stay valid.
+- **The catalog routes to the very handlers the named tools run.**
+  `defineTool` / `defineActions` record every tool in a per-server registry;
+  `catalog_search` and `catalog_describe` read it, and `catalog_read` /
+  `catalog_write` / `catalog_destructive` take `{resource, operation, args}`
+  where `resource` is the tool name and `operation` the action (omitted for a
+  single-operation tool, which answers to `run`). `args` is parsed by the
+  operation's own schema; an `INVALID_INPUT` comes back with that schema.
+- **Each call tool accepts only its own kind** (`operationKind`: read-only,
+  else destructive, else write — the same rule web's approval applies) and
+  answers `WRONG_TOOL` otherwise, which is what keeps the call tools'
+  annotations honest for clients that only read annotations. Granting a
+  client `catalog_write` therefore grants every write — which is why tools
+  that run code, mint or reveal credentials, or send mail are in
+  `DIRECT_TOOLS`: off the catalog (`DIRECT_TOOL` error), listed by name in
+  both surfaces. Adding a tool of that kind means adding it there.
+- **The compact profile only unlists.** `applyToolProfile` removes the
+  catalog-surface registrations after `registerCatalog` has bound their
+  handlers, so a call by an unlisted name fails while the catalog still
+  reaches it. Web's primary connector always sends
+  `x-mcp-tool-profile: full` (`connectorTransport` in
+  `lib/connectors/service.ts`): it caches the whole listing for triage and the
+  connector settings, and filters to the compact surface per turn itself.
+  A client permission granted on a catalog tool's own name
+  (`mcp__denizlg24__web_notes`) no longer matches anything under compact; it
+  is `catalog_read` / `catalog_write` / `catalog_destructive` now.
 
 ## apps/desktop Architecture
 
@@ -2077,6 +2111,21 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
   primed from the cache (`primeToolHeaderBindings`) before its first call —
   GitHub's servers refuse `owner`/`repo` calls without them, and a
   `callTool` on an unprimed client fails with "missing Mcp-Param-… header".
+- **The primary connector hands the model its compact surface, not every
+  tool.** The cache keeps the full listing (triage's catalogue and the
+  connector settings read it); `selectToolSurface` exposes the
+  `compact`-marked tools and binds the rest as `catalogTargets` of the
+  catalog call tools. A listing without `catalog_read` (an older MCP server)
+  is exposed whole, so neither app has to deploy first.
+  `MCP_CONNECTOR_TOOL_SURFACE=full` restores every tool per turn (≈116k
+  tokens against ≈5k).
+- **A catalog call is approved as the operation it names.** `resolveCall` in
+  `approval.ts` judges `{resource, operation}` by that resource's own
+  binding (and the call tool's flags on top), so reads-auto, the Destructive
+  reason and the incognito `web_agent_memory*` guard hold exactly as by name.
+  A resource missing from `catalogTargets` — disabled in `disabledTools` or
+  unknown — is `denied` before anything runs, YOLO included. Triage never
+  sees the catalog tools: its allowlist is `web_*` names.
 - **Web search and fetch are provider tools.** Anthropic models get
   Anthropic's `web_search` / `web_fetch`; anything else searches through the
   Gateway's Perplexity tool and has no fetch. "Think longer" is `effort: max`
