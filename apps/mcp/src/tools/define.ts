@@ -1,15 +1,20 @@
 import type {
   McpServer,
+  RegisteredTool,
   StandardSchemaWithJSON,
 } from "@modelcontextprotocol/server";
 import {
   AGENT_ACTOR_HEADER,
   MCP_ACTIONS_META_KEY,
+  MCP_SURFACE_META_KEY,
   type McpActionsMeta,
+  type McpOperationKind,
+  type McpSurface,
 } from "@repo/schemas";
 import { z } from "zod";
 import { currentAgentActor } from "../request-context";
 import type { Upstream } from "../upstream";
+import { isDirectTool } from "./surface";
 
 export type Side = "cloud" | "web" | "status";
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
@@ -256,7 +261,7 @@ type ObjectSchema = z.ZodObject<Shape>;
 type Arguments = Record<string, unknown>;
 
 export const TOOL_NAME =
-  /^(forge|cloud|storage|web|status)_[a-z0-9]+(_[a-z0-9]+)*$/;
+  /^(forge|cloud|storage|web|status|catalog)_[a-z0-9]+(_[a-z0-9]+)*$/;
 
 function assertToolName(name: string) {
   if (!TOOL_NAME.test(name)) {
@@ -264,6 +269,55 @@ function assertToolName(name: string) {
       `Tool name ${name} does not follow <app>_<resource>_<verb>`,
     );
   }
+}
+
+/** One operation the catalog can route to: an action, or a whole single-operation tool. */
+export interface CatalogOperation {
+  description: string;
+  kind: McpOperationKind;
+  schema: ObjectSchema;
+  invoke: (args: Arguments) => Promise<ToolResult>;
+}
+
+/** Every tool defined through this module, as the catalog sees it. */
+export interface CatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  operations: Record<string, CatalogOperation>;
+  /** A `defineTool` tool: its one operation is `SINGLE_OPERATION`. */
+  single: boolean;
+  /** Stays registered by name in the compact surface; the catalog refuses it. */
+  direct: boolean;
+  registered: RegisteredTool;
+}
+
+/** The operation name a single-operation tool answers to in the catalog. */
+export const SINGLE_OPERATION = "run";
+
+const catalogs = new WeakMap<McpServer, CatalogEntry[]>();
+
+export function catalogEntries(server: McpServer): readonly CatalogEntry[] {
+  return catalogs.get(server) ?? [];
+}
+
+function remember(server: McpServer, entry: CatalogEntry) {
+  const entries = catalogs.get(server) ?? [];
+  entries.push(entry);
+  catalogs.set(server, entries);
+}
+
+/** The same rule web's approval policy applies to the flags. */
+export function operationKind(flags: {
+  readOnly?: boolean;
+  destructive?: boolean;
+}): McpOperationKind {
+  if (flags.readOnly === true) return "read";
+  return flags.destructive === true ? "destructive" : "write";
+}
+
+export function surfaceMeta(surface: McpSurface) {
+  return { [MCP_SURFACE_META_KEY]: surface };
 }
 
 /**
@@ -275,7 +329,7 @@ function assertToolName(name: string) {
  * update would arrive carrying create's defaults. `defineTool` goes the same
  * way so both kinds report bad input identically and neither needs a cast.
  */
-function advertisedOnly(
+export function advertisedOnly(
   schema: ObjectSchema,
 ): StandardSchemaWithJSON<unknown, Arguments> {
   return {
@@ -314,6 +368,8 @@ export interface BareActionSpec extends ActionFlags {
  */
 export interface BoundAction extends ActionFlags {
   shape: Shape;
+  /** The schema `invoke` parses with. */
+  schema: ObjectSchema;
   invoke: (args: Arguments, label: string) => Promise<ToolResult>;
 }
 
@@ -327,11 +383,17 @@ export function action<S extends ObjectSchema>(
   const { description, readOnly, destructive, idempotent } = spec;
   const flags = { description, readOnly, destructive, idempotent };
   if (!("input" in spec)) {
-    return { ...flags, shape: {}, invoke: () => spec.run() };
+    return {
+      ...flags,
+      shape: {},
+      schema: z.object({}),
+      invoke: () => spec.run(),
+    };
   }
   return {
     ...flags,
     shape: spec.input.shape,
+    schema: spec.input,
     invoke: async (args, label) => {
       const parsed = spec.input.safeParse(args);
       if (!parsed.success) {
@@ -366,16 +428,37 @@ export function defineTool<S extends ObjectSchema>(
     input: spec.input,
     run: spec.run,
   });
-  server.registerTool(
+  const direct = isDirectTool(spec.name);
+  const registered = server.registerTool(
     spec.name,
     {
       title: spec.title,
       description: spec.description,
       inputSchema: advertisedOnly(spec.input),
+      _meta: surfaceMeta(direct ? "compact" : "catalog"),
       annotations: { openWorldHint: false, ...spec.annotations },
     },
     (args) => bound.invoke(args, spec.name),
   );
+  remember(server, {
+    name: spec.name,
+    title: spec.title,
+    description: spec.description,
+    operations: {
+      [SINGLE_OPERATION]: {
+        description: spec.description,
+        kind: operationKind({
+          readOnly: spec.annotations?.readOnlyHint,
+          destructive: spec.annotations?.destructiveHint,
+        }),
+        schema: spec.input,
+        invoke: (args) => bound.invoke(args, spec.name),
+      },
+    },
+    single: true,
+    direct,
+    registered,
+  });
 }
 
 export interface ActionsSpec {
@@ -442,13 +525,17 @@ export function defineActions(server: McpServer, spec: ActionsSpec): void {
       },
     ]),
   );
-  server.registerTool(
+  const direct = isDirectTool(spec.name);
+  const registered = server.registerTool(
     spec.name,
     {
       title: spec.title,
       description: spec.description,
       inputSchema: advertisedOnly(z.object(shape)),
-      _meta: { [MCP_ACTIONS_META_KEY]: flags },
+      _meta: {
+        [MCP_ACTIONS_META_KEY]: flags,
+        ...surfaceMeta(direct ? "compact" : "catalog"),
+      },
       annotations: {
         openWorldHint: false,
         readOnlyHint: all.every((entry) => entry.readOnly === true),
@@ -469,6 +556,25 @@ export function defineActions(server: McpServer, spec: ActionsSpec): void {
       return entry.invoke(rest, String(chosen));
     },
   );
+  remember(server, {
+    name: spec.name,
+    title: spec.title,
+    description: spec.description,
+    operations: Object.fromEntries(
+      Object.entries(spec.actions).map(([name, entry]) => [
+        name,
+        {
+          description: entry.description,
+          kind: operationKind(entry),
+          schema: entry.schema,
+          invoke: (args: Arguments) => entry.invoke(args, name),
+        },
+      ]),
+    ),
+    single: false,
+    direct,
+    registered,
+  });
 }
 
 /**
