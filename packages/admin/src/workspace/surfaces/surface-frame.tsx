@@ -8,7 +8,7 @@ import {
 } from "@repo/schemas";
 import { cn } from "@repo/ui/utils";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAdmin } from "../../provider";
 import { useActiveTheme } from "../appearance/store";
 import { THEMED_VARIABLES } from "../appearance/theme-css";
@@ -16,11 +16,11 @@ import { OPEN_COMMAND_PALETTE } from "../sidebar";
 import {
   dashboardPath,
   navigateParamsSchema,
-  SURFACE_CHANNEL,
   SURFACE_SANDBOX,
   type SurfaceErrorEntry,
   type SurfaceTheme,
   surfaceDocument,
+  surfaceHelloSchema,
   surfaceInboundSchema,
 } from "./document";
 import { useSurfaceStore } from "./store";
@@ -88,6 +88,12 @@ function failure(error: unknown): Outcome {
  * request is answered here with the owner's own client; the frame never holds
  * a credential.
  *
+ * Each document build accepts exactly one hello: a window message from the
+ * frame carrying that build's nonce and a transferred MessagePort. Everything
+ * after it — requests, responses, theme, errors — goes over that port and
+ * never through `contentWindow`, so a page the frame navigates to (same
+ * WindowProxy) is never sent anything and cannot reach the bridge.
+ *
  * `preview` keeps state in memory, reports errors only to `onErrors`, and
  * ignores navigation, so editing never touches the saved surface's state.
  */
@@ -111,12 +117,23 @@ export function SurfaceFrame({
   const [doc, setDoc] = useState<{ nonce: string; html: string } | null>(null);
 
   const stateRef = useRef<SurfaceState>(surface.state);
+  const saveSeq = useRef(0);
   const revRef = useRef(surface.rev);
-  const nonceRef = useRef<string | null>(null);
+  const portRef = useRef<MessagePort | null>(null);
   const handlers = useRef({ mode, onErrors, onExit });
   useEffect(() => {
     handlers.current = { mode, onErrors, onExit };
   });
+
+  // Declared before the build so a refresh that changes code and state at
+  // once embeds the new state, not the previous one.
+  useEffect(() => {
+    if (handlers.current.mode === "live") stateRef.current = surface.state;
+  }, [surface.state]);
+
+  useEffect(() => {
+    revRef.current = surface.rev;
+  }, [surface.rev]);
 
   const { id, name, mount, head, html, css, js } = surface;
   const assets: Record<string, string> = Object.fromEntries(
@@ -146,59 +163,25 @@ export function SurfaceFrame({
     });
   }, [id, name, mountKey, head, html, css, js, assetsKey]);
 
-  useEffect(() => {
-    if (handlers.current.mode === "live") stateRef.current = surface.state;
-  }, [surface.state]);
-
-  useEffect(() => {
-    revRef.current = surface.rev;
-  }, [surface.rev]);
-
-  useEffect(() => {
-    nonceRef.current = doc?.nonce ?? null;
-  }, [doc]);
-
   const postTheme = () => {
-    if (!nonceRef.current) return;
-    frame.current?.contentWindow?.postMessage(
-      {
-        channel: SURFACE_CHANNEL,
-        nonce: nonceRef.current,
-        kind: "theme",
-        theme: readTheme(),
-      },
-      "*",
-    );
+    portRef.current?.postMessage({ kind: "theme", theme: readTheme() });
   };
 
   useEffect(() => {
     postTheme();
   }, [theme]);
 
-  useEffect(() => {
+  // A layout effect, so the hello listener is in place before the new
+  // document's first script can run.
+  useLayoutEffect(() => {
     if (!doc) return;
     const nonce = doc.nonce;
     const store = useSurfaceStore.getState();
+    let port: MessagePort | null = null;
 
-    // Answered on the window that asked, and only while it still shows the
-    // document that asked: request ids restart at 1 in every rebuilt frame.
-    const respond = (target: Window, requestId: number, outcome: Outcome) => {
-      if (
-        frame.current?.contentWindow !== target ||
-        nonceRef.current !== nonce
-      ) {
-        return;
-      }
-      target.postMessage(
-        {
-          channel: SURFACE_CHANNEL,
-          nonce,
-          kind: "response",
-          id: requestId,
-          ...outcome,
-        },
-        "*",
-      );
+    const respond = (requestId: number, outcome: Outcome) => {
+      if (!port || portRef.current !== port) return;
+      port.postMessage({ kind: "response", id: requestId, ...outcome });
     };
 
     const handle = async (
@@ -231,12 +214,17 @@ export function SurfaceFrame({
           if (!parsed.success) {
             return failure(new Error(parsed.error.issues[0]?.message));
           }
+          const seq = ++saveSeq.current;
           if (!live || !id) {
             stateRef.current = parsed.data.state;
             return { ok: true, result: parsed.data.state };
           }
           const saved = await store.putState(client, id, parsed.data.state);
-          stateRef.current = saved;
+          // A slower, older save must not roll back a newer one.
+          if (seq === saveSeq.current) {
+            stateRef.current = saved;
+            useSurfaceStore.getState().applyState(id, saved);
+          }
           return { ok: true, result: saved };
         }
         case "navigate": {
@@ -255,28 +243,15 @@ export function SurfaceFrame({
       }
     };
 
-    const onMessage = (event: MessageEvent) => {
-      const contentWindow = frame.current?.contentWindow;
-      if (!contentWindow || event.source !== contentWindow) return;
-      const raw: unknown = event.data;
-      // The frame may navigate itself to any page, which then holds the same
-      // window and passes the source check. Only our document knows the nonce.
-      if (
-        typeof raw !== "object" ||
-        raw === null ||
-        !("nonce" in raw) ||
-        raw.nonce !== nonce
-      ) {
-        return;
-      }
-      const parsed = surfaceInboundSchema.safeParse(raw);
+    const onPortMessage = (event: MessageEvent) => {
+      const parsed = surfaceInboundSchema.safeParse(event.data);
       if (!parsed.success) return;
       const message = parsed.data;
       switch (message.kind) {
         case "request":
           void handle(message.method, message.params)
             .catch(failure)
-            .then((outcome) => respond(contentWindow, message.id, outcome));
+            .then((outcome) => respond(message.id, outcome));
           return;
         case "errors": {
           const { mode: current, onErrors: report } = handlers.current;
@@ -299,8 +274,29 @@ export function SurfaceFrame({
       }
     };
 
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    const onHello = (event: MessageEvent) => {
+      if (port) return;
+      const contentWindow = frame.current?.contentWindow;
+      if (!contentWindow || event.source !== contentWindow) return;
+      const hello = surfaceHelloSchema.safeParse(event.data);
+      const transferred = event.ports[0];
+      if (!hello.success || hello.data.nonce !== nonce || !transferred) return;
+      port = transferred;
+      portRef.current = port;
+      port.onmessage = onPortMessage;
+      postTheme();
+    };
+
+    window.addEventListener("message", onHello);
+    return () => {
+      window.removeEventListener("message", onHello);
+      if (port) {
+        port.onmessage = null;
+        port.close();
+        if (portRef.current === port) portRef.current = null;
+      }
+      port = null;
+    };
   }, [doc, id, client, router, routes.dashboardRoot]);
 
   return (
@@ -313,7 +309,6 @@ export function SurfaceFrame({
           sandbox={SURFACE_SANDBOX}
           allow="fullscreen; clipboard-write"
           srcDoc={doc.html}
-          onLoad={postTheme}
           className="block h-full w-full border-0 bg-transparent"
         />
       ) : null}

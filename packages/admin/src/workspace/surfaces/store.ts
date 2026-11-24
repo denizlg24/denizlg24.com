@@ -114,6 +114,8 @@ interface SurfaceStoreState {
     id: string,
     state: SurfaceState,
   ) => Promise<SurfaceState>;
+  /** Puts a saved state on the cached surface; the frame calls it for its latest save only. */
+  applyState: (id: string, state: SurfaceState) => void;
   reportErrors: (
     client: AdminClient,
     id: string,
@@ -144,8 +146,17 @@ interface SurfaceStoreState {
 const inflight = new Set<string>();
 
 export const useSurfaceStore = create<SurfaceStoreState>((set, get) => {
-  const store = (surface: WorkspaceSurface) =>
+  const store = (surface: WorkspaceSurface) => {
+    const cached = get().byId[surface.id];
+    // A response that raced a newer write (or a newer refetch) never wins.
+    if (cached && cached !== "missing" && cached.rev > surface.rev) return;
     set({ byId: { ...get().byId, [surface.id]: surface } });
+  };
+  /** After a write succeeded, a failed list refresh must not make it look failed. */
+  const refreshQuietly = (client: AdminClient) =>
+    refreshList(client).catch((error: unknown) =>
+      console.error("Failed to list surfaces:", error),
+    );
   const amend = (id: string, change: Partial<WorkspaceSurface>) => {
     const current = get().byId[id];
     if (!current || current === "missing") return;
@@ -192,7 +203,7 @@ export const useSurfaceStore = create<SurfaceStoreState>((set, get) => {
         await client.post(SURFACES_ROOT, input),
       );
       store(surface);
-      await refreshList(client);
+      await refreshQuietly(client);
       return surface;
     },
     update: async (client, id, patch, baseRev) => {
@@ -203,19 +214,19 @@ export const useSurfaceStore = create<SurfaceStoreState>((set, get) => {
         const current = conflictOf(error);
         if (!current) throw error;
         store(current);
-        void refreshList(client).catch(() => {});
+        void refreshQuietly(client);
         throw new SurfaceConflictError(current);
       }
       const { surface } = oneSchema.parse(response);
       store(surface);
-      await refreshList(client);
+      await refreshQuietly(client);
       return surface;
     },
     remove: async (client, id) => {
       await client.del(path(id));
       const { [id]: _gone, ...rest } = get().byId;
       set({ byId: rest });
-      await refreshList(client);
+      await refreshQuietly(client);
     },
     history: async (client, id) =>
       historySchema.parse(await client.get(`${path(id, "history")}?limit=50`))
@@ -225,16 +236,12 @@ export const useSurfaceStore = create<SurfaceStoreState>((set, get) => {
         await client.post(path(id, "revert"), { rev }),
       );
       store(surface);
-      await refreshList(client);
+      await refreshQuietly(client);
       return surface;
     },
-    putState: async (client, id, state) => {
-      const saved = stateSchema.parse(
-        await client.put(path(id, "state"), { state }),
-      ).state;
-      amend(id, { state: saved });
-      return saved;
-    },
+    putState: async (client, id, state) =>
+      stateSchema.parse(await client.put(path(id, "state"), { state })).state,
+    applyState: (id, state) => amend(id, { state }),
     reportErrors: async (client, id, rev, errors) => {
       const saved = errorsSchema.parse(
         await client.post(path(id, "errors"), { rev, errors }),

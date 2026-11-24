@@ -1,12 +1,20 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { SURFACE_ERRORS_MAX, SURFACE_STATE_MAX_BYTES } from "@repo/schemas";
-import type { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import type { WorkspaceCaller } from "./service";
 
 mock.module("server-only", () => ({}));
+const uploads: string[] = [];
+mock.module("@/lib/storage-api", () => ({
+  uploadFileToStorage: async (file: File) => {
+    uploads.push(file.name);
+    return { publicUrl: `https://files.test/${uploads.length}-${file.name}` };
+  },
+}));
 const { OWNER, WorkspaceError } = await import("./service");
 const {
+  addSurfaceAsset,
   appendSurfaceErrors,
   clearSurfaceErrors,
   createSurface,
@@ -70,11 +78,12 @@ describe("call result shaping", () => {
 });
 
 describe.skipIf(!enabled)("surfaces on a real mongod", () => {
-  let server: MongoMemoryServer;
+  let server: MongoMemoryReplSet;
 
   beforeAll(async () => {
-    const { MongoMemoryServer } = await import("mongodb-memory-server");
-    server = await MongoMemoryServer.create({
+    const { MongoMemoryReplSet } = await import("mongodb-memory-server");
+    server = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
       binary: { version: MONGOD_VERSION },
     });
     const uri = server.getUri("surfaces-test");
@@ -220,6 +229,55 @@ describe.skipIf(!enabled)("surfaces on a real mongod", () => {
     const row = (await listSurfaces()).find((x) => x.id === s.id);
     expect(row?.errorCount).toBe(1);
     expect(row).not.toHaveProperty("html");
+  });
+
+  test("a stale baseRev is a 409 even when only the mount changes", async () => {
+    const s = await createSurface({ name: "C3", html: "a" }, OWNER);
+    await updateSurface(s.id, { html: "b" }, OWNER);
+    await rejects(
+      updateSurface(
+        s.id,
+        { html: "b", mount: { kind: "home" }, baseRev: 1 },
+        OWNER,
+      ),
+      409,
+    );
+    const ok = await updateSurface(
+      s.id,
+      { mount: { kind: "none" }, baseRev: 2 },
+      OWNER,
+    );
+    expect(ok.rev).toBe(2);
+  });
+
+  test("assets: add, replace by name, remove", async () => {
+    const s = await createSurface({ name: "A1" }, OWNER);
+    const data = Buffer.from("hello").toString("base64");
+    await addSurfaceAsset(s.id, {
+      name: "a.txt",
+      contentType: "text/plain",
+      dataBase64: data,
+    });
+    const second = await addSurfaceAsset(s.id, {
+      name: "b.txt",
+      contentType: "text/plain",
+      dataBase64: data,
+    });
+    expect(second.surface.assets.map((a) => a.name)).toEqual([
+      "a.txt",
+      "b.txt",
+    ]);
+    const replaced = await addSurfaceAsset(s.id, {
+      name: "a.txt",
+      contentType: "text/plain",
+      dataBase64: Buffer.from("hello!!").toString("base64"),
+    });
+    expect(replaced.surface.assets).toHaveLength(2);
+    expect(replaced.surface.assets.find((a) => a.name === "a.txt")?.size).toBe(
+      7,
+    );
+    const removed = await removeSurfaceAsset(s.id, "a.txt");
+    expect(removed.assets.map((a) => a.name)).toEqual(["b.txt"]);
   });
 
   test("state is validated by size", async () => {

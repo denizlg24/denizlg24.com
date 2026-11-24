@@ -66,6 +66,13 @@ describe("surfaceDocument", () => {
     expect(doc.match(/<\/style>/g)?.length).toBe(2);
   });
 
+  test("the bridge listens only on its own port, never on window messages", () => {
+    const doc = surfaceDocument(base);
+    expect(doc).toContain("new MessageChannel()");
+    expect(doc).toContain('kind: "hello"');
+    expect(doc).not.toContain('addEventListener("message"');
+  });
+
   test("puts the theme on :root and the nonce in the bridge", () => {
     const doc = surfaceDocument(base);
     expect(doc).toContain(":root { --background: #fff; color-scheme: light; }");
@@ -99,7 +106,6 @@ describe("dashboardPath", () => {
 describe("surfaceInboundSchema", () => {
   test("accepts a bridge request and refuses unknown methods", () => {
     const request = {
-      channel: "deniz-surface",
       kind: "request",
       id: 1,
       method: "call",

@@ -1711,11 +1711,15 @@ with the whole tool bridge).
   `apps/mcp/src/instructions.ts`: write a surface only because Deniz asked.
   Calls reach web as actor `surface:<id>`, an agent caller, so a locked page
   refuses them.
-- **The bridge is postMessage with a per-document nonce.** The frame may
-  navigate itself (`allow-popups`, no lock), and a foreign page in it would
-  still pass the `event.source` check; only our document knows the nonce.
-  State and theme updates are posted in; only code or asset changes rebuild
-  the frame.
+- **The bridge is a MessagePort handed over once.** The frame may navigate
+  itself (`allow-popups`, no lock), and a foreign page then lives in the same
+  `contentWindow` and passes any `event.source` check. So the generated
+  document's first script sends one `hello` with the build's nonce and a
+  transferred port; the host accepts one hello per build and from then on
+  talks only over that port, never posting to the window and never sending
+  the nonce out. State and theme updates go over the port; only code or
+  asset changes rebuild the frame. Code writes and their revision commit in
+  one transaction (the mongo suite runs a one-node replica set for it).
 - **The gate never covers Settings, and the bypass is the way back.** Home
   (the dashboard root or the home page id) or a module id from
   `moduleForPath` picks the mounted surface; at most one surface holds each

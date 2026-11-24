@@ -157,7 +157,13 @@ function toolCounts(connector: IConnector) {
   const { exposed, catalog } = connector.builtIn
     ? selectToolSurface(definitions, primaryToolSurface())
     : { exposed: definitions, catalog: null };
-  return { toolCount: exposed.length, catalogToolCount: catalog?.length ?? 0 };
+  const disabled = new Set(connector.disabledTools);
+  const enabled = (definition: McpToolDefinition) =>
+    !disabled.has(definition.name);
+  return {
+    toolCount: exposed.filter(enabled).length,
+    catalogToolCount: catalog?.filter(enabled).length ?? 0,
+  };
 }
 
 export function serializeConnector(connector: IConnector): ConnectorDto {

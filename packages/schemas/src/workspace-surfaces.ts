@@ -69,7 +69,9 @@ export type SurfaceError = z.infer<typeof surfaceErrorSchema>;
 export const surfaceStateSchema = z
   .record(z.string(), z.unknown())
   .refine(
-    (state) => JSON.stringify(state).length <= SURFACE_STATE_MAX_BYTES,
+    (state) =>
+      new TextEncoder().encode(JSON.stringify(state)).byteLength <=
+      SURFACE_STATE_MAX_BYTES,
     `State must serialize to at most ${SURFACE_STATE_MAX_BYTES} bytes`,
   )
   .describe("Free-form JSON the surface persists through deniz.state");

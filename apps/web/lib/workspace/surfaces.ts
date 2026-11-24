@@ -21,7 +21,11 @@ import {
   workspaceSurfaceSchema,
   workspaceSurfaceSummarySchema,
 } from "@repo/schemas";
-import { type QueryFilter, Types } from "mongoose";
+import mongoose, {
+  type ClientSession,
+  type QueryFilter,
+  Types,
+} from "mongoose";
 import { uploadFileToStorage } from "@/lib/storage-api";
 import {
   type IWorkspaceSurface,
@@ -172,15 +176,23 @@ async function writeRevision(
   actor: string,
   changed: string[],
   snapshot: CodeSnapshot,
+  session: ClientSession,
 ): Promise<void> {
-  await WorkspaceSurfaceRevisionModel.create({
-    surfaceId,
-    rev,
-    actor,
-    at: new Date(),
-    changed,
-    ...snapshot,
-  });
+  await WorkspaceSurfaceRevisionModel.create(
+    [{ surfaceId, rev, actor, at: new Date(), changed, ...snapshot }],
+    { session },
+  );
+}
+
+async function inTransaction<T>(
+  run: (session: ClientSession) => Promise<T>,
+): Promise<T> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(run);
+  } finally {
+    await session.endSession();
+  }
 }
 
 export async function createSurface(
@@ -188,20 +200,24 @@ export async function createSurface(
   caller: WorkspaceCaller,
 ): Promise<WorkspaceSurface> {
   const parsed = surfaceInputSchema.parse(input);
-  const doc = await WorkspaceSurfaceModel.create({
-    ...parsed,
-    rev: 1,
-    createdBy: caller.actor,
+  const id = await inTransaction(async (session) => {
+    const [doc] = await WorkspaceSurfaceModel.create(
+      [{ ...parsed, rev: 1, createdBy: caller.actor }],
+      { session },
+    );
+    if (!doc) throw new Error("Surface insert returned nothing");
+    const created = doc._id.toString();
+    await writeRevision(
+      created,
+      1,
+      caller.actor,
+      [...CODE_FIELDS],
+      snapshotOf(parsed),
+      session,
+    );
+    return created;
   });
-  const id = doc._id.toString();
   await unmountOthers(id, parsed.mount);
-  await writeRevision(
-    id,
-    1,
-    caller.actor,
-    [...CODE_FIELDS],
-    snapshotOf(parsed),
-  );
   return getSurface(id);
 }
 
@@ -218,6 +234,9 @@ export async function updateSurface(
     });
   }
   const { mount, baseRev, ...code } = parsed.data;
+  if (baseRev !== undefined && baseRev !== current.rev) {
+    throw await conflict(id);
+  }
   const next: CodeSnapshot = { ...snapshotOf(current), ...code };
   const changed = changedFields(current, next);
   if (changed.length === 0) {
@@ -230,26 +249,28 @@ export async function updateSurface(
     }
     return getSurface(id);
   }
-  if (baseRev !== undefined && baseRev !== current.rev) {
-    throw await conflict(id);
-  }
   const rev = current.rev + 1;
   const changedValues = Object.fromEntries(
     changed.map((field) => [field, next[field]]),
   );
-  const result = await WorkspaceSurfaceModel.updateOne(
-    { _id: id, rev: current.rev },
-    {
-      $set: {
-        ...changedValues,
-        ...(mount ? { mount } : {}),
-        rev,
-        frameErrors: [],
+  const applied = await inTransaction(async (session) => {
+    const result = await WorkspaceSurfaceModel.updateOne(
+      { _id: id, rev: current.rev },
+      {
+        $set: {
+          ...changedValues,
+          ...(mount ? { mount } : {}),
+          rev,
+          frameErrors: [],
+        },
       },
-    },
-  ).exec();
-  if (result.matchedCount === 0) throw await conflict(id);
-  await writeRevision(id, rev, caller.actor, changed, next);
+      { session },
+    ).exec();
+    if (result.matchedCount === 0) return false;
+    await writeRevision(id, rev, caller.actor, changed, next, session);
+    return true;
+  });
+  if (!applied) throw await conflict(id);
   if (mount) await unmountOthers(id, mount);
   return getSurface(id);
 }
@@ -459,6 +480,7 @@ export async function addSurfaceAsset(
   const result = await WorkspaceSurfaceModel.updateOne(
     { _id: id, $expr: { $lt: [{ $size: others }, SURFACE_ASSETS_MAX] } },
     [{ $set: { assets: { $concatArrays: [others, [asset]] } } }],
+    { updatePipeline: true },
   ).exec();
   if (result.matchedCount === 0) {
     await getSurface(id);

@@ -19,7 +19,7 @@ export interface SurfaceTheme {
 }
 
 export interface SurfaceDocumentInput {
-  /** Stamped on every message the bridge sends; the host drops anything without it. */
+  /** Sent once, in the hello that hands over the port; the host never sends it back. */
   nonce: string;
   surface: { id: string; name: string; mount: SurfaceMount };
   head: string;
@@ -71,7 +71,10 @@ const BRIDGE = `
   const init = __INIT__;
   const pending = new Map();
   let seq = 0;
-  const post = (message) => parent.postMessage(Object.assign({ channel: CHANNEL, nonce: init.nonce }, message), "*");
+  // Everything after the hello travels over this private port, so a page the
+  // frame later navigates to inherits neither the port nor the nonce.
+  const port = new MessageChannel();
+  const post = (message) => port.port1.postMessage(message);
   const request = (method, params) => new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
@@ -125,9 +128,9 @@ const BRIDGE = `
   };
   Object.defineProperty(window, "deniz", { value: Object.freeze(deniz), configurable: false, writable: false });
 
-  window.addEventListener("message", (event) => {
+  port.port1.onmessage = (event) => {
     const message = event.data;
-    if (event.source !== parent || !message || message.channel !== CHANNEL || message.nonce !== init.nonce) return;
+    if (!message) return;
     if (message.kind === "response") {
       const waiting = pending.get(message.id);
       if (!waiting) return;
@@ -143,7 +146,8 @@ const BRIDGE = `
       applyTheme(theme);
       for (const fn of themeListeners) { try { fn(message.theme); } catch (e) { console.error(e); } }
     }
-  });
+  };
+  parent.postMessage({ channel: CHANNEL, kind: "hello", nonce: init.nonce }, "*", [port.port2]);
 
   window.addEventListener("keydown", (event) => {
     if (!(event.metaKey || event.ctrlKey)) return;
@@ -211,22 +215,27 @@ const errorEntrySchema = z.object({
 });
 export type SurfaceErrorEntry = z.infer<typeof errorEntrySchema>;
 
-/** Everything the frame may say to the host. Anything else is dropped. */
+/** The one window message a document sends: its nonce, with the port transferred. */
+export const surfaceHelloSchema = z.object({
+  channel: z.literal(SURFACE_CHANNEL),
+  kind: z.literal("hello"),
+  nonce: z.string(),
+});
+
+/** Everything the frame may say over its port. Anything else is dropped. */
 export const surfaceInboundSchema = z.discriminatedUnion("kind", [
   z.object({
-    channel: z.literal(SURFACE_CHANNEL),
     kind: z.literal("request"),
     id: z.number().int().positive(),
     method: z.enum(["call", "state", "navigate", "exit"]),
     params: z.unknown(),
   }),
   z.object({
-    channel: z.literal(SURFACE_CHANNEL),
     kind: z.literal("errors"),
     errors: z.array(errorEntrySchema).min(1).max(20),
   }),
-  z.object({ channel: z.literal(SURFACE_CHANNEL), kind: z.literal("exit") }),
-  z.object({ channel: z.literal(SURFACE_CHANNEL), kind: z.literal("palette") }),
+  z.object({ kind: z.literal("exit") }),
+  z.object({ kind: z.literal("palette") }),
 ]);
 export type SurfaceInbound = z.infer<typeof surfaceInboundSchema>;
 

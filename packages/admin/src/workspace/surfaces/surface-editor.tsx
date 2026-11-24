@@ -679,7 +679,10 @@ export function SurfaceEditor({
           }
         }}
       >
-        <div className="flex flex-wrap items-center gap-3 border-b px-5 py-3 pr-12">
+        <fieldset
+          disabled={saving}
+          className="flex min-w-0 flex-wrap items-center gap-3 border-b px-5 py-3 pr-12 disabled:opacity-70"
+        >
           <IconPicker value={draft.icon} onChange={(icon) => patch({ icon })}>
             <button
               type="button"
@@ -727,10 +730,15 @@ export function SurfaceEditor({
               <ArrowUpRight />
             </Button>
           ) : null}
-        </div>
+        </fieldset>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-2">
-          <div className="flex min-h-0 flex-col gap-3 border-b px-5 py-4 lg:border-r lg:border-b-0">
+          {/* Disabled while saving: an edit made during the request would be
+              lost when the saved copy becomes the new base. */}
+          <fieldset
+            disabled={saving}
+            className="flex min-h-0 min-w-0 flex-col gap-3 border-b px-5 py-4 lg:border-r lg:border-b-0"
+          >
             <Input
               value={draft.description}
               onChange={(event) => patch({ description: event.target.value })}
@@ -790,7 +798,7 @@ export function SurfaceEditor({
                 />
               ) : null}
             </div>
-          </div>
+          </fieldset>
           <div className="flex min-h-64 flex-col">
             <div className="flex h-9 shrink-0 items-center gap-2 border-b px-5">
               <span className={LABEL}>Preview</span>
@@ -861,10 +869,20 @@ export function SurfaceEditor({
               <span className="truncate text-[color-mix(in_oklab,var(--status-warning)_55%,black)] dark:text-status-warning">
                 Changed upstream: {conflict.join(", ")}
               </span>
-              <Button variant="ghost" size="xs" onClick={() => setConflict([])}>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={saving}
+                onClick={() => setConflict([])}
+              >
                 Keep mine
               </Button>
-              <Button variant="ghost" size="xs" onClick={takeUpstream}>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={saving}
+                onClick={takeUpstream}
+              >
                 Take upstream
               </Button>
             </span>
