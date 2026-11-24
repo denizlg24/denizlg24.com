@@ -46,6 +46,56 @@ describe("web_workspace_surfaces", () => {
   test("every action reaches its route", async () => {
     await expectCall({ action: "list" }, "GET", SURFACES);
     await expectCall({ action: "get", id: ID }, "GET", `${SURFACES}/${ID}`);
+    await expectCall(
+      { action: "get", id: ID, includeSource: false },
+      "GET",
+      `${SURFACES}/${ID}?includeSource=false`,
+    );
+    await expectCall(
+      { action: "source_read", id: ID, field: "js" },
+      "POST",
+      `${SURFACES}/${ID}/source`,
+      {
+        action: "source_read",
+        field: "js",
+        startLine: 1,
+        offset: 0,
+        maxChars: 12000,
+      },
+    );
+    await expectCall(
+      { action: "source_search", id: ID, query: "refresh" },
+      "POST",
+      `${SURFACES}/${ID}/source`,
+      {
+        action: "source_search",
+        query: "refresh",
+        offset: 0,
+        limit: 20,
+      },
+    );
+    const edits = [{ field: "js", oldText: "a", newText: "b" }];
+    await expectCall(
+      { action: "source_edit", id: ID, baseRev: 2, edits },
+      "POST",
+      `${SURFACES}/${ID}/source`,
+      {
+        action: "source_edit",
+        baseRev: 2,
+        edits,
+      },
+    );
+    const sources = [{ field: "js", sourceUrl: "https://files.test/app.js" }];
+    await expectCall(
+      { action: "source_import", id: ID, baseRev: 2, sources },
+      "POST",
+      `${SURFACES}/${ID}/source`,
+      {
+        action: "source_import",
+        baseRev: 2,
+        sources,
+      },
+    );
     await expectCall({ action: "create", name: "Santa" }, "POST", SURFACES);
     await expectCall(
       { action: "update", id: ID, js: "1" },
@@ -136,17 +186,54 @@ describe("web_workspace_surfaces", () => {
     const flags = mcpActionsMetaSchema.parse(
       tool?._meta?.[MCP_ACTIONS_META_KEY],
     );
-    for (const name of ["list", "get", "history", "state_get"]) {
+    for (const name of [
+      "list",
+      "get",
+      "history",
+      "state_get",
+      "source_read",
+      "source_search",
+    ]) {
       expect(flags[name]?.readOnly).toBe(true);
     }
     for (const name of ["delete", "asset_remove"]) {
       expect(flags[name]?.destructive).toBe(true);
       expect(flags[name]?.readOnly).toBe(false);
     }
-    for (const name of ["create", "update", "mount", "revert", "state_set"]) {
+    for (const name of [
+      "create",
+      "update",
+      "mount",
+      "revert",
+      "state_set",
+      "source_edit",
+      "source_import",
+    ]) {
       expect(flags[name]?.readOnly).toBe(false);
       expect(flags[name]?.destructive).toBeFalsy();
     }
     expect(Object.hasOwn(DIRECT_TOOLS, "web_workspace_surfaces")).toBe(true);
+  });
+
+  test("invalid source requests never reach upstream", async () => {
+    for (const input of [
+      {
+        action: "source_edit",
+        id: ID,
+        edits: [{ field: "js", oldText: "a", newText: "b" }],
+      },
+      { action: "source_read", id: ID, field: "js", startLine: 4, endLine: 2 },
+      {
+        action: "source_import",
+        id: ID,
+        baseRev: 1,
+        sources: [{ field: "js", sourceUrl: "http://files.test/a" }],
+      },
+    ]) {
+      const before = calls.length;
+      const result = await client.call("web_workspace_surfaces", input);
+      expect(result.isError).toBe(true);
+      expect(calls.length).toBe(before);
+    }
   });
 });

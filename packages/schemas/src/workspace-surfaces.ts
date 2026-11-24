@@ -127,6 +127,96 @@ export const surfacePatchSchema = z
   .partial();
 export type SurfacePatch = z.infer<typeof surfacePatchSchema>;
 
+export const surfaceSourceFieldSchema = z.enum(["head", "html", "css", "js"]);
+export type SurfaceSourceField = z.infer<typeof surfaceSourceFieldSchema>;
+
+export const surfaceSourceReadSchema = z
+  .object({
+    field: surfaceSourceFieldSchema,
+    startLine: z.number().int().positive().default(1),
+    endLine: z.number().int().positive().optional(),
+    offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .describe(
+        "Character offset within the selected line range; use nextOffset to continue",
+      ),
+    maxChars: z.number().int().min(1).max(24_000).default(12_000),
+  })
+  .refine(
+    (value) => value.endLine === undefined || value.endLine >= value.startLine,
+    {
+      message: "endLine must be at least startLine",
+    },
+  );
+
+export const surfaceSourceSearchSchema = z.object({
+  field: surfaceSourceFieldSchema.optional(),
+  query: z.string().min(1).max(2000).describe("Case-sensitive literal text"),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0)
+    .describe("Skip this many matches"),
+  limit: z.number().int().min(1).max(40).default(20),
+});
+
+export const surfaceSourceEditSchema = z.object({
+  baseRev: z.number().int().positive(),
+  edits: z
+    .array(
+      z.object({
+        field: surfaceSourceFieldSchema,
+        oldText: z.string().min(1).max(SURFACE_CODE_MAX),
+        newText: z.string().max(SURFACE_CODE_MAX),
+      }),
+    )
+    .min(1)
+    .max(100)
+    .describe(
+      "Applied in order, atomically; each oldText must match exactly once",
+    ),
+});
+
+export const surfaceSourceImportSchema = z.object({
+  baseRev: z.number().int().positive(),
+  sources: z
+    .array(
+      z.object({
+        field: surfaceSourceFieldSchema,
+        sourceUrl: z
+          .url()
+          .refine(
+            (url) => new URL(url).protocol === "https:",
+            "Use an HTTPS URL",
+          )
+          .describe(
+            "Temporary or public download URL for a UTF-8 source file; bytes are fetched and stored",
+          ),
+      }),
+    )
+    .min(1)
+    .max(4)
+    .refine(
+      (sources) =>
+        new Set(sources.map((source) => source.field)).size === sources.length,
+      {
+        message: "Each field may only be imported once",
+      },
+    ),
+});
+
+export const surfaceSourceRequestSchema = z.discriminatedUnion("action", [
+  surfaceSourceReadSchema.safeExtend({ action: z.literal("source_read") }),
+  surfaceSourceSearchSchema.extend({ action: z.literal("source_search") }),
+  surfaceSourceEditSchema.extend({ action: z.literal("source_edit") }),
+  surfaceSourceImportSchema.extend({ action: z.literal("source_import") }),
+]);
+export type SurfaceSourceRequest = z.infer<typeof surfaceSourceRequestSchema>;
+
 export const workspaceSurfaceSchema = z.object({
   id: surfaceIdSchema,
   name: z.string(),
