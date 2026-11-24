@@ -7,6 +7,22 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.7.0 — 2026-11-24
+
+### Added
+- The agent keeps working when you close or reload the window. Reopening
+  the thread picks the reply up where it is, live, and the last thread
+  reopens for 12 hours after a restart.
+- Messages sent while the agent is replying are queued, shown above the
+  composer, and sent in order; each can be removed before it goes.
+- The agent can ask questions with options. Answering continues the same
+  reply.
+
+### Changed
+- Stop ends the reply on the server too, so a stopped turn no longer keeps
+  running behind the window. Whatever it had written stays, marked as
+  interrupted.
+
 ## 3.6.2 — 2026-11-19
 
 ### Fixed
