@@ -7,6 +7,11 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.8.1 — 2026-11-24
+
+### Fixed
+- A surface mounted on Home or a module filled only the top 150 px of the page area instead of the whole window.
+
 ## 3.8.0 — 2026-11-24
 
 ### Added

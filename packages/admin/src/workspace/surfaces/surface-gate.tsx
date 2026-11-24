@@ -136,7 +136,7 @@ export function SurfaceGate({
     <Fragment>
       {chrome === "none" ? null : sidebar}
       {frame(
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
           {surface ? (
             <SurfaceFrame
               key={surface.id}
