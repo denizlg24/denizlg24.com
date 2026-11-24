@@ -31,6 +31,7 @@ import { registerWebTriage } from "./triage";
 import { registerWebVoiceNotes } from "./voice-notes";
 import { registerWebWorkspace } from "./workspace";
 import { registerWebWorkspaceAppearance } from "./workspace-appearance";
+import { registerWebWorkspaceSurfaces } from "./workspace-surfaces";
 
 export function registerWeb(server: McpServer, api: Api) {
   registerWebMisc(server, api);
@@ -64,4 +65,5 @@ export function registerWeb(server: McpServer, api: Api) {
   registerWebAuthenticator(server, api);
   registerWebWorkspace(server, api);
   registerWebWorkspaceAppearance(server, api);
+  registerWebWorkspaceSurfaces(server, api);
 }

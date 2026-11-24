@@ -3,11 +3,8 @@ import type { ListToolsResult, MCPClient } from "@ai-sdk/mcp";
 import {
   type ConnectorApproval,
   MCP_CATALOG_CALL_TOOLS,
-  MCP_CATALOG_TOOLS,
-  MCP_SURFACE_META_KEY,
   type McpActionsMeta,
   type McpToolProfile,
-  mcpSurfaceSchema,
 } from "@repo/schemas";
 import { dynamicTool, type JSONSchema7, jsonSchema, type ToolSet } from "ai";
 import { uploadFileToStorage } from "@/lib/storage-api";
@@ -18,8 +15,12 @@ import {
   listConnectors,
   type McpToolDefinition,
   openConnectorClient,
+  primaryToolSurface,
   refreshConnectorTools,
+  selectToolSurface,
 } from "./service";
+
+export { primaryToolSurface, selectToolSurface };
 
 /** A connector's cached `tools/list` is trusted for this long before a turn re-lists it. */
 const TOOL_CACHE_TTL_MS = 30 * 60_000;
@@ -323,50 +324,6 @@ function bindingFor(
     readOnly: described.readOnly,
     destructive: described.destructive,
     ...(described.actions ? { actions: described.actions } : {}),
-  };
-}
-
-/**
- * What the primary connector hands the model each turn. `compact` (the
- * default) is the catalog plus the tools the server keeps by name; `full` is
- * every tool, about 116k tokens of schemas on every request.
- */
-export function primaryToolSurface(): McpToolProfile {
-  return process.env.MCP_CONNECTOR_TOOL_SURFACE === "full" ? "full" : "compact";
-}
-
-function surfaceOf(definition: McpToolDefinition) {
-  return mcpSurfaceSchema.safeParse(definition._meta?.[MCP_SURFACE_META_KEY])
-    .data;
-}
-
-/**
- * Splits the cached listing into the tools the model sees and the resources
- * reached through the catalog. The cache always holds the full listing —
- * triage and the settings page read it — so this is a filter, and a listing
- * from a server without the catalog is exposed whole.
- */
-export function selectToolSurface(
-  definitions: readonly McpToolDefinition[],
-  surface: McpToolProfile,
-): {
-  exposed: readonly McpToolDefinition[];
-  catalog: readonly McpToolDefinition[] | null;
-} {
-  if (surface === "full") return { exposed: definitions, catalog: null };
-  const exposed = definitions.filter(
-    (definition) => surfaceOf(definition) === "compact",
-  );
-  if (
-    !exposed.some((definition) => definition.name === MCP_CATALOG_TOOLS.read)
-  ) {
-    return { exposed: definitions, catalog: null };
-  }
-  return {
-    exposed,
-    catalog: definitions.filter(
-      (definition) => surfaceOf(definition) === "catalog",
-    ),
   };
 }
 

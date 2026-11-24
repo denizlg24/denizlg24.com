@@ -49,6 +49,7 @@ export * from "./workspace";
 export * from "./workspace-appearance";
 export * from "./workspace-components";
 export * from "./workspace-entities";
+export * from "./workspace-surfaces";
 export * from "./workspace-themes";
 export * from "./workspace-views";
 export * from "./workspace-workflows";

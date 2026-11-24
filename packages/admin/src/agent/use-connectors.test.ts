@@ -15,6 +15,7 @@ function connector(overrides: Partial<Connector> = {}): Connector {
     status: "ready",
     statusDetail: null,
     toolCount: 2,
+    catalogToolCount: 0,
     builtIn: false,
     hasSecret: false,
     oauthClient: null,

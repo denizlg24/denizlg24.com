@@ -118,6 +118,10 @@ export const DESKTOP_ADMIN_ROUTES: AdminRoutes = {
     ticker: (symbol) => withQuery(`${ROOT}/markets`, { ticker: symbol }),
   },
 
+  surface: (surfaceId) => withQuery(`${ROOT}/surface`, { id: surfaceId }),
+  surfaceAt: (pathname, search) =>
+    pathname === `${ROOT}/surface` ? search.get("id") : null,
+
   workspace: {
     page: (pageId) => withQuery(`${ROOT}/page`, { id: pageId }),
     pageAt: (pathname, search) =>

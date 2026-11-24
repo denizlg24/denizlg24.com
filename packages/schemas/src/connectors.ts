@@ -137,7 +137,10 @@ export const connectorSchema = z.object({
   disabledTools: z.array(z.string()),
   status: connectorStatusSchema,
   statusDetail: z.string().nullable(),
+  /** Tools a turn hands the model. */
   toolCount: z.number().int().nonnegative(),
+  /** Resources the model reaches only through the catalog call tools. */
+  catalogToolCount: z.number().int().nonnegative(),
   /** True for the seeded primary connector: no delete, no auth change. */
   builtIn: z.boolean(),
   hasSecret: z.boolean(),

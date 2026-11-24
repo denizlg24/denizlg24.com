@@ -1690,6 +1690,53 @@ Schemas: `@repo/schemas` `workspace-appearance`, `workspace-themes`
   Google Docs/Maps, OpenStreetMap, direct media files; anything else is a
   frame without `allow-same-origin`. The stored URL stays the one pasted.
 
+### Surfaces
+
+`/workspace/surfaces[/{id}[/history|revert|state|errors|assets[/{name}]|call]]`;
+schemas `@repo/schemas` `workspace-surfaces`; service
+`lib/workspace/surfaces.ts`; UI `packages/admin/src/workspace/surfaces/`,
+Settings → Surfaces, `/dashboard/surface?id=` (web `/surface/[id]`); MCP
+`web_workspace_surfaces` (a `DIRECT_TOOLS` entry: it writes code that runs
+with the whole tool bridge).
+
+- **A surface is a whole-window app, not a block.** head/html/css/js in an
+  iframe with `allow-scripts` and never `allow-same-origin`, under a CSP that
+  is open on purpose (`default-src *`): any CDN, font or library. Unlike
+  `html` components, which get no network because they are handed data,
+  a surface asks for data itself through `window.deniz`.
+- **Full liberty is the owner's decision, not an oversight.** The bridge
+  (`POST …/call`) runs any tool on the primary connector by name, writes and
+  destructive ones included, with no per-surface manifest and no approval.
+  The prompt-injection line lives in the in-app agent's instructions and in
+  `apps/mcp/src/instructions.ts`: write a surface only because Deniz asked.
+  Calls reach web as actor `surface:<id>`, an agent caller, so a locked page
+  refuses them.
+- **The bridge is a MessagePort handed over once.** The frame may navigate
+  itself (`allow-popups`, no lock), and a foreign page then lives in the same
+  `contentWindow` and passes any `event.source` check. So the generated
+  document's first script sends one `hello` with the build's nonce and a
+  transferred port; the host accepts one hello per build and from then on
+  talks only over that port, never posting to the window and never sending
+  the nonce out. State and theme updates go over the port; only code or
+  asset changes rebuild the frame. Code writes and their revision commit in
+  one transaction (the mongo suite runs a one-node replica set for it).
+- **The gate never covers Settings, and the bypass is the way back.** Home
+  (the dashboard root or the home page id) or a module id from
+  `moduleForPath` picks the mounted surface; at most one surface holds each
+  mount and mounting takes it over. ⌘⇧E (host or forwarded from the frame),
+  the corner control and the palette toggle a session bypass that does not
+  depend on the frame working.
+- **Code changes are revisions; mount, state and errors are not.** A change
+  to a code field bumps `rev`, writes a full snapshot to
+  `WorkspaceSurfaceRevision` and clears `errors`; revert restores a snapshot
+  as a new rev. Runtime errors (uncaught, rejections, `console.error`) are
+  POSTed by the frame and capped at 20 — they are how an agent checks its
+  work. Stored as `frameErrors`: Mongoose reserves `errors`.
+- **Assets** go to the `image` bucket (inline base64, multipart or a
+  `sourceUrl` fetched through `fetchGuarded` in `lib/workspace/unfurl.ts`,
+  the same SSRF guard as bookmarks), `{{asset:name}}` is substituted at
+  render. Replacing or removing one leaves the old blob in the bucket.
+
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
 - `GET /contacts/{ticketId}` → `IContact`

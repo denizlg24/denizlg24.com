@@ -109,6 +109,13 @@ export const WEB_ADMIN_ROUTES: AdminRoutes = {
     ticker: (symbol) => withQuery(`${ROOT}/markets`, { ticker: symbol }),
   },
 
+  surface: (surfaceId) => withSegments(`${ROOT}/surface`, surfaceId),
+  surfaceAt: (pathname) => {
+    const prefix = `${ROOT}/surface/`;
+    if (!pathname.startsWith(prefix)) return null;
+    return decodeURIComponent(pathname.slice(prefix.length)) || null;
+  },
+
   workspace: {
     page: (pageId) => withSegments(`${ROOT}/page`, pageId),
     pageAt: (pathname) => {

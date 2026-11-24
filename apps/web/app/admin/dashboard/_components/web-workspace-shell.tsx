@@ -8,6 +8,7 @@ import {
   WorkspaceSidebar,
 } from "@repo/admin/workspace/sidebar";
 import { useWorkspaceStore } from "@repo/admin/workspace/store";
+import { SurfaceGate } from "@repo/admin/workspace/surfaces/surface-gate";
 import { VisitTracker } from "@repo/admin/workspace/visit-tracker";
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 import { type ReactNode, Suspense, useEffect, useMemo } from "react";
@@ -15,7 +16,10 @@ import { createWebAdminClient } from "@/lib/admin-client";
 import { WEB_ADMIN_ROUTES } from "@/lib/admin-routes";
 import { webPlatform } from "@/lib/platform-bridge";
 
-/** The workspace sidebar beside every dashboard page; the server holds the only copy. */
+/**
+ * The workspace sidebar beside every dashboard page; the server holds the
+ * only copy. A mounted surface replaces the page area, header and dock included.
+ */
 export function WebWorkspaceShell({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const hydrate = useWorkspaceStore((s) => s.hydrate);
@@ -36,10 +40,17 @@ export function WebWorkspaceShell({ children }: { children: ReactNode }) {
     <AdminProvider value={value}>
       <div className="-mt-26 flex h-dvh max-h-screen w-full overflow-hidden">
         <Suspense>
-          {isMobile ? <WorkspaceMobileSidebar /> : <WorkspaceSidebar />}
           <VisitTracker />
         </Suspense>
-        {children}
+        <SurfaceGate
+          sidebar={
+            <Suspense>
+              {isMobile ? <WorkspaceMobileSidebar /> : <WorkspaceSidebar />}
+            </Suspense>
+          }
+        >
+          {children}
+        </SurfaceGate>
         <CommandPalette />
         <ThemeRoot />
       </div>

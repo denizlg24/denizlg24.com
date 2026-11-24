@@ -9,15 +9,23 @@ import {
   CommandPrimitive,
   CommandShortcut,
 } from "@repo/ui/command";
-import { FilePlus, Palette, PanelLeft, SearchIcon } from "lucide-react";
+import {
+  FilePlus,
+  LayoutTemplate,
+  Palette,
+  PanelLeft,
+  SearchIcon,
+  SquareDashed,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useAppearanceStore } from "./appearance/store";
-import { PageIcon, RefIcon } from "./page-icon";
+import { AppIcon, PageIcon, RefIcon } from "./page-icon";
 import { pageTitle } from "./refs";
 import { OPEN_COMMAND_PALETTE } from "./sidebar";
 import { pageAncestors, useWorkspaceStore } from "./store";
+import { useSurfaceStore } from "./surfaces/store";
 import { useWorkspaceNav } from "./use-workspace-nav";
 
 function fuzzyScore(value: string, search: string): number {
@@ -135,7 +143,10 @@ export function CommandPalette() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 120);
   const router = useRouter();
-  const { modules, sections, pageHref, resolveRef } = useWorkspaceNav();
+  const { modules, sections, pageHref, resolveRef, routes } = useWorkspaceNav();
+  const surfaces = useSurfaceStore((s) => s.list);
+  const surfaceBypass = useSurfaceStore((s) => s.bypass);
+  const setSurfaceBypass = useSurfaceStore((s) => s.setBypass);
   const pages = useWorkspaceStore((s) => s.workspace.pages);
   const recents = useWorkspaceStore((s) => s.workspace.recents);
   const createPage = useWorkspaceStore((s) => s.createPage);
@@ -248,6 +259,28 @@ export function CommandPalette() {
                   );
                 })}
               </CommandGroup>
+              {surfaces && surfaces.length > 0 ? (
+                <CommandGroup heading="Surfaces">
+                  {surfaces.map((surface) => (
+                    <CommandItem
+                      key={surface.id}
+                      value={`surface ${surface.id}`}
+                      keywords={[surface.name, "surface"]}
+                      onSelect={() => {
+                        setSurfaceBypass(false);
+                        go(routes.surface(surface.id));
+                      }}
+                    >
+                      <AppIcon
+                        value={surface.icon}
+                        fallback={LayoutTemplate}
+                        className="text-muted-foreground"
+                      />
+                      <span className="truncate">{surface.name}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
               {sections.map((section) => (
                 <CommandGroup key={section.id} heading={section.label}>
                   {modules
@@ -289,6 +322,24 @@ export function CommandPalette() {
                   Toggle sidebar
                   <CommandShortcut>⌘\</CommandShortcut>
                 </CommandItem>
+                {surfaces && surfaces.length > 0 ? (
+                  <CommandItem
+                    value="action toggle-surfaces"
+                    keywords={[
+                      surfaceBypass ? "Show surfaces" : "Hide surfaces",
+                      "surface",
+                      "default",
+                    ]}
+                    onSelect={() => {
+                      setSurfaceBypass(!surfaceBypass);
+                      setOpen(false);
+                    }}
+                  >
+                    <SquareDashed className="text-muted-foreground" />
+                    {surfaceBypass ? "Show surfaces" : "Hide surfaces"}
+                    <CommandShortcut>⌘⇧E</CommandShortcut>
+                  </CommandItem>
+                ) : null}
               </CommandGroup>
               {searching ? (
                 <CommandGroup heading="Theme">

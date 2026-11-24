@@ -518,6 +518,12 @@ function ConnectorRow({
               {connector.toolCount}{" "}
               {connector.toolCount === 1 ? "tool" : "tools"}
             </span>
+            {connector.catalogToolCount > 0 ? (
+              <>
+                <span>·</span>
+                <span>{connector.catalogToolCount} in catalog</span>
+              </>
+            ) : null}
             {checked ? (
               <>
                 <span>·</span>

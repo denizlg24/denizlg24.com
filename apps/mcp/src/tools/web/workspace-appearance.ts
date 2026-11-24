@@ -48,7 +48,7 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
         description: "One theme",
         input: z.object({ id: themeId }),
         readOnly: true,
-        run: ({ id }) => api.web.get(p`${THEMES}/${id}`),
+        run: ({ id }) => api.web.get(p`/api/admin/workspace/themes/${id}`),
       }),
       create: action({
         description:
@@ -61,14 +61,15 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
           "Merges into a custom theme: colours, fonts and effect merge per field; css, ornament and background replace",
         input: z.object({ id: themeId, ...themePatchSchema.shape }),
         idempotent: true,
-        run: ({ id, ...body }) => api.web.patch(p`${THEMES}/${id}`, body),
+        run: ({ id, ...body }) =>
+          api.web.patch(p`/api/admin/workspace/themes/${id}`, body),
       }),
       delete: action({
         description:
           "Deletes a custom theme and every schedule entry naming it; Sage takes over if it was on",
         input: z.object({ id: themeId }),
         destructive: true,
-        run: ({ id }) => api.web.delete(p`${THEMES}/${id}`),
+        run: ({ id }) => api.web.delete(p`/api/admin/workspace/themes/${id}`),
       }),
       activate: action({
         description:
@@ -88,7 +89,9 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
         input: z.object({ entryId: z.string().min(1) }),
         destructive: true,
         run: ({ entryId }) =>
-          api.web.delete(p`${APPEARANCE}/schedule/${entryId}`),
+          api.web.delete(
+            p`/api/admin/workspace/appearance/schedule/${entryId}`,
+          ),
       }),
       set_appearance: action({
         description:
@@ -120,7 +123,7 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
         description: "One component with its spec or code, bindings and props",
         input: z.object({ id: componentId }),
         readOnly: true,
-        run: ({ id }) => api.web.get(p`${COMPONENTS}/${id}`),
+        run: ({ id }) => api.web.get(p`/api/admin/workspace/components/${id}`),
       }),
       create: action({
         description: "A new component; returns it with its id",
@@ -132,14 +135,16 @@ export function registerWebWorkspaceAppearance(server: McpServer, api: Api) {
           "Replaces the named fields (spec, html, css, js, bindings and props each whole). Get first",
         input: z.object({ id: componentId, ...componentPatchSchema.shape }),
         idempotent: true,
-        run: ({ id, ...body }) => api.web.patch(p`${COMPONENTS}/${id}`, body),
+        run: ({ id, ...body }) =>
+          api.web.patch(p`/api/admin/workspace/components/${id}`, body),
       }),
       delete: action({
         description:
           "Deletes a component; blocks placing it show as missing until removed",
         input: z.object({ id: componentId }),
         destructive: true,
-        run: ({ id }) => api.web.delete(p`${COMPONENTS}/${id}`),
+        run: ({ id }) =>
+          api.web.delete(p`/api/admin/workspace/components/${id}`),
       }),
     },
   });
