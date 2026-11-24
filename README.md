@@ -9,7 +9,7 @@ A private market and research workspace built with Next.js and shadcn/ui. A new 
 - Multiple watchlists and portfolios, a buy/sell ledger, CSV import and export, and average-cost P/L separated by quote currency.
 - Interactive Brokers sync. Under **Portfolio → Connect Interactive Brokers**, paste a Flex Query ID and token once. Stockwatcher then pulls open positions, cost basis and cash into a read-only portfolio per IBKR account, every six hours and on demand.
 - Company headlines and annual US GAAP figures, SEC filings, 13F holdings with CSV export, WallStreetBets mention counts, and a research journal.
-- Account-scoped price alerts checked every two minutes when the monitor is enabled. Triggers appear in the app.
+- Account-scoped alerts on price, day change, move since set, or volume, checked every two minutes when the monitor is enabled. Alerts can fire once or re-arm after each crossing, expire on a date, and carry a note. Set one from the Alerts page, from the chart's bell tool, or by right-clicking a chart. Every trigger is logged in the app and can also go to email, WhatsApp, Telegram, Discord, Slack, ntfy phone push, a signed webhook, or desktop notifications.
 - Plain-language requests for market views, quote comparisons, company research, holdings, and alert setup. Follow up with “add the banks”, “remove Tesla”, or “show it since 1 January”. The app remembers the last requested dashboard. Replies include links that reopen the view after sign-in. Save frequently used requests and replay them with fresh data.
 - With an AI Gateway key, a docked assistant streams answers and calls tools for quotes, history, SEC figures, 13F holdings, news, your portfolio P/L and web search. It remembers your positions, theses and preferences across conversations (editable under Memory), keeps a thread history, and can pin charts and notes to your desk.
 - The desk is the home screen: a layout of widgets you or the assistant can add, remove and reorder, led by a daily brief written on the first visit each day. Without a key it falls back to a computed summary and the command-based assistant.
@@ -88,5 +88,20 @@ IBKR offers OAuth sign-in only to licensed organizations and approved third-part
 3. In Stockwatcher, open Portfolio → Connect Interactive Brokers and paste both values.
 
 The token is stored server-side with AES-256-GCM encryption and never reaches the browser. Each IBKR account becomes one portfolio whose positions are server-owned. Rename it freely. Trades cannot be edited there. Lot-level queries keep each lot's open date. Summary queries record one entry per position at its average cost. Long stock and ETF positions on the major US, European, and Asia-Pacific venues are tracked. Options, futures, bonds, shorts, and unmapped venues are listed under "Not tracked". An expired token marks the link as needing a new token. Disconnecting deletes the token and keeps the last snapshot as a manual portfolio.
+
+## Alert notifications
+
+Each user connects channels under Alerts → Where alerts reach you, following an illustrated guide per service. Stockwatcher sends a real test message before saving a channel. Channel settings are stored server-side with AES-256-GCM encryption and are never sent to the browser.
+
+| Channel | What it needs |
+| --- | --- |
+| Email | `RESEND_API_KEY` on the server and a sender on a domain verified in Resend (`ALERT_EMAIL_FROM`, default `alerts@auth.denizlg24.com`). Alerts go only to the address on the signed-in account. |
+| WhatsApp | The free [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/) API key for the user's own number. |
+| Telegram | A bot made with @BotFather. The guide finds the chat ID after the user messages the bot. |
+| Discord, Slack | An incoming webhook URL. |
+| ntfy | A topic in the [ntfy](https://ntfy.sh) app. A self-hosted ntfy server and access token are optional. |
+| Webhook | Any public HTTPS endpoint. Requests carry `X-Stockwatcher-Signature: sha256=<HMAC of the body>` using the secret shown once at setup. Private and reserved addresses are refused at connect time, and redirects are not followed. |
+
+The monitor saves the trigger before sending, so a crash or a concurrent edit never delivers twice. Delivery results appear in the Activity list. A failing channel is flagged on its card. Test messages are limited to eight per user every ten minutes. Preview sessions cannot add channels.
 
 The market map uses equal-sized tiles. The S&P 500 constituents are a bundled [DataHub snapshot](https://github.com/datasets/s-and-p-500-companies/tree/05c998c3e714b8dc9b621239bbdef92bccefc376) retrieved on 19 November 2026. SEC EDGAR provides annual US GAAP figures and the reported period for 13F holdings. ApeWisdom reports discussion activity.

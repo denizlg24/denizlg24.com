@@ -1,5 +1,7 @@
 "use client";
 
+import { tidyPrice } from "@/lib/alerts";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
@@ -59,6 +61,7 @@ import type {
   News,
   Quote,
   Workspace,
+  AlertRule,
 } from "@/lib/models";
 import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
 import { useLiveTick, useLiveTicks, type LiveTick } from "./live-quotes";
@@ -242,7 +245,7 @@ export function ChartPanel({
   clearSince?: () => void;
   drawings?: Drawing[];
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
-  alerts?: { symbol: string; target: number; direction: "above" | "below"; enabled: boolean }[];
+  alerts?: Pick<AlertRule, "symbol" | "metric" | "target" | "direction" | "enabled">[];
   createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
   templates?: ChartTemplate[];
   saveTemplates?: (next: ChartTemplate[]) => void;
@@ -603,13 +606,14 @@ export function ChartPanel({
             zoomable
             events={data.events}
             alertLevels={alerts.filter(
-              (alert) => alert.symbol === ticker && alert.enabled,
+              (alert) =>
+                alert.symbol === ticker && alert.enabled && alert.metric === "price",
             )}
             onAlert={
               createAlert
                 ? (price) => {
                     const last = snapshot?.price ?? data.points.at(-1)?.close ?? price;
-                    createAlert(ticker, Number(price.toPrecision(6)), price >= last ? "above" : "below");
+                    createAlert(ticker, tidyPrice(price), price >= last ? "above" : "below");
                     setTool("cursor");
                   }
                 : undefined

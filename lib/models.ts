@@ -174,6 +174,73 @@ export const brokerBookSchema = z.object({
 });
 export type BrokerBook = z.infer<typeof brokerBookSchema>;
 
+export const alertMetrics = ["price", "change", "move", "volume"] as const;
+export type AlertMetric = (typeof alertMetrics)[number];
+export const channelKinds = [
+  "email",
+  "whatsapp",
+  "telegram",
+  "discord",
+  "slack",
+  "ntfy",
+  "webhook",
+] as const;
+export type ChannelKind = (typeof channelKinds)[number];
+
+export const alertSchema = z
+  .object({
+    id,
+    symbol: symbolSchema,
+    metric: z.enum(alertMetrics).default("price"),
+    direction: z.enum(["above", "below"]),
+    target: z.number().finite().min(-1e12).max(1e12),
+    /** Price when the alert was set; the base for `move` alerts. */
+    reference: z.number().positive().nullable().default(null),
+    repeat: z.enum(["once", "rearm"]).default("once"),
+    /** False after a `rearm` alert fires, until the condition clears again. */
+    primed: z.boolean().default(true),
+    enabled: z.boolean(),
+    note: z.string().trim().max(280).default(""),
+    channels: z.array(z.string().uuid()).max(10).default([]),
+    expires: z.iso.date().nullable().default(null),
+    lastTriggered: z.iso.datetime().nullable(),
+    triggeredPrice: z.number().positive().nullable(),
+    triggerCount: z.number().int().min(0).default(0),
+  })
+  .refine(
+    (alert) =>
+      alert.metric === "change" || alert.metric === "move" || alert.target > 0,
+    { message: "Price and volume targets must be positive.", path: ["target"] },
+  )
+  .refine((alert) => alert.metric !== "move" || alert.reference !== null, {
+    message: "A move alert needs a reference price.",
+    path: ["reference"],
+  });
+export type AlertRule = z.infer<typeof alertSchema>;
+
+export const alertEventSchema = z.object({
+  id,
+  alertId: id,
+  symbol: symbolSchema,
+  time: z.iso.datetime(),
+  price: z.number().positive(),
+  currency: z.string().max(8).default(""),
+  message: z.string().max(400),
+  deliveries: z
+    .array(
+      z.object({
+        channel: z.string().uuid(),
+        kind: z.enum(channelKinds),
+        label: z.string().max(80),
+        ok: z.boolean(),
+        error: z.string().max(200).nullable().default(null),
+      }),
+    )
+    .max(10)
+    .default([]),
+});
+export type AlertEvent = z.infer<typeof alertEventSchema>;
+
 export const workspaceSchema = z.object({
   watchlists: z
     .array(
@@ -215,19 +282,8 @@ export const workspaceSchema = z.object({
       }),
     )
     .max(150),
-  alerts: z
-    .array(
-      z.object({
-        id,
-        symbol: symbolSchema,
-        direction: z.enum(["above", "below"]),
-        target: z.number().positive().max(1e12),
-        enabled: z.boolean(),
-        lastTriggered: z.iso.datetime().nullable(),
-        triggeredPrice: z.number().positive().nullable(),
-      }),
-    )
-    .max(60),
+  alerts: z.array(alertSchema).max(60),
+  alertLog: z.array(alertEventSchema).max(120).default([]),
   dashboard: dashboardSchema.optional(),
   desk: deskSchema.optional(),
   overlays: z

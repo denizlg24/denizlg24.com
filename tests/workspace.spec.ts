@@ -230,14 +230,35 @@ test("portfolio trades and notes can be recorded and assistant opens a prepared 
     .getByRole("textbox", { name: "Request" })
     .fill("Alert me when AAPL goes below $100");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const editor = page.getByRole("dialog");
+  await expect(editor.getByRole("spinbutton", { name: "Target" })).toHaveValue(
+    "100",
+  );
   await expect(
-    page.getByRole("spinbutton", { name: "Target price" }),
-  ).toHaveValue("100");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Save", exact: true })
-    .click();
+    editor.getByRole("button", { name: /At or below/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await editor.getByRole("button", { name: /Every crossing/ }).click();
+  await editor
+    .getByRole("textbox", { name: "Note" })
+    .fill("Add to the position here");
+  await editor.getByRole("button", { name: "Create alert" }).click();
   await expect(page.getByRole("cell", { name: "Armed" })).toBeVisible();
+  await expect(page.getByText("every crossing")).toBeVisible();
+  const saved = await (await page.request.get("/api/workspace")).json();
+  expect(saved.data.alerts[0]).toMatchObject({
+    symbol: "AAPL",
+    metric: "price",
+    direction: "below",
+    target: 100,
+    repeat: "rearm",
+    note: "Add to the position here",
+    primed: true,
+  });
+  const channels = await page.request.post("/api/alerts/channels", {
+    data: { kind: "ntfy", topic: "stockwatcher-test-topic" },
+    headers: { Origin: "http://127.0.0.1:3290" },
+  });
+  expect(channels.status()).toBe(403);
 });
 
 test("requests build an empty dashboard in place, keep follow-up edits, and produce a shareable link", async ({

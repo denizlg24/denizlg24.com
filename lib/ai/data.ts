@@ -1,4 +1,5 @@
 import "server-only";
+import { describeRule } from "../alerts";
 import { quotes, search, series } from "@/lib/market";
 import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
 import type { News, Quote, Workspace } from "@/lib/models";
@@ -298,7 +299,7 @@ export function workspaceDigest(workspace: Workspace) {
         .slice(0, 20)
         .map(
           (alert) =>
-            `${alert.symbol} ${alert.direction} ${alert.target}${alert.lastTriggered ? ` (triggered ${alert.lastTriggered} at ${alert.triggeredPrice})` : ""}`,
+            `${alert.symbol} ${describeRule(alert)}${alert.repeat === "rearm" ? " (repeating)" : ""}${alert.note ? ` — ${alert.note}` : ""}${alert.lastTriggered ? ` (last fired ${alert.lastTriggered} at ${alert.triggeredPrice})` : ""}`,
         )
         .join("; ")}`,
     );
