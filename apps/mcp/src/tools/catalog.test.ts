@@ -108,12 +108,12 @@ describe("surfaces", () => {
     expect(small.modelBytes / large.modelBytes).toBeLessThan(0.08);
   });
 
-  test("the profile is read from the header or the query, defaulting to full", () => {
+  test("the profile is read from the header or the query, defaulting to compact", () => {
     const at = (url: string, headers: Record<string, string> = {}) =>
       withRequestContext(new Request(url, { headers }), currentToolProfile);
-    expect(at("https://mcp.test/mcp")).toBe("full");
-    expect(at("https://mcp.test/mcp?profile=compact")).toBe("compact");
-    expect(at("https://mcp.test/mcp?profile=bogus")).toBe("full");
+    expect(at("https://mcp.test/mcp")).toBe("compact");
+    expect(at("https://mcp.test/mcp?profile=full")).toBe("full");
+    expect(at("https://mcp.test/mcp?profile=bogus")).toBe("compact");
     expect(
       at("https://mcp.test/mcp?profile=compact", {
         [MCP_TOOL_PROFILE_HEADER]: "full",

@@ -1249,9 +1249,10 @@ catalogue with every tool → route mapping is
   `instructions.test.ts` fails when it names a tool that does not exist.
 - **Two surfaces over one registry.** Every tool carries
   `_meta["com.denizlg24/surface"]`: `compact` (whoami, the catalog tools and
-  `DIRECT_TOOLS` in `src/tools/surface.ts`) or `catalog`. The default `full`
-  profile lists all ~270 tools (≈116k tokens of schemas); `x-mcp-tool-profile:
-  compact` or `?profile=compact` lists the 19 compact ones (≈5k tokens).
+  `DIRECT_TOOLS` in `src/tools/surface.ts`) or `catalog`. The default
+  `compact` profile lists the 19 compact ones (≈5k tokens) to every client,
+  Claude Code included; `x-mcp-tool-profile: full` or `?profile=full` lists
+  all ~270 (≈116k tokens of schemas).
   `bun run scripts/tool-surface.ts` prints both; `catalog.test.ts` bounds the
   compact one. Nothing was renamed — names in instructions, `disabledTools`
   and client permissions stay valid.
@@ -1273,7 +1274,13 @@ catalogue with every tool → route mapping is
 - **The compact profile only unlists.** `applyToolProfile` removes the
   catalog-surface registrations after `registerCatalog` has bound their
   handlers, so a call by an unlisted name fails while the catalog still
-  reaches it. Web never asks for it: it caches the full listing and filters.
+  reaches it. Web's primary connector always sends
+  `x-mcp-tool-profile: full` (`connectorTransport` in
+  `lib/connectors/service.ts`): it caches the whole listing for triage and the
+  connector settings, and filters to the compact surface per turn itself.
+  A client permission granted on a catalog tool's own name
+  (`mcp__denizlg24__web_notes`) no longer matches anything under compact; it
+  is `catalog_read` / `catalog_write` / `catalog_destructive` now.
 
 ## apps/desktop Architecture
 

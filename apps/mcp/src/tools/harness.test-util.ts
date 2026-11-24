@@ -1,3 +1,4 @@
+import { MCP_TOOL_PROFILE_HEADER } from "@repo/schemas";
 import {
   createLocalJWKSet,
   exportJWK,
@@ -142,6 +143,9 @@ export function createClient(
         accept: "application/json, text/event-stream",
         "mcp-protocol-version": "2025-06-18",
         authorization: `Bearer ${token}`,
+        // Domain tests call tools by name, as web does; the compact default
+        // has its own tests in catalog.test.ts.
+        [MCP_TOOL_PROFILE_HEADER]: "full",
         ...options.headers,
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),

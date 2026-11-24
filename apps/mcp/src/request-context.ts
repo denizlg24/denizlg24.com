@@ -15,13 +15,18 @@ interface RequestContext {
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
-/** The header wins over `?profile=`, which exists for clients that cannot set headers. */
+/**
+ * Compact unless the caller asks for the full list: every client, Claude Code
+ * included, pays for each listed schema, and the full list is ~116k tokens.
+ * The header wins over `?profile=`, which exists for clients that cannot set
+ * headers.
+ */
 function requestedProfile(request: Request): McpToolProfile {
   const claimed =
     request.headers.get(MCP_TOOL_PROFILE_HEADER) ??
     new URL(request.url).searchParams.get("profile");
   const parsed = mcpToolProfileSchema.safeParse(claimed);
-  return parsed.success ? parsed.data : "full";
+  return parsed.success ? parsed.data : "compact";
 }
 
 /** Runs one MCP request with what its HTTP headers say about the caller. */
@@ -43,5 +48,5 @@ export function currentAgentActor(): string | null {
 }
 
 export function currentToolProfile(): McpToolProfile {
-  return storage.getStore()?.toolProfile ?? "full";
+  return storage.getStore()?.toolProfile ?? "compact";
 }
